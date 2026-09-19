@@ -396,7 +396,14 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                             keys.add(Integer.parseInt(ordinal.strip()));
                         }
                     }
-                    RegisteredQuery query = required.register(fields.get(0), fields.get(1), keys, principal);
+                    // An optional fourth field names a sink (ADR-043). Optional so a client that
+                    // predates sinks sends three fields and is answered exactly as before.
+                    String sink = fields.size() > 3 && !fields.get(3).isBlank()
+                            ? fields.get(3).strip()
+                            : null;
+                    RegisteredQuery query = sink == null
+                            ? required.register(fields.get(0), fields.get(1), keys, principal)
+                            : required.registerWritingTo(fields.get(0), fields.get(1), keys, principal, sink);
                     listener.onNext(new Result(ControlWire.encode(
                             query.name(),
                             query.state().name(),

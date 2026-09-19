@@ -3963,6 +3963,11 @@ Condensed ADRs; each will be expanded in `docs/adr/` with full context and conse
 
 ## Appendix B — Immediate Next Steps
 
+> **Status, 2026-09-19.** Written before any code. Items 1 and 2 are decided
+> ([ADR-001](adr/001-language-and-platform.md), [ADR-013](adr/013-zsets-and-dbsp.md)) and item 8
+> was done in Wave 1. Items 3–5 are still open, and item 3 — the Aerospike edition — is still the
+> one with a procurement lead time. The list below is kept as written.
+
 **Decisions needed before Phase 0 starts** — each changes what gets built:
 
 1. **Language and platform** (§4) — Java, single language, **baseline Java 21 LTS** with 25 supported and CI-tested. Everything else depends on it. *Recommendation: approve as written. No JDK upgrade is needed to begin — 21 is already installed.*

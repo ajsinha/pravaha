@@ -100,10 +100,10 @@ class OrphanedClassTest {
      * <p>Wave 8 took three off it, one by each of the three available verdicts.
      * {@code FileDeadLetterQueue} is wired (W8-11: {@code pravaha run --dlq}). {@code L0StateMap} is
      * deleted (W8-12: fixed-width keys, and the state it was written for has variable-width ones).
-     * {@code ChangelogAnalysis} stays, and is the one entry here that is deliberate rather than
-     * owed (W8-13): it refuses a plan a sink cannot take, and nothing in the product binds a query to
-     * a sink, so it has no trigger to be wired to. {@code ErrcSqlTest} holds the tripwire that fires
-     * when one appears.
+     * {@code ChangelogAnalysis} stayed longest, as the one entry that was deliberate rather than
+     * owed: it refuses a plan a sink cannot take, and nothing bound a query to a sink. Something does
+     * now (ADR-043), the registry calls it before opening the sink, and it is off this list.
+     * {@code ErrcSqlTest} pins that ordering.
      *
      * <p>This list is a record, not a permission. Every entry needs a verdict -- wire, delete, or
      * move to a module documented as a reference implementation -- and the assertion below stops it
@@ -113,7 +113,6 @@ class OrphanedClassTest {
             "SplicedReader",
             "ShadowDeployment",
             "Rebalancer",
-            "ChangelogAnalysis",
             "FileCheckpointStore",
             "Lift",
             "Frontier",

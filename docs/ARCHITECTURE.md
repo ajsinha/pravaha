@@ -152,8 +152,9 @@ Short answers, because [`EXECUTION_MODEL.md`](EXECUTION_MODEL.md) owns the long 
   [ADR-027](adr/027-lane-multiplexes-queries.md). A thousand queries on 24 cores add **24** platform
   threads and **61 MiB** off-heap at the advised sizing.
 - **Inbox depth is `cells × cell-bytes`** — 2048 × 512 = 1,024 KiB by default.
-- **All RAM, nothing spills.** A full inbox backpressures; state that outgrows its ceiling is refused
-  with `PRV-4001`, not degraded.
+- **RAM, unless a spill tier is configured.** A full inbox backpressures; state that outgrows its
+  ceiling is refused with `PRV-4001` — or, with `pravaha.state.spill.*` set, join and
+  windowed-aggregate state spills to memory-mapped files and the query slows instead (ADR-037 B2).
 
 ## Threads: what is an OS thread here, and what is not
 
@@ -210,7 +211,7 @@ is sized by cores — roughly 30 of them on this class of box, whatever the quer
 |---|---|---|---|
 | Generated stage + its classloader | ~40 KB | ~400 MB | Metaspace, off-heap |
 | Plan IR, schema, catalog entry, subscription record | 50–100 KB | 0.5–1 GB | Heap |
-| Operator state (windows, aggregates) | **budget ≤ 4 MB** | ≤ 40 GB | *Designed* as off-heap L0 then RocksDB. **As built: row payloads are off-heap in arenas; the indexes and accumulators are on-heap `HashMap`.** There is no L0 and no RocksDB in the build — `L0StateMap` was deleted in Wave 8 (W8-12) because its fixed-width keys could not hold a group key containing a string. GC pressure therefore scales with key count |
+| Operator state (windows, aggregates) | **budget ≤ 4 MB** | ≤ 40 GB | *Designed* as off-heap L0 then RocksDB. **As built: off-heap, except `COUNT(DISTINCT)`.** Row payloads live in `RowStore` blocks, and a join's per-side index and a windowed aggregate's accumulators are `VariableKeyStateMap`s — off-heap tables of fingerprints and handles, keys of any width, which replaced the deleted fixed-width `L0StateMap` (W8-12). An aggregate containing `COUNT(DISTINCT)` keeps an on-heap `HashMap` of values per group. There is no RocksDB; the optional overflow tier is memory-mapped files (ADR-037 B2) |
 
 > **Aggregates are single-lane.** The lane model parallelises joins: `pumpPartitionedInto` routes
 > each row to the lane owning its join key. There is no equivalent for a grouping key, so a keyed
@@ -219,7 +220,7 @@ is sized by cores — roughly 30 of them on this class of box, whatever the quer
 > That combination is refused (`PRV-3020`) rather than left to be discovered in the numbers. Run a
 > keyed aggregate on one lane until key-partitioned ingestion exists.
 
-| Inbox, arena, timer wheel, thread | **0** *designed* | ~150 MB total | Per lane, ~30 of them. **As built: the thread is shared and the inbox and arena are not.** `LaneRunner` gives the node one thread per core whatever the query count (W9-5), but a lane still runs one query, so its inbox is per query — 1,024 KiB by default, and the arena's first slab is allocated on the first row rather than at registration (W9-6). Measured: **1,024 KiB per idle query, 1,328 KiB active**, down from ~5 MiB — and the lane's arena is **zero** for both a projection and a windowed aggregate, because operator output goes to the view rather than through the lane's scratch. The inbox is the whole of the idle cost; sized down (`inbox.cells: 256`, `cell-bytes: 256`) a thousand idle queries is about 64 MB |
+| Inbox, arena, timer wheel, thread | **0** *designed* | ~150 MB total | Per lane, ~30 of them. **As built on a node: the thread is shared and the inbox and arena are not.** `LaneRunner` gives the node one thread per core whatever the query count (W9-5), but a node's lane still runs one query — the registry can share one lane between many only when an embedder asks it to (W9-8) — so its inbox is per query — 1,024 KiB by default, and the arena's first slab is allocated on the first row rather than at registration (W9-6). Measured: **1,024 KiB per idle query, 1,328 KiB active**, down from ~5 MiB — and the lane's arena is **zero** for both a projection and a windowed aggregate, because operator output goes to the view rather than through the lane's scratch. The inbox is the whole of the idle cost; sized down (`inbox.cells: 256`, `cell-bytes: 256`) a thousand idle queries is about 64 MB |
 | Aerospike connections | **0** | one pool | Node-wide, shared |
 
 The 64 GB heap is therefore *not* where the money goes, and that is deliberate: the heap holds
@@ -272,22 +273,20 @@ fixed pool of one thread per core and `QueryRegistry` owns one runner, so a node
 follows its cores — `NodeScaleTest` measures 200 queries adding 24 platform threads where the same
 workload cost 400 before. `SharedClock` did the same for the watermark and checkpoint schedulers.
 
-**Not built (W9-8):** a lane still runs exactly one processor. `LaneMultiplexer` — 250 lines, tested,
-referenced from nothing in `src/main` — is the piece that would put many pipelines on one lane and so
-share the *inbox and arena* as well as the thread.
+**Built in the registry, not reachable from a node (W9-8):** `LaneMultiplexer` puts many pipelines on
+one lane and so shares the *inbox and arena* as well as the thread. `QueryRegistry` hosts queries on
+lanes it owns (`QueryExecution.startOn`) when `multiplexingLanes(true)` is called, so one query
+closing no longer stops a lane serving the rest — and no `pravaha.*` setting calls it, so a node
+still runs a lane per query.
 
-It was blocked until recently, on a row header carrying `schema().version()` where the multiplexer
-needs a stream identity: every row of every stream had the same id, so wiring it would have delivered
-one stream's rows to queries subscribed to another. A row now carries a `streamId` the registry
-assigns, and the multiplexer refuses an unassigned one rather than guessing (W9-9).
-
-What remains is size rather than correctness, and the **aligned checkpoint barrier** is the reason
-(W9-10). A lane clamps each batch at the nearest control marker so a checkpoint sees the stream
-exactly where it was submitted — correct, and what makes a checkpoint mean anything — but the clamp
-costs a short batch. Three hundred queries on one lane, each advancing a watermark every second,
-would cut the lane's batches short several hundred times a second and spend its budget on barriers
-rather than rows. Lane ownership also has to move from the execution to the registry, or one query
-closing would stop a lane serving the other two hundred and ninety-nine.
+Two things had to be true first, and both are. A row carries a `streamId` the registry assigns, and
+the multiplexer refuses an unassigned one rather than guessing (W9-9) — before that every row of
+every stream had the same id, and wiring it would have delivered one stream's rows to queries
+subscribed to another. And the **aligned checkpoint barrier** no longer costs a short batch per
+watermark (W9-10): a lane clamps each batch at a *checkpoint*, which must see the stream exactly
+where it was submitted, but a *watermark* is a level that keeps its place in the queue without
+clamping, because applying one further along the stream is never wrong, only less prompt. Three
+hundred queries advancing a watermark every second no longer cut one lane's batches short.
 
 So the per-query costs that remain are the inbox and the arena, and both are now settings
 (`pravaha.lane.*`) rather than build-time constants.
@@ -596,15 +595,16 @@ parameter schema when a statement is prepared, so neither SDK guesses.
 | [`plugins/pravaha-plugin-delta`](../plugins/pravaha-plugin-delta) | Delta Lake source, on Delta Kernel rather than Spark. Version diffs become Z-set weights. |
 | [`plugins/pravaha-plugin-feedfile`](../plugins/pravaha-plugin-feedfile) | Drop-directory feeds. CSV and Parquet, completion detection, per-file replayable offsets. |
 | [`plugins/pravaha-plugin-jdbc`](../plugins/pravaha-plugin-jdbc) | Incremental-poll source and dimension table for any JDBC database. Keyset pagination, filter pushdown into `WHERE`, driver supplied by the deployment. |
-| [`plugins/pravaha-plugin-aerospike`](../plugins/pravaha-plugin-aerospike) | The primary target. Scan-based source with server-side filter pushdown, idempotent sink, and a lookup table. Tested against a real Aerospike server, not a mock. |
+| [`plugins/pravaha-plugin-aerospike`](../plugins/pravaha-plugin-aerospike) | The primary target. Scan-based source with server-side filter pushdown, an idempotent upsert sink (not yet declared to `ServiceLoader`, so `pravaha.sinks` cannot name it), and a lookup table. Tested against a real Aerospike server, not a mock. |
 | [`plugins/pravaha-plugin-cassandra`](../plugins/pravaha-plugin-cassandra) | A full periodic scan of a table's assigned `token()` range (ADR-039 item 6). No pushdown, no client-pullable change log to follow -- Cassandra's CDC is a per-node agent problem, a different project ([`CONNECTORS.md`](CONNECTORS.md) section 5). Tested against a real Cassandra server, not a mock. |
 | `pravaha-cluster` | Membership, leadership and assignment behind an SPI, so a deployment uses the mechanism it already runs. Each implementation **declares what it guarantees**, and the engine refuses the work a coordinator cannot safely do. |
 | [`plugins/pravaha-cluster-zookeeper`](../plugins/pravaha-cluster-zookeeper) | A ZooKeeper-backed coordinator. Its own artefact, so a deployment using sockets or a single node carries no ZooKeeper client. |
 | [`sdk/python`](../sdk/python) | Python client. The console is built on it. |
 | [`console`](../console) | The operator console: a separate Python process, its own artefact (ADR-033). `core/` holds configuration, the engine adapter and the services; `routes/` defines the pages and `/api/v1`; `web/` holds the Jinja templates and the vendored assets; `content/` holds help topics that **include** this documentation rather than copying it. |
-| `pravaha-state` | Durable and off-heap state: the block store joins hold rows in, and checkpoints. The L0 off-heap map that was meant to be the first tier is **gone** — deleted in Wave 8 (W8-12), because its keys are a fixed width and a `GROUP BY` key containing a string is not. |
+| `pravaha-state` | Durable and off-heap state: the block store joins and aggregates hold state in, its memory-mapped overflow tier (`spill`), and checkpoints. The L0 off-heap map that was meant to be the first tier is **gone** — deleted in Wave 8 (W8-12), because its keys are a fixed width and a `GROUP BY` key containing a string is not. |
 | `pravaha-backfill` | Loading history without losing the present: the snapshot-to-changefeed splice, its throttle, and blue/green cutover. |
 | `pravaha-serving` | Reading a query's answer directly, with consistency declared per read and staleness returned with it. Also SQL over a maintained view, planned and executed by the same engine a continuous query uses. |
+| `pravaha-pgwire` | The PostgreSQL wire protocol, read half: simple and extended query protocol, `psql`'s catalogue queries, TLS on `SSLRequest`. Off by default (`pravaha.pgwire.enabled`); answered by the same `ViewQuery` and authorization as Flight. |
 | `pravaha-flight` | The client gateway: Arrow Flight SQL, serving request/response over the same views (ADR-030). One protocol, and its JDBC, Python and Go clients are maintained upstream. |
 | `pravaha-security` | Who is asking, what they may read, and a record of both (ADR-031). Three SPIs and no implementation of an identity provider: deployments already have one. |
 | `pravaha-registry` | Where SQL becomes a computation with a name, a state and an end (ADR-025). Sharing is by fingerprint, so the same question asked twice is one computation with two names. |

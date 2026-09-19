@@ -216,12 +216,14 @@ pravaha:
   #       # The values in that column that mean "retract". Default: D,DELETE,-,-1
   #       op.delete.values: "D,DELETE,-,-1"
 
-  # W8-13 (ADR-039 item 5). Names a StreamSinkPlugin the way `sources` above names a
-  # StreamSourcePlugin -- same ServiceLoader-by-name() resolution, same plugin/options shape. Binding
-  # a sink here makes it discoverable, configurable and openable; it does not yet attach one to a
-  # query, because nothing resolves a registered query's output against a sink name (that is a
-  # QueryRegistry change, tracked separately). A `filesystem` sink is append-only, non-transactional
-  # and not idempotent -- see SinkCapabilities -- and says so rather than claiming more.
+  # W8-13 (ADR-039 item 5, ADR-043). Names a StreamSinkPlugin the way `sources` above names a
+  # StreamSourcePlugin -- same ServiceLoader-by-name() resolution, same plugin/options shape. A
+  # binding here does nothing until a registration names it (`pravaha register --sink audit_trail`,
+  # or an SDK's register(..., sink)); from then on every commit of that query's view is written to
+  # it as well, at least once. A query whose changelog the sink cannot take is refused at
+  # registration with PRV-2041. A `filesystem` sink is append-only, non-transactional and not
+  # idempotent -- see SinkCapabilities -- so it takes filters, projections and windows without
+  # lateness, and nothing that retracts.
   #
   # sinks:
   #   audit_trail:
@@ -283,8 +285,8 @@ pravaha:
   # -- that megabyte becomes 64 KiB. One rule when sizing down: a cell must fit the widest row the
   # query will see, because a row that does not fit is refused at ingest rather than buffered.
   #
-  # The inbox is per query only because each query has a lane of its own. LaneMultiplexer would make
-  # many queries share one; W9-8 and W9-10 record what that still needs.
+  # The inbox is per query only because each query has a lane of its own. The registry can host many
+  # queries on one lane (LaneMultiplexer), but no setting here turns that on yet (W9-8).
   #
   # Documented for operators in docs/OPERATIONS.md, "Sizing a node for many queries".
   lane:

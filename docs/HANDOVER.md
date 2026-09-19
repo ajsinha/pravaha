@@ -14,23 +14,26 @@ otherwise have to rediscover the hard way.
 
 | | |
 |---|---|
-| `main` | `8478ef8` — **fast-forwarded to `develop`**. The two branches are the same commit on origin; the drill after every piece of work is `git push origin develop && git push origin develop:main`, so `main` no longer lags by a wave the way it did through waves 8 and 9 |
-| `develop` | `8478ef8`, **pushed to origin, 0 ahead of `main`**. Waves 8 and 9 are here; neither is tagged |
-| Modules | **30** Maven modules, plus `sdk/python` and `console`, which are not Maven |
-| Java tests | **2,214** across the 27 of 31 modules that have tests, 4 skipped, all green — `./mvnw -o -DskipITs -Dbenchmarks.skip=true verify` over the whole reactor on 2026-09-15; `pravaha-it` alone is 756. **Say which command a count came from**: `-Pit` adds the Docker integration tests against real Aerospike and PostgreSQL, and a bare number from one profile quoted against another is how this row reached 1101 and stayed there. Count the **per-module summary lines only** — summing those and the per-class `-- in Class` lines together is how a report came to quote 4,408 for a run of 2,207 (DOCR-22). A bare `test` phase is not the same run: three `ErrcClientTest` cases need a packaged CLI jar and error without one |
-| Python tests | **67** in `sdk/python` (collected 2026-09-14), including the client driving a real Java Flight SQL server, plus **34** for the console |
+| `main` | `20ea131` on origin. **Normally behind `develop`, on purpose**: work happens on `develop`, and `main` is merged from it only when the owner asks ("drill to main"). The earlier habit of fast-forwarding `main` after every change is retired |
+| `develop` | Pushed after every verified change ("drill to develop"). Waves 8 and 9 are here; neither is tagged |
+| Modules | **32** Maven modules (33 reactor projects with the root), plus `sdk/python` and `console`, which are not Maven |
+| Java tests | **2,755** tests, 0 failures, 61 skipped, across 33 reactor projects — `tools/verify-clean.sh` over the whole reactor on 2026-09-19, offline, the skips being the Docker, Cassandra, Aerospike and `psql` tests this machine cannot run. **Say which command a count came from**: `-Pit` adds the Docker integration tests against real Aerospike and PostgreSQL, and a bare number from one profile quoted against another is how this row reached 1101 and stayed there. Count the **per-module summary lines only** — summing those and the per-class `-- in Class` lines together is how a report came to quote 4,408 for a run of 2,207 (DOCR-22) |
+| Python tests | **103** collected in `sdk/python` (2026-09-19, one skipped without the `tls-keystore` extra), including the client driving a real Java Flight SQL server, plus **39** for the console |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **43** |
 
-**Session of 2026-09-16 — where it stopped.** `SX-1` is **fixed**, leaving **one GA-BLOCKER**
-(`SX-5`, the existence oracle's code and latency channels). The register stands at 295 findings —
-175 FIXED, 105 OPEN, 8 BY DESIGN, 7 SUPERSEDED; of the 105 open, 1 GA-BLOCKER, 2 GA-REQUIRED, 95
-POST-GA, 7 NOTE. `docs/SQL_SUPPORT.md` no longer exists: it was merged into
-[`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md), which is now the single document for what you
-write and whether it will run. [`ADR-040`](adr/040-the-remote-connector.md) designs the remote
-connector and no code for it is started. **[`../RESUME.txt`](../RESUME.txt) holds the
-pick-up-here instructions**, including two agent briefs (`E-1`, `X-11`) that were in flight when the
-machine was rebooted and need relaunching.
+**Where it stands, 2026-09-19.** **One GA-BLOCKER is open, and it is a reopened one: `S-3`.** Its fix
+was a refusal of `PARTITIONED`, and ADR-039 item 8's first slice removed that refusal while nothing
+in a running node yet consumes partition ownership, so the mode again reports itself partitioned and
+partitions nothing. Restore the refusal or build the consumer. No GA-REQUIRED finding is open:
+`SX-5` closed by measurement on 2026-09-16 (denied and absent reads now cost the same, 0.033 against
+0.036 ms), and `E-1`'s last code, `PRV-8007`, has a throw site. The register's header carries the current counts and
+`FindingsRegisterTest` holds it to them. What is left is ADR-039's road — its progress note says
+item by item what is closed and what remains — and then cluster mode, whose third slice (a runtime
+consumer of partition ownership) is not built. `docs/SQL_SUPPORT.md` no longer exists: it was merged
+into [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md). [`ADR-040`](adr/040-the-remote-connector.md)
+designs the remote connector and no code for it is started. `RESUME.txt` at the root is the
+pick-up-here note for whoever starts the next session.
 
 **Read the code before believing a finding is open.** `SX-1`'s status line described two mechanisms
 that had both already been fixed; what was actually missing was a test pinning the *order* of the
@@ -45,9 +48,9 @@ below. The control-plane and GA waves keep their content and move down one, so t
 eleven waves rather than ten. Gates P2, P3 and P6 are unpassed for want of
 reference hardware rather than code. This header said "Wave 6 has started" for two waves after it
 had finished, which is what a session note becomes when it is not dated out of the way; the
-wave-by-wave detail below is the part to trust. **No gate pack exists for waves 5, 6, 8 or 9** —
-`docs/gates/` holds wave-1 through wave-4 and wave-7 — so the evidence for those four waves is this
-document and the tests, and nothing else. ADR-035 promises Wave 8 a gate pack; it is not written.
+wave-by-wave detail below is the part to trust. `docs/gates/` holds a pack for every wave from 1 to
+9; the packs for waves 5, 6, 8 and 9 were written retrospectively on 2026-09-15 from the evidence in
+the repository.
 
 **Session of 2026-09-09/10 — what changed at the time.**
 
@@ -251,7 +254,7 @@ It blocks Gate P3's Profile B figure too, so it is overdue rather than upcoming.
 | Late data: correct by retraction, or the late output | `WindowedAggregate` |
 | Dead-letter queue | `FileDeadLetterQueue` — reachable since Wave 8 as `pravaha run --dlq` (W8-11) |
 | Dead-letter rate monitor | `DeadLetterRate` — still reachable from nothing; there is no `DEGRADED` query state for it to set |
-| Changelog analysis, emit-mode negotiation | `ChangelogAnalysis` — reachable from nothing, and nothing can reach it until a query can be bound to a sink (W8-13) |
+| Changelog analysis, emit-mode negotiation | `ChangelogAnalysis` — called by `QueryRegistry` whenever a registration names a sink, before the sink or the feed is opened (ADR-043, W8-13) |
 | L0 off-heap state map | deleted in Wave 8 (W8-12) |
 
 Gate P3 evidence is in [`gates/wave-4`](gates/wave-4/). **All eight correctness invariants are now
@@ -285,7 +288,7 @@ unmeasured on this hardware.
 | Pushdown equivalence, as a property | ✅ `PushdownEquivalenceTest` — a source honouring every pushed filter must return exactly what one honouring none returns |
 | Lookup join (enrichment) | ✅ `JOIN dim FOR SYSTEM_TIME AS OF t.ts`, `LookupJoinOperator`, `LookupJoin`, with `JdbcLookupPlugin` so it works against any database with a driver. Lookups overlap on virtual threads, in-flight bounded by what the source declares, output kept in arrival order |
 | Idempotent sink | ✅ `DeduplicatingSink` — remembers the highest sequence written, stores it in the checkpoint, drops replays at or below it. Turns an at-least-once sink into effectively-once without asking the sink for anything. **Not yet wired into `QueryExecution`'s checkpoint** |
-| Projection / partial-aggregate pushdown | ❌ |
+| Projection / partial-aggregate pushdown | ⚠️ built and equivalence-tested in the planner (`SourcePushdown`) and the engine (`InterpretedPipeline.acceptPartialAggregate`), `COUNT`/`SUM` only; **no shipped plugin declares either, and no ingest path delivers a partial**, so only filters are pushed in a deployment (ADR-039 item 6) |
 
 `abort()` versus `close()` is worth knowing before writing any recovery test: `close()` is a
 shutdown and emits everything held, `abort()` is what a crash does and emits nothing. A recovery
@@ -369,9 +372,10 @@ for real, rather than reporting as skips.
 ### Deferred, on purpose
 
 `P1-11` Kafka plugin — still deferred, still for the same reason (ADR-028: breadth is not proof).
-Aerospike, Cassandra and Redis remain Wave 5 and the GA wave (now Wave 11) as planned.
+Aerospike and Cassandra are built (Cassandra as a periodic `token()`-range scan); Redis remains for
+the GA wave.
 
-### Wave 8 — survival on one node; Gate P7 has no pack
+### Wave 8 — survival on one node; Gate P7 passed
 
 Rescoped by [ADR-035](adr/035-wave-8-is-survival-not-distribution.md): E7's cluster is still
 deferred with [ADR-034](adr/034-distribution-deferred.md), and this wave was about one node
@@ -382,21 +386,22 @@ surviving its own restart, its own operator's mistakes, and its own half-finishe
 | A node owns the state it writes | ✅ `StateOwnership` (`pravaha-common`). `PravahaNode.claimState` claims the checkpoint root and the registry journal's directory, writing a `.pravaha-owner` marker naming node id, host, Flight port and pid, refreshed on a 30s lease by a daemon thread. `PRV-4003` refuses another node or a second live instance of this one; `PRV-4004` refuses an unreadable marker rather than assuming the directory free. `pravaha.state.allow-shared` is the named override. An *expired* claim under the same node id is reclaimed automatically — that is what a crash restart looks like (W8-1, closing CFG-13 and CFG-14) |
 | Aligned checkpoint barriers | ✅ for every input, ❌ for the exchange. `freezeIngest` holds every source between rows while every lane is handed a marker, so the recorded offsets and the stored state name the same rows; a lane cuts its batch *at* the marker rather than a batch beyond it; and `partitionedPumps` — the only way to feed a multi-lane query — is in the offsets map at last, so a multi-lane checkpoint can be rewound to at all. `AlignedCheckpointBarrierTest`, `ControlTaskBarrierTest`, all four seed-proven (W8-2, W8-3, W8-4, W8-5) |
 | Standby and checkpoint failover | ✅ `StandbyWatch` (`pravaha-server`), `pravaha.standby.enabled`, configured with the **same** `pravaha.node.id` as the primary on purpose — `StateOwnership` already tells "our id, claim expired" from "our id, claim live", so there is one mechanism deciding ownership rather than two that can disagree. Refused at startup without `pravaha.checkpoint.directory`. A standby watching another node's directory never promotes and says so. The promotion line names what the takeover lost: **recovery time, not continuity** (W8-6) |
-| Dead-letter queue, wired | ✅ `pravaha run --dlq <file>`. A server still has no `pravaha.dlq.*` key (W8-11) |
+| Dead-letter queue, wired | ✅ `pravaha run --dlq <file>`, and on a server `pravaha.dlq.directory`, one file per query (W8-11) |
 | `L0StateMap` | 🗑️ **deleted**. Its keys are a fixed width chosen at construction; the state it was written for is the windowed aggregate's, whose group key can contain a `STRING`. It had never been referenced from any `src/main` (W8-12) |
-| `ChangelogAnalysis` | ⚠️ **kept, unwired, on purpose.** Nothing binds a query to a sink — no `INSERT INTO`, no `pravaha.sinks`, no `StreamSinkPlugin` service declaration — and every continuous query writes to a `ViewSink`, which applies a retraction correctly, so there is nothing to refuse. `ErrcSqlTest#noProductionPathBindsAQueryToASinkThatCouldReceiveARetraction` asserts that precondition and fails the moment a sink binding appears (W8-13) |
+| `ChangelogAnalysis` | ✅ **wired, after Wave 8.** Kept unwired through Wave 8 on purpose, because nothing could bind a query to a sink. `pravaha.sinks` and a registration that names a sink (ADR-043) changed that: the registry calls it before opening the sink or the feed, and every commit then reaches the sink through `SinkDelivery`. `ErrcSqlTest#aQueryIsNeverAttachedToASinkWithoutCheckingItsChangelogFirst` pins that order (W8-13) |
 | The findings register could not see a Wave 8 finding | ✅ fixed — `FindingsRegisterTest` did not recognise the `W8-` prefix, and a duplicate identifier went unnoticed (W8-7) |
 
 **What Wave 8 did not do.** Membership, assignment, rebalance, elastic rescale, multi-tenancy,
 Ratis, any multi-node execution: all still E7's and still deferred. The exchange is still not cut by
-a barrier. `DeduplicatingSink` is still not wired, so output is still effectively-once. The windowed
-aggregate still keys state by a 64-bit digest (W8-14, open, and no test can prove a fix).
+a barrier. `DeduplicatingSink` is still not wired. The windowed aggregate still keys state by a digest — 128 bits
+now, the 64-bit fold is gone (W8-14, narrowed and open).
 
 **Gate pack:** [`gates/wave-8`](gates/wave-8/). Written retrospectively on 2026-09-15. **Gate P7
-passes on mechanism and not on demonstration** — both criteria are built and unit-tested, and
-neither has been exercised against a real killed process.
+passed**: the restart criterion was demonstrated against a real `SIGKILL`ed process, and
+demonstrating it found a defect that made it false until fixed (W8-15). The standby criterion
+remains unit-level.
 
-### Wave 9 — one node, thousands of continuous queries; no gate pack
+### Wave 9 — one node, thousands of continuous queries
 
 Inserted by [ADR-036](adr/036-one-node-thousands-of-queries.md) ahead of the control-plane wave,
 because building a time-travel debugger on an unmeasured foundation puts a floor above a hole. The
@@ -416,10 +421,10 @@ takes its numbers from Aerospike's own counters rather than the plugin's.
 | File descriptors | ✅ `FileDescriptors` (`pravaha-common`) reads `/proc/self/fd` and `/proc/self/limits`; the node logs its ceiling at startup and `PluginSourceFeeds` appends an actionable sentence to a source-open failure raised near it. Verified under a real `ulimit -n 300` (SRC-4) |
 | State you can watch | ✅ `pravaha.query.state.held` / `.ceiling` / `.fraction`, reported by the operators that hold the state. ADR-037 B1: the instrument before the mechanism, because an operator who cannot see state growing cannot act on it whether or not the engine spills |
 | A row says which stream it came from | ✅ `StreamSchema` carries a `streamId` distinct from its evolution `version`, `QueryRegistry` assigns them sequentially as streams join its catalogue, `BinaryRowWriter` writes that rather than the version, and `LaneMultiplexer.register` **refuses** an unassigned id instead of mis-dispatching. Zero is reserved for "nobody assigned one", because every anonymous schema carries zero and accepting it would group one pipeline with every other anonymous stream. `StreamIdentityTest`, seed-proven by restoring `version()` (W9-9) |
-| `LaneMultiplexer` | ⚠️ **built, tested, wired to nothing — unblocked but wave-sized.** It is the answer to the per-query inbox and arena. W9-9 removed what made wiring it *wrong*; W9-10 records what makes it *large*, and the aligned checkpoint barrier is the substance of it: a lane clamps each batch at the nearest control marker, and three hundred queries each advancing a watermark every second would cut the lane's batches short several hundred times a second. Lane ownership also has to move from `QueryExecution` to the registry, or one query closing stops a lane serving the rest (W9-8, W9-10) |
+| `LaneMultiplexer` | ⚠️ **wired into the registry, not reachable from a node.** `QueryRegistry.multiplexingLanes(true)` hosts queries on shared lanes the registry owns (`QueryExecution.startOn`), so one query closing no longer stops a lane serving the rest. The cost that made it large is gone: a watermark is now a *level*, which keeps queue order and does not clamp the batch, and only a checkpoint is a *cut* (W9-10, fixed). What is missing is a node setting — `PravahaNode` never calls `multiplexingLanes`, so a server runs a lane per query — and admission control deciding which lane a registration lands on (W9-8) |
 | One Aerospike **client** for many queries | ✅ SRC-2. `AerospikeClients` shares one client per cluster per credential, reference counted, released not closed. One `tend` thread and one connection pool however many queries register — the last per-query platform thread on the node, gone. The credential is in the key: sharing on hosts alone would run one query's reads under another's authorisation. `AerospikeClientSharingTest`, seed-proven by dropping the credential from the key |
 | One Aerospike **reader** for many queries | ✅ SRC-3. One reader per (source binding, stream, partition), fanning each decoded record into every subscribed lane; the seam is the *binding*, not the fingerprint. A query joining a reader that has already read is attached first and then given a private catch-up read for the history it missed, which is why this is offered only to sources declaring at-least-once and no ordering — the handover duplicates its overlap, and Aerospike's scan already promises at-least-once. Measured against a real cluster: 1.0 scans/s for four queries over one set, where it was 1.0 each. `SharedSourceReaderTest`, seed-proven by defaulting `share.reader` to false (615 scans per 400 ms for two queries against 350) |
-| ADR-037 B2, spill to disk | ❌ scoped, not started, and deliberately: the owner's queries hold a few thousand keys each, about 450 KiB of heap, so a thousand of them fit. B2 is insurance against a misjudged cardinality, not capacity work |
+| ADR-037 B2, spill to disk | ✅ built after the wave, off by default: `pravaha.state.spill.{enabled,directory,max-overflow-slabs}` gives join and windowed-aggregate state a memory-mapped overflow tier (`pravaha-state`'s `spill` package, no native dependency). An aggregate containing `COUNT(DISTINCT)` keeps on-heap state and is refused by name with the tier on (`PRV-3023`). Insurance against a misjudged cardinality, not capacity work: the owner's queries hold a few thousand keys each |
 
 **What Wave 9 did not do.** Any throughput claim. The PERF section that would measure one is 52 of 60
 cases unexecuted for want of homogeneous hardware, and this machine's heterogeneous cores cannot
@@ -431,13 +436,13 @@ still costs about 13 ms of CPU per second while completely idle, so a hundred of
 **Is Wave 9 complete?** Its *target* is met and measured rather than argued: a thousand distinct
 continuous queries register on one node in 3.7 ms each, add 24 platform threads on 24 cores, and hold
 61 MiB off-heap when the inbox is sized as this document already advises (W9-11). Nine of its eleven
-items are FIXED. **Two are open by decision, not by omission:** W9-8 and W9-10 are both "wire the
-`LaneMultiplexer`", and W9-11 is what demoted them — with the target met at default sizing plus one
-config change, the multiplexer is an optimisation on a number already reached, and the aligned
-checkpoint barrier it collides with is a wave's worth of design to get right. Reopen it when a
-measurement demands it, not on the strength of the plan that predates the measurement.
+items were FIXED within the wave, and the other two — W9-8 and W9-10, both "wire the
+`LaneMultiplexer`" — were deferred by decision, because with the target met the multiplexer was an
+optimisation on a number already reached. ADR-039 then put them back on the road to GA: W9-10 (the
+barrier cost) is fixed and the registry uses the multiplexer, and W9-8 stays open for a node setting
+and admission control.
 
-So: **the wave's goal is closed; two of its tasks are deliberately deferred.** That is not the same
+So: **the wave's goal is closed; one of its tasks is still open.** That is not the same
 as "done", and the register says so rather than rounding it up.
 
 **Gate pack:** [`gates/wave-9`](gates/wave-9/). Waves 5, 6, 8 and 9 all have packs now, written
@@ -519,9 +524,10 @@ This paragraph said the opposite for a release after it stopped being true — "
 against a running server never sees a row" was accurate of the registry before it was joined to
 `QueryExecution.pumpInto`, and nothing made the sentence expire (DOCX-053).
 
-**There is no RocksDB.** Not a dependency, not a line of code. State is L0 — an off-heap
-open-addressed hash arena — plus checkpoints written as files. The RocksDB L1 spill tier is design
-decision D5 and is unbuilt. §G7 explains why it is a *tier* and not the whole stack: JNI costs 1–3 µs
+**There is no RocksDB.** Not a dependency, not a line of code. State is off-heap — open-addressed
+tables indexing `RowStore` blocks — plus checkpoints written as files, and, when
+`pravaha.state.spill.*` is set, a memory-mapped overflow tier for join and windowed-aggregate state
+(ADR-037 B2). The RocksDB L1 tier is design decision D5 and is unbuilt. §G7 explains why it is a *tier* and not the whole stack: JNI costs 1–3 µs
 per operation, which is 10–30 % of a 10 µs/event budget.
 
 **The primary defence against unbounded state is refusal, not cleanup.** An unwindowed keyed
@@ -537,9 +543,9 @@ by construction; outer joins between streams are refused for the same reason.
 | ~~Stream-to-stream join state~~ | **Fixed.** A join has a match window — an hour of event time by default — and releases rows older than `watermark − matchWithin`. Correct by definition rather than by luck: such a row cannot be part of any match the join promises, because a watermark says nothing earlier is coming. The row ceiling stays as a backstop and still fails loudly, because evicting *to fit* would lose matches the query did ask for |
 | ~~Views from a pass-through query~~ | **Fixed.** `Retention` evicts by event-time age and row count, and a default applies (a day, or a million rows) unless a registration chooses otherwise. A view is bounded only if its key space is bounded, and nothing can tell in advance whether it is, so `forever()` has to be asked for by name |
 
-None of these is a surprise waiting in the dark; each fails loudly at a ceiling. But "fails loudly at a
-ceiling" is not the same as "managed", and a disk quota, a spill policy and an automatic checkpoint
-retention policy all arrive with L1.
+None of these is a surprise waiting in the dark; each fails loudly at a ceiling, or with the spill
+tier configured, slows down past it. A disk quota for that tier is its `max-overflow-slabs`; anything
+richer — eviction to a key-value store, compaction — arrives with L1.
 
 ### Running the Python tests from Maven
 

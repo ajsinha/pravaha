@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted; **not built** — `SplicedReader` and `ChangelogAnalysis` are reachable from no `src/main`. `ChangelogAnalysis` was reviewed in Wave 8 and is kept unwired *on purpose*: nothing binds a query to a sink, so there is no capability mismatch for it to refuse ([ADR-035](035-wave-8-is-survival-not-distribution.md), W8-13) |
+| Status | Accepted; **not built** — `SplicedReader` is reachable from no `src/main`. `ChangelogAnalysis`, kept unwired through Wave 8 because nothing could bind a query to a sink ([ADR-035](035-wave-8-is-survival-not-distribution.md), W8-13), is now called at every registration that names a sink ([ADR-043](043-how-a-continuous-query-names-its-sink.md)) |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 

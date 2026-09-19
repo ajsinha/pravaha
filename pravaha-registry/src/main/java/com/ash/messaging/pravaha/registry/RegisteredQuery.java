@@ -380,7 +380,32 @@ public final class RegisteredQuery implements AutoCloseable {
      * it is how anything waiting for a subscription to be live can know rather than guess.
      */
     public int subscriberCount() {
-        return sink.listenerCount();
+        // Sinks listen on the same commit as subscribers do, and are not subscribers: a query
+        // writing to a table has nobody attached to it, and a console that said otherwise would be
+        // counting the table.
+        return sink.listenerCount() - sinksAttached.get();
+    }
+
+    /** Sinks listening on this computation's commits (ADR-043); see {@link #attachSink}. */
+    private final java.util.concurrent.atomic.AtomicInteger sinksAttached =
+            new java.util.concurrent.atomic.AtomicInteger();
+
+    /**
+     * Attaches a sink to this computation's commits, and returns what detaches it.
+     *
+     * <p>The same hook a subscription uses, so a sink sees exactly what a subscriber sees: whole
+     * commits, inserts and retractions in the order they were applied, never a half-applied window.
+     */
+    AutoCloseable attachSink(com.ash.messaging.pravaha.serving.ViewChangeListener listener) {
+        AutoCloseable detach = sink.onCommit(listener);
+        sinksAttached.incrementAndGet();
+        java.util.concurrent.atomic.AtomicBoolean detached = new java.util.concurrent.atomic.AtomicBoolean();
+        return () -> {
+            if (detached.compareAndSet(false, true)) {
+                detach.close();
+                sinksAttached.decrementAndGet();
+            }
+        };
     }
 
     /** Publishes what has been applied so far, without claiming time has moved. */

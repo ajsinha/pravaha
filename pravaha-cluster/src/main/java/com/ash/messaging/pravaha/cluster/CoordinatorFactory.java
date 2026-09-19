@@ -95,7 +95,13 @@ public final class CoordinatorFactory {
                             + "mode REPLICATED, where a split brain costs duplicated work rather than wrong "
                             + "numbers. Refusing now rather than during a partition.");
         }
-        // S-3, resolved. PARTITIONED used to be refused unconditionally here, because nothing in the
+        // S-3 -- REOPENED 2026-09-19, read this before relying on PARTITIONED. The paragraph below
+        // is the reasoning for removing the refusal, and its premise has not been met: nothing in
+        // a running node constructs a PartitionAssigner or asks for a partition lease before
+        // reading, so a PARTITIONED node still serves every partition. ADR-039 said the refusal
+        // should go in the same change that makes the mode real; restore it, or build the consumer.
+        //
+        // The original note: PARTITIONED used to be refused unconditionally here, because nothing in the
         // build computed an assignment at all: PartitionAssignment, Rebalancer and PartitionHandoff
         // were never referenced from any running path, and PARTITIONED x single started, reported
         // itself partitioned, and partitioned nothing. ADR-039 item 8's first slice is what changes:

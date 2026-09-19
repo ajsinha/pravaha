@@ -59,8 +59,23 @@ a dashboard exists.
 registration when `pravaha.checkpoint.directory` is set. Nothing has to be pruned by hand, and this
 section used to say the opposite.
 
-There is **no RocksDB** in the build — the L1 spill tier is designed (D5) and unbuilt. State today is
-off-heap plus checkpoint files, so the failure mode is memory, not disk.
+There is **no RocksDB** in the build — the L1 tier is designed (D5) and unbuilt. State is off-heap
+plus checkpoint files, and optionally a memory-mapped overflow tier:
+
+```yaml
+pravaha:
+  state:
+    spill:
+      directory: /var/lib/pravaha/spill   # a directory alone switches it on
+      max-overflow-slabs: 512             # the tier's own ceiling
+      # enabled: false                    # explicit, and wins in both directions
+```
+
+With it, join and windowed-aggregate state that outgrows memory is written to mapped files and the
+query keeps running, slower, instead of dying with `PRV-4001`. It is off by default. An aggregate
+containing `COUNT(DISTINCT)` keeps its state on-heap and cannot spill, so with the tier on it is
+refused at registration with `PRV-3023` rather than silently denied it (ADR-037 B2). Without the
+tier, the failure mode is memory, not disk.
 
 ## Capacity: the two numbers that interact
 
@@ -251,6 +266,12 @@ consensus without a mandatory external service. Until it exists, production `PAR
 ZooKeeper.
 
 ## Rebalancing: what happens when the membership changes
+
+> **Not wired into a node.** What follows is how `Rebalancer` and `PartitionHandoff` behave as a
+> library, tested with real threads and a real ZooKeeper ensemble. No running node constructs either,
+> nor a `PartitionAssigner`, so a node never rebalances and a `PARTITIONED` node serves every
+> partition (S-3, reopened; ADR-039 item 8). Read this as the design that ships next, not as what a
+> node does today.
 
 A node joins or leaves, the assignment is recomputed, and the partitions whose owner changed are
 handed over one at a time. Each handoff runs a fixed sequence, and the sequence *is* the correctness
@@ -465,9 +486,10 @@ hold. What changed is the arithmetic: `NodeScaleTest` measures **200 queries add
 threads**, 0.12 each, where the same workload cost 400 before this wave (a lane and a watermark
 clock each). Ten times as many queries adds none.
 
-A lane still runs exactly *one* query's pipeline. `LaneMultiplexer` — which would put many pipelines
-on one lane and so share the inbox and arena as well as the thread — is built and wired to nothing
-(W9-8). Keyed aggregates remain single-lane (ADR-034).
+On a node, a lane still runs exactly *one* query's pipeline. `LaneMultiplexer` — which puts many
+pipelines on one lane and so shares the inbox and arena as well as the thread — is used by the
+registry when an embedder calls `QueryRegistry.multiplexingLanes(true)`; no `pravaha.*` setting
+reaches it (W9-8). Keyed aggregates remain single-lane (ADR-034).
 
 **The periodic work is one timer for the process.** `SharedClock` keeps time on a single daemon
 thread and fires each query's watermark advance and each checkpoint on a *virtual* thread, so a slow
@@ -480,7 +502,7 @@ no binding still registers and runs on rows an embedder or an SDK client pushes 
 and the node logs `no sources are bound, ...` at startup, because "zero rows" otherwise has two
 causes that look identical.
 
-**Sinks are nameable, not yet reachable (W8-13, ADR-039 item 5).** A binding under
+**Sinks receive what a query names them for (W8-13, ADR-039 item 5, ADR-043).** A binding under
 `pravaha.sinks.<name>` names a `StreamSinkPlugin` the same way `pravaha.sources.<stream>` names a
 `StreamSourcePlugin` — `plugin:` and `options:`, resolved by `ServiceLoader` against the plugin's
 own `name()`:
@@ -495,14 +517,32 @@ pravaha:
         schema: "id:INT64,user:STRING,amount:INT64"
 ```
 
-`PluginSinks` (`pravaha-server`) resolves a binding to an opened, ready-to-write plugin instance, and
-`SinkCapabilities` says honestly what it can take — a `filesystem` sink is append-only and neither
-transactional nor idempotent, so it cannot claim more than at-least-once. What does not exist yet is
-the other half: nothing resolves a registered query's output against a `sinkName`, so no query writes
-to one and `ChangelogAnalysis.checkAgainst` — the check that refuses a revising query at registration
-rather than letting it corrupt a sink that cannot take a retraction — has no call site. That
-attachment is a `QueryRegistry` change and is tracked separately from the binding surface documented
-here.
+A registration names the sink, not the configuration: `pravaha register --name big_txn --sql-file
+q.sql --sink audit_trail`, or the `sink` argument of either SDK's `register`. The query's view is
+maintained exactly as before, and every commit of it is also written to the sink.
+
+What an operator should know about that delivery:
+
+- **A bad pair is refused before anything runs.** A query that revises its answer — a running
+  aggregate, a window with allowed lateness — pointed at a sink that can only append is refused
+  with `PRV-2041` at registration, before the sink is opened. A `filesystem` sink is append-only, so
+  it takes filters, projections and tumbling windows without lateness, and nothing that retracts.
+- **Rows arrive per commit**, retractions included as rows with a negative weight, never as half a
+  window. The feed commits on its own timer, so a sink trails the source by about one commit.
+- **At least once, not exactly once.** A restart resumes from the last checkpoint and replays what
+  came after it, and a sink added to a computation that was already running (a second name for the
+  same query) is first sent the view's whole contents — at the query's next change, not at once. A sink declaring `idempotentUpsert` absorbs
+  both; an append-only file does not, so expect duplicates in it after a restart.
+- **A sink that fails is detached, not retried.** The first refused batch stops that sink with
+  `PRV-8009`, logged at `ERROR`; the query, its view and its subscribers carry on. Writing later
+  batches past a lost one would leave the sink missing a change with nothing to say so. Drop and
+  re-register the query to start the sink again from the view's contents.
+- **The journal records the sink.** A restart re-attaches it — which is why sinks are bound before
+  the registry recovers — and a journalled registration whose sink is no longer bound is refused by
+  name in the recovery report rather than recovered writing to nothing.
+- **Delivery runs on the query's commit.** A slow sink slows the query that feeds it and nothing
+  else. It does not call the SPI's transactional methods: tying a sink's commit to a checkpoint is
+  what exactly-once needs, and it is not built.
 
 ## Starting a node
 
@@ -633,8 +673,8 @@ died.
 source offsets and the view come back together, and the sources rewind to the point the state
 describes. **Without one it is a warm-up** — the journal restores the questions, the views start
 empty and fill as data arrives, and a windowed query's first window or two are partial. Either way
-there is no RocksDB tier and no disk-based state, so the failure mode under pressure is memory, and
-the defence is plan-time refusal (`PRV-2050`), not spill.
+there is no RocksDB tier. The defence under pressure is plan-time refusal (`PRV-2050`), plus the
+memory-mapped overflow tier when `pravaha.state.spill.*` is configured.
 
 ### Who owns the state, and the standby
 
@@ -756,14 +796,13 @@ Listed because you will meet them, not to be thorough:
 
 - **No engine-internal metrics.** Per-query gauges are published (see *Watching a running node*),
   including state against its ceiling; lane throughput and backpressure are not
-- **State is refused, not degraded.** A query that reaches its ceiling still dies with `PRV-4001`
-  and takes its lane with it. Wave 9 made the ceiling visible before it arrives (ADR-037 B1); the
-  on-disk tier that would let the query keep running slower instead is B2, scoped and not started
-- **A lane still runs one query.** The thread is shared (`LaneRunner`); the inbox and the arena are
-  not, so per-query off-heap is still ~1 MiB idle. `LaneMultiplexer` is the answer and is wired to
-  nothing — no longer blocked (a row now identifies its stream, W9-9) but wave-sized, because the
-  aligned checkpoint barrier and three hundred watermark ticks a second on one lane are in tension
-  (W9-8, W9-10)
+- **State is refused unless you configure the spill tier.** Without `pravaha.state.spill.*`, a query
+  that reaches its ceiling dies with `PRV-4001` and takes its lane with it; with it, join and
+  windowed-aggregate state spills to mapped files and the query slows instead (ADR-037 B2).
+  `COUNT(DISTINCT)` cannot spill. The ceiling is visible before it arrives either way (B1)
+- **A lane still runs one query on a node.** The thread is shared (`LaneRunner`); the inbox and the
+  arena are not, so per-query off-heap is still ~1 MiB idle. The registry can host many queries on
+  one lane (`LaneMultiplexer`, W9-10 fixed), and no node setting turns that on (W9-8)
 - **N Aerospike-backed queries over one set are one scan**, throttled to `scan.interval.ms` and
   shared: one reader per *source binding* fans each record into every lane bound to it (SRC-3). Set
   `share.reader=false` on a binding to go back to a reader per query, which keeps that query's

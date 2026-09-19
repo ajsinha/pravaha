@@ -801,6 +801,10 @@ public class PravahaNode implements SmartLifecycle {
             pluginSinks.bindings().keySet().forEach(pluginSinks::capabilitiesOf);
             log.info("sinks bound: {}", pluginSinks.bindings().values());
         }
+        // Before recovery, so a journalled registration that writes to a sink comes back writing to
+        // it -- and one whose sink is no longer bound is refused by name rather than recovered
+        // without it.
+        registry.writingTo(pluginSinks);
 
         journalPath.ifPresent(path -> {
             // The journal's directory, not the file: a claim is about the place a node writes state,
@@ -906,9 +910,8 @@ public class PravahaNode implements SmartLifecycle {
         closeQuietly("registry", registry);
         // After the registry, because a running query may still be looking rows up in one.
         closeQuietly("dimension tables", lookupSources);
-        // Nothing opens a sink today (W8-13 -- see where pluginSinks is built at start-up), so this
-        // has nothing to release yet. Kept for the day something does: PluginSinks.close() must
-        // still run before the coordinator gives up its partitions.
+        // After the registry, which has already let go of every sink its registrations held; this
+        // closes anything left, and must still run before the coordinator gives up its partitions.
         closeQuietly("sinks", pluginSinks);
         closeQuietly("cluster coordinator", coordinator);
         // Last: a claim is released only once nothing is still writing under it, or the next start

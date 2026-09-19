@@ -38,10 +38,10 @@ public final class ClusterErrors {
      * This node is not the leader and the operation is the leader's.
      *
      * <p><strong>Still unreachable, and for a narrower reason than before.</strong> ADR-039 item 8's
-     * first slice landed {@code PartitionAssignment} on a running path: {@code PartitionAssigner}
-     * wires real membership from a real {@code ClusterCoordinator} into a real, continuously
-     * recomputed assignment, and {@code CoordinatorFactory} allows {@code PARTITIONED} on any
-     * mechanism that excludes split-brain. What did not land, on purpose, is anything that needs a
+     * first slice built {@code PartitionAssigner}, which wires real membership from a real {@code
+     * ClusterCoordinator} into a real, continuously recomputed assignment -- constructed by tests,
+     * not yet by a running node -- and {@code CoordinatorFactory} allows {@code PARTITIONED} on any
+     * mechanism that excludes split-brain (S-3, reopened: see {@code CoordinatorFactory}). What did not land, on purpose, is anything that needs a
      * leader at all: assignment is a pure function every node computes independently from whatever
      * membership it has observed (see {@code PartitionAssigner}'s own javadoc for why), so nothing
      * asks "am I the leader" before doing it. {@code Rebalancer} and {@code PartitionHandoff} remain

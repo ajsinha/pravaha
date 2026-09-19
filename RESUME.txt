@@ -1,209 +1,118 @@
-PRAVAHA — HOW TO RESUME AFTER THE REBOOT
-Written 2026-09-16 by the session that was running when you rebooted.
+PRAVAHA — HOW TO PICK UP
+Rewritten 2026-09-19. The previous version (2026-09-16) went stale within hours of being written;
+the session kept working for another nine. Before trusting this file, run
+
+    git log --oneline -15
+
+and compare. Commit bodies in this repository are detailed and are the most reliable record of
+what changed and why. docs/qa/FINDINGS.md status lines come next. This file and HANDOVER come last.
 
 ====================================================================
-1. NOTHING IS LOST. START HERE.
+1. WHERE THINGS ARE
 ====================================================================
 
-Everything of mine is committed AND pushed. develop and main are the
-same commit on origin, so a fresh clone would lose nothing.
+  develop  pushed after every verified change ("drill to develop")
+  main     merged from develop only when the owner asks ("drill to main"),
+           so it is normally BEHIND develop. That is intended.
 
-    develop = main = 8478ef8  (plus the commit that adds this file)
+  Findings register: ONE GA-BLOCKER open, and it is a reopened one -- S-3.
+  0 GA-REQUIRED. The header of docs/qa/FINDINGS.md has the exact counts and
+  FindingsRegisterTest holds it to them.
 
-First thing to run after the reboot:
-
-    cd /home/ashutosh/IdeaProjects/pravaha
-    git status                 # expect: clean, on develop
-    git log --oneline -8       # expect the commits listed in section 3
-
-If git status is clean and the log matches, you have lost nothing.
-
-====================================================================
-2. TWO AGENTS WERE RUNNING. THEY DID NOT SURVIVE.
-====================================================================
-
-Two coding agents were working in their own git worktrees when the
-reboot happened. THE PROCESSES ARE GONE. The directories are still on
-disk and may contain uncommitted edits.
-
-  Agent 1 — finding E-1 — *** FINISHED AND MERGED. NOTHING TO DO. ***
-    Its work is on develop as 1c165ff and is pushed. Seven of the nine
-    codes are resolved: 4002, 5012 and 5053 wired to real failures that
-    were being reported as bare Errors or uncoded exceptions; 4013 and
-    5020 DELETED (no resume path parses a backfill token, no circuit
-    breaker exists -- wiring either would be a fake throw site that
-    looks like coverage); 1043 needed nothing, it was already wired and
-    TROUBLESHOOTING.md was stale; 9004 stays declared and unreachable
-    by design with a comment citing ADR-034 and ADR-039.
-    Verified by me, not just reported: 223 module tests + 28 invariant
-    tests, BUILD SUCCESS 1 / BUILD FAILURE 0.
-
-    WHAT IS LEFT OF E-1: just PRV-8007 REGISTRY_REPLAY_UNAUTHORIZED.
-    Site is QueryRegistry.recover, where a refused replay is appended
-    to Recovery.refused() as a plain String instead of raised.
-    Recovery.refused() is a List<String>, so this needs a structural
-    change, and ErrcRegistryTest.aRefusedRecoveryIsPlainTextNeverPrv8007
-    pins the CURRENT unreachable behaviour and asserts the string never
-    contains "PRV-" -- that test must change with the fix.
-
-  Agent 2 — finding X-11 — *** FINISHED AND MERGED. NOTHING TO DO. ***
-    On develop as 86006fd, pushed. X-11 is CLOSED.
-    worktree: .claude/worktrees/agent-a32b57d049ccf3171
-    branch:   worktree-agent-a32b57d049ccf3171
-    The 64-field ceiling is now PRV-3030 (new RowErrors beside
-    BinaryRowWriter). An oversized predicate is now PRV-2011: the
-    planner summarises the shape -- "a 3000-term OR chain (124807
-    characters)" -- instead of dumping it. Measured: 124,940 characters
-    of stderr became under 2,000.
-
-    I added a third test myself. The agent pinned the AND chain; X-11
-    also names an OR chain, which the fix handles but nothing proved --
-    and an OR chain is the likelier of the two in the wild, because
-    rewriting a wide IN (...) list produces ORs. It passes.
-
-    Verified by me: 430 module tests across pravaha-common, pravaha-sql
-    and pravaha-cli, plus 17 invariant tests. BUILD SUCCESS 1 /
-    BUILD FAILURE 0.
-
-BOTH AGENTS ARE DONE, REVIEWED, MERGED AND PUSHED. Their worktrees
-under .claude/worktrees/ hold nothing you need. Ignore them.
+  S-3 (PARTITIONED does nothing). It was fixed by making CoordinatorFactory
+  refuse PARTITIONED. ADR-039 item 8's first slice (9238785) removed that
+  refusal because membership now produces a real assignment -- but no running
+  node constructs a PartitionAssigner or asks for a partition lease before
+  reading. So PARTITIONED starts and every node serves every partition, and
+  with sinks attached two such nodes would both write the whole answer to one
+  sink. Two honest ways out:
+    (a) restore the refusal in CoordinatorFactory until the consumer exists, or
+    (b) build the consumer (ADR-039 item 8, third slice).
+  An agent had started (b) in .claude/worktrees/agent-a15965300af1b29ea, as
+  UNCOMMITTED edits: a per-row ownership gate in PartitionedIngestPump that
+  DROPS rows this node cannot prove it owns. Review the design before using
+  it: dropping is only safe if another node reads the same source and keeps
+  the row; otherwise, once the offset moves past it, the row is lost.
 
 ====================================================================
-3. WHAT LANDED THIS SESSION (all pushed)
+2. WHAT LANDED 2026-09-19
 ====================================================================
 
-  948d19d  SQL_SUPPORT.md merged into CONTINUOUS_QUERIES.md -- one
-           document: streams->queries->views in sections 1-9, the full
-           SQL reference in 10-19. Old file deleted, every live
-           reference moved (8 docs, 5 case studies, console help page
-           and route, 4 source comments, 4 tests that read it by path).
-  632c7ca  ADR-040: the remote connector. Arrow Flight DoPut, at-least-
-           once with server-side dedup on (agent_id, sequence), built
-           after cluster mode. Design only, no code.
-  ef6b10d  Every shipped source type configured in CONTINUOUS_QUERIES
-           section 2.1 -- filesystem, feedfile, delta, jdbc, aerospike,
-           plus both lookup plugins. Fixed two examples that could not
-           run.
-  00ad4c9  Debezium worked end to end in CONNECTORS.md, plus the
-           retraction path that works TODAY (filesystem op.column).
-  7e2dd0a  Stated the boundary between the two documents in both:
-           USING a connector is CONTINUOUS_QUERIES 2.1, BUILDING one is
-           CONNECTORS.md.
-  8478ef8  Pinned SX-1 with a regression test.
-  bf29d28  SX-1 closed in the register; RESUME.txt; handover swept.
-  1c165ff  E-1: seven of nine unreachable PRV codes resolved (agent 1,
-           reviewed and merged by me).
-  2337834  RESUME.txt corrected -- agent 1 finished after the first
-           version of this file said neither agent had committed.
-  86006fd  X-11: the 64-column ceiling and the oversized-predicate
-           message both coded and documented (agent 2, reviewed and
-           merged by me, plus an OR-chain test I added).
-  (this)   X-11 closed in the register; RESUME.txt corrected again.
+  * The offline gate was broken by a wiped ~/.m2 (recreated 2026-09-18
+    20:56). Refilled with one online build. If an offline gate fails with
+    "has not been downloaded from it before", that is the cause again.
+  * Two tests that passed by luck: ApiIntegrationTest (Spring context shared
+    with OpenApiContractTest, $[0] depended on class order), and
+    StateClusterTest/StateCompactionTest grepping into .claude/worktrees.
+  * Sink DELIVERY (ADR-043, ADR-039 item 5 closed). A registration can name a
+    sink -- QueryRegistry.registerWritingTo, the Flight register action's
+    optional 4th field, `pravaha register --sink`, both SDKs -- and every
+    commit of the view reaches it through SinkDelivery, a listener on the
+    view's commit. Changelog checked before the sink opens (PRV-2041).
+    At-least-once. A failing sink is detached (PRV-8009), not written past.
+    The journal records the sink (a "W" record). The agent commit e763ac4
+    (PluginSinkOutput, a RowOutput flushing on batch size) was reviewed and
+    NOT merged: wrong module for the registry to reach, held a quiet query's
+    tail indefinitely, unsafe across lanes. Its worktree
+    (agent-a17b9c47e9068ff5a) holds nothing needed.
+  * A documentation sweep against the code: README, HANDOVER, ADR-039,
+    the ADR index, OPERATIONS, ARCHITECTURE, TROUBLESHOOTING, QUICKSTART,
+    CONNECTORS, gate packs, and false code comments.
 
 ====================================================================
-4. THE BIG NEWS: SX-1 IS CLOSED. ONE GA-BLOCKER LEFT.
+3. WHAT IS NEXT (ADR-039's road, as it stands)
 ====================================================================
 
-SX-1 was a GA-BLOCKER. Its status line said streamSubscription still
-resolves a view name before authorizing it, and that
-QueryRegistry.require still answers "...this node has [every name]".
-
-BOTH WERE STALE. The code had already been fixed. What was missing was
-a TEST OVER THE ORDER -- swapping two statements back would have
-restored the oracle and failed nothing.
-
-FlightListingDisclosureTest.sx1_aDeniedSubscriberCannotTellAnExisting-
-ViewFromAnAbsentOne now drives a real Flight server and proves a denied
-principal gets the same PRV code for a view that exists and one that
-does not.
-
-Register is now: 295 findings -- 177 FIXED, 103 OPEN, 8 BY DESIGN,
-7 SUPERSEDED. Of the 103 open: 1 GA-BLOCKER (SX-5, latency channel
-only), 0 GA-REQUIRED, 95 POST-GA, 7 NOTE.
-
-THAT IS ONE BLOCKER, ON ONE CHANNEL, BETWEEN HERE AND THE GAPS.
-
-LESSON WORTH KEEPING: a status line in FINDINGS.md can be stale. Read
-the code before believing a finding is open. There may be more of these.
+  - S-3 (above) -- the only blocker.
+  - Item 2: no node setting turns on lane multiplexing (W9-8). The registry
+    supports it (QueryRegistry.multiplexingLanes); PravahaNode never calls it,
+    and there is no admission control. Note there is NO pravaha.lane.multiplex
+    key, whatever an old document says.
+  - Item 5 follow-ups: AerospikeSinkPlugin (upsert + retract) exists and is
+    not declared in META-INF/services, so pravaha.sinks cannot name it -- the
+    only nameable sink is the append-only filesystem one. Needs Docker to
+    prove. Exactly-once (the transactional sink SPI tied to checkpoints) is
+    not built. `pravaha queries` does not show a query's sink or a detached
+    sink's PRV-8009.
+  - Item 6: projection and COUNT/SUM partial-aggregate pushdown are built and
+    tested, but no shipped plugin declares either and no ingest path delivers
+    a partial, so a deployment only ever pushes filters.
+  - Item 7: console design-system surface, not built by decision.
+  - Item 8: cluster mode -- the runtime consumer of ownership, then rebalance.
 
 ====================================================================
-5. WHAT I WAS DOING WHEN YOU REBOOTED — PICK UP HERE
-====================================================================
-
-NEXT TASK: SX-5's LATENCY CHANNEL. It is the only thing left before the
-gaps.
-
-Two of its three channels are closed. Enumeration went first; the CODE
-channel was closed on 2026-09-16 -- SqlPlanner.referencedTable reads the
-parse tree, which never consults the catalogue, and ViewQuery authorizes
-that name before anything resolves it. Seed-proven: revert the reordering
-and ViewQueryAuthorizationTest.sx5_aDeniedCallerCannotTellARealViewFrom-
-AnAbsentOneByTheCode fails with PRV-7002 against PRV-2002, which is the
-oracle itself.
-
-WHAT IS LEFT: denied median 23.8ms vs absent median 13.4ms, measured over
-100 iterations. Authorizing before planning makes both paths do more of
-the same work and SHOULD have narrowed that gap -- but nobody has
-re-measured it since the change. SO MEASURE IT FIRST. The honest
-possibilities are (a) the gap is now small enough to argue it is not a
-channel, (b) it is not, and closing it needs a constant-time refusal,
-which is real work. Do not claim (a) without numbers.
-
-AFTER THAT, in ADR-039's order:
-  - GA-REQUIRED is EMPTY. E-1 is closed; PRV-8007 was wired on
-    2026-09-16 by restructuring Recovery.refused() into records
-  - Gaps 3-7: off-heap variable-width keys, sink bindings, pushdown/
-    Cassandra, console 23.20, B2 disk spill
-  - Then cluster mode, then GA
-
-====================================================================
-6. HOUSE RULES THE NEXT SESSION MUST NOT BREAK
+4. HOUSE RULES
 ====================================================================
 
   * NO "Co-Authored-By: Claude" OR "Claude-Session:" TRAILERS in commit
     messages. Ashutosh Sinha is the sole author. Absolute.
   * git add with EXPLICIT PATHS. Never git add -A.
-  * The drill after every piece of work: verify, commit, push develop,
-    then fast-forward main:
-        git push origin develop && git push origin develop:main
-  * docs/qa/FINDINGS.md is owned by the lead. Agents must never edit it.
-  * Documentation rot is a build failure here. DocumentationFreshness-
-    Test and FindingsRegisterTest enforce it. Run them after doc edits:
+  * Verify, THEN commit, THEN push. "Drill to develop" = commit and push
+    develop. "Drill to main" = merge develop into main and push main, only
+    when asked.
+  * docs/qa/FINDINGS.md is owned by the lead session. Agents never edit it.
+  * Documentation rot is a build failure. After doc edits:
         ./mvnw -o -pl pravaha-it test \
           -Dtest='DocumentationFreshnessTest,FindingsRegisterTest' \
           -DfailIfNoSpecifiedTests=false
-  * Publish a status update roughly every 10 minutes during long runs.
-  * NEVER report a build as passing without checking. Grep for
-    BUILD SUCCESS and BUILD FAILURE separately and report both counts.
-    A zero exit code from a piped command is NOT proof -- this has
-    produced false "clean" reports more than once.
-  * Do NOT run two Maven builds in the same checkout at once; they
-    corrupt each other's target/. Concurrent agents need worktrees.
+  * NEVER report a build as passing without checking. Grep for BUILD SUCCESS
+    and BUILD FAILURE separately and report both counts. A run with
+    -Dmaven.test.failure.ignore prints BUILD SUCCESS over failing tests.
+  * Do NOT run two Maven builds in the same checkout at once.
+  * Avoid SQL reserved words as test view names: second, large, and friends
+    are refused with PRV-8008.
 
 ====================================================================
-7. COMMANDS
+5. COMMANDS
 ====================================================================
 
   export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 
-  Full gate (~7 min, this is the one that counts):
+  Full gate (~4-7 min, the one that counts):
       tools/verify-clean.sh
       # then CHECK: grep -c 'BUILD SUCCESS' and grep -c 'BUILD FAILURE'
 
-  Fast loop (NOT the gate):
-      tools/check.sh
-
+  Fast loop (NOT the gate):  tools/check.sh
   One test class:
-      ./mvnw -o -pl <module> test -Dtest='ClassName' \
-        -DfailIfNoSpecifiedTests=false
-
-LAST FULL GATE: BUILD SUCCESS, all 31 modules, 0 failures, 6:48,
-at 2026-09-16 14:28. Committed since then: documentation, two test
-classes, the findings register, and BOTH agents' work -- which together
-touch roughly a dozen main-source files across pravaha-state,
-pravaha-connect, pravaha-cluster, pravaha-server, pravaha-backfill,
-pravaha-common, pravaha-sql and the delta plugin, and add two new error
-codes. Each change was verified with targeted module tests (223 + 430
-tests, BUILD SUCCESS 1 / BUILD FAILURE 0 each time), but THE FULL GATE
-HAS NOT BEEN RE-RUN over the final state. RUN IT FIRST after the
-reboot. This is the largest untested-as-a-whole delta of the session.
+      ./mvnw -o -pl <module> test -Dtest='ClassName' -DfailIfNoSpecifiedTests=false
+  Python SDK:  (cd sdk/python && .venv/bin/python -m pytest tests -q)

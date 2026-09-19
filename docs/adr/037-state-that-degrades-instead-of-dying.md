@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted — scope decision, B1 built, B2's first slice built (stream-to-stream join state) |
+| Status | Accepted — B1 built; B2 built for stream-to-stream join state and windowed-aggregate state, configured by `pravaha.state.spill.*` and off by default; `COUNT(DISTINCT)` cannot spill and is refused by name (`PRV-3023`) |
 | Date | 2026-09-15 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-006 (tiered state), ADR-008 (aligned checkpoints), ADR-013 (Z-sets), ADR-036 (one node, thousands of queries) |
@@ -109,8 +109,11 @@ not a measurement of physical disk latency. A workload whose spilled state is la
 actually miss the page cache will cost more, and finding out how much is exactly the kind of
 measurement a real deployment's metrics — not this test — should produce.
 
-**What this slice does not cover.** Windowed and keyed aggregate state (`SlicedAggregateState`) does
-not have an overflow tier yet; the join was chosen as the one case this ADR names directly, not as a
+**What this slice did not cover, since covered.** Windowed aggregate state (`SlicedAggregateState`)
+has an overflow tier now (its accumulators moved into a `RowStore`-backed `VariableKeyStateMap`),
+and the spill directory is a deployment setting, `pravaha.state.spill.{enabled,directory,max-overflow-slabs}`,
+read by the node at startup. What follows is the note as written for the first slice. Windowed and
+keyed aggregate state did not have an overflow tier yet; the join was chosen as the one case this ADR names directly, not as a
 claim that it is the only one that matters. There is no `application.yaml` key or `LaneProperties`
 setting for the spill directory — it is a system property today, matching the level of
 configurability `MAX_JOIN_STATE_SLABS` itself has (none), and a deployment-facing setting is a

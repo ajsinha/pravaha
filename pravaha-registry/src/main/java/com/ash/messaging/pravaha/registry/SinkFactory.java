@@ -61,4 +61,19 @@ public interface SinkFactory {
 
     /** The sink itself, opened and ready to be written to. */
     StreamSinkPlugin open(String sinkName);
+
+    /**
+     * Lets go of a sink {@link #open} returned, when the registration writing to it is dropped.
+     *
+     * <p>Closes it by default. A factory that tracks what it opened -- so it can close everything at
+     * shutdown -- overrides this to forget it as well, or a node that registers and drops queries
+     * all day holds every sink it ever opened.
+     */
+    default void release(StreamSinkPlugin sink) {
+        try {
+            sink.close();
+        } catch (Exception e) {
+            // Closing a sink nobody writes to any more; a failure here has nobody to tell.
+        }
+    }
 }

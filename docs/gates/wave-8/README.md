@@ -33,7 +33,7 @@ are correctness properties, which is why this gate is closable on the machine th
 |---|---|
 | Aligned checkpoint barriers, every input | ✅ `freezeIngest` holds every source between rows while each lane is handed a marker, so offsets and state name the same rows; a lane cuts its batch *at* the marker. `AlignedCheckpointBarrierTest`, `ControlTaskBarrierTest`, all four seed-proven (W8-2…W8-5) |
 | Aligned barriers, the exchange | ❌ still not cut. A row in flight between lanes causes a refusal, not a loss |
-| Dead-letter queue | ✅ `pravaha run --dlq <file>`; a server still has no `pravaha.dlq.*` key (W8-11, open) |
+| Dead-letter queue | ✅ `pravaha run --dlq <file>`; a server had no `pravaha.dlq.*` key when this was written — it has `pravaha.dlq.directory` now (W8-11, fixed) |
 | `L0StateMap` | 🗑️ deleted — fixed-width keys against state whose group key can be a `STRING`, never referenced from any `src/main` (W8-12) |
 | `ChangelogAnalysis` | ⚠️ kept, unwired, deliberately. Nothing binds a query to a sink, so there is nothing to refuse; `ErrcSqlTest` asserts that precondition and fails the moment a sink binding appears (W8-13) |
 | The register could not see a `W8-` finding | ✅ fixed (W8-7) |
@@ -44,6 +44,8 @@ Membership, assignment, rebalance, elastic rescale, multi-tenancy, Ratis, any mu
 all still E7's and still deferred by [ADR-034](../../adr/034-distribution-deferred.md).
 `DeduplicatingSink` is not wired, so output is effectively-once rather than exactly-once. The
 windowed aggregate still keys state by a 64-bit digest (W8-14, open, and no test can prove a fix).
+*Since this pack was written:* the 64-bit fold is gone and the key is a 128-bit digest (W8-14,
+narrowed and still open).
 
 ## What closed this gate, and what it cost to find out
 

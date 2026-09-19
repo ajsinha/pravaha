@@ -245,7 +245,8 @@ public final class QueryExecution implements AutoCloseable {
      * neither is checked lazily, because a query that registered into the wrong kind of processor
      * would fail at the first row rather than at the call that was wrong.
      *
-     * <p><strong>Used by the registry when {@code pravaha.lane.multiplex} is on.</strong> Both of
+     * <p><strong>Used by the registry when {@code QueryRegistry.multiplexingLanes(true)} is set</strong>
+     * -- by an embedder; no node setting reaches it yet (W9-8). Both of
      * the halves this paragraph used to name as unsettled are settled: a row carries the identity
      * of the stream it came from (W9-9), and a watermark advance is a level rather than a cut, so
      * it no longer clamps the lane's batch (W9-10) — which was the cost that made hundreds of

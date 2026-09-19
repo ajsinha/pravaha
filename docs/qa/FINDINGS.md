@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **299 findings carrying a
-status — 182 FIXED, 102 OPEN, 8 BY DESIGN, 7 SUPERSEDED.** Of the 102 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+status — 184 FIXED, 102 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 102 open, **1 is
+GA-BLOCKER, 0 GA-REQUIRED, 94 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -54,22 +54,18 @@ argued against, and its length was hiding the nineteen entries below.
 
 | | | |
 |---|---|---|
-| **GA-BLOCKER** | 0 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
+| **GA-BLOCKER** | 1 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
 | **GA-REQUIRED** | 0 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
-| **POST-GA** | 95 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
+| **POST-GA** | 94 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
-**The fifteen blockers, by what they break.** Data reaching the wrong principal: `SX-5` alone — `SX-1` is **fixed**, and was already fixed in code when its status line still said otherwise; what it lacked was a test pinning the order, which it now has.
-A security control that reports itself on and is off: `SX-7`. (`SX-11`, `CFG-5`, `CFG-6` and `P-3`
-were in these two rows and are **fixed** — the security group is now down to the existence oracle
-and the audit that logs ALLOW for a refused read.) Silently wrong
-answers: none left — `TIME-2` and `STRM-11` were the last two and both are **fixed**. (`TY-3` and `TY-13` are **fixed** — NaN outranking every value, and a
-literal that compiled to `Infinity`.) (`TY-21` and `I-3` are **fixed** — and both had
-been written down as correct somewhere: `win067` expected a total of 28 where the right answer is
-31, and three lifecycle cases asserted the sharing defect as intended behaviour.) Silent loss: `TIME-4` alone — `TY-2` and `W-2` are **fixed**. (`TIME-1` is **fixed**; `TIME-4` was attempted and
-reverted — the skip needs a cancel path on `RowInbox` or a server DLQ key, not a change to the
-reader.) Declared and does nothing: none left — `I-6` and `S-3` now refuse
-rather than pretend (ADR-038).
+**The blockers, by what they break — one open.** The fifteen this triage started with are all
+**fixed**: data reaching the wrong principal (`SX-5`, `SX-1`, `SX-11`, and the security controls
+`CFG-5`, `CFG-6`, `P-3`, `SX-7`), silently wrong answers (`TIME-2`, `STRM-11`, `TY-3`, `TY-13`,
+`TY-21`, `I-3`), silent loss (`TY-2`, `W-2`, `TIME-1`, `TIME-4`), and a declared mechanism that did nothing
+(`I-6`). The one open is **`S-3`, reopened on 2026-09-19**: it was fixed by refusing `PARTITIONED`,
+and that refusal was removed with ADR-039 item 8's first slice while no running path yet consumes
+partition ownership — so the mode once more reports itself partitioned and partitions nothing.
 
 **`SX-11`, the worst of them, is fixed.** Authorization was keyed on the *registered view name*,
 never on what the query actually reads, so a principal denied everything named "payroll" saw 6 of 8
@@ -1084,7 +1080,8 @@ principal it refuses everything under any policy that inspects roles or tenant. 
 branch is unreachable, and `PRV-8007` is declared and never thrown.
 
 ## S-3 (HIGH) — `PARTITIONED` has no runtime behaviour at all
-> **Status:** FIXED — `CoordinatorFactory` refuses `PARTITIONED` outright, naming ADR-034 and what to use instead. Only `PARTITIONED` × `socket` was refused before, for split-brain, which made that look like the guard — `PARTITIONED` × `single` **started, reported itself partitioned, and partitioned nothing**. Refused rather than implemented (ADR-038): a mode that reports success and does nothing is worse than one that refuses, because only the second tells the operator what they actually have.
+> **Status:** OPEN — **reopened 2026-09-19: the refusal that fixed this was removed before the mode became real.** ADR-039 item 8's first slice (`9238785`) deleted `CoordinatorFactory`'s `PARTITIONED` refusal on the grounds that membership now produces a real assignment; but `PartitionAssigner` is constructed only in tests, and nothing in `PravahaNode` asks for a partition lease before reading one. So `PARTITIONED` × `zookeeper` (or `single`) starts and every node serves every partition -- this finding's original symptom, and with sinks now attached, two nodes configured PARTITIONED over one source would each write the whole answer to the same sink. ADR-039 said the refusal should go in the same change that makes the mode real; either restore it until item 8's consumer exists, or build the consumer. Previously FIXED: `CoordinatorFactory` refuses `PARTITIONED` outright, naming ADR-034 and what to use instead. Only `PARTITIONED` × `socket` was refused before, for split-brain, which made that look like the guard — `PARTITIONED` × `single` **started, reported itself partitioned, and partitioned nothing**. Refused rather than implemented (ADR-038): a mode that reports success and does nothing is worse than one that refuses, because only the second tells the operator what they actually have.
+> **Disposition:** GA-BLOCKER — declared and does nothing: a mode that reports itself partitioned and partitions nothing, the category S-3 was triaged into
 
 
 Only `PARTITIONED` × `socket` is refused (`PRV-9002`). `PARTITIONED` × `single` **starts** — and
@@ -1557,7 +1554,7 @@ that embeds both `pravaha-server` and the Flight client SDK on one classpath —
 test harness of its own — would hit the identical crash.
 
 ### E-10 (HIGH) — `PRV-2041 SQL_EMIT_MODE_MISMATCH` is unreachable: a tenth silent code, and the case file did not know about it
-> **Status:** BY DESIGN — superseded by W8-3, which established that there is nothing to call it from: no `INSERT INTO`, no sink configuration, no `ServiceLoader` declaration for `StreamSinkPlugin`, and `ViewSink` (the only sink a continuous query reaches) applies retractions correctly. The false claim in `StreamSchema`'s javadoc is removed, and `ErrcSqlTest#noProductionPathBindsAQueryToASinkThatCouldReceiveARetraction` now asserts the precondition rather than the absence — it fails when a sink binding appears, which is the moment to wire the check
+> **Status:** FIXED — `PRV-2041` is reachable: `QueryRegistry` calls `ChangelogAnalysis.checkAgainst` when a registration names a sink (`registerWritingTo`, `pravaha register --sink`), before the sink or the feed is opened; `SinkDeliveryTest#aRevisingQueryAgainstAnAppendOnlySinkIsRefusedBeforeTheSinkIsOpened` and, over the wire, `SinkDeliveryEndToEndTest#sink002` observe the code. It was BY DESIGN while nothing could bind a query to a sink (W8-3); ADR-043 is what made the pair formable. Previously: BY DESIGN — superseded by W8-3, which established that there is nothing to call it from: no `INSERT INTO`, no sink configuration, no `ServiceLoader` declaration for `StreamSinkPlugin`, and `ViewSink` (the only sink a continuous query reaches) applies retractions correctly. The false claim in `StreamSchema`'s javadoc is removed, and `ErrcSqlTest#noProductionPathBindsAQueryToASinkThatCouldReceiveARetraction` now asserts the precondition rather than the absence — it fails when a sink binding appears, which is the moment to wire the check
 
 
 `ChangelogAnalysis.checkAgainst` is `PRV-2041`'s sole throw site, and design section 15.5 explains at
@@ -5214,7 +5211,7 @@ a class that every document describes as the state layer and no state has ever b
 
 ### W8-13 (MEDIUM, by design) — `ChangelogAnalysis` refuses a pair the product cannot form, because nothing binds a query to a sink
 
-> **Status:** BY DESIGN — `ErrcSqlTest#noProductionPathBindsAQueryToASinkThatCouldReceiveARetraction` replaces the assertion that encoded the absence of the wiring as the contract. Seeded by adding a `META-INF/services/…StreamSinkPlugin` file and, separately, a second `new FilesystemSinkPlugin()` call site in `src/main`: each fails the test with the message naming `ChangelogAnalysis.checkAgainst`
+> **Status:** FIXED — the pair is formable and checked: a registration names a sink (ADR-043), `QueryRegistry` refuses a changelog the sink cannot take before opening it, and every commit then reaches the plugin (`SinkDelivery`, a listener on the view's commit). `ErrcSqlTest#aQueryIsNeverAttachedToASinkWithoutCheckingItsChangelogFirst` pins the order -- check, then open the sink, then open the feed; `SinkDeliveryEndToEndTest#sink001` reads the rows back out of a real `filesystem` sink's file. Previously BY DESIGN: `ErrcSqlTest#noProductionPathBindsAQueryToASinkThatCouldReceiveARetraction` replaces the assertion that encoded the absence of the wiring as the contract. Seeded by adding a `META-INF/services/…StreamSinkPlugin` file and, separately, a second `new FilesystemSinkPlugin()` call site in `src/main`: each fails the test with the message naming `ChangelogAnalysis.checkAgainst`
 
 `ChangelogAnalysis.checkAgainst` is `PRV-2041`'s sole throw site, and the failure it prevents is the
 sharpest in design §15.5: a retraction arrives at a sink with no concept of one, is written as
@@ -6229,7 +6226,7 @@ for a query fed by a source that scans once a second and will never produce one.
 
 ### W9-8 (HIGH) — `LaneMultiplexer` is built, tested and wired to nothing, and it is the answer to the per-query inbox
 
-> **Status:** OPEN — and **blocked on the row format**, which is the more useful half of this entry. `LaneMultiplexer` is 250 lines, `LaneMultiplexerTest` is green at 8/8, nothing in `src/main` references it — and wiring it as it stands would deliver one stream's rows to queries subscribed to another. See *Why it cannot simply be wired* below.
+> **Status:** OPEN — narrowed to the node. The row-format blocker below is gone (W9-9) and the registry now hosts queries on shared lanes through `QueryExecution.startOn` when `QueryRegistry.multiplexingLanes(true)` is called (`8fe249e`, `MultiplexedRegistryTest`). What remains: `PravahaNode` never calls it and no `pravaha.lane.*` key reaches it, so a server always runs a lane per query, and nothing decides which shared lane a registration lands on. The original status, kept for its reasoning: blocked on the row format -- `LaneMultiplexer` was referenced from nothing in `src/main`, and wiring it then would have delivered one stream's rows to queries subscribed to another.
 > **Disposition:** POST-GA — demoted by W9-11: an optimisation on a target already reached
 
 A fourth built-but-unreachable mechanism, after the three Wave 8 found (W8-11 … W8-13). Its own
@@ -6331,8 +6328,7 @@ as PF-10 and W8-8, which this codebase has now paid for twice.
 
 ### W9-10 (HIGH) — wiring `LaneMultiplexer` is a wave, not a task, and the aligned barrier is why
 
-> **Status:** OPEN — W9-9 removed the blocker that made wiring *wrong*; this records what makes it *large*. Assessed against the code, not estimated.
-> **Disposition:** POST-GA — the aligned-barrier design it needs is a wave in its own right
+> **Status:** FIXED — `bab368b`: a watermark advance is a *level* task (`submitLevelTask`), which keeps its place in queue order and does not clamp the lane's batch; only a checkpoint is a *cut*. The clamp binds to the first cut in the queue rather than the task at its head, and `ControlTaskBarrierTest` pins both halves. What this entry assessed as a wave's worth of design turned out to be that asymmetry. Originally: W9-9 removed the blocker that made wiring *wrong*; this records what makes it *large*.
 
 With streams identified (W9-9) the multiplexer would now dispatch correctly. Three things still stand
 between that and a node where three hundred queries share a lane, and the third is the one that

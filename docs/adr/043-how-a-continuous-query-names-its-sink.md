@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted — decision recorded, the attachment not yet built |
+| Status | Accepted — **built**: registrations name a sink and every commit reaches it (see "As built") |
 | Date | 2026-09-16 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-025 (registration), ADR-030 (scope tiers), ADR-039 item 5, design §15.5, `W8-13` |
@@ -69,8 +69,8 @@ sink must not take down the query for the other names bound to it.
 
 ## What must be true before a row reaches a sink
 
-`ChangelogAnalysis.checkAgainst(plan, capabilities, sinkName)` is written, tested, and called from
-**nothing**. Design §15.5 is the reason it exists: a query that revises its answer, pointed at a sink
+`ChangelogAnalysis.checkAgainst(plan, capabilities, sinkName)` was written, tested, and called from
+**nothing** when this ADR was accepted. Design §15.5 is the reason it exists: a query that revises its answer, pointed at a sink
 that can only append, corrupts that sink **silently** — the rows arrive, none of them are wrong on
 their own, and the total is wrong for ever.
 
@@ -78,11 +78,9 @@ So the check runs at registration, on the capabilities the plugin declares, **be
 `PluginSinks.capabilitiesOf` exists for exactly this and deliberately configures without opening, so
 asking what a sink can promise costs no connection.
 
-`ErrcSqlTest.noProductionPathAttachesARegisteredQueryToASinkThatCouldReceiveARetraction` is the
-tripwire and is pointed at this precise moment: it asserts `pravaha-registry` references no
-`StreamSinkPlugin` and that `checkAgainst` has no production call site. **The commit that attaches a
-query to a sink is the commit that must make that test fail, and must replace it with the assertion
-that the check is called first.** It was written to fail here; that is what it is for.
+`ErrcSqlTest` held the tripwire for this moment, asserting that nothing attached a query to a sink.
+It has been inverted, as it was written to be: it now asserts that `checkAgainst` has a production
+caller, and that in `QueryRegistry` the check comes before both the sink is opened and the feed is.
 
 ## Where the registry gets a sink from
 
@@ -96,3 +94,34 @@ default, so that an embedded engine with no sinks configured needs no null check
 A DML surface arriving for other reasons, which would make `INSERT INTO` cheap and the argument
 form redundant; or a deployment that genuinely wants two sinks fed by one computation to fail
 independently, which fan-out gives them but which nothing here yet reports per sink.
+
+## As built
+
+Recorded after the code, so it describes what exists.
+
+- **The surface.** `QueryRegistry.registerWritingTo(name, sql, keys, principal, sinkName)`; the
+  Flight `pravaha.register` action takes the sink as an optional fourth field, so a client that
+  predates sinks sends three and is answered as before; `pravaha register --sink <name>`, and a
+  `sink` argument on both SDKs' `register`. The node hands the registry its `PluginSinks`, which
+  implements the registry's `SinkFactory`, before the journal is recovered.
+- **Delivery is a listener on the view's commit** (`SinkDelivery`), not a second output beside the
+  view. A sink therefore receives exactly what a subscriber receives — whole commits, inserts and
+  retractions in the order they were applied — and is written on the commit's cadence rather than a
+  batch size of its own. The first design, a `RowOutput` beside the view flushing when a batch
+  filled, was reviewed and not merged: it would have held a quiet query's tail indefinitely, was not
+  safe across lanes, and lived in a module the registry cannot depend on.
+- **Fan-out** is one listener per name. A name that joins a computation already running is first
+  sent the view's committed contents, read at the first commit it hears, so it misses nothing that
+  happened before it existed. Dropping a name releases its sink alone.
+- **A failing sink is detached** with `PRV-8009` and logged, and the query carries on. Writing later
+  batches past a failed one would leave the sink missing a change with nothing to say so — the
+  failure this ADR exists to prevent, arrived at by a different road.
+- **The journal records the sink** in the registration's own record (a `W` record: an `R` with the
+  sink name after the query name), so a restart re-attaches it and a registration whose sink is no
+  longer bound is refused by name in the recovery report. A build that predates sinks refuses a `W`
+  record rather than recovering the query without its sink.
+- **The guarantee is at-least-once.** A restart replays from the last checkpoint, and seeding a
+  joining sink can repeat rows it already holds. A sink declaring `idempotentUpsert` makes that
+  effectively-once; the transactional half of the SPI is not called, because tying a sink's commit
+  to a checkpoint is a change to what a checkpoint commits. That is the remaining step to
+  exactly-once, and it is not built.

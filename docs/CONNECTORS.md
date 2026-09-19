@@ -36,8 +36,8 @@ Three kinds, and a connector may be more than one:
 
 | Interface | What it does | Shipped examples |
 |---|---|---|
-| `StreamSourcePlugin` | Rows in. The thing a `FROM` clause reads | filesystem, feedfile, aerospike, delta, jdbc |
-| `StreamSinkPlugin` | Rows out | aerospike |
+| `StreamSourcePlugin` | Rows in. The thing a `FROM` clause reads | filesystem, feedfile, aerospike, delta, jdbc, cassandra |
+| `StreamSinkPlugin` | Rows out — every commit of a query that names the sink at registration ([ADR-043](adr/043-how-a-continuous-query-names-its-sink.md)) | filesystem (append-only; the only one declared to `ServiceLoader`), aerospike (upsert and retract; built, not yet declared, so `pravaha.sinks` cannot name it) |
 | `LookupSourcePlugin` | Point lookups for a temporal join's right side | aerospike, jdbc |
 
 ---
@@ -663,8 +663,14 @@ Honesty here is not politeness — the engine changes its behaviour based on the
   in a scan is not this.
 - **Pushdown** — `FILTER` means you *applied* the filter, not that you accepted it. The engine
   re-applies filters it keeps, but a filter you claim and drop silently returns too many rows.
+  `PARTIAL_AGGREGATE` is stricter still: a source that claims it returns pre-combined `COUNT`/`SUM`
+  values instead of rows, so there are no rows left for the engine's filter to run against — the
+  partial must already honour every filter, or the answer is wrong with nothing downstream placed to
+  notice. No shipped plugin claims it yet.
 
-The TCK does not yet verify these claims, and it should. Until then they are trusted.
+The source TCK verifies two of these: that resuming from a recorded offset loses nothing, and that a
+source claiming exactly-once resumes without duplicates too (`SourcePluginTck.replayableOffsetsActuallyReplay`,
+`capabilitiesAreInternallyConsistent`). Ordering, deletes and pushdown are trusted, not tested.
 
 ---
 
@@ -707,9 +713,8 @@ Stated so nobody discovers it mid-build:
 | | |
 |---|---|
 | A sink TCK and a lookup TCK | Only sources have one |
-| Capability verification in the TCK | A plugin claiming `EXACTLY_ONCE` is believed, not tested |
+| Capability verification in the TCK | Replay and exactly-once are tested; ordering, deletes and pushdown claims are believed, not tested |
 | An SPI stability statement | `Version` exists; nothing says what change breaks a plugin |
-| A cross-source join test | §4's capability is unproven |
 | Plugin isolation | A connector shares the engine's classpath; a dependency clash is yours to resolve |
 
 ---

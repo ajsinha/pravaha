@@ -26,6 +26,7 @@ import com.ash.messaging.pravaha.api.plugin.PluginContext;
 import com.ash.messaging.pravaha.api.plugin.SinkCapabilities;
 import com.ash.messaging.pravaha.api.plugin.StreamSinkPlugin;
 import com.ash.messaging.pravaha.connect.PluginErrors;
+import com.ash.messaging.pravaha.registry.SinkFactory;
 
 /**
  * Turns configured {@link SinkBinding}s into opened {@link StreamSinkPlugin} instances.
@@ -34,17 +35,17 @@ import com.ash.messaging.pravaha.connect.PluginErrors;
  * deliberately -- discovery by {@code ServiceLoader}, configure-before-open, the same shape of
  * refusal when a name is not on the classpath. What it is <strong>not</strong> the mirror of is the
  * pumping: a source feed drives rows into a running query on its own thread, and nothing here does
- * the equivalent for a sink, because nothing yet resolves which registered query's output a sink
- * receives. That resolution is a {@code QueryRegistry} change (ADR-039 item 5, W8-13) and is
- * deliberately out of scope here -- see the ADR for why sink bindings and query attachment are split
- * into two changes rather than one.
+ * the equivalent for a sink: a sink is written to by the query that names it, on that query's own
+ * commits. This class is the {@link SinkFactory} the node hands the registry, and the registry is
+ * what attaches a query to what {@link #open} returns (ADR-043) -- this resolver never decides which
+ * query writes where.
  *
  * <p>What this class makes true, on its own and testably: a sink can be named in configuration,
  * found on the classpath by the name it reports for itself, configured, opened, written to, flushed
  * and closed -- the same lifecycle {@link StreamSinkPlugin} documents, exercised end to end rather
  * than only declared.
  */
-public final class PluginSinks implements AutoCloseable {
+public final class PluginSinks implements SinkFactory, AutoCloseable {
 
     private final Map<String, SinkBinding> bindings = new ConcurrentHashMap<>();
 
@@ -86,6 +87,7 @@ public final class PluginSinks implements AutoCloseable {
      *     sinkName} exists, or when no plugin on the classpath reports that name; {@link
      *     EgressErrors#SINK_BINDING_FAILED} when the plugin refuses its configuration or cannot open
      */
+    @Override
     public StreamSinkPlugin open(String sinkName) {
         SinkBinding binding = bindings.get(sinkName);
         if (binding == null) {
@@ -110,6 +112,7 @@ public final class PluginSinks implements AutoCloseable {
      * ChangelogAnalysis.checkAgainst} exists to make -- does not pay for a connection it may then
      * have to throw away.
      */
+    @Override
     public SinkCapabilities capabilitiesOf(String sinkName) {
         SinkBinding binding = bindings.get(sinkName);
         if (binding == null) {
@@ -122,6 +125,26 @@ public final class PluginSinks implements AutoCloseable {
             return plugin.capabilities();
         } finally {
             closeQuietly(plugin);
+        }
+    }
+
+    /**
+     * Closes a sink {@link #open} returned and forgets it, when the registration writing to it is
+     * dropped. Without the forgetting, a node that registers and drops queries all day holds every
+     * sink it ever opened until shutdown.
+     */
+    @Override
+    public void release(StreamSinkPlugin sink) {
+        synchronized (openLock) {
+            opened.remove(sink);
+        }
+        closeQuietly(sink);
+    }
+
+    /** How many sinks are open right now, across every registration writing to one. */
+    public int openCount() {
+        synchronized (openLock) {
+            return opened.size();
         }
     }
 

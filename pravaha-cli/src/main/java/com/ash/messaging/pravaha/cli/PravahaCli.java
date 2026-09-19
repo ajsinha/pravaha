@@ -121,8 +121,9 @@ public final class PravahaCli {
         out.println("  query     --sql <query> [--params a,b] [--url grpc://host:9090] [--token t]");
         out.println("            Ask a running server a question and print the rows.");
         out.println();
-        out.println("  register  --name <view> --sql-file <path> [--keys 0,1] [--url ...]");
-        out.println("            Register a continuous query. It runs until it is dropped.");
+        out.println("  register  --name <view> --sql-file <path> [--keys 0,1] [--sink <name>] [--url ...]");
+        out.println("            Register a continuous query. It runs until it is dropped. --sink also writes");
+        out.println("            its changes to a sink the server binds under pravaha.sinks.<name>.");
         out.println();
         out.println("  queries   [--url ...]");
         out.println("            List the continuous queries a server is running.");

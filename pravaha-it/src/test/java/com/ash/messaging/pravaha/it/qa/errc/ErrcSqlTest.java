@@ -274,6 +274,18 @@ class ErrcSqlTest extends ErrcTestSupport {
                         + "query's changelog has to be refused before a single row can be produced, "
                         + "not after the feed has started delivering (design section 15.5)")
                 .isLessThan(feedOpenedAt);
+
+        // And before the sink is opened. Delivery exists now (ADR-043): a sink is opened once per
+        // registration that names it, and a refusal that came after the open would have paid for a
+        // connection -- or, for a sink whose open() truncates or creates a table, changed the
+        // destination -- on behalf of a registration that was never going to be allowed.
+        int sinkOpenedAt = registry.indexOf("openDelivery(name, sinkName");
+        assertThat(sinkOpenedAt)
+                .as("the registry must open the sink a registration names")
+                .isNotNegative();
+        assertThat(checkedAt)
+                .as("checkAgainst must be called BEFORE the sink is opened")
+                .isLessThan(sinkOpenedAt);
     }
 
     private static Path repoRoot() {

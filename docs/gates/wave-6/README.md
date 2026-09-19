@@ -52,6 +52,8 @@ change rather than a shortfall.
 consistency modes listed above never leave the client. `ViewQuery.run` reads `view.scan()` only, and
 `ServedView.get(Consistency, …)` has no transport caller. The modes are implemented in the view and
 unreachable through the wire, so the row above describes the engine and not the product.
+*Since this pack was written:* `I-6` is **fixed** — the client refuses the modes the wire cannot
+carry rather than silently downgrading them.
 
 ## What would close this gate
 

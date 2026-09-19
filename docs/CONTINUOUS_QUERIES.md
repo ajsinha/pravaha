@@ -495,12 +495,14 @@ the query's identity, because it changes the answer (I-3).
 ### What happens at registration
 
 1. The SQL is parsed and validated against the declared streams
-2. A physical plan is built and **fingerprinted** — plan, row filters, key columns, retention
-3. If an identical fingerprint is already running, **the existing computation is shared** and the new name points at it
-4. Otherwise a lane is created, the plan compiled onto it, and a feed opened for each source stream
-5. The view is created and registered in the catalogue
+2. When the registration names a sink (§4), the plan's changelog is checked against what that sink
+   accepts, and a pair that cannot work is refused with `PRV-2041` — before anything opens
+3. A physical plan is built and **fingerprinted** — plan, row filters, key columns, retention
+4. If an identical fingerprint is already running, **the existing computation is shared** and the new name points at it
+5. Otherwise a lane is created, the plan compiled onto it, and a feed opened for each source stream
+6. The view is created and registered in the catalogue
 
-Step 3 is why a thousand dashboards asking the same question cost one computation. It matches on the
+Step 4 is why a thousand dashboards asking the same question cost one computation. It matches on the
 *normalised plan*, not the text — whitespace and aliases do not matter, but operand order does
 (`CONCEPTS.md` §5).
 
@@ -525,6 +527,33 @@ pravaha subscribe --name hourly_spend
 **A subscription delivers whole commits.** Never half a batch, never a partly-closed window — a
 subscriber attaching midway through a commit receives the *next* one entire rather than the tail of
 that one (STRM-11).
+
+Or have the node write every commit to a sink it binds under `pravaha.sinks.<name>`
+([`OPERATIONS.md`](OPERATIONS.md) has the binding), by naming it at registration:
+
+```bash
+pravaha register --name big_txn --sql "SELECT user_id, amount FROM txn WHERE amount > 100" \
+  --keys 0 --sink audit_trail
+```
+
+The view is maintained exactly as without `--sink`; the sink receives the same commits a subscriber
+does, retractions included as rows with a negative weight. Three things to know
+([ADR-043](adr/043-how-a-continuous-query-names-its-sink.md)):
+
+- **The query and the sink must agree about retractions.** A query that revises its answer — any
+  unwindowed aggregate, a window with `allowedLateness`, a join that can withdraw a match — needs a
+  sink that accepts updates. Pointed at an append-only sink, such as a file, the pair is refused
+  with `PRV-2041` at registration, because the alternative is a sink holding rows that are each
+  correct and a total that is wrong for ever (design §15.5). A filter, a projection, or a tumbling
+  window without lateness never revises, and goes anywhere.
+- **Delivery is at least once.** A restart replays from the last checkpoint, and a second name
+  registered with its own sink on a query that is already running is first sent the view's whole
+  contents. A sink that upserts idempotently absorbs the repeats; a file keeps them.
+- **A sink that refuses a batch is detached** (`PRV-8009`) rather than written past, and the query
+  carries on serving its view. Drop and re-register to start the sink again.
+
+Two names for one computation may each name a different sink; the computation is shared and each
+sink is fed from it.
 
 ---
 
@@ -1003,9 +1032,11 @@ projections correctly; what is not built is arithmetic over it. Recorded as TY-7
 | `PRV-2011` | A predicate (a long `AND`/`OR` chain, usually) is too large for the planner to convert — §12 |
 | `PRV-2020` | A relational operator Pravaha cannot execute |
 | `PRV-2021` | An expression or function Pravaha cannot compile |
+| `PRV-2041` | The query revises its answer and the sink it names can only append — §4 |
 | `PRV-2050` | The query's state would grow without bound |
 | `PRV-2060`–`PRV-2063` | Parameter binding — see [ADR-032](adr/032-parameters-are-values-not-queries.md) |
 | `PRV-3030` | A row's output is wider than 64 columns — §11 |
+| `PRV-8009` | A sink refused a batch and was detached from the query; the view carries on — §4 |
 
 ---
 

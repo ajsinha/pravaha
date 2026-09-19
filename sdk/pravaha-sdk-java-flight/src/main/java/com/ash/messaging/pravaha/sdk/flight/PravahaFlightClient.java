@@ -322,8 +322,24 @@ public final class PravahaFlightClient implements AutoCloseable {
      * @param keyColumns output column ordinals the view is keyed by
      */
     public RegisteredQueryInfo register(String name, String sql, List<Integer> keyColumns) {
+        return register(name, sql, keyColumns, null);
+    }
+
+    /**
+     * Registers a continuous query that also writes its changelog to a sink the server has bound
+     * under {@code pravaha.sinks.<sink>} (ADR-043).
+     *
+     * <p>The server refuses the pair before anything runs when the query revises its answer and the
+     * sink can only append ({@code PRV-2041}), and refuses a name it has no binding for. Once
+     * registered, the sink receives every committed change, retractions included, at least once.
+     *
+     * @param sink the sink's binding name on the server, or null to write only the view
+     */
+    public RegisteredQueryInfo register(String name, String sql, List<Integer> keyColumns, String sink) {
         String ordinals = keyColumns.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(","));
-        List<List<String>> results = act(ControlWire.REGISTER, name, sql, ordinals);
+        List<List<String>> results = sink == null || sink.isBlank()
+                ? act(ControlWire.REGISTER, name, sql, ordinals)
+                : act(ControlWire.REGISTER, name, sql, ordinals, sink);
         if (results.isEmpty()) {
             throw new PravahaClientException(
                     ClientErrors.QUERY_REFUSED,

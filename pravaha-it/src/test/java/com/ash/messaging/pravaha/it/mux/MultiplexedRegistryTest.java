@@ -41,7 +41,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Many registered queries on one lane, through the registry rather than through the seam (W9-8).
  *
  * <p>{@code HostedQueryTest} proves {@code QueryExecution.startOn} shares a lane between two
- * executions. This proves the registry actually uses it: with {@code pravaha.lane.multiplex} on, two
+ * executions. This proves the registry actually uses it: with {@code multiplexingLanes(true)} set, two
  * separately registered queries over the same stream run on <em>one</em> lane, and each still gets
  * its own answer.
  *

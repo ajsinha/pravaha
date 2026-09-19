@@ -56,7 +56,7 @@ to it.
 | W9-7 unaccounted off-heap | ✅ attributed |
 | W9-9 the row header's "schema id" was a schema *version* | ✅ `StreamSchema.streamId` |
 | W9-11 the target, run rather than extrapolated to | ✅ `ThousandQueryTest` |
-| **W9-8 / W9-10** wire `LaneMultiplexer` | ❌ **open by decision** |
+| **W9-8 / W9-10** wire `LaneMultiplexer` | ❌ **open by decision** when written; since then W9-10 is fixed and the registry uses the multiplexer, W9-8 open for a node setting |
 | SRC-2, found by this wave's own question | ✅ one Aerospike client per cluster **per credential** — the last per-query platform thread |
 
 ## The two deferred items, and why that is a decision rather than a shortfall
@@ -76,6 +76,11 @@ move from `QueryExecution` to the registry, or one query closing stops a lane se
 
 **Reopen it when a measurement demands it, not on the strength of a plan that predates the
 measurement.**
+
+*Since this pack was written:* ADR-039 reopened it as item 2 of the road to GA. The barrier cost
+turned out to be one asymmetry, not a wave — a checkpoint is a *cut* and clamps the batch, a
+watermark is a *level* and does not (W9-10, fixed) — and the registry now hosts queries on shared
+lanes it owns. What is still open is W9-8's last part: no node setting turns it on.
 
 ## What Wave 9 did not do
 

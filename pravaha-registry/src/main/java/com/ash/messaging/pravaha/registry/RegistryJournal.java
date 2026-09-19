@@ -73,6 +73,17 @@ public final class RegistryJournal {
     private static final String REGISTER = "R";
     private static final String DROP = "D";
 
+    /**
+     * A registration that also writes to a named sink (ADR-043): the {@code R} fields with the sink
+     * name after the query name.
+     *
+     * <p>A kind of its own rather than a field appended to {@code R}, because {@code R} already
+     * ends in a variable-length list of bound parameters and has no room after them. It also means a
+     * build that predates sinks refuses this record by name instead of replaying the query without
+     * its sink -- which would look like a successful recovery while the table it fed stopped moving.
+     */
+    private static final String REGISTER_WRITING = "W";
+
     private final Path file;
 
     public RegistryJournal(Path file) {
@@ -86,11 +97,29 @@ public final class RegistryJournal {
             List<Integer> keyColumns,
             String owner,
             Retention retention,
-            List<String> parameters) {
+            List<String> parameters,
+            String sink) {
 
         public Entry {
             keyColumns = List.copyOf(keyColumns);
             parameters = List.copyOf(parameters);
+            sink = sink == null || sink.isEmpty() ? null : sink;
+        }
+
+        /** A registration that writes only to its view. */
+        public Entry(
+                String name,
+                String sql,
+                List<Integer> keyColumns,
+                String owner,
+                Retention retention,
+                List<String> parameters) {
+            this(name, sql, keyColumns, owner, retention, parameters, null);
+        }
+
+        /** The sink this registration writes to, or empty when it writes only to its view. */
+        public java.util.Optional<String> sinkName() {
+            return java.util.Optional.ofNullable(sink);
         }
     }
 
@@ -108,9 +137,27 @@ public final class RegistryJournal {
             String owner,
             Retention retention,
             List<String> parameters) {
+        recordRegistration(name, sql, keyColumns, owner, retention, parameters, null);
+    }
+
+    /**
+     * Appends a registration that writes to {@code sink} as well as its view, or to its view alone
+     * when {@code sink} is null.
+     */
+    public void recordRegistration(
+            String name,
+            String sql,
+            List<Integer> keyColumns,
+            String owner,
+            Retention retention,
+            List<String> parameters,
+            String sink) {
         List<String> fields = new ArrayList<>();
-        fields.add(REGISTER);
+        fields.add(sink == null ? REGISTER : REGISTER_WRITING);
         fields.add(name);
+        if (sink != null) {
+            fields.add(sink);
+        }
         fields.add(sql);
         fields.add(joinInts(keyColumns));
         fields.add(owner == null ? "" : owner);
@@ -180,6 +227,14 @@ public final class RegistryJournal {
             live.remove(fields.get(1));
             return;
         }
+        // W carries the sink name second; lifting it out leaves exactly R's fields.
+        String sink = null;
+        if (REGISTER_WRITING.equals(kind) && fields.size() >= 7) {
+            sink = fields.get(2);
+            fields = new ArrayList<>(fields);
+            fields.remove(2);
+            kind = REGISTER;
+        }
         if (!REGISTER.equals(kind) || fields.size() < 6) {
             throw new PravahaException(
                     RegistryErrors.JOURNAL_UNREADABLE,
@@ -194,7 +249,8 @@ public final class RegistryJournal {
                 parseInts(fields.get(3)),
                 fields.get(4),
                 decodeRetention(fields.get(5)),
-                fields.subList(6, fields.size()));
+                fields.subList(6, fields.size()),
+                sink);
         // Re-registering a live name replaces it, which is what the registry itself does.
         live.remove(name);
         live.put(name, entry);
@@ -247,7 +303,8 @@ public final class RegistryJournal {
                         entry.keyColumns(),
                         entry.owner(),
                         entry.retention(),
-                        entry.parameters());
+                        entry.parameters(),
+                        entry.sink());
             }
             // Atomic: a crash here leaves either the old journal or the new one, never a partial
             // rewrite, and both are complete descriptions of what is registered.

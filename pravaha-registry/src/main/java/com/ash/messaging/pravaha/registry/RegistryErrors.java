@@ -73,5 +73,15 @@ public final class RegistryErrors {
      */
     public static final ErrorCode REPLAY_UNAUTHORIZED = new ErrorCode(8007, "REGISTRY_REPLAY_UNAUTHORIZED");
 
+    /**
+     * A sink a registered query writes to refused a batch, and has been detached from it.
+     *
+     * <p>Recorded on the registration and logged rather than thrown into the query. Writing later
+     * batches over the one that failed would leave the sink missing a change with nothing to say
+     * so -- a retraction that never arrived is a total that is wrong for ever -- so the sink stops,
+     * and the query, its view and any other sink on it carry on (ADR-043).
+     */
+    public static final ErrorCode SINK_WRITE_FAILED = new ErrorCode(8009, "REGISTRY_SINK_WRITE_FAILED");
+
     private RegistryErrors() {}
 }

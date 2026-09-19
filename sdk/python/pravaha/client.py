@@ -408,7 +408,9 @@ class Client:
     # Continuous queries: registering them, and subscribing to what they produce.
     # ---------------------------------------------------------------------------------
 
-    def register(self, name: str, sql: str, key_columns: Sequence[int]) -> "RegisteredQuery":
+    def register(
+        self, name: str, sql: str, key_columns: Sequence[int], sink: str | None = None
+    ) -> "RegisteredQuery":
         """Registers a continuous query and returns what the server made of it.
 
         A registration is not a request -- it is a computation that keeps running and
@@ -419,9 +421,15 @@ class Client:
         Registering the same question twice, even worded differently, gives one
         computation with two names: the server matches on the normalised plan rather
         than the text. The returned fingerprint is how you can tell.
+
+        ``sink`` names a binding under the server's ``pravaha.sinks``; the query's
+        changes are then written there as well as to its view, retractions included,
+        at least once. The server refuses the pair before anything runs when the query
+        revises its answer and the sink can only append (``PRV-2041``).
         """
         ordinals = ",".join(str(int(c)) for c in key_columns)
-        rows = self._act(_ACTION_REGISTER, [name, sql, ordinals])
+        fields = [name, sql, ordinals] + ([sink] if sink else [])
+        rows = self._act(_ACTION_REGISTER, fields)
         if not rows:
             raise QueryError("the server accepted the registration but said nothing about it")
         row = rows[0]

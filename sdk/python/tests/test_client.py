@@ -330,6 +330,17 @@ def test_registering_a_query_over_an_unknown_stream_is_refused(client):
     assert "PRV-" in str(refused.value)
 
 
+def test_a_sink_name_reaches_the_server_and_an_unbound_one_is_refused(client):
+    # The fourth field of the register action names a sink (ADR-043). This server binds none,
+    # so the registration is refused by the sink's name -- which is only possible if the name
+    # travelled. A client that dropped it would have registered a view-only query instead.
+    with pytest.raises(QueryError) as refused:
+        client.register("py_sinked", TRADE_SQL, [0], sink="nowhere_bound")
+
+    assert "nowhere_bound" in str(refused.value)
+    assert "py_sinked" not in [q.name for q in client.queries()]
+
+
 def test_a_subscription_can_be_opened_and_filtered(client):
     """The subscription surface, exercised for shape rather than for delivery.
 

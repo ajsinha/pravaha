@@ -49,9 +49,10 @@
 | **Event time** | Watermarks are generated as well as handled: a query derives one from the event-time column its stream declares, and a partition that goes quiet stops holding the rest of the query back. |
 | **Corrections** | Late data reopens a closed window as a retraction of the published answer plus the corrected one — declared per stream with `allowedLateness`, defaulting to zero, because a revising query is no longer safe for an append-only sink and that must be a choice. |
 | **Z-set weights** | Every change carries `+1` or `−1`, through the engine, across the wire, and into both SDKs. |
-| **Sources** | Filesystem (bounded, or `tail -f` with `follow: true`), feedfile, JDBC, Delta and Aerospike. Filters are pushed into the store on every path a deployment uses. |
+| **Sources** | Filesystem (bounded, or `tail -f` with `follow: true`), feedfile, JDBC, Delta, Aerospike, and Cassandra as a periodic `token()`-range scan. Filters are pushed into JDBC and Aerospike, including from a registered continuous query. JDBC, Aerospike and Cassandra connections can be encrypted ([`CONNECTOR_TLS.md`](docs/CONNECTOR_TLS.md)). |
 | **Joins** | Stream-to-stream, and temporal lookup joins against a dimension table, reachable from a registered query. |
 | **Serving** | The maintained view is read back by key in microseconds, or subscribed to for changes per commit. |
+| **Sinks** | A registration can also name a sink bound under `pravaha.sinks.<name>` (`pravaha register --sink`), and every commit of its view is written there — retractions included, as rows with a negative weight. A query that revises its answer pointed at a sink that can only append is refused at registration (`PRV-2041`), before the sink is opened. A sink that refuses a batch is detached (`PRV-8009`) rather than written past, and the query carries on. |
 | **Recovery** | Checkpoints carry operator state, source offsets and the served view, cut at one point across every input (ADR-008); a restart resumes rather than replaying or starting empty. |
 | **Survival** | A node claims the checkpoint root and the registry journal it writes, so two nodes cannot silently prune and replay each other's state (`PRV-4003`, override with `pravaha.state.allow-shared`). A standby (`pravaha.standby.enabled`) takes over when the claim goes stale and reports what the takeover lost rather than implying continuity. A bad input line goes to a dead-letter queue (`pravaha run --dlq <file>`) instead of ending the run. |
 | **Scale on one node** | A registered query no longer costs a platform thread. Lanes are driven by a fixed pool sized to the cores (`LaneRunner`, ADR-027), the watermark and checkpoint clocks are one shared timer for the process, and 200 queries cost **24 platform threads — one per core, fixed** — where they used to cost 400. Off-heap per query is **~1,024 KiB idle, ~1,328 KiB active**, down from ~5 MiB, and every component reports its own bytes by name (ADR-036). |
@@ -67,51 +68,59 @@
   now" before reading one — so execution remains single-node.
 - **No Spring Boot starter** (ADR-020). The engine core contains no Spring and sits behind a plain
   `PravahaEngine` seam, so embedding it never dictates your Spring version.
-- **A sink can be configured but no query writes to one** (W8-13, half built). `pravaha.sinks.<name>`
-  now names a `StreamSinkPlugin`, `ServiceLoader` finds it by the name it reports for itself, and a
-  binding resolves to an opened, writable instance — proven end to end with no query involved. What
-  is still missing is the attachment: nothing resolves *which registered query's output goes to which
-  sink*, so every continuous query still writes to a served view, which applies a retraction
-  correctly. **Changelog negotiation therefore remains reachable from nothing** — there is still
-  nothing for `ChangelogAnalysis.checkAgainst` to refuse, and `ErrcSqlTest` fails the moment anything
-  attaches a query to a sink without calling it first, which is the silent-corruption case in design
-  §15.5.
-- **Half of operator state is off-heap** (W8-12, partly closed). `VariableKeyStateMap` replaces the
-  deleted `L0StateMap`: keys of any width, an off-heap open-addressed slot table of fingerprints and
-  handles indexing a byte store, so growing the index never moves the data and a fingerprint hit is
-  verified against the real key bytes rather than trusted. A **join's** per-side index uses it now.
-  A windowed **aggregate's** accumulators do not: `SlicedAggregateState` keys by a 128-bit digest and
-  carries an on-heap `Object[]` so a window can reconstruct its output, and moving it means changing
-  what `WindowedAggregate` hands in, the checkpoint format version, and `COUNT(DISTINCT)`'s per-group
-  on-heap accounting beside it — deliberately not rushed into the most correctness-critical class in
-  the engine.
-  Measured rather than claimed, and the number is not a triumph: about **106 bytes per entry against
-  roughly 109 for the `HashMap` it replaces**, because a small entry pays `RowStore`'s 64-byte
-  minimum block. The win that does not show in that number is that none of it is an object the
-  collector traces, so a million live groups cost the collector nothing.
+- **Sinks are at-least-once, and one ships that can be named** (ADR-043). A registration can name a
+  sink and every commit of its view reaches it, but the transactional half of the sink SPI is not
+  tied to checkpoints, so a restart can repeat rows — harmless for an idempotent upsert, visible in a
+  file. And only the `filesystem` sink is declared to `ServiceLoader`, and it is append-only, so no
+  query that retracts has a sink it can name yet: `AerospikeSinkPlugin` accepts upserts and
+  retractions and is not declared as a service, which is the next step and needs an Aerospike to
+  prove it against.
+- **Operator state is off-heap, except `COUNT(DISTINCT)`** (W8-12, ADR-037 B2).
+  `VariableKeyStateMap` replaces the deleted `L0StateMap`: keys of any width, an off-heap
+  open-addressed slot table of fingerprints and handles indexing a byte store, so growing the index
+  never moves the data and a fingerprint hit is verified against the real key bytes rather than
+  trusted. A join's per-side index uses it, and so do a windowed aggregate's accumulators, keyed by
+  the same 128-bit digest `SlicedAggregateState` always used. An aggregate containing
+  `COUNT(DISTINCT)` keeps its accumulators on-heap, because its state is a set per group that grows
+  with cardinality rather than a fixed-width number.
+  Measured rather than claimed: about **106 bytes per join-index entry against roughly 109 for the
+  `HashMap` it replaced**, because a small entry pays `RowStore`'s 64-byte minimum block, and
+  **157 bytes per aggregate accumulator against an estimated ~248 on-heap**. The win the first number
+  does not show is that none of it is an object the collector traces.
 - **The console is a functional admin console on purpose** — it manages queries, tails a view and
   renders the documentation. It is not the design-system product surface §23.20 describes.
-- **A lane can run many queries, and does not by default** (W9-8, W9-9 and W9-10 all closed).
+- **A lane can run many queries, but a node cannot be told to** (W9-9 and W9-10 closed, W9-8 not).
   `LaneRunner` shares a lane's *thread* between lanes, which removed the thread-per-query cost;
-  `LaneMultiplexer` now shares one inbox and one arena between many pipelines, and the registry uses
-  it when `pravaha.lane.multiplex` is on. The aligned checkpoint barrier was the cost that made this
-  untenable — three hundred queries on one lane each advancing a watermark every second would cut
-  the lane's batches short hundreds of times a second — and it is gone: **a checkpoint is a cut and
-  clamps the batch; a watermark is a level and does not**, because applying a watermark further along
-  the stream is never wrong, only less prompt.
-  **It is off by default for want of admission control**: nothing decides which lane a registration
-  lands on, so every hosted query shares one lane's budget. The multiplexer stops any pipeline being
-  systematically served last by running them in ascending order of lane time consumed, but that is
-  fair ordering, not a ceiling.
+  `LaneMultiplexer` shares one inbox and one arena between many pipelines, and the registry hosts
+  queries on shared lanes when `QueryRegistry.multiplexingLanes(true)` is called. The aligned
+  checkpoint barrier was the cost that made this untenable — three hundred queries on one lane each
+  advancing a watermark every second would cut the lane's batches short hundreds of times a second —
+  and it is gone: **a checkpoint is a cut and clamps the batch; a watermark is a level and does not**,
+  because applying a watermark further along the stream is never wrong, only less prompt.
+  **No node setting turns it on**, so a `pravaha-server` deployment always runs a lane per query;
+  only an embedder calling the registry directly gets sharing. And nothing decides which lane a
+  registration lands on, so every hosted query shares one lane's budget: the multiplexer runs
+  pipelines in ascending order of lane time consumed, which is fair ordering, not a ceiling.
 - **N queries over one Aerospike set are one scan.** Each scan is throttled to `scan.interval.ms`
   (one second by default), and since SRC-3 one reader per *source binding* feeds every query bound
   to it — four queries over one set measured at 1.0 scans/s between them, where it was 1.0 each
   (ADR-036 §3). Sources that promise exactly-once or ordering within a partition keep a reader per
   query: the handover that lets a late query join a running reader cannot preserve either.
-- **State spills nowhere.** A query that reaches its ceiling is still refused, not degraded; what
-  Wave 9 added is the ability to *see* the ceiling coming (ADR-037 B1). The on-disk tier is B2,
-  scoped and not started.
-- **Projection and partial-aggregate pushdown**, and a Cassandra plugin, are designed and not built.
+- **State spills to disk only when configured, and not for `COUNT(DISTINCT)`** (ADR-037 B2).
+  `pravaha.state.spill.{enabled,directory,max-overflow-slabs}` gives join and windowed-aggregate
+  state a memory-mapped overflow tier, so a query past its memory ceiling slows down instead of being
+  refused. It is off by default, and with it on, an aggregate containing `COUNT(DISTINCT)` is refused
+  by name (`PRV-3023`) rather than silently denied the tier. There is no RocksDB tier.
+- **Projection and partial-aggregate pushdown are built and used by no shipped source.**
+  `SourcePushdown` computes both — the columns a query still needs, and a pre-combined `COUNT`/`SUM`
+  — and the engine can fold a returned partial back into its aggregate, with an equivalence test
+  over each. But no shipped plugin declares either capability, and no ingest path hands the engine a
+  partial yet, so in a deployment today only **filters** are pushed down.
+- **Filter pushdown is lost when a shared reader serves differing filters.** Since SRC-3 queries
+  over one source binding share one reader by default (`share.reader`), unless the plugin promises
+  exactly-once or per-partition ordering; when a second query with a different `WHERE` joins, the
+  shared reader reads unfiltered and each query filters for itself. `share.reader: false` keeps the
+  pushdown and pays a read per query.
 
 ### What cannot be measured here
 
@@ -167,9 +176,9 @@ what a continuous query over a file needs and did not have.
 
 ## What it is
 
-Pravaha runs continuous SQL over your existing databases — Aerospike first, then
-Cassandra/ScyllaDB, Kafka, Redis and PostgreSQL — and keeps the answers up to date as the data
-changes. It then **serves those answers back** at microsecond latency, so you do not need a
+Pravaha runs continuous SQL over your existing databases — Aerospike, Cassandra, and PostgreSQL or
+any JDBC database today, files and Delta tables beside them, with Kafka and Redis on the roadmap —
+and keeps the answers up to date as the data changes. It then **serves those answers back** at microsecond latency, so you do not need a
 second database to hold the results.
 
 ```sql
@@ -235,7 +244,7 @@ nor incremental maintenance.
 |  | What it means |
 |---|---|
 | **Embeddable** | A library inside your own Java process, or a server of its own. Same engine, same code paths. One node scaled to its cores — clustering is deferred (ADR-034). |
-| **Store-native** | **Filters** are pushed *into* the store — against Aerospike and any JDBC source, so filtered rows never cross the network. Offered on every path a deployment uses, including a registered continuous query, which until recently scanned and filtered afterwards. Projection and partial-aggregate pushdown, and a Cassandra plugin, are designed and not yet built. |
+| **Store-native** | **Filters** are pushed *into* the store — against Aerospike and any JDBC source, so filtered rows never cross the network. Offered on every path a deployment uses, including a registered continuous query, except where one shared reader serves queries with different filters. Projection and `COUNT`/`SUM` partial-aggregate pushdown are built in the planner and the engine and declared by no shipped plugin yet; the Cassandra plugin is a full `token()`-range scan with no pushdown. |
 | **Incremental** | Z-sets and DBSP-derived operators: work is proportional to what changed, not to how much data exists. Recursive SQL becomes expressible. |
 | **Serving** | The maintained view *is* an indexed table in memory, with declared consistency and reported staleness. Built and working; the µs-latency target is a design goal that needs the reference hardware to measure honestly. |
 
@@ -249,7 +258,7 @@ Full competitive analysis, including the ten measurable claims this has to satis
 | **Language** | Java 21 LTS, single language. Calcite plans; generated fused operators execute. [Why not Scala →](docs/system_design.md#4-language-decision-java-vs-scala) |
 | **Execution** | Whole-stage code generation (Janino) over binary flyweight rows in off-heap arenas. No `Map<String,Object>`, no boxing, no allocation on the hot path. |
 | **Concurrency** | Partitioned lanes, single-writer principle. One ring buffer, one state slice, one timer wheel per lane, and exactly one thread driving a lane *at a time* — since W9-4 that thread is shared: a fixed runner pool, one thread per core, drives every lane, so the node's thread count follows its cores and not its queries. No locks in steady state. |
-| **State** | Off-heap hash arena, plus checkpoint files. **Designed** as three tiers with RocksDB as L1 (D5); the RocksDB tier is *not built* and is not a dependency. The defence against unbounded state today is refusal at plan time, not spill — but the ceiling is now visible before it is hit, through `pravaha_query_state_held` / `_ceiling` / `_fraction` (ADR-037). |
+| **State** | Off-heap hash arena, plus checkpoint files. **Designed** as three tiers with RocksDB as L1 (D5); the RocksDB tier is *not built* and is not a dependency. The defence against unbounded state is refusal at plan time (`PRV-2050`), a memory-mapped overflow tier when `pravaha.state.spill.*` is configured (ADR-037 B2, off by default), and a ceiling that is visible before it is hit, through `pravaha_query_state_held` / `_ceiling` / `_fraction` (ADR-037 B1). |
 | **Correctness** | Exactly-once **state**: a checkpoint holds every source between rows, cuts every lane at one point and records the offsets of that same point, so restored state and replayed rows never overlap or gap (ADR-008). Rows crossing the lane-to-lane exchange are *not* cut and a checkpoint refuses rather than dropping them — no plan the engine compiles sends on the exchange, so that case is unreachable today. Output is **effectively-once**: `DeduplicatingSink` exists and is not yet wired, so a sink that is neither idempotent nor transactional can still see a duplicate after a restore. |
 | **Operations** | Adaptive batching and backpressure to the source plugin are built. *Designed, not built:* skew remediation, elastic rescaling, blue/green updates, and the time-travel debugger. What runs today is a single node with a registry, checkpoints, metrics and a console. |
 
@@ -427,11 +436,12 @@ thirty:
 the **PostgreSQL wire protocol, read half only**: a view is a table, `SELECT` over one is answered
 by the same `ViewQuery` the Arrow Flight gateway calls, and there is no write path to expose because
 the planner already refuses one. It exists so that `psql`, DBeaver, Grafana and every ORM can reach
-the engine without installing an Arrow Flight SQL client, which almost nobody has. Slice 1 is the
-simple query protocol and nothing else — no extended query protocol, no prepared statements, no
-cursors, no `COPY`, and **no TLS, so a password configured on it crosses the wire in the clear**.
-Each of those is refused by name rather than half-built; the full list, with a reason each, is in the
-module's `package-info.java`.
+the engine without installing an Arrow Flight SQL client, which almost nobody has. It speaks the
+simple and the extended query protocol, so pgjdbc's defaults and prepared statements work, answers
+`psql`'s catalogue queries (`\d`, `\dt`) from the live view catalogue, and upgrades to TLS on an
+`SSLRequest` when `pravaha.pgwire.tls.certificate` and `.key` are set. It refuses by name what it does
+not do — cursors (`DECLARE`/`FETCH`), `COPY`, `CancelRequest` and binary result formats — and the
+full list, with a reason each, is in the module's `package-info.java`.
 
 Plugins: [`filesystem`](plugins/pravaha-plugin-filesystem), [`delta`](plugins/pravaha-plugin-delta),
 [`feedfile`](plugins/pravaha-plugin-feedfile), [`jdbc`](plugins/pravaha-plugin-jdbc),
@@ -449,28 +459,26 @@ operator console is its own artefact in [`console`](console).
 | 1 | 1–2 | Foundations; deterministic harness | ✅ `M1` |
 | 2 | 3–5 | Vertical slice; **go/no-go on the incremental core** | ✅ `M2` |
 | 3 | 6–11 | Codegen, lanes, exchange — Profile A ≥ 1.2 M rec/s/lane | ✅ built · gate P2 needs hardware |
-| 4 | 12–18 | Windows, watermarks, late data, tiered state | ✅ built · gate P3 needs hardware |
+| 4 | 12–18 | Windows, watermarks, late data, tiered state | ✅ built, except the RocksDB tier · gate P3 needs hardware |
 | 5 | 19–25 | Joins, Aerospike, checkpointing and recovery | ✅ built |
 | 6 | 26–32 | Backfill, blue/green, serving layer — **first defensible demo** | ✅ built |
 | 7 | 33–38 | Flight SQL, SDKs, security, registration, subscriptions, console | ✅ built · console included |
-| 8 | 39–45 | Survival on one node — state ownership, checkpoint barriers, standby ([ADR-035](docs/adr/035-wave-8-is-survival-not-distribution.md)) | ✅ built · gate P7 pack not written |
-| 9 | — | One node, thousands of queries — lane multiplexing onto shared threads, a shared clock, arena and inbox sizing, an Aerospike scan interval, state you can watch approach its ceiling ([ADR-036](docs/adr/036-one-node-thousands-of-queries.md), [ADR-037](docs/adr/037-state-that-degrades-instead-of-dying.md)) | ✅ built · no gate pack |
+| 8 | 39–45 | Survival on one node — state ownership, checkpoint barriers, standby ([ADR-035](docs/adr/035-wave-8-is-survival-not-distribution.md)) | ✅ built · gate P7 passed |
+| 9 | — | One node, thousands of queries — lane multiplexing onto shared threads, a shared clock, arena and inbox sizing, an Aerospike scan interval, state you can watch approach its ceiling ([ADR-036](docs/adr/036-one-node-thousands-of-queries.md), [ADR-037](docs/adr/037-state-that-degrades-instead-of-dying.md)) | ✅ built · gate pack written, two items deferred |
 | 10–11 | 46–62 | **Redefined twice, and now holds less.** [ADR-038](docs/adr/038-one-node-ga.md) moved the time-travel debugger and the Nexmark head-to-head out to the roadmap; [ADR-039](docs/adr/039-ga-includes-the-known-gaps-and-clustering.md) superseded it, so what stands between here and **GA** is the seven known gaps above, then cluster mode | ▫️ not started |
 
 Waves 1–7 are complete and the gap work above is **not** wave 10 — it is the unfinished part of
-waves 8 and 9 (`W8-12`, `W8-13`, `W9-8`), which is why the wave counter still reads 9 while
-[ADR-039](docs/adr/039-ga-includes-the-known-gaps-and-clustering.md) item 1 is closed and item 5 is
-half closed.
+waves 8 and 9, which is why the wave counter still reads 9 while most of
+[ADR-039](docs/adr/039-ga-includes-the-known-gaps-and-clustering.md)'s gap items are closed or down to
+a stated remainder; the ADR's own progress note says which.
 
-`main` and `develop` are the **same commit**: the drill after every piece of work is to push
-`develop` and then fast-forward `main`, so `main` is no longer a wave behind. It carries 316 commits
-past `M7`, which is the newest tag — waves 8 and 9 are merged but **not tagged**, and that is the
-part of the old sentence that is still true. **Wave 9 was inserted by [ADR-036](docs/adr/036-one-node-thousands-of-queries.md)** ahead of
+Work happens on `develop`, which is pushed after every verified change; `main` is merged from it
+when the owner asks, so it is normally somewhat behind. `M7` is the newest tag — waves 8 and 9 are
+merged but **not tagged**. **Wave 9 was inserted by [ADR-036](docs/adr/036-one-node-thousands-of-queries.md)** ahead of
 the control-plane and GA waves, which keep their content and their week estimates and move down by
 one — its own length was never estimated, which is why its Weeks cell is empty rather than invented.
 "Built" means the code is there and tested; it does not mean a performance gate passed, and
-[`docs/gates`](docs/gates/) says which ones did not and why — it holds no pack for waves 5, 6, 8
-or 9.
+[`docs/gates`](docs/gates/) says which ones did not and why, with a pack for every wave from 1 to 9.
 
 [Full roadmap with acceptance gates →](docs/system_design.md#31-delivery-roadmap)
 

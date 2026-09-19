@@ -202,8 +202,12 @@ public final class QueryRegistry implements AutoCloseable {
     /** Where a registration's named sink is resolved. {@link SinkFactory#NONE} until one is given. */
     private SinkFactory sinks = SinkFactory.NONE;
 
-    /** The sink each registration named, by query name, so a drop can let go of it. */
-    private final java.util.Map<String, String> sinkByName = new java.util.LinkedHashMap<>();
+    /**
+     * The sink each registration writes to, by query name -- per name and not per computation,
+     * because ADR-043 fans a shared computation out to every sink bound to any of its names, and a
+     * drop lets go of that name's sink alone.
+     */
+    private final java.util.Map<String, SinkDelivery> deliveries = new java.util.LinkedHashMap<>();
 
     /**
      * Resolves the sinks registrations name (ADR-043, W8-13).
@@ -218,13 +222,32 @@ public final class QueryRegistry implements AutoCloseable {
 
     /** The sink a registered query writes to, or empty when it writes only to its view. */
     public synchronized java.util.Optional<String> sinkOf(String queryName) {
-        return java.util.Optional.ofNullable(sinkByName.get(queryName));
+        return java.util.Optional.ofNullable(deliveries.get(queryName)).map(SinkDelivery::sinkName);
+    }
+
+    /**
+     * Why a registration's sink stopped, or empty while it is writing or when there is none.
+     *
+     * <p>A sink that refuses a batch is detached rather than written past ({@code PRV-8009}); this
+     * is where an operator finds out, since the query itself keeps running and its view keeps
+     * answering.
+     */
+    public synchronized java.util.Optional<PravahaException> sinkFailure(String queryName) {
+        SinkDelivery delivery = deliveries.get(queryName);
+        return delivery == null ? java.util.Optional.empty() : delivery.failure();
+    }
+
+    /** Rows a registration's sink has accepted, or zero when it has none. */
+    public synchronized long rowsWrittenToSink(String queryName) {
+        SinkDelivery delivery = deliveries.get(queryName);
+        return delivery == null ? 0 : delivery.rowsWritten();
     }
 
     /**
      * Registrations share multiplexed lanes instead of each owning one.
      *
-     * <p>See {@link #multiplexing}. A node turns this on with {@code pravaha.lane.multiplex}.
+     * <p>See {@link #multiplexing}. Only an embedder can turn it on today: no {@code pravaha.*}
+     * setting reaches this, so a {@code pravaha-server} node always runs a lane per query (W9-8).
      */
     public QueryRegistry multiplexingLanes(boolean on) {
         this.multiplexing = on;
@@ -492,9 +515,7 @@ public final class QueryRegistry implements AutoCloseable {
         if (sinkName == null || sinkName.isBlank()) {
             throw new IllegalArgumentException("a sink name is required; use register(...) to write only a view");
         }
-        RegisteredQuery query = register(name, sql, keyColumns, principal, Retention.forever(), sinkName);
-        sinkByName.put(name, sinkName);
-        return query;
+        return register(name, sql, keyColumns, principal, Retention.forever(), sinkName);
     }
 
     /** Registers with both an explicit retention and bound parameters. */
@@ -595,6 +616,48 @@ public final class QueryRegistry implements AutoCloseable {
         // first registrant asked and with the second one's retention dropped, silently.
         QueryFingerprint fingerprint = QueryFingerprint.of(plan, rowFilters, keyColumns, retention);
 
+        // Opened after every refusal above and before anything runs, so a registration refused for
+        // its SQL, its sink's changelog or its principal never opened a connection -- and a fresh
+        // computation can attach the sink before its feed delivers a row.
+        SinkDelivery delivery = sinkName == null ? null : openDelivery(name, sinkName, plan.outputSchema());
+        try {
+            return register(
+                    name,
+                    sql,
+                    keyColumns,
+                    principal,
+                    retention,
+                    parameters,
+                    sinkName,
+                    plan,
+                    placements,
+                    fingerprint,
+                    delivery);
+        } catch (RuntimeException e) {
+            if (delivery != null) {
+                delivery.close();
+            }
+            throw e;
+        }
+    }
+
+    private SinkDelivery openDelivery(String name, String sinkName, StreamSchema schema) {
+        SinkFactory factory = sinks;
+        return new SinkDelivery(name, sinkName, factory.open(sinkName), schema, access, factory::release);
+    }
+
+    private RegisteredQuery register(
+            String name,
+            String sql,
+            List<Integer> keyColumns,
+            Principal principal,
+            Retention retention,
+            BoundParameters parameters,
+            String sinkName,
+            PhysicalOperator plan,
+            List<ParameterPlacement> placements,
+            QueryFingerprint fingerprint,
+            SinkDelivery delivery) {
         RegisteredQuery existing = byFingerprint.get(fingerprint);
         if (existing != null && !existing.state().isTerminal()) {
             // The same question, asked again. One computation, one copy of the state, two names.
@@ -605,9 +668,17 @@ public final class QueryRegistry implements AutoCloseable {
             // ("Object not found" from a name that had just been acknowledged RUNNING), and it
             // vanished at the next restart while the node reported "recovered 2 of 2".
             views.registerAs(name, existing.view());
+            if (delivery != null) {
+                // ADR-043's fan-out: this name's sink listens on the running computation, seeded
+                // with what the view already holds, since everything committed before now happened
+                // before this sink existed.
+                delivery.attachTo(existing, true);
+                deliveries.put(name, delivery);
+            }
             try {
-                journalRegistration(name, sql, keyColumns, principal, retention, parameters);
+                journalRegistration(name, sql, keyColumns, principal, retention, parameters, sinkName);
             } catch (RuntimeException e) {
+                deliveries.remove(name);
                 // The same unwind the fresh path has. Without it a refusal the client could see left
                 // the name held and the shared computation pinned open by a registration that,
                 // as far as its caller knew, had failed.
@@ -619,13 +690,17 @@ public final class QueryRegistry implements AutoCloseable {
             return existing;
         }
 
-        RegisteredQuery query = start(name, sql, plan, keyColumns, fingerprint, retention, placements);
+        RegisteredQuery query = start(name, sql, plan, keyColumns, fingerprint, retention, placements, delivery);
         byName.put(name, query);
         byFingerprint.put(fingerprint, query);
         views.register(query.view());
+        if (delivery != null) {
+            deliveries.put(name, delivery);
+        }
         try {
-            journalRegistration(name, sql, keyColumns, principal, retention, parameters);
+            journalRegistration(name, sql, keyColumns, principal, retention, parameters, sinkName);
         } catch (RuntimeException e) {
+            deliveries.remove(name);
             // Unwound, because a refusal the caller can see and a query that is running anyway is
             // the worst of both: the client is told the registration failed, the computation serves
             // rows regardless, and nothing will bring it back after a restart. Registering again
@@ -654,7 +729,8 @@ public final class QueryRegistry implements AutoCloseable {
             List<Integer> keyColumns,
             Principal principal,
             Retention retention,
-            BoundParameters parameters) {
+            BoundParameters parameters,
+            String sinkName) {
         if (journal == null) {
             return;
         }
@@ -662,7 +738,10 @@ public final class QueryRegistry implements AutoCloseable {
         for (int index = 0; index < parameters.size(); index++) {
             encoded.add(RegistryJournal.encodeParameter(parameters.at(index)));
         }
-        journal.recordRegistration(name, sql, keyColumns, principal.id(), retention, encoded);
+        // The sink goes in the same record as the registration. Two appends could leave a restart
+        // with the query and without its sink, which recovers "successfully" while the table the
+        // query fed stops moving.
+        journal.recordRegistration(name, sql, keyColumns, principal.id(), retention, encoded, sinkName);
     }
 
     /** Registration during recovery: the journal is being read, so nothing is written back to it. */
@@ -672,11 +751,12 @@ public final class QueryRegistry implements AutoCloseable {
             List<Integer> keyColumns,
             Principal principal,
             Retention retention,
-            BoundParameters parameters) {
+            BoundParameters parameters,
+            String sinkName) {
         RegistryJournal suspended = journal;
         journal = null;
         try {
-            return register(name, sql, keyColumns, principal, retention, parameters);
+            return register(name, sql, keyColumns, principal, retention, parameters, sinkName);
         } finally {
             journal = suspended;
         }
@@ -822,7 +902,8 @@ public final class QueryRegistry implements AutoCloseable {
             List<Integer> keyColumns,
             QueryFingerprint fingerprint,
             Retention retention,
-            List<ParameterPlacement> placements) {
+            List<ParameterPlacement> placements,
+            SinkDelivery delivery) {
         StreamSchema schema = plan.outputSchema();
         for (int ordinal : keyColumns) {
             if (ordinal < 0 || ordinal >= schema.fieldCount()) {
@@ -876,6 +957,11 @@ public final class QueryRegistry implements AutoCloseable {
             // is being checkpointed. Started after the execution exists and before anything can
             // write to it is the only window where neither ordering is wrong.
             startCheckpointing(name, execution, query);
+            // Before the feed, so the sink hears the first commit there is. Nothing can have
+            // committed yet, so there is nothing to seed it with.
+            if (delivery != null) {
+                delivery.attachTo(query, false);
+            }
             query.feedFrom(feeds.open(name, execution, sourceStreams(plan), query::commit, resumeFrom));
         } catch (RuntimeException e) {
             // A feed that cannot open must not leave a half-started query behind holding a lane
@@ -946,7 +1032,8 @@ public final class QueryRegistry implements AutoCloseable {
                         entry.keyColumns(),
                         owner.get(),
                         entry.retention(),
-                        values.isEmpty() ? BoundParameters.none() : BoundParameters.of(values));
+                        values.isEmpty() ? BoundParameters.none() : BoundParameters.of(values),
+                        entry.sink());
                 recovered.add(entry.name());
             } catch (RuntimeException failure) {
                 // One bad entry must not stop the rest. A deployment recovering forty queries should
@@ -1103,6 +1190,12 @@ public final class QueryRegistry implements AutoCloseable {
             journal.recordDrop(name);
         }
         byName.remove(name);
+        // This name's sink alone. Another name on the same computation may write to a sink of its
+        // own, and keeps doing so.
+        SinkDelivery delivery = deliveries.remove(name);
+        if (delivery != null) {
+            delivery.close();
+        }
         // The view goes with the name. A dropped view that keeps answering serves whatever the
         // closed computation last committed, for ever, to a caller with no way to know that nothing
         // maintains it.
@@ -1127,6 +1220,8 @@ public final class QueryRegistry implements AutoCloseable {
     @Override
     public synchronized void close() {
         List<RegisteredQuery> all = new ArrayList<>(byFingerprint.values());
+        deliveries.values().forEach(SinkDelivery::close);
+        deliveries.clear();
         byName.clear();
         byFingerprint.clear();
         all.forEach(RegisteredQuery::close);

@@ -125,6 +125,12 @@ doing work.
 pravaha queries        # state column
 ```
 
+**Has the sink stopped?** A query registered with `--sink` keeps its view current even after the sink
+refuses a batch: the sink is detached with `PRV-8009` and an `ERROR` line names it, and nothing more
+is written to it, because writing past a lost batch would leave the sink missing a change with
+nothing to say so. The view still answering is not evidence the sink is receiving. Fix what the sink
+refused, then drop and re-register the query; it is sent the view's contents first.
+
 **Did a filter silently match nothing?** `WHERE tier = ?` bound to `NULL` matches **no rows**, because
 `x = NULL` is UNKNOWN under SQL's three-valued logic. `IS NULL` is what finds the empty ones.
 
@@ -148,7 +154,7 @@ schema is where you stop yourself.
 | | |
 |---|---|
 | `PRV-4022` view too large | Retention is applied *before* this check, so hitting it means either the view keeps everything and should not, or the window genuinely holds more rows than the ceiling. The message says which |
-| `PRV-4001` state too large | An operator's state passed its ceiling, and the lane it was running on dies with it. **Do not meet this for the first time here**: `pravaha_query_state_fraction` reports how full every query is, and `_held` / `_ceiling` report the two numbers behind it. Alert at 0.9. Spilling to disk instead of failing is ADR-037 B2 and is not built — a query that hits the ceiling still stops |
+| `PRV-4001` state too large | An operator's state passed its ceiling, and the lane it was running on dies with it. **Do not meet this for the first time here**: `pravaha_query_state_fraction` reports how full every query is, and `_held` / `_ceiling` report the two numbers behind it. Alert at 0.9. Without a spill tier a query that hits the ceiling stops. Configure `pravaha.state.spill.*` (off by default) and join and windowed-aggregate state spills to disk instead, slower but running (ADR-037 B2); an aggregate containing `COUNT(DISTINCT)` cannot spill and is refused at registration with `PRV-3023` when the tier is on |
 | `PRV-4003` state not ours | Another node owns this checkpoint directory or registry journal, or a second instance of this node is running. The message names the holder's node id, host, port and how long ago it was last seen. Give this node its own directory, stop the other instance, or set `pravaha.state.allow-shared=true` if sharing really is intended. A node reclaiming *its own* state after a crash does **not** hit this: an expired claim under the same node id is taken over automatically |
 | `PRV-4004` ownership marker unreadable | The `.pravaha-owner` file in a state directory exists and cannot be read, written, or names no node. Refused rather than assumed free, because a truncated marker and an absent one mean different things. Delete it only if the directory is genuinely unowned |
 | `PRV-4090` dead-letter queue unusable | `pravaha.dlq.directory` is set and this node cannot create or write there, so it refuses to start. Deliberately fatal: an operator who configured a dead-letter queue asked for undecodable records to be kept, and starting without one would hand them the behaviour they configured it to avoid — a single bad field ending the poll and taking the rest of the file with it (TIME-4). Fix the path and its permissions, or unset the key to go back to failing loudly on a bad record |
@@ -388,6 +394,7 @@ And this — Calcite's own conversion failure, distinct from either `StackOverfl
 | `PRV-8006` | REGISTRY_JOURNAL_UNWRITABLE | registry |
 | `PRV-8007` | REGISTRY_REPLAY_UNAUTHORIZED | registry |
 | `PRV-8008` | REGISTRY_NAME_UNUSABLE | registry |
+| `PRV-8009` | REGISTRY_SINK_WRITE_FAILED | registry |
 | `PRV-9001` | CLUSTER_UNKNOWN_MECHANISM | cluster |
 | `PRV-9002` | CLUSTER_INSUFFICIENT_GUARANTEE | cluster |
 | `PRV-9003` | CLUSTER_COORDINATOR_UNAVAILABLE | cluster |
