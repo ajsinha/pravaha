@@ -102,17 +102,18 @@ configured name, the `tls-name` in the server's `aerospike.conf`. So TLS here ne
 not one, and the second has no default that could be correct:
 
 ```yaml
-streams:
-  - name: positions
-    plugin: aerospike
-    options:
-      hosts: "db-1.internal:4333,db-2.internal:4333"
-      namespace: trading
-      set: positions
-      schema: "position_id:INT64,book:STRING,quantity:INT64,as_of:TIMESTAMP"
-      tls.enabled: true
-      tls.name: aerospike-cluster        # the tls-name from aerospike.conf. Usually NOT a hostname.
-      tls.ca: /etc/pravaha/tls/aerospike-ca.pem
+pravaha:
+  sources:
+    positions:
+      plugin: aerospike
+      options:
+        hosts: "db-1.internal:4333,db-2.internal:4333"
+        namespace: trading
+        set: positions
+        schema: "position_id:INT64,book:STRING,quantity:INT64,as_of:TIMESTAMP"
+        tls.enabled: true
+        tls.name: aerospike-cluster        # the tls-name from aerospike.conf. Usually NOT a hostname.
+        tls.ca: /etc/pravaha/tls/aerospike-ca.pem
 ```
 
 Set `tls.enabled` without `tls.name` and Pravaha refuses at configuration time, saying which half
@@ -128,22 +129,23 @@ The obvious way to give the DataStax driver an `SSLContext` encrypts the connect
 the driver in the form that honours it, and defaults to `true`.
 
 ```yaml
-streams:
-  - name: trades
-    plugin: cassandra
-    options:
-      contact.points: "cass-1.internal:9042,cass-2.internal:9042"
-      keyspace: market
-      table: trades
-      local.datacenter: dc1
-      schema: "trade_id:INT64,symbol:STRING,quantity:INT64,ingested_at:TIMESTAMP"
-      partition.key: trade_id
-      event.time: ingested_at
-      user: pravaha
-      password: ${CASSANDRA_PASSWORD}
-      tls.enabled: true
-      tls.truststore: /etc/pravaha/tls/cassandra-truststore.p12
-      tls.truststore.password: ${TRUSTSTORE_PASSWORD}
+pravaha:
+  sources:
+    trades:
+      plugin: cassandra
+      options:
+        contact.points: "cass-1.internal:9042,cass-2.internal:9042"
+        keyspace: market
+        table: trades
+        local.datacenter: dc1
+        schema: "trade_id:INT64,symbol:STRING,quantity:INT64,ingested_at:TIMESTAMP"
+        partition.key: trade_id
+        event.time: ingested_at
+        user: pravaha
+        password: ${CASSANDRA_PASSWORD}
+        tls.enabled: true
+        tls.truststore: /etc/pravaha/tls/cassandra-truststore.p12
+        tls.truststore.password: ${TRUSTSTORE_PASSWORD}
 ```
 
 ### 3.3 JDBC — TLS lives in the URL, and `tls.*` is refused
@@ -156,15 +158,16 @@ a configuration that claims otherwise.
 Put it in the URL:
 
 ```yaml
-streams:
-  - name: orders
-    plugin: jdbc
-    options:
-      url: "jdbc:postgresql://pg.internal:5432/sales?ssl=true&sslmode=verify-full&sslrootcert=/etc/pravaha/tls/pg-ca.pem"
-      table: orders
-      watermark.column: updated_at
-      user: pravaha
-      password: ${PG_PASSWORD}
+pravaha:
+  sources:
+    orders:
+      plugin: jdbc
+      options:
+        url: "jdbc:postgresql://pg.internal:5432/sales?ssl=true&sslmode=verify-full&sslrootcert=/etc/pravaha/tls/pg-ca.pem"
+        table: orders
+        watermark.column: updated_at
+        user: pravaha
+        password: ${PG_PASSWORD}
 ```
 
 `sslmode` is the setting that matters, and PostgreSQL's ladder is worth knowing:
