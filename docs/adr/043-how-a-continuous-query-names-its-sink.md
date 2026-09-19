@@ -149,7 +149,7 @@ Recorded after the code, so it describes what exists.
     at least once. `QueryRegistry` logs which at registration and `sinkGuarantee(name)` answers it.
     `DeduplicatingSink` is not the answer for the last case and stays unwired: a view commit's
     changes carry no sequence, and a commit's boundaries are not reproduced by a replay.
-  - *Not covered:* neither shipped sink is transactional; a `PRV-8009` detach ends the guarantee
+  - *Not covered:* only `jdbc-sink` is transactional among the shipped sinks; a `PRV-8009` detach ends the guarantee
     (re-attaching seeds the whole view); a node stopped and never restarted leaves its transactional
     sinks' tail since the last checkpoint uncommitted, where a drop commits it; and the view is only
     as right as the checkpoint — the sink matches the view, exactly.

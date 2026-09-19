@@ -77,8 +77,8 @@ what changed and why. docs/qa/FINDINGS.md status lines come next. This file and 
     nameable and unit-tested against a fake client; its real-server test
     (AerospikePluginIT) needs Docker, which this machine does not have.
     Exactly-once is built on the engine side (the transactional sink SPI is
-    tied to checkpoints, ADR-043 "As built"); no shipped sink is
-    transactional yet. `pravaha queries` does not show a query's sink or a detached
+    tied to checkpoints, ADR-043 "As built"), and jdbc-sink is transactional
+    through a staging table. `pravaha queries` does not show a query's sink or a detached
     sink's PRV-8009. SINK-3: no per-sink authorization, and the audit does
     not record the sink.
   - Item 6: projection and COUNT/SUM partial-aggregate pushdown are built and
