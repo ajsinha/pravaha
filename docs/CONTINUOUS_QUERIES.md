@@ -521,7 +521,7 @@ says what that shared surface is and where the one asymmetry lies.
 Or subscribe, and receive each committed change as it happens:
 
 ```bash
-pravaha subscribe --name hourly_spend
+pravaha subscribe --view hourly_spend
 ```
 
 **A subscription delivers whole commits.** Never half a batch, never a partly-closed window — a
@@ -540,6 +540,10 @@ The view is maintained exactly as without `--sink`; the sink receives the same c
 does, retractions included as rows with a negative weight. Three things to know
 ([ADR-043](adr/043-how-a-continuous-query-names-its-sink.md)):
 
+- **The query's output must be the sink's row shape.** A sink reads rows through the schema in its
+  binding, so the `SELECT` list must match it column for column — order, name and type — and a keyed
+  sink must be keyed by exactly the query's `--keys`. Anything else is refused with `PRV-8010` at
+  registration, because the alternative is every value read from another column's place.
 - **The query and the sink must agree about retractions.** A query that revises its answer — any
   unwindowed aggregate, a window with `allowedLateness`, a join that can withdraw a match — needs a
   sink that accepts updates. Pointed at an append-only sink, such as a file, the pair is refused
@@ -1037,6 +1041,7 @@ projections correctly; what is not built is arithmetic over it. Recorded as TY-7
 | `PRV-2060`–`PRV-2063` | Parameter binding — see [ADR-032](adr/032-parameters-are-values-not-queries.md) |
 | `PRV-3030` | A row's output is wider than 64 columns — §11 |
 | `PRV-8009` | A sink refused a batch and was detached from the query; the view carries on — §4 |
+| `PRV-8010` | The sink's configured columns, or its key, do not match the query's output or `--keys` — §4 |
 
 ---
 

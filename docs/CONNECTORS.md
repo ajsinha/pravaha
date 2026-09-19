@@ -37,7 +37,7 @@ Three kinds, and a connector may be more than one:
 | Interface | What it does | Shipped examples |
 |---|---|---|
 | `StreamSourcePlugin` | Rows in. The thing a `FROM` clause reads | filesystem, feedfile, aerospike, delta, jdbc, cassandra |
-| `StreamSinkPlugin` | Rows out — every commit of a query that names the sink at registration ([ADR-043](adr/043-how-a-continuous-query-names-its-sink.md)) | filesystem (append-only; the only one declared to `ServiceLoader`), aerospike (upsert and retract; built, not yet declared, so `pravaha.sinks` cannot name it) |
+| `StreamSinkPlugin` | Rows out — every commit of a query that names the sink at registration ([ADR-043](adr/043-how-a-continuous-query-names-its-sink.md)). A sink with a configured schema or key reports it through `schema()` and `keyColumns()`, and a registration that does not match is refused | filesystem (append-only), `aerospike-sink` (upsert and delete by key, composite keys) |
 | `LookupSourcePlugin` | Point lookups for a temporal join's right side | aerospike, jdbc |
 
 ---

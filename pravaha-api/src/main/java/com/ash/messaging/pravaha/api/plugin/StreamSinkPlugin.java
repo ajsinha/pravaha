@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.api.plugin;
 import java.util.List;
 
 import com.ash.messaging.pravaha.api.data.RowView;
+import com.ash.messaging.pravaha.api.data.StreamSchema;
 
 /**
  * Where computed results go.
@@ -29,6 +30,34 @@ import com.ash.messaging.pravaha.api.data.RowView;
 public interface StreamSinkPlugin extends PravahaPlugin {
 
     SinkCapabilities capabilities();
+
+    /**
+     * The row shape this sink was configured to write, when it was given one.
+     *
+     * <p>A sink reads each row by ordinal and type through its <em>own</em> declared schema, while
+     * the engine hands it rows laid out as the <em>query</em> produced them. When the two disagree --
+     * a column added, two swapped -- every value is read from the wrong place and nothing fails. So a
+     * sink that has a schema says so here, answerable after {@link #configure} and without {@link
+     * #open}, and a registration whose output does not match it is refused before a row is written.
+     *
+     * <p>Empty, the default, means the sink takes whatever shape it is given.
+     */
+    default java.util.Optional<StreamSchema> schema() {
+        return java.util.Optional.empty();
+    }
+
+    /**
+     * The columns that identify a record at this sink, for a sink that upserts and deletes by key.
+     *
+     * <p>They must be the query's own key, as a set. A sink keyed on fewer columns than the view
+     * collapses distinct rows onto one record, and a retraction of one of them deletes the other's;
+     * a sink keyed on more leaves the old record behind whenever a row changes. Both are silent, so
+     * a registration whose view key differs is refused. Empty, the default, means an append-only
+     * sink with no key.
+     */
+    default java.util.List<String> keyColumns() {
+        return java.util.List.of();
+    }
 
     /**
      * Writes a batch.

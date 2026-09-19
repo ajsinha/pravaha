@@ -520,12 +520,38 @@ pravaha:
         schema: "id:INT64,user:STRING,amount:INT64"
 ```
 
+Two plugins ship. `filesystem` appends delimited rows to a file and cannot take a retraction.
+`aerospike-sink` upserts into a set by key and deletes on a retraction, so it takes a query that
+revises its answer:
+
+```yaml
+pravaha:
+  sinks:
+    spend_by_user:
+      plugin: aerospike-sink
+      options:
+        hosts: aerospike-1:3000
+        namespace: analytics
+        set: spend_by_user
+        schema: "user_id:STRING,window_end:INT64,total:INT64"
+        key.bins: user_id,window_end   # must be the registration's --keys, as columns
+        ttl.seconds: 86400             # optional; each record expires itself
+```
+
+A single key column becomes the record's key as itself; several become one blob key, and the key
+columns are then also written as bins so a reader can see them. The connection takes the same
+`tls.*` options as the Aerospike source ([`CONNECTOR_TLS.md`](CONNECTOR_TLS.md)).
+
 A registration names the sink, not the configuration: `pravaha register --name big_txn --sql-file
 q.sql --sink audit_trail`, or the `sink` argument of either SDK's `register`. The query's view is
 maintained exactly as before, and every commit of it is also written to the sink.
 
 What an operator should know about that delivery:
 
+- **The query must produce the sink's row shape.** The sink reads each row through its binding's
+  `schema`, so a `SELECT` list in another order, or with another name or type, is refused with
+  `PRV-8010`, as is a keyed sink whose `key.bins` are not the registration's key columns. Refused
+  before the sink is opened, because the alternative is plausible nonsense and no error.
 - **A bad pair is refused before anything runs.** A query that revises its answer — a running
   aggregate, a window with allowed lateness — pointed at a sink that can only append is refused
   with `PRV-2041` at registration, before the sink is opened. A `filesystem` sink is append-only, so

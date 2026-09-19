@@ -59,6 +59,33 @@ public interface SinkFactory {
      */
     SinkCapabilities capabilitiesOf(String sinkName);
 
+    /**
+     * Everything a registration checks about a sink before opening it: what it accepts, the row shape
+     * it was configured with, and the columns it keys records by.
+     *
+     * <p>Defaults to the capabilities alone, for a factory whose sinks declare no shape.
+     */
+    default Description describe(String sinkName) {
+        return new Description(capabilitiesOf(sinkName), java.util.Optional.empty(), java.util.List.of());
+    }
+
+    /**
+     * What a sink declares about itself, read after configuration and without opening it.
+     *
+     * @param schema the row shape it reads rows through, or empty when it takes any shape
+     * @param keyColumns the columns it keys records by, or empty for an append-only sink
+     */
+    record Description(
+            SinkCapabilities capabilities,
+            java.util.Optional<com.ash.messaging.pravaha.api.data.StreamSchema> schema,
+            java.util.List<String> keyColumns) {
+
+        public Description {
+            schema = schema == null ? java.util.Optional.empty() : schema;
+            keyColumns = keyColumns == null ? java.util.List.of() : java.util.List.copyOf(keyColumns);
+        }
+    }
+
     /** The sink itself, opened and ready to be written to. */
     StreamSinkPlugin open(String sinkName);
 

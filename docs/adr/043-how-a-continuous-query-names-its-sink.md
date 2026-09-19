@@ -120,6 +120,11 @@ Recorded after the code, so it describes what exists.
   sink name after the query name), so a restart re-attaches it and a registration whose sink is no
   longer bound is refused by name in the recovery report. A build that predates sinks refuses a `W`
   record rather than recovering the query without its sink.
+- **The row shape is checked too.** A sink reads rows through the schema in its own binding, and the
+  engine hands it rows laid out as the query produced them, so a registration whose output differs
+  in order, name or type — or, for a keyed sink, whose key columns are not the sink's — is refused
+  with `PRV-8010` before the sink opens. `StreamSinkPlugin.schema()` and `keyColumns()` are how a
+  sink declares them (SINK-1).
 - **The guarantee is at-least-once.** A restart replays from the last checkpoint, and seeding a
   joining sink can repeat rows it already holds. A sink declaring `idempotentUpsert` makes that
   effectively-once; the transactional half of the SPI is not called, because tying a sink's commit

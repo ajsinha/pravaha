@@ -126,6 +126,18 @@ class InterpretedFirstAdmissionTest {
                     },
                     "swap-feeder");
             feeder.start();
+            // Wait for the feeder to have actually run a batch before the upgrade is submitted.
+            // Starting a thread is not running it: under full-reactor load the compile finished and
+            // the swap landed before the feeder's first batch, no row ran interpreted, and "some rows
+            // ran before the swap" failed on scheduling rather than on the swap -- an assertion
+            // placed before the thing it asserts had been given a chance to happen.
+            long started = System.nanoTime();
+            while (fed.get() == 0 && System.nanoTime() - started < TimeUnit.SECONDS.toNanos(10)) {
+                Thread.onSpinWait();
+            }
+            assertThat(fed.get())
+                    .as("the feeder must be running before the swap is submitted")
+                    .isPositive();
 
             service.submit(stage, plan(), outcome -> {});
             assertThat(service.awaitQuiet(30, TimeUnit.SECONDS)).isTrue();

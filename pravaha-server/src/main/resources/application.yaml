@@ -221,9 +221,14 @@ pravaha:
   # binding here does nothing until a registration names it (`pravaha register --sink audit_trail`,
   # or an SDK's register(..., sink)); from then on every commit of that query's view is written to
   # it as well, at least once. A query whose changelog the sink cannot take is refused at
-  # registration with PRV-2041. A `filesystem` sink is append-only, non-transactional and not
-  # idempotent -- see SinkCapabilities -- so it takes filters, projections and windows without
-  # lateness, and nothing that retracts.
+  # registration with PRV-2041, and so is one whose SELECT list is not the binding's `schema` --
+  # same order, names and types -- or, for a keyed sink, whose --keys are not its key (PRV-8010).
+  # `filesystem` is append-only, non-transactional and not idempotent -- see SinkCapabilities -- so
+  # it takes filters, projections and windows without lateness, and nothing that retracts.
+  # `aerospike-sink` upserts by key and deletes on a retraction, so it takes anything:
+  #   plugin: aerospike-sink
+  #   options: {hosts: "aerospike-1:3000", namespace: analytics, set: spend,
+  #             schema: "user_id:STRING,total:INT64", key.bins: user_id}
   #
   # sinks:
   #   audit_trail:

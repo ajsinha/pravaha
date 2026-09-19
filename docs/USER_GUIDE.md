@@ -73,6 +73,28 @@ the state. `pravaha queries` shows the fingerprint so you can see it holding.
 **The view needs a key.** A view with no key is a log, and a point read against it has nothing to look
 up. The ordinals are into the query's *output* columns.
 
+### Writing the answer to a sink as well
+
+A registration can also name a sink the server binds under `pravaha.sinks.<name>`
+([Operations](OPERATIONS.md) has the binding). The view is maintained exactly as without one, and
+every commit of it is written to the sink too, retractions included:
+
+```java
+client.register("spend_by_user", Files.readString(Path.of("spend.sql")), List.of(0, 1), "spend_sink");
+```
+```python
+client.register("spend_by_user", open("spend.sql").read(), [0, 1], sink="spend_sink")
+```
+```bash
+pravaha register --name spend_by_user --sql-file spend.sql --keys 0,1 --sink spend_sink
+```
+
+Refused at registration, before the sink opens: a query that revises its answer against a sink that
+can only append (`PRV-2041`), and a query whose output columns, or whose `--keys`, differ from the
+sink's configured schema or key (`PRV-8010`). Delivery is at least once, and a sink that refuses a
+batch is detached with `PRV-8009` while the view carries on.
+[Streams, queries and SQL §4](CONTINUOUS_QUERIES.md) has the whole contract.
+
 ### Retention
 
 A view keeps a day of event time by default. Override it when registering, or change the default for

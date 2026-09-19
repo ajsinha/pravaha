@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **299 findings carrying a
-status — 185 FIXED, 101 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 101 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 94 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **302 findings carrying a
+status — 187 FIXED, 102 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 102 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -56,7 +56,7 @@ argued against, and its length was hiding the nineteen entries below.
 |---|---|---|
 | **GA-BLOCKER** | 0 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
 | **GA-REQUIRED** | 0 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
-| **POST-GA** | 94 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
+| **POST-GA** | 95 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
 **The blockers, by what they break — none open.** The fifteen this triage started with are all
@@ -6581,4 +6581,21 @@ runs is how a default becomes folklore, and this project has already found two o
 > **What the test saw was real, and correct.** A query that joins a group *behind* the shared reader's position is attached to the live fan-out first and handed a private catch-up reader for the gap — documented behaviour, and the reason sharing is offered only to at-least-once sources. That catch-up reader does not close immediately: per `SharedPartitionFeed#pollCatchUps` it closes only after delivering its backlog on one poll and then polling again to find nothing new, which is two rounds of the shared feed's own background thread. For that span there genuinely are two open readers. The test asserted the count immediately after registering the second query, waiting for neither its delivery nor the catch-up settling — an assertion placed before the thing it asserted had a chance to happen.
 > **Proven before it was believed.** A gate was added to the test-only `CountingScanPlugin` that can hold one specific reader's closing poll open on command, and used to force the window open under the *old* assertion shape: "expected: 1 but was: 2" reproduced on demand rather than by luck. That temporary proof was then reverted and kept as a permanent test, `src10_aCatchUpReaderIsATransientNotALeak`, which holds the window open deliberately, asserts `OPEN` reads 2 while held, releases the gate and asserts it settles to 1 unassisted. The flaky test now waits for the second query's delivery and for the count to settle; **what it asserts is unchanged, only when.**
 > **This is the fourth kind of load-sensitivity found in this suite**, after sleeps standing in for conditions, timeouts tuned on an idle machine, and ZooKeeper leadership asserted instantly. This one is distinct: the code under test was right, the transient was intentional, and the test raced it. Test-only change; no production code touched. Verified at 788 tests across `pravaha-it`, plus five consecutive isolated runs by the author and three more on a concurrently loaded machine.
+
+### SINK-1 (HIGH) — a sink read every row through its own configured schema, and nothing checked that schema against the query
+
+> **Status:** FIXED — `QueryRegistry.requireSinkShape`, called beside `ChangelogAnalysis.checkAgainst` and before the sink is opened, refuses with `PRV-8010` a sink whose declared schema differs from the query's output in count, order, name or type, and a keyed sink whose key columns are not exactly the view's key. `StreamSinkPlugin` gained `schema()` and `keyColumns()` as defaults, reported by the `filesystem` and `aerospike-sink` plugins; `SinkDeliveryTest#aSinkConfiguredForADifferentRowShapeIsRefusedBeforeItIsOpened` and `#aKeyedSinkMustBeKeyedByExactlyTheViewsKey`, seed-proven by disabling the check.
+> **Found while making `AerospikeSinkPlugin` nameable.** `SinkDelivery` encodes each row in the layout the query produced; every shipped sink decodes it through the schema in its own binding. A binding whose columns were in a different order than the `SELECT` list -- the ordinary mistake -- had each value read at another column's offset and written under another column's name, and nothing failed. For a keyed sink the key is worse: keyed on fewer columns than the view, two view rows share one record and retracting one deletes the other.
+> **Why it mattered:** silent, plausible, durable output corruption on the path ADR-043 had just opened.
+
+### SINK-2 (MEDIUM) — the Aerospike sink read every integer key with `getLong`, so an `INT32` or `DATE` key took four bytes of the next column with it
+
+> **Status:** FIXED — `AerospikeSinkPlugin.keyOf` reads each key column at its own width; `AerospikeSinkPluginTest#anInt32KeyIsReadAtItsOwnWidthNotFromTheColumnBesideIt` writes two rows with one id and different neighbouring columns and requires one record, and fails with the old read. The sink also takes a composite key (`key.bins`), as one injective blob key, and refuses a null or non-keyable key column.
+> **Why it mattered:** two rows for one key became two records, so a retraction could never delete the upsert it withdrew. Unreachable until now -- the sink was not declared to `ServiceLoader`, so nothing could name it -- which is why it was fixed before being made reachable rather than after.
+
+### SINK-3 (MEDIUM) — any principal who may register a query may name any bound sink, and the audit does not say which
+
+> **Status:** OPEN — `QueryRegistry.register` asks `mayRegisterQuery` and `mayRead` for every stream the query reads, and nothing about the sink. The `register` audit event records the SQL and not the sink name.
+> **Disposition:** POST-GA — a registrant can only write what they may already read, so this moves permitted data to a destination rather than disclosing forbidden data; but a sink is read by people outside Pravaha, and "who put this there" should be answerable from the audit
+> **What would close it:** a `SecurityPolicy.mayWriteTo(principal, sinkName)` with a default that allows, asked beside `mayRegisterQuery`, and the sink name on the audit event. Until then `SECURITY.md` tells operators to bind only sinks every registrant may write to.
 

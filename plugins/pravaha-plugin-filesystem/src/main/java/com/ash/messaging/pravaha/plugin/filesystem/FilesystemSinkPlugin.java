@@ -27,6 +27,7 @@ import java.util.List;
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.data.EmitMode;
 import com.ash.messaging.pravaha.api.data.RowView;
+import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
 import com.ash.messaging.pravaha.api.plugin.SinkCapabilities;
 import com.ash.messaging.pravaha.api.plugin.StreamSinkPlugin;
@@ -46,6 +47,7 @@ import com.ash.messaging.pravaha.api.plugin.Version;
 public final class FilesystemSinkPlugin implements StreamSinkPlugin {
 
     private Path path;
+    private StreamSchema schema;
     private DelimitedCodec codec;
     private boolean append;
     private boolean flushEveryBatch;
@@ -65,10 +67,9 @@ public final class FilesystemSinkPlugin implements StreamSinkPlugin {
     @Override
     public void configure(PluginContext context) {
         this.path = Path.of(context.require("path"));
-        this.codec = new DelimitedCodec(
-                FilesystemSourcePlugin.parseSchema(context.instanceName(), context.require("schema")),
-                context.get("delimiter", ",").charAt(0),
-                context.get("null.literal", ""));
+        this.schema = FilesystemSourcePlugin.parseSchema(context.instanceName(), context.require("schema"));
+        this.codec =
+                new DelimitedCodec(schema, context.get("delimiter", ",").charAt(0), context.get("null.literal", ""));
         this.append = Boolean.parseBoolean(context.get("append", "false"));
         this.flushEveryBatch = Boolean.parseBoolean(context.get("flush.every.batch", "true"));
     }
@@ -88,6 +89,12 @@ public final class FilesystemSinkPlugin implements StreamSinkPlugin {
             throw new ConfigurationException(
                     DelimitedCodec.DECODE_FAILED, "cannot open " + path.toAbsolutePath() + " for writing", e);
         }
+    }
+
+    /** The columns this file is written with; a query registered against it must produce them. */
+    @Override
+    public java.util.Optional<StreamSchema> schema() {
+        return java.util.Optional.ofNullable(schema);
     }
 
     @Override

@@ -148,6 +148,26 @@ public final class PluginSinks implements SinkFactory, AutoCloseable {
         }
     }
 
+    /**
+     * What the named sink accepts, the schema it was configured with, and its key -- from one fresh,
+     * configured, never-opened instance, like {@link #capabilitiesOf}.
+     */
+    @Override
+    public Description describe(String sinkName) {
+        SinkBinding binding = bindings.get(sinkName);
+        if (binding == null) {
+            throw new PravahaException(
+                    EgressErrors.NO_SUCH_SINK_PLUGIN,
+                    "no sink is bound to '" + sinkName + "'. Bind one under pravaha.sinks." + sinkName);
+        }
+        StreamSinkPlugin plugin = configure(binding);
+        try {
+            return new Description(plugin.capabilities(), plugin.schema(), plugin.keyColumns());
+        } finally {
+            closeQuietly(plugin);
+        }
+    }
+
     /** Closes every sink this instance has opened. Idempotent, like the plugins it closes. */
     @Override
     public void close() {

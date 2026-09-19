@@ -565,8 +565,9 @@ public final class QueryRegistry implements AutoCloseable {
             // and a query whose changelog the sink cannot take is refused as a PAIR: the query may
             // be perfectly good against a different sink, and the fix is usually the sink rather
             // than the SQL.
-            com.ash.messaging.pravaha.sql.plan.ChangelogAnalysis.checkAgainst(
-                    plan, sinks.capabilitiesOf(sinkName), sinkName);
+            SinkFactory.Description sink = sinks.describe(sinkName);
+            com.ash.messaging.pravaha.sql.plan.ChangelogAnalysis.checkAgainst(plan, sink.capabilities(), sinkName);
+            requireSinkShape(sink, plan.outputSchema(), keyColumns, sinkName);
         }
 
         AccessDecision decision = policy.mayRegisterQuery(principal);
@@ -639,6 +640,72 @@ public final class QueryRegistry implements AutoCloseable {
             }
             throw e;
         }
+    }
+
+    /**
+     * Refuses a sink that would read this query's rows as something else.
+     *
+     * <p>A sink reads each row through the schema it was configured with, and the engine hands it rows
+     * laid out as the query produced them. A column added or two swapped means every value is read
+     * from the wrong offset and written with the wrong name, and nothing fails -- the sink fills with
+     * plausible nonsense. Types are compared by name and nullability is ignored, since a sink writes a
+     * null wherever the query produces one.
+     *
+     * <p>And a keyed sink must key records by exactly the view's key. On fewer columns, distinct rows
+     * collapse onto one record and retracting one deletes the other; on more, a changed row leaves its
+     * old record behind. The engine emits a retraction and an insert per change, and both land on the
+     * wrong record.
+     */
+    private static void requireSinkShape(
+            SinkFactory.Description sink, StreamSchema output, List<Integer> keyColumns, String sinkName) {
+        sink.schema().ifPresent(declared -> {
+            boolean same = declared.fieldCount() == output.fieldCount();
+            for (int ordinal = 0; same && ordinal < output.fieldCount(); ordinal++) {
+                same = declared.field(ordinal)
+                                .name()
+                                .equalsIgnoreCase(output.field(ordinal).name())
+                        && declared.field(ordinal).type().typeName()
+                                == output.field(ordinal).type().typeName();
+            }
+            if (!same) {
+                throw new PravahaException(
+                        RegistryErrors.SINK_SHAPE_MISMATCH,
+                        "sink '" + sinkName + "' is configured for rows " + describe(declared)
+                                + ", and this query produces " + describe(output)
+                                + ". The sink reads each row through its own schema, so every column would be "
+                                + "read from the wrong place and nothing would fail. Make the query's SELECT "
+                                + "list match the sink's schema in order, name and type, or change the "
+                                + "binding's schema.");
+            }
+        });
+        if (!sink.keyColumns().isEmpty()) {
+            java.util.Set<String> viewKey = new java.util.TreeSet<>();
+            for (int ordinal : keyColumns) {
+                viewKey.add(output.field(ordinal).name().toLowerCase(java.util.Locale.ROOT));
+            }
+            java.util.Set<String> sinkKey = new java.util.TreeSet<>();
+            sink.keyColumns().forEach(column -> sinkKey.add(column.toLowerCase(java.util.Locale.ROOT)));
+            if (!viewKey.equals(sinkKey)) {
+                throw new PravahaException(
+                        RegistryErrors.SINK_SHAPE_MISMATCH,
+                        "sink '" + sinkName + "' keys its records by " + sinkKey
+                                + ", and this query's view is keyed by "
+                                + viewKey + ". A retraction deletes the sink record its key names: keyed on "
+                                + "fewer columns than the view, distinct rows share a record and withdrawing "
+                                + "one deletes the other; keyed on more, a changed row leaves its old record "
+                                + "behind. Register with --keys naming " + sinkKey + ", or key the sink by "
+                                + viewKey + ".");
+            }
+        }
+    }
+
+    private static String describe(StreamSchema schema) {
+        List<String> columns = new ArrayList<>();
+        for (int ordinal = 0; ordinal < schema.fieldCount(); ordinal++) {
+            columns.add(schema.field(ordinal).name() + ":"
+                    + schema.field(ordinal).type().typeName());
+        }
+        return "(" + String.join(", ", columns) + ")";
     }
 
     private SinkDelivery openDelivery(String name, String sinkName, StreamSchema schema) {

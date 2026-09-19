@@ -17,7 +17,7 @@ otherwise have to rediscover the hard way.
 | `main` | `20ea131` on origin. **Normally behind `develop`, on purpose**: work happens on `develop`, and `main` is merged from it when the owner asks — "drill" means both branches, "drill to develop" and "drill to main" one each. The earlier habit of fast-forwarding `main` after every change is retired |
 | `develop` | Pushed after every verified change ("drill to develop"). Waves 8 and 9 are here; neither is tagged |
 | Modules | **32** Maven modules (33 reactor projects with the root), plus `sdk/python` and `console`, which are not Maven |
-| Java tests | **2,756** tests, 0 failures, 61 skipped, across 33 reactor projects — `tools/verify-clean.sh` over the whole reactor on 2026-09-19, offline, the skips being the Docker, Cassandra, Aerospike and `psql` tests this machine cannot run. **Say which command a count came from**: `-Pit` adds the Docker integration tests against real Aerospike and PostgreSQL, and a bare number from one profile quoted against another is how this row reached 1101 and stayed there. Count the **per-module summary lines only** — summing those and the per-class `-- in Class` lines together is how a report came to quote 4,408 for a run of 2,207 (DOCR-22) |
+| Java tests | **2,765** tests, 0 failures, 61 skipped, across 33 reactor projects — `tools/verify-clean.sh` over the whole reactor on 2026-09-19, offline, the skips being the Docker, Cassandra, Aerospike and `psql` tests this machine cannot run. **Say which command a count came from**: `-Pit` adds the Docker integration tests against real Aerospike and PostgreSQL, and a bare number from one profile quoted against another is how this row reached 1101 and stayed there. Count the **per-module summary lines only** — summing those and the per-class `-- in Class` lines together is how a report came to quote 4,408 for a run of 2,207 (DOCR-22) |
 | Python tests | **103** collected in `sdk/python` (2026-09-19, one skipped without the `tls-keystore` extra), including the client driving a real Java Flight SQL server, plus **39** for the console |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **43** |
@@ -27,6 +27,10 @@ reopened and closed again the same day: ADR-039 item 8's first slice had removed
 `PARTITIONED` while nothing in a running node consumed partition ownership, and a node now refuses
 to serve in that mode (`PRV-9002`) until something does — the coordinator is still built, because as
 a library it is real. Otherwise:
+Sinks are real now: a registration can name one, every commit reaches it (ADR-043), a sink
+declares its schema and key and a registration that does not match is refused (`PRV-8010`), and
+`aerospike-sink` — upsert and delete by key — is nameable alongside `filesystem`. `SINK-3` records
+the gap left: no per-sink authorization.
 `SX-5` closed by measurement on 2026-09-16 (denied and absent reads now cost the same, 0.033 against
 0.036 ms), and `E-1`'s last code, `PRV-8007`, has a throw site. The register's header carries the current counts and
 `FindingsRegisterTest` holds it to them. What is left is ADR-039's road — its progress note says

@@ -147,6 +147,58 @@ class SinkDeliveryTest {
     }
 
     @Test
+    void aSinkConfiguredForADifferentRowShapeIsRefusedBeforeItIsOpened() {
+        // Swapped columns: the sink would read `amount` where the query put `user_id` and write
+        // plausible nonsense with nothing failing.
+        StreamSchema swapped = StreamSchema.builder("out")
+                .field("amount", Types.int64())
+                .field("user_id", Types.string())
+                .build();
+        sinks.bind("orders", SinkCapabilities.appendOnly(), swapped, List.of());
+
+        assertThatThrownBy(() ->
+                        registry.registerWritingTo("q", "SELECT user_id, amount FROM txn", List.of(0), DANA, "orders"))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-8010")
+                .hasMessageContaining("amount:INT64, user_id:STRING");
+        assertThat(sinks.opened()).isZero();
+        assertThat(registry.names()).isEmpty();
+    }
+
+    @Test
+    void aSinkWhoseSchemaMatchesIsAcceptedWhateverTheCaseOfItsColumnNames() {
+        StreamSchema same = StreamSchema.builder("out")
+                .field("USER_ID", Types.string())
+                .field("Amount", Types.int64())
+                .build();
+        sinks.bind("orders", SinkCapabilities.appendOnly(), same, List.of());
+
+        assertThat(registry.registerWritingTo("q", "SELECT user_id, amount FROM txn", List.of(0), DANA, "orders"))
+                .isNotNull();
+    }
+
+    @Test
+    void aKeyedSinkMustBeKeyedByExactlyTheViewsKey() {
+        StreamSchema shape = StreamSchema.builder("out")
+                .field("user_id", Types.string())
+                .field("amount", Types.int64())
+                .build();
+        sinks.bind("by_amount", UPSERT, shape, List.of("amount"));
+        sinks.bind("by_user", UPSERT, shape, List.of("user_id"));
+
+        // Keyed by amount while the view is keyed by user_id: two users with one amount would share a
+        // record, and retracting one would delete the other's.
+        assertThatThrownBy(() -> registry.registerWritingTo(
+                        "keyed_bad", "SELECT user_id, amount FROM txn", List.of(0), DANA, "by_amount"))
+                .hasMessageContaining("PRV-8010")
+                .hasMessageContaining("[amount]")
+                .hasMessageContaining("[user_id]");
+        assertThat(registry.registerWritingTo(
+                        "keyed_ok", "SELECT user_id, amount FROM txn", List.of(0), DANA, "by_user"))
+                .isNotNull();
+    }
+
+    @Test
     void aSinkNobodyBoundIsRefusedAndNothingIsLeftRegistered() {
         assertThatThrownBy(() ->
                         registry.registerWritingTo("q", "SELECT user_id, amount FROM txn", List.of(0), DANA, "nowhere"))
@@ -338,12 +390,28 @@ class SinkDeliveryTest {
     /** A {@link SinkFactory} whose sinks record what they were given, rendered as text. */
     static final class RecordingSinks implements SinkFactory {
         private final Map<String, SinkCapabilities> bound = new HashMap<>();
+        private final Map<String, StreamSchema> schemas = new HashMap<>();
+        private final Map<String, List<String>> keys = new HashMap<>();
         private final Map<String, RecordingSink> byName = new HashMap<>();
         private final List<String> released = new ArrayList<>();
         private int opened;
 
         void bind(String name, SinkCapabilities capabilities) {
             bound.put(name, capabilities);
+        }
+
+        void bind(String name, SinkCapabilities capabilities, StreamSchema schema, List<String> keyColumns) {
+            bound.put(name, capabilities);
+            schemas.put(name, schema);
+            keys.put(name, keyColumns);
+        }
+
+        @Override
+        public Description describe(String sinkName) {
+            return new Description(
+                    capabilitiesOf(sinkName),
+                    Optional.ofNullable(schemas.get(sinkName)),
+                    keys.getOrDefault(sinkName, List.of()));
         }
 
         RecordingSink sink(String name) {

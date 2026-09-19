@@ -58,6 +58,12 @@ what changed and why. docs/qa/FINDINGS.md status lines come next. This file and 
   * A documentation sweep against the code: README, HANDOVER, ADR-039,
     the ADR index, OPERATIONS, ARCHITECTURE, TROUBLESHOOTING, QUICKSTART,
     CONNECTORS, gate packs, and false code comments.
+  * S-3 reopened and closed again: a node refuses to serve PARTITIONED.
+  * Sinks declare their schema and key (StreamSinkPlugin.schema(),
+    keyColumns()), and a registration that does not match is refused with
+    PRV-8010 (SINK-1). aerospike-sink fixed (integer key width, SINK-2),
+    given composite keys, and declared to ServiceLoader.
+  * README rewritten from the code rather than patched again.
 
 ====================================================================
 3. WHAT IS NEXT (ADR-039's road, as it stands)
@@ -67,12 +73,13 @@ what changed and why. docs/qa/FINDINGS.md status lines come next. This file and 
     supports it (QueryRegistry.multiplexingLanes); PravahaNode never calls it,
     and there is no admission control. Note there is NO pravaha.lane.multiplex
     key, whatever an old document says.
-  - Item 5 follow-ups: AerospikeSinkPlugin (upsert + retract) exists and is
-    not declared in META-INF/services, so pravaha.sinks cannot name it -- the
-    only nameable sink is the append-only filesystem one. Needs Docker to
-    prove. Exactly-once (the transactional sink SPI tied to checkpoints) is
-    not built. `pravaha queries` does not show a query's sink or a detached
-    sink's PRV-8009.
+  - Item 5 follow-ups: aerospike-sink (upsert + delete, composite keys) is
+    nameable and unit-tested against a fake client; its real-server test
+    (AerospikePluginIT) needs Docker, which this machine does not have.
+    Exactly-once (the transactional sink SPI tied to checkpoints) is not
+    built. `pravaha queries` does not show a query's sink or a detached
+    sink's PRV-8009. SINK-3: no per-sink authorization, and the audit does
+    not record the sink.
   - Item 6: projection and COUNT/SUM partial-aggregate pushdown are built and
     tested, but no shipped plugin declares either and no ingest path delivers
     a partial, so a deployment only ever pushes filters.

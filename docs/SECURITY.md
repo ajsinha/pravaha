@@ -292,6 +292,10 @@ each individually valid but do not match each other lets the node start and repo
   clustering ([ADR-035](adr/035-wave-8-is-survival-not-distribution.md)), and a standby talks to
   a directory rather than to its primary, so there is no node-to-node channel to secure yet
 - **Secret management integration** (`SecretProvider` SPI in the design) — not built
+- **Per-sink authorization.** A principal allowed to register a query may name any bound sink, and
+  the audit line for the registration does not record which. The registrant can only write what they
+  may read — registration checks every stream the query reads — but a sink is a destination other
+  people read, so an operator should bind only sinks every registrant may write to (SINK-3)
 - **Security review and SBOM** — Wave 11 (the GA wave, which moved down one when ADR-036 inserted the scale wave)
 
 ## A conditional entitlement cannot subscribe

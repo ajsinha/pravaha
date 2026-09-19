@@ -83,5 +83,13 @@ public final class RegistryErrors {
      */
     public static final ErrorCode SINK_WRITE_FAILED = new ErrorCode(8009, "REGISTRY_SINK_WRITE_FAILED");
 
+    /**
+     * A registration names a sink whose declared schema or key does not match the query's output or
+     * view key. Refused before the sink is opened: a sink reads rows through its own schema, so a
+     * mismatch writes plausible nonsense rather than failing, and a key mismatch sends retractions to
+     * the wrong records.
+     */
+    public static final ErrorCode SINK_SHAPE_MISMATCH = new ErrorCode(8010, "REGISTRY_SINK_SHAPE_MISMATCH");
+
     private RegistryErrors() {}
 }
