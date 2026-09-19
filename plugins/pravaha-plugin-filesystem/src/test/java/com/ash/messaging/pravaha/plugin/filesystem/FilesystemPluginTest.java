@@ -401,6 +401,35 @@ class FilesystemPluginTest {
         assertThat(Files.readAllLines(out)).hasSize(1).first().asString().startsWith("existing");
     }
 
+    @Test
+    void aReopenedSinkKeepsWhatEarlierRunsWrote(@TempDir Path dir) throws IOException {
+        // HLP-2. A server re-opens a sink on every restart. The sink is at least once, so a restart
+        // may repeat rows; emptying the file on open instead threw away everything written before
+        // the restart, which the restored view never sends again.
+        Path out = dir.resolve("out.csv");
+        Files.writeString(out, "written,before,the,restart,1\n");
+        try (FilesystemSinkPlugin sink = new FilesystemSinkPlugin()) {
+            sink.configure(ctx(Map.of("path", out.toString(), "schema", SCHEMA)));
+            sink.open();
+            sink.flush();
+        }
+        assertThat(Files.readAllLines(out))
+                .as("the default keeps the file's earlier output")
+                .containsExactly("written,before,the,restart,1");
+    }
+
+    @Test
+    void appendFalseStartsTheFileEmptyWhenAskedTo(@TempDir Path dir) throws IOException {
+        Path out = dir.resolve("out.csv");
+        Files.writeString(out, "a,previous,run,of,1\n");
+        try (FilesystemSinkPlugin sink = new FilesystemSinkPlugin()) {
+            sink.configure(ctx(Map.of("path", out.toString(), "schema", SCHEMA, "append", "false")));
+            sink.open();
+            sink.flush();
+        }
+        assertThat(Files.readAllLines(out)).isEmpty();
+    }
+
     // ------------------------------------------------------------------ helpers
 
     /** Reads every row into arena-backed views, mirroring how the engine will drive a reader. */

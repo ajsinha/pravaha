@@ -150,7 +150,9 @@ public final class QueryRunner {
                 FilesystemSinkPlugin sink = new FilesystemSinkPlugin()) {
             source.configure(new Ctx(streamName, Map.of("path", inputPath, "schema", inputSchemaSpec)));
             source.open();
-            sink.configure(new Ctx("out", Map.of("path", outputPath, "schema", outputSchemaSpec)));
+            // A one-shot run writes its whole answer, so the file starts empty rather than
+            // accumulating every earlier run's (the sink appends by default, for restarts).
+            sink.configure(new Ctx("out", Map.of("path", outputPath, "schema", outputSchemaSpec, "append", "false")));
             sink.open();
 
             Collector collector = new Collector(plan.outputSchema());

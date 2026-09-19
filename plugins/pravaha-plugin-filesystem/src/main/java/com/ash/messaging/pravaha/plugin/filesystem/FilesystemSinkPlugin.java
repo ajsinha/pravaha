@@ -41,8 +41,15 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  * look plausible until someone tries to reconcile them (design section 15.5).
  *
  * <p>Configuration: {@code path} (required), {@code schema} (required), {@code delimiter}
- * (default {@code ,}), {@code null.literal} (default empty), {@code append} (default {@code false}),
+ * (default {@code ,}), {@code null.literal} (default empty), {@code append} (default {@code true}),
  * {@code flush.every.batch} (default {@code true}).
+ *
+ * <p>{@code append} defaults to true because a server opens its sinks again on every restart, and
+ * the restored view does not send what it wrote before the checkpoint a second time: emptying the
+ * file on open threw that output away (HLP-2). Appending is what at-least-once means for a file,
+ * so a restart may repeat the rows written after the last checkpoint. {@code append: false} starts
+ * the file empty on every open, a restart included; a one-shot run ({@code pravaha run}) asks for
+ * it, since its whole answer is written in one go.
  */
 public final class FilesystemSinkPlugin implements StreamSinkPlugin {
 
@@ -70,7 +77,7 @@ public final class FilesystemSinkPlugin implements StreamSinkPlugin {
         this.schema = FilesystemSourcePlugin.parseSchema(context.instanceName(), context.require("schema"));
         this.codec =
                 new DelimitedCodec(schema, context.get("delimiter", ",").charAt(0), context.get("null.literal", ""));
-        this.append = Boolean.parseBoolean(context.get("append", "false"));
+        this.append = Boolean.parseBoolean(context.get("append", "true"));
         this.flushEveryBatch = Boolean.parseBoolean(context.get("flush.every.batch", "true"));
     }
 

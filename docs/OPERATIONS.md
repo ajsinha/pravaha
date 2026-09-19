@@ -744,6 +744,9 @@ pravaha:
 ```
 
 Three plugins ship. `filesystem` appends delimited rows to a file and cannot take a retraction.
+It keeps what the file already holds when it opens, a restart included, because the restored view
+does not send again what it wrote before the checkpoint; `append: false` empties the file on every
+open instead, and so throws that output away at each restart (HLP-2).
 `aerospike-sink` upserts into a set by key and deletes on a retraction, so it takes a query that
 revises its answer:
 
@@ -903,7 +906,7 @@ What an operator should know about that delivery:
   | `transactional` (`jdbc-sink`, `kafka-sink`), and `pravaha.checkpoint.directory` is set | **exactly once** (for `kafka-sink`, to a `read_committed` consumer) | Writes between checkpoints go into a transaction, prepared at each checkpoint's cut and recorded in the checkpoint, committed once the checkpoint is durable. A restore commits what the checkpoint recorded and has the sink abandon the rest, which the replay writes again |
   | `transactional`, no checkpoint directory | at least once | Nothing to tie a transaction to, so each commit is its own |
   | `idempotentUpsert` (`aerospike-sink`) | effectively once | The replay rewrites records with the values they already hold |
-  | neither (`filesystem`) | at least once | Expect duplicates in the file after a restart. A view commit carries no sequence a replay would repeat, so there is nothing to deduplicate on |
+  | neither (`filesystem`) | at least once | Expect duplicates in the file after a restart: the rows written after the last checkpoint are written again below them. A view commit carries no sequence a replay would repeat, so there is nothing to deduplicate on |
 
   `jdbc-sink` and `kafka-sink` are transactional by default (`transactional: false` makes them
   idempotent upsert, or a plain append or changelog); `aerospike-sink` and `filesystem` are not. The source caps it too: one that cannot

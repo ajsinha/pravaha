@@ -199,6 +199,33 @@ class PravahaCliTest {
         assertThat(stdout()).contains("3 in, 1 out").contains("plan").contains("execute");
     }
 
+    @Test
+    void aSecondRunReplacesTheOutputRatherThanAddingToIt(@TempDir Path dir) throws IOException {
+        // The filesystem sink appends by default so a server restart keeps its output (HLP-2); a
+        // one-shot run writes its whole answer, and rerunning it must not double the file.
+        Path input = dir.resolve("txn.csv");
+        Files.writeString(input, "1,alice,500,COMPLETED\n");
+        Path output = dir.resolve("out.csv");
+        Files.writeString(output, "left,over\n");
+        String[] args = {
+            "run",
+            "--sql",
+            "SELECT user_id, amount FROM txn",
+            "--schema",
+            SCHEMA,
+            "--in",
+            input.toString(),
+            "--out",
+            output.toString(),
+            "--out-schema",
+            "user_id:STRING,amount:INT64"
+        };
+
+        assertThat(run(args)).isZero();
+        assertThat(run(args)).isZero();
+        assertThat(Files.readAllLines(output)).containsExactly("alice,500");
+    }
+
     // ------------------------------------------------------------ W8-11: the dead-letter queue
 
     private static final String ONE_BAD_LINE =
