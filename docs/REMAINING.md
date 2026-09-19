@@ -31,7 +31,7 @@ console.
 | **B4** | **The time-travel debugger's engine.** Fork a checkpoint, a step protocol, operator state inspection, sinks disabled while stepping, export a fixture. ADR-038 moved it out of wave 8; journey 7 waits on it. | `pravaha-runtime`, `pravaha-registry`, `pravaha-flight` | B1 (same files) |
 | **B5** | **Dead letters as a product.** List, fetch and replay a query's dead letters; a rate meter (`DeadLetterRate` exists and is wired to nothing); retention. Journey 4 waits on it. | `pravaha-server`, `pravaha-bindings` dead-letter path, CLI, SDKs | — |
 | **B6** | **Per-operator observability.** Lane backpressure sampled, per-operator rows, state and watermark on the plan, lane saturation. Journey 3 waits on it. | `pravaha-runtime` metrics, `pravaha-server` plan endpoint | — |
-| **B7** | **Kafka beyond JSON.** Avro, Protobuf, a schema registry. **Needs one online dependency fetch**, which this machine's offline gate otherwise forbids. | `plugins/pravaha-plugin-kafka` | owner's yes |
+| **B7** | **Kafka beyond JSON, with no new dependency.** An Avro binary reader of our own, the way `PgOutput` decodes PostgreSQL's protocol by hand; Protobuf through `DynamicMessage` over a descriptor set the deployment supplies (`protobuf-java` is already here, transitively — declare and pin it); and a schema registry spoken over its REST API (the magic byte and 4-byte id, then `/schemas/ids/{id}`, cached), so no Confluent jar and no Confluent Community License. Decided by the owner 2026-09-19. | `plugins/pravaha-plugin-kafka` | — |
 | **B8** | **The rest of the `CREATE CONTINUOUS QUERY` grammar.** `INDEXED BY ... RANGE`, `WITH (...)` options, `INSERT INTO <sink>` — each refused by name today (`PRV-2072`, `PRV-2020`). | `pravaha-sql`, the statement recognizer | B1 if it takes `WITH` |
 
 ## Wave 3 — needs wave 2's engine work
@@ -47,7 +47,7 @@ console.
 | Batch | What | Owns |
 |---|---|---|
 | **B12** | **Packaging and CI.** A Helm chart, a container image, release and versioning, CI running the Docker integration tests and the Spring Boot 3.2–3.4 legs that have never run. | a new `deploy/`, `.github/workflows` |
-| **B13** | **The performance gates.** P2 and P3 want reference hardware, not a laptop; ADR-038's Nexmark comparison sits behind them. **Needs the owner's hardware decision.** | `pravaha-it` performance packs, `docs/` |
+| **B13** | **The performance gates, on the machine we have.** There is no reference hardware, so P2, P3 and ADR-038's Nexmark comparison are measured on the development machine and reported with it named (owner, 2026-09-19). A target the machine cannot reach is recorded as not reached, with the number, rather than restated as passed. | `pravaha-it` performance packs, `pravaha-benchmarks`, `docs/gates/` |
 | **B14** | **The 95 open post-GA findings**, which cluster and can be split three ways: `CFG-*` (17, configuration), `STRM-*` and `TIME-*` (24, streams and event time), `API-F*` and `SX-19` (12, API shape and disclosure), `DOCX-*`/`DOCR-*` (8, documentation), `PF-*` (4, performance), `SRC-*`/`SINK-*` (4). | by cluster, mostly disjoint |
 
 ## Not scheduled
