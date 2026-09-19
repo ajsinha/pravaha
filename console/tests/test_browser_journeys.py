@@ -417,7 +417,8 @@ def test_a_screen_s_question_mark_opens_its_help(page, console):
     href = page.eval("document.querySelector('h1 .screen-help').getAttribute('href')")
     assert href == "/help/topics/sql-reference"
     cards = page.eval("[...document.querySelectorAll('.helpcards a')].map(a => a.getAttribute('href'))")
-    assert len(cards) == 3 and all(c.startswith("/help/topics/") for c in cards)
+    assert len(cards) == 4 and all(c.startswith("/help/topics/") for c in cards)
+    assert "/help/topics/compare-versions" in cards
     page.wait_for_navigation(lambda: page.click("h1 .screen-help"))
     assert page.url().endswith(href)
 
@@ -566,15 +567,16 @@ def test_journey_prepare_a_backfill(page, console):
 def test_journey_blue_green_update_and_roll_back(page):
     """Design 23.18 journey 6, "blue/green update with rollback", as far as registration goes:
     open v1 in the workbench, change it, validate and explain the change, register it beside v1
-    as v2, compare the two views with the same point query, and roll back by dropping v2 --
+    as v2, diff v2 against v1, compare the two views with the same point query, and roll back by dropping v2 --
     confirmed by its typed name -- with v1 running throughout.
 
     Waits on the engine for the cutover. Moving a view's name (or a sink) from v1 to v2 at an
     aligned frontier, with v1 kept for rollback through its retention, is built in
     ``pravaha-backfill`` and reachable from no running path, and ``CREATE OR REPLACE`` is refused
     (PRV-2072). So there is no screen 15 and no cutover button: v1 and v2 stay two names a
-    client switches between itself. Not built, and the console's own: the workbench's SQL and
-    plan diff against the registered version (23.7).
+    client switches between itself. What the console can show before a cutover it does: the
+    workbench's SQL and plan diff of v2 against v1 (23.7), with the changed operator marked and
+    the engine's fingerprints saying the two are separate computations.
     """
     with own_console(default_role="analyst") as bg:
         bg.engine.view_rows["big_txn_v2"] = [[2, "u2", 900]]
@@ -617,6 +619,36 @@ def test_journey_blue_green_update_and_roll_back(page):
         page.wait_for("document.querySelector('.alert-success') && "
                       "document.querySelector('.alert-success').textContent.includes('big_txn_v2')")
         assert bg.engine.registered[-1]["sql"].endswith("amount > 500")
+
+        # Diff v2 against v1 (23.7): the draft came from big_txn, so that is what it is compared with.
+        page.eval("[...document.querySelectorAll('.panel-tabs [role=tab]')].find(b => b.textContent.startsWith('Compare'))"
+                  ".setAttribute('data-test', 'compare-tab')")
+        page.click("[data-test=compare-tab]")
+        page.wait_for("document.querySelector('#diff-against') && document.querySelector('#diff-against').value === 'q:big_txn'"
+                      " && document.querySelectorAll('#diff-against option').length > 1")
+        # From the keyboard, as the rest of the panel is reachable.
+        page.focus("#diff-compare")
+        page.press("Enter")
+        page.wait_for("document.querySelector('#diff-result') && "
+                      "document.querySelectorAll('#diff-result svg g.plan-node').length === 6", timeout=20)
+        # The changed operator, marked in v2's plan and said in words; nothing added or removed.
+        changed = page.eval("[...document.querySelectorAll('#diff-result svg g.plan-node.diff-changed')]"
+                            ".map(g => g.getAttribute('aria-label'))")
+        assert len(changed) == 2 and all(label.startswith("Filter") and label.endswith("changed") for label in changed)
+        assert not page.exists("#diff-result svg g.diff-added") and not page.exists("#diff-result svg g.diff-removed")
+        assert page.text("#diff-changes").strip() == "changed: Filter(amount > 100) → Filter(amount > 500)"
+        # The engine's own answer, now that v2 is registered: two fingerprints, two computations.
+        consequences = page.text("#diff-consequences")
+        assert "Two computations" in consequences and "abc123def456" in consequences and "newfp" in consequences
+        # v1's measured totals on v1's side; none implied for v2.
+        assert "1,200 rows in" in page.text("#diff-left-metrics")
+        assert "has not run" in page.text("#diff-right-no-metrics")
+        # The SQL diff side by side, and unified from the keyboard.
+        page.wait_for("document.querySelector('.monaco-diff-editor.side-by-side .editor.original .view-line')")
+        page.focus("#diff-layout")
+        page.press("Enter")
+        page.wait_for("document.getElementById('diff-layout').getAttribute('aria-pressed') === 'true'")
+        page.wait_for("!document.querySelector('.monaco-diff-editor.side-by-side')")
 
         # Compare: the same point query against each version.
         page.goto(bg.url("/views/big_txn?key=user_id&value=u1"))

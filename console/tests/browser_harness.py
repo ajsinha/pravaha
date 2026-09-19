@@ -334,6 +334,10 @@ PAGES: list[tuple[str, str, bool, str]] = [
     ("operations", "/operations", True, "document.querySelector('#chart-rate canvas')"),
     ("workbench", "/workbench?query=big_txn", True,
      "document.querySelector('.monaco-editor .view-line') && document.querySelector('.validity.ok')"),
+    # The Compare panel (23.7), compared on arrival: SQL diff, both plans marked, the lists.
+    ("workbench-diff", "/workbench?query=big_txn&panel=diff&against=hot", True,
+     ("document.querySelectorAll('#diff-result svg g.plan-node').length === 6"
+      " && document.querySelector('.diff-sql[data-diff-ready=yes] .monaco-diff-editor .view-line')")),
     ("queries", "/queries", True, "true"),
     ("query", "/queries/big_txn", True, "true"),
     ("overview", "/overview", True, "true"),

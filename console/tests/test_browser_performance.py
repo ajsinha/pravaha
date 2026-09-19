@@ -141,7 +141,7 @@ def test_every_page_is_within_the_budget(cold, console, name, path, ready):
         problems.append(f"initial JavaScript {numbers['initial_js_gzip'] / 1024:.0f} kB gzipped > 250 kB")
     if numbers["ready_ms"] > TTI_BUDGET_MS:
         problems.append(f"interactive after {numbers['ready_ms']} ms > {TTI_BUDGET_MS} ms")
-    budget = TOTAL_BLOCKING_BUDGET_MS_WORKBENCH if name == "workbench" else TOTAL_BLOCKING_BUDGET_MS
+    budget = TOTAL_BLOCKING_BUDGET_MS_WORKBENCH if name.startswith("workbench") else TOTAL_BLOCKING_BUDGET_MS
     if numbers["blocking_ms"] > budget:
         problems.append(f"main thread blocked {numbers['blocking_ms']} ms > {budget} ms")
     if problems:

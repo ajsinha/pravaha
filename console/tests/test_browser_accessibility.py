@@ -136,6 +136,62 @@ def test_the_workbench_in_use_has_no_axe_violations(themed, console, theme):
 
 
 @pytest.mark.parametrize("theme", THEMES)
+def test_the_compare_panel_in_each_of_its_states_has_no_axe_violations(themed, console, theme):
+    """The workbench's diff (23.7) through the states of 23.12 a person can put it in: never
+    compared, compared, refreshing, out of date, unified, every operator shown, the engine's
+    refusal of one side (partial) and its policy's (not permitted)."""
+    page = themed(theme)
+    ready = "document.querySelectorAll('#diff-result svg g.plan-node').length === 6"
+    try:
+        open_page(page, console, "/workbench?query=big_txn", "document.querySelector('.validity.ok')")
+        page.eval("[...document.querySelectorAll('.panel-tabs [role=tab]')].find(b => b.textContent.startsWith('Compare')).click()")
+        page.wait_for("document.querySelector('#diff-empty') && document.getElementById('diff-against').value !== ''")
+        _assert_clean(page, f"the compare panel, never compared ({theme})")
+
+        console.engine.down = True
+        try:
+            page.click("#diff-compare")
+            page.wait_for("document.querySelector('#diff-error button')", timeout=20)
+            _assert_clean(page, f"the compare panel, the engine unreachable ({theme})")
+        finally:
+            console.engine.down = False
+
+        page.eval("document.getElementById('diff-against').value = 'q:hot';"
+                  "document.getElementById('diff-against').dispatchEvent(new Event('change', {bubbles: true}))")
+        page.click("#diff-compare")
+        page.wait_for(ready + " && document.querySelector('.monaco-diff-editor .view-line')", timeout=20)
+        page.settle(quiet_ms=300)
+        _assert_clean(page, f"the compare panel, compared ({theme})")
+
+        page.click("#diff-layout")
+        page.wait_for("!document.querySelector('.monaco-diff-editor.side-by-side')")
+        page.click("#diff-show-all")
+        page.wait_for("document.querySelectorAll('#diff-changes li').length === 4")
+        page.settle(quiet_ms=200)
+        _assert_clean(page, f"the compare panel, unified with every operator ({theme})")
+        page.click("#diff-layout")
+
+        page.click(".wb-editor .monaco-editor .view-lines")
+        page.press("End", "Control")
+        page.type(" ")
+        page.wait_for("document.querySelector('#diff-stale')")
+        _assert_clean(page, f"the compare panel, out of date ({theme})")
+
+        console.engine.plan_refused["hot"] = "reading plans needs one of the roles [ops]"
+        page.click("#diff-compare")
+        page.wait_for("document.querySelector('#diff-left-not-permitted')", timeout=20)
+        _assert_clean(page, f"the compare panel, not permitted ({theme})")
+        console.engine.plan_refused.clear()
+
+        open_page(page, console, "/workbench?sql=SELECT+PLANONLY+FROM+txn&panel=diff&against=big_txn",
+                  "document.querySelector('#diff-partial')")
+        _assert_clean(page, f"the compare panel, partly compared ({theme})")
+    finally:
+        console.engine.plan_refused.clear()
+        page.eval("try { localStorage.removeItem('pravaha.workbench.tabs') } catch (e) {} ; true")
+
+
+@pytest.mark.parametrize("theme", THEMES)
 def test_a_live_view_with_changes_has_no_axe_violations(themed, console, theme):
     page = themed(theme)
     open_page(page, console, "/views/big_txn/live", {n: r for n, _, _, r in PAGES}["live"])

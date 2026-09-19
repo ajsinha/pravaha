@@ -75,8 +75,9 @@ canvas, .freshness, #ops-freshness, #count, .monaco-editor .cursors-layer,
 SHOTS = [(name, path, ready) for name, path, _, ready in PAGES if name not in DOCUMENT_PAGES]
 
 #: Photographed whole rather than to the first screen: the component gallery is a fixed page
-#: with no data or prose to churn, and its eight states are below the fold.
-FULL_PAGE = {"components"}
+#: with no data or prose to churn, and its eight states are below the fold; the workbench's
+#: Compare panel is below the editor, and the first screen would show none of the diff.
+FULL_PAGE = {"components", "workbench-diff"}
 
 
 @pytest.fixture(scope="module")
