@@ -53,9 +53,15 @@
     </dependency>
 
     <!--
-      Optional: compiled against, never brought in. @PravahaTest works only in a test that already has Boot's
-      test stack (spring-boot-starter-test brings all three).
+      Optional: compiled against, never brought in. The actuator contributions switch on only when
+      the application has Actuator itself, and @PravahaTest only in a test that already has Boot's
+      test stack (spring-boot-starter-test brings all four).
     -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-actuator-autoconfigure</artifactId>
+      <optional>true</optional>
+    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-test-autoconfigure</artifactId>
@@ -75,6 +81,16 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>

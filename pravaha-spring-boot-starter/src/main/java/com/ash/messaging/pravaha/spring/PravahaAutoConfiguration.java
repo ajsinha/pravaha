@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.spring;
 import java.time.Duration;
 
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.actuate.autoconfigure.endpoint.condition.ConditionalOnAvailableEndpoint;
+import org.springframework.boot.actuate.autoconfigure.health.ConditionalOnEnabledHealthIndicator;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -28,6 +30,8 @@ import org.springframework.context.annotation.Bean;
 import com.ash.messaging.pravaha.common.config.Configuration;
 import com.ash.messaging.pravaha.common.config.ConfigurationBuilder;
 import com.ash.messaging.pravaha.embedded.PravahaEngine;
+import com.ash.messaging.pravaha.spring.actuate.PravahaEndpoint;
+import com.ash.messaging.pravaha.spring.actuate.PravahaHealthIndicator;
 
 /**
  * An embedded {@link PravahaEngine} as a Spring bean (ADR-020, mode B of design section 22.2).
@@ -78,6 +82,40 @@ public class PravahaAutoConfiguration {
     public static PravahaListenerProcessor pravahaListenerProcessor(
             ObjectProvider<PravahaEngine> engine, ObjectProvider<PravahaProperties> properties) {
         return new PravahaListenerProcessor(engine, properties);
+    }
+
+    /**
+     * The actuator contributions (ADR-020): a {@code pravaha} health indicator and a read-only
+     * {@code pravaha} endpoint. Only when the application has Spring Boot Actuator -- the starter
+     * does not bring it -- and each under Boot's own switches: the indicator obeys {@code
+     * management.health.pravaha.enabled}, and the endpoint is created only once it is exposed, which
+     * over the web means {@code management.endpoints.web.exposure.include} names it.
+     *
+     * <p>Nested, and guarded by class name, so an application without Actuator never loads a class
+     * that refers to it.
+     */
+    @org.springframework.context.annotation.Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(
+            name = {
+                "org.springframework.boot.actuate.health.HealthIndicator",
+                "org.springframework.boot.actuate.autoconfigure.endpoint.condition.ConditionalOnAvailableEndpoint"
+            })
+    static class ActuatorConfiguration {
+
+        @Bean
+        @ConditionalOnMissingBean(name = "pravahaHealthIndicator")
+        @ConditionalOnEnabledHealthIndicator("pravaha")
+        PravahaHealthIndicator pravahaHealthIndicator(
+                PravahaEngine engine, ObjectProvider<PravahaListenerProcessor> listeners) {
+            return new PravahaHealthIndicator(engine, listeners.getIfAvailable());
+        }
+
+        @Bean
+        @ConditionalOnMissingBean
+        @ConditionalOnAvailableEndpoint
+        PravahaEndpoint pravahaEndpoint(PravahaEngine engine, ObjectProvider<PravahaListenerProcessor> listeners) {
+            return new PravahaEndpoint(engine, listeners.getIfAvailable());
+        }
     }
 
     /**
