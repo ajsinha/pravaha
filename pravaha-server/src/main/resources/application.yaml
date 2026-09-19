@@ -213,8 +213,13 @@ pravaha:
   # server, which is why the node logs which streams are bound at startup.
   #
   # The plugin name is the one the plugin reports for itself, found on the classpath by
-  # ServiceLoader: filesystem, feedfile, jdbc and delta ship in this repository. Options are passed
-  # to the plugin untouched.
+  # ServiceLoader: filesystem, feedfile, jdbc, delta, aerospike, cassandra and postgres-cdc ship in
+  # this repository. Options are passed to the plugin untouched.
+  #
+  # postgres-cdc is the one that is a changelog: a delete arrives as a retraction of the whole old
+  # row and an update as a retraction and an insertion (docs/CONTINUOUS_QUERIES.md section 2.1). It
+  # leaves a replication slot on the database that retains WAL until a checkpoint confirms it, so
+  # set pravaha.checkpoint.directory with it, and read docs/OPERATIONS.md before the first one.
   #
   # sources:
   #   txn:
@@ -228,6 +233,16 @@ pravaha:
   #       op.column: op
   #       # The values in that column that mean "retract". Default: D,DELETE,-,-1
   #       op.delete.values: "D,DELETE,-,-1"
+  #   customers:
+  #     plugin: postgres-cdc
+  #     options:
+  #       url: "jdbc:postgresql://db-1:5432/crm?sslmode=verify-full&sslrootcert=/etc/pravaha/db-ca.pem"
+  #       user: pravaha_cdc                 # REPLICATION role
+  #       password: "${PRAVAHA_CDC_PASSWORD}"
+  #       table: public.customers           # must be REPLICA IDENTITY FULL
+  #       slot: pravaha_customers
+  #       publication: pravaha_customers
+  #       heartbeat.interval: 10s           # keeps the slot moving on a quiet table
 
   # W8-13 (ADR-039 item 5, ADR-043). Names a StreamSinkPlugin the way `sources` above names a
   # StreamSourcePlugin -- same ServiceLoader-by-name() resolution, same plugin/options shape. A

@@ -232,6 +232,35 @@ creates it), or the credentials or ACLs refused; `PRV-5103` is the staging topic
 creatable, or — at a restart after a long outage — already past the staged changes a checkpoint
 recorded, which are then lost to the topic: raise `staging.retention.ms` and re-register.
 
+**A `postgres-cdc` source is refused at registration with `PRV-5112`.** The database cannot support
+change capture as configured, and the message names the statement that fixes it: `wal_level` is not
+`logical` (`ALTER SYSTEM SET wal_level = logical;` and a **restart** — a reload changes nothing), the
+table is not `REPLICA IDENTITY FULL` (`ALTER TABLE ... REPLICA IDENTITY FULL;`, without which a
+delete could retract only the key and the view would stay wrong for ever), the publication does not
+publish updates and deletes or does not include the table, the server is older than PostgreSQL 14,
+or the slot is missing, invalidated (`wal_status = 'lost'`) or belongs to another plugin or database.
+`PRV-5113` is the table's columns disagreeing with a declared `schema`, or a column type with no
+mapping (leave it out of a declared schema). `PRV-5111` is the database unreachable, the credentials
+refused, or the PostgreSQL driver not on the classpath — the plugin uses the driver the deployment
+supplies, as `jdbc` does.
+
+**A `postgres-cdc` query stopped with `PRV-5116`.** The change stream carried something that cannot
+become rows: a `TRUNCATE` of the captured table (it carries no rows, so there is nothing to retract),
+or a before-image with only the key (the table's replica identity was changed while it was being
+captured). Everything before it was delivered. `PRV-5115` at a restart means the slot has already
+been confirmed past the checkpoint being restored — the newest checkpoint was unreadable and recovery
+fell back to an older one, or the slot was recreated — and PostgreSQL has released the changes in
+between. `PRV-5117` is the replication stream failing in a way no reconnect can fix: the slot
+dropped, invalidated, or the role's privileges revoked. For all three the recovery is the same:
+stop the registration, delete its checkpoint directory, drop the slot, register again
+([`OPERATIONS.md`](OPERATIONS.md), *Change data capture: the replication slot*).
+
+**The database's disk is filling and `pg_replication_slots` shows a `pravaha_` slot retaining it.**
+The slot is confirmed only at Pravaha checkpoints: check the node is running, that
+`pravaha.checkpoint.directory` is set, and that the source's `heartbeat.interval` is not `0` on a
+quiet table. A slot nothing will read again has to be dropped by hand —
+`SELECT pg_drop_replication_slot('<slot>');` — because nothing else ever will.
+
 **A client closed and the server still holds a subscription.** Fixed, but if you see it: the server
 learns nobody is listening from a *cancellation*, not from a dropped transport. The SDK cancels what
 it opened when you close it; a hand-rolled client must do the same.
@@ -424,6 +453,14 @@ way it was registered.
 | `PRV-5101` | KAFKA_CONNECT_FAILED | plugins |
 | `PRV-5102` | KAFKA_WRITE_FAILED | plugins |
 | `PRV-5103` | KAFKA_STAGING_UNUSABLE | plugins |
+| `PRV-5110` | PGCDC_BAD_CONFIGURATION | plugins |
+| `PRV-5111` | PGCDC_CONNECT_FAILED | plugins |
+| `PRV-5112` | PGCDC_NOT_CAPTURABLE | plugins |
+| `PRV-5113` | PGCDC_SCHEMA_MISMATCH | plugins |
+| `PRV-5114` | PGCDC_MALFORMED_OFFSET | plugins |
+| `PRV-5115` | PGCDC_RESUME_POINT_RELEASED | plugins |
+| `PRV-5116` | PGCDC_UNREPRESENTABLE_CHANGE | plugins |
+| `PRV-5117` | PGCDC_STREAM_FAILED | plugins |
 | `PRV-6100` | FLIGHT_UNSUPPORTED_TYPE | gateway |
 | `PRV-6101` | FLIGHT_UNSUPPORTED_REQUEST | gateway |
 | `PRV-6102` | FLIGHT_BAD_HANDLE | gateway |

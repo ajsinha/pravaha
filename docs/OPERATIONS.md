@@ -553,6 +553,97 @@ watermark shows up as growing memory, not as a stopped query.
 **Without this, state is unbounded.** Windows then close only when the input ends, joins never
 evict, and views never forget. Correct over a file; fatal over a stream.
 
+## Change data capture: the replication slot
+
+A `postgres-cdc` source ([`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §2.1) leaves state on the
+**database** server: a logical replication slot. The slot retains write-ahead log from the last
+position it was confirmed at, and **nothing else ever deletes that WAL**. A Pravaha node that stops
+reading — dead, partitioned, or simply never checkpointing — does not fail; the database's disk
+fills behind it, and a Pravaha outage becomes a PostgreSQL outage. Most of running this source is
+watching that slot.
+
+**Before the first registration.** `wal_level = logical` is read only at server start:
+
+```sql
+ALTER SYSTEM SET wal_level = logical;   -- then restart PostgreSQL; a reload changes nothing
+SHOW max_replication_slots;             -- one slot per postgres-cdc registration, plus what else uses them
+SHOW max_wal_senders;                   -- likewise, one connection per reader
+ALTER TABLE public.customers REPLICA IDENTITY FULL;
+ALTER SYSTEM SET max_slot_wal_keep_size = '50GB';  -- recommended: see below
+```
+
+The role needs the `REPLICATION` attribute, and to own the table if the plugin is to create the
+publication (`create.publication`); otherwise create it yourself and set `create.publication: "false"`.
+Each prerequisite that is missing is refused at open with the statement that fixes it (`PRV-5112`).
+
+**Checkpointing is required, not optional.** The slot is confirmed only at positions a durable
+checkpoint recorded — never at what was merely delivered, because a restore would need those changes
+again. So a node without `pravaha.checkpoint.directory` never confirms anything, and the slot keeps
+every byte of WAL written since it was created. The checkpoint interval (`pravaha.checkpoint.interval`,
+one minute by default) is also roughly how far behind the slot's confirmed position trails the
+reader.
+
+**Watch the slot from the database, not only from Pravaha.** A node that is down cannot report its
+own lag. On the database:
+
+```sql
+SELECT slot_name, active,
+       pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn))        AS retained,
+       pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), confirmed_flush_lsn)) AS confirmed_lag,
+       wal_status
+FROM pg_replication_slots WHERE slot_name LIKE 'pravaha_%';
+```
+
+Alert on `retained` growing without bound, on `active = false` for longer than a restart takes, and
+on `wal_status` leaving `reserved`. From the Pravaha side, the source's health reports the same
+numbers — `slot 'pravaha_customers' active, retaining N bytes of WAL, confirmed position X/Y (M bytes
+behind)` — and turns `DEGRADED` past `slot.lag.warn.bytes` (1 GiB by default), on `wal_status =
+'unreserved'`, or while its reader is reconnecting; `UNHEALTHY` if the slot is gone or invalidated.
+
+**The heartbeat.** The slot's position moves only when the reader sees something, and it sees only
+the captured table. On a quiet table in a busy database — or a busy cluster, since WAL is shared by
+every database in it — the slot stands still while WAL piles up behind it. Every `heartbeat.interval`
+(10s) the reader writes a non-transactional `pg_logical_emit_message` into the WAL; it comes back
+through the slot behind every transaction committed before it, the reader's position moves to it,
+and the next checkpoint confirms it. The cost is one tiny WAL record per interval. Setting it to `0`
+turns it off, and is right only for a table that is never quiet.
+
+**Cap what a slot may hold.** `max_slot_wal_keep_size` (PostgreSQL 13 and later) invalidates a slot
+that would retain more than the limit, which protects the disk at the price of the slot. An
+invalidated slot (`wal_status = 'lost'`) cannot be resumed — the WAL it needed is gone — and the
+source refuses it rather than resuming from wherever PostgreSQL now is. Choose the limit as "how long
+a Pravaha outage may last" times "WAL written per hour".
+
+**Dropping a slot nobody will read again.** A registration that is dropped for good, a node that is
+decommissioned, a test environment torn down: the slot does not go with them. Drop it on the
+database, after the reader has stopped (an active slot cannot be dropped):
+
+```sql
+SELECT pg_drop_replication_slot('pravaha_customers');
+DROP PUBLICATION IF EXISTS pravaha_customers;   -- if nothing else uses it
+```
+
+A slot dropped under a running registration cannot be recovered from: the next restart refuses
+(`PRV-5112`) and the changes since the last checkpoint are gone. The recovery for that — and for an
+invalidated slot, and for a `TRUNCATE` of the captured table (`PRV-5116`) — is the same: stop the
+registration, delete its checkpoint directory, drop the slot, and register it again. The view is
+then rebuilt from the table's changes from that moment; rows already in the table are not replayed,
+because the source has no initial snapshot yet.
+
+**A restore the slot has overtaken** is refused with `PRV-5115`. It happens when recovery falls back
+to an older checkpoint than the one the slot was confirmed at — the newest being unreadable — or when
+a slot was dropped and recreated under the same name. PostgreSQL would silently start after the
+changes in between; the source says so instead. The recovery is the one above.
+
+**Failover.** A replication slot lives on one server. After a promotion, whether the slot exists on
+the new primary depends on the PostgreSQL version and on slot synchronisation being configured
+(`sync_replication_slots`, PostgreSQL 17). Where it does not, the source refuses at the next open,
+and the recovery is the one above.
+
+**`drop.slot.on.close`** drops the slot whenever the source closes, a node shutdown included. It is
+for tests and throwaway environments; in production it throws away the position every restart
+resumes from.
+
 ## One engine, and what the server still lacks
 
 A registered continuous query now runs on the engine proper: its own lane and thread, an off-heap

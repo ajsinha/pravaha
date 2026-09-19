@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted — decision recorded, no code started |
+| Status | Accepted — built: `postgres-cdc`, `plugins/pravaha-plugin-postgres-cdc` (no initial snapshot yet) |
 | Date | 2026-09-16 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-013 (Z-sets), ADR-030 (scope tiers), ADR-039 (GA order), ADR-040 (remote connector), `../CONNECTORS.md` §5 |
@@ -86,6 +86,33 @@ the SPI was designed and used by no connector since, are what this is finally fo
 **A replication slot is server-side state.** It retains WAL until it is consumed, so a slot created
 and then abandoned fills the database's disk — a Pravaha outage becoming a Postgres outage. The
 connector owns saying so, and the slot's lifecycle is most of its operational story.
+
+## As built
+
+`plugins/pravaha-plugin-postgres-cdc`, plugin name `postgres-cdc`, a module of its own rather than a
+part of the `jdbc` plugin: it compiles against the driver's replication API, which the deliberately
+driver-free `jdbc` plugin must not, and it declares the driver `provided` -- used from the
+deployment's classpath, as this decision intends, and not bundled. What was decided above, and what
+the code does:
+
+- **`pgoutput`, protocol version 1, decoded by hand** (`PgOutput`): Begin, Commit, Relation, Insert,
+  Update, Delete, Truncate, and logical messages, with the `n`/`u`/`t` column kinds. Version 1 so
+  that an uncommitted transaction is never streamed.
+- **`REPLICA IDENTITY FULL` is refused at open** when missing, naming the `ALTER TABLE`, and a
+  key-only before-image arriving later stops the stream. Unchanged TOAST values are filled from the
+  old row, never written as the placeholder.
+- **The slot is confirmed only at checkpoints.** A new SPI hook, `PartitionReader.checkpointed`, is
+  called once the checkpoint recording an offset is durable; nothing else confirms. A restore from a
+  position the slot has already released is refused rather than silently skipped forward.
+- **The heartbeat** is a non-transactional `pg_logical_emit_message`, read back through the slot
+  as a position marker; `heartbeat.interval`, 10s.
+- **`EXACTLY_ONCE`**, and the source TCK passes against a real PostgreSQL.
+- **Not built: the initial snapshot.** The `SplicedReader` seam below is key-versioned upsert
+  splicing; the exact PostgreSQL seam is an exported snapshot at slot creation, and a checkpoint cut
+  during that read has nothing exact to resume from once the snapshot's connection is gone. Until
+  that is designed the source delivers changes from the slot's creation only, and says so.
+- **`TRUNCATE` is refused** rather than turned into retractions: it carries no rows, and "retract
+  what the view holds" needs the table's contents at that LSN, which the log does not have.
 
 ## What this does not change
 

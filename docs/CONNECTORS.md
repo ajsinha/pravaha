@@ -36,7 +36,7 @@ Three kinds, and a connector may be more than one:
 
 | Interface | What it does | Shipped examples |
 |---|---|---|
-| `StreamSourcePlugin` | Rows in. The thing a `FROM` clause reads | filesystem, feedfile, aerospike, delta, jdbc, cassandra |
+| `StreamSourcePlugin` | Rows in. The thing a `FROM` clause reads | filesystem, feedfile, aerospike, delta, jdbc, cassandra, `postgres-cdc` (a changelog: deletes and before-images) |
 | `StreamSinkPlugin` | Rows out — every commit of a query that names the sink at registration ([ADR-043](adr/043-how-a-continuous-query-names-its-sink.md)). A sink with a configured schema or key reports it through `schema()` and `keyColumns()`, and a registration that does not match is refused | filesystem (append-only), `aerospike-sink` (upsert and delete by key, composite keys), `jdbc-sink` (upsert and delete by key or append, into a table you create; transactional through a staging table, so exactly once on a checkpointed node), `kafka-sink` (keyed JSON upserts with a tombstone for a retraction, or an explicit changelog, to a topic you create; transactional through a staging topic, so exactly once to a `read_committed` consumer on a checkpointed node) |
 | `LookupSourcePlugin` | Point lookups for a temporal join's right side | aerospike, jdbc |
 
@@ -77,6 +77,7 @@ Kafka returns one per topic-partition.
 ```java
 int         poll(RecordSink sink, int maxRecords);   // rows written, 0 when nothing is ready
 SourceOffset position();                              // resume point, checkpointed
+default void checkpointed(SourceOffset offset) {}     // a checkpoint holding this offset is durable
 void        close();
 ```
 
@@ -84,6 +85,13 @@ void        close();
 rows through `sink.beginRow()` and `commit()`; never buffer a batch of your own, because the row you
 are given is a cell in the lane's inbox and copying defeats the whole memory design
 ([`EXECUTION_MODEL.md`](EXECUTION_MODEL.md) §4).
+
+`checkpointed` is for a source that holds something on the store's side until told it may let go.
+The engine calls it, from the checkpointing thread, once the checkpoint recording that offset is
+durable (`PeriodicCheckpointer`, after `CheckpointStore.store` returns) — the only moment it is safe
+to release history, because a restart can only resume from a durable checkpoint. `postgres-cdc`
+confirms its replication slot here and nowhere else; every other shipped source keeps its position in
+the checkpoint alone and leaves the default no-op. A reader shared between queries is not told.
 
 ### `SourceCapabilities` — the part that is load-bearing
 
@@ -298,15 +306,18 @@ The correspondence is exact:
 | `d` (delete) | one row from `before`, `weight(-1)` |
 | `u` (update) | **two** rows: `before` at `-1`, `after` at `+1` |
 
-That is a Z-set stream with no translation. A Debezium connector would be the first source able to
-set `emitsDeletes = true` and `emitsBeforeImage = true` — **two `SourceCapabilities` fields that have
-existed since the SPI was written and that no connector uses.** The framework was designed for this
-and has been waiting for it.
+That is a Z-set stream with no translation. **`postgres-cdc` is that correspondence, built** — natively
+on PostgreSQL's logical replication rather than through Debezium ([ADR-041](adr/041-change-data-capture-without-debezium.md)),
+decoding `pgoutput`'s `Insert`, `Update` and `Delete` into exactly the rows in this table. It is the
+first source to set `emitsDeletes = true` and `emitsBeforeImage = true`, **two `SourceCapabilities`
+fields that existed since the SPI was written and that no connector used until it.** Debezium stays
+the explanation of what CDC is, and the route ADR-041 names for a second database.
 
 It is also push rather than poll: the Aerospike source scans once a second, and CDC delivers the
 change when it happens — lower latency, and no scan load on the table.
 
-One connector reaches MySQL, Postgres, SQL Server, Oracle, MongoDB, Db2 and Cassandra.
+One Debezium connector reaches MySQL, Postgres, SQL Server, Oracle, MongoDB, Db2 and Cassandra;
+`postgres-cdc` reaches PostgreSQL 14 and later, and nothing else.
 
 #### Worked: one `UPDATE` becomes two rows
 
@@ -351,6 +362,14 @@ wrong — no error, no lag, no gap in a metric — the number would simply be to
 one more with every future update. That is why `emitsBeforeImage` is a capability a connector
 declares rather than a detail of its implementation, and why a connector that cannot produce a
 before-image must say so (§6) instead of emitting the `after` row alone.
+
+**Proved against a real PostgreSQL**, through the path a node runs: `PostgresCdcRegistrationTest`
+binds a `postgres-cdc` source, loads 900 silver and 100 gold customers, and watches the registered
+aggregate walk to 899/101 on the `UPDATE` above and to 899/100 on a `DELETE` of a gold customer —
+then restarts from a checkpoint and replays from its LSN with nothing lost or counted twice. One
+difference from the SQL above: the engine refuses an unwindowed keyed `GROUP BY` over a stream as
+unbounded state (`PRV-2050`), so the test writes the two tiers as one global aggregate,
+`SUM(CASE WHEN tier = 'silver' THEN ... END)`, which revises by exactly the same weights.
 
 #### Polling is not the legacy option — choose deliberately
 
@@ -460,8 +479,33 @@ shape as an invalidated slot.
 
 **The offset is the LSN, and it belongs in the checkpoint.** Resuming means telling the server the
 last LSN durably applied. Confirm too early and a crash loses changes the server will never resend;
-confirm only at a Pravaha checkpoint and the two recover to the same point. This is why a CDC source
-plugs into `SplicedReader`'s phase-explicit offsets rather than keeping its own position.
+confirm only at a Pravaha checkpoint and the two recover to the same point. That is what
+`PartitionReader.checkpointed` exists for (§2).
+
+#### How `postgres-cdc` answers the fine print
+
+Each item above, and what the shipped source does about it. The class comments in
+`plugins/pravaha-plugin-postgres-cdc` carry the argument; the tests named run against a real
+PostgreSQL 16 with `wal_level=logical` (Testcontainers).
+
+| The trap | What `postgres-cdc` does |
+|---|---|
+| `REPLICA IDENTITY` not `FULL` | **Refused at open**, `PRV-5112`, naming `ALTER TABLE <table> REPLICA IDENTITY FULL;`, before any slot or publication is created. A key-only before-image that arrives anyway (the identity changed while streaming) stops the source rather than retracting nothing. `aTableWithReplicaIdentityDefaultIsRefusedNamingTheAlterTable` |
+| Unchanged TOAST placeholder | The `u` column of the new row is filled from the same column of the old row, which `FULL` carries whole. A placeholder is never written as a value; one with no old row to fill it from stops the source. `anUnchangedToastValueIsCarriedForward…`, against a 64 KB out-of-line value |
+| Transaction boundaries | Nothing is handed over before `Commit` (protocol version 1, so PostgreSQL never streams an uncommitted transaction), and a poll takes a transaction only if all of it fits — so a checkpoint, taken between polls, never falls inside one |
+| One enormous transaction | Buffered whole in heap until its `Commit`: the memory bound is the largest transaction. One larger than any poll the engine has offered is handed over in order across polls, and the offset records how far in (`lsn=X/Y;partial=A/B+N`), so a restore inside it delivers exactly the rest. A view can publish between those parts |
+| An idle table fills the disk | `heartbeat.interval` (10s) writes a non-transactional `pg_logical_emit_message` into the WAL; it comes back through the slot behind everything committed before it and becomes a position the engine checkpoints and the slot confirms. `aHeartbeatMovesThePosition…`, and the contrast with it off |
+| Failover, dropped or invalidated slot | Detected, not papered over: a missing slot, or `wal_status = 'lost'`, is refused with the rebuild steps. A restore from a position the slot has already confirmed past — which PostgreSQL would silently skip forward from — is refused, `PRV-5115` |
+| Publication | Created `FOR TABLE <table>` before the slot (a slot created first would decode changes from before the publication existed); an existing one must publish insert, update and delete and include the table, or is refused naming the `ALTER PUBLICATION` |
+| `TRUNCATE` | **Refused**, `PRV-5116`: the stream stops after delivering everything before it. A truncate carries no rows, so there is nothing to retract, and retracting "what the view holds" would need the table's contents at that LSN, which the log does not have. The remedy is to drop the slot and re-register; use `DELETE FROM` on a captured table to have its rows retracted |
+| The offset is the LSN | The slot is confirmed only from `checkpointed`, at the newest durable checkpoint's LSN, never backwards. `theSlotIsConfirmedOnlyAtCheckpointedPositions…`, `restartingFromACheckpointedPosition…` |
+
+**Declared capabilities**: `replayableOffsets`, `orderedWithinPartition`, `emitsDeletes` and
+`emitsBeforeImage` all true; **`EXACTLY_ONCE`**; no pushdown. Exactly once because the position is a
+commit LSN and replay from one is deterministic, the reader drops anything ending at or before it,
+and the slot never releases what a durable checkpoint could ask for. It passes the source TCK
+(`PostgresCdcSourceTckTest`), which holds an exactly-once source to no duplicates on resume as well as
+no loss. What it does not survive is the slot itself going away — and that is refused, not skipped.
 
 #### Not every store has a log you can subscribe to
 
@@ -550,11 +594,28 @@ means the slot stops advancing and the database's disk fills — a Pravaha outag
 outage, which is a much worse failure than the one that started it. Anyone running this monitors slot
 lag on the database, not only on Pravaha.
 
-#### What a CDC binding would look like
+#### What a CDC binding looks like
 
-**Not built.** No Debezium plugin ships today, and this is the design rather than configuration you
-can paste — the shipped source types and their real options are in
-[`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §2.1.
+**Built, for PostgreSQL:**
+
+```yaml
+pravaha:
+  sources:
+    customers:
+      plugin: postgres-cdc
+      options:
+        url: "jdbc:postgresql://db-1:5432/crm?sslmode=verify-full&sslrootcert=/etc/pravaha/db-ca.pem"
+        user: pravaha_cdc                # REPLICATION, and owner of the table to create the publication
+        password: "${PRAVAHA_CDC_PASSWORD}"
+        table: public.customers          # must be REPLICA IDENTITY FULL
+        slot: pravaha_customers
+        publication: pravaha_customers
+```
+
+Every option, with its default, is in [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §2.1; the
+slot's care and feeding is in [`OPERATIONS.md`](OPERATIONS.md). For comparison, what a Debezium
+binding would have looked like — **not built**, and by ADR-041 not the first thing to build; it is
+the route for a *second* database:
 
 ```yaml
 pravaha:
@@ -572,9 +633,11 @@ pravaha:
         event.time: updated_at
 ```
 
-`slot.name` is the part that is not cosmetic: a Postgres replication slot is server-side state that
+`slot` is the part that is not cosmetic: a Postgres replication slot is server-side state that
 retains WAL until it is consumed, so a connector that creates one and stops being read will fill the
-database's disk. A CDC connector's operational story is mostly about that slot, not about Pravaha.
+database's disk. A CDC connector's operational story is mostly about that slot, not about Pravaha —
+which is why `postgres-cdc` reports the WAL its slot retains as its health, and goes `DEGRADED` past
+`slot.lag.warn.bytes`.
 
 
 ### Snapshot, and splicing it to the stream
@@ -596,7 +659,14 @@ keys rather than on every key in the snapshot, which is what makes it survivable
 could hold in memory. `BackfillThrottle` governs the history scan only, because throttling the change
 feed would make the query fall behind the present in order to protect the store from the past.
 
-A Debezium connector plugs into that seam rather than inventing one.
+**`postgres-cdc` does not snapshot yet.** It delivers changes from the moment its slot was created
+and nothing before, so a view over a table that already holds rows starts without them. Register the
+query before the table is loaded, or load the history some other way. The exact seam for PostgreSQL
+is known — create the slot with an exported snapshot, read the table under `SET TRANSACTION SNAPSHOT`,
+stream from the slot's consistent point — and what is not solved is a checkpoint cut *during* that
+read: the exported snapshot dies with the connection, so a restore mid-snapshot has nothing exact to
+resume from. Until that is designed, not shipping a snapshot is more honest than shipping one that is
+exact only when nothing restarts.
 
 ### Retractions you can have today, without CDC
 
@@ -648,9 +718,10 @@ simply does not ask for it.
 else, `I` included, is an insertion. There is no value meaning "update": an update is a retraction
 and an insertion, which is the same two rows Debezium's `u` event produces above.
 
-**Four of the five shipped plugins hard-code `weight(+1)`.** This is the one route a retraction has
-into a configured deployment today, which is why the Z-set model went so long without one — and why
-a CDC connector matters beyond the convenience of not writing the file yourself.
+**Every other shipped source plugin but `postgres-cdc` hard-codes `weight(+1)`.** Until it arrived, this
+was the one route a retraction had into a configured deployment, which is why the Z-set model went so
+long without one — and why a CDC connector matters beyond the convenience of not writing the file
+yourself.
 
 ## 6. What a connector should refuse to claim
 
@@ -702,10 +773,10 @@ plugins' container ITs against Postgres, Aerospike and Cassandra).
 | Connector | Kind | Proves |
 |---|---|---|
 | **Kafka** | streaming | replayable offsets and real exactly-once resumption. The **sink** is built (`kafka-sink`, `plugins/pravaha-plugin-kafka`; its transactional mapping is below); the source is not |
-| **Debezium CDC** | changelog | deletes, before-images, Z-sets end to end — the engine's own model |
+| **Debezium CDC** | changelog | deletes, before-images, Z-sets end to end — the engine's own model. **Proved for PostgreSQL by `postgres-cdc`**, built natively ([ADR-041](adr/041-change-data-capture-without-debezium.md)); Debezium is the route for a second database |
 | **Cassandra** | table scan | the scan path generalises beyond Aerospike — **built**, ADR-039 item 6: a full `token()`-range scan with projection pushdown, `plugins/pravaha-plugin-cassandra` |
 | **ScyllaDB** | table scan | speaks the same CQL wire protocol as Cassandra; not built or tested against — the `cassandra` plugin has not been run against it |
-| **MySQL / Postgres** | table or CDC | direct; CDC is the better form |
+| **MySQL / Postgres** | table or CDC | direct; CDC is the better form. Postgres CDC is built (`postgres-cdc`); MySQL's binlog is not |
 | **RabbitMQ / ActiveMQ / SQS / NATS** | queue | **at-least-once only** — acknowledgement is not an offset, so there is nothing to rewind to |
 | **Pulsar / Kinesis / Redpanda** | streaming | as Kafka |
 | **Iceberg / Hudi** | table format | as Delta, which already exists |

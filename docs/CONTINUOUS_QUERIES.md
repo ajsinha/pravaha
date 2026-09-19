@@ -95,11 +95,11 @@ current as its laggiest input, which is correct and surprises people.
 
 ### 2.1 Every source type, configured
 
-Six stream sources ship today. Each is a plugin discovered by `ServiceLoader`, so the set grows
+Seven stream sources ship today. Each is a plugin discovered by `ServiceLoader`, so the set grows
 without the engine changing — [`CONNECTORS.md`](CONNECTORS.md) is how you add one.
 
-**Only `filesystem` is inside the server jar.** `feedfile`, `jdbc`, `delta`, `aerospike` and
-`cassandra` are separate modules, and adding one to a deployment means dropping a jar on the
+**Only `filesystem` is inside the server jar.** `feedfile`, `jdbc`, `delta`, `aerospike`,
+`cassandra` and `postgres-cdc` are separate modules, and adding one to a deployment means dropping a jar on the
 classpath rather than rebuilding the server — which is why a server that only reads a directory does
 not carry Hadoop and Parquet.
 
@@ -335,8 +335,8 @@ retraction is produced.
 row: the `jdbc` source has no equivalent of the `filesystem` source's `op.column`, so a table with a
 soft-delete flag cannot turn that flag into a `−1` today. The flag arrives as an ordinary column and
 a query can filter on it, but the already-counted row is not withdrawn. Where deletes must reduce a
-total, CDC is the right shape ([`CONNECTORS.md`](CONNECTORS.md) §5), and the choice between the two
-is set out there.
+total, CDC is the right shape — `postgres-cdc` below — and the choice between the two is set out in
+[`CONNECTORS.md`](CONNECTORS.md) §5.
 
 #### `aerospike` — a set, scanned by last-update time
 
@@ -451,6 +451,90 @@ collapse** — two writes between passes are seen as one, with only the final va
 before-image**, so an update arrives as an insert of the new value with nothing to retract.
 `capabilities()` declares `emitsDeletes = false`, `emitsBeforeImage = false`, and
 `DeliveryGuarantee.AT_LEAST_ONCE` — a scan cannot honestly promise more.
+
+#### `postgres-cdc` — a PostgreSQL table's changes, from its write-ahead log
+
+Change data capture through PostgreSQL's own logical replication ([ADR-041](adr/041-change-data-capture-without-debezium.md)):
+a replication slot, a publication, and the `pgoutput` stream decoded by the plugin. Unlike every
+source above, it is a **changelog**: an `INSERT` arrives at `+1`, a `DELETE` as the whole old row at
+`−1`, and an `UPDATE` as both — the old row at `−1`, then the new one at `+1` — so a query's answer
+goes *down* when the table does. Every option:
+
+```yaml
+pravaha:
+  sources:
+    customers:
+      plugin: postgres-cdc
+      options:
+        url: "jdbc:postgresql://db-1:5432/crm?sslmode=verify-full&sslrootcert=/etc/pravaha/db-ca.pem"
+        user: pravaha_cdc
+        password: "${PRAVAHA_CDC_PASSWORD}"
+        table: public.customers           # schema.table, or a bare name in public
+        stream: customers                 # default: the table name
+        slot: pravaha_customers           # default: pravaha_<table>
+        publication: pravaha_customers    # default: pravaha_<table>
+        create.slot: "true"               # false: the slot must exist, or open is refused naming the statement
+        create.publication: "true"        # false: the publication must exist and include the table
+        schema: "id:INT64,tier:STRING,region:STRING?"   # optional; checked against the table by name
+        event.time: updated_at            # optional TIMESTAMP column; default: the commit time
+        heartbeat.interval: 10s           # 0 turns it off; see OPERATIONS.md before you do
+        status.interval: 10s              # how often the reader reports to the server
+        buffer.rows: "100000"             # decoded rows waiting for the engine before reading pauses
+        start.timeout: 30s                # how long opening a reader waits to catch up with the log
+        slot.lag.warn.bytes: "1073741824" # retained WAL past which health is DEGRADED
+        drop.slot.on.close: "false"       # true only for a throwaway slot: see below
+```
+
+| Option | Required | Default |
+|---|---|---|
+| `url` | yes | — must be `jdbc:postgresql:`; TLS goes here, as for `jdbc` |
+| `table` | yes | — |
+| `user` / `password` | no | empty |
+| `stream` | no | the table name, without its schema |
+| `slot` / `publication` | no | `pravaha_<table>`; 1–63 of `a-z`, `0-9`, `_` |
+| `create.slot` / `create.publication` | no | `true` |
+| `schema` | no | derived from the table |
+| `event.time` | no | the transaction's commit time |
+| `heartbeat.interval` | no | `10s` |
+| `status.interval` | no | `10s` |
+| `buffer.rows` | no | `100000` |
+| `start.timeout` | no | `30s` |
+| `slot.lag.warn.bytes` | no | `1073741824` (1 GiB) |
+| `drop.slot.on.close` | no | `false` |
+
+**What the database must allow**, each refused at open with its fix named (`PRV-5112`): PostgreSQL
+14 or later; `wal_level = logical` (a restart, not a reload); the table `REPLICA IDENTITY FULL`
+(`ALTER TABLE public.customers REPLICA IDENTITY FULL;` — without it a delete's before-image is the
+key alone and nothing can be retracted); and a role with `REPLICATION`, which owns the table if the
+plugin is to create the publication. The shared `tls.*` options are refused, as for `jdbc`
+([`CONNECTOR_TLS.md`](CONNECTOR_TLS.md)); the replication connection is opened from the same URL.
+
+**The schema** is read from the table. Declare one to pin it, or to leave out a column whose type is
+not mapped (`json`, arrays, `time`, ranges): a declared schema may name any subset of the columns,
+widen an integer or a float, and must mark a nullable column `?`. Mapped: `boolean`, `smallint`,
+`integer`, `bigint`, `real`, `double precision`, `numeric` (its scale kept), `text`, `varchar`,
+`char`, `name`, `uuid` and enums as `STRING`, `bytea`, `date`, `timestamp` (read as UTC) and
+`timestamptz`.
+
+**Changes only, from the slot's creation.** There is no initial snapshot yet: rows already in the
+table when the slot was created are not delivered. Register the query before loading the table, or
+load its history another way ([`CONNECTORS.md`](CONNECTORS.md) §5 says why the snapshot is not built).
+
+**One slot per registration.** A slot has one reader at a time, and an exactly-once source is never
+shared between queries, so two registrations reading the same binding need two bindings with two
+slots. A second reader of a slot already being read waits a few seconds and then fails.
+
+**Transactions arrive whole**, so a view never publishes half of one — unless one transaction is
+larger than any batch the engine has asked for, in which case it arrives in order across batches.
+**`TRUNCATE` stops the source** (`PRV-5116`): there is nothing in it to retract. **The slot is
+confirmed only at checkpoints**, which makes checkpointing (`pravaha.checkpoint.*`) a requirement
+rather than an option: without it the slot never advances and the database keeps every byte of WAL
+since the slot was created. The operational side — slot lag, the heartbeat, dropping a slot — is
+[`OPERATIONS.md`](OPERATIONS.md), *Change data capture: the replication slot*.
+
+`drop.slot.on.close: "true"` drops the slot when the source closes — a node shutdown included — so
+the next start has no position to resume from and a restored view would miss everything in between.
+It is for tests and throwaway environments.
 
 ### 2.2 Lookup sources, for temporal joins
 

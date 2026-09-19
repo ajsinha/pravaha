@@ -186,6 +186,13 @@ If a plaintext JDBC connection is deliberate — a database on a loopback socket
 The same holds for every JDBC connector: the `jdbc` source, the JDBC lookup, and the `jdbc-sink`
 under `pravaha.sinks.<name>` — each refuses `tls.*` with `PRV-5074` and takes its TLS in `url`.
 
+And for `postgres-cdc`, which is built on the same PostgreSQL driver: it refuses `tls.*` with
+`PRV-5110` and takes TLS in `url`. Both of its connections — the ordinary one that checks the table
+and writes heartbeats, and the replication connection that streams the slot — are opened from that
+one URL, so `sslmode=verify-full` covers the change stream too. A replication connection is still a
+PostgreSQL connection: `pg_hba.conf` needs a `replication`-capable entry for the role (`hostssl`, to
+refuse it in plaintext), and nothing about TLS differs.
+
 ### 3.4 Kafka — the shared options, mapped to Kafka's `ssl.*`
 
 The Kafka client takes files and properties, not an `SSLContext`, so `kafka-sink` maps the shared

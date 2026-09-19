@@ -87,7 +87,7 @@ corrected by late data arrives as a retraction of the old answer followed by the
 | **Windows and event time** | Tumbling, sliding and session windows, with slicing. A query derives its watermark from the event-time column its stream declares, a quiet partition stops holding the rest back, and a window publishes when time passes its end |
 | **Corrections** | Late data within a stream's declared `allowedLateness` reopens a closed window as a retraction plus the corrected answer. Every change carries a Z-set weight, through the engine, across the wire and into both SDKs |
 | **Joins** | Stream-to-stream, and temporal lookup joins against a JDBC or Aerospike dimension table |
-| **Sources** | Filesystem (bounded, or followed like `tail -f`), feedfile directories (CSV, Parquet), Delta Lake, JDBC polling, Aerospike scans, Cassandra `token()`-range scans. Filters are pushed into JDBC and Aerospike, projections into all three, and a continuous `COUNT`/`SUM` into JDBC as one pre-combined partial per polled page. One reader per source binding feeds every query bound to it, pushing the OR of their filters. Connections to JDBC, Aerospike and Cassandra can be encrypted ([`CONNECTOR_TLS.md`](docs/CONNECTOR_TLS.md)) |
+| **Sources** | Filesystem (bounded, or followed like `tail -f`), feedfile directories (CSV, Parquet), Delta Lake, JDBC polling, Aerospike scans, Cassandra `token()`-range scans, and **PostgreSQL change data capture** (`postgres-cdc`: logical replication, an insert at +1, a delete as the whole old row at −1, an update as both, whole transactions, exactly once — the slot is confirmed only at checkpoints). Filters are pushed into JDBC and Aerospike, projections into all three, and a continuous `COUNT`/`SUM` into JDBC as one pre-combined partial per polled page. One reader per source binding feeds every query bound to it, pushing the OR of their filters, except where a source promises exactly once. Connections to JDBC, PostgreSQL CDC, Aerospike and Cassandra can be encrypted ([`CONNECTOR_TLS.md`](docs/CONNECTOR_TLS.md)) |
 | **Serving** | The maintained view is read by key or scanned with SQL, and subscribed to per commit. Over **Arrow Flight SQL** (Java SDK, Python SDK, CLI, console), and over the **PostgreSQL wire protocol** (`pravaha.pgwire.enabled`, off by default) so `psql`, DBeaver, Grafana and any Postgres driver can read a view — simple and extended protocol, `\d`, TLS |
 | **Sinks** | A registration can also name a sink (`pravaha register --sink`), and every commit of its view is written there, retractions included. Refused at registration, before the sink opens: a query that revises its answer against an append-only sink (`PRV-2041`), and a sink whose configured columns or key differ from the query's (`PRV-8010`). Shipped: `filesystem` (append-only), `aerospike-sink` (upsert and delete by key), `jdbc-sink` (a table in any JDBC database: upsert and delete by key, or append) and `kafka-sink` (a Kafka topic: keyed JSON upserts with a tombstone for a retraction, or an explicit changelog). Delivery is stated per sink at registration: a transactional sink such as `jdbc-sink` or `kafka-sink` is prepared at each checkpoint's cut and committed once the checkpoint is durable — exactly once; an idempotent upsert sink such as `aerospike-sink` is effectively once; a plain append sink such as `filesystem` is at least once |
 | **State** | Off-heap: join indexes and windowed-aggregate accumulators live in `RowStore` blocks behind open-addressed tables, `COUNT(DISTINCT)`'s values included. With `pravaha.state.spill.*` set, state past its memory ceiling spills to memory-mapped files and the query slows instead of stopping. Per-query gauges show state approaching its ceiling |
@@ -130,9 +130,14 @@ corrected by late data arrives as a retraction of the old answer followed by the
   unit-tested without a server here and `jdbc-sink` against H2; their real-server tests (Aerospike,
   PostgreSQL) and every `kafka-sink` broker test need Docker. `kafka-sink` writes JSON only, and
   ships no lz4, snappy or zstd codec (they are native code): `none` and `gzip` compression work.
-- **Change data capture.** A PostgreSQL logical-replication source is designed
-  ([ADR-041](docs/adr/041-change-data-capture-without-debezium.md)) and not started. Sources poll or
-  scan; Aerospike and Cassandra scans cannot see deletes.
+- **Change data capture, beyond one PostgreSQL table's changes.** `postgres-cdc`
+  ([ADR-041](docs/adr/041-change-data-capture-without-debezium.md)) streams one table per binding
+  from PostgreSQL 14 or later, with a slot per registration. It has **no initial snapshot**: rows in
+  the table before its slot was created are not delivered. A `TRUNCATE` of the captured table stops
+  it (`PRV-5116`) rather than being guessed into retractions, and no other database has a change
+  feed here — the other sources poll or scan, and Aerospike and Cassandra scans cannot see deletes.
+  Its replication slot retains WAL on the database until a checkpoint confirms it
+  ([`OPERATIONS.md`](docs/OPERATIONS.md)).
 - **The spill tier, measured only while the page cache holds it.** There is no RocksDB, by decision
   ([ADR-044](docs/adr/044-no-rocksdb-the-mapped-tier-is-l1.md)): the memory-mapped overflow tier is
   the on-disk tier, and its last four pieces are built — `COUNT(DISTINCT)` spills, churned slabs are
@@ -295,7 +300,8 @@ tools/verify-clean.sh                                # the gate: offline, no sta
 **Plugins:** [`filesystem`](plugins/pravaha-plugin-filesystem), [`delta`](plugins/pravaha-plugin-delta),
 [`feedfile`](plugins/pravaha-plugin-feedfile), [`jdbc`](plugins/pravaha-plugin-jdbc),
 [`aerospike`](plugins/pravaha-plugin-aerospike), [`cassandra`](plugins/pravaha-plugin-cassandra),
-[`kafka`](plugins/pravaha-plugin-kafka), [`cluster-zookeeper`](plugins/pravaha-cluster-zookeeper).
+[`kafka`](plugins/pravaha-plugin-kafka), [`postgres-cdc`](plugins/pravaha-plugin-postgres-cdc),
+[`cluster-zookeeper`](plugins/pravaha-cluster-zookeeper).
 
 **SDKs:** [`sdk/pravaha-sdk-java`](sdk/pravaha-sdk-java),
 [`sdk/pravaha-sdk-java-flight`](sdk/pravaha-sdk-java-flight), [`sdk/python`](sdk/python). The
