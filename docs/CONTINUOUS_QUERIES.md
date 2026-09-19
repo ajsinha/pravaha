@@ -1132,13 +1132,18 @@ engine. The PostgreSQL gateway is read-only and refuses all five with `PRV-6211`
 plans, because `amount` is `NOT NULL` and the comparison is therefore TRUE or FALSE. `SELECT status
 = 'ok'` over a nullable `status` is refused with `PRV-2021`: the answer for a row whose `status` is
 NULL is UNKNOWN, and writing it into a boolean column would report it as `false` — a wrong answer
-under a success exit code rather than a missing feature. Say which you mean and it plans: `(status =
-'ok') IS TRUE` reads UNKNOWN as `false`, `(status = 'ok') IS NOT FALSE` reads it as `true`, and
-`CASE WHEN status = 'ok' THEN TRUE ELSE FALSE END` is the long form of the first. `status IS NOT
-NULL AND status = 'ok'` does **not** plan, though it can never be UNKNOWN: the planner still types
-the `AND` as nullable (and `COALESCE(status = 'ok', FALSE)` is refused likewise), and the refusal used to recommend exactly that rewrite (HLP-14). `IS NULL`,
-`IS NOT NULL`, `IS TRUE`, `IS FALSE`, `IS NOT TRUE` and `IS NOT FALSE` are total by definition and
-project freely.
+under a success exit code rather than a missing feature. Say which you mean and it plans:
+`(status = 'ok') IS TRUE` reads UNKNOWN as `false`, `(status = 'ok') IS NOT FALSE` reads it as `true`, and
+`CASE WHEN status = 'ok' THEN TRUE ELSE FALSE END` is the long form of the first. `IS NULL`, `IS NOT
+NULL`, `IS TRUE`, `IS FALSE`, `IS NOT TRUE` and `IS NOT FALSE` are total by definition and project
+freely.
+
+**A guard does not make a comparison total, as far as the planner can tell.** `status IS NOT NULL AND
+status = 'ok'` can never be UNKNOWN — a NULL `status` makes the left side FALSE, and FALSE AND
+anything is FALSE — but the check is made on the nullability of the expression's operands, not by
+reasoning through the `AND`, so it is refused with `PRV-2021` all the same. So is `COALESCE(status =
+'ok', FALSE)`. The refusal used to recommend the first of these (HLP-14); it now recommends `IS TRUE`
+or `IS NOT FALSE`.
 
 A `CASE` may produce text as readily as a number, but every branch must produce the *same* type —
 with one exception that surprises people: `CASE WHEN … THEN 'big' ELSE 0 END` is accepted, because

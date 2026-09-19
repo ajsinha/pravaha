@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **319 findings carrying a
-status — 203 FIXED, 103 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 103 open, **0 are
+only part that is kept current. Counting the register as it stands: **329 findings carrying a
+status — 213 FIXED, 103 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 103 open, **0 are
 GA-BLOCKER, 0 GA-REQUIRED, 96 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -6691,3 +6691,48 @@ runs is how a default becomes folklore, and this project has already found two o
 
 > **Status:** FIXED — `f1718ba`, `e5bcc35`, `d47ecb5`, `106cb65`, `a287e24`, `1ca1685`, each checked against the code before it was changed. CONTINUOUS_QUERIES: the §11 `IS NOT NULL AND` projection (PRV-2021), MIN/MAX over floats (PRV-2020, and the stated reason was wrong), a renamed window column (PRV-2050), a filter on a looked-up column (PRV-2020), §2.2's lookup joined by the plugin's name, and §3's `hourly_spend` that could not be registered — pinned by `ContinuousQueriesClaimsTest` (8) and `LookupJoinTest`. View retention's default is forever, not a day (OPERATIONS, TROUBLESHOOTING, HANDOVER). EXECUTION_MODEL's "nothing spills" and wrong wait-strategy default. CONNECTOR_TLS's source YAML in a shape nothing reads. `application.yaml`'s commented `tokens:`, `streams:`, `sources:` and `sinks:` blocks nested under the wrong keys. SECURITY.md calling a fixed hole (SX-15) open.
 > **Why it mattered:** each sent a reader to a configuration or a query that does not work.
+
+### HLP-5 (HIGH) — a node configured for pgwire TLS served plaintext
+
+> **Status:** FIXED — `6a5b9b0`: `PravahaNode` never read `pravaha.pgwire.tls.*` and never called `encryptedWith`, so the gateway answered a client's SSLRequest with 'N' and carried credentials and rows in the clear. The node now passes both keys to the gateway, refuses half a pair at start by naming the missing key, and logs "over TLS" when it is. `PravahaNodePgWireTlsTest` checks the 'S' answer and the configured certificate in the handshake, 'N' when unconfigured, and the half-pair refusal; seed-proven (2 of 3 fail). Found while writing the console's help.
+> **Why it mattered:** a configured security control silently not applied — data reaching the network unencrypted while the configuration said otherwise. A client using `sslmode=require` would have refused to connect; one using the default `prefer` would have gone plaintext without a word.
+
+### HLP-2 (HIGH) — the filesystem sink emptied its file on every open, restarts included
+
+> **Status:** FIXED — `8d6b2d5`: the sink's `append` option defaulted to false, so a node restart threw away everything the sink had written, while OPERATIONS promised a restart leaves duplicates in the file (at least once). `append` now defaults to true; `append: false` still empties the file on each open and is documented as discarding earlier output; the CLI's one-shot `pravaha run` asks for it. `FilesystemPluginTest#aReopenedSinkKeepsWhatEarlierRunsWrote`, `#appendFalseStartsTheFileEmptyWhenAskedTo`, `PravahaCliTest#aSecondRunReplacesTheOutputRatherThanAddingToIt`; seed-proven.
+> **Why it mattered:** data lost without a refusal, on the recovery path.
+
+### HLP-3 (HIGH) — PRV-2041 treated every source as append-only, so a query over a change feed could be attached to an append-only sink
+
+> **Status:** FIXED — `65be172`: `ChangelogAnalysis` assumed every scan never retracts. Over `postgres-cdc` a delete arrives at weight −1 and both a join and a plain filter pass it on, so the append-only `filesystem` sink would have written a retraction as if it were a row. It now takes the streams that retract from the bound plugin's `emitsDeletes()` (`SourceFeedFactory.retracts()`, answered by `PluginSourceFeeds` without opening the source). `RetractingSourceSinkTest` (3), `PluginSourceFeedsTest#whetherAStreamDeletesIsTheBoundSourcesOwnAnswer`, `ChangelogAnalysisTest`; seed-proven.
+> **Why it mattered:** a wrong output under a success status — a deleted row written to the sink as present. Reachable only since `postgres-cdc` landed, the first shipped source that deletes.
+
+### HLP-1 (HIGH) — SUM, MIN, MAX and AVG over an INT column killed the lane
+
+> **Status:** FIXED — `e6d6bf6`: two causes. Calcite's SUM keeps its argument's type, so `SUM` of an `INT` (or an `INT` `CASE`) planned an `INT32` output the 64-bit accumulator could not write; and all three aggregate operators read arguments with `getLong`, which over a 4-byte slot reads garbage. `PravahaTypeSystem.deriveSumType` makes SUM of `TINYINT`/`SMALLINT`/`INT` a `BIGINT`, and `AggregateSlots` reads with sign extension and writes at the output column's width. `SumOfIntegersTest` (9, negatives and a windowed query included); seed-proven both ways (6 and 7 fail). Found by the `postgres-cdc` agent's end-to-end test, wider than reported.
+> **Why it mattered:** every aggregate over the most common integer type stopped its query on the first row.
+
+### HLP-4 (MEDIUM) — GET /api/v1/sinks overstated a sink's delivery guarantee
+
+> **Status:** FIXED — `0b3e3bd`, `a901882`: the listing printed the plugin's own `SinkCapabilities.guarantee()`, which reports an idempotent upsert as EXACTLY_ONCE and cannot know whether the node checkpoints. The node's actual guarantee is now decided in one place (`SinkDelivery.label`, via `QueryRegistry.sinkGuaranteeFor`): a transactional sink is exactly once only with checkpoints, effectively once in upsert mode and at least once in append or changelog mode without them; `aerospike-sink` effectively once; `filesystem` at least once. The registration log says the same. `SinkGuaranteeListingTest`; seed-proven.
+
+### HLP-6 (MEDIUM) — feedfile and delta stamped every row with event time 0, so their windows never closed
+
+> **Status:** FIXED — `20f5e01`: both now honour the `event.time` option the node already passed (a `TIMESTAMP` column, refused otherwise; delta's microseconds converted to nanoseconds). New cases in `FeedFileSourcePluginTest`, `ParquetFeedTest`, `DeltaSourcePluginTest`; seed-proven.
+> **Why it mattered:** a windowed query over either source registered, reported RUNNING and never published.
+
+### HLP-7 (MEDIUM) — a stream's allowed lateness could not be set on a server
+
+> **Status:** FIXED — `4862125`: `pravaha.streams.<name>.allowed-lateness` and `allowedLateness` on `POST`/`GET /api/v1/streams`, refused without an event time or when negative. `StreamAllowedLatenessTest` shows a configured 30 s reaching the running windowed aggregate; seed-proven. The correction model (late data reopening a window) was reachable only from the embedded engine.
+
+### HLP-8 (LOW) — /status's registeredQueries counted streams
+
+> **Status:** FIXED — `265a319`: it is now the registry's count of registered names, and a new `streams` field counts streams. `StatusCountsTest`; seed-proven.
+
+### HLP-9 (MEDIUM) — subscription filters matched text columns only
+
+> **Status:** FIXED — `f3e8e00`: Flight carries filter values as text and they were compared with `Objects.equals`, so `"20"` never matched `20` and a filter on a number or boolean silently matched nothing. `SubscriptionFilter` now reads the value as its column's type and refuses one that is not, at subscribe time. 3 new `SubscriptionTest` cases; seed-proven.
+
+### HLP-14 (MEDIUM) — five engine messages sent the operator the wrong way
+
+> **Status:** FIXED — `350584a`, `a2c563a`: PRV-2021's hint recommended `IS NOT NULL AND ...`, which is itself refused (now `IS TRUE` / `IS NOT FALSE`); PRV-2020 for a filter on a looked-up column spoke of correlated subqueries (now its own message, and the `LEFT JOIN ... WHERE` form it suggests is proven to plan); PRV-2050 for a renamed window column said the GROUP BY lacked the window (now names the grouped columns and says to keep the window columns' names); `Retention`'s javadoc called a day the default; Flight's `noParameters` promised that registration binds parameters. Each new text is pinned by a test.
