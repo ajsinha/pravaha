@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted; **built** in `pravaha-spring-boot-starter` — `PravahaAutoConfiguration` (engine bean from `pravaha.*`, started with the context and closed with it), `PravahaProperties`, `PravahaTemplate`, `PravahaEngineCustomizer`, `@PravahaListener(query, concurrency)`. Not built: `@PravahaTest`, actuator contributions, a listener error handler, and a Boot 3.2–3.5 test matrix (tested against 3.5, the server's version) |
+| Status | Accepted; **built** in `pravaha-spring-boot-starter` — `PravahaAutoConfiguration` (engine bean from `pravaha.*`, started with the context and closed with it), `PravahaProperties`, `PravahaTemplate`, `PravahaEngineCustomizer`, `@PravahaListener(query, concurrency, errorHandler)`, `PravahaListenerErrorHandler` (default: log with the query and the change, keep delivering; `pravaha.listener.on-error=stop` stops the listener), the `@PravahaTest` slice with `PravahaTester`, and with Actuator present a `pravaha` health indicator and a read-only `pravaha` endpoint created only once exposed. The Boot 3.2–3.5 matrix is profiles `boot-3.2`…`boot-3.5` in the starter's pom with `BootVersionTest` as its witness; only 3.5.16 has been run (the others were not in the offline repository) |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 

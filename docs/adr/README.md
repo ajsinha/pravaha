@@ -33,7 +33,7 @@ description of the system (DOCX-042, DOCX-046).
 | [016](016-blue-green-query-updates.md) | Blue/green shadow deployment for every query change |
 | [017](017-auto-tune-performance-not-semantics.md) | Adapt performance automatically; never adapt semantics |
 | [019](019-spring-free-engine-core.md) | Engine core is Spring-free; Spring Boot is a bootstrap layer above a plain-Java `PravahaEngine` seam |
-| [020](020-spring-boot-starter.md) | Ship a `pravaha-spring-boot-starter` with `@PravahaListener` and `PravahaTemplate` — **built**: engine bean from `pravaha.*`, `PravahaTemplate`, `@PravahaListener(query, concurrency)`; `@PravahaTest` and the actuator endpoint are not |
+| [020](020-spring-boot-starter.md) | Ship a `pravaha-spring-boot-starter` with `@PravahaListener` and `PravahaTemplate` — **built**: engine bean from `pravaha.*`, `PravahaTemplate`, `@PravahaListener(query, concurrency, errorHandler)`, a listener error handler, `@PravahaTest`, and an actuator endpoint and health indicator; the Boot matrix has run on 3.5 only |
 | [022](022-console-as-a-product-surface.md) | The console is a flagship product surface with its own design system, built as a continuous... |
 | [021](021-no-graalvm-native-image.md) | No GraalVM native image for the engine |
 | [018](018-proprietary-licence.md) | Proprietary, wholly owned by Ashutosh Sinha. All rights reserved |

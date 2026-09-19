@@ -535,11 +535,99 @@ class Dashboard {
   matched by column name, ignoring case and underscores. `concurrency = N` runs N threads, routed by
   the view's key, so one key's changes stay in order.
 - **Failure is loud.** A listener naming a query that does not exist when the context starts, or with
-  a signature it cannot be called with, fails the startup. A listener that throws is logged and stays
-  subscribed; one more than `pravaha.listener.max-pending` commits behind (default 10,000) is detached
-  and logged rather than handed a stream with a gap.
-- **Not built yet:** `@PravahaTest`, an actuator endpoint, a listener error handler, and testing
-  against Boot versions other than 3.5.
+  a signature it cannot be called with, fails the startup. One more than
+  `pravaha.listener.max-pending` commits behind (default 10,000) is detached and logged rather than
+  handed a stream with a gap.
+
+### When a listener throws
+
+A `PravahaListenerErrorHandler` decides. The default logs at error with the query, the listener and
+the change (`@PravahaListener dashboard.onStats on query 'order_stats' threw on [+{orders=2,
+revenue=100}]`), and goes on to the next change; the one that failed is not redelivered.
+`pravaha.listener.on-error=stop` logs the same line and stops the listener instead: it is detached
+from the query and receives nothing more until the context restarts.
+
+```java
+@Bean
+PravahaListenerErrorHandler pravahaErrors(Alerts alerts) {
+    return failure -> {
+        alerts.raise(failure.queryName(), failure.exception());   // failure.changes() is what it was handed
+        return PravahaListenerErrorHandler.Decision.CONTINUE;      // or STOP
+    };
+}
+```
+
+A handler bean replaces the default for every listener that names none (with several, mark one
+`@Primary`); `@PravahaListener(query = "...", errorHandler = "beanName")` gives one listener its own.
+Nothing is silent whatever a handler returns: each listener counts its failures and keeps the last
+one, and the actuator endpoint below shows both. A handler that throws or returns `null` stops its
+listener, and says so at error.
+
+### Testing: `@PravahaTest`
+
+A test slice: the engine and the starter's auto-configuration, and nothing else. Of the application's
+scanned components it keeps only those with a `@PravahaListener` method (`includeFilters` adds more).
+It clears `pravaha.checkpoint.directory`, `pravaha.registry.journal` and `pravaha.dlq.directory`, so
+a test never writes where `application.yaml` points, unless the test sets them itself;
+`@PravahaTest(checkpoints = true)` checkpoints into a temporary directory deleted with the context.
+
+```java
+@PravahaTest(properties = {
+        "pravaha.streams.orders.schema=order_id:STRING,amount:INT64",
+        "pravaha.queries.order_stats.sql=SELECT COUNT(*) AS orders, SUM(amount) AS revenue FROM orders",
+        "pravaha.queries.order_stats.keys=orders"})
+class DashboardTest {
+
+    @Autowired PravahaTester pravaha;
+    @Autowired Dashboard dashboard;
+
+    @Test
+    void revenueAddsUp() {
+        pravaha.push("orders", new Object[] {"o-1", 40L}, new Object[] {"o-2", 60L})
+                .awaitListeners("order_stats");                       // every listener has been handed it
+        assertThat(dashboard.revenue()).isEqualTo(100);
+        assertThat(pravaha.awaitView("order_stats", OrderStats.class, rows -> !rows.isEmpty()))
+                .containsExactly(new OrderStats(2, 100));
+    }
+}
+```
+
+Nothing in it sleeps. A push is applied and committed before it returns; `awaitListeners` queues a
+marker behind each listener's pending work and returns when every marker has run; `awaitView` checks
+the view, then checks again on each commit to it, which is how a test waits for rows a bound source
+delivers on its own schedule. A wait that runs out (30 s, or `withTimeout`) fails naming what it
+waited for and the last answer it saw. The slice needs Boot's test stack
+(`spring-boot-starter-test`), which the starter does not bring.
+
+### Actuator
+
+With `spring-boot-starter-actuator` on the classpath the starter adds a `pravaha` health contributor
+— DOWN when the engine is not running; otherwise UP, with failed queries, detached sinks and stopped
+listeners counted in the detail — switched off by `management.health.pravaha.enabled=false`. It also
+adds a read-only `pravaha` endpoint, created only once exposed, which over HTTP means
+
+```yaml
+management.endpoints.web.exposure.include: health,pravaha
+```
+
+`GET /actuator/pravaha` lists every query — state, SQL, lane (`own` or `shared-N`), rows in,
+subscribers, watermark and its lag, last checkpoint, sink with its delivery guarantee and failure,
+and each listener's delivered, failures and pending commits — and `/actuator/pravaha/{name}` is one.
+There is no write or delete operation: pausing or dropping a query stays the application's call.
+Secure it as you secure the rest of the management port.
+
+### Boot versions
+
+Built and tested against Boot 3.5 (3.5.16, the server's version). The starter's pom has profiles
+`boot-3.2`, `boot-3.3`, `boot-3.4` and `boot-3.5`, each moving the Boot BOM, and `BootVersionTest`
+fails a leg that ran some other Boot than the one it names:
+
+```bash
+./mvnw -pl pravaha-spring-boot-starter -am test -Pboot-3.2
+```
+
+Only the 3.5 leg has been run; the others need their Boot version downloaded, and no CI job runs them
+yet.
 
 ---
 

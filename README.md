@@ -95,7 +95,7 @@ corrected by late data arrives as a retraction of the old answer followed by the
 | **Survival** | A node claims the directories it writes, so two nodes cannot silently share state (`PRV-4003`). A standby takes over when the claim goes stale and reports what the takeover cost. Undecodable input goes to a dead-letter directory instead of ending the query |
 | **Many queries on one node** | A fixed pool of one thread per core drives every lane, and the watermark and checkpoint clocks are one timer for the process: **200 queries add 24 platform threads** on 24 cores, where they once added 400. About **1 MiB off-heap per idle query**, and every component reports its own bytes |
 | **Security** | Authentication, authorization on what a query reads rather than what it is called, row filters, prepared statements, audit. The node refuses to start open unless told to |
-| **Embedding** | `PravahaEngine` runs the whole loop inside an application — streams, plugin bindings, continuous queries, pushed rows, SQL reads, change subscriptions, journal and checkpoints — with no Spring and no network. `pravaha-spring-boot-starter` makes it a bean, with `PravahaTemplate` and `@PravahaListener` delivering committed changes, retractions included, to a method. See [the user guide](docs/USER_GUIDE.md) |
+| **Embedding** | `PravahaEngine` runs the whole loop inside an application — streams, plugin bindings, continuous queries, pushed rows, SQL reads, change subscriptions, journal and checkpoints — with no Spring and no network. `pravaha-spring-boot-starter` makes it a bean, with `PravahaTemplate` and `@PravahaListener` delivering committed changes, retractions included, to a method, a `@PravahaTest` slice for testing it, and an actuator endpoint and health contribution when Actuator is present. See [the user guide](docs/USER_GUIDE.md) |
 
 ## What is not built, or not finished
 
@@ -155,9 +155,11 @@ corrected by late data arrives as a retraction of the old answer followed by the
   and in the embedded engine; the PostgreSQL gateway stays read-only and refuses them (`PRV-6211`).
   Design §11.2's `INDEXED BY ... RANGE`, `WITH (...)` options and `CREATE OR REPLACE` are refused by
   name (`PRV-2072`) rather than ignored, and `INSERT INTO <sink>` stays refused (`PRV-2020`).
-- **The Spring Boot starter's remaining pieces.** The starter (ADR-020) is built without
-  `@PravahaTest`, its actuator endpoint, a listener error handler, or a CI matrix across Boot
-  versions — it is tested against Boot 3.5 only.
+- **The Spring Boot starter on Boot versions other than 3.5.** The starter (ADR-020) has its
+  `@PravahaTest` slice, a read-only `pravaha` actuator endpoint and health contribution, and a
+  listener error handler. Its Boot matrix is Maven profiles (`-Pboot-3.2` to `-Pboot-3.5`) with a
+  test that fails a leg running a Boot other than the one it names; only the 3.5 leg (3.5.16) has
+  been run, and no CI job runs the others.
 - **Blue/green query updates and backfill splicing** are built in `pravaha-backfill` and reachable
   from no running path.
 - **The console has its persona surfaces but not the §23.20 release gate** — workbench, catalog,
