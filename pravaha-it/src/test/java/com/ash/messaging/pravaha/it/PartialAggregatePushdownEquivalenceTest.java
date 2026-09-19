@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.it;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
@@ -56,19 +57,27 @@ import static org.assertj.core.api.Assertions.assertThat;
  * the honest source -- one that computes its partial correctly over what it decided to include --
  * and proves the engine folds it in exactly as it would have folded in the rows.
  *
- * <p>No shipped plugin declares {@code PARTIAL_AGGREGATE} yet, so {@link #PUSHES_PARTIAL_AGGREGATE}
- * and the hand-built partial rows below are this test's own source -- the same role {@code
- * PushdownEquivalenceTest}'s inline filter-honouring loop plays for {@code FILTER}.
+ * <p>Two sources play it. {@link #PUSHES_PARTIAL_AGGREGATE} and the hand-built partial rows are this
+ * test's own, the same role {@code PushdownEquivalenceTest}'s inline filter-honouring loop plays for
+ * {@code FILTER}. And since the JDBC plugin now declares {@code PARTIAL_AGGREGATE}, {@link
+ * #theRealJdbcSourcesPartialsGiveTheAnswerItsRowsDo} runs the shipped plugin against H2 through a
+ * real execution -- pushed and unpushed in lockstep over the same table, through inserts, updates
+ * the poll sees again, and deletes it cannot see -- which is the end-to-end claim.
  */
 class PartialAggregatePushdownEquivalenceTest {
 
+    /**
+     * FILTER as well: this query has a WHERE clause, and a partial replaces the rows the engine's own
+     * filter would have run against, so a source that could not apply the filter must not be asked
+     * for a partial at all (SourcePushdown#filtersAllPushable).
+     */
     private static final SourceCapabilities PUSHES_PARTIAL_AGGREGATE = new SourceCapabilities(
             true,
             true,
             false,
             false,
             DeliveryGuarantee.AT_LEAST_ONCE,
-            EnumSet.of(PushdownKind.PARTIAL_AGGREGATE),
+            EnumSet.of(PushdownKind.FILTER, PushdownKind.PARTIAL_AGGREGATE),
             null);
 
     private static StreamSchema schema() {
@@ -121,6 +130,163 @@ class PartialAggregatePushdownEquivalenceTest {
                 .containsExactlyInAnyOrder(
                         org.assertj.core.groups.Tuple.tuple(ReadRequest.PartialAggregate.Kind.COUNT, null),
                         org.assertj.core.groups.Tuple.tuple(ReadRequest.PartialAggregate.Kind.SUM, "amount"));
+    }
+
+    @Test
+    void aSourceThatCannotApplyTheFilterIsNeverAskedForAPartial() {
+        SourceCapabilities partialOnly = new SourceCapabilities(
+                true,
+                true,
+                false,
+                false,
+                DeliveryGuarantee.AT_LEAST_ONCE,
+                EnumSet.of(PushdownKind.PARTIAL_AGGREGATE),
+                null);
+        // The partial would be computed over every row and the WHERE clause would be applied by
+        // nobody: no rows reach the engine's filter.
+        assertThat(SourcePushdown.requestFor(plan(), "txn", partialOnly).aggregates())
+                .isEmpty();
+    }
+
+    @Test
+    void aPredicateThatCannotBePushedMeansNoPartial() {
+        PhysicalOperator withLike = new PhysicalPlanBuilder()
+                .build(SqlPlanner.withStreams(schema())
+                        .plan("SELECT COUNT(*) AS n, SUM(amount) AS total FROM txn WHERE status LIKE 'D%'"));
+        PhysicalOperator withOr = new PhysicalPlanBuilder()
+                .build(SqlPlanner.withStreams(schema())
+                        .plan("SELECT COUNT(*) AS n FROM txn WHERE status = 'DONE' OR amount > 5"));
+        // Either would be pushed as rows with the engine filtering after; as a partial, the part
+        // that could not be pushed would never be applied.
+        assertThat(SourcePushdown.requestFor(withLike, "txn", PUSHES_PARTIAL_AGGREGATE)
+                        .aggregates())
+                .isEmpty();
+        assertThat(SourcePushdown.requestFor(withOr, "txn", PUSHES_PARTIAL_AGGREGATE)
+                        .aggregates())
+                .isEmpty();
+    }
+
+    // ------------------------------------------------------------------ the shipped JDBC plugin
+
+    /** Shapes the JDBC plugin is asked to pre-combine. The last groups by text, which it declines
+     * unless the deployment says the collation is binary. */
+    private static final List<String> JDBC_QUERIES = List.of(
+            "SELECT COUNT(*) AS n, SUM(amount) AS total FROM txn WHERE region = 1",
+            "SELECT region, COUNT(*) AS n, SUM(amount) AS total, COUNT(amount) AS present FROM txn "
+                    + "WHERE amount > 10 GROUP BY region",
+            "SELECT region, SUM(amount) AS total FROM txn GROUP BY region",
+            "SELECT status, COUNT(*) AS n FROM txn WHERE amount >= 50 GROUP BY status");
+
+    @Property(tries = 24)
+    void theRealJdbcSourcesPartialsGiveTheAnswerItsRowsDo(
+            @ForAll @IntRange(min = 0, max = 3) int query,
+            @ForAll @IntRange(min = 0, max = 10_000) int seed,
+            @ForAll boolean binaryCollation)
+            throws Exception {
+        String sql = JDBC_QUERIES.get(query);
+        try (JdbcPushdownHarness h2 =
+                new JdbcPushdownHarness(Map.of("collation.binary", String.valueOf(binaryCollation)))) {
+            h2.insert(1, 60, seed);
+            PhysicalOperator plan = h2.plan(sql);
+            try (JdbcPushdownHarness.Run pushed = h2.run(plan, true);
+                    JdbcPushdownHarness.Run plain = h2.run(plan, false)) {
+                assertThat(pushed.request.aggregates())
+                        .as("[%s] is the shape a partial is asked for", sql)
+                        .hasSize(1);
+                boolean partials = query != 3 || binaryCollation;
+                assertThat(pushed.reader.deliversPartialAggregate())
+                        .as("[%s] with collation.binary=%s", sql, binaryCollation)
+                        .isEqualTo(partials);
+
+                pushed.drain();
+                plain.drain();
+
+                // New rows, updates the poll sees again as new rows, and deletes it cannot see.
+                h2.insert(60, 110, seed + 1L);
+                for (long id = 3; id < 60; id += 11) {
+                    h2.update(id, (id * 31 + seed) % 300);
+                }
+                h2.delete(2);
+                h2.delete(40);
+                pushed.drain();
+                plain.drain();
+
+                if (partials) {
+                    assertThat(pushed.pump.rowsPumped())
+                            .as("a partial per group per page must cross into the lane, not a row per row")
+                            .isLessThan(plain.pump.rowsPumped());
+                }
+                assertThat(pushed.finish())
+                        .as("pushing [%s] into the database changed the answer (seed %d)", sql, seed)
+                        .isEqualTo(plain.finish());
+            }
+        }
+    }
+
+    /**
+     * The deployment path: a registered query, a {@code jdbc} binding, {@code PluginSourceFeeds}
+     * choosing what to push. An unwindowed GROUP BY cannot be registered (PRV-2050), so the
+     * aggregate a continuous query can pre-combine at the source is the global one -- asked here
+     * twice, with partials and with rows, of the same table.
+     */
+    @Test
+    void aRegisteredQueryOverTheJdbcSourceIsFedPartialsAndAnswersAsItsRowsWould() throws Exception {
+        String sql = "SELECT COUNT(*) AS n, SUM(amount) AS total FROM txn WHERE region = 1";
+        try (JdbcPushdownHarness h2 = new JdbcPushdownHarness(Map.of())) {
+            h2.insert(1, 200, 7);
+            java.util.Map<Boolean, Long> fed = new java.util.HashMap<>();
+            for (boolean partials : List.of(true, false)) {
+                com.ash.messaging.pravaha.bindings.ingest.PluginSourceFeeds feeds =
+                        new com.ash.messaging.pravaha.bindings.ingest.PluginSourceFeeds()
+                                .bind(new com.ash.messaging.pravaha.bindings.ingest.SourceBinding(
+                                        "txn",
+                                        "jdbc",
+                                        h2.binding(Map.of("pushdown.partial.aggregate", String.valueOf(partials)))));
+                com.ash.messaging.pravaha.serving.ViewCatalog views =
+                        new com.ash.messaging.pravaha.serving.ViewCatalog();
+                try (com.ash.messaging.pravaha.registry.QueryRegistry registry =
+                        new com.ash.messaging.pravaha.registry.QueryRegistry(views, h2.schema())
+                                .feedingFrom(feeds)
+                                .generatingWatermarks(
+                                        java.time.Duration.ofSeconds(1), java.time.Duration.ofMillis(50))) {
+                    com.ash.messaging.pravaha.registry.RegisteredQuery query = registry.register(
+                            "region_one", sql, List.of(0), com.ash.messaging.pravaha.security.Principal.ANONYMOUS);
+                    assertThat(query.feed().describe().contains("partial aggregate"))
+                            .as(
+                                    "describe() says whether the source pre-combines: %s",
+                                    query.feed().describe())
+                            .isEqualTo(partials);
+
+                    awaitAnswer(query, h2.ask("SELECT COUNT(*), COALESCE(SUM(amount), 0) FROM txn WHERE region = 1"));
+                    // Rows written after registration arrive as later partials, not a restart.
+                    h2.insert(200, 260, 8);
+                    awaitAnswer(query, h2.ask("SELECT COUNT(*), COALESCE(SUM(amount), 0) FROM txn WHERE region = 1"));
+                    fed.put(partials, query.rowsIn());
+                }
+            }
+            assertThat(fed.get(true))
+                    .as("partials cross into the lane, one per page, where rows crossed one per row")
+                    .isLessThan(fed.get(false));
+        }
+    }
+
+    private static void awaitAnswer(com.ash.messaging.pravaha.registry.RegisteredQuery query, long[] expected)
+            throws InterruptedException {
+        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(20).toNanos();
+        List<Object> want = List.of(expected[0], expected[1]);
+        List<Object> have = List.of();
+        while (System.nanoTime() < deadline) {
+            query.commit();
+            List<Object[]> rows = query.view().scan();
+            if (rows.size() == 1) {
+                have = List.of(rows.get(0)[0], rows.get(0)[1]);
+                if (have.equals(want)) {
+                    return;
+                }
+            }
+            Thread.sleep(20);
+        }
+        assertThat(have).as("the view's (n, total)").isEqualTo(want);
     }
 
     @Test

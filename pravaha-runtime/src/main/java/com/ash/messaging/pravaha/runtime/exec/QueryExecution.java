@@ -221,7 +221,7 @@ public final class QueryExecution implements AutoCloseable {
                     for (int i = 0; i < views.length; i++) {
                         views[i] = new BinaryRowView(RowLayout.of(pipeline.inputSchema(streams.get(i))));
                     }
-                    return new LanePipeline(pipeline, views, streams);
+                    return new LanePipeline(pipeline, views, partialViews(pipeline, streams), streams);
                 },
                 streams.size());
         if (runner == null) {
@@ -290,7 +290,7 @@ public final class QueryExecution implements AutoCloseable {
                 views[i] = new BinaryRowView(RowLayout.of(pipeline.inputSchema(streams.get(i))));
             }
             multiplexer.register(new com.ash.messaging.pravaha.runtime.lane.LaneMultiplexer.Pipeline(
-                    queryId, inputSchema.streamId(), new LanePipeline(pipeline, views, streams)));
+                    queryId, inputSchema.streamId(), new LanePipeline(pipeline, views, null, streams)));
         }
         return new QueryExecution(group, pipelines, inputSchema, streams, plan, access, queryId);
     }
@@ -302,6 +302,33 @@ public final class QueryExecution implements AutoCloseable {
      * reader it holds: two pumps sharing a reader would pause it for one lane's fullness and resume
      * it for another's emptiness, which is not backpressure so much as a fight.
      */
+    /**
+     * The row-header identity a pre-combined partial aggregate carries into a lane, never given to a
+     * stream: {@code QueryRegistry} numbers streams upwards from one and zero means unassigned.
+     */
+    static final int PARTIAL_AGGREGATE_ROW_ID = Integer.MIN_VALUE;
+
+    /**
+     * Whether a reader of {@code streamName} may deliver pre-combined partial aggregates to this
+     * query (ADR-039 item 6): the plan has an aggregate eligible for one, and the lanes are this
+     * query's own. A multiplexed lane dispatches rows by the stream identity in their header, which
+     * a partial deliberately does not carry, so a hosted query is always fed rows.
+     */
+    public boolean acceptsPartialAggregateFor(String streamName) {
+        return hostedQueryId == null && !pipelines.isEmpty() && pipelines.get(0).acceptsPartialAggregateFor(streamName);
+    }
+
+    /** Per input, a view over its partial-aggregate layout, or null where that input takes none. */
+    private static BinaryRowView[] partialViews(InterpretedPipeline pipeline, List<String> streams) {
+        BinaryRowView[] views = new BinaryRowView[streams.size()];
+        for (int i = 0; i < views.length; i++) {
+            if (pipeline.acceptsPartialAggregateFor(streams.get(i))) {
+                views[i] = new BinaryRowView(RowLayout.of(pipeline.partialAggregateSchema(streams.get(i))));
+            }
+        }
+        return views;
+    }
+
     public IngestPump pumpInto(int laneIndex, PartitionReader reader, BackpressurePolicy policy) {
         if (streams.size() != 1) {
             throw new IllegalStateException("this query reads " + streams
@@ -376,8 +403,18 @@ public final class QueryExecution implements AutoCloseable {
             throw new IllegalArgumentException(
                     "'" + streamName + "' is not an input of this query; it reads " + streams);
         }
-        IngestPump pump = new IngestPump(
-                reader, lanes.lane(laneIndex), input, pipelines.get(laneIndex).inputSchema(streamName), policy);
+        StreamSchema layout = pipelines.get(laneIndex).inputSchema(streamName);
+        if (reader.deliversPartialAggregate()) {
+            // ADR-039 item 6. The reader pre-combined its rows, so it writes the aggregate's output
+            // layout rather than the stream's -- stamped with an identity no stream is ever given,
+            // which is how the lane tells a partial from a row in the one inbox they share.
+            if (!acceptsPartialAggregateFor(streamName)) {
+                throw new IllegalStateException("a reader of '" + streamName + "' delivers pre-combined partial "
+                        + "aggregates, and this query has nowhere to fold them in; it must be given rows");
+            }
+            layout = pipelines.get(laneIndex).partialAggregateSchema(streamName).withStreamId(PARTIAL_AGGREGATE_ROW_ID);
+        }
+        IngestPump pump = new IngestPump(reader, lanes.lane(laneIndex), input, layout, policy);
         trackEventTimeOf(streamName, laneIndex, pump::observeEventTimeWith);
         pumps.add(pump);
         return pump;
@@ -677,6 +714,9 @@ public final class QueryExecution implements AutoCloseable {
         if (input < 0) {
             throw new IllegalArgumentException(
                     "'" + streamName + "' is not an input of this query; it reads " + streams);
+        }
+        if (reader.deliversPartialAggregate()) {
+            throw new IllegalStateException("a partial aggregate cannot be routed by join key; feed rows");
         }
         int[] keyOrdinals = joinKeyOrdinalsFor(input);
         PartitionedIngestPump pump = new PartitionedIngestPump(
@@ -1390,7 +1430,8 @@ public final class QueryExecution implements AutoCloseable {
     }
 
     /** Adapts a lane's batch of row offsets to the pipeline's row-at-a-time interface. */
-    private record LanePipeline(InterpretedPipeline pipeline, BinaryRowView[] views, List<String> streams)
+    private record LanePipeline(
+            InterpretedPipeline pipeline, BinaryRowView[] views, BinaryRowView[] partials, List<String> streams)
             implements com.ash.messaging.pravaha.runtime.lane.LaneProcessor {
 
         @Override
@@ -1402,11 +1443,20 @@ public final class QueryExecution implements AutoCloseable {
         public int onBatch(
                 int input, com.ash.messaging.pravaha.common.memory.MemoryRegion region, long[] offsets, int count) {
             BinaryRowView view = views[input];
+            BinaryRowView partial = partials == null ? null : partials[input];
             String stream = streams.get(input);
             for (int i = 0; i < count; i++) {
+                int at = (int) offsets[i];
+                if (partial != null && region.getInt(at + RowLayout.OFFSET_SCHEMA_ID) == PARTIAL_AGGREGATE_ROW_ID) {
+                    // A source pre-combined these rows (ADR-039 item 6): fold the partial straight
+                    // into the aggregate, past the filter it was already computed under.
+                    partial.wrap(region, at);
+                    pipeline.acceptPartialAggregate(stream, partial, partial.weight());
+                    continue;
+                }
                 // A flyweight over the lane's own inbox cell: the row is read in place and never
                 // copied, which is the entire reason the inbox holds bytes rather than objects.
-                pipeline.accept(stream, view.wrap(region, (int) offsets[i]));
+                pipeline.accept(stream, view.wrap(region, at));
             }
             // The batch is whole: what it wrote may now be seen, all of it at once (VIEW-1). A
             // checkpoint's marker cuts the batch before this runs, so the output its cut commits

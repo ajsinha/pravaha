@@ -54,6 +54,35 @@ public interface RowWriter {
     /** Encodes as UTF-8. Allocates when {@code value} is not ASCII -- off the hot path only. */
     RowWriter setString(int ordinal, String value);
 
+    /**
+     * Fills a column the engine did not ask the source for (a pushed projection,
+     * {@code ReadRequest.columns()}), so the row can still be committed.
+     *
+     * <p>Null where the column allows it, and the type's zero where it does not: a {@code NOT NULL}
+     * column has to hold <em>something</em> for the row to commit, and the engine never reads a
+     * column it left out of its request, so which value is immaterial -- the planner only leaves a
+     * column out once nothing above the scan reads it. Like every other setter, variable-width
+     * columns must still be written in ordinal order.
+     */
+    default RowWriter setUnread(int ordinal) {
+        PravahaType type = schema().field(ordinal).type();
+        if (type.nullable()) {
+            return setNull(ordinal);
+        }
+        return switch (type.typeName()) {
+            case BOOLEAN -> setBoolean(ordinal, false);
+            case INT8 -> setByte(ordinal, (byte) 0);
+            case INT16 -> setShort(ordinal, (short) 0);
+            case INT32, DATE -> setInt(ordinal, 0);
+            case INT64, TIME, TIMESTAMP_LTZ -> setLong(ordinal, 0L);
+            case FLOAT32 -> setFloat(ordinal, 0f);
+            case FLOAT64 -> setDouble(ordinal, 0d);
+            case DECIMAL -> setDecimal(ordinal, 0L, 0L);
+            case STRING -> setString(ordinal, "");
+            case BYTES, ARRAY, MAP, ROW -> setBytes(ordinal, new byte[0]);
+        };
+    }
+
     /** Convenience for {@code weight(kind.weight())}; the weight is what is actually stored. */
     default RowWriter rowKind(RowKind kind) {
         return weight(kind.weight());

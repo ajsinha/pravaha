@@ -33,6 +33,22 @@ public interface PartitionReader extends AutoCloseable {
      */
     int poll(RecordSink sink, int maxRecords);
 
+    /**
+     * Whether every row this reader writes is a pre-combined partial aggregate rather than a row of
+     * the stream.
+     *
+     * <p>{@code false} by default, and for every reader created without a {@link
+     * ReadRequest.PartialAggregate} in its request. A reader that was asked for one and chose to
+     * honour it answers {@code true} for its whole life -- the engine asks once, when it wires the
+     * reader in, and writes its rows in the aggregate's output layout from then on. A reader asked
+     * for one that declined, because some filter could not be expressed, answers {@code false} and
+     * returns rows, which is always correct. See {@link ReadRequest.PartialAggregate} for what a
+     * partial must contain.
+     */
+    default boolean deliversPartialAggregate() {
+        return false;
+    }
+
     /** The offset of the last record handed to {@link #poll}. Must be durably restartable. */
     SourceOffset position();
 

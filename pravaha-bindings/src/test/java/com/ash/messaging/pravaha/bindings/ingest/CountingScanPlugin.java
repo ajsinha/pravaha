@@ -66,6 +66,24 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
     static final AtomicLong SCANS = new AtomicLong();
 
     /**
+     * Records the store sent back, after the pushed filters -- what a real store's network and
+     * decode cost is proportional to, and what pushdown exists to shrink. ADR-039 item 6.
+     */
+    static final AtomicLong ROWS_READ = new AtomicLong();
+
+    /** Every request a reader was created with, in creation order. */
+    static final List<ReadRequest> REQUESTS = new CopyOnWriteArrayList<>();
+
+    /**
+     * At most this many records per poll, so a test can make a scan take many polls to drain and
+     * put a join in the middle of one. Zero means no limit beyond the caller's.
+     */
+    static volatile int maxPerPoll;
+
+    /** How long a poll that hands over records takes, so a drain lasts long enough to join into. */
+    static volatile long pollDelayMillis;
+
+    /**
      * SRC-10. Lets a test hold one specific reader's <em>next empty poll</em> open before it
      * returns, so a transient state that would otherwise close itself in a millisecond or two --
      * a catch-up reader that has delivered its history and is one empty poll from closing -- can
@@ -93,6 +111,10 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
         OPEN.set(0);
         CREATED.set(0);
         SCANS.set(0);
+        ROWS_READ.set(0);
+        REQUESTS.clear();
+        maxPerPoll = 0;
+        pollDelayMillis = 0;
         holdEmptyPollForReaderNumber = 0;
         heldPollGate = null;
     }
@@ -128,7 +150,13 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
     @Override
     public SourceCapabilities capabilities() {
         return new SourceCapabilities(
-                replayable, ordered, false, false, guarantee, EnumSet.of(PushdownKind.FILTER), Duration.ofMillis(10));
+                replayable,
+                ordered,
+                false,
+                false,
+                guarantee,
+                EnumSet.of(PushdownKind.FILTER, PushdownKind.PROJECT),
+                Duration.ofMillis(10));
     }
 
     @Override
@@ -150,7 +178,53 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
     public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom, ReadRequest request) {
         OPEN.incrementAndGet();
         int ordinal = CREATED.incrementAndGet();
-        return new Reader(resumeFrom, ordinal);
+        ReadRequest honoured = request == null ? ReadRequest.NOTHING : request;
+        REQUESTS.add(honoured);
+        return new Reader(resumeFrom, ordinal, honoured);
+    }
+
+    /** Whether a record satisfies every filter and, if there are alternatives, one of them. */
+    static boolean matches(long[] record, ReadRequest request) {
+        if (!all(record, request.filters())) {
+            return false;
+        }
+        return request.alternatives().isEmpty()
+                || request.alternatives().stream().anyMatch(alternative -> all(record, alternative));
+    }
+
+    private static boolean all(long[] record, List<ReadRequest.Filter> filters) {
+        for (ReadRequest.Filter filter : filters) {
+            if (!matches(record, filter)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Honours a filter on the two numeric columns and ignores the rest, as a store may. */
+    private static boolean matches(long[] record, ReadRequest.Filter filter) {
+        long value;
+        if (filter.column().equals("id")) {
+            value = record[0];
+        } else if (filter.column().equals("amount")) {
+            value = record[1];
+        } else {
+            return true;
+        }
+        if (!(filter.value() instanceof Number number)) {
+            return true;
+        }
+        long literal = number.longValue();
+        return switch (filter.comparison()) {
+            case EQ -> value == literal;
+            case NE -> value != literal;
+            case LT -> value < literal;
+            case LE -> value <= literal;
+            case GT -> value > literal;
+            case GE -> value >= literal;
+            case IS_NULL -> false;
+            case IS_NOT_NULL -> true;
+        };
     }
 
     /** A scan of the store from a watermark, buffered and drained -- {@code LutScanReader}'s shape. */
@@ -158,14 +232,21 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
 
         private final ArrayDeque<long[]> buffered = new ArrayDeque<>();
         private final int ordinal;
+        private final ReadRequest request;
         private int watermark;
+
+        /** Where the scan being drained began, which is the position until it is drained. */
+        private int scanStart;
+
         private boolean paused;
         private boolean closed;
         private long sequence;
 
-        Reader(SourceOffset from, int ordinal) {
+        Reader(SourceOffset from, int ordinal, ReadRequest request) {
             this.watermark = from == null || from.isBeginning() ? 0 : Integer.parseInt(from.token());
+            this.scanStart = watermark;
             this.ordinal = ordinal;
+            this.request = request;
         }
 
         @Override
@@ -175,20 +256,32 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
             }
             if (buffered.isEmpty()) {
                 // The scan. Like a last-update-time filter, it takes everything the store has gained
-                // since the watermark and moves the watermark to where the scan started.
+                // since the watermark -- honouring what was pushed, as a store does -- and the
+                // position moves past it once the scan is drained, exactly as LutScanReader's does:
+                // until then position() still names where this scan began.
                 SCANS.incrementAndGet();
                 int size = STORE.size();
+                scanStart = watermark;
                 for (int i = watermark; i < size; i++) {
-                    buffered.add(STORE.get(i));
+                    long[] record = STORE.get(i);
+                    if (matches(record, request)) {
+                        buffered.add(record);
+                        ROWS_READ.incrementAndGet();
+                    }
                 }
                 watermark = size;
             }
+            int limit = maxPerPoll > 0 ? Math.min(maxRecords, maxPerPoll) : maxRecords;
             int emitted = 0;
-            while (emitted < maxRecords && !buffered.isEmpty()) {
+            while (emitted < limit && !buffered.isEmpty()) {
                 long[] record = buffered.poll();
                 RowWriter writer = sink.beginRow();
                 writer.setLong(0, record[0]);
-                writer.setString(1, "u" + (record[0] % 7));
+                if (request.columns().isEmpty() || request.columns().contains("user_id")) {
+                    writer.setString(1, "u" + (record[0] % 7));
+                } else {
+                    writer.setUnread(1);
+                }
                 writer.setLong(2, record[1]);
                 writer.weight(1L)
                         .eventTimestampNanos(System.currentTimeMillis() * 1_000_000L)
@@ -210,12 +303,20 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
                     }
                 }
             }
+            long delay = pollDelayMillis;
+            if (emitted > 0 && delay > 0) {
+                try {
+                    Thread.sleep(delay);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
             return emitted;
         }
 
         @Override
         public SourceOffset position() {
-            return new SourceOffset(Integer.toString(watermark));
+            return new SourceOffset(Integer.toString(buffered.isEmpty() ? watermark : scanStart));
         }
 
         @Override

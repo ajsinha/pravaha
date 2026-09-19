@@ -249,8 +249,12 @@ class JdbcSourcePluginTest {
         var capabilities = open(Map.of()).capabilities();
 
         assertThat(capabilities.pushdown())
-                .as("filters are honoured; projections and partial aggregates are not written yet")
-                .containsExactly(com.ash.messaging.pravaha.api.plugin.PushdownKind.FILTER);
+                .as("a WHERE clause, a SELECT list, and -- keyed -- a GROUP BY over one keyset page (ADR-039 item 6); "
+                        + "JdbcProjectionAndPartialTest covers what each declines")
+                .containsExactlyInAnyOrder(
+                        com.ash.messaging.pravaha.api.plugin.PushdownKind.FILTER,
+                        com.ash.messaging.pravaha.api.plugin.PushdownKind.PROJECT,
+                        com.ash.messaging.pravaha.api.plugin.PushdownKind.PARTIAL_AGGREGATE);
 
         assertThat(capabilities.emitsDeletes())
                 .as("a deleted row is simply absent from the next result set, which is "

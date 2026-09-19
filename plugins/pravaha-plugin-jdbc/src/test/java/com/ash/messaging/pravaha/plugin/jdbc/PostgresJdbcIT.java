@@ -186,6 +186,110 @@ class PostgresJdbcIT {
         plugin.close();
     }
 
+    /** ADR-039 item 6: the SELECT list Postgres evaluates, lower-case names and all. */
+    @Test
+    void aPushedProjectionSelectsOnlyTheNamedColumns() throws SQLException {
+        insert(1, "ann", 5.5, 10);
+        insert(2, "bob", 6.5, 11);
+        JdbcSourcePlugin plugin = open(Map.of());
+        ReadRequest request = new ReadRequest(List.of(), List.of("amount"), List.of());
+        assertThat(plugin.pollQueryFor(request)).startsWith("SELECT id, amount, updated_at FROM orders");
+
+        JdbcCollector collector = new JdbcCollector(plugin.schema());
+        try (PartitionReader reader =
+                plugin.createReader(plugin.partitions("orders").get(0), null, request)) {
+            List<RowView> rows = drain(reader, collector);
+            assertThat(rows).hasSize(2);
+            assertThat(rows.get(1).getDouble(2)).isEqualTo(6.5);
+            assertThat(rows.get(0).isNull(1)).as("name was not selected").isTrue();
+        }
+        plugin.close();
+    }
+
+    /**
+     * ADR-039 item 6: a COUNT/SUM partial per keyset page, computed by Postgres -- whose SUM over a
+     * BIGINT is a NUMERIC, which is the one dialect difference the reader has to survive -- summed
+     * across pages and a resume, against Postgres's own answer for the whole table.
+     */
+    @Test
+    void partialAggregatesPerPageSumToPostgresOwnAnswer() throws SQLException {
+        execute("DROP TABLE IF EXISTS sales");
+        execute(
+                "CREATE TABLE sales (id BIGINT NOT NULL PRIMARY KEY, region INT, qty BIGINT, updated_at BIGINT NOT NULL)");
+        for (long id = 1; id <= 83; id++) {
+            execute("INSERT INTO sales VALUES (" + id + ", " + (id % 5 == 0 ? "NULL" : String.valueOf(id % 3)) + ", "
+                    + (id % 7 == 0 ? "NULL" : String.valueOf(id * 1000)) + ", " + (id / 2) + ")");
+        }
+        Map<String, String> config = new HashMap<>(Map.of(
+                "url", postgres.getJdbcUrl(),
+                "user", postgres.getUsername(),
+                "password", postgres.getPassword(),
+                "table", "sales",
+                "watermark.column", "updated_at",
+                "key.column", "id",
+                "stream", "sales",
+                "fetch.size", "6"));
+        JdbcSourcePlugin plugin = new JdbcSourcePlugin();
+        plugin.configure(new Ctx("sales", config));
+        plugin.open();
+        ReadRequest request = new ReadRequest(
+                List.of(new ReadRequest.Filter("id", ReadRequest.Comparison.GE, 4L)),
+                List.of(),
+                List.of(new ReadRequest.PartialAggregate(
+                        List.of("region"),
+                        List.of(
+                                new ReadRequest.PartialAggregate.AggregateCall(
+                                        ReadRequest.PartialAggregate.Kind.COUNT, null, "n"),
+                                new ReadRequest.PartialAggregate.AggregateCall(
+                                        ReadRequest.PartialAggregate.Kind.SUM, "qty", "total")))));
+        com.ash.messaging.pravaha.api.data.StreamSchema partial =
+                com.ash.messaging.pravaha.api.data.StreamSchema.builder("partial")
+                        .field(
+                                "region",
+                                com.ash.messaging.pravaha.api.data.Types.int32().withNullable(true))
+                        .field("n", com.ash.messaging.pravaha.api.data.Types.int64())
+                        .field("total", com.ash.messaging.pravaha.api.data.Types.int64())
+                        .build();
+
+        Map<Integer, long[]> summed = new java.util.HashMap<>();
+        com.ash.messaging.pravaha.api.plugin.SourceOffset midway;
+        JdbcCollector first = new JdbcCollector(partial);
+        try (PartitionReader reader =
+                plugin.createReader(plugin.partitions("sales").get(0), null, request)) {
+            assertThat(reader.deliversPartialAggregate()).isTrue();
+            reader.poll(first, 5);
+            reader.poll(first, 5);
+            midway = reader.position();
+        }
+        JdbcCollector rest = new JdbcCollector(partial);
+        try (PartitionReader reader =
+                plugin.createReader(plugin.partitions("sales").get(0), midway, request)) {
+            drain(reader, rest);
+        }
+        for (List<RowView> rows : List.of(first.rows(), rest.rows())) {
+            for (RowView row : rows) {
+                Integer region = row.isNull(0) ? null : row.getInt(0);
+                long[] sums = summed.computeIfAbsent(region, r -> new long[2]);
+                sums[0] += row.getLong(1);
+                sums[1] += row.getLong(2);
+            }
+        }
+
+        Map<Integer, long[]> truth = new java.util.HashMap<>();
+        try (Statement statement = admin.createStatement();
+                java.sql.ResultSet results = statement.executeQuery(
+                        "SELECT region, COUNT(*), COALESCE(SUM(qty), 0) FROM sales WHERE id >= 4 GROUP BY region")) {
+            while (results.next()) {
+                int region = results.getInt(1);
+                truth.put(results.wasNull() ? null : region, new long[] {results.getLong(2), results.getLong(3)});
+            }
+        }
+        assertThat(summed.keySet()).isEqualTo(truth.keySet());
+        truth.forEach((region, expected) ->
+                assertThat(summed.get(region)).as("region %s", region).containsExactly(expected));
+        plugin.close();
+    }
+
     @Test
     void aNullTextColumnComesBackAsNull() throws SQLException {
         // The bug the lookup plugin's tests exposed in the shared decoder, checked against the

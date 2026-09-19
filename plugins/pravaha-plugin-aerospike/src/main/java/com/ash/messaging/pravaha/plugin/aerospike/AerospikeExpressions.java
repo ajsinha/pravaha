@@ -46,6 +46,36 @@ final class AerospikeExpressions {
 
     private AerospikeExpressions() {}
 
+    /**
+     * The OR of a shared reader's alternatives (see {@code ReadRequest#alternatives()}), or null
+     * when there is none or it cannot be expressed without narrowing it.
+     *
+     * <p>A filter this cannot translate is dropped from <em>its</em> alternative, which widens that
+     * alternative and is safe. An alternative left with nothing makes the whole OR true, so then no
+     * expression is returned at all -- dropping the alternative instead would narrow the OR and lose
+     * exactly the rows that one query wanted.
+     */
+    static Exp anyOf(List<List<ReadRequest.Filter>> alternatives, StreamSchema schema) {
+        if (alternatives.isEmpty()) {
+            return null;
+        }
+        List<Exp> arms = new ArrayList<>(alternatives.size());
+        for (List<ReadRequest.Filter> alternative : alternatives) {
+            List<Exp> parts = new ArrayList<>(alternative.size());
+            for (ReadRequest.Filter filter : alternative) {
+                Exp translated = translate(filter, schema);
+                if (translated != null) {
+                    parts.add(translated);
+                }
+            }
+            if (parts.isEmpty()) {
+                return null;
+            }
+            arms.add(parts.size() == 1 ? parts.get(0) : Exp.and(parts.toArray(new Exp[0])));
+        }
+        return arms.size() == 1 ? arms.get(0) : Exp.or(arms.toArray(new Exp[0]));
+    }
+
     /** One filter, or null if Aerospike cannot express it exactly. */
     static Exp translate(ReadRequest.Filter filter, StreamSchema schema) {
         int ordinal = ordinalOf(schema, filter.column());

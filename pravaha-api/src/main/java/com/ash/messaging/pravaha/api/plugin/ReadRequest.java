@@ -43,6 +43,18 @@ import java.util.List;
  * can both combine <em>and retract</em> -- see {@link PartialAggregate} for which ones qualify and
  * why the list is short.
  *
+ * <p>{@code alternatives} is the one disjunction a request carries, and it exists for one caller: a
+ * reader shared by several queries (SRC-3) whose WHERE clauses differ. Such a reader must return
+ * every row <em>any</em> of them wants, which is an OR of their conjunctions; before this field it
+ * could only be expressed by pushing nothing at all. A row is wanted when every one of {@code
+ * filters} holds <em>and</em>, if {@code alternatives} is not empty, every filter of at least one
+ * of its conjunctions holds. A plugin that ignores it returns more rows than asked, which is safe
+ * for exactly the reason ignoring {@code filters} is; a plugin that honours it must honour each
+ * conjunction exactly or not at all, and <strong>dropping a filter from inside one alternative
+ * widens that alternative</strong> -- safe -- while dropping a whole alternative narrows the OR,
+ * which is the one thing it must never do. An alternative left with no filter it can express
+ * therefore makes the whole disjunction true, and the plugin must then drop all of it.
+ *
  * <p>Deliberately not the engine's predicate IR. That lives in the runtime, which the plugin API
  * sits underneath, and exposing it would make every plugin author depend on -- and every IR change
  * break -- the engine's internals.
@@ -52,16 +64,46 @@ import java.util.List;
  * @param aggregates a partial aggregate this stream's rows may be pre-combined into, or empty for
  *     none; carried as a list only so {@code NOTHING} and an unpopulated request need no separate
  *     "absent" representation, but a source is never asked to honour more than one
+ * @param alternatives conjunctions of which at least one must also hold, or empty for no
+ *     disjunction; never contains an empty conjunction, since that would be "true" and is expressed
+ *     by leaving the list empty instead
  */
-public record ReadRequest(List<Filter> filters, List<String> columns, List<PartialAggregate> aggregates) {
+public record ReadRequest(
+        List<Filter> filters,
+        List<String> columns,
+        List<PartialAggregate> aggregates,
+        List<List<Filter>> alternatives) {
 
     /** A request that asks for nothing, which is what a query with no WHERE clause sends. */
-    public static final ReadRequest NOTHING = new ReadRequest(List.of(), List.of(), List.of());
+    public static final ReadRequest NOTHING = new ReadRequest(List.of(), List.of(), List.of(), List.of());
 
     public ReadRequest {
         filters = List.copyOf(filters);
         columns = List.copyOf(columns);
         aggregates = List.copyOf(aggregates);
+        List<List<Filter>> copied = new java.util.ArrayList<>(alternatives.size());
+        for (List<Filter> conjunction : alternatives) {
+            if (conjunction.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "an alternative with no filters is always true, which makes the whole disjunction true; "
+                                + "leave alternatives empty to say that");
+            }
+            copied.add(List.copyOf(conjunction));
+        }
+        alternatives = List.copyOf(copied);
+        if (alternatives.size() == 1) {
+            throw new IllegalArgumentException(
+                    "a single alternative is just more filters; add it to filters rather than to alternatives");
+        }
+    }
+
+    /**
+     * Filters, columns and a partial aggregate, with no disjunction -- the shape every caller built
+     * before shared readers learned to push an OR, kept so it still compiles and still means what it
+     * meant.
+     */
+    public ReadRequest(List<Filter> filters, List<String> columns, List<PartialAggregate> aggregates) {
+        this(filters, columns, aggregates, List.of());
     }
 
     /**
@@ -70,12 +112,21 @@ public record ReadRequest(List<Filter> filters, List<String> columns, List<Parti
      * exactly what it meant before.
      */
     public ReadRequest(List<Filter> filters) {
-        this(filters, List.of(), List.of());
+        this(filters, List.of(), List.of(), List.of());
     }
 
     /** Whether there is anything here worth acting on. */
     public boolean isEmpty() {
-        return filters.isEmpty() && columns.isEmpty() && aggregates.isEmpty();
+        return filters.isEmpty() && columns.isEmpty() && aggregates.isEmpty() && alternatives.isEmpty();
+    }
+
+    /**
+     * This request with no partial aggregate in it: what to send a reader whose rows will be fed to
+     * the engine one at a time -- a shared reader, a catch-up, or any path that has nowhere to put a
+     * pre-combined partial.
+     */
+    public ReadRequest withoutAggregates() {
+        return aggregates.isEmpty() ? this : new ReadRequest(filters, columns, List.of(), alternatives);
     }
 
     /**
@@ -127,6 +178,26 @@ public record ReadRequest(List<Filter> filters, List<String> columns, List<Parti
      * {@code PRV-3020} exists to report at the engine's own aggregate operator, arrived at
      * independently here because a source that pre-computed a partial minimum would hand the engine
      * exactly the value it cannot retract from -- so this type does not let one be built.
+     *
+     * <p><strong>What a source that honours one must do</strong>, because nothing downstream can
+     * check it (see {@code docs/CONNECTORS.md} section 6):
+     *
+     * <ul>
+     *   <li>Apply <em>every</em> filter in the request, exactly. A partial replaces the rows, so the
+     *       engine's own filter has nothing left to run against; a source that cannot express one of
+     *       the filters must decline the partial and return rows instead. The planner only asks for
+     *       a partial when every predicate between the aggregate and the scan was pushable, so
+     *       declining is the rare case, not the common one.
+     *   <li>Say so: a reader delivering partials answers {@code true} from {@link
+     *       PartitionReader#deliversPartialAggregate()}, and one that declined answers {@code false}
+     *       and returns rows. The engine routes by that answer and never by guessing.
+     *   <li>Write each partial through the {@link com.ash.messaging.pravaha.api.data.RowWriter} it
+     *       is handed, whose {@code schema()} is then the aggregate's own output: the group-by values
+     *       in {@code groupByColumns} order, then one {@code BIGINT} per call in {@code aggregates}
+     *       order, with weight {@code +1} for rows that arrived and {@code -1} for rows that left. A
+     *       group with no rows must not be written at all -- a partial of zero is still "something
+     *       arrived" to an aggregate deciding whether it has an answer yet.
+     * </ul>
      *
      * @param groupByColumns the columns to group by, or empty for one partial covering everything
      *     the source was asked to read

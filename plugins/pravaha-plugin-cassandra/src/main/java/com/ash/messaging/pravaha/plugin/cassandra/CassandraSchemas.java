@@ -108,7 +108,20 @@ public final class CassandraSchemas {
      * whole story.
      */
     static void copyInto(Row row, StreamSchema schema, RowWriter writer) {
+        copyInto(row, schema, writer, null);
+    }
+
+    /**
+     * As {@link #copyInto(Row, StreamSchema, RowWriter)}, for a statement that selected only some
+     * columns: one not selected is written with {@link RowWriter#setUnread}, because the engine
+     * said nothing reads it. {@code read} null means every column was selected.
+     */
+    static void copyInto(Row row, StreamSchema schema, RowWriter writer, boolean[] read) {
         for (int ordinal = 0; ordinal < schema.fields().size(); ordinal++) {
+            if (read != null && !read[ordinal]) {
+                writer.setUnread(ordinal);
+                continue;
+            }
             String column = schema.field(ordinal).name();
             if (row.isNull(column)) {
                 writer.setNull(ordinal);

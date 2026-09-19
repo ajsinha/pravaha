@@ -116,9 +116,26 @@ public final class AerospikeSchemas {
      * and collapsing them makes every downstream {@code IS NULL} wrong.
      */
     static void copyInto(Record record, StreamSchema schema, RowWriter writer) {
+        copyInto(record, schema, writer, null);
+    }
+
+    /**
+     * As {@link #copyInto(Record, StreamSchema, RowWriter)}, for a scan that named its bins.
+     *
+     * @param read per ordinal, whether that bin was asked for; null when every bin was. A bin not
+     *     asked for is written with {@link RowWriter#setUnread} -- the engine said nothing reads it
+     *     -- rather than as the null an absent bin would otherwise read as
+     */
+    static void copyInto(Record record, StreamSchema schema, RowWriter writer, boolean[] read) {
+        // A scan that names bins can return a record holding none of them with no bin map at all.
+        java.util.Map<String, Object> bins = record.bins == null ? java.util.Map.of() : record.bins;
         for (int ordinal = 0; ordinal < schema.fields().size(); ordinal++) {
+            if (read != null && !read[ordinal]) {
+                writer.setUnread(ordinal);
+                continue;
+            }
             String bin = schema.field(ordinal).name();
-            Object value = record.bins.get(bin);
+            Object value = bins.get(bin);
             if (value == null) {
                 writer.setNull(ordinal);
                 continue;

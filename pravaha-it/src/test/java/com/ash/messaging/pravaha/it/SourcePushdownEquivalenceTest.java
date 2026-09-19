@@ -60,12 +60,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * equivalence fails; a source that returns too much is already proven harmless by construction,
  * since the engine only ever reads a column it asked about.
  *
- * <p>Partial-aggregate pushdown is exercised separately, and only at the level of which aggregates
- * {@link SourcePushdown} decides are safe to describe -- see {@code
- * aPartialAggregateIsOfferedOnlyForCountAndSum} below and the report accompanying this change for
- * why no end-to-end equivalence test accompanies it: the engine has nowhere yet to feed a pre-combined
- * partial back into its own incremental accumulator, so there is no consumer to prove equivalent
- * against.
+ * <p>{@link #theRealJdbcSourcesProjectionGivesTheAnswerItsFullRowsDo} repeats the property against
+ * the shipped JDBC plugin on H2 -- a SELECT list the database actually narrows, not a simulation of
+ * one. Which aggregates {@link SourcePushdown} will describe is checked below; that a partial it
+ * describes gives the same answer end to end is {@code PartialAggregatePushdownEquivalenceTest}'s.
  */
 class SourcePushdownEquivalenceTest {
 
@@ -131,12 +129,48 @@ class SourcePushdownEquivalenceTest {
     }
 
     @Test
-    void anAggregateIsNotWalkedForProjection() {
-        // The whole point of an aggregate is to read every row; asking the source to narrow columns
-        // here would need this class to know which columns the aggregate itself reads, which it
-        // does for a global aggregate but chooses not to combine with column pushdown in this pass.
+    void anAggregateNeedsOnlyItsGroupKeysAndArgumentsFromTheSource() {
+        // An unwindowed aggregate reads its group keys and its calls' arguments from its input,
+        // whatever is asked of its output -- both ordinals -- so it is walked like a projection.
         assertThat(columnsFor("SELECT COUNT(*), SUM(amount) FROM txn WHERE status = 'DONE'"))
-                .isEmpty();
+                .containsExactlyInAnyOrder("amount", "status");
+        assertThat(columnsFor("SELECT MAX(amount) FROM txn WHERE id > 3")).containsExactlyInAnyOrder("amount", "id");
+    }
+
+    // ------------------------------------------------------------------ the shipped JDBC plugin
+
+    private static final List<String> JDBC_QUERIES = List.of(
+            "SELECT id FROM txn",
+            "SELECT id, amount FROM txn WHERE region = 2",
+            "SELECT note FROM txn WHERE amount > 50",
+            "SELECT region, MAX(amount) AS biggest FROM txn GROUP BY region",
+            "SELECT status, amount FROM txn WHERE status = 'DONE' AND amount < 120");
+
+    @Property(tries = 20)
+    void theRealJdbcSourcesProjectionGivesTheAnswerItsFullRowsDo(
+            @ForAll @IntRange(min = 0, max = 4) int query, @ForAll @IntRange(min = 0, max = 10_000) int seed)
+            throws Exception {
+        String sql = JDBC_QUERIES.get(query);
+        try (JdbcPushdownHarness h2 = new JdbcPushdownHarness(java.util.Map.of())) {
+            h2.insert(1, 40, seed);
+            PhysicalOperator plan = h2.plan(sql);
+            try (JdbcPushdownHarness.Run pushed = h2.run(plan, true);
+                    JdbcPushdownHarness.Run plain = h2.run(plan, false)) {
+                assertThat(pushed.request.columns())
+                        .as("[%s] reads fewer than all six columns, so it must ask for them by name", sql)
+                        .isNotEmpty()
+                        .hasSizeLessThan(6);
+                pushed.drain();
+                plain.drain();
+                h2.insert(40, 70, seed + 1L);
+                h2.update(5, 7);
+                pushed.drain();
+                plain.drain();
+                assertThat(pushed.finish())
+                        .as("pushing the projection of [%s] into the database changed the answer", sql)
+                        .isEqualTo(plain.finish());
+            }
+        }
     }
 
     @Test
@@ -150,13 +184,14 @@ class SourcePushdownEquivalenceTest {
 
     // ------------------------------------------------------------------ partial-aggregate decision
 
+    /** FILTER too: a partial is only ever asked of a source that also applies the WHERE clause. */
     private static final SourceCapabilities PUSHES_AGGREGATE = new SourceCapabilities(
             true,
             true,
             false,
             false,
             DeliveryGuarantee.AT_LEAST_ONCE,
-            EnumSet.of(PushdownKind.PARTIAL_AGGREGATE),
+            EnumSet.of(PushdownKind.FILTER, PushdownKind.PARTIAL_AGGREGATE),
             null);
 
     @Test

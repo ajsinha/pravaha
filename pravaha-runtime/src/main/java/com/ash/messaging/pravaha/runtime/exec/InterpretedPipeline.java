@@ -166,6 +166,9 @@ public final class InterpretedPipeline implements AutoCloseable {
      */
     private final Map<String, PartialAggregateSink> partialAggregateTargets = new LinkedHashMap<>();
 
+    /** The layout a partial for each of {@link #partialAggregateTargets}' streams arrives in. */
+    private final Map<String, StreamSchema> partialAggregateSchemas = new LinkedHashMap<>();
+
     private final List<ScanOperator> scans;
 
     /** Where the terminal stage writes; told where each unit of work ends. */
@@ -297,6 +300,7 @@ public final class InterpretedPipeline implements AutoCloseable {
         pipeline.globals.addAll(builder.globals);
         pipeline.inputs.putAll(builder.heads);
         pipeline.partialAggregateTargets.putAll(builder.partialAggregateTargets);
+        pipeline.partialAggregateSchemas.putAll(builder.partialAggregateSchemas);
         return pipeline;
     }
 
@@ -367,6 +371,22 @@ public final class InterpretedPipeline implements AutoCloseable {
      */
     public boolean acceptsPartialAggregateFor(String streamName) {
         return partialAggregateTargets.containsKey(streamName);
+    }
+
+    /**
+     * The layout a partial for {@code streamName} is written in: the aggregate's own output schema,
+     * group keys then one column per call -- what a reader honouring a partial-aggregate request
+     * is handed a writer for.
+     *
+     * @throws IllegalStateException when {@link #acceptsPartialAggregateFor} would say false
+     */
+    public StreamSchema partialAggregateSchema(String streamName) {
+        StreamSchema schema = partialAggregateSchemas.get(streamName);
+        if (schema == null) {
+            throw new IllegalStateException("'" + streamName + "' has no aggregate eligible for a partial in this "
+                    + "pipeline, so there is no partial layout to write");
+        }
+        return schema;
     }
 
     /**
@@ -883,6 +903,7 @@ public final class InterpretedPipeline implements AutoCloseable {
         private final List<ScanOperator> scans = new ArrayList<>();
         private final Map<String, RowProcessor> heads = new LinkedHashMap<>();
         private final Map<String, PartialAggregateSink> partialAggregateTargets = new LinkedHashMap<>();
+        private final Map<String, StreamSchema> partialAggregateSchemas = new LinkedHashMap<>();
 
         private final Map<String, LookupSourcePlugin> lookups;
 
@@ -956,15 +977,19 @@ public final class InterpretedPipeline implements AutoCloseable {
                         finishers.add(aggregate::emit);
                         continuousEmitters.add(aggregate::emitIncremental);
                         globals.add(aggregate);
-                        onlyStreamOf(a.input())
-                                .ifPresent(stream -> partialAggregateTargets.put(stream, aggregate::processPartial));
+                        onlyStreamOf(a.input()).ifPresent(stream -> {
+                            partialAggregateTargets.put(stream, aggregate::processPartial);
+                            partialAggregateSchemas.put(stream, a.outputSchema());
+                        });
                         yield buildInput(a.input(), aggregate);
                     }
                     KeyedAggregate aggregate = new KeyedAggregate(
                             a, a.input().outputSchema(), arena, downstream, KeyedAggregate.DEFAULT_MAX_GROUPS);
                     finishers.add(aggregate::emit);
-                    onlyStreamOf(a.input())
-                            .ifPresent(stream -> partialAggregateTargets.put(stream, aggregate::processPartial));
+                    onlyStreamOf(a.input()).ifPresent(stream -> {
+                        partialAggregateTargets.put(stream, aggregate::processPartial);
+                        partialAggregateSchemas.put(stream, a.outputSchema());
+                    });
                     yield buildInput(a.input(), aggregate);
                 }
                 case WindowAssignOperator w -> {

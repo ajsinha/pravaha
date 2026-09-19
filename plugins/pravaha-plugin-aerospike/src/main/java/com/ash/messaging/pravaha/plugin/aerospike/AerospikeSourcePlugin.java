@@ -220,8 +220,15 @@ public final class AerospikeSourcePlugin implements StreamSourcePlugin {
                 false,
                 DeliveryGuarantee.AT_LEAST_ONCE,
                 // The scan filter is a server-side expression, which is where most of the value of
-                // this plugin is: bytes not sent beat bytes filtered.
-                EnumSet.of(PushdownKind.FILTER),
+                // this plugin is: bytes not sent beat bytes filtered. A scan can also name the bins
+                // it wants, so a projection is pushed too.
+                //
+                // Never PARTIAL_AGGREGATE. Aerospike aggregates server-side only through Lua stream
+                // UDFs, which have to be registered on the cluster -- a deployment step this plugin
+                // cannot take for an operator -- and a last-update-time scan sees an overwritten
+                // record as a new row with no retraction of the old one, so a partial over a scan
+                // would be exactly as wrong as the rows are, while costing a UDF to be so.
+                EnumSet.of(PushdownKind.FILTER, PushdownKind.PROJECT),
                 Duration.ofSeconds(1));
     }
 

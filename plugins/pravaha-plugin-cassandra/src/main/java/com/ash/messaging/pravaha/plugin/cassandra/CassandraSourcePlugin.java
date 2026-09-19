@@ -114,6 +114,13 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
     private PreparedStatement greaterThan;
     private PreparedStatement greaterOrEqual;
 
+    /**
+     * The two range statements per projected column list, prepared once each. Keyed by the
+     * columns in schema order, so every reader with the same projection shares one pair.
+     */
+    private final java.util.Map<List<String>, PreparedStatement[]> projected =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     @Override
     public String name() {
         return "cassandra";
@@ -250,16 +257,48 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
                             + "local.datacenter names a real datacenter if the cluster has more than one.",
                     e);
         }
+        PreparedStatement[] all = prepare(schema.fields().stream()
+                .map(com.ash.messaging.pravaha.api.data.Field::name)
+                .toList());
+        this.greaterThan = all[0];
+        this.greaterOrEqual = all[1];
+    }
+
+    /** The exclusive- and inclusive-lower range statements selecting {@code columns}. */
+    private PreparedStatement[] prepare(List<String> columns) {
         String partitionKeyExpr = "token(" + String.join(",", partitionKeyColumns) + ")";
-        String columnList = String.join(
-                ",",
-                schema.fields().stream()
-                        .map(com.ash.messaging.pravaha.api.data.Field::name)
-                        .toList());
-        String selectPrefix = "SELECT " + partitionKeyExpr + " AS " + TOKEN_ALIAS + ", " + columnList + " FROM "
-                + keyspace + "." + table + " WHERE " + partitionKeyExpr;
-        this.greaterThan = session.prepare(selectPrefix + " > ? AND " + partitionKeyExpr + " <= ?");
-        this.greaterOrEqual = session.prepare(selectPrefix + " >= ? AND " + partitionKeyExpr + " <= ?");
+        String selectPrefix = "SELECT " + partitionKeyExpr + " AS " + TOKEN_ALIAS + ", " + String.join(",", columns)
+                + " FROM " + keyspace + "." + table + " WHERE " + partitionKeyExpr;
+        return new PreparedStatement[] {
+            session.prepare(selectPrefix + " > ? AND " + partitionKeyExpr + " <= ?"),
+            session.prepare(selectPrefix + " >= ? AND " + partitionKeyExpr + " <= ?")
+        };
+    }
+
+    /**
+     * The columns a pushed projection selects, in schema order, or null for all of them. The
+     * event-time column is always kept, because the reader reads it for itself; the partition key
+     * is not needed, since {@code token(...)} is computed server-side whatever is selected.
+     */
+    static List<String> projectedColumns(
+            StreamSchema schema, com.ash.messaging.pravaha.api.plugin.ReadRequest request, String eventTimeColumn) {
+        if (request == null || request.columns().isEmpty()) {
+            return null;
+        }
+        java.util.Set<String> wanted = new java.util.HashSet<>(request.columns());
+        if (!eventTimeColumn.isBlank()) {
+            wanted.add(eventTimeColumn);
+        }
+        for (String column : request.columns()) {
+            if (!schema.hasField(column)) {
+                return null;
+            }
+        }
+        List<String> columns = schema.fields().stream()
+                .map(com.ash.messaging.pravaha.api.data.Field::name)
+                .filter(wanted::contains)
+                .toList();
+        return columns.size() >= schema.fieldCount() ? null : columns;
     }
 
     /**
@@ -284,8 +323,13 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
                 false,
                 false,
                 DeliveryGuarantee.AT_LEAST_ONCE,
-                // ADR-039 item 6 builds the connector only; pushdown is a separate, unbuilt item.
-                EnumSet.noneOf(com.ash.messaging.pravaha.api.plugin.PushdownKind.class),
+                // Projection only: the SELECT list is ours to choose, and a column not selected is
+                // bytes Cassandra does not send. Not FILTER: a predicate on anything but the
+                // partition key needs ALLOW FILTERING, which still reads every partition and has
+                // its own null and collation rules to be exact about. Not PARTIAL_AGGREGATE: CQL
+                // aggregates are per partition, and every pass here is a full re-read with no
+                // retraction of the previous one, so no partial could be "the new rows only".
+                EnumSet.of(com.ash.messaging.pravaha.api.plugin.PushdownKind.PROJECT),
                 Duration.ofMillis(scanIntervalMillis));
     }
 
@@ -314,6 +358,14 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
 
     @Override
     public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom) {
+        return createReader(partition, resumeFrom, com.ash.messaging.pravaha.api.plugin.ReadRequest.NOTHING);
+    }
+
+    @Override
+    public PartitionReader createReader(
+            SourcePartition partition,
+            SourceOffset resumeFrom,
+            com.ash.messaging.pravaha.api.plugin.ReadRequest request) {
         if (session == null) {
             throw new PravahaException(
                     CassandraErrors.CONNECT_FAILED, "source '" + instanceName + "' was not opened before use");
@@ -321,10 +373,20 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
         long lowerBound = Long.parseLong(partition.properties().get("lowerBound"));
         long upperBound = Long.parseLong(partition.properties().get("upperBound"));
         boolean inclusiveLower = Boolean.parseBoolean(partition.properties().get("inclusiveLower"));
+        List<String> columns = projectedColumns(schema, request, eventTimeColumn);
+        PreparedStatement[] statements = columns == null
+                ? new PreparedStatement[] {greaterThan, greaterOrEqual}
+                : projected.computeIfAbsent(columns, this::prepare);
+        boolean[] read = new boolean[schema.fieldCount()];
+        for (int ordinal = 0; ordinal < read.length; ordinal++) {
+            read[ordinal] =
+                    columns == null || columns.contains(schema.field(ordinal).name());
+        }
         return new TokenRangeScanReader(
                 session,
-                greaterThan,
-                greaterOrEqual,
+                statements[0],
+                statements[1],
+                read,
                 schema,
                 eventTimeColumn,
                 lowerBound,

@@ -23,6 +23,19 @@
       <scope>test</scope>
     </dependency>
     <dependency>
+      <!-- ADR-039 item 6: the pushdown equivalence tests run the shipped JDBC source against H2. -->
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-plugin-jdbc</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <version>2.3.232</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>testcontainers</artifactId>
       <scope>test</scope>

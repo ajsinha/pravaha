@@ -59,6 +59,10 @@ final class TokenRangeScanReader implements PartitionReader {
     private final PreparedStatement greaterThan;
     private final PreparedStatement greaterOrEqual;
     private final StreamSchema schema;
+
+    /** Per schema ordinal, whether the statements select it -- false only under a projection. */
+    private final boolean[] read;
+
     private final String eventTimeColumn;
     private final long lowerBound;
     private final long upperBound;
@@ -82,6 +86,7 @@ final class TokenRangeScanReader implements PartitionReader {
             CqlSession session,
             PreparedStatement greaterThan,
             PreparedStatement greaterOrEqual,
+            boolean[] read,
             StreamSchema schema,
             String eventTimeColumn,
             long lowerBound,
@@ -96,6 +101,7 @@ final class TokenRangeScanReader implements PartitionReader {
         this.greaterThan = greaterThan;
         this.greaterOrEqual = greaterOrEqual;
         this.schema = schema;
+        this.read = read.clone();
         this.eventTimeColumn = eventTimeColumn;
         this.lowerBound = lowerBound;
         this.upperBound = upperBound;
@@ -167,7 +173,7 @@ final class TokenRangeScanReader implements PartitionReader {
             }
             Row row = current.next();
             RowWriter writer = sink.beginRow();
-            CassandraSchemas.copyInto(row, schema, writer);
+            CassandraSchemas.copyInto(row, schema, writer, read);
             writer.weight(1L)
                     .eventTimestampNanos(eventTimeOf(row))
                     .sequence(++recordsRead)

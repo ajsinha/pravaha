@@ -216,6 +216,56 @@ class AerospikePluginIT {
         plugin.close();
     }
 
+    /**
+     * ADR-039 item 6: a pushed projection names its bins on the scan, so the server sends only
+     * those. A bin not asked for is written as the placeholder a column nothing reads gets -- here
+     * the empty string, because {@code status} is declared NOT NULL.
+     */
+    @Test
+    void aPushedProjectionScansOnlyTheNamedBins() {
+        for (long id = 1; id <= 5; id++) {
+            put(id, "DONE", id * 10);
+        }
+        AerospikeSourcePlugin plugin = source(Map.of());
+        ReadRequest request = new ReadRequest(List.of(), List.of("order_id", "amount"), List.of());
+
+        try (PartitionReader reader =
+                plugin.createReader(plugin.partitions("orders").get(0), null, request)) {
+            assertThat(((LutScanReader) reader).binNames()).containsExactly("order_id", "amount");
+        }
+        List<Object[]> rows = drain(plugin, null, request);
+        assertThat(rows).hasSize(5);
+        for (Object[] row : rows) {
+            assertThat((Long) row[2]).isEqualTo((Long) row[0] * 10);
+            assertThat(row[1])
+                    .as("status was not asked for, so the server did not send it")
+                    .isEqualTo("");
+        }
+        plugin.close();
+    }
+
+    /** ADR-039 item 6: the OR a shared reader pushes is one server-side expression. */
+    @Test
+    void anOrOfAlternativesIsEvaluatedByTheServer() {
+        for (long id = 1; id <= 20; id++) {
+            put(id, id % 2 == 0 ? "DONE" : "NEW", id * 10);
+        }
+        AerospikeSourcePlugin plugin = source(Map.of());
+        ReadRequest request = new ReadRequest(
+                List.of(new ReadRequest.Filter("status", ReadRequest.Comparison.EQ, "DONE")),
+                List.of(),
+                List.of(),
+                List.of(
+                        List.of(new ReadRequest.Filter("amount", ReadRequest.Comparison.LT, 50L)),
+                        List.of(new ReadRequest.Filter("amount", ReadRequest.Comparison.GT, 170L))));
+
+        List<Object[]> rows = drain(plugin, null, request);
+
+        // DONE is the even ids; of those, amount < 50 keeps 2 and 4, amount > 170 keeps 18 and 20.
+        assertThat(rows.stream().map(row -> (Long) row[0]).sorted().toList()).containsExactly(2L, 4L, 18L, 20L);
+        plugin.close();
+    }
+
     @Test
     void aLegacyBooleanStoredAsAnIntegerIsPushedTheWayItIsRead() {
         // Aerospike only grew a boolean particle in server 5.6, and copyInto still reads an integer
@@ -389,7 +439,9 @@ class AerospikePluginIT {
                 .isEmpty();
         assertThat(plugin.capabilities().emitsDeletes()).isFalse();
         assertThat(plugin.capabilities().guarantee()).isEqualTo(DeliveryGuarantee.AT_LEAST_ONCE);
-        assertThat(plugin.capabilities().pushdown()).containsExactly(PushdownKind.FILTER);
+        assertThat(plugin.capabilities().pushdown())
+                .as("a server-side filter and named bins; never a partial aggregate (ADR-039 item 6)")
+                .containsExactlyInAnyOrder(PushdownKind.FILTER, PushdownKind.PROJECT);
         plugin.close();
     }
 

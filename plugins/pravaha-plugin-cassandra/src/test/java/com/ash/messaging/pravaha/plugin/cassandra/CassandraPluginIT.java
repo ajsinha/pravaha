@@ -147,6 +147,40 @@ class CassandraPluginIT {
         return rows;
     }
 
+    /**
+     * ADR-039 item 6: a pushed projection is the CQL SELECT list, so Cassandra sends only those
+     * columns. {@code status} was not asked for and is NOT NULL, so it holds the placeholder a
+     * column nothing reads gets.
+     */
+    @Test
+    void aPushedProjectionSelectsOnlyTheNamedColumns() {
+        put(1, "NEW", 100);
+        put(2, "DONE", 250);
+        CassandraSourcePlugin plugin = source(Map.of());
+        com.ash.messaging.pravaha.api.plugin.ReadRequest request =
+                new com.ash.messaging.pravaha.api.plugin.ReadRequest(List.of(), List.of("id", "amount"), List.of());
+        assertThat(CassandraSourcePlugin.projectedColumns(plugin.schema(), request, ""))
+                .containsExactly("id", "amount");
+
+        List<Object[]> rows = new ArrayList<>();
+        for (SourcePartition partition : plugin.partitions("orders")) {
+            Collector out = new Collector(plugin.schema());
+            try (PartitionReader reader = plugin.createReader(partition, null, request)) {
+                while (reader.poll(out, 100) > 0) {
+                    // drain
+                }
+            }
+            rows.addAll(out.rows);
+        }
+
+        assertThat(rows).hasSize(2);
+        rows.sort(java.util.Comparator.comparing(row -> (Long) row[0]));
+        assertThat(rows.get(0)[2]).isEqualTo(100L);
+        assertThat(rows.get(1)[2]).isEqualTo(250L);
+        assertThat(rows.get(0)[1]).as("status was not selected").isEqualTo("");
+        plugin.close();
+    }
+
     @Test
     void aScanReadsWhatIsInTheTable() {
         put(1, "NEW", 100);
@@ -231,7 +265,9 @@ class CassandraPluginIT {
         assertThat(plugin.capabilities().emitsDeletes()).isFalse();
         assertThat(plugin.capabilities().emitsBeforeImage()).isFalse();
         assertThat(plugin.capabilities().guarantee()).isEqualTo(DeliveryGuarantee.AT_LEAST_ONCE);
-        assertThat(plugin.capabilities().pushdown()).isEmpty();
+        assertThat(plugin.capabilities().pushdown())
+                .as("a SELECT list only: no filter without ALLOW FILTERING, no partial over a full re-read")
+                .containsExactly(com.ash.messaging.pravaha.api.plugin.PushdownKind.PROJECT);
         plugin.close();
     }
 

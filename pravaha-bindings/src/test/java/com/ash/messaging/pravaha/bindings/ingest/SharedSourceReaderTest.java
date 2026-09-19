@@ -115,8 +115,8 @@ class SharedSourceReaderTest {
                             + "scans of the same set")
                     .isEqualTo(1);
 
-            // Both queries answer, and they answer differently: the shared reader pushes nothing
-            // down once two filters disagree, and each query keeps its own filter above it.
+            // Both queries answer, and they answer differently: the shared reader pushes the OR of
+            // the two filters, and each query keeps its own filter above it.
             assertThat(first.rowsIn()).isGreaterThanOrEqualTo(3);
             assertThat(second.rowsIn()).isGreaterThanOrEqualTo(3);
         }
@@ -282,8 +282,8 @@ class SharedSourceReaderTest {
             awaitScans(1);
 
             // Reader #1 is asks_one's original. ASKS_ONE and ASKS_ANOTHER push down different
-            // filters, so joining also rebuilds the group's reader to push nothing down (reader #2,
-            // see SharedSourceGroup's own javadoc on the trade); reader #3 is the catch-up this
+            // filters, so joining also rebuilds the group's reader to push the OR of the two (reader
+            // #2, see SharedPartitionFeed's javadoc); reader #3 is the catch-up this
             // join creates for the row asks_another joined too late to have seen from #2. Armed
             // before registering, so there is no window in which the catch-up could run unobserved.
             CountingScanPlugin.holdEmptyPollForReaderNumber = 3;
@@ -325,11 +325,162 @@ class SharedSourceReaderTest {
             awaitRows(first, 1);
             awaitRows(second, 1);
 
-            // The escape hatch, and what it is for: a shared reader pushes nothing down once two
-            // queries disagree about the WHERE clause, so a deployment running one query against a
-            // set it cares about may want the server-side filter more than it wants the sharing.
+            // The escape hatch, and what it is for: a shared reader pushes the OR of its members'
+            // WHERE clauses, wider than any one of them, so a deployment running one query against a
+            // set it cares about may want its own narrower filter more than it wants the sharing.
             assertThat(CountingScanPlugin.OPEN.get()).isEqualTo(2);
         }
+    }
+
+    // ------------------------------------------------------------------ ADR-039 item 6
+
+    private static final String BIG = "SELECT id, amount FROM shared WHERE amount > 100";
+
+    private static final String SMALL = "SELECT id, amount FROM shared WHERE amount < 10";
+
+    /**
+     * ADR-039 item 6, the shared-reader half. Two queries with different WHERE clauses used to share
+     * a reader that pushed nothing, so the store sent every record to both. It now pushes the OR of
+     * the two, the store sends only what one of them wants, and each keeps its own filter in the
+     * engine -- so the answers are unchanged and the rows read are not.
+     *
+     * <p>Counts are asserted exactly, not as lower bounds, because they are the proof that the
+     * reader was replaced without repeating or losing a row: the first query's reader is replaced
+     * while it is still handing over a scan -- one record a poll, slowly -- which is the moment a
+     * replacement made at the reader's reported position would hand every row of that scan over
+     * again.
+     */
+    @Test
+    void differentFiltersShareOneReaderThatPushesTheirOrAndReadsOnlyWhatEitherWants() throws Exception {
+        for (int i = 0; i < 300; i++) {
+            CountingScanPlugin.append(i, 101 + i); // all wanted by BIG
+            if (i % 15 == 0) {
+                CountingScanPlugin.append(10_000 + i, i % 10); // 20 wanted by SMALL
+            }
+        }
+        CountingScanPlugin.maxPerPoll = 1;
+        CountingScanPlugin.pollDelayMillis = 3;
+
+        ViewCatalog views = new ViewCatalog();
+        try (QueryRegistry registry =
+                new QueryRegistry(views, CountingScanPlugin.SCHEMA).feedingFrom(feeds(Map.of()))) {
+            RegisteredQuery big = registry.register("big", BIG, List.of(0), DANA);
+            awaitRows(big, 20);
+            assertThat(big.rowsIn())
+                    .as("the join below must land while the first scan is still being handed over, or this "
+                            + "test proves nothing about replacing a reader mid-scan")
+                    .isLessThan(300);
+            RegisteredQuery small = registry.register("small", SMALL, List.of(0), DANA);
+
+            awaitRows(big, 300);
+            awaitRows(small, 20);
+            // The catch-up is done with, so what is written next reaches small once, live.
+            assertThat(awaitOpen(1, Duration.ofSeconds(5))).isTrue();
+            CountingScanPlugin.maxPerPoll = 0;
+            CountingScanPlugin.pollDelayMillis = 0;
+
+            // Written after the join: 100 for each query and 100 for neither.
+            for (int i = 0; i < 100; i++) {
+                CountingScanPlugin.append(20_000 + i, 500 + i);
+                CountingScanPlugin.append(30_000 + i, i % 10);
+                CountingScanPlugin.append(40_000 + i, 20 + (i % 70));
+            }
+            awaitRows(big, 500);
+            awaitRows(small, 220);
+            Thread.sleep(200);
+
+            assertThat(CountingScanPlugin.REQUESTS)
+                    .as("the shared reader must be rebuilt to push the OR of both filters, not nothing")
+                    .anySatisfy(request -> {
+                        assertThat(request.filters()).isEmpty();
+                        assertThat(request.alternatives())
+                                .containsExactlyInAnyOrder(
+                                        List.of(new com.ash.messaging.pravaha.api.plugin.ReadRequest.Filter(
+                                                "amount",
+                                                com.ash.messaging.pravaha.api.plugin.ReadRequest.Comparison.GT,
+                                                100L)),
+                                        List.of(new com.ash.messaging.pravaha.api.plugin.ReadRequest.Filter(
+                                                "amount",
+                                                com.ash.messaging.pravaha.api.plugin.ReadRequest.Comparison.LT,
+                                                10L)));
+                    });
+            // Each query receives what the OR lets through, and exactly once: big had 300 of its
+            // own before the join and 200 after (its 100 and small's 100); small had 20 through its
+            // catch-up and the same 200 after.
+            assertThat(big.rowsIn())
+                    .as("a reader replaced mid-scan must not hand the members that scan a second time")
+                    .isEqualTo(500);
+            assertThat(small.rowsIn()).isEqualTo(220);
+            // 300 by big's own reader, 20 by small's catch-up, 200 by the shared one. Pushing
+            // nothing would have sent all 300 records written after the join as well.
+            assertThat(CountingScanPlugin.ROWS_READ.get())
+                    .as("the store must send only rows one of the two queries wants")
+                    .isEqualTo(520);
+
+            // And the answers are each query's own, not the union's.
+            assertThat(awaitViewSize(big, 400)).isEqualTo(400);
+            assertThat(awaitViewSize(small, 120)).isEqualTo(120);
+            assertThat(big.view().scan())
+                    .allSatisfy(row -> assertThat((Long) row[1]).isGreaterThan(100L));
+            assertThat(small.view().scan())
+                    .allSatisfy(row -> assertThat((Long) row[1]).isLessThan(10L));
+        }
+    }
+
+    /**
+     * The other direction: when a query leaves, the reader narrows back to what the rest want, at
+     * its next idle moment, and the one that stayed loses and repeats nothing across the switch.
+     */
+    @Test
+    void whenAQueryLeavesTheSharedReaderNarrowsToWhatTheRestWant() throws Exception {
+        for (int i = 0; i < 50; i++) {
+            CountingScanPlugin.append(i, 200 + i);
+            CountingScanPlugin.append(1_000 + i, i % 10);
+        }
+        ViewCatalog views = new ViewCatalog();
+        try (QueryRegistry registry =
+                new QueryRegistry(views, CountingScanPlugin.SCHEMA).feedingFrom(feeds(Map.of()))) {
+            RegisteredQuery big = registry.register("big", BIG, List.of(0), DANA);
+            awaitRows(big, 50);
+            RegisteredQuery small = registry.register("small", SMALL, List.of(0), DANA);
+            awaitRows(small, 50);
+
+            registry.drop("small");
+            com.ash.messaging.pravaha.api.plugin.ReadRequest bigAlone = CountingScanPlugin.REQUESTS.get(0);
+            long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+            while (System.nanoTime() < deadline
+                    && !CountingScanPlugin.REQUESTS
+                            .get(CountingScanPlugin.REQUESTS.size() - 1)
+                            .equals(bigAlone)) {
+                Thread.sleep(5);
+            }
+            assertThat(CountingScanPlugin.REQUESTS.get(CountingScanPlugin.REQUESTS.size() - 1))
+                    .as("with only big left, the reader must go back to pushing big's filter alone")
+                    .isEqualTo(bigAlone);
+            long readBefore = CountingScanPlugin.ROWS_READ.get();
+            long bigBefore = big.rowsIn();
+
+            for (int i = 0; i < 40; i++) {
+                CountingScanPlugin.append(2_000 + i, 300 + i);
+                CountingScanPlugin.append(3_000 + i, i % 10);
+            }
+            awaitRows(big, bigBefore + 40);
+            Thread.sleep(200);
+
+            assertThat(big.rowsIn() - bigBefore).isEqualTo(40);
+            assertThat(CountingScanPlugin.ROWS_READ.get() - readBefore)
+                    .as("rows only the dropped query wanted must no longer be read")
+                    .isEqualTo(40);
+        }
+    }
+
+    private static int awaitViewSize(RegisteredQuery query, int expected) throws InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        while (System.nanoTime() < deadline && query.view().size() != expected) {
+            query.commit();
+            Thread.sleep(10);
+        }
+        return query.view().size();
     }
 
     /** Waits until the shared reader has scanned at least this many times. See SRC-10. */

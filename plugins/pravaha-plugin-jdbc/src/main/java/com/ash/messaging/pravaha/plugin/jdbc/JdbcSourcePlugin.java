@@ -29,12 +29,14 @@ import java.util.Properties;
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
+import com.ash.messaging.pravaha.api.data.TypeName;
 import com.ash.messaging.pravaha.api.plugin.DeliveryGuarantee;
 import com.ash.messaging.pravaha.api.plugin.HealthStatus;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
 import com.ash.messaging.pravaha.api.plugin.PluginTls;
 import com.ash.messaging.pravaha.api.plugin.PushdownKind;
+import com.ash.messaging.pravaha.api.plugin.ReadRequest;
 import com.ash.messaging.pravaha.api.plugin.SourceCapabilities;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 import com.ash.messaging.pravaha.api.plugin.SourcePartition;
@@ -70,7 +72,10 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  * {@code watermark.column} (required), {@code key.column} (strongly recommended, must be a unique
  * integer column), {@code user}, {@code password}, {@code stream}, {@code fetch.size} (default 500),
  * {@code page.clause} (default {@code LIMIT ?}; use {@code FETCH FIRST ? ROWS ONLY} for Oracle,
- * DB2 and SQL Server).
+ * DB2 and SQL Server), {@code pushdown.partial.aggregate} (default {@code true}; see {@link
+ * #capabilities()}), {@code collation.binary} (default {@code false}: set it only when the database
+ * compares and groups text byte for byte, case-sensitively, as the engine does -- it is what lets a
+ * partial aggregate filter or group on a text column).
  */
 public final class JdbcSourcePlugin implements StreamSourcePlugin {
 
@@ -86,6 +91,8 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
     private String firstQuery;
     private String resumeQuery;
     private int fetchSize;
+    private boolean partialAggregates;
+    private boolean binaryCollation;
 
     private Connection connection;
     private StreamSchema schema;
@@ -111,6 +118,8 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
         this.keyColumn = context.get("key.column", "");
         this.pageClause = context.get("page.clause", "LIMIT ?");
         this.fetchSize = Integer.parseInt(context.get("fetch.size", "500"));
+        this.partialAggregates = Boolean.parseBoolean(context.get("pushdown.partial.aggregate", "true"));
+        this.binaryCollation = Boolean.parseBoolean(context.get("collation.binary", "false"));
 
         String table = context.get("table", "");
         String query = context.get("query", "");
@@ -132,8 +141,8 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
      * legitimately sits at that value.
      */
     private void buildQueries() {
-        this.firstQuery = firstQueryWith(JdbcPushdown.NOTHING);
-        this.resumeQuery = resumeQueryWith(JdbcPushdown.NOTHING);
+        this.firstQuery = firstQueryWith(JdbcPushdown.NOTHING, "*");
+        this.resumeQuery = resumeQueryWith(JdbcPushdown.NOTHING, "*");
     }
 
     /**
@@ -143,9 +152,9 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
      * stream can be serving different queries, and a shared statement would give one of them the
      * other's filters -- which reads as data quietly missing from a query nobody changed.
      */
-    private String firstQueryWith(JdbcPushdown pushed) {
+    private String firstQueryWith(JdbcPushdown pushed, String select) {
         String where = pushed.isEmpty() ? "" : " WHERE " + pushed.sql();
-        return "SELECT * FROM " + source + where + " ORDER BY " + orderClause() + " " + pageClause;
+        return "SELECT " + select + " FROM " + source + where + " ORDER BY " + orderClause() + " " + pageClause;
     }
 
     /**
@@ -156,15 +165,15 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
      * wrong binds a filter value as a watermark, which does not fail -- it silently reads from the
      * wrong place.
      */
-    private String resumeQueryWith(JdbcPushdown pushed) {
+    private String resumeQueryWith(JdbcPushdown pushed, String select) {
         String predicate = keyColumn.isBlank()
                 // Keyless: >= re-selects the boundary, and the reader skips what it already emitted.
                 ? watermarkColumn + " >= ?"
                 // Keyset pagination: a total order, so the resume is exact.
                 : "(" + watermarkColumn + " > ? OR (" + watermarkColumn + " = ? AND " + keyColumn + " > ?))";
         String pushedClause = pushed.isEmpty() ? "" : " AND (" + pushed.sql() + ")";
-        return "SELECT * FROM " + source + " WHERE " + predicate + pushedClause + " ORDER BY " + orderClause() + " "
-                + pageClause;
+        return "SELECT " + select + " FROM " + source + " WHERE " + predicate + pushedClause + " ORDER BY "
+                + orderClause() + " " + pageClause;
     }
 
     private String orderClause() {
@@ -277,10 +286,17 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
                 // seen once with its new value and never as a correction of the old one, so the
                 // stream is not a faithful changelog however careful the offsets are.
                 DeliveryGuarantee.AT_LEAST_ONCE,
-                // Filters only. A projection would change the row shape the schema promises, and a
-                // partial aggregate would need the engine to combine what the database returned --
-                // both are real and neither is written yet, so neither is declared.
-                EnumSet.of(PushdownKind.FILTER),
+                // Filters and projection always: a WHERE and a SELECT list are what SQL is for.
+                //
+                // A partial aggregate only with a key column. The partial for a page covers the rows
+                // in (offset, page end], and "page end" is a position only a total order can name;
+                // keyless mode resumes by counting rows at a tied watermark, which a GROUP BY cannot
+                // do. See JdbcPartialAggregateReader for why a polled partial is exactly the sum of
+                // the rows the row reader would have sent, updates included, and createReader for
+                // the requests it still declines.
+                replayable && partialAggregates
+                        ? EnumSet.of(PushdownKind.FILTER, PushdownKind.PROJECT, PushdownKind.PARTIAL_AGGREGATE)
+                        : EnumSet.of(PushdownKind.FILTER, PushdownKind.PROJECT),
                 Duration.ofSeconds(1));
     }
 
@@ -307,21 +323,123 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
             SourceOffset resumeFrom,
             com.ash.messaging.pravaha.api.plugin.ReadRequest request) {
         JdbcPushdown pushed = JdbcPushdown.of(request, schema);
+        if (request != null && !request.aggregates().isEmpty()) {
+            ReadRequest.PartialAggregate partial = request.aggregates().get(0);
+            if (whyNoPartial(partial, pushed, request) == null) {
+                return new JdbcPartialAggregateReader(
+                        connection,
+                        source,
+                        watermarkColumn,
+                        keyColumn,
+                        pageClause,
+                        fetchSize,
+                        pushed,
+                        partial,
+                        resumeFrom);
+            }
+            // Declined: rows, which the engine filters and aggregates itself. Always correct.
+        }
+        List<String> selected = selectedColumns(request);
+        String select = selected == null ? "*" : String.join(", ", selected);
         return new JdbcPartitionReader(
                 connection,
-                firstQueryWith(pushed),
-                resumeQueryWith(pushed),
+                firstQueryWith(pushed, select),
+                resumeQueryWith(pushed, select),
                 schema,
                 watermarkColumn,
                 keyColumn,
                 fetchSize,
                 resumeFrom,
-                pushed.values());
+                pushed.values(),
+                selected);
+    }
+
+    /**
+     * The columns a pushed projection selects, in schema order, or null for {@code SELECT *}.
+     *
+     * <p>The watermark and key columns are always added: the reader orders and resumes by them
+     * whether or not the engine reads them. A requested name this schema does not have means the
+     * request is about something else, and reading everything is the safe answer to that.
+     */
+    private List<String> selectedColumns(ReadRequest request) {
+        if (request == null || request.columns().isEmpty()) {
+            return null;
+        }
+        java.util.Set<String> wanted = new java.util.HashSet<>(request.columns());
+        for (String column : request.columns()) {
+            if (!schema.hasField(column)) {
+                return null;
+            }
+        }
+        List<String> selected = new java.util.ArrayList<>();
+        for (com.ash.messaging.pravaha.api.data.Field field : schema.fields()) {
+            String name = field.name();
+            if (wanted.contains(name)
+                    || name.equalsIgnoreCase(watermarkColumn)
+                    || (!keyColumn.isBlank() && name.equalsIgnoreCase(keyColumn))) {
+                selected.add(name);
+            }
+        }
+        return selected.size() == schema.fieldCount() ? null : selected;
+    }
+
+    /**
+     * Why this source will not pre-combine {@code partial}, or null when it will.
+     *
+     * <p>Every reason is a way the database's answer could differ from the engine's, and a partial
+     * leaves nothing downstream to notice: a filter the SQL could not carry, a text comparison or
+     * text grouping under a collation nobody has said is binary (a case-insensitive one groups
+     * {@code 'DONE'} with {@code 'done'}), a floating-point group key ({@code -0.0} and {@code 0.0}
+     * are one group in SQL and two in the engine), or a sum over anything but BIGINT.
+     */
+    String whyNoPartial(ReadRequest.PartialAggregate partial, JdbcPushdown pushed, ReadRequest request) {
+        if (keyColumn.isBlank() || !partialAggregates) {
+            return "partial aggregates need key.column and pushdown.partial.aggregate";
+        }
+        if (!pushed.exact()) {
+            return "a filter could not be expressed in SQL, and a partial has no rows left to filter";
+        }
+        if (!binaryCollation) {
+            List<ReadRequest.Filter> all = new java.util.ArrayList<>(request.filters());
+            request.alternatives().forEach(all::addAll);
+            for (ReadRequest.Filter filter : all) {
+                if (typeOf(filter.column()) == TypeName.STRING) {
+                    return "a text filter's meaning depends on the database's collation; set collation.binary";
+                }
+            }
+        }
+        for (String column : partial.groupByColumns()) {
+            TypeName type = typeOf(column);
+            boolean integral = type == TypeName.BOOLEAN
+                    || type == TypeName.INT8
+                    || type == TypeName.INT16
+                    || type == TypeName.INT32
+                    || type == TypeName.INT64;
+            if (!integral && !(type == TypeName.STRING && binaryCollation)) {
+                return "grouping by " + column + " (" + type + ") in the database may not group as the engine does";
+            }
+        }
+        for (ReadRequest.PartialAggregate.AggregateCall call : partial.aggregates()) {
+            if (call.column() != null && typeOf(call.column()) == null) {
+                return "no column " + call.column();
+            }
+            if (call.kind() == ReadRequest.PartialAggregate.Kind.SUM && typeOf(call.column()) != TypeName.INT64) {
+                return "the engine sums BIGINT only";
+            }
+        }
+        return null;
+    }
+
+    private TypeName typeOf(String column) {
+        return schema.hasField(column)
+                ? schema.field(schema.indexOf(column)).type().typeName()
+                : null;
     }
 
     /** The SQL a reader with these filters would run, for tests and EXPLAIN. */
     String pollQueryFor(com.ash.messaging.pravaha.api.plugin.ReadRequest request) {
-        return firstQueryWith(JdbcPushdown.of(request, schema));
+        List<String> selected = selectedColumns(request);
+        return firstQueryWith(JdbcPushdown.of(request, schema), selected == null ? "*" : String.join(", ", selected));
     }
 
     /** The stream this plugin exposes. */

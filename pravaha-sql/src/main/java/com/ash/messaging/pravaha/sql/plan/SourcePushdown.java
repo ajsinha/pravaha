@@ -69,7 +69,11 @@ public final class SourcePushdown {
         List<String> columns = accepted.contains(PushdownKind.PROJECT)
                 ? projectedColumns(plan, stream).orElse(List.of())
                 : List.of();
+        // A partial replaces the rows, so the engine's filter has nothing left to run against: every
+        // predicate below the aggregate must reach the source, which means FILTER must be declared
+        // too whenever there is one. See filtersAllPushable.
         List<ReadRequest.PartialAggregate> aggregates = accepted.contains(PushdownKind.PARTIAL_AGGREGATE)
+                        && filtersAllPushable(plan, stream, accepted.contains(PushdownKind.FILTER))
                 ? partialAggregateFor(plan, stream).map(List::of).orElse(List.<ReadRequest.PartialAggregate>of())
                 : List.of();
 
@@ -149,9 +153,22 @@ public final class SourcePushdown {
             }
             return narrow(project.input(), translated, stream);
         }
-        // ComputeOperator, AggregateOperator, WindowAssignOperator, WindowedAggregateOperator,
-        // JoinOperator, LookupJoinOperator, SinkOperator: none of these is "needed at my output"
-        // translated to "needed at my input" by a simple ordinal lookup, so none is walked.
+        if (operator instanceof AggregateOperator aggregate) {
+            // Whatever is needed of its output, an unwindowed aggregate reads exactly its group keys
+            // and its calls' arguments from its input -- both are ordinals into that input, so
+            // this is the one stateful operator whose input needs are a lookup rather than an
+            // expression walk. COUNT(*) reads no column at all (argument ordinal -1).
+            Set<Integer> read = new LinkedHashSet<>(aggregate.groupKeyOrdinals());
+            for (AggregateOperator.AggregateCall call : aggregate.aggregates()) {
+                if (call.argumentOrdinal() >= 0) {
+                    read.add(call.argumentOrdinal());
+                }
+            }
+            return narrow(aggregate.input(), read, stream);
+        }
+        // ComputeOperator, WindowAssignOperator, WindowedAggregateOperator, JoinOperator,
+        // LookupJoinOperator, SinkOperator: none of these is "needed at my output" translated to
+        // "needed at my input" by a simple ordinal lookup, so none is walked.
         return Optional.empty();
     }
 
@@ -211,6 +228,9 @@ public final class SourcePushdown {
             return Optional.empty();
         }
         PhysicalOperator input = aggregate.input();
+        if (!projectionsThenFiltersThenScan(input, stream, false)) {
+            return Optional.empty();
+        }
 
         List<String> groupByColumns = new ArrayList<>();
         for (Integer ordinal : aggregate.groupKeyOrdinals()) {
@@ -250,8 +270,107 @@ public final class SourcePushdown {
             // COUNT(*): no column to resolve.
             return Optional.of(new ReadRequest.PartialAggregate.AggregateCall(kind, null, call.outputName()));
         }
+        if (kind == ReadRequest.PartialAggregate.Kind.SUM && !resolvesToInt64(input, call.argumentOrdinal(), stream)) {
+            // The engine's own SUM accumulates the argument's 64 bits as a long. A source summing a
+            // narrower integer or a floating column would compute the right number where the
+            // engine computes its own -- equivalence is to the engine, so only BIGINT is offered.
+            return Optional.empty();
+        }
         return resolveToSourceColumn(input, call.argumentOrdinal(), stream)
                 .map(column -> new ReadRequest.PartialAggregate.AggregateCall(kind, column, call.outputName()));
+    }
+
+    private static boolean resolvesToInt64(PhysicalOperator operator, int ordinal, String stream) {
+        return resolveToSourceColumn(operator, ordinal, stream)
+                .map(name -> findScan(operator, stream)
+                        .map(scan -> scan.outputSchema().hasField(name)
+                                && scan.outputSchema()
+                                                .field(scan.outputSchema().indexOf(name))
+                                                .type()
+                                                .typeName()
+                                        == com.ash.messaging.pravaha.api.data.TypeName.INT64)
+                        .orElse(false))
+                .orElse(false);
+    }
+
+    private static Optional<ScanOperator> findScan(PhysicalOperator operator, String stream) {
+        if (operator instanceof ScanOperator scan) {
+            return scan.streamName().equals(stream) ? Optional.of(scan) : Optional.empty();
+        }
+        return operator.inputs().size() == 1 ? findScan(operator.inputs().get(0), stream) : Optional.empty();
+    }
+
+    /**
+     * Whether the only operators between an aggregate and {@code stream}'s scan are projections
+     * sitting above filters sitting directly on the scan.
+     *
+     * <p>The order matters, not only the types. {@link Pushdown} names a pushed filter by the column
+     * name the predicate carries, which is the scan's own name only for a filter directly over the
+     * scan (or over other such filters) -- a filter above a projection names a column of that
+     * projection. For rows that costs nothing, because the engine keeps its filter; for a partial it
+     * would be a filter silently not applied, so the one shape accepted is the one where every name
+     * is certainly the source's.
+     */
+    private static boolean projectionsThenFiltersThenScan(
+            PhysicalOperator operator, String stream, boolean seenFilter) {
+        if (operator instanceof ScanOperator scan) {
+            return scan.streamName().equals(stream);
+        }
+        if (operator instanceof FilterOperator filter) {
+            return projectionsThenFiltersThenScan(filter.input(), stream, true);
+        }
+        if (operator instanceof ProjectOperator project && !seenFilter) {
+            return projectionsThenFiltersThenScan(project.input(), stream, false);
+        }
+        return false;
+    }
+
+    /**
+     * Whether every predicate between the plan's aggregate and {@code stream}'s scan would reach
+     * the source whole.
+     *
+     * <p>The gate a partial must pass that rows never had to. {@link Pushdown} pushes the conjuncts
+     * it can express and leaves the rest with the engine -- correct for rows, because the engine's
+     * filter still runs. A partial aggregate has no rows for that filter to run on, so a predicate
+     * left behind (an {@code OR}, a {@code LIKE}, a comparison between two expressions) would simply
+     * not be applied. Any one of those means no partial is requested at all, and rows are read.
+     *
+     * @param filterDeclared whether the source declared {@link PushdownKind#FILTER}; with no filter
+     *     in the plan it does not need to have
+     */
+    static boolean filtersAllPushable(PhysicalOperator plan, String stream, boolean filterDeclared) {
+        if (!(plan instanceof AggregateOperator aggregate)) {
+            return false;
+        }
+        PhysicalOperator operator = aggregate.input();
+        while (!(operator instanceof ScanOperator)) {
+            if (operator instanceof FilterOperator filter) {
+                if (!(filter.predicate() instanceof Predicate.True)
+                        && (!filterDeclared || !wholePushable(filter.predicate()))) {
+                    return false;
+                }
+            }
+            if (operator.inputs().size() != 1) {
+                return false;
+            }
+            operator = operator.inputs().get(0);
+        }
+        return ((ScanOperator) operator).streamName().equals(stream);
+    }
+
+    /** Exactly the shapes {@code Pushdown.flatten} turns into filters, and nothing it drops. */
+    private static boolean wholePushable(Predicate predicate) {
+        return switch (predicate) {
+            case Predicate.True ignored -> true;
+            case Predicate.And and -> and.parts().stream().allMatch(SourcePushdown::wholePushable);
+            case Predicate.CompareLong ignored -> true;
+            case Predicate.CompareInt ignored -> true;
+            case Predicate.CompareDouble ignored -> true;
+            case Predicate.CompareString ignored -> true;
+            case Predicate.CompareBoolean ignored -> true;
+            case Predicate.IsNull ignored -> true;
+            default -> false;
+        };
     }
 
     /**

@@ -144,6 +144,9 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         List<SharedPartitionFeed.Member> members = new ArrayList<>();
         List<SharedSourceGroup> joined = new ArrayList<>();
         Map<String, Integer> partitionCounts = new LinkedHashMap<>();
+        // What each stream's reader was asked to do, for describe(): an operator asking why a query
+        // reads so much should not have to reconstruct the pushdown from the plan.
+        Map<String, String> pushed = new LinkedHashMap<>();
         // One publish at a time, whoever calls it. A query with both a shared stream and an
         // unshared one is now published by two threads -- the group's and its own feed's -- and
         // committing a frontier was only ever done by one.
@@ -162,8 +165,12 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                 if (group != null) {
                     joined.add(group);
                     partitionCounts.put(stream, group.partitionCount());
+                    // Rows, never a partial: a reader fanned out to several queries cannot pre-combine
+                    // for one of them. The group pushes the OR of every member's filters.
                     ReadRequest shared = SourcePushdown.requestFor(
-                            execution.plan(), stream, group.plugin().capabilities());
+                                    execution.plan(), stream, group.plugin().capabilities())
+                            .withoutAggregates();
+                    pushed.put(stream, summarise(shared) + ", shared");
                     for (int index = 0; index < group.partitionCount(); index++) {
                         String token = resumeFrom.get("partition-" + partitionOrdinal[0]++);
                         SourceOffset from = token == null ? SourceOffset.BEGINNING : new SourceOffset(token);
@@ -188,6 +195,12 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                 // Safe to offer blindly: the engine keeps its own filter whatever the source does,
                 // so this changes how many bytes cross the boundary and nothing else.
                 ReadRequest request = SourcePushdown.requestFor(execution.plan(), stream, plugin.capabilities());
+                if (!execution.acceptsPartialAggregateFor(stream)) {
+                    // A partial with nowhere to be folded in -- a multiplexed lane -- would be
+                    // read as a row. Ask for rows instead; the filters and columns still apply.
+                    request = request.withoutAggregates();
+                }
+                boolean partials = false;
 
                 List<SourcePartition> partitions = plugin.partitions(stream);
                 partitionCounts.put(stream, partitions.size());
@@ -199,6 +212,9 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                     SourceOffset from = token == null ? SourceOffset.BEGINNING : new SourceOffset(token);
                     PartitionReader reader = plugin.createReader(partition, from, request);
                     resources.add(reader);
+                    // The reader decides, because only it knows whether it could express every
+                    // filter the partial depends on; the pump routes by its answer.
+                    partials |= reader.deliversPartialAggregate();
                     // Lane 0: a registered query is compiled onto one lane today. When that
                     // changes, the partition index is what chooses the lane -- it is already the
                     // unit the source split itself into.
@@ -207,6 +223,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                     attachDeadLetters(pump, queryName, resources);
                     pumps.add(pump);
                 }
+                pushed.put(stream, summarise(request.withoutAggregates()) + (partials ? ", partial aggregate" : ""));
             }
         } catch (RuntimeException e) {
             // Nothing half-open survives a failed binding. Without this, a query that failed to
@@ -219,7 +236,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
             throw e;
         }
 
-        String description = describe(partitionCounts);
+        String description = describe(partitionCounts, pushed);
         if (members.isEmpty()) {
             // Nothing shared: exactly the feed this returned before SRC-3, including the thread.
             PumpingFeed feed = new PumpingFeed(queryName, pumps, resources, description, publish);
@@ -245,9 +262,9 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
      * declares a guarantee sharing cannot keep ({@link SharedSourceGroup#whyNotShared}).
      */
     private SharedSourceGroup groupFor(String stream, SourceBinding binding, QueryExecution execution) {
-        // The escape hatch. Sharing trades a query's own pushdown for the store's scan count once a
-        // second query with a different WHERE clause joins, and a deployment running one query
-        // against a set it cares about may want the filter more than the sharing.
+        // The escape hatch. A shared reader pushes the OR of its members' filters (ADR-039 item 6),
+        // which is wider than any one of them: a deployment running one query against a set it
+        // cares about may want its own narrower filter more than it wants the sharing.
         if (!Boolean.parseBoolean(binding.options().getOrDefault("share.reader", "true"))) {
             return null;
         }
@@ -442,15 +459,35 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                         + (available.isEmpty() ? "none -- no source plugin jar is on the classpath" : available));
     }
 
-    private static String describe(Map<String, Integer> partitionCounts) {
+    private static String describe(Map<String, Integer> partitionCounts, Map<String, String> pushed) {
         StringBuilder text = new StringBuilder("reading ");
         partitionCounts.forEach((stream, count) -> text.append(stream)
                 .append(" (")
                 .append(count)
                 .append(count == 1 ? " partition" : " partitions")
+                .append(pushed.getOrDefault(stream, ""))
                 .append("), "));
         text.setLength(text.length() - 2);
         return text.toString();
+    }
+
+    /**
+     * What a request asks its source for, in words: "; pushed 2 filters, 3 columns", or nothing
+     * when nothing was pushed. What the source actually honoured is its own business -- a filter it
+     * could not express is simply not applied there -- so this reports the offer.
+     */
+    static String summarise(ReadRequest request) {
+        List<String> parts = new ArrayList<>(3);
+        if (!request.filters().isEmpty()) {
+            parts.add(request.filters().size() + (request.filters().size() == 1 ? " filter" : " filters"));
+        }
+        if (!request.alternatives().isEmpty()) {
+            parts.add("an OR of " + request.alternatives().size());
+        }
+        if (!request.columns().isEmpty()) {
+            parts.add(request.columns().size() + (request.columns().size() == 1 ? " column" : " columns"));
+        }
+        return parts.isEmpty() ? "" : "; pushed " + String.join(", ", parts);
     }
 
     /** Gives one pump a dead-letter file, when a directory is configured. */

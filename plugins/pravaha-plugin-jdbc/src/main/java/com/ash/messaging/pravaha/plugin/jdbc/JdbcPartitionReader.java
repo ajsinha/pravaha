@@ -55,6 +55,12 @@ final class JdbcPartitionReader implements PartitionReader {
     /** Values for the pushed filters' markers, empty when nothing was pushed. */
     private final java.util.List<Object> pushedValues;
 
+    /**
+     * For each column of the schema, its one-based position in the SELECT list, or 0 when a pushed
+     * projection left it out and it is written with {@link RowWriter#setUnread}.
+     */
+    private final int[] resultIndex;
+
     private final StreamSchema schema;
     private final String watermarkColumn;
     private final String keyColumn;
@@ -82,7 +88,8 @@ final class JdbcPartitionReader implements PartitionReader {
                 keyColumn,
                 fetchSize,
                 resumeFrom,
-                java.util.List.of());
+                java.util.List.of(),
+                null);
     }
 
     JdbcPartitionReader(
@@ -94,8 +101,10 @@ final class JdbcPartitionReader implements PartitionReader {
             String keyColumn,
             int fetchSize,
             SourceOffset resumeFrom,
-            java.util.List<Object> pushedValues) {
+            java.util.List<Object> pushedValues,
+            List<String> selected) {
         this.pushedValues = java.util.List.copyOf(pushedValues);
+        this.resultIndex = resultIndexes(schema, selected);
         this.connection = connection;
         this.firstQuery = firstQuery;
         this.resumeQuery = resumeQuery;
@@ -154,11 +163,22 @@ final class JdbcPartitionReader implements PartitionReader {
                 .map(com.ash.messaging.pravaha.api.data.Field::name)
                 .toList();
         for (int i = 0; i < names.size(); i++) {
-            if (names.get(i).equalsIgnoreCase(column)) {
-                return i + 1;
+            if (names.get(i).equalsIgnoreCase(column) && resultIndex[i] > 0) {
+                return resultIndex[i];
             }
         }
         throw new PravahaException(JdbcErrors.QUERY_FAILED, "column '" + column + "' is not in the result: " + names);
+    }
+
+    /** See {@link #resultIndex}; {@code selected} null means {@code SELECT *}, in schema order. */
+    private static int[] resultIndexes(StreamSchema schema, List<String> selected) {
+        int[] indexes = new int[schema.fieldCount()];
+        for (int ordinal = 0; ordinal < indexes.length; ordinal++) {
+            indexes[ordinal] = selected == null
+                    ? ordinal + 1
+                    : selected.indexOf(schema.field(ordinal).name()) + 1;
+        }
+        return indexes;
     }
 
     private int emit(ResultSet results, RecordSink sink, int limit) throws SQLException {
@@ -179,7 +199,12 @@ final class JdbcPartitionReader implements PartitionReader {
             long key = keyed() ? results.getLong(keyIndex) : 0L;
             RowWriter writer = sink.beginRow();
             for (int ordinal = 0; ordinal < types.size(); ordinal++) {
-                JdbcTypes.copyValue(results, ordinal + 1, writer, ordinal, types.get(ordinal));
+                if (resultIndex[ordinal] == 0) {
+                    // Not selected: the engine said nothing above the scan reads it.
+                    writer.setUnread(ordinal);
+                } else {
+                    JdbcTypes.copyValue(results, resultIndex[ordinal], writer, ordinal, types.get(ordinal));
+                }
             }
             writer.weight(1L)
                     // The watermark column is the closest thing this source has to an event time,

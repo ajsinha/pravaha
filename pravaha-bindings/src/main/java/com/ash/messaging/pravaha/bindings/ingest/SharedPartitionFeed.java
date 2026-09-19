@@ -80,6 +80,30 @@ import com.ash.messaging.pravaha.runtime.ingest.IngestPump;
  * fetch was still in flight would end its catch-up early, and that is the second reason the
  * at-least-once gate is where it is rather than wider.
  *
+ * <h2>What is pushed down, and changing it without losing or repeating a row</h2>
+ *
+ * <p>The reader asks its source for {@link SharedReadRequest#union} of every member's own request:
+ * the OR of their filters and the union of their columns, each query keeping its own filter in the
+ * engine as the backstop. It used to fall back to pushing nothing the moment a second query with a
+ * different WHERE clause joined, which made the filter the price of sharing.
+ *
+ * <p>Membership changes what that union is, so the reader is replaced by one created at its own
+ * position with the new request. <strong>Replaced only when it is idle</strong> -- when its last
+ * poll returned nothing -- because only then is its position exactly "everything handed over and
+ * nothing more": a scan reader mid-drain reports the position its current scan started from, so a
+ * reader replaced then would hand the members every row of that scan a second time. This is the
+ * same contract a catch-up already relies on to know it has finished.
+ *
+ * <ul>
+ *   <li>A joiner that <em>widens</em> the request cannot wait: until the new reader exists, rows
+ *       only it wants are not being read, and nothing would ever deliver them. So {@link #join}
+ *       first drains the current reader into the members it already has, then replaces it, then
+ *       attaches the joiner and starts its catch-up exactly as before.
+ *   <li>A member leaving can only <em>narrow</em> it, and a wider reader than needed costs bytes,
+ *       not answers. So {@link #leave} records the narrower request and the feed's own thread
+ *       applies it the next time the reader is idle.
+ * </ul>
+ *
  * <h2>What sharing couples</h2>
  *
  * <p>One reader for many lanes means the slowest lane sets the pace: the poll is sized to the
@@ -119,18 +143,32 @@ final class SharedPartitionFeed {
      * flight. That wait is deliberate: the alternative is a lane being closed while this thread is
      * part way through writing a row into it, and a bounded wait that gave up would be that same
      * race with a timer on it.
+     *
+     * <p>Fair, so that a join or a leave waits for the poll in flight and not for every poll after
+     * it: the feed thread releases and retakes this between polls with no pause while a reader has
+     * rows, and an unfair lock lets it barge ahead of a waiting registration for as long as a scan
+     * takes to drain. Fairness is paid per poll -- per batch -- not per row.
      */
-    private final ReentrantLock lock = new ReentrantLock();
+    private final ReentrantLock lock = new ReentrantLock(true);
 
     private final List<Member> members = new ArrayList<>();
 
     private PartitionReader reader;
 
-    /** What the reader was created with, so a joiner that needs less can be spotted. */
+    /** What the reader was created with: the union of the members' requests when it was made. */
     private ReadRequest request = ReadRequest.NOTHING;
 
-    /** Whether the reader has already been weakened to push nothing down. See {@link #join}. */
-    private boolean unfiltered;
+    /** A narrower request to switch to once the reader is next idle, or null. See {@link #leave}. */
+    private ReadRequest pendingRequest;
+
+    /**
+     * Whether the reader's last poll returned nothing, so its position is exact. Guarded by the
+     * lock. A new reader has not been polled and is idle by construction.
+     */
+    private boolean readerIdle = true;
+
+    /** How long a widening join waits for the reader to drain before replacing it anyway. */
+    private static final Duration DRAIN_TIMEOUT = Duration.ofSeconds(10);
 
     private Thread thread;
     private volatile boolean closed;
@@ -166,31 +204,26 @@ final class SharedPartitionFeed {
             if (closed) {
                 throw new IllegalStateException("this shared reader has been closed");
             }
-            Member member = new Member(queryName, wanted, afterDelivery);
+            Member member = new Member(queryName, wanted.withoutAggregates(), afterDelivery);
             member.feed = this;
             SourceOffset catchUpFrom = null;
             if (reader == null) {
                 // The first consumer decides where the reader starts and what it pushes down. A
                 // group of one therefore keeps every optimisation a private reader had.
-                reader = plugin.createReader(partition, from, wanted);
-                request = wanted;
-                unfiltered = ReadRequest.NOTHING.equals(wanted);
+                request = SharedReadRequest.union(List.of(member.request));
+                reader = plugin.createReader(partition, from, request);
+                readerIdle = true;
             } else {
-                if (!unfiltered && !request.equals(wanted)) {
-                    // Two questions, two WHERE clauses, one reader. The reader must return every
-                    // row either of them could want, so it is rebuilt to push nothing down and the
-                    // engine's own filters -- which it always kept regardless -- do the work.
-                    //
-                    // Once per group, ever: after this the reader is already the weakest it can be.
-                    // Rejected: intersecting the two filter lists, which is also correct and is a
-                    // second thing to get wrong for a benefit that disappears at the third distinct
-                    // query. Rejected: refusing to share when the filters differ, which would share
-                    // nothing in the only case the finding is about.
-                    PartitionReader weaker = plugin.createReader(partition, reader.position(), ReadRequest.NOTHING);
-                    closeQuietly(reader);
-                    reader = weaker;
-                    request = ReadRequest.NOTHING;
-                    unfiltered = true;
+                // Two questions, two WHERE clauses, one reader: it must return every row either
+                // could want, which is the OR of the two -- not, as it was, everything.
+                List<ReadRequest> all = new ArrayList<>(members.size() + 1);
+                members.forEach(m -> all.add(m.request));
+                all.add(member.request);
+                ReadRequest union = SharedReadRequest.union(all);
+                pendingRequest = null;
+                if (!union.equals(request)) {
+                    drainToIdle();
+                    replaceReader(union);
                 }
                 SourceOffset here = reader.position();
                 if (!here.equals(from)) {
@@ -250,9 +283,50 @@ final class SharedPartitionFeed {
             members.remove(member);
             closeQuietly(member.catchUp);
             member.catchUp = null;
+            if (!members.isEmpty()) {
+                // Narrower, never wider: the remaining members wanted a subset of what is being
+                // read. Applied by the feed thread at the reader's next idle poll -- see the class
+                // javadoc -- because replacing a reader mid-scan repeats that scan's rows.
+                ReadRequest union = SharedReadRequest.union(
+                        members.stream().map(m -> m.request).toList());
+                pendingRequest = union.equals(request) ? null : union;
+            }
         } finally {
             lock.unlock();
         }
+    }
+
+    /**
+     * Polls the shared reader into the members it already has until a poll returns nothing, so
+     * its position is exact and it can be replaced without repeating a row. Called with the lock
+     * held, by a join about to widen the request.
+     *
+     * <p>Bounded, because it waits on the members' lanes to make room. Past {@link
+     * #DRAIN_TIMEOUT} the reader is replaced where it stands and the rows of its current scan are
+     * read again for the members that already had them -- a duplicate, which the at-least-once
+     * gate on sharing ({@link SharedSourceGroup#canShare}) already permits, and never a loss.
+     */
+    private void drainToIdle() {
+        long deadline = System.nanoTime() + DRAIN_TIMEOUT.toNanos();
+        // With every member paused there is nobody to hand the rest of the scan to: each of them
+        // resumes through a catch-up from its own recorded position, whatever this reader does.
+        while (!readerIdle && members.stream().anyMatch(m -> !m.paused)) {
+            if (pollLive() < 0) {
+                if (System.nanoTime() > deadline) {
+                    return;
+                }
+                LockSupport.parkNanos(IDLE_NAP_NANOS);
+            }
+        }
+    }
+
+    /** Replaces the reader with one at its own position asking for {@code wanted}. Lock held. */
+    private void replaceReader(ReadRequest wanted) {
+        PartitionReader replacement = plugin.createReader(partition, reader.position(), wanted);
+        closeQuietly(reader);
+        reader = replacement;
+        request = wanted;
+        readerIdle = true;
     }
 
     /**
@@ -367,34 +441,50 @@ final class SharedPartitionFeed {
                 return 0;
             }
             int moved = pollCatchUps();
-
-            // The live set: everything not paused. A consumer still catching up is in it, because
-            // it was attached before its catch-up started and the whole point was that the gap it
-            // has to cover stops growing at that moment.
-            List<Member> live = new ArrayList<>(members.size());
-            int room = BATCH;
-            for (Member member : members) {
-                if (member.paused) {
-                    continue;
-                }
-                int free = member.pump.roomForSharedPoll();
-                if (free <= 0) {
-                    // A full inbox stalls the group. Polling anyway and dropping this consumer's
-                    // copy would turn backpressure into silent loss for whichever query happened to
-                    // be slowest, which is the failure backpressure exists to prevent.
-                    return moved;
-                }
-                room = Math.min(room, free);
-                live.add(member);
+            int read = pollLive();
+            if (read > 0) {
+                moved += read;
             }
-            if (live.isEmpty() || room <= 0) {
-                return moved;
+            if (pendingRequest != null && readerIdle) {
+                // A member left and the rest want less. Only now, with nothing of the current scan
+                // still to hand over, is the reader's position exact enough to start another at.
+                replaceReader(pendingRequest);
+                pendingRequest = null;
             }
-            moved += pollShared(live, room);
             return moved;
         } finally {
             lock.unlock();
         }
+    }
+
+    /**
+     * One poll of the shared reader into every member not paused, or -1 when it could not be
+     * polled at all -- a full inbox, a checkpoint holding a pump, or nobody live. Lock held.
+     */
+    private int pollLive() {
+        // The live set: everything not paused. A consumer still catching up is in it, because it
+        // was attached before its catch-up started and the whole point was that the gap it has to
+        // cover stops growing at that moment.
+        List<Member> live = new ArrayList<>(members.size());
+        int room = BATCH;
+        for (Member member : members) {
+            if (member.paused) {
+                continue;
+            }
+            int free = member.pump.roomForSharedPoll();
+            if (free <= 0) {
+                // A full inbox stalls the group. Polling anyway and dropping this consumer's copy
+                // would turn backpressure into silent loss for whichever query happened to be
+                // slowest, which is the failure backpressure exists to prevent.
+                return -1;
+            }
+            room = Math.min(room, free);
+            live.add(member);
+        }
+        if (live.isEmpty() || room <= 0) {
+            return -1;
+        }
+        return pollShared(live, room);
     }
 
     /** Called with the lock held. */
@@ -409,7 +499,7 @@ final class SharedPartitionFeed {
             // A checkpoint has one of these pumps. Give back what was taken and come round again --
             // see FREEZE_TIMEOUT for why this cannot be an untimed acquisition.
             thaw(live, frozen);
-            return 0;
+            return -1;
         }
         try {
             List<PartitionReader.RecordSink> sinks = new ArrayList<>(live.size());
@@ -417,6 +507,8 @@ final class SharedPartitionFeed {
                 sinks.add(member.pump.sharedSink());
             }
             int read = reader.poll(new BroadcastSink(sinks), room);
+            // Nothing returned is the one moment the position covers exactly what was handed over.
+            readerIdle = read == 0;
             if (read > 0) {
                 rowsRead.addAndGet(read);
                 for (Member member : live) {

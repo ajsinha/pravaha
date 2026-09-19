@@ -110,6 +110,15 @@ final class LutScanReader implements PartitionReader {
     /** The ordinal of the event-time column, or -1 when the deployment named none. */
     private final int eventTimeOrdinal;
 
+    /**
+     * The bins a pushed projection asks the server for, or null for every bin. Always includes the
+     * event-time bin, which this reader reads for itself whatever the engine needs.
+     */
+    private final String[] binNames;
+
+    /** Per schema ordinal, whether that bin was read -- false only under a pushed projection. */
+    private final boolean[] read;
+
     LutScanReader(
             IAerospikeClient client,
             String namespace,
@@ -140,6 +149,37 @@ final class LutScanReader implements PartitionReader {
         // record: a name lookup on the ingest path is the sort of thing that does not show up until
         // the throughput graph does.
         this.eventTimeOrdinal = schema.eventTimeOrdinal().orElse(-1);
+        this.binNames = projectedBins(schema, this.request, eventTimeOrdinal);
+        this.read = new boolean[schema.fieldCount()];
+        List<String> names = binNames == null ? null : List.of(binNames);
+        for (int ordinal = 0; ordinal < read.length; ordinal++) {
+            read[ordinal] =
+                    names == null || names.contains(schema.field(ordinal).name());
+        }
+    }
+
+    /**
+     * The bins to name on the scan, or null to read them all: the server then sends only those
+     * bins of each record, which is bytes off the wire and decode work off the lane.
+     *
+     * <p>A requested column the schema does not declare means the request is about something else,
+     * and reading every bin is the safe answer to that.
+     */
+    static String[] projectedBins(StreamSchema schema, ReadRequest request, int eventTimeOrdinal) {
+        if (request.columns().isEmpty()) {
+            return null;
+        }
+        java.util.Set<String> bins = new java.util.LinkedHashSet<>();
+        for (String column : request.columns()) {
+            if (!schema.hasField(column)) {
+                return null;
+            }
+            bins.add(column);
+        }
+        if (eventTimeOrdinal >= 0) {
+            bins.add(schema.field(eventTimeOrdinal).name());
+        }
+        return bins.size() >= schema.fieldCount() ? null : bins.toArray(new String[0]);
     }
 
     private static long parse(SourceOffset offset) {
@@ -179,7 +219,7 @@ final class LutScanReader implements PartitionReader {
         while (emitted < maxRecords && !buffered.isEmpty()) {
             Record record = buffered.poll();
             RowWriter writer = sink.beginRow();
-            AerospikeSchemas.copyInto(record, schema, writer);
+            AerospikeSchemas.copyInto(record, schema, writer, read);
             // The record's own time when a bin holds it, the scan's start time otherwise.
             //
             // The scan time alone was not a neutral default: a windowed query assigns rows by a
@@ -252,12 +292,15 @@ final class LutScanReader implements PartitionReader {
         List<Record> found = new ArrayList<>();
         long startedNanos = System.currentTimeMillis() * 1_000_000L;
         try {
+            // binNames null reads every bin; otherwise only the projection's. The client's varargs
+            // treat an absent array and a null one alike.
             client.scanPartitions(
                     policy,
                     PartitionFilter.range(firstPartition, partitionCount),
                     namespace,
                     set,
-                    (Key key, Record record) -> found.add(record));
+                    (Key key, Record record) -> found.add(record),
+                    binNames);
         } catch (AerospikeException e) {
             throw new PravahaException(
                     AerospikeErrors.OPERATION_FAILED,
@@ -300,7 +343,16 @@ final class LutScanReader implements PartitionReader {
                 conditions.add(translated);
             }
         }
+        Exp anyOf = AerospikeExpressions.anyOf(request.alternatives(), schema);
+        if (anyOf != null) {
+            conditions.add(anyOf);
+        }
         return Exp.build(conditions.size() == 1 ? conditions.get(0) : Exp.and(conditions.toArray(new Exp[0])));
+    }
+
+    /** The bins this reader asks the server for, or null for all of them. For tests. */
+    String[] binNames() {
+        return binNames == null ? null : binNames.clone();
     }
 
     @Override

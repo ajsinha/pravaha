@@ -144,4 +144,44 @@ class ReadRequestTest {
         assertThat(ReadRequest.Comparison.IS_NULL.sql()).isEqualTo("IS NULL");
         assertThat(ReadRequest.Comparison.IS_NOT_NULL.sql()).isEqualTo("IS NOT NULL");
     }
+
+    // ADR-039 item 6: the OR a shared reader pushes, and the partial a row path must not be sent.
+
+    private static final ReadRequest.Filter A = new ReadRequest.Filter("a", ReadRequest.Comparison.EQ, 1L);
+    private static final ReadRequest.Filter B = new ReadRequest.Filter("b", ReadRequest.Comparison.EQ, 2L);
+
+    @Test
+    void alternativesAreCopiedAndMakeARequestNonEmpty() {
+        List<ReadRequest.Filter> mutable = new ArrayList<>(List.of(A));
+        ReadRequest request = new ReadRequest(List.of(), List.of(), List.of(), List.of(mutable, List.of(B)));
+        mutable.clear();
+        assertThat(request.alternatives()).containsExactly(List.of(A), List.of(B));
+        assertThat(request.isEmpty()).isFalse();
+        assertThat(new ReadRequest(List.of(A)).alternatives()).isEmpty();
+    }
+
+    @Test
+    void anEmptyAlternativeIsRefusedBecauseItWouldMakeTheOrTrue() {
+        assertThatThrownBy(() -> new ReadRequest(List.of(), List.of(), List.of(), List.of(List.of(A), List.of())))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("always true");
+    }
+
+    @Test
+    void aSingleAlternativeIsRefusedBecauseItIsJustMoreFilters() {
+        assertThatThrownBy(() -> new ReadRequest(List.of(), List.of(), List.of(), List.of(List.of(A))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("add it to filters");
+    }
+
+    @Test
+    void withoutAggregatesKeepsEverythingButThePartial() {
+        ReadRequest.PartialAggregate count = new ReadRequest.PartialAggregate(
+                List.of(),
+                List.of(new ReadRequest.PartialAggregate.AggregateCall(
+                        ReadRequest.PartialAggregate.Kind.COUNT, null, "n")));
+        ReadRequest request = new ReadRequest(List.of(A), List.of("a"), List.of(count));
+        assertThat(request.withoutAggregates()).isEqualTo(new ReadRequest(List.of(A), List.of("a"), List.of()));
+        assertThat(ReadRequest.NOTHING.withoutAggregates()).isSameAs(ReadRequest.NOTHING);
+    }
 }
