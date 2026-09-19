@@ -75,9 +75,10 @@ class PostgresCdcSnapshotTest {
         /** {@code id BIGINT PRIMARY KEY}. */
         BIGINT,
         /**
-         * {@code PRIMARY KEY (code TEXT, n INT)}, {@code code} in the database's default collation
-         * ({@code en_US.utf8} in the image), where {@code "B" > "a"} -- the opposite of code-point
-         * order. A frontier compared in Java would get these rows wrong.
+         * {@code PRIMARY KEY (code TEXT, n INT)}, {@code code} in ICU's root collation, where
+         * {@code "a" < "B"} -- the opposite of code-point order. ICU, not the image's {@code en_US.utf8}:
+         * on Alpine that is musl's, which collates by code point, and a test of the difference would
+         * then test nothing. A frontier compared in Java would get these rows wrong.
          */
         COMPOSITE_TEXT;
 
@@ -88,7 +89,7 @@ class PostgresCdcSnapshotTest {
                 case BIGINT -> "CREATE TABLE " + table + " (id BIGINT PRIMARY KEY, tier TEXT NOT NULL, amount INT)";
                 case COMPOSITE_TEXT ->
                     "CREATE TABLE " + table
-                            + " (code TEXT NOT NULL, n INT NOT NULL, tier TEXT NOT NULL, amount INT, PRIMARY KEY (code, n))";
+                            + " (code TEXT COLLATE \"und-x-icu\" NOT NULL, n INT NOT NULL, tier TEXT NOT NULL, amount INT, PRIMARY KEY (code, n))";
             };
         }
 
@@ -350,6 +351,12 @@ class PostgresCdcSnapshotTest {
     private void runAgainstAWriter(Shape shape, long seed, int crashes) throws Exception {
         Random random = new Random(seed);
         String table = table(shape);
+        if (shape == Shape.COMPOSITE_TEXT) {
+            assertThat(PgServer.scalar("SELECT string_agg(c, '' ORDER BY c COLLATE \"und-x-icu\") "
+                            + "FROM unnest(ARRAY['B', 'a', '_x', 'Z']) AS c"))
+                    .as("the key's collation really is not code-point order")
+                    .isEqualTo("_xaBZ");
+        }
         long keys = 4_000;
         PgServer.sql(shape.seed(table, 1, 2_500));
         PostgresCdcSourcePlugin plugin = plugin(table, Map.of("snapshot.chunk.rows", "120"));
