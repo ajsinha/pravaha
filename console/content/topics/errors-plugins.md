@@ -4,10 +4,10 @@ slug: errors-plugins
 category: errors
 order: 60
 icon: plug
-summary: "PRV-5001 to PRV-5118: loading and naming plugins, then every connector's own refusals — filesystem, Delta, feedfile, JDBC, Aerospike, Cassandra, Kafka, PostgreSQL CDC — and attaching a source or a sink to a registered query."
+summary: "PRV-5001 to PRV-5123: loading and naming plugins, then every connector's own refusals — filesystem, Delta, feedfile, JDBC, Aerospike, Cassandra, Kafka, PostgreSQL CDC — and attaching a source or a sink to a registered query."
 badge: PRV-5XXX
 audience: Operators
-keywords: [plugin, classpath, serviceloader, binding, options, filesystem, decode, delta, vacuum, deletion vectors, feedfile, jdbc, aerospike, cassandra, kafka, fenced, staging topic, retention, resume point, tombstone, undecodable record, postgres-cdc, replication slot, wal_level, replica identity, truncate, offset, sink, source, connect failed, schema]
+keywords: [plugin, classpath, deletes, detect, deletes.max.keys, deletes.state.dir, serviceloader, binding, options, filesystem, decode, delta, vacuum, deletion vectors, feedfile, jdbc, aerospike, cassandra, kafka, fenced, staging topic, retention, resume point, tombstone, undecodable record, postgres-cdc, replication slot, wal_level, replica identity, truncate, offset, sink, source, connect failed, schema]
 guide: connectors
 related: [sources-overview, sinks-overview, source-jdbc, source-postgres-cdc, source-kafka, sink-kafka, source-delta, connector-security, errors-overview]
 ---
@@ -40,6 +40,8 @@ a support conversation should have to start with.
 | PRV-5090 – PRV-5094 | Attaching a source or sink to a registered query |
 | PRV-5100 – PRV-5107 | `kafka` (source) and `kafka-sink` |
 | PRV-5110 – PRV-5118 | `postgres-cdc` |
+| PRV-5120 – PRV-5121 | `aerospike` with `deletes: detect` (5080 – 5084 was full) |
+| PRV-5122 – PRV-5123 | `cassandra` with `deletes: detect` (5085 – 5089 was full) |
 
 ## Loading and naming plugins
 
@@ -282,7 +284,25 @@ are refused here rather than silently replaced by a strategy with different deli
 
 ### PRV-5084 — Aerospike malformed offset
 
-A stored offset this plugin did not write.
+A stored offset this plugin did not write. An offset written in the other `deletes` mode is PRV-5083
+instead: switching `deletes` on an existing checkpoint needs the query dropped and registered again.
+
+### PRV-5120 — Aerospike delete state full
+
+With `deletes: detect`, a partition reader would hold more records than `deletes.max.keys` (default
+1,000,000). Every emitted row is remembered so its disappearance can be retracted; forgetting some
+would make their deletes undetectable for ever, so the pass is refused — before any of it is emitted
+— rather than degraded. Raise `deletes.max.keys` and the heap with it (about 150 bytes a record plus
+the row), or raise `partitions`. At a restart: the checkpoint's rows no longer fit a lowered ceiling.
+See [the Aerospike source](/help/topics/source-aerospike#seeing-deletes-deletes-detect).
+
+### PRV-5121 — Aerospike delete state failed
+
+With `deletes: detect`, the rows the source has emitted could not be written under
+`deletes.state.dir`, or a restore could not read them back: the directory the checkpoint names is
+gone, a file fails its checksum, or the set's `schema` changed since. Without those rows the restored
+view's contents are unknown, so the restore is refused rather than guessed at. Restore the directory,
+or drop the registration and its checkpoint directory and register again.
 
 ## cassandra
 
@@ -307,7 +327,23 @@ A configuration that cannot be honoured — including a `strategy` that is decla
 
 ### PRV-5089 — Cassandra malformed offset
 
-A stored offset this plugin did not write.
+A stored offset this plugin did not write. An offset written in the other `deletes` mode is PRV-5088
+instead: switching `deletes` on an existing checkpoint needs the query dropped and registered again.
+
+### PRV-5122 — Cassandra delete state full
+
+With `deletes: detect`, a token-range reader would hold more rows than `deletes.max.keys` (default
+1,000,000). The ceiling bounds the rows held at every moment, so a pass that inserts before it reaches
+the rows it retracts can meet it on the way. Raise `deletes.max.keys` and the heap with it (about 150
+bytes a row plus the row), or raise `partitions`. See
+[the Cassandra source](/help/topics/source-cassandra#seeing-deletes-deletes-detect).
+
+### PRV-5123 — Cassandra delete state failed
+
+With `deletes: detect`, the rows the source has emitted could not be written under
+`deletes.state.dir`, or a restore could not read them back — the directory gone, a checksum failed,
+or the table's `schema` changed. The restore is refused rather than guessed at; restore the
+directory, or drop and re-register.
 
 ## Attaching sources and sinks to a query
 

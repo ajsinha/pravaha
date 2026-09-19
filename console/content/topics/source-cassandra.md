@@ -7,7 +7,7 @@ icon: hdd-stack
 summary: "Scans a Cassandra table by token() range on an interval — a full, honest periodic scan rather than an incremental one that would quietly miss rows — with hostname-verified TLS."
 badge: SOURCE
 audience: Operators
-keywords: [cassandra, cql, scylla, token range, scan, partition.key, local.datacenter, consistency.level, fetch.size, writetime, cdc, tombstone, pushdown, projection, allow filtering]
+keywords: [cassandra, cql, deletes, detect, deletes.max.keys, deletes.state.dir, retraction, scylla, token range, scan, partition.key, local.datacenter, consistency.level, fetch.size, writetime, cdc, tombstone, pushdown, projection, allow filtering]
 guide: continuous-queries#21-every-source-type-configured
 related: [sources-overview, source-aerospike, connector-security, event-time-watermarks]
 ---
@@ -32,11 +32,11 @@ quietly misses rows**.
 | Module | `plugins/pravaha-plugin-cassandra` — **not in the server jar** |
 | Kind | stream source |
 | Strategy | `token-range-scan` — the only one implemented |
-| Delivery guarantee | `AT_LEAST_ONCE` |
-| Replayable offsets | yes — a token cursor within the pass |
-| Emits deletes / before-image | no / no |
+| Delivery guarantee | `AT_LEAST_ONCE`; `EXACTLY_ONCE` with `deletes: detect` |
+| Replayable offsets | yes — a token cursor within the pass (with `deletes: detect`, a count of emitted rows backed by files) |
+| Emits deletes / before-image | no / no — **yes / yes with `deletes: detect`**, [below](#seeing-deletes-deletes-detect) |
 | Pushdown | `PROJECT` only — the CQL `SELECT` list. Not `FILTER`, not `PARTIAL_AGGREGATE` |
-| Shared between queries | yes — one reader per binding serves every query over it |
+| Shared between queries | yes — one reader per binding serves every query over it; not with `deletes: detect` |
 | Schema comes from | the `schema` option you write |
 | Partitions | `partitions` readers, each over an equal slice of the token ring |
 
@@ -58,6 +58,9 @@ quietly misses rows**.
 | `consistency.level` | no | `LOCAL_ONE` | Any driver consistency level name: `ONE`, `LOCAL_QUORUM`, `QUORUM`, … An unknown one is refused, listing the valid ones |
 | `request.timeout.ms` | no | `30000` | Per-request timeout. Must be positive — zero would wait for ever |
 | `user` / `password` | no | empty | Credentials |
+| `deletes` | no | `ignore` | `detect` merges each pass with every row already emitted and emits only the difference, retractions included — [below](#seeing-deletes-deletes-detect). Anything else is PRV-5088 |
+| `deletes.state.dir` | with `detect` | — | Where each reader keeps the rows it has emitted, so a restore gets them back exactly. Durable local disk. Missing is PRV-5088 |
+| `deletes.max.keys` | no | `1000000` | Rows one token-range reader may hold before the pass is refused with PRV-5122 |
 | `stream` | no | the table name | The stream name the plugin reports |
 | `share.reader` | no | `true` | Read by the binding layer: `false` gives each query its own scan, selecting only its own columns |
 | `tls.*` | no | off | The shared TLS options; hostname verification is honoured — see below |
@@ -156,11 +159,65 @@ the engine applies the `WHERE` after each row arrives, and every pass reads the 
 **Not `PARTIAL_AGGREGATE`.** CQL aggregates run per partition, and every pass here re-reads the whole
 range with no retraction of the previous pass, so no partial could be "the new rows only".
 
+## Seeing deletes: `deletes: detect`
+
+By default every pass adds every row again at `+1` and a deleted row simply stops being read. With
+`deletes: detect` the reader keeps every row it has emitted and merges each pass with them in token
+order. When the pass moves past a token, rows held below it that the pass did not reach are
+retracted, and the rows under the token itself — a partition's clustering rows — are compared as a
+multiset:
+
+| The pass finds | Emitted |
+|---|---|
+| a row not emitted before | the row at `+1` |
+| a row whose columns changed | the **whole old row** at `−1`, then the new one at `+1` |
+| a row unchanged | nothing |
+| no row where one was emitted | the whole old row at `−1`, with the event time it was inserted at |
+
+A view over the table then equals the table after every pass — including a stream aggregate, which
+no longer counts a row once per pass.
+
+```yaml
+pravaha:
+  sources:
+    orders:
+      plugin: cassandra
+      options:
+        contact.points: "cass-1.internal:9042,cass-2.internal:9042"
+        local.datacenter: dc1
+        keyspace: sales
+        table: orders
+        schema: "customer_id:STRING,order_id:INT64,amount:INT64,status:STRING"
+        partition.key: customer_id
+        consistency.level: LOCAL_QUORUM
+        deletes: detect
+        deletes.state.dir: /var/lib/pravaha/scan-state
+        deletes.max.keys: "2000000"
+```
+
+- **Nothing more is read** — each pass was already a full scan. Only the current token's rows are
+  buffered, and a poll reads at most `fetch.size` rows.
+- **A delete is as timely as the next pass**: up to `scan.interval.ms` plus the pass's own time.
+- **Use a consistency level that cannot miss a row**, such as `LOCAL_QUORUM`, on a table with more
+  than one replica: a row one replica has not received is absent from that pass, retracted, and
+  inserted again when it reappears.
+- **About 150 bytes of heap per row plus the row** (136 measured for a three-column row).
+  `deletes.max.keys` bounds the rows each token-range reader holds at every moment and refuses by
+  code (PRV-5122) rather than forgetting rows whose deletes could then never be seen.
+- **A restart is exact.** The rows are logged under `deletes.state.dir`, forced to disk at every
+  checkpoint; a restore replays them to exactly the checkpoint's count and starts a fresh pass from
+  the bottom of the range, re-reading and not re-emitting what did not change. Missing or damaged
+  state is refused with PRV-5123.
+- **`EXACTLY_ONCE`, with deletes and before-images** — so the reader is no longer shared between
+  queries, and a query over it may be refused an append-only sink (PRV-2041). Two writes between
+  passes are still one; changing `deletes` on an existing checkpoint is refused (PRV-5088).
+
 ## Delivery guarantee
 
-`AT_LEAST_ONCE`. The offset is the last token consumed inside the current pass; a restart resumes the
-unread remainder of that pass. What the plugin cannot give you, it declares: deletes are invisible, two
-writes between passes are one, and there is no before-image.
+`AT_LEAST_ONCE` by default. The offset is the last token consumed inside the current pass; a restart
+resumes the unread remainder of that pass. What the plugin cannot give you then, it declares: deletes
+are invisible, two writes between passes are one, and there is no before-image. `deletes: detect`,
+above, is `EXACTLY_ONCE` and sees deletes.
 
 ## TLS
 
@@ -190,12 +247,13 @@ pravaha:
 
 ## Pitfalls
 
-!!! danger "Pitfall: deletes are invisible"
+!!! danger "Pitfall: by default, deletes are invisible"
     A tombstoned row is simply absent from the next pass, indistinguishable from one that never
-    existed. A view keeps serving it. Soft-delete with a status column and filter on it.
+    existed. A view keeps serving it — unless the binding sets `deletes: detect`, above. Otherwise,
+    soft-delete with a status column and filter on it.
 
-!!! warning "Pitfall: every pass re-delivers every row"
-    The source is not incremental. A keyed view that holds current state is right; a stream aggregate
+!!! warning "Pitfall: by default, every pass re-delivers every row"
+    Without `deletes: detect` the source is not incremental. A keyed view that holds current state is right; a stream aggregate
     that adds up rows (`COUNT`, `SUM` over the stream) sees a row again on every pass inside an open
     window. Aggregate over the keyed view instead, as the read example above does.
 
