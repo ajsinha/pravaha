@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **338 findings carrying a
-status — 221 FIXED, 104 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 104 open, **1 is
+only part that is kept current. Counting the register as it stands: **339 findings carrying a
+status — 221 FIXED, 105 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 105 open, **2 are
 GA-BLOCKER, 1 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -54,13 +54,14 @@ argued against, and its length was hiding the nineteen entries below.
 
 | | | |
 |---|---|---|
-| **GA-BLOCKER** | 1 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
+| **GA-BLOCKER** | 2 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
 | **GA-REQUIRED** | 1 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
 | **POST-GA** | 95 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
-**The blockers, by what they break — one open: `SUB-1`**, a client mirroring a view by snapshot plus
-subscription losing the commit in flight, found 2026-09-19 and queued for the engine. The fifteen
+**The blockers, by what they break — two open: `SUB-1`**, a client mirroring a view by snapshot plus
+subscription losing the commit in flight, and **`SCAN-1`**, an aggregate over a default Aerospike or
+Cassandra scan counting rows again, both found 2026-09-19 and being fixed. The fifteen
 this triage started with are all **fixed**: data reaching the wrong principal (`SX-5`, `SX-1`, `SX-11`, and the security controls
 `CFG-5`, `CFG-6`, `P-3`, `SX-7`), silently wrong answers (`TIME-2`, `STRM-11`, `TY-3`, `TY-13`,
 `TY-21`, `I-3`), silent loss (`TY-2`, `W-2`, `TIME-1`, `TIME-4`), and a declared mechanism that did nothing
@@ -6776,3 +6777,8 @@ runs is how a default becomes folklore, and this project has already found two o
 ### CON-7 (LOW) — an unauthorized control hid its reason in a disabled button's title
 
 > **Status:** FIXED — `545af26`: `PravahaStates.unauthorized` put the reason where neither a pointer nor a screen reader reaches it; it is now on the page, linked by `aria-describedby`. Found by the gallery.
+
+### SCAN-1 (HIGH) — an aggregate over a default Aerospike or Cassandra scan counts rows again on every pass or update
+
+> **Status:** OPEN — with `deletes: ignore` (the default) the `cassandra` source runs a full pass over its token range every `scan.interval.ms` and emits every row at +1 each time, and the `aerospike` `lut-scan` emits an updated record as +1 of the new row with no retraction of the old. Both are declared at-least-once with no before-image, and CONNECTORS says so; but nothing in the planner or the registry limits what may be computed over such a source, so `SELECT COUNT(*), SUM(x)` over a Cassandra table grows by the table's size every interval, and an Aerospike update is counted twice — a wrong answer under a success status. Confirmed in `TokenRangeScanReader` (one full pass per interval) and reported by the delete-detection agent, whose `deletes: detect` mode (`ac09ca6`, `9f37919`) turns each pass into an exact changelog and is the basis of the fix.
+> **Disposition:** GA-BLOCKER — a silently wrong answer on the default configuration of the primary target store; the fix is either an exact changelog by default or a refusal, at registration, of any query whose answer depends on multiplicity (an aggregate, a join, a changelog sink) over a source that repeats rows
