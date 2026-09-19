@@ -22,9 +22,9 @@ otherwise have to rediscover the hard way.
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **45** |
 
-**Where it stands, 2026-09-19.** **Two GA-BLOCKERs are open**: `SUB-1`, a client that subscribes to a
-view and reads it can lose the commit in flight, and `SCAN-1`, an aggregate over a default Aerospike or
-Cassandra scan counting rows again (docs/qa/FINDINGS.md). One GA-REQUIRED is open, `FEED-1`: a query
+**Where it stands, 2026-09-19.** **One GA-BLOCKER is open**: `SCAN-1`, an aggregate over a default
+Aerospike or Cassandra scan counting rows again (docs/qa/FINDINGS.md). `SUB-1`, found the same day, is
+fixed: a subscription can start from a snapshot with no gap. One GA-REQUIRED is open, `FEED-1`: a query
 whose source feed stopped reports RUNNING and nothing shows why. `S-3` was
 reopened and closed again the same day: ADR-039 item 8's first slice had removed the refusal of
 `PARTITIONED` while nothing in a running node consumed partition ownership, and a node now refuses

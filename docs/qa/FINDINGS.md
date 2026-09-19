@@ -5,7 +5,7 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **339 findings carrying a
-status — 221 FIXED, 105 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 105 open, **2 are
+status — 222 FIXED, 104 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 104 open, **1 is
 GA-BLOCKER, 1 GA-REQUIRED, 95 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -54,14 +54,14 @@ argued against, and its length was hiding the nineteen entries below.
 
 | | | |
 |---|---|---|
-| **GA-BLOCKER** | 2 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
+| **GA-BLOCKER** | 1 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
 | **GA-REQUIRED** | 1 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
 | **POST-GA** | 95 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 7 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
-**The blockers, by what they break — two open: `SUB-1`**, a client mirroring a view by snapshot plus
-subscription losing the commit in flight, and **`SCAN-1`**, an aggregate over a default Aerospike or
-Cassandra scan counting rows again, both found 2026-09-19 and being fixed. The fifteen
+**The blockers, by what they break — one open: `SCAN-1`**, an aggregate over a default Aerospike or
+Cassandra scan counting rows again, found 2026-09-19 and being fixed. `SUB-1`, found the same day, is
+fixed. The fifteen
 this triage started with are all **fixed**: data reaching the wrong principal (`SX-5`, `SX-1`, `SX-11`, and the security controls
 `CFG-5`, `CFG-6`, `P-3`, `SX-7`), silently wrong answers (`TIME-2`, `STRM-11`, `TY-3`, `TY-13`,
 `TY-21`, `I-3`), silent loss (`TY-2`, `W-2`, `TIME-1`, `TIME-4`), and a declared mechanism that did nothing
@@ -6745,8 +6745,7 @@ runs is how a default becomes folklore, and this project has already found two o
 
 ### SUB-1 (HIGH) — a client that subscribes and then reads a view can lose the commit in flight
 
-> **Status:** OPEN — `ViewSink` decides a commit's audience when its first batch is applied (STRM-11), so a subscription starts at the *next* commit boundary, and a subscription carries no snapshot of its own. A client that subscribes and then reads the view — the natural way to mirror it — reads the last *committed* state, which does not contain the commit already in flight, while its subscription was not in that commit's audience either: those rows reach the client by neither path, and nothing says so. Reading first and subscribing second loses a commit landing between the two in the same way. Found by the Spring Boot starter's `PravahaTester.awaitView`, which waited for ever in 3 of 3 full-suite runs until it forced a commit after subscribing; `PravahaTesterCommitGapTest` makes the interleaving deterministic.
-> **Disposition:** GA-BLOCKER — silent loss for any client that mirrors a view by snapshot plus subscription; the fix is a handoff with no gap: a subscription that can start with the view's snapshot at a stated frontier and then every commit after it, or a read that returns the frontier a subscription can be told to resume from
+> **Status:** FIXED — `f6e51ec`..`27748b8`: a subscription can now start from a snapshot. `ViewSink.onCommitFromSnapshot` takes the publish lock every batch and commit already take: with no commit in flight it captures the committed rows and frontier and registers the listener in the same critical section; with one in flight the listener waits until the commit that publishes those rows, which captures the snapshot and admits it inside its own critical section. Commits are totally ordered by that lock and a commit's audience is frozen at its first batch (STRM-11), so the listener is in the audience of no commit up to the snapshot's and of every one after it — no gap, no overlap, no commit log. Wired through `RegisteredQuery.subscribeFromSnapshot`, the embedded `PravahaEngine`, Flight (`subscribe.snapshot`, each batch marked snapshot or commit with its frontier; a subscriber more than 64 commits behind gets `PRV-6105` rather than losing one), the Java SDK, the Python SDK (`snapshot=True`), `pravaha subscribe --snapshot`, the Spring starter's `PravahaTester.awaitView` (its forced-commit workaround removed) and the console's live page, which no longer reads the view beside its stream. The plain verb is unchanged and documented as gapful. `SnapshotHandoffTest`, the jqwik `SnapshotHandoffProperties` (1,000 random schedules), `SubscribeFromSnapshotTest`, and a test per client path; seed-proven — a snapshot taken regardless of a commit in flight fails 4 of 8 serving tests and 2 of 6 registry tests.
 
 ### LANE-3 (HIGH) — a paused query's checkpoint recorded the shared reader's position, so a restore skipped every row it was paused through
 

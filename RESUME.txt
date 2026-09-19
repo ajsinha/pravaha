@@ -15,9 +15,8 @@ what changed and why. docs/qa/FINDINGS.md status lines come next. This file and 
   main     merged from develop when the owner says "drill" or "drill to
            main", so between drills it is BEHIND develop. That is intended.
 
-  Findings register: 2 GA-BLOCKER (SCAN-1, repeating scans under aggregates,
-  isolated slot; SUB-1, the subscribe/read handoff gap,
-  in the engine slot now), 1 GA-REQUIRED (FEED-1, a stopped feed shown
+  Findings register: 1 GA-BLOCKER (SCAN-1, repeating scans under aggregates,
+  isolated slot; SUB-1 is fixed), 1 GA-REQUIRED (FEED-1, a stopped feed shown
   nowhere; next after SUB-1). The header of
   docs/qa/FINDINGS.md has the exact counts and FindingsRegisterTest holds it
   to them.
@@ -86,7 +85,6 @@ what changed and why. docs/qa/FINDINGS.md status lines come next. This file and 
 
   Queue, in order (owner: build every "not built" item except multi-node):
   - E4: LANE-2, one ingest per stream per shared lane, fanned out.
-  - SUB-1 (GA-BLOCKER): a gapless snapshot-plus-subscription handoff.
   - FEED-1 (GA-REQUIRED): a stopped feed's reason in the query detail, CLI,
     metrics and console.
   - E5: blue/green query replacement with backfill splicing wired.
