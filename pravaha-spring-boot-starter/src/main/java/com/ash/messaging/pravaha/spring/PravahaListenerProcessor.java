@@ -1,0 +1,119 @@
+/*
+ * Project Pravaha -- Ask once. Answer always.
+ *
+ * Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>.
+ * All rights reserved.
+ *
+ * PROPRIETARY AND CONFIDENTIAL.
+ *
+ * This file is the confidential and proprietary property of Ashutosh Sinha.
+ * Unauthorised copying, use, modification, distribution or disclosure of this
+ * file, via any medium, is strictly prohibited except with the express prior
+ * written permission of the copyright holder.
+ *
+ * See the LICENSE file in the root of this repository for the full terms.
+ */
+package com.ash.messaging.pravaha.spring;
+
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+import org.springframework.aop.support.AopUtils;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.config.BeanPostProcessor;
+import org.springframework.context.SmartLifecycle;
+import org.springframework.core.MethodIntrospector;
+import org.springframework.core.annotation.AnnotatedElementUtils;
+
+import com.ash.messaging.pravaha.embedded.PravahaEngine;
+
+/**
+ * Finds {@link PravahaListener} methods as beans are created, and subscribes them once the context
+ * has started.
+ *
+ * <p>Two phases on purpose. Finding happens per bean, when the method's shape can be checked and a
+ * wrong one refused with the bean's name in the message. Subscribing waits for the context's
+ * lifecycle start, because the query a listener names is often registered by another bean's
+ * initialisation, and subscribing earlier would find nothing to subscribe to.
+ *
+ * <p>Stops first on the way down -- listeners are detached and their threads drained before the
+ * engine they listen to is closed.
+ */
+public class PravahaListenerProcessor implements BeanPostProcessor, SmartLifecycle {
+
+    private final ObjectProvider<PravahaEngine> engine;
+    private final ObjectProvider<PravahaProperties> properties;
+    private final List<ListenerContainer> containers = new ArrayList<>();
+    private volatile boolean running;
+
+    public PravahaListenerProcessor(
+            ObjectProvider<PravahaEngine> engine, ObjectProvider<PravahaProperties> properties) {
+        this.engine = engine;
+        this.properties = properties;
+    }
+
+    @Override
+    public Object postProcessAfterInitialization(Object bean, String beanName) {
+        Class<?> type = AopUtils.getTargetClass(bean);
+        Map<Method, PravahaListener> annotated =
+                MethodIntrospector.selectMethods(type, (MethodIntrospector.MetadataLookup<PravahaListener>)
+                        method -> AnnotatedElementUtils.findMergedAnnotation(method, PravahaListener.class));
+        if (annotated.isEmpty()) {
+            return bean;
+        }
+        synchronized (containers) {
+            annotated.forEach((method, listener) -> containers.add(new ListenerContainer(
+                    beanName, bean, AopUtils.selectInvocableMethod(method, bean.getClass()), listener)));
+        }
+        return bean;
+    }
+
+    @Override
+    public void start() {
+        synchronized (containers) {
+            if (running || containers.isEmpty()) {
+                running = true;
+                return;
+            }
+            PravahaEngine current = engine.getObject();
+            PravahaProperties settings = properties.getIfAvailable(PravahaProperties::new);
+            List<ListenerContainer> started = new ArrayList<>();
+            try {
+                for (ListenerContainer container : containers) {
+                    container.start(current, settings.getListener().getMaxPending());
+                    started.add(container);
+                }
+            } catch (RuntimeException e) {
+                started.forEach(ListenerContainer::close);
+                throw e;
+            }
+            running = true;
+        }
+    }
+
+    @Override
+    public void stop() {
+        synchronized (containers) {
+            // Reverse order, so a container started later -- possibly depending on an earlier one's
+            // side effects -- is let go of first.
+            for (int i = containers.size() - 1; i >= 0; i--) {
+                containers.get(i).close();
+            }
+            running = false;
+        }
+    }
+
+    @Override
+    public boolean isRunning() {
+        return running;
+    }
+
+    /** The listeners found, for tests and for anything reporting on them. */
+    public List<ListenerContainer> containers() {
+        synchronized (containers) {
+            return List.copyOf(containers);
+        }
+    }
+}

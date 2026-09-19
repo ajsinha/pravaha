@@ -62,6 +62,22 @@
         <artifactId>pravaha-testkit</artifactId>
         <version>${project.version}</version>
       </dependency>
+      <!-- What an application embedding the engine depends on: mode A, and mode B above it. -->
+      <dependency>
+        <groupId>com.ash.messaging</groupId>
+        <artifactId>pravaha-bindings</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.ash.messaging</groupId>
+        <artifactId>pravaha-embedded</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.ash.messaging</groupId>
+        <artifactId>pravaha-spring-boot-starter</artifactId>
+        <version>${project.version}</version>
+      </dependency>
     </dependencies>
   </dependencyManagement>
 </project>

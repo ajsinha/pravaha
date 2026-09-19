@@ -70,6 +70,10 @@ class OrphanedClassTest {
             // a copy of this file, and a copy of a class counts as a reference to it, so every
             // orphan in the repository was masked while an agent was running.
             Map.entry("ZooKeeperProvider", "ServiceLoader / CoordinatorProvider"),
+            // Named in pravaha-spring-boot-starter/src/main/resources/META-INF/spring/
+            // org.springframework.boot.autoconfigure.AutoConfiguration.imports, which is how Spring
+            // Boot finds an auto-configuration; StarterApplicationTest proves Boot loads it from there.
+            Map.entry("PravahaAutoConfiguration", "Spring Boot AutoConfiguration.imports"),
             // Spring instantiates these from annotations.
             // The process entry point: @SpringBootApplication with a main method, started by the
             // launcher rather than referenced from any other class. It became visible to this scan
