@@ -1094,10 +1094,15 @@ Listed because you will meet them, not to be thorough:
   carries **one query per stream**: each query is fed separately, and two over one stream on one
   lane would each count the other's rows. Sharing one ingest between them is not built (W9-8)
 - **N Aerospike-backed queries over one set are one scan**, throttled to `scan.interval.ms` and
-  shared: one reader per *source binding* fans each record into every lane bound to it (SRC-3). Set
-  `share.reader=false` on a binding to go back to a reader per query, which keeps that query's
-  filter pushdown at the cost of its own scan. Sources declaring exactly-once or ordering within a
-  partition — filesystem, Delta, JDBC — are never shared
+  shared: one reader per *source binding* fans each record into every lane bound to it (SRC-3). The
+  shared reader pushes the **OR** of its queries' filters and the union of their columns, and is
+  rebuilt — at a point where it has handed over all it read, so no row is lost or repeated — when a
+  query joins or leaves (ADR-039 item 6). A join that cannot get there within ten seconds, because
+  a member's lane stays full, rebuilds it anyway and re-reads that scan: a duplicate, never a loss. Set `share.reader=false` on a binding to go back to a
+  reader per query, which pushes that query's own, narrower filter at the cost of its own scan. A
+  query's feed says what was pushed: `reading txn (1 partition; pushed 1 filter, 2 columns, shared)`.
+  Sources declaring exactly-once or ordering within a partition — filesystem, Delta, JDBC — are never
+  shared
 - **No clustering, no rebalance, no multi-node execution.** Deferred under
   [ADR-034](adr/034-distribution-deferred.md); Wave 8 bought survival on one node, not
   distribution across several ([ADR-035](adr/035-wave-8-is-survival-not-distribution.md)). The

@@ -663,14 +663,37 @@ Honesty here is not politeness — the engine changes its behaviour based on the
   in a scan is not this.
 - **Pushdown** — `FILTER` means you *applied* the filter, not that you accepted it. The engine
   re-applies filters it keeps, but a filter you claim and drop silently returns too many rows.
+  A `ReadRequest` may also carry `alternatives` — the OR a reader shared by several queries asks for.
+  Dropping a filter from inside one alternative widens it (safe); dropping a whole alternative
+  narrows the OR (never). An alternative you can express nothing of makes the OR true.
+  `PROJECT` means every column in `ReadRequest.columns()` arrives; any other column may be written
+  with `RowWriter.setUnread` — the engine never reads it.
   `PARTIAL_AGGREGATE` is stricter still: a source that claims it returns pre-combined `COUNT`/`SUM`
   values instead of rows, so there are no rows left for the engine's filter to run against — the
   partial must already honour every filter, or the answer is wrong with nothing downstream placed to
-  notice. No shipped plugin claims it yet.
+  notice. The planner asks for one only when every predicate below the aggregate is pushable and the
+  source declares `FILTER` too; a reader that still cannot express one declines — answers `false`
+  from `PartitionReader.deliversPartialAggregate()` and returns rows — and one that honours it writes
+  each partial in the aggregate's output layout (group keys, then one `BIGINT` per call) and never
+  writes a group of zero rows. What "the same data" means for a partial is the source's own
+  delivery: a partial must equal the sum of exactly the rows the source would otherwise have sent,
+  retractions included.
+
+What the shipped plugins claim, and why not more (ADR-039 item 6):
+
+| Plugin | `FILTER` | `PROJECT` | `PARTIAL_AGGREGATE` |
+|---|---|---|---|
+| `jdbc` | yes — bound `WHERE`, `alternatives` as an `OR` | yes — the `SELECT` list, plus the watermark and key columns | with `key.column` only: one `GROUP BY` per keyset page, `COUNT` and `SUM` over `BIGINT`; declined for a filter SQL cannot carry, and for text comparisons or text group keys unless `collation.binary: true`, since a case-insensitive collation groups `'DONE'` with `'done'` |
+| `aerospike` | yes — server-side expressions, `alternatives` as `Exp.or` | yes — the scan's bin names | no — server-side aggregation needs Lua stream UDFs registered on the cluster, and a last-update-time scan has no retraction for an overwritten record |
+| `cassandra` | no — anything but the partition key needs `ALLOW FILTERING` | yes — the CQL `SELECT` list | no — every pass re-reads the whole range, so no partial could cover "new rows only" |
+| `filesystem`, `feedfile`, `delta` | no | no | no |
 
 The source TCK verifies two of these: that resuming from a recorded offset loses nothing, and that a
 source claiming exactly-once resumes without duplicates too (`SourcePluginTck.replayableOffsetsActuallyReplay`,
-`capabilitiesAreInternallyConsistent`). Ordering, deletes and pushdown are trusted, not tested.
+`capabilitiesAreInternallyConsistent`). Ordering, deletes and pushdown are trusted, not tested by
+the kit; the shipped plugins' pushdown is equivalence-tested against real stores instead
+(`SourcePushdownEquivalenceTest` and `PartialAggregatePushdownEquivalenceTest` against H2, the
+plugins' container ITs against Postgres, Aerospike and Cassandra).
 
 ---
 
@@ -680,7 +703,7 @@ source claiming exactly-once resumes without duplicates too (`SourcePluginTck.re
 |---|---|---|
 | **Kafka** | streaming | replayable offsets and real exactly-once resumption. The **sink** is built (`kafka-sink`, `plugins/pravaha-plugin-kafka`; its transactional mapping is below); the source is not |
 | **Debezium CDC** | changelog | deletes, before-images, Z-sets end to end — the engine's own model |
-| **Cassandra** | table scan | the scan path generalises beyond Aerospike — **built**, ADR-039 item 6: a full `token()`-range scan, `plugins/pravaha-plugin-cassandra` |
+| **Cassandra** | table scan | the scan path generalises beyond Aerospike — **built**, ADR-039 item 6: a full `token()`-range scan with projection pushdown, `plugins/pravaha-plugin-cassandra` |
 | **ScyllaDB** | table scan | speaks the same CQL wire protocol as Cassandra; not built or tested against — the `cassandra` plugin has not been run against it |
 | **MySQL / Postgres** | table or CDC | direct; CDC is the better form |
 | **RabbitMQ / ActiveMQ / SQS / NATS** | queue | **at-least-once only** — acknowledgement is not an offset, so there is nothing to rewind to |

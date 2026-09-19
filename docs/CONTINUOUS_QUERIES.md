@@ -236,6 +236,8 @@ pravaha:
 | `fetch.size` | no | `500` |
 | `page.clause` | no | `LIMIT ?` — change it for a dialect that spells paging differently |
 | `stream` | no | the table name, or the binding's name when `query` is used |
+| `pushdown.partial.aggregate` | no | `true` — has effect only with `key.column`; see below |
+| `collation.binary` | no | `false` — set it only if the database compares and groups text byte for byte, case-sensitively |
 
 Giving both `table` and `query`, or neither, is refused at configuration with a message saying which
 does what. Use `query` when a cast or a join has to happen in the database rather than here.
@@ -280,6 +282,26 @@ the statement actually projects, as `updated_at` and `order_id` do above.
 `page.clause` is the one dialect-specific option. `LIMIT ?` suits Postgres, MySQL and H2;
 `FETCH FIRST ? ROWS ONLY` suits Oracle and Db2; `OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY` suits SQL
 Server.
+
+##### What the database does for the query
+
+A query's `WHERE` clause becomes the poll's `WHERE` (values bound, never spliced), and the columns it
+reads become the `SELECT` list — plus the watermark and key columns, which the poller orders and
+resumes by. Both are safe to offer blindly: the engine keeps its own filter, and never reads a column
+it did not ask for.
+
+With `key.column` set, a continuous `SELECT COUNT(*), SUM(x) FROM t WHERE ...` goes further: each
+poll asks the database for one **partial** per keyset page — `COUNT(*)`/`SUM` over the rows after
+the last offset and up to the page's last row — instead of the rows themselves, and the engine adds
+the partials into its running total (ADR-039 item 6). The answer is the one the rows give: a page's
+partial is the sum of exactly the rows the row poll would have sent, and an update the poll sees
+again is counted again in both, because a polled table is not a changelog either way (below). It is
+asked for only when every predicate in the `WHERE` can be carried into SQL, only for `COUNT` and for
+`SUM` over a `BIGINT`, and — unless `collation.binary: true` — never when a text column is compared
+or grouped on, because a case-insensitive collation would match `'done'` to `'DONE'` where the engine
+does not, and a partial leaves nothing downstream to notice. Anything else is read as rows. An
+unwindowed `GROUP BY` cannot be registered at all (PRV-2050), so a registered query's partial is the
+global one; a windowed aggregate is not pre-combined. `pushdown.partial.aggregate: false` turns it off.
 
 ##### Choosing the watermark column — the part that goes wrong
 
@@ -356,7 +378,12 @@ in the enum and refused at configuration if you ask for them, which is better th
 to a strategy with different delivery properties.
 
 Several queries over the same Aerospike set share one scan rather than each opening their own —
-four queries over one set measured 3.8 → 1.0 scans per second (SRC-3).
+four queries over one set measured 3.8 → 1.0 scans per second (SRC-3). The `WHERE` clause is a
+server-side filter expression and the columns a query reads are the bins the scan names, so the
+server sends only those. A shared scan pushes the **OR** of its queries' filters and the union of
+their columns, and each query keeps its own filter in the engine (ADR-039 item 6). No partial
+aggregate: Aerospike aggregates server-side only through Lua stream UDFs registered on the cluster,
+and an overwritten record arrives as a new row with no retraction whichever way it is summed.
 
 #### `cassandra` — a table, scanned by `token()` range
 
@@ -409,7 +436,9 @@ neither, refusing both at configuration rather than silently downgrading: **a fu
 says what it is beats an incremental one that quietly misses rows.**
 
 `partition.key` names the table's partition-key columns, in CQL's own order, so this plugin can page
-by `token()` instead of reading through `ALLOW FILTERING`. Every pass reads the whole range assigned
+by `token()` instead of reading through `ALLOW FILTERING`. The columns a query reads become the CQL
+`SELECT` list (ADR-039 item 6); its `WHERE` clause stays in the engine, because a predicate on
+anything but the partition key needs `ALLOW FILTERING`. Every pass reads the whole range assigned
 to each of the `partitions` readers, then waits out `scan.interval.ms` before reading it again — so a
 short interval on a large table is a scan that never stops running.
 
