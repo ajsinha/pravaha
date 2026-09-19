@@ -92,6 +92,7 @@ corrected by late data arrives as a retraction of the old answer followed by the
 | **Survival** | A node claims the directories it writes, so two nodes cannot silently share state (`PRV-4003`). A standby takes over when the claim goes stale and reports what the takeover cost. Undecodable input goes to a dead-letter directory instead of ending the query |
 | **Many queries on one node** | A fixed pool of one thread per core drives every lane, and the watermark and checkpoint clocks are one timer for the process: **200 queries add 24 platform threads** on 24 cores, where they once added 400. About **1 MiB off-heap per idle query**, and every component reports its own bytes |
 | **Security** | Authentication, authorization on what a query reads rather than what it is called, row filters, prepared statements, audit. The node refuses to start open unless told to |
+| **Embedding** | `PravahaEngine` runs the whole loop inside an application — streams, plugin bindings, continuous queries, pushed rows, SQL reads, change subscriptions, journal and checkpoints — with no Spring and no network. `pravaha-spring-boot-starter` makes it a bean, with `PravahaTemplate` and `@PravahaListener` delivering committed changes, retractions included, to a method. See [the user guide](docs/USER_GUIDE.md) |
 
 ## What is not built, or not finished
 
@@ -125,8 +126,9 @@ corrected by late data arrives as a retraction of the old answer followed by the
   ([ADR-044](docs/adr/044-no-rocksdb-the-mapped-tier-is-l1.md)): the memory-mapped overflow tier is
   the on-disk tier. It does not yet compact its slabs, budget in bytes, spill `COUNT(DISTINCT)`, or
   have a measurement at several times RAM.
-- **A Spring Boot starter** (ADR-020), and SQL registration statements (`CREATE CONTINUOUS QUERY`). The embedded engine (`pravaha-embedded`) is a lifecycle seam that
-  cannot yet register or read a query.
+- **SQL registration statements** (`CREATE CONTINUOUS QUERY`); a query is registered by name through
+  an API. The Spring Boot starter (ADR-020) is built without `@PravahaTest`, its actuator endpoint, a
+  listener error handler, or a CI matrix across Boot versions — it is tested against Boot 3.5 only.
 - **Blue/green query updates and backfill splicing** are built in `pravaha-backfill` and reachable
   from no running path.
 - **The console has its persona surfaces but not the §23.20 release gate** — workbench, catalog,
@@ -174,7 +176,7 @@ changing view in about ten minutes.
 | **Concurrency** | Partitioned lanes and the single-writer principle: one inbox, one state slice and one timer wheel per lane, and exactly one thread driving a lane at a time, drawn from a fixed pool of one per core. No locks in steady state |
 | **Incrementality** | Z-sets and DBSP-derived operators: work is proportional to what changed, not to how much data exists |
 | **Correctness** | Exactly-once **state**: a checkpoint holds every source between rows, cuts every lane at one point and records the offsets of that same point (ADR-008). Output is cut at that point too: exactly once to a transactional sink, effectively once to an idempotent one, at least once to a plain append |
-| **Deployment** | Two processes, on purpose: `pravaha-server`, a Spring Boot node with the engine, Flight SQL, the PostgreSQL gateway and a plain `/status` page; and the console, a separate Python process built on the published SDK, so it cannot reach past the public API (ADR-024). The engine core contains no Spring |
+| **Deployment** | Three ways to run one engine. In process with no Spring and no network (`pravaha-embedded`: declare streams, register, push rows, read, subscribe, persist); in a Spring Boot application of your own (`pravaha-spring-boot-starter`: an engine bean from `pravaha.*`, `PravahaTemplate`, `@PravahaListener`); or as a server — `pravaha-server`, a Spring Boot node with the engine, Flight SQL, the PostgreSQL gateway and a plain `/status` page — with the console as a separate Python process built on the published SDK, so it cannot reach past the public API (ADR-024). The engine core contains no Spring, enforced by the build (ADR-019) |
 
 Queries are registered, listed, paused, dropped and subscribed to over Flight, not REST. The HTTP
 surface is deliberately small: `/status`, `/api/v1/streams`, and `/api/v1/queries/validate` and
@@ -261,7 +263,7 @@ tools/verify-clean.sh                                # the gate: offline, no sta
 `pravaha-sql`, `pravaha-runtime`, `pravaha-codegen`, `pravaha-state`, `pravaha-backfill`,
 `pravaha-security`, `pravaha-serving`, `pravaha-cluster`, `pravaha-registry`, `pravaha-flight`,
 `pravaha-pgwire`, `pravaha-connect`, `pravaha-testkit`, `pravaha-benchmarks`, `pravaha-it`,
-`pravaha-embedded`, `pravaha-cli`, `pravaha-server`.
+`pravaha-bindings`, `pravaha-embedded`, `pravaha-cli`, `pravaha-server`, `pravaha-spring-boot-starter`.
 
 **Plugins:** [`filesystem`](plugins/pravaha-plugin-filesystem), [`delta`](plugins/pravaha-plugin-delta),
 [`feedfile`](plugins/pravaha-plugin-feedfile), [`jdbc`](plugins/pravaha-plugin-jdbc),

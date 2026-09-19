@@ -597,8 +597,10 @@ parameter schema when a statement is prepared, so neither SDK guesses.
 | `pravaha-codegen` | Whole-stage generation, compiled with Janino. |
 | `pravaha-sql` | Calcite integration. The only module that imports it. |
 | `pravaha-connect` | Plugin discovery, classloader isolation, registry. |
-| `pravaha-embedded` | In-process engine. No Spring. |
+| `pravaha-bindings` | Plugin bindings a registry is fed and written through: `PluginSourceFeeds` (shared readers, pushdown, dead letters), `PluginLookupSources`, `PluginSinks`, resolved by plugin name through `ServiceLoader`. Plain Java, moved out of `pravaha-server` so the server and the embedded engine share one copy. Enforcer-banned from Spring. |
+| `pravaha-embedded` | In-process engine, mode A. `PravahaEngine` declares streams and bindings, registers continuous queries, takes pushed rows, reads views with SQL, subscribes to committed changes, and persists through the journal and checkpoints. No Spring: an enforcer rule and `ArchitectureRulesTest` both refuse it. |
 | `pravaha-server` | Spring Boot node: public REST API and the plain `/status` page. |
+| `pravaha-spring-boot-starter` | Mode B: an embedded engine as a bean from `pravaha.*`, `PravahaTemplate`, and `@PravahaListener` methods receiving a query's committed changes. Depends on `pravaha-embedded`, never the reverse. |
 | `pravaha-cli` | The `pravaha` command. |
 | `pravaha-testkit` | Virtual clock, deterministic scheduler, plugin TCK. |
 | [`plugins/pravaha-plugin-filesystem`](../plugins/pravaha-plugin-filesystem) | The reference source and sink. Delimited files, no external dependency. |
@@ -629,7 +631,7 @@ Not conventions — tests. Each one exists because the failure it prevents is si
 
 | Rule | Enforced by |
 |---|---|
-| No Spring in the engine core | `ArchitectureRulesTest` |
+| No Spring in the engine core, the embedded engine, or anything it assembles (registry, serving, security, bindings) | `ArchitectureRulesTest` + `maven-enforcer` in `pravaha-embedded` and `pravaha-bindings` |
 | No Calcite outside `pravaha-sql` | module dependency graph + `ArchitectureRulesTest` |
 | `pravaha-api` depends on nothing but the JDK | `maven-enforcer` + ArchUnit |
 | Only one package names a low-level memory API | `ArchitectureRulesTest` |

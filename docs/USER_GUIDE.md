@@ -351,6 +351,157 @@ Then <http://127.0.0.1:8090>. (Not 8080 — that is the engine's own actuator po
 following this line to 8080 lands you on the wrong process.) It is a *functional admin* console on purpose — see
 [its README](../console/README.md) for what that means and what it does not do.
 
+## 9. Embed the engine in your application
+
+`pravaha-embedded` runs the whole loop in your process: no server, no network, no Spring.
+Streams and bindings are declared **before** `start()` — the registry plans every query against the
+streams it was built with.
+
+```xml
+<dependency>
+  <groupId>com.ash.messaging</groupId>
+  <artifactId>pravaha-embedded</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+</dependency>
+```
+
+```java
+import com.ash.messaging.pravaha.embedded.PravahaEngine;
+import com.ash.messaging.pravaha.embedded.RowChange;
+
+record Big(String userId, long amount) {}
+
+try (PravahaEngine engine = PravahaEngine.createDefault()) {
+    engine.declareStream("txn", "user_id:STRING,amount:INT64");
+    engine.start();
+
+    engine.register("big_txn", "SELECT user_id, amount FROM txn WHERE amount > 100", "user_id");
+    engine.register("totals", "SELECT COUNT(*) AS n, SUM(amount) AS total FROM txn", "n");
+
+    // Committed changes, retractions included, on the committing thread: keep it short.
+    engine.subscribe("totals", changes -> changes.forEach(c ->
+            System.out.println((c.isRetraction() ? "- " : "+ ") + c.values())));
+
+    // Returns once every query reading txn has applied and committed the rows.
+    engine.push("txn", new Object[] {"u1", 300L}, new Object[] {"u2", 50L});
+    engine.push("txn", java.util.Map.of("user_id", "u3", "amount", 700L));
+
+    List<Big> big = engine.query(Big.class, "SELECT * FROM big_txn");         // records, by column name
+    Object u3 = engine.query("SELECT amount FROM big_txn WHERE user_id = ?", "u3").rows().get(0)[0];
+}
+```
+
+What the calls do:
+
+| Call | |
+|---|---|
+| `declareStream(name, "col:TYPE,...", eventTimeColumn)` / `declareStream(StreamSchema)` | A stream, with the event-time column that lets windows close |
+| `bindSource` / `bindLookup` / `bindSink(name, plugin, options)` | A plugin by the name it reports, with its options — `filesystem` is on the classpath already |
+| `register(name, sql, keyColumns...)` / `register(ContinuousQuery)` | A continuous query; `ContinuousQuery.named(..).retaining(..).writingTo(sink)` for retention or a sink |
+| `push(stream, rows...)` | Rows in column order (or a `Map` by name). The whole batch is checked first: one bad row delivers nothing (`PRV-8102`) |
+| `advanceEventTime(stream, instant)` | Closes windows over pushed rows; a bound source's watermark advances on its own |
+| `query(sql, params...)` / `query(Class, sql, params...)` | SQL over the views, as rows or as records |
+| `subscribe(query, consumer)` | Every commit of a view, retractions as weight `-1` |
+| `pause` / `resume` / `drop` / `queries()` / `registry()` | Lifecycle, and the registry underneath for everything else |
+
+Everything can come from configuration instead, with the server's key names:
+
+```java
+Configuration configuration = Configuration.builder()
+        .set("pravaha.streams.txn.schema", "user_id:STRING,amount:INT64")
+        .set("pravaha.sources.txn.plugin", "filesystem")
+        .set("pravaha.sources.txn.options.path", "/var/lib/app/txn.csv")
+        .set("pravaha.sources.txn.options.schema", "user_id:STRING,amount:INT64")
+        .set("pravaha.queries.big_txn.sql", "SELECT user_id, amount FROM txn WHERE amount > 100")
+        .set("pravaha.queries.big_txn.keys", "user_id")
+        // Persistence is opt-in: registrations come back from the journal, state from checkpoints.
+        .set("pravaha.registry.journal", "/var/lib/app/pravaha/registry.journal")
+        .set("pravaha.checkpoint.directory", "/var/lib/app/pravaha/checkpoints")
+        .build();
+try (PravahaEngine engine = PravahaEngine.create(configuration)) {
+    engine.start();   // big_txn is registered, fed from the file, and recovered after a restart
+}
+```
+
+An embedded engine has no authentication or policy: every call runs as the anonymous principal, on
+the assumption that your application has already decided who may call it. Run the server when that
+is not true. Two known limits: an unwindowed `GROUP BY` per key is refused as unbounded state
+(`PRV-2050`, as everywhere), and an unwindowed global aggregate's running total is **not** carried
+across a restart by its checkpoint — its view comes back, its accumulator starts again.
+
+## 10. Embed it in a Spring Boot application
+
+`pravaha-spring-boot-starter` makes the same engine a bean. It is a layer **above** the Spring-free
+engine: the build refuses Spring inside `pravaha-embedded` and everything it is made of.
+
+```xml
+<dependency>
+  <groupId>com.ash.messaging</groupId>
+  <artifactId>pravaha-spring-boot-starter</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+</dependency>
+```
+
+```yaml
+pravaha:
+  node:
+    id: orders-service
+  streams:
+    orders:
+      schema: "order_id:STRING,amount:INT64"
+  queries:
+    order_stats:
+      sql: "SELECT COUNT(*) AS orders, SUM(amount) AS revenue FROM orders"
+      keys: [orders]
+  # optional: registry.journal, checkpoint.directory, sources.*, sinks.*, lookups.*, watermark.*
+```
+
+```java
+record OrderStats(long orders, long revenue) {}
+
+@Service
+class Dashboard {
+
+    private final PravahaTemplate pravaha;
+
+    Dashboard(PravahaTemplate pravaha) {
+        this.pravaha = pravaha;
+    }
+
+    /** Every committed change to order_stats, off the engine's thread. */
+    @PravahaListener(query = "order_stats")
+    void onStats(OrderStats stats, boolean retraction) {
+        if (!retraction) {
+            System.out.println("revenue is now " + stats.revenue());
+        }
+    }
+
+    void recordOrder(String id, long amount) {
+        pravaha.push("orders", new Object[] {id, amount});
+    }
+
+    List<OrderStats> current() {
+        return pravaha.query(OrderStats.class, "SELECT * FROM order_stats");
+    }
+}
+```
+
+- **The engine** is started when its bean is created and closed with the context, so a bean may
+  register a query from its constructor through `PravahaTemplate`. Supply your own `PravahaEngine`
+  bean and the starter steps aside; a `PravahaEngineCustomizer` bean adjusts the auto-configured one
+  before it starts. `pravaha.enabled=false` turns it off.
+- **A listener** takes `(RowChange)`, `(List<RowChange>)` for a whole commit, or `(SomeRecord row,
+  boolean retraction)` / `(Map<String, Object> row, boolean retraction)`. The `boolean` is required:
+  an update arrives as the old row withdrawn and the new one added, in that order. Records are
+  matched by column name, ignoring case and underscores. `concurrency = N` runs N threads, routed by
+  the view's key, so one key's changes stay in order.
+- **Failure is loud.** A listener naming a query that does not exist when the context starts, or with
+  a signature it cannot be called with, fails the startup. A listener that throws is logged and stays
+  subscribed; one more than `pravaha.listener.max-pending` commits behind (default 10,000) is detached
+  and logged rather than handed a stream with a gap.
+- **Not built yet:** `@PravahaTest`, an actuator endpoint, a listener error handler, and testing
+  against Boot versions other than 3.5.
+
 ---
 
 ## Next

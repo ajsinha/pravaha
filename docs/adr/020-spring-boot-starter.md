@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted; **not built** — there is no `pravaha-spring-boot-starter` module, and no `@PravahaListener` or `PravahaTemplate` anywhere in the tree |
+| Status | Accepted; **built** in `pravaha-spring-boot-starter` — `PravahaAutoConfiguration` (engine bean from `pravaha.*`, started with the context and closed with it), `PravahaProperties`, `PravahaTemplate`, `PravahaEngineCustomizer`, `@PravahaListener(query, concurrency)`. Not built: `@PravahaTest`, actuator contributions, a listener error handler, and a Boot 3.2–3.5 test matrix (tested against 3.5, the server's version) |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 

@@ -414,6 +414,10 @@ And this — Calcite's own conversion failure, distinct from either `StackOverfl
 | `PRV-8008` | REGISTRY_NAME_UNUSABLE | registry |
 | `PRV-8009` | REGISTRY_SINK_WRITE_FAILED | registry |
 | `PRV-8010` | REGISTRY_SINK_SHAPE_MISMATCH | registry |
+| `PRV-8101` | EMBEDDED_UNKNOWN_STREAM | registry (embedded engine) |
+| `PRV-8102` | EMBEDDED_ROW_REJECTED | registry (embedded engine) |
+| `PRV-8103` | EMBEDDED_BACKPRESSURE | registry (embedded engine) |
+| `PRV-8104` | EMBEDDED_MISCONFIGURED | registry (embedded engine) |
 | `PRV-9001` | CLUSTER_UNKNOWN_MECHANISM | cluster |
 | `PRV-9002` | CLUSTER_INSUFFICIENT_GUARANTEE | cluster |
 | `PRV-9003` | CLUSTER_COORDINATOR_UNAVAILABLE | cluster |

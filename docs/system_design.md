@@ -5,9 +5,10 @@
 > **This document is the design, not the build.** It describes the system Pravaha was specified to
 > be, and it has not been rewritten as the engine was built: a present-tense sentence here may
 > describe something shipped, something partly built, or something never started. Named examples
-> found by audit: `mode: HA`, `PravahaConfig.fromYaml`, `PravahaProperties`, `@PravahaTest`,
-> `pravaha-ui/`, `/actuator/pravaha`, `POST /api/v1/queries/{id}/backfill` and the
-> `pravaha-spring-boot-starter` dependency block in §22 do not exist in the tree. For what is
+> found by audit: `mode: HA`, `PravahaConfig.fromYaml`, `@PravahaTest`,
+> `pravaha-ui/`, `/actuator/pravaha` and `POST /api/v1/queries/{id}/backfill` do not exist in the
+> tree, and §22.4's starter exists in a smaller shape than it describes (see the status note
+> there). For what is
 > actually built, read [`HANDOVER.md`](HANDOVER.md), [`ARCHITECTURE.md`](ARCHITECTURE.md) and the
 > [ADRs](adr/); this document is the record of intent behind them.
 
@@ -2536,7 +2537,7 @@ This is not stylistic. Three concrete consequences depend on it:
 2. **Startup time.** A Spring context costs 1–3 s to initialise. `pravaha dev` targets **< 1 s** cold start (§24.1) and embedded mode must not tax its host's boot. Both take the Spring-free path.
 3. **Hot path integrity.** Spring's proxies, AOP interception and managed executors must never come near a lane thread. Lane threads are created by the engine's own pinning thread factory, and nothing on the per-record path is a Spring bean.
 
-Enforced, not merely intended: `maven-enforcer` bans `org.springframework:*` from every core module, and an ArchUnit rule fails the build if any class under `com.ash.messaging.pravaha.{api,common,algebra,runtime,state,sql,codegen,connect}` imports `org.springframework`. Same mechanism as the storage-client rule (NFR-4).
+Enforced, not merely intended: `maven-enforcer` bans `org.springframework:*` from every core module, and an ArchUnit rule fails the build if any class under `com.ash.messaging.pravaha.{api,common,algebra,catalog,runtime,state,sql,connect,embedded,registry,serving,security,bindings}` imports `org.springframework` (as built: `ArchitectureRulesTest.engineCoreContainsNoSpring`; `pravaha-embedded` and `pravaha-bindings` also carry the enforcer ban). Same mechanism as the storage-client rule (NFR-4).
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -2652,6 +2653,21 @@ Note `@Configuration(proxyBeanMethods = false)` and `@Bean(destroyMethod = "")` 
 
 ### 22.4 Mode B — `pravaha-spring-boot-starter`
 
+> **Status (built, in a smaller shape than below).** Modes A and B exist. `pravaha-embedded`'s
+> `PravahaEngine` declares streams, binds sources, lookups and sinks by plugin name, registers,
+> pauses, resumes and drops continuous queries, reads views with SQL and parameters, subscribes to
+> committed changes, takes pushed rows, and persists through the registry journal and checkpoints —
+> all in process. `pravaha-spring-boot-starter` builds an engine bean from `pravaha.*`
+> (`PravahaProperties`, with the server's key names — `streams`, `sources`, `sinks`, `lookups`,
+> `queries`, `registry.journal`, `checkpoint.*` — not the `mode`/`runtime`/`state` keys sketched
+> below), with `PravahaTemplate`, `PravahaEngineCustomizer` and `@PravahaListener(query, concurrency)`.
+> A listener receives `RowChange`, `List<RowChange>`, or a record plus a `boolean retraction`: the
+> single-argument typed form below is refused, because it could not tell an update's withdrawal from
+> its replacement. **Not built:** `@PravahaTest`, the actuator contributions, `errorHandler` and DLQ
+> routing on a listener, `pravaha.view(...).get(key)`, `spring-configuration-metadata.json`, and the
+> Boot 3.2–3.5 CI matrix — the starter is built and tested against Boot 3.5, the version
+> `pravaha-server` uses, and declares Boot at compile scope. See [USER_GUIDE.md](USER_GUIDE.md).
+
 This is the mode the question implies but that most engines never build properly, and it is worth real effort: it lets a customer add continuous SQL to a service they already have, in the framework they already use, without running a cluster.
 
 ```xml
@@ -2761,7 +2777,8 @@ The engine compiles Java source with Janino at query-registration time (§12.4).
 
 | Module | Contents |
 |---|---|
-| `pravaha-spring-boot-starter` | Auto-configuration, `PravahaProperties`, `PravahaTemplate`, `@PravahaListener`, actuator contributions, `@PravahaTest` |
+| `pravaha-spring-boot-starter` | Auto-configuration, `PravahaProperties`, `PravahaTemplate`, `@PravahaListener` (built); actuator contributions, `@PravahaTest` (not built) |
+| `pravaha-bindings` | *(added)* Spring-free plugin bindings — source feeds, lookup tables, sinks resolved by plugin name — shared by the server and the embedded engine |
 | `pravaha-server` | *(revised)* Spring Boot application: engine + gateways + actuator + optional embedded UI |
 | `pravaha-embedded` | *(unchanged)* plain-Java facade, no Spring — what modes A and B both build on |
 
