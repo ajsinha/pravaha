@@ -94,7 +94,9 @@ public final class QueryExecution implements AutoCloseable {
 
     private final List<InterpretedPipeline> pipelines;
     private final List<String> streams;
-    private final List<IngestPump> pumps = new ArrayList<>();
+
+    /** The pumps feeding this execution, and what can be read from them while they are held still. */
+    private final IngestSources sources = new IngestSources();
 
     /**
      * Event time, derived from the rows going past.
@@ -125,7 +127,6 @@ public final class QueryExecution implements AutoCloseable {
     private final Map<String, Long> lastReportedHighWater = new LinkedHashMap<>();
 
     private java.util.concurrent.ScheduledFuture<?> watermarkClock;
-    private final List<PartitionedIngestPump> partitionedPumps = new ArrayList<>();
     private final PhysicalOperator plan;
     private final MemoryAccess access;
 
@@ -454,7 +455,7 @@ public final class QueryExecution implements AutoCloseable {
             pump = new IngestPump(reader, lanes.lane(laneIndex), input, layout, policy);
         }
         trackEventTimeOf(streamName, laneIndex, pump::observeEventTimeWith);
-        pumps.add(pump);
+        sources.add(pump, streamName);
         return pump;
     }
 
@@ -481,7 +482,7 @@ public final class QueryExecution implements AutoCloseable {
         // Separated, because concatenating two integers made (1,0) and (10,anything) the same
         // string -- and two partitions sharing a name means one silently replaces the other in the
         // tracker, so the minimum-across-partitions rule is computed over the wrong set. Mine.
-        String partition = streamName + "#" + laneIndex + "/" + pumps.size() + ":" + partitionedPumps.size();
+        String partition = streamName + "#" + laneIndex + "/" + sources.count() + ":" + sources.partitionedCount();
         // The stream's own lateness, not one number for the whole engine. A topic fed by
         // mobile clients and a scan of data already at rest have nothing in common here, and
         // whichever single value were chosen would be wrong for one of them.
@@ -530,7 +531,7 @@ public final class QueryExecution implements AutoCloseable {
         if (watermarks != null) {
             throw new IllegalStateException("this execution already derives watermarks");
         }
-        if (!pumps.isEmpty()) {
+        if (!sources.isEmpty()) {
             throw new IllegalStateException(
                     "call generatingWatermarks before pumpInto: a pump created earlier would not be a "
                             + "partition of the watermark, and its stream would advance event time for "
@@ -749,7 +750,7 @@ public final class QueryExecution implements AutoCloseable {
         // every lane's pipeline was compiled from the same plan, so any of them gives the same
         // lateness. What matters is that the partition is registered at all.
         trackEventTimeOf(streamName, 0, pump::observeEventTimeWith);
-        partitionedPumps.add(pump);
+        sources.add(pump);
         return pump;
     }
 
@@ -1082,9 +1083,6 @@ public final class QueryExecution implements AutoCloseable {
         return this;
     }
 
-    /** The key a shuffling pump's source offset travels under. Keeps "partition-N" for the plain ones. */
-    private static final String SHUFFLED_OFFSET_PREFIX = "shuffled-partition-";
-
     public com.ash.messaging.pravaha.state.checkpoint.Checkpoint checkpoint(long id, Duration timeout) {
         refuseWhileRowsCrossTheExchange();
         OutputCut cut = outputCut;
@@ -1109,20 +1107,9 @@ public final class QueryExecution implements AutoCloseable {
         // sources for as long as the slowest lane takes to reach its marker, which is a stall on
         // ingest proportional to how busy the query is -- and worse, a lane that has to drain to
         // its marker cannot do so while the coordinator is holding the thread that would refill it.
-        long frozen = freezeSources(timeout);
+        long frozen = sources.freeze(timeout);
         try {
-            for (int index = 0; index < pumps.size(); index++) {
-                offsets.put("partition-" + index, pumps.get(index).position().token());
-            }
-            for (int index = 0; index < partitionedPumps.size(); index++) {
-                // Recorded at all, which they were not: a shuffling pump's offset was left out of
-                // every checkpoint it appeared in, so a multi-lane query restored its operator
-                // state and then had nothing to rewind its source with. Every row since the
-                // checkpoint was replayed on top of state that had already counted it.
-                offsets.put(
-                        SHUFFLED_OFFSET_PREFIX + index,
-                        partitionedPumps.get(index).position().token());
-            }
+            sources.offsetsInto(offsets);
             for (int index = 0; index < pipelines.size(); index++) {
                 InterpretedPipeline pipeline = pipelines.get(index);
                 boolean stateful = pipeline.isStateful();
@@ -1159,7 +1146,7 @@ public final class QueryExecution implements AutoCloseable {
                 }
             }
         } finally {
-            thawSources(frozen);
+            sources.thaw(frozen);
         }
 
         // Phase two: collect. The sources are running again, and each lane is holding its own input
@@ -1216,61 +1203,21 @@ public final class QueryExecution implements AutoCloseable {
     }
 
     /**
-     * Holds every source between rows, so the cut is one point rather than one point per lane.
+     * Where each of this query's sources has got to, by stream, read between rows.
      *
-     * <p>The offsets and the markers are read inside this. That is the whole of what makes the
-     * checkpoint aligned: with the producers stopped, a lane's marker sits at the end of everything
-     * it has been handed, the offset says exactly which rows those were, and no row can arrive at
-     * one lane while another lane is still being marked.
+     * <p>What a blue/green cutover compares (design section 16.3): two versions of a query are at
+     * the same point in their input when, for every stream both read, every partition's position is
+     * the same token. Frozen exactly as a checkpoint freezes them, and for the same reason -- a
+     * position read mid-poll names a record the lanes may not have been handed.
      *
-     * <p>Fails the checkpoint rather than proceeding without a source, and unwinds what it has
-     * already taken. A checkpoint over some of the sources is the partial checkpoint this method
-     * exists to prevent, one level up.
-     *
-     * @return how many pumps were frozen, to pass to {@link #thawSources}
+     * @throws IllegalStateException when a source is still inside a poll after {@code timeout}
      */
-    private long freezeSources(Duration timeout) {
-        long deadline = System.nanoTime() + timeout.toNanos();
-        int frozen = 0;
+    public Map<String, List<String>> sourcePositions(Duration timeout) {
+        long frozen = sources.freeze(timeout);
         try {
-            for (IngestPump pump : pumps) {
-                if (!pump.freezeIngest(remaining(deadline))) {
-                    throw new IllegalStateException("source " + frozen + " was still inside a poll after " + timeout
-                            + ", so its offset cannot be read at a point between rows. A checkpoint taken "
-                            + "anyway would record an offset that does not match the state the lanes hold, "
-                            + "which is silent loss in one direction and a silent double count in the other; "
-                            + "this one is abandoned instead.");
-                }
-                frozen++;
-            }
-            for (PartitionedIngestPump pump : partitionedPumps) {
-                if (!pump.freezeIngest(remaining(deadline))) {
-                    throw new IllegalStateException("shuffling source " + (frozen - pumps.size())
-                            + " was still inside a poll after " + timeout + ", so its offset cannot be read at "
-                            + "a point between rows; this checkpoint is abandoned rather than stored with an "
-                            + "offset the lanes' state does not match.");
-                }
-                frozen++;
-            }
-            return frozen;
-        } catch (RuntimeException e) {
-            thawSources(frozen);
-            throw e;
-        }
-    }
-
-    private static Duration remaining(long deadline) {
-        long left = deadline - System.nanoTime();
-        return left > 0 ? Duration.ofNanos(left) : Duration.ZERO;
-    }
-
-    private void thawSources(long frozen) {
-        for (long i = frozen - 1; i >= 0; i--) {
-            if (i < pumps.size()) {
-                pumps.get((int) i).thawIngest();
-            } else {
-                partitionedPumps.get((int) (i - pumps.size())).thawIngest();
-            }
+            return sources.positions(streams);
+        } finally {
+            sources.thaw(frozen);
         }
     }
 
@@ -1304,18 +1251,7 @@ public final class QueryExecution implements AutoCloseable {
      * history here (a replication slot) must never let go of what a restore could still ask for.
      */
     public void sourcesCheckpointed(com.ash.messaging.pravaha.state.checkpoint.Checkpoint checkpoint) {
-        for (int index = 0; index < pumps.size(); index++) {
-            String token = checkpoint.offsets().get("partition-" + index);
-            if (token != null) {
-                pumps.get(index).checkpointed(new com.ash.messaging.pravaha.api.plugin.SourceOffset(token));
-            }
-        }
-        for (int index = 0; index < partitionedPumps.size(); index++) {
-            String token = checkpoint.offsets().get(SHUFFLED_OFFSET_PREFIX + index);
-            if (token != null) {
-                partitionedPumps.get(index).checkpointed(new com.ash.messaging.pravaha.api.plugin.SourceOffset(token));
-            }
-        }
+        sources.checkpointed(checkpoint);
     }
 
     /**
@@ -1395,8 +1331,7 @@ public final class QueryExecution implements AutoCloseable {
             // every other query is still using it.
             watermarkClock.cancel(true);
         }
-        pumps.forEach(IngestPump::close);
-        partitionedPumps.forEach(PartitionedIngestPump::close);
+        sources.close();
         if (hostedQueryId != null) {
             // W9-8. Hosted: the lanes belong to whoever built the group, and other queries are
             // still running on them. Dropping this query's pipelines is the whole of what closing

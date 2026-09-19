@@ -173,6 +173,26 @@ public final class PeriodicCheckpointer implements AutoCloseable {
     }
 
     /**
+     * Numbers every later checkpoint above {@code id}.
+     *
+     * <p>For a blue/green cutover, which moves a sink from one computation to another. A
+     * transactional sink labels its transactions with checkpoint ids and the SPI's contract is that
+     * labels only increase, across restarts too -- so a sink handed to a computation whose
+     * checkpoint ids start lower would begin re-using labels its own store has already seen, and
+     * {@code abortAfter} would then mean something different from what the engine intended.
+     *
+     * <p>Skipping ids costs nothing: they are labels, not a sequence anything counts.
+     */
+    public void continueAfter(long id) {
+        nextId.accumulateAndGet(id + 1, Math::max);
+    }
+
+    /** The id the next checkpoint will be taken under. */
+    public long nextId() {
+        return nextId.get();
+    }
+
+    /**
      * Takes one checkpoint now, stores it and prunes.
      *
      * @return the checkpoint taken
