@@ -35,5 +35,14 @@ public final class CassandraErrors {
     /** A stored offset this plugin did not write. */
     public static final ErrorCode MALFORMED_OFFSET = new ErrorCode(5089, "CASSANDRA_MALFORMED_OFFSET");
 
+    /**
+     * With {@code deletes: detect}, a token range holds more rows than {@code deletes.max.keys}.
+     * Numbered outside 5085-5089 because that range is full.
+     */
+    public static final ErrorCode DELETE_STATE_FULL = new ErrorCode(5122, "CASSANDRA_DELETE_STATE_FULL");
+
+    /** With {@code deletes: detect}, the remembered rows could not be written, or a restore could not read them back. */
+    public static final ErrorCode DELETE_STATE_FAILED = new ErrorCode(5123, "CASSANDRA_DELETE_STATE_FAILED");
+
     private CassandraErrors() {}
 }

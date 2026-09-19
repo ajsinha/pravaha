@@ -119,6 +119,14 @@ final class TokenRangeScanReader implements PartitionReader {
             return null;
         }
         String token = offset.token();
+        if (token.startsWith(DetectingTokenRangeReader.PREFIX)) {
+            throw new PravahaException(
+                    CassandraErrors.BAD_CONFIGURATION,
+                    "offset '" + token + "' was written with deletes: detect, and this source now has deletes: "
+                            + "ignore. The restored view holds each row once, and this reader would add every row "
+                            + "again on every pass; switch deletes back, or drop and re-register the query so it "
+                            + "starts afresh.");
+        }
         if (!token.startsWith("token=")) {
             throw new PravahaException(
                     CassandraErrors.MALFORMED_OFFSET,

@@ -67,8 +67,10 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  * <p>What a scan cannot do, however carefully it is written:
  *
  * <ul>
- *   <li><strong>Deletes are invisible.</strong> A tombstoned row is simply absent from the next scan,
- *       indistinguishable from one that never existed.
+ *   <li><strong>Deletes are invisible</strong> to a plain pass. A tombstoned row is simply absent
+ *       from the next scan, indistinguishable from one that never existed -- unless {@code deletes:
+ *       detect} is set, which compares each pass with the rows already emitted and retracts what is
+ *       missing ({@link DetectingTokenRangeReader}).
  *   <li><strong>Intra-interval overwrites collapse.</strong> Two writes between scans are seen as
  *       one, with only the final value.
  *   <li><strong>No before-image</strong>, so an update arrives as an insert of the new value with
@@ -84,7 +86,9 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  * scan is not incremental: every pass reads the whole assigned range, and a short interval on a large
  * table is a scan that never stops running), {@code fetch.size} (default 5000, the CQL page size),
  * {@code consistency.level} (default {@code LOCAL_ONE}), {@code request.timeout.ms} (default 30000),
- * {@code user} / {@code password}.
+ * {@code user} / {@code password}, {@code deletes} (default {@code ignore}; {@code detect}),
+ * {@code deletes.state.dir} (required with {@code detect}), {@code deletes.max.keys} (default
+ * 1,000,000 per token range).
  */
 public final class CassandraSourcePlugin implements StreamSourcePlugin {
 
@@ -109,6 +113,12 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
     private String user;
     private String password;
     private ProgrammaticSslEngineFactory sslEngineFactory;
+
+    /** {@code deletes: detect}; see {@link #configureDeletes}. */
+    private boolean detectDeletes;
+
+    private java.nio.file.Path deletesStateDir;
+    private long deletesMaxKeys;
 
     private CqlSession session;
     private PreparedStatement greaterThan;
@@ -231,10 +241,66 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
         this.user = context.get("user", "");
         this.password = context.get("password", "");
         this.sslEngineFactory = CassandraTls.engineFactory(context);
+        configureDeletes(context);
+    }
+
+    /**
+     * {@code deletes}: {@code ignore} (the default, and the behaviour before the option existed) or
+     * {@code detect}. With {@code detect}, {@code deletes.state.dir} is required -- the remembered
+     * rows must survive a restart as exactly as the checkpoint does -- and {@code deletes.max.keys}
+     * (default 1,000,000 per token range) bounds how many rows one range may remember.
+     */
+    private void configureDeletes(PluginContext context) {
+        String mode = context.get("deletes", "ignore").strip().toLowerCase(java.util.Locale.ROOT);
+        switch (mode) {
+            case "ignore" -> this.detectDeletes = false;
+            case "detect" -> this.detectDeletes = true;
+            default ->
+                throw new ConfigurationException(
+                        CassandraErrors.BAD_CONFIGURATION, "deletes must be 'ignore' or 'detect', got '" + mode + "'");
+        }
+        if (!detectDeletes) {
+            return;
+        }
+        String dir = context.get("deletes.state.dir", "").strip();
+        if (dir.isEmpty()) {
+            throw new ConfigurationException(
+                    CassandraErrors.BAD_CONFIGURATION,
+                    "deletes: detect needs deletes.state.dir: a directory on durable local disk where each reader "
+                            + "keeps the rows it has emitted. A restore from a checkpoint reads them back; without "
+                            + "them the rows the restored view holds are unknown and no pass could retract them.");
+        }
+        this.deletesStateDir = java.nio.file.Path.of(dir).resolve(instanceName);
+        String max = context.get("deletes.max.keys", "1000000").strip();
+        try {
+            this.deletesMaxKeys = Long.parseLong(max);
+        } catch (NumberFormatException e) {
+            throw new ConfigurationException(
+                    CassandraErrors.BAD_CONFIGURATION, "deletes.max.keys must be a number, got '" + max + "'");
+        }
+        if (deletesMaxKeys < 1) {
+            throw new ConfigurationException(
+                    CassandraErrors.BAD_CONFIGURATION, "deletes.max.keys must be positive, got " + deletesMaxKeys);
+        }
+    }
+
+    /** Whether this source runs {@code deletes: detect}. */
+    public boolean detectsDeletes() {
+        return detectDeletes;
     }
 
     @Override
     public void open() {
+        if (detectDeletes) {
+            try {
+                java.nio.file.Files.createDirectories(deletesStateDir);
+            } catch (java.io.IOException e) {
+                throw new PravahaException(
+                        CassandraErrors.DELETE_STATE_FAILED,
+                        "source '" + instanceName + "' cannot create deletes.state.dir " + deletesStateDir + ": " + e,
+                        e);
+            }
+        }
         CqlSessionBuilder builder =
                 CqlSession.builder().addContactPoints(contactPoints).withKeyspace(keyspace);
         if (!localDatacenter.isBlank()) {
@@ -310,6 +376,24 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
      */
     @Override
     public SourceCapabilities capabilities() {
+        if (detectDeletes) {
+            // deletes: detect turns the passes into a changelog (DetectingTokenRangeReader): a gone
+            // row is retracted as the whole row this source emitted for it, a changed one is that
+            // row at -1 then the new one at +1 -- a full before-image, as of the previous pass --
+            // and an unchanged one is not emitted again. A resumed reader holds exactly the rows
+            // the restored view was built from (EmittedRows), so after its first pass every row of
+            // the table is counted once: exactly-once, which also keeps the engine from sharing a
+            // reader whose rows are relative to its own emitted state. Still PROJECT only, for the
+            // reasons below.
+            return new SourceCapabilities(
+                    true,
+                    false,
+                    true,
+                    true,
+                    DeliveryGuarantee.EXACTLY_ONCE,
+                    EnumSet.of(com.ash.messaging.pravaha.api.plugin.PushdownKind.PROJECT),
+                    Duration.ofMillis(scanIntervalMillis));
+        }
         return new SourceCapabilities(
                 // The offset is a token cursor within the assigned range, and resuming from it
                 // re-reads exactly the unread remainder of the pass it was taken from.
@@ -381,6 +465,26 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
         for (int ordinal = 0; ordinal < read.length; ordinal++) {
             read[ordinal] =
                     columns == null || columns.contains(schema.field(ordinal).name());
+        }
+        if (detectDeletes) {
+            PreparedStatement fullPass = inclusiveLower ? statements[1] : statements[0];
+            java.time.Duration timeout = Duration.ofMillis(requestTimeoutMillis);
+            return new DetectingTokenRangeReader(
+                    () -> session.execute(fullPass.boundStatementBuilder(lowerBound, upperBound)
+                                    .setPageSize(fetchSize)
+                                    .setConsistencyLevel(consistencyLevel)
+                                    .setTimeout(timeout)
+                                    .build())
+                            .iterator(),
+                    read,
+                    schema,
+                    eventTimeColumn,
+                    (inclusiveLower ? "[" : "(") + lowerBound + "," + upperBound + "]",
+                    fetchSize,
+                    scanIntervalMillis,
+                    resumeFrom,
+                    deletesStateDir,
+                    deletesMaxKeys);
         }
         return new TokenRangeScanReader(
                 session,
