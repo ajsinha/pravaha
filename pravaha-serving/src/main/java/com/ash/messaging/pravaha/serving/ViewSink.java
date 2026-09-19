@@ -171,7 +171,12 @@ public final class ViewSink {
         try {
             synchronized (publishLock) {
                 if (atApplied) {
-                    committedFrontier = frontier.get();
+                    // Never behind what the view already committed. A view restored from a
+                    // checkpoint carries the frontier it was committed at, and until a row arrives
+                    // nothing here has been applied at all: committing "what has been applied"
+                    // then asked for Long.MIN_VALUE and was refused as a frontier going backwards
+                    // -- on the feed's publish thread, which that refusal killed.
+                    committedFrontier = Math.max(frontier.get(), view.committedFrontier());
                 }
                 try {
                     view.commit(committedFrontier);

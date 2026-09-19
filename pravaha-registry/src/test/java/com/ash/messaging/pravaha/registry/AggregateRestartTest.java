@@ -207,6 +207,32 @@ class AggregateRestartTest {
         assertThat(row[2]).isEqualTo("gold");
     }
 
+    /**
+     * Found by LANE-2's restart property: a restored view is committed at the frontier it was
+     * checkpointed with, and a commit of "what has been applied" before any row had arrived asked
+     * for {@code Long.MIN_VALUE} -- refused as a frontier going backwards, on the shared reader's
+     * publish thread, which the refusal killed for every query on the binding.
+     */
+    @Test
+    void aRestoredViewCommitsBeforeItsFirstNewRowWithoutItsFrontierGoingBackwards() {
+        String sql = "SELECT user_id, amount FROM txn";
+        QueryRegistry first = registry();
+        RegisteredQuery query = first.register("spend_rows", sql, List.of(0), DANA);
+        txn(query, "u1", 10, 5_000_000_000L);
+        query.commit();
+        checkpointerOf(query).checkpointNow();
+        restart(first);
+
+        QueryRegistry second = registry();
+        RegisteredQuery restarted = second.register("spend_rows", sql, List.of(0), DANA);
+        restarted.commit();
+
+        assertThat(rows(restarted)).containsExactly(List.of("u1", 10L));
+        txn(restarted, "u2", 20, 6_000_000_000L);
+        restarted.commit();
+        assertThat(rows(restarted)).containsExactly(List.of("u1", 10L), List.of("u2", 20L));
+    }
+
     private void restart(QueryRegistry registry) {
         registry.close();
         registries.remove(registry);
