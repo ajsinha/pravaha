@@ -82,7 +82,9 @@ what changed and why. docs/qa/FINDINGS.md status lines come next. This file and 
   Also built since: the Kafka source, HLP-1..15, the starter's @PravahaTest,
   actuator endpoint, listener error handler and Boot profiles.
 
-  Queue, in order (owner: build every "not built" item except multi-node):
+  The whole remaining scope, in batches that can be built at once, is
+  docs/REMAINING.md. Queue, in order (owner: build every "not built" item
+  except multi-node):
   - E4: LANE-2, one ingest per stream per shared lane, fanned out.
   - E5: blue/green query replacement with backfill splicing wired.
   - E6: the time-travel debugger engine (checkpoint fork, step protocol,

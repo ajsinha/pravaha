@@ -38,6 +38,7 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 |---|---|
 | [Handover](HANDOVER.md) | State of the work, what is done, what is not, what a fresh session will not guess |
 | [Implementation plan](implementation_plan.md) | The wave roadmap and its gates |
+| [What is left](REMAINING.md) | Every remaining requirement, in batches that can be built at once, and how they are scheduled |
 | [Gate records](gates/) | Evidence packs. The retrospectives are the honest part |
 
 ## A note on these documents
