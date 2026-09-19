@@ -245,6 +245,11 @@ PAGES: list[tuple[str, str, bool, str]] = [
     ("about", "/about", False, "true"),
     ("help", "/help", False, "true"),
     ("help-topic", "/help/quickstart", False, "true"),
+    ("help-topic-page", "/help/topics/first-view", False, "true"),
+    ("help-connector", "/help/topics/source-jdbc", False, "true"),
+    ("help-search", "/help/search?q=watermark", False, "true"),
+    ("help-codes", "/help/codes", False, "true"),
+    ("help-guides", "/help/guides", False, "true"),
     ("tutorials", "/tutorials", False, "true"),
     ("tutorial", "/tutorials/trade-processing", False, "true"),
     ("help-code", "/help/codes/PRV-2050", False, "true"),
@@ -275,7 +280,9 @@ PAGES: list[tuple[str, str, bool, str]] = [
 #: Pages whose body is a repository document included verbatim. They are audited like every
 #: other page, but not photographed: their pixels change whenever the documentation does,
 #: and a baseline that breaks on a README edit teaches people to regenerate without looking.
-DOCUMENT_PAGES = {"about", "help-topic", "tutorial", "help-code"}
+#: The help's own pages -- the index, a topic, a connector page, search, the guides browser --
+#: and About ARE photographed: their layout is the console's, and only the first screen is taken.
+DOCUMENT_PAGES = {"help-topic", "tutorial", "help-code", "help-codes"}
 
 AXE = (CONSOLE_ROOT / "tests" / "vendor" / "axe-core" / "axe.min.js").read_text(encoding="utf-8")
 

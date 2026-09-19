@@ -344,3 +344,72 @@ def test_the_admin_persona_lands_on_access_and_searches_the_audit_trail_by_keybo
     finally:
         console.engine.audit_allowed = True
     assert page.exceptions == [], page.exceptions
+
+
+# ============================================================ help: search -> topic -> related -> full reference
+
+def test_help_search_to_a_topic_to_a_related_one_to_its_full_reference(page, console):
+    """Somebody with a word, not a URL: filter the index, search every page, open the topic,
+    follow a related topic from its footer, and land in the long-form guide its "Full reference"
+    names -- by keyboard where a person would use one, and anonymously, because help is public."""
+    page.goto(console.url("/help"))
+    settled(page)
+    # Typing filters the cards in place, and a category with nothing left is hidden.
+    page.focus("#help-search")
+    page.type("watermark")
+    page.wait_for("[...document.querySelectorAll('.help-item')].some(i => i.hidden)")
+    visible = page.eval("[...document.querySelectorAll('.help-item:not([hidden]) a')].map(a => a.getAttribute('href'))")
+    assert "/help/topics/event-time-watermarks" in visible
+    assert page.eval("[...document.querySelectorAll('.help-cat')].some(c => c.hidden)")
+
+    # Enter searches every page's text, on the server.
+    page.wait_for_navigation(lambda: page.press("Enter"))
+    assert "/help/search?q=watermark" in page.url()
+    first = page.eval("document.querySelector('#search-results a').getAttribute('href')")
+    assert first == "/help/topics/event-time-watermarks"
+
+    # The topic.
+    page.wait_for_navigation(lambda: page.click("#search-results a"))
+    assert page.url().endswith("/help/topics/event-time-watermarks")
+    assert page.exists(".help-footer .help-companion")
+
+    # A related topic, from the shared footer, by keyboard.
+    related = page.eval("document.querySelector('.help-related .chip-links a').getAttribute('href')")
+    assert related.startswith("/help/topics/") and related != "/help/topics/event-time-watermarks"
+    page.focus(".help-related .chip-links a")
+    page.wait_for_navigation(lambda: page.press("Enter"))
+    assert page.url().endswith(related)
+
+    # And its full reference: a long-form guide rendered in place, at the section it names.
+    target = page.eval("document.querySelector('.help-companion').getAttribute('href')")
+    page.wait_for_navigation(lambda: page.click(".help-companion"))
+    assert page.url().endswith(target)
+    assert page.exists(".doc")
+    if "#" in target:
+        anchor = target.split("#", 1)[1]
+        assert page.eval(f"!!document.getElementById({anchor!r})"), f"the guide has no #{anchor}"
+    assert page.exceptions == [], page.exceptions
+
+
+def test_a_code_on_a_help_page_opens_its_own_page(page, console):
+    page.goto(console.url("/help/topics/sql-refusals"))
+    settled(page)
+    code = page.eval("document.querySelector('.doc a.prv') && document.querySelector('.doc a.prv').textContent")
+    assert code and code.startswith("PRV-")
+    page.wait_for_navigation(lambda: page.click(".doc a.prv"))
+    assert page.url().endswith(f"/help/codes/{code}")
+    assert code in page.text("h1")
+
+
+def test_a_screen_s_question_mark_opens_its_help(page, console):
+    """Contextual help: the "?" beside the workbench's heading opens the topic that answers the
+    question the workbench provokes, and the cards at its foot are real topics."""
+    sign_in(page, console)
+    page.goto(console.url("/workbench"))
+    settled(page)
+    href = page.eval("document.querySelector('h1 .screen-help').getAttribute('href')")
+    assert href == "/help/topics/sql-reference"
+    cards = page.eval("[...document.querySelectorAll('.helpcards a')].map(a => a.getAttribute('href'))")
+    assert len(cards) == 3 and all(c.startswith("/help/topics/") for c in cards)
+    page.wait_for_navigation(lambda: page.click("h1 .screen-help"))
+    assert page.url().endswith(href)
