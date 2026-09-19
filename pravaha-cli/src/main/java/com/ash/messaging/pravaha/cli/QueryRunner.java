@@ -62,8 +62,9 @@ import com.ash.messaging.pravaha.sql.plan.SourcePushdown;
  *
  * <p>One lane by default, and that is a choice rather than a limitation. A file is one partition and
  * output order is what {@code QUICKSTART.md} documents; more lanes would interleave results by
- * thread scheduling and make the documented output true only most of the time. {@code --lanes} is
- * there for anyone who wants the parallelism and can accept unordered output.
+ * thread scheduling and make the documented output true only most of the time. The lane count is a
+ * parameter of {@link #run} and is <em>not</em> a command-line flag: this javadoc used to offer
+ * {@code --lanes}, which {@code RunCommand} has never parsed (P-7).
  */
 public final class QueryRunner {
 

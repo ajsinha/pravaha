@@ -68,6 +68,40 @@ class PravahaCliTest {
     }
 
     @Test
+    void everyCommandPrintsItsOwnFlagsWithoutTouchingTheNetwork() {
+        // P-4: --help was an ordinary flag, so `queries --help` dialled the server and failed with
+        // PRV-1041, and six other commands answered "missing required option". No --url is given
+        // here and no server is running, so anything that reaches the network fails this test.
+        for (String command : PravahaCli.helpTopics()) {
+            out.reset();
+            err.reset();
+            assertThat(run(command, "--help"))
+                    .as("`pravaha %s --help` must exit 0", command)
+                    .isZero();
+            assertThat(stdout())
+                    .as("`pravaha %s --help` must describe %s", command, command)
+                    .contains(command);
+            assertThat(stderr())
+                    .as("`pravaha %s --help` must not report a failure", command)
+                    .isEmpty();
+        }
+    }
+
+    @Test
+    void oneCommandsHelpIsNotEveryCommandsHelp() {
+        // The whole point is that it answers about the command asked for. Printing the full usage
+        // would pass the test above and leave the flags just as hard to find.
+        assertThat(run("drop", "--help")).isZero();
+        assertThat(stdout()).contains("--name").doesNotContain("--out-schema");
+    }
+
+    @Test
+    void anUnknownCommandAskedForHelpStillSaysItIsUnknown() {
+        assertThat(run("frobnicate", "--help")).isEqualTo(2);
+        assertThat(stderr()).contains("frobnicate");
+    }
+
+    @Test
     void anUnknownCommandNamesItselfAndShowsUsage() {
         assertThat(run("frobnicate")).isEqualTo(2);
         assertThat(stderr()).contains("frobnicate");

@@ -17,7 +17,9 @@ package com.ash.messaging.pravaha.cli;
 
 import java.io.PrintStream;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 
@@ -60,6 +62,22 @@ public final class PravahaCli {
 
         String command = args[0];
         List<String> rest = Arrays.asList(args).subList(1, args.length);
+
+        // P-4: --help was parsed as an ordinary flag, so `pravaha queries --help` opened a
+        // connection to say so and six other commands answered "missing required option --name".
+        // A command's own flags have to be discoverable from the binary, and asking a server is
+        // never part of answering that.
+        if (rest.stream().anyMatch(PravahaCli::isHelp)) {
+            List<String> help = HELP.get(command);
+            if (help == null) {
+                err.println(Ansi.bad("unknown command: " + command));
+                printUsage();
+                return EXIT_USAGE;
+            }
+            out.println(Ansi.bold("Usage:"));
+            help.forEach(out::println);
+            return EXIT_OK;
+        }
 
         try {
             return switch (command) {
@@ -113,14 +131,93 @@ public final class PravahaCli {
         return implementation == null ? "0.1.0-SNAPSHOT" : implementation;
     }
 
+    /**
+     * Each command's own usage block, keyed by the word that invokes it.
+     *
+     * <p>One table rather than two: {@code pravaha --help} prints every block and {@code pravaha
+     * <command> --help} prints one of them, so a command cannot be documented at the top level and
+     * undiscoverable from itself (P-4). {@code pause}, {@code resume} and {@code drop} share a
+     * block because they share every flag.
+     */
+    private static final Map<String, List<String>> HELP = help();
+
+    private static Map<String, List<String>> help() {
+        Map<String, List<String>> commands = new LinkedHashMap<>();
+        commands.put(
+                "validate",
+                List.of(
+                        "  validate  --sql <query> --schema <spec> [--stream <name>]",
+                        "            Parse, validate and plan without running anything."));
+        commands.put(
+                "query",
+                List.of(
+                        "  query     --sql <query> [--params a,b] [--url grpc://host:9090] [--token t]",
+                        "            Ask a running server a question and print the rows. Also runs",
+                        "            CREATE / DROP / PAUSE / RESUME CONTINUOUS QUERY and SHOW CONTINUOUS QUERIES."));
+        commands.put(
+                "register",
+                List.of(
+                        "  register  --name <view> --sql-file <path> [--keys 0,1] [--sink <name>] [--retain PT24H]",
+                        "            [--url ...]",
+                        "            Register a continuous query. It runs until it is dropped. --sink also writes",
+                        "            its changes to a sink the server binds under pravaha.sinks.<name>. --retain",
+                        "            is how much event time the view keeps (ISO-8601, or 'forever')."));
+        commands.put(
+                "queries",
+                List.of(
+                        "  queries   [--verbose] [--url ...]",
+                        "            List the continuous queries a server is running. A query whose source",
+                        "            stopped mid-read shows 'RUNNING (source stopped)' and a line naming the",
+                        "            code, the stream#partition and the time. --verbose adds each query's FEED."));
+        commands.put(
+                "subscribe",
+                List.of(
+                        "  subscribe --view <name> [--filter col=val,col2=val2] [--snapshot] [--limit N] [--url ...]",
+                        "            Stream changes as they are committed. Each change leads with its weight:",
+                        "            +1 a row arriving, -1 a row withdrawn. A '-- commit' line closes each commit.",
+                        "            --snapshot prints the view's rows first ('-- snapshot at frontier F'), then",
+                        "            every commit after them, none missed; without it the stream starts at the",
+                        "            next commit and a read of the view beside it can miss the one in flight."));
+        List<String> lifecycle = List.of(
+                "  pause | resume | drop   --name <view> [--url ...]",
+                "            Lifecycle. A computation is released when its last name is dropped.");
+        commands.put("pause", lifecycle);
+        commands.put("resume", lifecycle);
+        commands.put("drop", lifecycle);
+        commands.put(
+                "explain",
+                List.of(
+                        "  explain   --sql <query> --schema <spec> [--level logical|physical|codegen|all]",
+                        "            Show the plan the engine would execute."));
+        commands.put(
+                "run",
+                List.of(
+                        "  run       --sql <query> --schema <spec> --in <file>",
+                        "            --out <file> --out-schema <spec> [--dlq <file>]",
+                        "            Run a query over a delimited file."));
+        commands.put("version", List.of("  version", "            Print the version and exit."));
+        return java.util.Collections.unmodifiableMap(commands);
+    }
+
+    /** The commands a help request may name, in the order the top-level usage prints them. */
+    static java.util.Set<String> helpTopics() {
+        return HELP.keySet();
+    }
+
     private void printUsage() {
         out.println(Ansi.bold("pravaha") + " " + Ansi.dim(version()) + "  " + Ansi.accent("Ask once. Answer always."));
         out.println();
         out.println(Ansi.bold("Usage:") + "  pravaha <command> [options]");
         out.println();
         out.println(Ansi.bold("Commands:"));
-        out.println("  validate  --sql <query> --schema <spec> [--stream <name>]");
-        out.println("            Parse, validate and plan without running anything.");
+        boolean first = true;
+        for (List<String> block : new java.util.LinkedHashSet<>(HELP.values())) {
+            if (!first) {
+                out.println();
+            }
+            first = false;
+            block.forEach(out::println);
+        }
         out.println();
         out.println("  query     --sql <query> [--params a,b] [--url grpc://host:9090] [--token t]");
         out.println("            Ask a running server a question and print the rows. Also runs");
@@ -173,6 +270,7 @@ public final class PravahaCli {
         out.println("            Run a query over a delimited file.");
         out.println();
         out.println("  version");
+        out.println(Ansi.dim("  pravaha <command> --help prints one command's flags, without a server."));
         out.println();
         out.println(Ansi.bold("Schema spec:") + "  name:TYPE,name:TYPE   (suffix a type with ? for nullable)");
         out.println(Ansi.dim("  BOOLEAN INT8 INT16 INT32 INT64 FLOAT32 FLOAT64 STRING BYTES TIMESTAMP"));

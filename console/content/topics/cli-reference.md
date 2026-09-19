@@ -34,7 +34,8 @@ SQL to a running node, exactly as the Java SDK does (the CLI is built on it).
 | `version`, `help` | no | |
 
 Options are `--name value` or `--name=value`. `pravaha` with no arguments prints usage and exits `2`;
-`pravaha help` (or `-h`, `--help`) prints it and exits `0`.
+`pravaha help` (or `-h`, `--help`) prints it and exits `0`. `pravaha <command> --help` prints that
+one command's flags and exits `0` without contacting a server (P-4).
 
 ## Options every server command takes
 
