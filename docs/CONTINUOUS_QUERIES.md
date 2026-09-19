@@ -238,6 +238,7 @@ pravaha:
 | `stream` | no | the table name, or the binding's name when `query` is used |
 | `pushdown.partial.aggregate` | no | `true` — has effect only with `key.column`; see below |
 | `collation.binary` | no | `false` — set it only if the database compares and groups text byte for byte, case-sensitively |
+| `watermark.moves.on.update` | no | `true` — set it `false` only when the watermark column is written once, on insert, and never by an update; with `key.column`, the source then declares that it never repeats a row, and an aggregate over it is admitted ([below](#a-source-that-repeats-rows-what-the-registry-refuses-prv-2042)) |
 
 Giving both `table` and `query`, or neither, is refused at configuration with a message saying which
 does what. Use `query` when a cast or a join has to happen in the database rather than here.
@@ -294,8 +295,10 @@ With `key.column` set, a continuous `SELECT COUNT(*), SUM(x) FROM t WHERE ...` g
 poll asks the database for one **partial** per keyset page — `COUNT(*)`/`SUM` over the rows after
 the last offset and up to the page's last row — instead of the rows themselves, and the engine adds
 the partials into its running total (ADR-039 item 6). The answer is the one the rows give: a page's
-partial is the sum of exactly the rows the row poll would have sent, and an update the poll sees
-again is counted again in both, because a polled table is not a changelog either way (below). It is
+partial is the sum of exactly the rows the row poll would have sent. That is why the aggregate is
+registered only when no row is read twice — `key.column` set and `watermark.moves.on.update: false`,
+the watermark written once, on insert — and refused with `PRV-2042` otherwise, since an update the
+poll sees again would be counted again either way (below). It is
 asked for only when every predicate in the `WHERE` can be carried into SQL, only for `COUNT` and for
 `SUM` over a `BIGINT`, and — unless `collation.binary: true` — never when a text column is compared
 or grouped on, because a case-insensitive collation would match `'done'` to `'DONE'` where the engine
@@ -329,7 +332,10 @@ scan of the table.
 
 **A polled table is not a changelog.** It sees a row's current value at poll time, so a row that
 changes twice between polls yields one row, and a deleted row is simply never seen again — no
-retraction is produced.
+retraction is produced. A row whose update moves the watermark column is read again, as the new
+value at `+1` with the old one still counted, so the source declares that it repeats rows and an
+aggregate, a join or an append-only sink over it is refused (`PRV-2042`) — unless `key.column` is
+set and `watermark.moves.on.update: false` vouches that the column is written only on insert.
 
 **And it cannot produce one even if you ask.** `JdbcPartitionReader` writes `weight(1)` on every
 row: the `jdbc` source has no equivalent of the `filesystem` source's `op.column`, so a table with a
@@ -388,6 +394,12 @@ server sends only those. A shared scan pushes the **OR** of its queries' filters
 their columns, and each query keeps its own filter in the engine (ADR-039 item 6). No partial
 aggregate: Aerospike aggregates server-side only through Lua stream UDFs registered on the cluster,
 and an overwritten record arrives as a new row with no retraction whichever way it is summed.
+
+With the default `deletes: ignore` the scan **repeats rows**: an updated record is read again as the
+new row with nothing retracting the old, and the filter is greater-or-equal on when the previous scan
+started, so a record written while a scan ran is read by it and again by the next. A keyed view of
+the records is right regardless; an aggregate, a join or an append-only sink over the stream is
+refused with `PRV-2042` and needs `deletes: detect` ([below](#a-source-that-repeats-rows-what-the-registry-refuses-prv-2042)).
 
 #### `cassandra` — a table, scanned by `token()` range
 
@@ -454,12 +466,57 @@ short interval on a large table is a scan that never stops running.
 The same limits [`CONNECTORS.md`](CONNECTORS.md) documents for the Aerospike `lut-scan`, for the same
 reason: scanning a store with no change feed. With the default `deletes: ignore`, **deletes are
 invisible** — a tombstoned row is simply absent from the next scan, indistinguishable from one that
-never existed — and **every pass adds every row again at `+1`**, so a view over the table holds each
-row once per pass it has lived through. **Intra-interval overwrites collapse** — two writes between
-passes are seen as one, with only the final value. **There is no before-image**, so an update arrives
-as an insert of the new value with nothing to retract. `capabilities()` declares `emitsDeletes =
-false`, `emitsBeforeImage = false`, and `DeliveryGuarantee.AT_LEAST_ONCE`. `deletes: detect`, next,
-removes all but the collapsing.
+never existed — and **every pass adds every row again at `+1`**. **Intra-interval overwrites
+collapse** — two writes between passes are seen as one, with only the final value. **There is no
+before-image**, so an update arrives as an insert of the new value with nothing to retract.
+`capabilities()` declares `emitsDeletes = false`, `emitsBeforeImage = false`,
+`DeliveryGuarantee.AT_LEAST_ONCE` and `repeatsRows = true`. `deletes: detect`, next, removes all but
+the collapsing.
+
+##### A source that repeats rows: what the registry refuses (`PRV-2042`)
+
+A source **repeats rows** when, in normal running, it delivers a row it has already delivered with
+nothing retracting the earlier copy. Four configurations do, and each says so in its capabilities
+(`repeatsRows`), which the registry reads from the configured plugin without opening it:
+
+| Source | Repeats | Why |
+|---|---|---|
+| `cassandra`, `deletes: ignore` (the default) | yes | every pass emits every row again |
+| `aerospike`, `deletes: ignore` (the default) | yes | an updated record is read again as the new row; a record written while a scan ran is read by that scan and the next, because the next filters from when this one started |
+| `jdbc` | yes, unless `key.column` is set **and** `watermark.moves.on.update: false` | an update that moves the watermark column brings the row back; without a key, rows tied on the watermark are resumed by counting and can be re-read |
+| `cassandra` or `aerospike` with `deletes: detect`, `postgres-cdc`, `kafka`, `delta`, `feedfile`, `filesystem` | no | a changelog, a log read once by offset, or files read once |
+
+Every copy arrives at weight `+1`, and nothing downstream can tell a copy from a new row. So over a
+stream whose source repeats, registration refuses, with `PRV-2042` naming the stream, the plugin and
+the fix, before a feed or a sink opens:
+
+- **any aggregate**, windowed or not — `COUNT(*)` over a Cassandra table would grow by the table's size
+  every interval. `MIN`, `MAX`, `COUNT(DISTINCT)` and `DISTINCT` are refused too: they survive a copy
+  of an unchanged row, but an update is never retracted from them either;
+- **a join**, which pairs every copy again, and whose pair a copy keeps alive after the other side
+  retracts it;
+- **a sink that cannot upsert by key** — `filesystem`, `jdbc-sink` with `mode: append`, `kafka-sink`
+  with `format: changelog` — which writes every copy as another row or event.
+
+**A projection or filter is admitted**, computed columns and a lookup join included, served as a keyed
+view or written to a sink that upserts by key. The served view is keyed by the registration's key
+columns: a copy raises its key's weight and overwrites the row with the values it already has, so a
+keyed read or a scan returns each row once, as the store holds it — and a source that repeats never
+retracts, so a weight above one is never walked back past a row that should still be there. A
+subscriber sees each copy as another `+1` of a row it already has; overwrite by key rather than
+summing weights.
+
+**The fix is on the binding.** `deletes: detect` makes either scan source an exact changelog (next).
+For `jdbc`, poll a column only an insert sets — a sequence, a `created_at` — with `key.column`, and
+say so with `watermark.moves.on.update: false`; or read PostgreSQL through `postgres-cdc`.
+
+**Why `ignore` stays the default.** `detect` needs a durable `deletes.state.dir`, which has no safe
+default location, and holds every emitted row in memory, bounded by `deletes.max.keys` — a table past
+the bound is refused (`PRV-5120` / `PRV-5122`) where `ignore` serves its keyed view correctly. For
+Cassandra `detect` costs no extra reads, since every pass already reads the whole range; for Aerospike
+it turns the incremental last-update-time scan into a full scan every interval. With the refusal
+above, no configuration of either default gives a silently wrong answer: what `ignore` cannot
+answer, it refuses.
 
 #### Seeing deletes in a scan: `deletes: detect`
 
@@ -510,8 +567,9 @@ store with no change feed.
   in the middle of one. State that is gone or damaged is refused (`PRV-5121` / `PRV-5123`), never
   guessed at. A durable checkpoint deletes the snapshots and the older reader's directory it
   supersedes; the directory of a query that was dropped is not deleted for you.
-- **What it declares:** `emitsDeletes` and `emitsBeforeImage` true, and `EXACTLY_ONCE` — after the
-  first pass every row of the store is counted once. The before-image is the row as the previous pass
+- **What it declares:** `emitsDeletes` and `emitsBeforeImage` true, `repeatsRows` false, and
+  `EXACTLY_ONCE` — after the first pass every row of the store is counted once, so an aggregate or a
+  join over the source is admitted (`PRV-2042` is for the `ignore` mode). The before-image is the row as the previous pass
   saw it: **writes between two passes still collapse**, and an intermediate value is never emitted or
   retracted. `EXACTLY_ONCE` also means the reader is **not shared** between queries: its changes are
   relative to its own emitted rows, which another query's catch-up could not be handed. A query over
@@ -828,8 +886,11 @@ not read answers as a name that was never registered.
 ### What happens at registration
 
 1. The SQL is parsed and validated against the declared streams
-2. When the registration names a sink (§4), the plan's changelog is checked against what that sink
-   accepts, and a pair that cannot work is refused with `PRV-2041` — before anything opens
+2. Each stream's source is asked whether it repeats rows, and a query whose answer depends on how
+   many times a row arrived — an aggregate, a join, or a sink that cannot upsert — over one that
+   does is refused with `PRV-2042` naming the fix, `deletes: detect` on the binding (§2.1, SCAN-1).
+   When the registration names a sink (§4), the plan's changelog is then checked against what that
+   sink accepts, and a pair that cannot work is refused with `PRV-2041` — before anything opens
 3. A physical plan is built and **fingerprinted** — plan, row filters, key columns, retention
 4. If an identical fingerprint is already running, **the existing computation is shared** and the new name points at it
 5. Otherwise a lane is created, the plan compiled onto it, and a feed opened for each source stream
@@ -904,7 +965,10 @@ does, retractions included as rows with a negative weight. Three things to know
   either side retracts the pairs it made, so a join over a change feed is refused too (HLP-3; it
   was admitted until then, because the check assumed every source only appends). A filter, a
   projection, or a tumbling window without lateness over append-only sources never revises, and
-  goes anywhere.
+  goes anywhere — unless a source repeats rows: over `cassandra` or `aerospike` with the default
+  `deletes: ignore`, or a `jdbc` poll whose watermark an update moves, even a projection is refused
+  a sink that cannot upsert by key (`PRV-2042`), because the sink would write every copy as another
+  row (§2.1).
 - **Delivery is as strong as the sink allows, and the node says which** in its log when you
   register. A restart replays from the last checkpoint. A *transactional* sink on a node that
   checkpoints is **exactly once**: what it is written between checkpoints is prepared at the
@@ -1461,7 +1525,11 @@ projections correctly; what is not built is arithmetic over it. Recorded as TY-7
    to write instead.
 2. **If it is an unbounded-state refusal (`PRV-2050`), add a window.** That is almost always the
    right answer, and it is usually what was meant.
-3. **If the work is genuinely not streaming** — a total order, a set difference, an ad-hoc join
+3. **If it says the source repeats rows (`PRV-2042`), fix the binding, not the SQL.** Set
+   `deletes: detect` on the `cassandra` or `aerospike` binding the message names, which makes its
+   passes an exact changelog (§2.1); for `jdbc`, see `watermark.moves.on.update`. A keyed view of the
+   rows needs neither.
+4. **If the work is genuinely not streaming** — a total order, a set difference, an ad-hoc join
    across two stores — that is what ADR-030 tier 4 puts out of scope on purpose. Pravaha maintains
    the answer to a question asked in advance; a query engine answers questions asked just now, and
    trying to be both is how a system becomes bad at each.
@@ -1479,6 +1547,7 @@ projections correctly; what is not built is arithmetic over it. Recorded as TY-7
 | `SELECT` refuses with `PRV-8004` | The query behind the view failed; the rows are stale, and saying so is the point (§8) |
 | A view holds fewer rows than expected | Retention. It defaults to forever now, but an explicit one evicts by event time |
 | `GROUP BY` works on a view and is refused on a stream | Deliberate, and the reason is the input rather than the query (§13) |
+| `COUNT(*)` over a Cassandra or Aerospike binding is refused, a projection of it is not | The default `deletes: ignore` repeats rows, which a keyed view absorbs and a count does not (`PRV-2042`, §2.1) |
 
 ---
 
@@ -1493,6 +1562,7 @@ projections correctly; what is not built is arithmetic over it. Recorded as TY-7
 | `PRV-2020` | A relational operator Pravaha cannot execute |
 | `PRV-2021` | An expression or function Pravaha cannot compile |
 | `PRV-2041` | The query revises its answer and the sink it names can only append — §4 |
+| `PRV-2042` | The query's answer depends on how many times a row arrived — an aggregate, a join, a sink that cannot upsert — and its source repeats rows (`cassandra` or `aerospike` with `deletes: ignore`, a `jdbc` poll an update can re-read); set `deletes: detect` on the binding — §2.1 |
 | `PRV-2050` | The query's state would grow without bound |
 | `PRV-2060`–`PRV-2063` | Parameter binding — see [ADR-032](adr/032-parameters-are-values-not-queries.md) |
 | `PRV-2070` | A `CREATE`/`DROP`/`PAUSE`/`RESUME CONTINUOUS QUERY` or `SHOW CONTINUOUS QUERIES` without that statement's shape — §10.1 |

@@ -156,6 +156,37 @@ commit that a crash aborted and the restart redid, twice; exactly once is promis
 **Are you ignoring weights?** A subscriber maintaining its own aggregate must apply the `-1`/`+1`
 weights, or it drifts from the view the first time late data corrects a window.
 
+**`PRV-2042` — "is read from a … source that repeats rows".** Refused at registration, before a
+feed or a sink opens (SCAN-1). Some sources deliver a row they have already delivered, with nothing
+retracting the earlier copy: `cassandra` with `deletes: ignore` (the default) emits every row again
+on every pass; `aerospike` with `deletes: ignore` reads an updated record again as the new row, and
+re-reads a record written while a scan ran; `jdbc` reads a row again when an update moves its
+watermark column, and — without `key.column` — may re-read rows tied on the watermark. Every copy
+arrives at weight `+1`, so a `COUNT` over a Cassandra table grew by the table's size every interval,
+and an Aerospike update was counted twice, under a success status. The source says so in its
+capabilities (`repeatsRows`), and the registry refuses what depends on how many times a row arrived:
+
+- any aggregate, windowed or not (`MIN`/`MAX` and `DISTINCT` included — an update is never
+  retracted from them either);
+- a join, which pairs every copy again;
+- a sink that cannot upsert by key (`filesystem`, `jdbc-sink` with `mode: append`, `kafka-sink`
+  with `format: changelog`), which would write every copy as another row.
+
+What is still admitted: a projection or filter (computed columns and a lookup join included) served
+as a keyed view, or written to a sink that upserts by key. A copy overwrites its own key with the
+values it already has, and a source that repeats never retracts, so a keyed read or a scan returns
+each row once, as the store holds it. A **subscriber** to such a view sees each copy as another `+1`
+of a row it already has: overwrite by key, and do not sum the weights.
+
+The fix is on the binding the message names. For `cassandra` or `aerospike`, set `deletes: detect`
+(with `deletes.state.dir`): each pass is compared with what was emitted, so an unchanged row is not
+sent again, an update is a retraction and an insertion, and a delete is a retraction — an exact
+changelog, [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §2.1. For `jdbc`, poll a watermark
+column that only an insert sets (a sequence, a `created_at`), with `key.column`, and say so with
+`watermark.moves.on.update: false` — or read a PostgreSQL table through `postgres-cdc`. A query
+journalled before this check existed comes back from a restart as a recovery refusal with this code,
+not as a view.
+
 **Did rows age out?** A view keeps everything unless its registration set a retention (`RETAIN FOR`,
 `--retain`); one that did evicts by event time. `evicted()` counts what has
 been forgotten, and a window shorter than the questions being asked of it is exactly what that
@@ -439,6 +470,7 @@ way it was registered.
 | `PRV-2020` | SQL_UNSUPPORTED_OPERATOR | sql |
 | `PRV-2021` | SQL_UNSUPPORTED_EXPRESSION | sql |
 | `PRV-2041` | SQL_EMIT_MODE_MISMATCH | sql |
+| `PRV-2042` | SQL_SOURCE_REPEATS_ROWS | sql |
 | `PRV-2050` | SQL_UNBOUNDED_STATE | sql |
 | `PRV-2060` | SQL_PARAMETER_NOT_BOUND | sql |
 | `PRV-2061` | SQL_PARAMETER_ARITY | sql |

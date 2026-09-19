@@ -105,13 +105,28 @@ record SourceCapabilities(
         boolean emitsBeforeImage,
         DeliveryGuarantee guarantee,      // AT_MOST_ONCE | AT_LEAST_ONCE | EXACTLY_ONCE
         Set<PushdownKind> pushdown,       // FILTER | PROJECT | PARTIAL_AGGREGATE
-        Duration typicalLatency)
+        Duration typicalLatency,
+        boolean repeatsRows)              // the seven-argument constructor means false
 ```
 
 **These are promises the engine acts on, not documentation.** `SharedSourceGroup` refuses to share
 one reader between queries when a source claims `EXACTLY_ONCE`, non-replayable offsets, or ordering
 within a partition — because the catch-up handover for a late joiner duplicates its overlap, and
 that is unacceptable for a source promising exactly-once (SRC-3).
+
+**`repeatsRows` is whether the feed is a changelog at all** (SCAN-1). Say `true` when, in normal
+running and not only after a failure, the source can deliver a row it already delivered without
+retracting the earlier copy — a periodic scan re-reading an unchanged row, a poll re-reading an
+updated one, a watermark filter that re-reads its boundary. Every copy arrives at `+1`, so the
+registry refuses, with `PRV-2042`, anything whose answer depends on how many times a row arrived:
+an aggregate, a join, a sink that cannot upsert by key. A keyed view of the rows stays admitted,
+because a copy only overwrites its own key. Answer per configuration: `cassandra` and `aerospike`
+say `true` under `deletes: ignore` and `false` under `deletes: detect`; `jdbc` says `false` only
+with `key.column` and `watermark.moves.on.update: false`. A source that repeats cannot claim
+`EXACTLY_ONCE` — the record refuses the pair. Re-delivery after a crash is the guarantee's to
+describe, not this flag's. Omitting the argument (the seven-argument constructor every plugin used
+before the flag existed) means `false`, so **a scan-shaped connector must pass it**, or its
+aggregates are silently wrong in exactly the way SCAN-1 was.
 
 So **a connector that overstates its guarantee gets different engine behaviour, and the failure is
 silent duplication.** Claim the weakest thing that is true. `SourceCapabilities.minimal()` is
@@ -534,8 +549,12 @@ names four ways to get changes out and implements one:
   before-image, and **deletes are invisible**. A deleted record is simply absent from the next scan,
   which is indistinguishable from one that never existed. It also misses intra-interval overwrites:
   two writes between scans are seen as one. Those are properties of *scanning*, not of the
-  implementation, and no amount of care removes them. `deletes: detect` buys the deletes and the
-  before-image back at the price of a full scan each pass and the emitted rows kept in memory
+  implementation, and no amount of care removes them. It also **repeats rows**: an updated record
+  comes back as the new row with nothing retracting the old, and a record written while a scan ran
+  is read again by the next one — so the source declares `repeatsRows`, and an aggregate, a join or
+  an append-only sink over it is refused at registration with `PRV-2042` (SCAN-1); a keyed view of
+  the records is admitted. `deletes: detect` buys the deletes, the before-image and an exact
+  changelog back at the price of a full scan each pass and the emitted rows kept in memory
   ([`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §2.1); the collapsed overwrites stay collapsed.
 - `xdr-kafka`, `xdr-http` — Enterprise, not built.
 - `write-intercept` — every writer goes through a Pravaha wrapper. Intrusive, not built.
@@ -563,9 +582,13 @@ no before-image, deletes invisible. It is not even incremental the way `lut-scan
 `writetime()` cannot be filtered server-side without `ALLOW FILTERING`, and is tracked per column
 rather than per row, so `CassandraStrategy` refuses `writetime-incremental` for the same reason it
 refuses `commitlog-cdc`: a full scan that says what it is beats an incremental one that quietly
-misses rows. With `deletes: detect` the same passes become a changelog: each is merged, in token
-order, with the rows already emitted, and only the difference is emitted. See
-`docs/CONTINUOUS_QUERIES.md` §2.1 for the configuration.
+misses rows. With the default `deletes: ignore` every pass emits every row again, so the source
+declares `repeatsRows` and an aggregate, a join or an append-only sink over it is refused with
+`PRV-2042` (SCAN-1) — a `COUNT` over it would grow by the table's size every interval. With `deletes:
+detect` the same passes become an exact changelog: each is merged, in token order, with the rows
+already emitted, and only the difference is emitted. `ignore` stays the default because `detect`
+needs a durable state directory and memory for every emitted row; for Cassandra it costs no extra
+reads. See `docs/CONTINUOUS_QUERIES.md` §2.1 for the configuration.
 
 #### Where does it run? The database is on another machine
 
