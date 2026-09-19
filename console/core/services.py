@@ -747,6 +747,103 @@ class AuthoringService:
             "query_metrics": raw.get("query"),
         }
 
+    def diff(self, left: dict, right: dict, queries: QueryService) -> dict:
+        """Two versions of a query side by side (design 23.7): their SQL, their plans matched
+        operator by operator, and what the engine will do with the right relative to the left.
+
+        Each side is ``{"query": name}`` -- a registered query: its SQL from the registry, its
+        running plan and measured totals from ``GET /api/v1/queries/{name}/plan``, its keys and
+        retention from its description -- or ``{"sql": ..., "label": ...}``, a draft, explained
+        and validated as it stands. Measured totals belong to a registered side only: a draft
+        has not run. A side the engine would not plan, or will not show this identity, is said
+        on that side (``plan_error``, ``refused``) and the rest is still answered.
+        """
+        from core import authoring
+
+        try:
+            registry = queries.find(limit=QueryService.MAX_LIMIT).items
+        except ServiceError:
+            registry = None
+        sides = [self._diff_side(spec if isinstance(spec, dict) else {}, registry, queries)
+                 for spec in (left, right)]
+        a, b = sides
+        plan = (authoring.plan_diff(a["graph"], b["graph"])
+                if a["graph"] is not None and b["graph"] is not None else None)
+        return {
+            "left": a,
+            "right": b,
+            "same_sql": a["sql"].strip() == b["sql"].strip(),
+            "plan": plan,
+            "consequences": authoring.diff_consequences(plan, a, b),
+            "registry_known": registry is not None,
+        }
+
+    def _diff_side(self, spec: dict, registry: list[Query] | None, queries: QueryService) -> dict:
+        name = str(spec.get("query") or "").strip()
+        side: dict[str, Any] = {
+            "label": str(spec.get("label") or name or "draft"), "query": name or None, "sql": "",
+            "graph": None, "plan_error": None, "refused": None, "query_metrics": None,
+            "metrics_note": None, "fingerprint": None, "keys": [], "retention": None,
+            "output_fields": None, "registered_as": None,
+        }
+
+        def refusal_of(exc: ServiceError) -> dict:
+            return {"message": str(exc), "code": exc.code, "status": exc.status}
+
+        if name:
+            found = next((q for q in registry or [] if q.name == name), None) or queries.get(name)
+            side.update(sql=found.sql, fingerprint=found.fingerprint, retention=found.retention)
+            try:
+                detail = queries.detail(name)
+                side["keys"] = [str(k.get("name")) for k in detail.get("keyColumns") or []]
+                side["retention"] = detail.get("retention") or side["retention"]
+            except ServiceError as exc:
+                if exc.status == 403:
+                    side["refused"] = refusal_of(exc)
+            if side["refused"] is None:
+                try:
+                    running = self.plan(name)
+                    side.update(graph=running["graph"], query_metrics=running["query_metrics"],
+                                metrics_note=running["metrics_note"])
+                except ServiceError as exc:
+                    if exc.status == 403:
+                        side["refused"] = refusal_of(exc)
+                    else:
+                        side["plan_error"] = refusal_of(exc)
+            if side["refused"] is None:
+                # The running view's own columns, not what its SQL would produce if validated now.
+                try:
+                    side["output_fields"] = list(self._engine.describe_view(name).get("schema") or [])
+                except Exception:  # noqa: BLE001 -- any failure falls back to validating its SQL
+                    side["output_fields"] = self._output_fields(found.sql)
+            return side
+
+        sql = str(spec.get("sql") or "")
+        if not sql.strip():
+            raise ServiceError("nothing to compare: a side needs a registered query's name or some SQL",
+                               status=400)
+        side["sql"] = sql
+        try:
+            side["graph"] = self.explain(sql)["graph"]
+        except ServiceError as exc:
+            side["plan_error"] = refusal_of(exc)
+        side["output_fields"] = self._output_fields(sql)
+        # A draft whose SQL is exactly a registered query's is that query: its fingerprint is known.
+        same = [q for q in registry or [] if q.sql.strip() == sql.strip()]
+        if same:
+            side["registered_as"] = ", ".join(q.name for q in same)
+            prints = {q.fingerprint for q in same}
+            side["fingerprint"] = prints.pop() if len(prints) == 1 else None
+        return side
+
+    def _output_fields(self, sql: str) -> list[dict] | None:
+        """The validated output schema, or ``None`` when the engine would not say (not "no columns")."""
+        try:
+            checked = self.validate(sql)
+        except ServiceError:
+            return None
+        return list(checked["output_fields"]) if checked["valid"] else None
+
     def key_ordinals(self, sql: str, names: list[str]) -> tuple[list[int], list[dict]]:
         """Key columns by name -> the ordinals the engine takes, against its own schema."""
         from core import authoring

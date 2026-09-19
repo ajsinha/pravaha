@@ -83,6 +83,11 @@ class FakeEngine:
         #: identity system decides, and what a grant made there changes.
         self.administer_refused: dict[str, str] = {}
         self.register_refusal: str | None = None
+        #: Plans by exact SQL, for a test that needs a particular shape; any other SQL is planned
+        #: by ``_shaped_plan``.
+        self.plans: dict[str, dict] = {}
+        #: Registered queries whose running plan the policy will not show, by name, with the reason.
+        self.plan_refused: dict[str, str] = {}
         self.plugins_list = [
             {"name": "filesystem", "version": "0.1.0", "requiredApiVersion": "0.1.0", "compatible": True,
              "loaded": True, "kinds": ["sink", "source"],
@@ -194,8 +199,18 @@ class FakeEngine:
 
     def explain(self, sql, level="physical"):
         self._check()
-        return {"level": level, "plan": "Project(txn_id, user_id)\n  Filter(amount > 100)\n    Scan(txn)\n",
-                "outputFields": [], "graph": dict(PLAN_GRAPH)}
+        if "PLANONLY" in sql:
+            raise EngineHttpError(400, "an unwindowed COUNT(DISTINCT) is refused", "PRV-2050")
+        graph = self.plan_for(sql)
+        return {"level": level, "plan": _plan_text(graph), "outputFields": [], "graph": graph}
+
+    def plan_for(self, sql):
+        """The plan the planner would draw for ``sql``: one a test set in ``plans``, else one
+        shaped by the SQL -- its WHERE predicate in the Filter, an Aggregate for a GROUP BY -- so
+        two versions of a query plan differently, as they would on the real engine."""
+        if sql.strip() in self.plans:
+            return dict(self.plans[sql.strip()])
+        return _shaped_plan(sql)
 
     def sinks(self):
         self._check()
@@ -223,8 +238,12 @@ class FakeEngine:
     def query_plan(self, name):
         self._check()
         self.describe_query(name)
-        return dict(PLAN_GRAPH, query={"rowsIn": 1200, "stateHeld": 3, "stateCeiling": 100,
-                                       "viewSize": 17, "watermark": None, "subscribers": 2})
+        if name in self.plan_refused:
+            raise EngineHttpError(403, f"console may not read the plan of '{name}': {self.plan_refused[name]}",
+                                  "PRV-7002")
+        sql = next(q.sql for q in self._queries if q.name == name)
+        return dict(self.plan_for(sql), query={"rowsIn": 1200, "stateHeld": 3, "stateCeiling": 100,
+                                               "viewSize": 17, "watermark": None, "subscribers": 2})
 
     def describe_view(self, name):
         self._check()
@@ -331,6 +350,34 @@ PLAN_GRAPH = {
     "metricsNote": "Per-operator rows, state and watermarks are not published.",
     "query": None,
 }
+
+
+def _shaped_plan(sql: str) -> dict:
+    """Three operators whatever the SQL, as every existing test expects: a GROUP BY is an
+    Aggregate over a Project; anything else is ``PLAN_GRAPH`` with the SQL's own WHERE predicate
+    in its Filter (``amount > 100`` when it has none)."""
+    import re
+
+    grouped = re.search(r"\bGROUP\s+BY\s+([A-Za-z_][A-Za-z0-9_]*)", sql, re.IGNORECASE)
+    if grouped:
+        key = grouped.group(1)
+        return dict(PLAN_GRAPH, nodes=[
+            {"id": "n0", "operator": "Aggregate", "detail": "Aggregate(group=[0], [COUNT(EXPR$1)])",
+             "stateful": True, "fields": [key, "EXPR$1"]},
+            {"id": "n1", "operator": "Project", "detail": f"Project[{key}]", "stateful": False, "fields": [key]},
+            {"id": "n2", "operator": "Scan", "detail": "Scan(txn)", "stateful": False,
+             "fields": ["txn_id", "user_id", "amount"]}])
+    where = re.search(r"\bWHERE\s+(.+?)\s*;?\s*$", sql, re.IGNORECASE | re.DOTALL)
+    if not where:
+        return dict(PLAN_GRAPH)
+    nodes = [dict(n) for n in PLAN_GRAPH["nodes"]]
+    nodes[1]["detail"] = f"Filter({' '.join(where.group(1).split())})"
+    return dict(PLAN_GRAPH, nodes=nodes)
+
+
+def _plan_text(graph: dict) -> str:
+    """The indented text form ``explain`` prints beside the graph (root first; the fakes are chains)."""
+    return "".join("  " * i + n["detail"] + "\n" for i, n in enumerate(graph["nodes"]))
 
 
 def _range_of(sql: str, word: str) -> dict:

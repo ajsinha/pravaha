@@ -92,6 +92,317 @@ def plan_graph(graph: dict | None) -> dict[str, Any]:
     return {"nodes": nodes, "edges": edges}
 
 
+# --------------------------------------------------------------------------- plan diff
+
+#: The key ordinals an aggregate's label carries -- ``WindowedAggregate(TUMBLING 60000ms,
+#: keys=[0, 1, 2], ...)``, ``Aggregate(group=[0], ...)`` -- ordinals into its input's columns.
+_KEYS = re.compile(r"\b(?:keys|group)=\[([0-9,\s]*)\]")
+
+
+def _inputs(graph: dict) -> dict[str, list[str]]:
+    """Each operator's inputs, in the engine's order (a join's left before its right).
+
+    The engine visits inputs in order and emits one edge per input as it goes, so the order
+    of the edges into a consumer is the order of its inputs.
+    """
+    inputs: dict[str, list[str]] = {str(n["id"]): [] for n in graph.get("nodes") or []}
+    for edge in graph.get("edges") or []:
+        inputs.setdefault(str(edge["target"]), []).append(str(edge["source"]))
+    return inputs
+
+
+def _roots(graph: dict) -> list[str]:
+    consumed = {str(e["source"]) for e in graph.get("edges") or []}
+    return [str(n["id"]) for n in graph.get("nodes") or [] if str(n["id"]) not in consumed]
+
+
+def _spine(node_id: str, inputs: dict[str, list[str]]) -> list[str]:
+    """The node, then down through single-input operators to the first that has none or several:
+    one branch of the plan, from its consumer end towards its source."""
+    out = [node_id]
+    seen = {node_id}
+    while len(inputs.get(out[-1], [])) == 1 and inputs[out[-1]][0] not in seen:
+        out.append(inputs[out[-1]][0])
+        seen.add(out[-1])
+    return out
+
+
+def _subtree(node_id: str, inputs: dict[str, list[str]]) -> list[str]:
+    out: list[str] = []
+    pending = [node_id]
+    while pending:
+        current = pending.pop(0)
+        if current in out:
+            continue
+        out.append(current)
+        pending.extend(inputs.get(current, []))
+    return out
+
+
+def _keys_by_name(node: dict, input_node: dict | None) -> list[str] | None:
+    """An aggregate's grouping keys by name: its label's ordinals, read through its input's columns.
+
+    ``None`` whenever that cannot be done exactly -- no key list in the label, no single input,
+    an ordinal past the input's columns -- so a caller shows the labels instead of a guess.
+    """
+    found = _KEYS.search(str(node.get("label") or ""))
+    if not found or input_node is None:
+        return None
+    fields = list(input_node.get("fields") or [])
+    try:
+        ordinals = [int(x) for x in found.group(1).split(",") if x.strip()]
+    except ValueError:
+        return None
+    if any(o < 0 or o >= len(fields) for o in ordinals):
+        return None
+    return [str(fields[o]) for o in ordinals]
+
+
+def plan_diff(left: dict | None, right: dict | None) -> dict[str, Any]:
+    """Which operators of two plans are the same one, which changed, and which exist on one side.
+
+    Both arguments are :func:`plan_graph` answers. Operators are matched **structurally, never by
+    position** -- node ids (``n0``, ``n1``...) are pre-order positions, so an operator inserted
+    near the root would renumber everything under it:
+
+    1. The plan is read from its root as **branches**: a branch runs from an operator down
+       through single-input operators to the first one with no input (a scan) or several (a
+       join, a union). Roots are paired in order; a multi-input operator's inputs are paired by
+       their position among its inputs -- left with left, right with right -- which is where a
+       join's meaning lives. That is the *path*.
+    2. Along a pair of branches, operators are aligned by **kind** (the engine's own operator
+       field -- ``Filter``, ``WindowedAggregate``), keeping their order: the longest common
+       subsequence of kinds, preferring, among alignments as long, the one that pairs more
+       operators whose labels are identical. Only operators of the same kind are ever paired.
+    3. A paired operator is **same** when its label (the engine's own rendering of it, arguments
+       included), the columns it emits and whether it keeps state are all equal; otherwise it is
+       **changed**, and the answer says which of the three differ. An operator on one side only
+       is **added** (right) or **removed** (left); so is everything beneath an unpaired join.
+
+    So a predicate edited in place is one changed Filter, a filter inserted is one added Filter
+    with nothing under it disturbed, and ``Project`` becoming ``Aggregate`` is one removed and
+    one added -- never a "changed" operator of another kind.
+    """
+    left = left or {"nodes": [], "edges": []}
+    right = right or {"nodes": [], "edges": []}
+    a_nodes = {str(n["id"]): n for n in left.get("nodes") or []}
+    b_nodes = {str(n["id"]): n for n in right.get("nodes") or []}
+    a_in, b_in = _inputs(left), _inputs(right)
+    left_marks: dict[str, str] = {}
+    right_marks: dict[str, str] = {}
+    operators: list[dict[str, Any]] = []
+    pairs: list[list[str]] = []
+
+    def removed(node_id: str) -> None:
+        for n in _subtree(node_id, a_in):
+            if n not in left_marks:
+                left_marks[n] = "removed"
+                operators.append({"change": "removed", "op": a_nodes[n]["op"], "label": a_nodes[n]["label"],
+                                "left": n, "stateful": bool(a_nodes[n].get("stateful"))})
+
+    def added(node_id: str) -> None:
+        for n in _subtree(node_id, b_in):
+            if n not in right_marks:
+                right_marks[n] = "added"
+                operators.append({"change": "added", "op": b_nodes[n]["op"], "label": b_nodes[n]["label"],
+                                "right": n, "stateful": bool(b_nodes[n].get("stateful"))})
+
+    def pair(a: str, b: str) -> None:
+        x, y = a_nodes[a], b_nodes[b]
+        what = []
+        if x["label"] != y["label"]:
+            what.append("label")
+        if list(x.get("fields") or []) != list(y.get("fields") or []):
+            what.append("fields")
+        if bool(x.get("stateful")) != bool(y.get("stateful")):
+            what.append("state")
+        status = "changed" if what else "same"
+        left_marks[a] = right_marks[b] = status
+        pairs.append([a, b])
+        entry: dict[str, Any] = {"change": status, "op": y["op"], "before": x["label"], "after": y["label"],
+                                 "left": a, "right": b, "what": what,
+                                 "stateful": bool(x.get("stateful")) or bool(y.get("stateful"))}
+        if "fields" in what:
+            fx, fy = list(x.get("fields") or []), list(y.get("fields") or [])
+            entry["fields"] = {"added": [f for f in fy if f not in fx], "removed": [f for f in fx if f not in fy],
+                               "before": fx, "after": fy}
+        if "label" in what:
+            kx = _keys_by_name(x, a_nodes.get(a_in[a][0]) if len(a_in.get(a, [])) == 1 else None)
+            ky = _keys_by_name(y, b_nodes.get(b_in[b][0]) if len(b_in.get(b, [])) == 1 else None)
+            if kx is not None and ky is not None and kx != ky:
+                entry["keys"] = {"before": kx, "after": ky}
+        operators.append(entry)
+        # A pair that ends both branches: pair their inputs by position. One that ends only one
+        # side's branch (the kinds agree, the arity does not) takes that side's inputs with it;
+        # the other side's single input carries on along its branch.
+        xs, ys = a_in.get(a, []), b_in.get(b, [])
+        a_ends, b_ends = len(xs) != 1, len(ys) != 1
+        if a_ends and b_ends:
+            for i in range(max(len(xs), len(ys))):
+                if i < len(xs) and i < len(ys):
+                    branches(xs[i], ys[i])
+                elif i < len(xs):
+                    removed(xs[i])
+                else:
+                    added(ys[i])
+        elif a_ends:
+            for x_input in xs:
+                removed(x_input)
+        elif b_ends:
+            for y_input in ys:
+                added(y_input)
+
+    def branches(a_head: str, b_head: str) -> None:
+        sa, sb = _spine(a_head, a_in), _spine(b_head, b_in)
+        n, m = len(sa), len(sb)
+
+        def weight(i: int, j: int) -> int:
+            x, y = a_nodes[sa[i]], b_nodes[sb[j]]
+            if x["op"] != y["op"]:
+                return 0
+            # Two kind matches (4) outweigh one identical one (3): more pairs first, then more
+            # identical pairs among alignments as long.
+            return 3 if x["label"] == y["label"] else 2
+
+        best = [[0] * (m + 1) for _ in range(n + 1)]
+        for i in range(n - 1, -1, -1):
+            for j in range(m - 1, -1, -1):
+                w = weight(i, j)
+                best[i][j] = max(best[i + 1][j], best[i][j + 1], (w + best[i + 1][j + 1]) if w else 0)
+        i = j = 0
+        steps: list[tuple[str, str | None, str | None]] = []
+        while i < n and j < m:
+            w = weight(i, j)
+            if w and best[i][j] == w + best[i + 1][j + 1]:
+                steps.append(("pair", sa[i], sb[j]))
+                i += 1
+                j += 1
+            elif best[i][j] == best[i + 1][j]:
+                steps.append(("removed", sa[i], None))
+                i += 1
+            else:
+                steps.append(("added", None, sb[j]))
+                j += 1
+        steps.extend(("removed", sa[k], None) for k in range(i, n))
+        steps.extend(("added", None, sb[k]) for k in range(j, m))
+        for kind, a, b in steps:
+            if kind == "pair" and a is not None and b is not None:
+                pair(a, b)
+            elif kind == "removed" and a is not None:
+                # An unpaired operator mid-branch is removed alone -- the operators under it are
+                # still aligned along the branch; one that ends it takes its inputs with it.
+                if a == sa[-1]:
+                    removed(a)
+                else:
+                    left_marks.setdefault(a, "removed")
+                    operators.append({"change": "removed", "op": a_nodes[a]["op"], "label": a_nodes[a]["label"],
+                                    "left": a, "stateful": bool(a_nodes[a].get("stateful"))})
+            elif b is not None:
+                if b == sb[-1]:
+                    added(b)
+                else:
+                    right_marks.setdefault(b, "added")
+                    operators.append({"change": "added", "op": b_nodes[b]["op"], "label": b_nodes[b]["label"],
+                                    "right": b, "stateful": bool(b_nodes[b].get("stateful"))})
+
+    a_roots, b_roots = _roots(left), _roots(right)
+    for k in range(max(len(a_roots), len(b_roots))):
+        if k < len(a_roots) and k < len(b_roots):
+            branches(a_roots[k], b_roots[k])
+        elif k < len(a_roots):
+            removed(a_roots[k])
+        else:
+            added(b_roots[k])
+    # Anything no root reaches (a malformed graph): said, not dropped.
+    for node_id in a_nodes:
+        if node_id not in left_marks:
+            removed(node_id)
+    for node_id in b_nodes:
+        if node_id not in right_marks:
+            added(node_id)
+
+    counts = {k: sum(1 for c in operators if c["change"] == k) for k in ("added", "removed", "changed", "same")}
+    return {"left": left_marks, "right": right_marks, "pairs": pairs, "operators": operators, "counts": counts,
+            "identical": bool(a_nodes) and counts["added"] == counts["removed"] == counts["changed"] == 0}
+
+
+def diff_consequences(plan: dict[str, Any] | None, left: dict[str, Any], right: dict[str, Any]) -> list[dict[str, Any]]:
+    """What the engine will do with the right-hand version relative to the left, as far as the
+    console can know it before anything is registered -- and, where it cannot, that it cannot.
+
+    Each finding is ``{"kind": ..., ...}``; the island words it. The rules, each from something
+    the engine said:
+
+    - **Computation.** Registration shares a running computation when the fingerprint matches,
+      and the fingerprint is the normalised plan plus row filters, key columns and retention
+      (CONTINUOUS_QUERIES.md, "What happens at registration"). So: when both sides are
+      registered, their fingerprints answer it outright. Otherwise plans that differ cannot
+      share; identical plans *may*, if registered with the same keys and retention, and only
+      the engine's answer (the fingerprint it returns) settles it -- a row filter the console
+      cannot see is part of the fingerprint too.
+    - **Output columns**, from each side's validated output schema: what a client reading by
+      column name would find added, gone or retyped.
+    - **Keys**: whether the registered version's key columns are still in the output, so the
+      new version can be keyed the same way and point reads keep working.
+    - **State**: the stateful operators added, removed or changed -- a changed one holds its
+      state in a different shape, so nothing of v1's state can be v2's.
+    - **Not determinable here**, always said: how long the new version takes to fill and how
+      much state it will hold. The engine does not estimate either before registration.
+    """
+    out: list[dict[str, Any]] = []
+    lf, rf = left.get("fingerprint"), right.get("fingerprint")
+    if lf and rf:
+        out.append({"kind": "fingerprint_same" if lf == rf else "fingerprint_differs",
+                    "left": lf, "right": rf, "left_name": left.get("query"),
+                    "right_name": right.get("registered_as")})
+    elif plan is None:
+        out.append({"kind": "computation_unknown"})
+    elif not plan["identical"]:
+        out.append({"kind": "separate_computation"})
+    elif left.get("query"):
+        out.append({"kind": "may_share", "name": left.get("query"), "keys": list(left.get("keys") or []),
+                     "retention": left.get("retention"), "fingerprint": lf})
+    else:
+        out.append({"kind": "may_share_drafts"})
+
+    lo, ro = left.get("output_fields"), right.get("output_fields")
+    if lo is None or ro is None:
+        out.append({"kind": "schema_unknown"})
+    else:
+        lt = {str(f.get("name")): str(f.get("type")) for f in lo}
+        rt = {str(f.get("name")): str(f.get("type")) for f in ro}
+        added = [n for n in rt if n not in lt]
+        removed = [n for n in lt if n not in rt]
+        retyped = [{"name": n, "before": lt[n], "after": rt[n]} for n in lt if n in rt and lt[n] != rt[n]]
+        if added or removed or retyped:
+            out.append({"kind": "schema_changes", "added": added, "removed": removed, "retyped": retyped})
+        elif list(lt) != list(rt):
+            out.append({"kind": "schema_reordered", "before": list(lt), "after": list(rt)})
+        else:
+            out.append({"kind": "schema_same"})
+
+        keys = list(left.get("keys") or [])
+        if keys:
+            missing = [k for k in keys if k not in rt]
+            out.append({"kind": "keys_missing", "keys": keys, "missing": missing} if missing
+                       else {"kind": "keys_available", "keys": keys})
+
+    if plan is not None:
+        stateful = [c for c in plan["operators"] if c.get("stateful")]
+        moved = [c for c in stateful if c["change"] != "same"]
+        if not stateful:
+            out.append({"kind": "stateless"})
+        elif not moved:
+            out.append({"kind": "state_same"})
+        else:
+            out.append({"kind": "state_changes",
+                        "added": [c["label"] for c in moved if c["change"] == "added"],
+                        "removed": [c["label"] for c in moved if c["change"] == "removed"],
+                        "changed": [c["after"] for c in moved if c["change"] == "changed"]})
+    out.append({"kind": "not_determinable"})
+    return out
+
+
 # --------------------------------------------------------------------------- diagnostics
 
 _WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")

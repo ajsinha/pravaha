@@ -325,6 +325,19 @@ class ProductRoutes(Routes):
                 return answer
             return self.json_guard(explain, request=request)
 
+        @self.app.post(f"{api}/sql/diff", tags=["api"])
+        async def api_diff(request: Request):
+            """Two versions side by side: ``{"left": {"query": name} | {"sql", "label"},
+            "right": {...}}`` -- SQL, plans matched operator by operator, and consequences."""
+            if (refusal := _refuse_anonymous(request)) is not None:
+                return refusal
+            body = await _body(request)
+            left, right = body.get("left"), body.get("right")
+            return self.json_guard(
+                lambda: services.authoring.diff(left if isinstance(left, dict) else {},
+                                                right if isinstance(right, dict) else {}, services.queries),
+                request=request)
+
         @self.app.get(f"{api}/views/{{name}}/schema", tags=["api"])
         def api_view_schema(request: Request, name: str):
             if (refusal := _refuse_anonymous(request)) is not None:
