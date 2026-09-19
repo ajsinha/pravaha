@@ -539,7 +539,14 @@ It is for tests and throwaway environments.
 ### 2.2 Lookup sources, for temporal joins
 
 A lookup is asked, not consumed: it never advances event time and holds no state to checkpoint (§7).
-Two ship today, and they live under `pravaha.lookups`, keyed by the name a query joins against.
+Two ship today, and they live under `pravaha.lookups`.
+
+**A query joins a lookup by the name its plugin gives the table, not by its key under
+`pravaha.lookups`.** The key labels the binding in log lines and errors and is not passed to the
+plugin; the table's name comes from the plugin's own schema — `aerospike-lookup`'s `stream` option,
+which defaults to the set name, and `jdbc-lookup`'s `table`. So below, §7's `JOIN user_profile …`
+works because `stream: user_profile` says so; without it the table would be `users`, and a join
+against `user_profile` would not find it. The simplest rule is to use the same word for all of them.
 
 ```yaml
 pravaha:
@@ -550,16 +557,17 @@ pravaha:
         hosts: "as-1:3000"
         namespace: prod
         set: users
+        stream: user_profile           # the name a query joins; defaults to the set, `users`
         schema: "user_id:STRING,tier:STRING,region:STRING"
         key.bin: user_id
         cache.seconds: "60"
         concurrency: "16"
 
-    account_ref:
+    accounts:
       plugin: jdbc-lookup
       options:
         url: "jdbc:postgresql://db-1:5432/ref"
-        table: accounts
+        table: accounts                # the name a query joins
         key.columns: "account_id"      # comma-separated for a composite key
         pool.size: "8"
         cache.seconds: "300"
@@ -643,7 +651,9 @@ Two registrations differing only in `--keys` are **two different computations** 
 the query's identity, because it changes the answer (I-3).
 
 **`--retain` is how much event time the view keeps** (`RETAIN FOR` / `RETAIN FOREVER` in SQL), as an ISO-8601 duration (`PT24H`, `P7D`) or
-`forever`; left out, the node's default applies, which is forever unless the node sets one. Rows whose
+`forever`; left out, the view keeps **forever** (`QueryRegistry`'s default since TY-21). A server has no
+setting that changes that default; an application embedding a `QueryRegistry` can, with
+`retaining(...)`. Rows whose
 event time falls further behind the committed frontier than that are evicted. Both SDKs take it as
 the `retention` argument of `register`, and the Flight `pravaha.register` action as an optional fifth
 field (the fourth, the sink, may be empty). A value the server cannot read is refused rather than
@@ -1040,9 +1050,16 @@ plans, because `amount` is `NOT NULL` and the comparison is therefore TRUE or FA
 = 'ok'` over a nullable `status` is refused with `PRV-2021`: the answer for a row whose `status` is
 NULL is UNKNOWN, and writing it into a boolean column would report it as `false` — a wrong answer
 under a success exit code rather than a missing feature. Say which you mean and it plans: `CASE WHEN
-status = 'ok' THEN TRUE ELSE FALSE END` collapses UNKNOWN to `false` deliberately, and `status IS
-NOT NULL AND status = 'ok'` is never UNKNOWN in the first place. `IS NULL`, `IS NOT NULL`, `IS
-TRUE`, `IS FALSE`, `IS NOT TRUE` and `IS NOT FALSE` are total by definition and project freely.
+status = 'ok' THEN TRUE ELSE FALSE END` collapses UNKNOWN to `false` deliberately, and so does
+`(status = 'ok') IS TRUE`. `IS NULL`, `IS NOT NULL`, `IS TRUE`, `IS FALSE`, `IS NOT TRUE` and `IS NOT
+FALSE` are total by definition and project freely.
+
+**A guard does not make a comparison total, as far as the planner can tell.** `status IS NOT NULL AND
+status = 'ok'` can never be UNKNOWN — a NULL `status` makes the left side FALSE, and FALSE AND
+anything is FALSE — but the check is made on the nullability of the expression's operands, not by
+reasoning through the `AND`, so it is refused with `PRV-2021` all the same. So is `COALESCE(status =
+'ok', FALSE)`. The refusal's own advice to "add IS NOT NULL to the operand" produces exactly the first
+of these, and does not help; use `IS TRUE` or the `CASE`.
 
 A `CASE` may produce text as readily as a number, but every branch must produce the *same* type —
 with one exception that surprises people: `CASE WHEN … THEN 'big' ELSE 0 END` is accepted, because
@@ -1112,7 +1129,8 @@ Rewrite the filter as a range comparison, or join against a table of values inst
 | Global `COUNT(*)` | ✅ | One group, so bounded |
 | `TUMBLE` windows | ✅ | |
 | `HOP` (sliding) windows | ✅ | |
-| `COUNT`, `SUM`, `MIN`, `MAX`, `AVG` | ✅ | Over integer columns. `SUM`/`AVG` over a `FLOAT32`/`FLOAT64` column are refused `PRV-2020`, because floating-point addition is not associative and an incremental sum would depend on arrival order; the refusal suggests `SUM(CAST(price AS BIGINT))`, which works |
+| `COUNT`, `SUM`, `MIN`, `MAX`, `AVG` | ✅ | Over integer columns. `SUM`, `AVG`, `MIN` **and `MAX`** over a `FLOAT32`/`FLOAT64` column are all refused `PRV-2020`: every accumulator reads and writes a 64-bit integer, whatever the column's type, and before the refusal a float aggregate produced no rows under a success status. Only `COUNT` of a float column plans, because it never reads the value. The refusal suggests `SUM(CAST(price AS BIGINT))`, which works if the rounding is acceptable |
+| Renaming a window column — `window_end AS hour_end` | ❌ | `PRV-2050`, with a message saying the `GROUP BY` does not group by the window — it does; the alias is what is refused. Project `window_start` and `window_end` under their own names (or `window_end AS window_end`) and rename them downstream |
 | `COUNT(DISTINCT x)` | ✅ | Windowed. Over an unwindowed stream it is refused `PRV-2050`, like any other unbounded key space |
 | Aggregate over an expression — `SUM(amount * 2)` | ✅ | |
 | `HAVING` on an aggregate | ✅ | |
@@ -1185,6 +1203,8 @@ meaningful, but an answer that shuffles is one somebody wastes an afternoon on.
 | Three-way and deeper | ✅ | Between *distinct* streams |
 | Self join — one stream on both sides | ❌ | Rows enter a join by stream name, which cannot say which side a row is for |
 | Lookup join against a dimension table | ✅ | Async, on virtual threads, ordered output — §7 |
+| A filter on a looked-up column, over an inner lookup join — `JOIN users FOR SYSTEM_TIME AS OF … AS u … WHERE u.tier = 'gold'` | ❌ | `PRV-2020`, with a message about correlated subqueries that does not describe the query. Write the same join as `LEFT JOIN … WHERE u.tier = 'gold'`: the filter drops the null-padded rows, so it keeps exactly the rows the inner form would have, and it plans and runs (`LookupJoinTest`). A filter on the stream's own columns works with either |
+| A condition on a looked-up column in the `ON` clause — `ON u.user_id = t.user_id AND u.tier = 'gold'` | ❌ | `PRV-2020`. A lookup's `ON` is its key, and only equalities between a stream column and a lookup column are keys; filter in `WHERE`, as above |
 | `LEFT JOIN` **with a time bound** | ✅ | The null-padded row is emitted when the watermark passes the window, once, never retracted |
 | `LEFT JOIN` without a time bound | ❌ | `PRV-2020` — there is no moment at which an unmatched row can be declared unmatched, so every one is held for the life of the process |
 | `RIGHT` / `FULL OUTER` | ❌ | `PRV-2020` — swap the inputs and use `LEFT` |

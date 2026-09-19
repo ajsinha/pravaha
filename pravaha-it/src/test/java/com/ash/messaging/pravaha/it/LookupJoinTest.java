@@ -229,6 +229,39 @@ class LookupJoinTest {
     }
 
     @Test
+    void aFilterOnALookedUpColumnIsRefusedOverAnInnerJoinAndRunsOverALeftOne() throws Exception {
+        // HLP-13, pinned with CONTINUOUS_QUERIES §14. The inner form is refused -- with a message
+        // about correlated subqueries, which is what the planner sees and not what was written --
+        // and the LEFT form the document recommends instead keeps exactly the rows the inner one
+        // would have: the WHERE drops the null-padded row for the unknown key.
+        MapLookup users = new MapLookup(Duration.ZERO);
+        users.rows.put(1L, "gold");
+        users.rows.put(2L, "silver");
+
+        assertThatThrownBy(() -> plan(INNER + " WHERE u.segment = 'gold'"))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-2020");
+        assertThat(run(OUTER + " WHERE u.segment = 'gold'", users, List.of(1L, 2L, 99L, 1L)))
+                .containsExactly("1:gold", "4:gold");
+
+        String doc = java.nio.file.Files.readString(repoRoot().resolve("docs/CONTINUOUS_QUERIES.md"));
+        assertThat(doc)
+                .contains("A filter on a looked-up column, over an inner lookup join")
+                .contains("Write the same join as `LEFT JOIN … WHERE u.tier = 'gold'`");
+    }
+
+    private static java.nio.file.Path repoRoot() {
+        java.nio.file.Path path = java.nio.file.Path.of("").toAbsolutePath();
+        while (path != null && !java.nio.file.Files.exists(path.resolve("docs/adr"))) {
+            path = path.getParent();
+        }
+        if (path == null) {
+            throw new IllegalStateException("could not find the repository root");
+        }
+        return path;
+    }
+
+    @Test
     void theStoreIsAskedOncePerRecordWhenTheSourceAllowsNoCaching() {
         // An account balance cannot be cached, and a source that says so must be asked every time --
         // including for a key it was just asked about.
