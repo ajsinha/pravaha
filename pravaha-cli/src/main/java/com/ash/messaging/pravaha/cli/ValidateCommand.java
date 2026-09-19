@@ -45,11 +45,19 @@ final class ValidateCommand {
     int run(List<String> arguments) {
         Args args = Args.parse(arguments);
         String sql = args.require("sql");
-        StreamSchema schema = FilesystemSourcePlugin.parseSchema(args.get("stream", "txn"), args.require("schema"));
+        String streamName = args.get("stream", "txn");
+        StreamSchema schema = FilesystemSourcePlugin.parseSchema(streamName, args.require("schema"));
 
         long startNanos = System.nanoTime();
-        PhysicalOperator plan =
-                new PhysicalPlanBuilder().build(SqlPlanner.withStreams(schema).plan(sql));
+        PhysicalOperator plan;
+        try {
+            plan = new PhysicalPlanBuilder()
+                    .build(SqlPlanner.withStreams(schema).plan(sql));
+        } catch (com.ash.messaging.pravaha.api.PravahaException e) {
+            // SX-19: the planner withholds the declared stream names, correctly, because on a
+            // server it cannot tell who is asking. Here the caller typed them.
+            throw PravahaCli.namingTheStreamYouGaveIt(e, streamName);
+        }
         long elapsedMicros = (System.nanoTime() - startNanos) / 1_000L;
 
         out.println(Ansi.good("valid") + "  " + Ansi.dim(elapsedMicros + " us"));

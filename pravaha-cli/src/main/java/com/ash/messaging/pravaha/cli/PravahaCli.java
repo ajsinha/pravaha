@@ -126,6 +126,41 @@ public final class PravahaCli {
         return "help".equals(arg) || "-h".equals(arg) || "--help".equals(arg);
     }
 
+    /**
+     * The marker on the planner's deliberately incomplete "object not found" (SX-19).
+     *
+     * <p>Matched on the sentence rather than the code, because {@code PRV-2002} covers every
+     * validation failure and only this one withholds anything.
+     */
+    private static final String WITHHELD = ". This server has ";
+
+    /**
+     * Puts the caller's own stream name back on an offline refusal (SX-19).
+     *
+     * <p>{@code SqlPlanner} stopped listing the declared streams on "object not found", and it was
+     * right to: the planner runs before authorization can, so on a server that list is a catalogue
+     * dump to a caller who may be entitled to nothing. It cannot tell one caller from another, so
+     * the suppression is blanket -- and on {@code validate}, {@code explain} and {@code run} the
+     * name it is withholding is the one the user typed on the same command line seconds earlier.
+     * There it protects nothing and removes the one hint that ends a typo, and it sends the reader
+     * to "the listing call" on a command that never contacts a server.
+     *
+     * <p>So the CLI puts it back. It owns the schema it passed in, which is exactly the case the
+     * planner cannot reason about.
+     */
+    static PravahaException namingTheStreamYouGaveIt(PravahaException e, String streamName) {
+        String message = e.getMessage();
+        if (!"PRV-2002".equals(e.errorCode().code()) || message == null || !message.contains(WITHHELD)) {
+            return e;
+        }
+        return new PravahaException(
+                e.errorCode(),
+                message.substring(0, message.indexOf(WITHHELD)) + ". This command plans against one stream, the "
+                        + "one you named: '" + streamName + "' (--stream, default txn), with the columns "
+                        + "in --schema.",
+                e);
+    }
+
     static String version() {
         String implementation = PravahaCli.class.getPackage().getImplementationVersion();
         return implementation == null ? "0.1.0-SNAPSHOT" : implementation;

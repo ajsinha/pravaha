@@ -55,9 +55,20 @@ final class ExplainCommand {
         Args args = Args.parse(arguments);
         String sql = args.require("sql");
         String level = args.get("level", "physical");
-        StreamSchema schema = FilesystemSourcePlugin.parseSchema(args.get("stream", "txn"), args.require("schema"));
+        String streamName = args.get("stream", "txn");
+        StreamSchema schema = FilesystemSourcePlugin.parseSchema(streamName, args.require("schema"));
         SqlPlanner planner = SqlPlanner.withStreams(schema);
 
+        try {
+            return explain(planner, sql, level);
+        } catch (PravahaException e) {
+            // SX-19, as in ValidateCommand: the name the planner withholds is the one this caller
+            // typed on the same command line.
+            throw PravahaCli.namingTheStreamYouGaveIt(e, streamName);
+        }
+    }
+
+    private int explain(SqlPlanner planner, String sql, String level) {
         switch (level) {
             case "logical" -> {
                 out.println(Ansi.bold("Logical plan"));

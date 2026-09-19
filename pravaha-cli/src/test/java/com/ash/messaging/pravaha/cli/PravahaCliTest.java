@@ -102,6 +102,30 @@ class PravahaCliTest {
     }
 
     @Test
+    void anOfflineRefusalNamesTheStreamTheCallerGaveIt() {
+        // SX-19. SqlPlanner stopped listing declared streams on "object not found" -- right, on a
+        // server, where it runs before authorization and cannot tell who is asking. The
+        // suppression is blanket, so on `validate` it withheld the name the user typed in the same
+        // command, and sent them to "the listing call" on a command that contacts no server.
+        assertThat(run("validate", "--sql", "SELECT user_id FROM txns", "--schema", SCHEMA, "--stream", "txn"))
+                .isEqualTo(1);
+        assertThat(stderr())
+                .as("the refusal must end a typo, not describe a server this command never called")
+                .contains("PRV-2002")
+                .contains("'txn'")
+                .doesNotContain("This server has");
+
+        out.reset();
+        err.reset();
+        assertThat(run("explain", "--sql", "SELECT user_id FROM txns", "--schema", SCHEMA))
+                .isEqualTo(1);
+        assertThat(stderr())
+                .as("explain plans the same way and owes the same hint; txn is --stream's default")
+                .contains("'txn'")
+                .doesNotContain("This server has");
+    }
+
+    @Test
     void anUnknownCommandNamesItselfAndShowsUsage() {
         assertThat(run("frobnicate")).isEqualTo(2);
         assertThat(stderr()).contains("frobnicate");
