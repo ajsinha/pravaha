@@ -172,12 +172,14 @@ class FlightRegistryTest {
             // The first five are exactly what a client built before these existed reads.
             assertThat(row.subList(0, 2)).containsExactly("trade_feed", "RUNNING");
             assertThat(row.get(4)).isEqualTo("0");
-            assertThat(row).hasSize(8);
+            assertThat(row).hasSize(13);
             assertThat(row.get(5)).as("key ordinals, as REGISTER takes them").isEqualTo("0,1");
             assertThat(row.get(6))
                     .as("no sink is an empty field, not a missing one")
                     .isEmpty();
             assertThat(row.get(7)).isEqualTo("PT24H");
+            // FEED-1, trailing after these: nothing is bound here, so no feed and no stop.
+            assertThat(row.subList(8, 13)).containsExactly("NONE", "", "", "", "");
         });
     }
 
