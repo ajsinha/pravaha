@@ -4,12 +4,12 @@ slug: source-jdbc
 category: sources
 order: 40
 icon: table
-summary: "Polls any relational table — or any SELECT — advancing on a monotonic column, with your WHERE pushed into the database as bound parameters. What polling can and cannot see, said plainly."
+summary: "Polls any relational table — or any SELECT — on a monotonic column, pushing your WHERE, the columns you read and a running COUNT/SUM into the database. What polling can and cannot see, said plainly."
 badge: SOURCE
 audience: Operators
-keywords: [jdbc, postgres, postgresql, mysql, oracle, sql server, h2, polling, watermark.column, key.column, page.clause, fetch.size, keyset, pushdown]
+keywords: [jdbc, postgres, postgresql, mysql, oracle, sql server, h2, polling, watermark.column, key.column, page.clause, fetch.size, keyset, pushdown, projection, partial aggregate, pushdown.partial.aggregate, collation.binary]
 guide: continuous-queries#21-every-source-type-configured
-related: [sources-overview, lookups, connector-security, sink-jdbc, delivery-guarantees]
+related: [sources-overview, source-postgres-cdc, lookups, connector-security, sink-jdbc, delivery-guarantees]
 ---
 
 The `jdbc` plugin turns a database table into a stream by **polling** it: each poll asks for the rows
@@ -34,7 +34,8 @@ polls is seen once.
 | Delivery guarantee | `AT_LEAST_ONCE` |
 | Replayable offsets | **only with `key.column`** — see below |
 | Emits deletes / before-image | no / no |
-| Pushdown | `FILTER` — simple comparisons become a bound `WHERE` in the poll |
+| Pushdown | `FILTER` (a bound `WHERE`), `PROJECT` (the `SELECT` list) and, **with `key.column` only**, `PARTIAL_AGGREGATE` (a continuous `COUNT`/`SUM` taken by the database) |
+| Shared between queries | no — each query gets its own reader and its own statement |
 | Schema comes from | **the database**, read from the result set's metadata. There is no `schema` option |
 | Partitions | one reader |
 
@@ -51,6 +52,8 @@ polls is seen once.
 | `fetch.size` | no | `500` | Rows per page — the value bound into `page.clause` |
 | `page.clause` | no | `LIMIT ?` | The paging clause, the one dialect-specific option: `LIMIT ?` for PostgreSQL, MySQL and H2; `FETCH FIRST ? ROWS ONLY` for Oracle and Db2; `OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY` for SQL Server |
 | `stream` | no | the table name, or the binding's name with `query` | The stream name the plugin reports |
+| `pushdown.partial.aggregate` | no | `true` | Whether a continuous `COUNT`/`SUM` may be taken by the database. Has effect only with `key.column`; `false` always reads rows |
+| `collation.binary` | no | `false` | Set it only when the database compares and groups text **byte for byte, case-sensitively**, as the engine does. It is what lets a partial aggregate filter or group on a text column |
 | `share.reader` | no | `true` | Read by the binding layer; this source is not shared (it is ordered within its partition), so it has no effect |
 | `tls.*` | — | — | **Refused** with PRV-5074, except `tls.enabled: false`. A driver takes TLS in the URL, and accepting `tls.*` would leave a plaintext connection behind a configuration that looks encrypted |
 
@@ -135,7 +138,7 @@ Three things this binding does on purpose:
 
 ## A query over it
 
-Large orders, and the filter reaches the database:
+Large orders, and both the filter and the column list reach the database:
 
 ```sql
 CREATE CONTINUOUS QUERY big_orders
@@ -146,11 +149,13 @@ FROM orders
 WHERE amount >= 100000 AND region = 'EU';
 ```
 
-Because the plugin declares `FILTER` pushdown and both conjuncts compare a column with a literal
-directly above the scan, the poll this query's reader runs carries them as bound parameters:
+Both conjuncts compare a column with a literal directly above the scan, so the poll carries them as
+bound parameters; and the query reads four of the seven columns, so the poll selects those — plus
+the watermark and key columns, which the reader orders and resumes by whether or not the query reads
+them:
 
 ```text
-SELECT * FROM (SELECT o.order_id, ...) AS src WHERE (change_ns > ? OR (change_ns = ? AND order_id > ?)) AND (amount >= ? AND region = ?) ORDER BY change_ns, order_id LIMIT ?
+SELECT order_id, customer_id, region, amount, change_ns FROM (SELECT o.order_id, o.customer_id, o.region, CAST(o.amount * 100 AS BIGINT) AS amount, o.status, o.created_at AS event_time, o.change_ns FROM orders o) AS src WHERE (change_ns > ? OR (change_ns = ? AND order_id > ?)) AND (amount >= ? AND region = ?) ORDER BY change_ns, order_id LIMIT ?
 ```
 
 <!-- sql: read -->
@@ -172,7 +177,12 @@ order_id	customer_id	amount
 
 ## Pushdown
 
-`FILTER`, and only that. What is pushed:
+Three kinds, and the engine keeps its own filter whatever the database does with them — pushdown
+changes how many rows and bytes cross the network, never the answer.
+
+### `FILTER` — your `WHERE`, bound
+
+What is pushed:
 
 - conjuncts (`AND`) of **one column compared with a literal**: `=`, `<>`, `<`, `<=`, `>`, `>=`,
   `IS NULL`, `IS NOT NULL`;
@@ -181,13 +191,60 @@ order_id	customer_id	amount
 - only columns the database's own metadata named. A filter on anything else is dropped (costing
   bandwidth, never rows).
 
-What is never pushed: an `OR` (it cannot be split into ANDed parts without dropping rows), a `NOT`, a
-`LIKE`, a comparison between two expressions. Values are **bound, never interpolated** — no quoting,
-no injection, and the statement is cacheable.
+What is never pushed from a query: an `OR` written in its `WHERE`, a `NOT`, a `LIKE`, a comparison
+between two expressions — those stay with the engine. Values are **bound, never interpolated** — no
+quoting, no injection, and the statement is cacheable.
 
-**The engine keeps its own filter either way.** Pushdown changes how many rows cross the network, never
-the answer: a driver that honoured half the predicate would still produce the right view. Projection
-and partial aggregation are not declared by this plugin and are not pushed.
+### `PROJECT` — the columns you read
+
+The poll's `SELECT` list is the stream's columns the query actually uses, in the table's order,
+**plus the watermark and key columns** the reader orders and resumes by. A column nobody reads is
+never sent. The engine works this out only through projections and filters directly over the scan;
+a query whose path to the scan passes a computed column, an aggregate, a join or a window asks for
+every column, and the poll is `SELECT *` — a missed saving, never a wrong answer.
+
+### `PARTIAL_AGGREGATE` — a running `COUNT`/`SUM`, taken by the database
+
+With `key.column` set, a continuous **global** aggregate over this stream need not read rows at all:
+
+```sql
+CREATE CONTINUOUS QUERY big_order_totals
+    KEYED BY (big_orders)
+AS
+SELECT COUNT(*) AS big_orders, SUM(amount) AS big_value
+FROM orders
+WHERE amount >= 100000;
+```
+
+Each poll asks the database for one **partial** per keyset page instead of the page's rows — in
+outline, two statements:
+
+```text
+SELECT change_ns, order_id FROM (...) AS src WHERE <after the offset> AND (amount >= ?) ORDER BY change_ns, order_id LIMIT ?      -- where this page ends
+SELECT COUNT(*), SUM(amount), ... FROM (...) AS src WHERE <after the offset> AND <up to that row> AND (amount >= ?)              -- the page's partial
+```
+
+and the engine adds the partials into its running total. The answer is the one the rows give: a
+page's partial is the sum of exactly the rows the row poll would have sent, with the same offsets,
+and a restore resumes from the same place. (An update the poll sees again is counted again in both,
+because a polled table is not a changelog either way.)
+
+A partial leaves no rows for the engine's own filter to run on, so it is asked for **only when it is
+certainly exact**, and read as rows otherwise. It is declined:
+
+| When | Why |
+|---|---|
+| there is no `key.column`, or `pushdown.partial.aggregate: false` | a page end is a position only a total order can name |
+| any predicate cannot be carried into SQL — an `OR`, a `LIKE`, a comparison of two expressions | the partial would silently not apply it |
+| a text column is filtered on, unless `collation.binary: true` | a case-insensitive collation matches `'done'` to `'DONE'`, where the engine does not |
+| a `SUM` over anything but a `BIGINT` | the engine sums 64-bit integers |
+| an aggregate other than `COUNT` and `SUM` — `MIN`, `MAX`, `AVG`, `COUNT(DISTINCT)` | only these two combine by adding |
+| a windowed aggregate, or anything between the aggregate and the scan but filters and projections | the one shape proven equivalent is an aggregate over filters over the scan |
+
+An unwindowed `GROUP BY` over a stream cannot be registered at all (PRV-2050), so a registered
+query's partial is always the global one. (Were a group key ever offered, it would be declined unless
+integral — or text under `collation.binary: true` — because a database may group values the engine
+keeps apart.)
 
 ## Delivery guarantee
 
@@ -223,18 +280,21 @@ resume is only as reliable as the database's ordering of tied rows.
     The reader writes weight `+1` on every row; there is no equivalent of the filesystem source's
     `op.column`. A soft-delete flag arrives as an ordinary column a query can filter on, but an
     already-counted row is not withdrawn. Where deletes must reduce a total, a change feed is the
-    right shape, and none ships today.
+    right shape: on PostgreSQL, [postgres-cdc](/help/topics/source-postgres-cdc).
 
 !!! note "Index the watermark column"
     Every poll orders by it. Without an index every poll is a full scan of the table — with
     `key.column`, index `(watermark, key)`.
 
 !!! note "Two readers, two statements"
-    Two registered queries over one stream each get their own reader and their own statement with their
-    own pushed filters, so a query nobody changed never inherits another's `WHERE`.
+    This source is ordered within its partition, so it is never shared: two registered queries over one
+    stream each get their own reader and their own statement, with their own pushed filters and
+    columns, and a query nobody changed never inherits another's `WHERE`.
 
 ## Where next
 
+- [The postgres-cdc source](/help/topics/source-postgres-cdc) — PostgreSQL's changes, deletes included,
+  instead of polling
 - [JDBC lookups](/help/topics/lookups) — asking a table as of each row's time, instead of streaming it
 - [The jdbc sink](/help/topics/sink-jdbc) — maintaining a view's answer in a table, exactly once
 - [Connector security](/help/topics/connector-security) — TLS in the URL, and credentials from the environment

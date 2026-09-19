@@ -4,10 +4,10 @@ slug: source-aerospike
 category: sources
 order: 60
 icon: hdd-network
-summary: "Scans an Aerospike set for records updated since the last scan, with the filter evaluated on the server and your WHERE pushed in as expressions — one shared scan for every query over the set."
+summary: "Scans an Aerospike set for records updated since the last scan, with your WHERE pushed in as server-side expressions and only the bins you read fetched — one shared scan for every query over the set."
 badge: SOURCE
 audience: Operators
-keywords: [aerospike, lut-scan, last update time, scan, set, namespace, bins, expressions, pushdown, share.reader, xdr, community edition, tls.name]
+keywords: [aerospike, lut-scan, last update time, scan, set, namespace, bins, expressions, pushdown, projection, share.reader, shared reader, xdr, community edition, tls.name]
 guide: continuous-queries#21-every-source-type-configured
 related: [sources-overview, lookups, connector-security, sink-aerospike, sharing]
 ---
@@ -33,7 +33,7 @@ edition, and the plugin declares exactly what a scan can and cannot promise
 | Delivery guarantee | `AT_LEAST_ONCE` — a rescan from the watermark re-delivers the boundary records |
 | Replayable offsets | yes — the offset is a last-update-time watermark |
 | Emits deletes / before-image | no / no |
-| Pushdown | `FILTER` — translated into Aerospike expressions and added to the scan filter |
+| Pushdown | `FILTER` — translated into Aerospike expressions and added to the scan filter; `PROJECT` — the scan names only the bins read. Not `PARTIAL_AGGREGATE` |
 | Shared between queries | **yes** — one reader per binding feeds every query over it |
 | Schema comes from | the `schema` option you write (bins have no declared types) |
 | Partitions | `partitions` readers, each over a slice of Aerospike's 4,096 partitions |
@@ -55,7 +55,7 @@ edition, and the plugin declares exactly what a scan can and cannot promise
 | `scan.total.timeout.ms` | no | `120000` | Total timeout of each scan. Must be positive — zero means wait for ever, and a scan that never returns takes its lane with it and looks exactly like a hung engine |
 | `user` / `password` | no | empty | Aerospike security credentials |
 | `stream` | no | the set name | The stream name the plugin reports |
-| `share.reader` | no | `true` | Read by the engine's binding layer: `false` gives each query its own scan, keeping that query's pushdown when several queries with different filters read one set |
+| `share.reader` | no | `true` | Read by the engine's binding layer: `false` gives each query its own scan with its own filter, instead of one shared scan pushing the `OR` of every query's filter |
 | `tls.enabled`, `tls.name`, `tls.ca`, `tls.certificate`, `tls.key`, `tls.truststore`, `tls.keystore` (and their `.password` / `.type`), `tls.verify-hostname` | no | off | TLS — see below and [connector security](/help/topics/connector-security) |
 
 ## A complete binding
@@ -119,9 +119,14 @@ u7	3	6200
 
 ## Pushdown
 
-`FILTER`. Each filter the engine can push — a conjunct comparing one column with a literal, directly
-above this stream's scan — is translated into an Aerospike expression and `AND`ed into the scan's
-server-side filter beside the last-update-time condition:
+`FILTER` and `PROJECT`. The engine keeps its own filter on every row regardless, so what is pushed
+changes how much leaves the cluster, never the answer.
+
+### `FILTER` — server-side expressions
+
+Each filter the engine can push — a conjunct comparing one column with a literal, directly above this
+stream's scan — is translated into an Aerospike expression and `AND`ed into the scan's server-side
+filter beside the last-update-time condition:
 
 | Bin's declared type | Pushed as |
 |---|---|
@@ -135,16 +140,40 @@ server-side filter beside the last-update-time condition:
 In `spend_per_minute` above, `status = 'APPROVED'` is pushed: the records of other statuses never leave
 the cluster. Anything that cannot be translated **exactly** is left out of the expression rather than
 approximated — Aerospike compares integer and string bins with different constructors, and the wrong
-one does not fail, it returns nothing — and the engine applies its own filter to every row regardless.
+one does not fail, it returns nothing. An `OR`, a `NOT` or a `LIKE` written in a query's `WHERE` is
+not pushed; it stays with the engine.
 
-**Shared scans trade pushdown for scan count.** Several queries over one binding share one reader
-(below), and a shared reader serves every one of them — so a second query with a different `WHERE`
-widens what the one scan must return. Where a single query's filter matters more than the sharing, set
-`share.reader: "false"` on the binding.
+### `PROJECT` — only the bins you read
+
+The scan names the bins the query uses, plus the `event.time` bin the reader stamps each row with; a
+bin nobody reads is never sent. The engine works this out through projections and filters directly
+over the scan: a query such as `SELECT txn_id, amount FROM txn WHERE status = 'APPROVED'` fetches
+`txn_id`, `amount`, `status` and the event-time bin. A query that computes a column from others,
+aggregates, joins or windows — `spend_per_minute` among them — asks for every bin.
+
+### Not `PARTIAL_AGGREGATE`
+
+Server-side aggregation in Aerospike means Lua stream UDFs registered on the cluster — a deployment
+step a plugin cannot take for you — and a last-update-time scan sees an overwritten record as a new
+row with no retraction of the old one, so a partial would be exactly as wrong as the rows are.
+
+### A shared scan pushes the `OR` of its queries' filters
+
+Several queries over one binding share one reader (below), and that reader asks the cluster for
+**everything any of them would have asked for on its own**: the filters every query has in common as
+plain conjuncts, and what remains of each query's filter as one alternative of an `OR` (`Exp.or` on the
+server); the bins are the union of the bins each reads. Two queries filtering
+`status = 'APPROVED' AND amount > 5000` and `status = 'APPROVED' AND merchant = 'TRAVELCO'` share a
+scan that pushes `status = 'APPROVED' AND (amount > 5000 OR merchant = 'TRAVELCO')`.
+
+The union is only ever wide enough, never exact — each query still applies its own filter to what
+arrives. It narrows to the shared conjuncts alone when one query asks for nothing beyond them, and to
+no filter at all when one query has none. Where a single query's narrow filter matters more than
+sharing the scan, set `share.reader: "false"` on the binding.
 
 ## One scan for many queries
 
-Aerospike is the source the engine shares: an at-least-once, unordered, replayable source can hand a
+Aerospike is a source the engine shares (Cassandra is the other): an at-least-once, unordered, replayable source can hand a
 query that joins late a private catch-up read and then attach it to the running scan. One reader per
 (binding, stream, partition) fans each decoded record into every subscribed query. Measured by the
 project against a real cluster: **four queries over one set went from 3.8 scans a second to 1.0**

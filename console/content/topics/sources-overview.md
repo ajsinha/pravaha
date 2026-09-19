@@ -4,18 +4,18 @@ slug: sources-overview
 category: sources
 order: 10
 icon: box-arrow-in-right
-summary: "Where rows come from: the three configuration blocks (streams, sources, lookups), how a plugin is found, what each of the six shipped sources can and cannot see, and how to pick one."
+summary: "Where rows come from: the three configuration blocks (streams, sources, lookups), how a plugin is found, what each of the seven shipped sources can and cannot see, and how to pick one."
 badge: START HERE
 audience: Operators
-keywords: [source, binding, plugin, connector, pravaha.sources, pravaha.streams, pravaha.lookups, options, classpath, serviceloader, capabilities, delivery guarantee, share.reader]
+keywords: [source, binding, plugin, connector, pravaha.sources, pravaha.streams, pravaha.lookups, options, classpath, serviceloader, capabilities, delivery guarantee, share.reader, pushdown, projection, partial aggregate, cdc]
 guide: continuous-queries#2-declaring-a-stream
-related: [streams, source-filesystem, source-jdbc, lookups, connector-security]
+related: [streams, source-filesystem, source-jdbc, source-postgres-cdc, lookups, connector-security]
 ---
 
 A **source** is what feeds a stream: a plugin, and the options that tell it where to read. Pravaha
-ships six stream sources and two lookup plugins, each discovered by name, each declaring honestly what
+ships seven stream sources and two lookup plugins, each discovered by name, each declaring honestly what
 it can deliver. This page is the map: how a node is told about its data, what happens when a query
-first needs a source, and how the six differ in the one thing that decides whether your answer is
+first needs a source, and how the seven differ in the one thing that decides whether your answer is
 right — **what they can see**.
 
 ## Three blocks, kept separate on purpose
@@ -52,7 +52,8 @@ Three rules that catch everyone once:
 - **The schema is written twice** for a source that has no schema of its own (filesystem, feedfile,
   Aerospike, Cassandra) — once for the catalogue to plan against, once for the plugin to decode with.
   The two are read by different components that do not share a parser, and must agree column for
-  column. JDBC and Delta read the schema from the store, so only the catalogue copy is yours.
+  column. JDBC, Delta and postgres-cdc read the schema from the store, so only the catalogue copy is
+  yours (postgres-cdc also takes a declared `schema`, checked against the table).
 - **`event-time` is the setting people most often omit, and its absence is silent.** Without it no
   watermark advances and no window ever closes: a windowed query registers, reports `RUNNING`, ingests
   every row and emits nothing. `out-of-orderness` is dropped too if `event-time` is not also declared.
@@ -94,6 +95,8 @@ table stops the node from starting.
 | `delta` | `plugins/pravaha-plugin-delta` | no |
 | `aerospike`, `aerospike-lookup`, `aerospike-sink` | `plugins/pravaha-plugin-aerospike` | no |
 | `cassandra` | `plugins/pravaha-plugin-cassandra` | no |
+| `postgres-cdc` | `plugins/pravaha-plugin-postgres-cdc` (plus the PostgreSQL JDBC driver) | no |
+| `kafka-sink` (a sink; the plugin does not read from Kafka) | `plugins/pravaha-plugin-kafka` | no |
 
 Be precise about what "drop a jar on the classpath" means today. The server is launched as
 `java -jar pravaha-server.jar` (that is what `bin/pravaha-server` runs), and that launcher reads only
@@ -105,7 +108,7 @@ what is inside the jar: there is no plugins directory and `-Dloader.path` is not
   plugin module on your application's classpath is found by `ServiceLoader` like any other — nothing
   else to do. See [the embedded engine](/help/topics/embedded-engine).
 
-## The six sources side by side
+## The seven sources side by side
 
 What each can see decides what a view over it can mean. "Emits deletes" is the question to ask first:
 a source that cannot see a delete gives a view that keeps serving deleted rows.
@@ -114,10 +117,11 @@ a source that cannot see a delete gives a view that keeps serving deleted rows.
 |---|---|---|---|---|---|---|---|
 | [filesystem](/help/topics/source-filesystem) | one delimited file, once or followed | only through `op.column` | no | yes (appends) | exactly-once | none | no |
 | [feedfile](/help/topics/source-feedfile) | a directory of CSV/Parquet files | no | no | yes (new files) | exactly-once *or* at-least-once, by configuration | none | no |
-| [jdbc](/help/topics/source-jdbc) | a table or `SELECT`, polled on a monotonic column | no | no | yes (beyond the watermark) | at-least-once | filter | no |
+| [jdbc](/help/topics/source-jdbc) | a table or `SELECT`, polled on a monotonic column | no | no | yes (beyond the watermark) | at-least-once | filter, columns, and `COUNT`/`SUM` partials with `key.column` | no |
+| [postgres-cdc](/help/topics/source-postgres-cdc) | a PostgreSQL table's changes, from its write-ahead log | **yes** (the whole old row at `−1`) | **yes** — an update is `−1` then `+1` | yes (every commit) | exactly-once | none | no |
 | [delta](/help/topics/source-delta) | a Delta table: snapshot, then each commit | **yes** (removed files at `−1`) | as a retraction of the old row | yes (new commits) | exactly-once | none | no |
-| [aerospike](/help/topics/source-aerospike) | a set, scanned by last-update time | no | no | yes (server-side filter) | at-least-once | filter | **yes** |
-| [cassandra](/help/topics/source-cassandra) | a table, scanned by `token()` range | no | no | **no** — every pass reads everything | at-least-once | none | **yes** |
+| [aerospike](/help/topics/source-aerospike) | a set, scanned by last-update time | no | no | yes (server-side filter) | at-least-once | filter, columns | **yes** |
+| [cassandra](/help/topics/source-cassandra) | a table, scanned by `token()` range | no | no | **no** — every pass reads everything | at-least-once | columns | **yes** |
 
 And the event time each stamps on a row — which is what the watermark, and so every window, runs on:
 
@@ -127,6 +131,7 @@ And the event time each stamps on a row — which is what the watermark, and so 
 | aerospike | the `event.time` bin, read as nanoseconds; without it, when its scan started |
 | cassandra | the `event.time` `TIMESTAMP` column; without it, when its pass started |
 | jdbc | the `watermark.column` value, as nanoseconds, unconverted |
+| postgres-cdc | the `event.time` timestamp column (on a server, the declared `event-time`); without it, the transaction's commit time |
 | feedfile, delta | **zero** — so windows over them do not close today (QA finding T-5, open) |
 
 ### Choosing
@@ -135,7 +140,9 @@ And the event time each stamps on a row — which is what the watermark, and so 
   The only way to feed retractions from configuration.
 - **Batch drops — an export, a partner feed** → [feedfile](/help/topics/source-feedfile), with
   `completion: marker` if the producer can write one.
-- **A relational table with no change feed** → [jdbc](/help/topics/source-jdbc), on a
+- **A PostgreSQL table whose deletes and updates must reduce totals** → [postgres-cdc](/help/topics/source-postgres-cdc),
+  if the DBA can grant logical replication; it leaves a replication slot on the server to look after.
+- **A relational table with no change feed you can use** → [jdbc](/help/topics/source-jdbc), on a
   database-maintained monotonic column. Deletes will not reduce totals.
 - **A lakehouse table whose upstream updates and deletes must flow through** → [delta](/help/topics/source-delta).
 - **Current state in Aerospike** → [aerospike](/help/topics/source-aerospike): incremental, pushed down,
@@ -153,12 +160,18 @@ Every source declares, in code, what it can promise: replayable offsets, orderin
 deletes, before-images, a delivery guarantee, which pushdown kinds it accepts, and a typical latency.
 Today two things read those declarations:
 
-- **Pushdown.** Only a source that declares `FILTER` is sent a filter request (JDBC and Aerospike). The
-  engine keeps its own filter whatever the source does with it, so pushdown changes bytes read, never
-  answers.
+- **Pushdown.** A source is asked only for the kinds it declares. `FILTER` (JDBC, Aerospike): the
+  conjuncts of a `WHERE` directly over the scan that compare one column with a literal. `PROJECT`
+  (JDBC, Aerospike, Cassandra): the columns the query reads, when its path to the scan is only
+  projections and filters. `PARTIAL_AGGREGATE` (JDBC with `key.column`): a continuous global
+  `COUNT`/`SUM` taken by the database, asked for only when every predicate can go with it. The engine
+  keeps its own filter on rows whatever the source does, so filter and column pushdown change bytes
+  read, never answers; a partial is declined, and rows read instead, whenever it could not be exact.
+  Each source's page lists exactly what it pushes and what it declines.
 - **Sharing.** A source that is at-least-once, replayable and unordered (Aerospike, Cassandra) is read
-  once per binding for every query over it; the others are read once per query. `share.reader: "false"`
-  on a binding opts out.
+  once per binding for every query over it, and that one reader pushes the `OR` of its queries'
+  filters and the union of their columns; the others are read once per query. `share.reader: "false"`
+  on a binding opts out, giving each query its own narrower read.
 
 What the declarations do **not** do yet is refuse a registration: a query that needs deletes from a
 source that cannot see them is accepted ([ADR-028](/help/decisions/028-connectors-earn-their-place):
@@ -172,9 +185,10 @@ declared, not enforced). Choose the source with the table above in mind.
     answer.
 
 !!! warning "Pitfall: a scan or a poll cannot see a delete"
-    Of the six, only Delta (and filesystem with `op.column`) can withdraw a row. Over JDBC, Aerospike and
-    Cassandra, a deleted row simply stops appearing — and a view that already counted it keeps it. Model
-    deletes as a status column you filter on, or choose a source that sees them.
+    Of the seven, only postgres-cdc, Delta (and filesystem with `op.column`) can withdraw a row. Over
+    JDBC, Aerospike and Cassandra, a deleted row simply stops appearing — and a view that already
+    counted it keeps it. Model deletes as a status column you filter on, or choose a source that sees
+    them.
 
 !!! note "Credentials belong in the environment"
     `password: "${PRAVAHA_DB_PASSWORD}"` keeps the secret out of the file. See

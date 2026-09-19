@@ -7,7 +7,7 @@ icon: hdd-stack
 summary: "Scans a Cassandra table by token() range on an interval — a full, honest periodic scan rather than an incremental one that would quietly miss rows — with hostname-verified TLS."
 badge: SOURCE
 audience: Operators
-keywords: [cassandra, cql, scylla, token range, scan, partition.key, local.datacenter, consistency.level, fetch.size, writetime, cdc, tombstone]
+keywords: [cassandra, cql, scylla, token range, scan, partition.key, local.datacenter, consistency.level, fetch.size, writetime, cdc, tombstone, pushdown, projection, allow filtering]
 guide: continuous-queries#21-every-source-type-configured
 related: [sources-overview, source-aerospike, connector-security, event-time-watermarks]
 ---
@@ -35,7 +35,7 @@ quietly misses rows**.
 | Delivery guarantee | `AT_LEAST_ONCE` |
 | Replayable offsets | yes — a token cursor within the pass |
 | Emits deletes / before-image | no / no |
-| Pushdown | none (not built) |
+| Pushdown | `PROJECT` only — the CQL `SELECT` list. Not `FILTER`, not `PARTIAL_AGGREGATE` |
 | Shared between queries | yes — one reader per binding serves every query over it |
 | Schema comes from | the `schema` option you write |
 | Partitions | `partitions` readers, each over an equal slice of the token ring |
@@ -59,7 +59,7 @@ quietly misses rows**.
 | `request.timeout.ms` | no | `30000` | Per-request timeout. Must be positive — zero would wait for ever |
 | `user` / `password` | no | empty | Credentials |
 | `stream` | no | the table name | The stream name the plugin reports |
-| `share.reader` | no | `true` | Read by the binding layer: `false` gives each query its own scan |
+| `share.reader` | no | `true` | Read by the binding layer: `false` gives each query its own scan, selecting only its own columns |
 | `tls.*` | no | off | The shared TLS options; hostname verification is honoured — see below |
 
 ## A complete binding
@@ -140,8 +140,21 @@ row once per pass that lands in an open window.
 
 ## Pushdown
 
-None. A `WHERE` is applied by the engine after each row arrives; the pass reads the whole range.
-Pushdown for this plugin is a separate, unbuilt item.
+`PROJECT`, and only that. The pass's CQL `SELECT` names the columns the query uses, plus the
+`event.time` column the reader stamps each row with — the `token()` the pages are walked by is
+computed on the server whatever is selected — and a column nobody reads is bytes Cassandra never
+sends. `open_order_book` above happens to need all six columns of this table (`status` for its
+filter, `event_time` for the reader); over a wider table with, say, a long `notes` column, it would
+never fetch `notes`. The engine works this out through projections and
+filters directly over the scan; a query that aggregates, joins, windows or computes a column asks for
+every column. A shared reader selects the union of the columns its queries read.
+
+**Not `FILTER`.** A `WHERE` on anything but the partition key needs `ALLOW FILTERING`, which still
+reads every partition on the server and has null and collation rules of its own to be exact about. So
+the engine applies the `WHERE` after each row arrives, and every pass reads the whole range.
+
+**Not `PARTIAL_AGGREGATE`.** CQL aggregates run per partition, and every pass here re-reads the whole
+range with no retraction of the previous pass, so no partial could be "the new rows only".
 
 ## Delivery guarantee
 
@@ -197,6 +210,6 @@ pravaha:
 
 ## Where next
 
-- [The Aerospike source](/help/topics/source-aerospike) — a scan that *is* incremental, with pushdown
+- [The Aerospike source](/help/topics/source-aerospike) — a scan that *is* incremental, with filters pushed to the server
 - [Connector security](/help/topics/connector-security) — truststores, keystores and hostname checking
 - [Sources overview](/help/topics/sources-overview) — choosing a source for the question

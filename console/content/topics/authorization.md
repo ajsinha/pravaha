@@ -19,8 +19,8 @@ That is structural, not a preference:
 
 - **A view is derived data the store has never seen.** No record in Aerospike carries the
   permissions of "ann's gold-tier total for the window ending 12:05".
-- **A change feed is read once and shared by every query on it.** Enforcing per principal at the
-  source would mean reading it once per principal — the amplification the engine exists to remove --
+- **A source is read once and shared by every query on it**, wherever it can be. Enforcing per
+  principal at the source would mean reading it once per principal — the amplification the engine exists to remove --
   or reading it as a superuser, which enforces nothing.
 - **A continuous query has no caller.** It runs for months with nobody connected; there is no session
   to push down.
