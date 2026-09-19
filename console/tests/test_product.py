@@ -230,6 +230,70 @@ def test_the_query_page_shows_a_detached_sink_and_its_failure(signed_in):
     assert "PT24H" in page
 
 
+# ============================================================ FEED-1: a stopped source
+
+def test_a_healthy_query_page_says_its_source_is_reading(signed_in):
+    page = signed_in.get("/queries/big_txn").text
+    assert 'id="feed"' in page and ">receiving rows<" in page and "reading txn (1 partition)" in page
+    assert 'id="feed-failure"' not in page and ">source stopped<" not in page
+
+
+def test_a_stopped_source_is_on_the_query_page_with_its_code_linked_to_help(signed_in, engine):
+    engine.stop_source("fff000")
+    page = signed_in.get("/queries/hot").text
+    assert 'id="feed-failure"' in page
+    assert '<a href="/help/codes/PRV-5040">PRV-5040</a>' in page
+    assert "is not an INT64" in page and "txn#0, stopped 2026-09-19T08:00:00Z" in page
+    assert "Not retried" in page
+    # The query is still RUNNING -- the state is not changed, the stop is shown beside it.
+    assert ">RUNNING<" in page and ">source stopped<" in page
+    # The sink's own failure is untouched by it.
+    assert 'id="sink-failure"' in signed_in.get("/queries/big_txn").text
+
+
+def test_a_stopped_source_is_marked_in_the_listing_and_its_json(signed_in, engine):
+    engine.stop_source("fff000")
+    items = {q["name"]: q for q in signed_in.get("/api/v1/queries").json()["items"]}
+    assert items["hot"]["feed"] == "STOPPED" and items["hot"]["feed_code"] == "PRV-5040"
+    assert items["hot"]["feed_where"] == "txn#0"
+    # One computation, one feed: the other name on it reports the same stop.
+    assert items["hot_alias"]["feed"] == "STOPPED"
+    assert items["big_txn"]["feed"] == "RUNNING" and items["big_txn"]["feed_code"] is None
+    page = signed_in.get("/queries").text
+    assert page.count("source-stopped") == 2 and "PRV-5040" in page
+
+
+def test_the_operations_verdict_names_a_stopped_source_with_its_code(signed_in, engine):
+    engine.stop_source("abc123def456", code="PRV-5092", where="txn#0")
+    body = signed_in.get("/api/v1/ops/snapshot").json()
+    stopped = [f for f in body["findings"] if f["title"] == "Source stopped"]
+    assert [f["query"] for f in stopped] == ["big_txn"]
+    assert stopped[0]["severity"] == "critical" and stopped[0]["code"] == "PRV-5092"
+    assert "reading txn#0 with PRV-5092" in stopped[0]["detail"]
+    assert body["verdict"]["status"] == "critical" and "big_txn" in body["verdict"]["where"]
+    assert {q["name"]: q for q in body["queries"]}["big_txn"]["feed"] == "STOPPED"
+    page = signed_in.get("/operations").text
+    assert '<a class="mono" href="/help/codes/PRV-5092">PRV-5092</a>' in page
+
+
+def test_a_healthy_engine_has_no_stopped_source_finding(signed_in):
+    body = signed_in.get("/api/v1/ops/snapshot").json()
+    assert not [f for f in body["findings"] if f["title"] == "Source stopped"]
+
+
+def test_the_feed_stopped_gauge_alone_is_a_finding():
+    """The metric catches a stop the listing has not shown yet, and the reverse."""
+    summary = metrics.summarize(metrics.parse(
+        'pravaha_query_feed_stopped{query="q"} 1.0\npravaha_query_feed_failures_total{query="q"} 1.0\n'
+        'pravaha_query_feed_stopped{query="ok"} 0.0\n'))
+    assert summary["queries"]["q"]["feed_stopped"] == 1.0
+    assert summary["queries"]["q"]["feed_failures"] == 1.0
+    found = metrics.findings(summary["queries"])
+    assert [(f.query, f.title, f.code) for f in found] == [("q", "Source stopped", None)]
+    with_code = metrics.findings({"q": {}}, feed_stops={"q": {"code": "PRV-5040", "where": "t#1"}})
+    assert with_code[0].code == "PRV-5040" and "reading t#1 with PRV-5040" in with_code[0].detail
+
+
 def test_an_unknown_view_or_stream_is_a_404(signed_in):
     assert signed_in.get("/views/nope").status_code == 404
     assert signed_in.get("/views/nope/live").status_code == 404

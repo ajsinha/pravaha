@@ -146,7 +146,8 @@
       "axis": {
         "rate": "rows/s",
         "ceiling": "% of ceiling"
-      }
+      },
+      "source_stopped": "source stopped"
     },
     "grid": {
       "caption": "Result",
@@ -326,7 +327,9 @@
       "open": "Open",
       "queries": "queries",
       "register_one": "Register one",
-      "showing": "Showing {n} of {total}"
+            "showing": "Showing {n} of {total}",
+      "source_stopped": "source stopped",
+      "source_stopped_title": "A source failed mid-read and is not retried; the view answers at the frontier it reached"
     },
     "wb": {
       "diff": {
@@ -611,7 +614,8 @@
       "title": "Not measured by the engine",
       "lede": "Shown as absent rather than as zero: the engine does not measure these, so there is no honest number to draw.",
       "why": "Not measured: {why}."
-    }
+    },
+    "source_stopped": "source stopped"
   },
   "overview": {
     "title": "Overview",
@@ -675,7 +679,9 @@
       "title": "No queries yet",
       "body": "A continuous query is registered once and maintained for as long as it is registered.\n         Nothing has been registered on this engine.",
       "register": "Register one"
-    }
+    },
+    "source_stopped": "source stopped",
+    "source_stopped_title": "A source failed mid-read and is not retried; the view answers at the frontier it reached"
   },
   "query": {
     "all": "All queries",
@@ -729,7 +735,18 @@
     "tail_note": "One engine subscription serves every browser watching this view.\n  Ten tabs are ten connections here and one subscriber on the engine.",
     "refused_title": "Not permitted",
     "refused_body": "The engine's policy does not let this console pause, resume or drop this query: {reason}.",
-    "refused_access": "What this console may do"
+    "refused_access": "What this console may do",
+    "feed": "Source",
+    "feed_state": {
+      "running": "receiving rows",
+      "paused": "paused",
+      "stopped": "stopped",
+      "none": "nothing bound"
+    },
+    "feed_none": "No source is bound to this query's streams: rows arrive only when something pushes them.",
+    "feed_stopped": "Not retried: the view answers at the frontier it reached. Fix the cause, then drop and register the query again, or restart the node.",
+    "feed_source": "{where}, stopped {at}",
+    "source_stopped": "source stopped"
   },
   "refused": {
     "title": "Refused",

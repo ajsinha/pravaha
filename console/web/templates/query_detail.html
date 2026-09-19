@@ -24,6 +24,7 @@
         <pre id="sql">{{ query.sql }}</pre>
         <div class="mt-3 d-flex flex-wrap gap-2" id="meta">
           <span class="chip {{ 'ok' if query.state == 'RUNNING' else 'bad' if query.state == 'FAILED' else 'mute' }}">{{ query.state }}</span>
+          {% if query.source_stopped %}<span class="chip bad">{{ t('query.source_stopped') }}</span>{% endif %}
           <span class="chip mute">{{ t('query.rows_in', n="{:,}".format(query.rows_in)) }}</span>
           <span class="chip info" title="{{ t('query.fingerprint_title') }}">{{ t('query.fingerprint', id=query.fingerprint[:12]) }}</span>
         </div>
@@ -38,6 +39,13 @@
             {% if detail.sink.failure %}<div class="alert alert-danger py-2 small mt-2 mb-0" id="sink-failure"><a href="/help/codes/{{ detail.sink.failure.code }}">{{ detail.sink.failure.code }}</a> {{ detail.sink.failure.message }}
               {{ t('query.sink_detached') }}</div>{% endif %}
             {% else %}<span class="text-muted">{{ t('query.no_sink') }}</span>{% endif %}</dd>
+          {% if detail.feed %}{% set feed = detail.feed %}
+          <dt class="col-4">{{ t('query.feed') }}</dt><dd class="col-8" id="feed"><span class="chip {{ 'bad' if feed.state == 'STOPPED' else 'ok' if feed.state == 'RUNNING' else 'mute' }}">{{ t('query.feed_state.' ~ feed.state|lower) if feed.state in ('RUNNING', 'PAUSED', 'STOPPED', 'NONE') else feed.state }}</span>
+            {% if feed.state == 'NONE' %}<span class="text-muted">{{ t('query.feed_none') }}</span>{% elif feed.description %}<span class="text-muted mono">{{ feed.description }}</span>{% endif %}
+            {% if feed.failure %}<div class="alert alert-danger py-2 small mt-2 mb-0" id="feed-failure" role="status"><a href="/help/codes/{{ feed.failure.code }}">{{ feed.failure.code }}</a> {{ feed.failure.message }}
+              {% for s in feed.sources or [] %}{% if s.state == 'STOPPED' and s.origin %}<div class="mono mt-1">{{ t('query.feed_source', where=s.stream ~ '#' ~ s.partition, at=s.stoppedAt or '') }}</div>{% endif %}{% endfor %}
+              <div class="mt-1">{{ t('query.feed_stopped') }}</div></div>{% endif %}</dd>
+          {% endif %}
           {% if detail.failure %}<dt class="col-4">{{ t('query.failure') }}</dt><dd class="col-8"><a href="/help/codes/{{ detail.failure.code }}">{{ detail.failure.code }}</a> {{ detail.failure.message }}</dd>{% endif %}
           {% if detail.countsWithheld %}<dd class="col-12 text-muted">{{ t('query.withheld') }}</dd>{% endif %}
         </dl>

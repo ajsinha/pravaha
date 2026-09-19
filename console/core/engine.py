@@ -44,6 +44,22 @@ class QueryRow:
     sink: str | None = None
     #: The view's retention, ISO-8601 or ``"forever"``; ``None`` when the engine did not say.
     retention: str | None = None
+    #: Whether rows still reach it (FEED-1): ``RUNNING``, ``PAUSED``, ``STOPPED`` or ``NONE``;
+    #: ``None`` from an engine that predates it.
+    feed: str | None = None
+    #: The first stopped source's code (``PRV-5092`` or the source's own), or ``None``.
+    feed_code: str | None = None
+    #: What it said, or the engine's note that the text is withheld from this identity.
+    feed_message: str | None = None
+    #: ``stream#partition`` of the source that stopped.
+    feed_where: str | None = None
+    #: When it stopped, ISO-8601.
+    feed_at: str | None = None
+
+    @property
+    def source_stopped(self) -> bool:
+        """A source failed mid-read: the query says ``RUNNING`` and its view has stopped moving."""
+        return self.feed == "STOPPED"
 
     @property
     def shared(self) -> bool:
@@ -54,6 +70,18 @@ class QueryRow:
         operator should be able to see it holding.
         """
         return getattr(self, "_shared", False)
+
+
+def _feed_of(query) -> dict:
+    """The feed fields of an SDK listing row, empty from an SDK that predates them (FEED-1)."""
+    stop = getattr(query, "feed_stop", None)
+    return {
+        "feed": getattr(query, "feed", None),
+        "feed_code": getattr(stop, "code", None) or None,
+        "feed_message": getattr(stop, "message", None) or None,
+        "feed_where": getattr(stop, "where", None) or None,
+        "feed_at": getattr(stop, "at", None) or None,
+    }
 
 
 class EngineHttpError(Exception):
@@ -163,6 +191,7 @@ class Engine:
                 key_columns=tuple(getattr(query, "key_columns", ()) or ()),
                 sink=getattr(query, "sink", None),
                 retention=getattr(query, "retention", None),
+                **_feed_of(query),
             )
             # Two names on one fingerprint are one computation with one copy of the state.
             object.__setattr__(row, "_shared", counts[query.fingerprint] > 1)

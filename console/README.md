@@ -258,7 +258,7 @@ it asked for, reached through the Python SDK:
 | Screen | Was | Now |
 |---|---|---|
 | Catalog · sinks; register panel | a typed sink name, nothing listed | `GET /api/v1/sinks` (`Client.sinks()`): plugin, row shape, key, emit modes, `acceptsRetractions`, visible writers — never a binding's options. The register panel picks from it |
-| Catalog · queries; query page | no key, sink or retention anywhere | `pravaha.list` carries key ordinals, sink and retention as trailing fields (`RegisteredQuery.key_columns/sink/retention`); `GET /api/v1/queries/{name}` (`Client.describe_query`) adds keys by name, the sink's state and its `PRV-8009` failure, shared names and the streams it reads |
+| Catalog · queries; query page | no key, sink or retention anywhere | `pravaha.list` carries key ordinals, sink and retention as trailing fields (`RegisteredQuery.key_columns/sink/retention`); `GET /api/v1/queries/{name}` (`Client.describe_query`) adds keys by name, the sink's state and its `PRV-8009` failure, the feed's state and a stopped source's code (FEED-1), shared names and the streams it reads |
 | View browser | the query's SQL re-validated to guess the columns, or the view read to keep its header | `GET /api/v1/views/{name}` (`Client.describe_view`): schema, key, retention, sink, fingerprint |
 | Register panel | no retention | the optional fifth field of `pravaha.register`: `PT24H`, `P7D`, `forever` |
 | Catalog · streams; onboarding | no event time or lateness | `StreamSummary.eventTime`, `outOfOrderness`, `source`; `POST /api/v1/streams` accepts `eventTime` and `outOfOrderness` |

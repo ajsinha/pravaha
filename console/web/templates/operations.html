@@ -27,7 +27,7 @@
     <div class="card h-100"><div class="card-header">{{ t('operations.attention') }}</div><div class="card-body py-1" id="findings">
       {% for f in snapshot.findings %}
       <div class="finding"><span class="sev chip {{ 'bad' if f.severity == 'critical' else 'warn' if f.severity == 'warn' else 'info' }}">{{ f.severity }}</span>
-        <div><div class="fw-semibold">{% if f.query %}<a class="mono" href="/queries/{{ f.query }}">{{ f.query }}</a> — {% endif %}{{ f.title }}</div>
+        <div><div class="fw-semibold">{% if f.query %}<a class="mono" href="/queries/{{ f.query }}">{{ f.query }}</a> — {% endif %}{{ f.title }}{% if f.code %} · <a class="mono" href="/help/codes/{{ f.code }}">{{ f.code }}</a>{% endif %}</div>
           <div class="small text-muted">{{ f.detail }}</div></div></div>
       {% else %}
       <div class="state py-4"><h3>{{ t('operations.nothing') }}</h3><p>{{ t('operations.nothing_body') }}</p></div>
@@ -74,7 +74,7 @@
   {% for q in snapshot.queries %}
   {% set frac = q.state_fraction %}
   <tr><td><a class="mono" href="/queries/{{ q.name }}">{{ q.name }}</a>{% if q.shared %} <span class="chip warn">{{ t('operations.shared') }}</span>{% endif %}</td>
-    <td>{% if q.state %}<span class="chip {{ 'ok' if q.state == 'RUNNING' else 'bad' if q.state == 'FAILED' else 'mute' }}"><span class="dot"></span>{{ q.state }}</span>{% else %}<span class="chip mute">{{ t('operations.unlisted') }}</span>{% endif %}</td>
+    <td>{% if q.state %}<span class="chip {{ 'ok' if q.state == 'RUNNING' else 'bad' if q.state == 'FAILED' else 'mute' }}"><span class="dot"></span>{{ q.state }}</span>{% else %}<span class="chip mute">{{ t('operations.unlisted') }}</span>{% endif %}{% if q.feed == 'STOPPED' %} <span class="chip bad">{{ t('operations.source_stopped') }}</span>{% endif %}</td>
     <td class="num">{{ '{:,.0f}'.format(q.rows_in) if q.rows_in is not none else '—' }}</td>
     <td class="num">{{ '{:,.1f}'.format(q.rows_in_rate) if q.rows_in_rate is not none else '—' }}</td>
     <td>{% if frac is not none %}<div class="d-flex align-items-center gap-2"><div class="gauge {{ 'critical' if frac >= 0.9 else 'warn' if frac >= 0.75 else '' }}" style="width:7rem" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ (frac * 100)|round|int }}" aria-label="{{ t('operations.gauge_label') }}"><span style="width:{{ [frac * 100, 100]|min }}%"></span></div><span class="small">{{ pct(frac) }}</span></div>{% else %}<span class="text-muted small">{{ t('operations.not_published_yet') if not q.metrics_published else '—' }}</span>{% endif %}</td>

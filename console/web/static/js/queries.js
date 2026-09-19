@@ -35,7 +35,12 @@
     var sql = q.sql.length > 64 ? q.sql.slice(0, 64) + "…" : q.sql;
     return "<tr><td><a href=\"/queries/" + encodeURIComponent(q.name) + "\">" +
       api.escapeHtml(q.name) + "</a></td>" +
-      '<td><span class="chip ' + tone + '">' + api.escapeHtml(q.state) + "</span></td>" +
+      '<td><span class="chip ' + tone + '">' + api.escapeHtml(q.state) + "</span>" +
+      /* FEED-1: RUNNING, and not moving. */
+      (q.feed === "STOPPED"
+        ? ' <span class="chip bad source-stopped" title="' + api.escapeHtml(t("queries.source_stopped_title")) + '">' +
+          api.escapeHtml(t("queries.source_stopped")) + (q.feed_code ? " · " + api.escapeHtml(q.feed_code) : "") + "</span>"
+        : "") + "</td>" +
       '<td class="num">' + q.rows_in.toLocaleString() + "</td>" +
       "<td>" + (q.shared
         ? '<span class="chip warn" title="' + api.escapeHtml(t("queries.shared_title")) + '">' +

@@ -130,7 +130,8 @@ charts. It updates once a second over one event stream, from one Prometheus scra
 however many operators are watching.
 
 A watermark further behind than `ui.lag_warn_seconds` (300 by default) is a finding; so are
-checkpoint failures and a stale checkpoint. Commit latency is shown as a **mean**, labelled as one:
+checkpoint failures and a stale checkpoint. A query whose source has stopped is a **critical**
+finding, with the code linked to its help page, and the verdict names it. Commit latency is shown as a **mean**, labelled as one:
 the engine publishes a count and a total, so a percentile would be invented.
 
 `/overview` is the compact version: is it up, what is registered, what is shared, the busiest
@@ -140,7 +141,9 @@ queries.
 
 `/queries` is filterable, sortable and paged, and **every filter is in the URL**
 (`?search=spend&state=RUNNING&sort=-rows_in`). `/queries/{name}` is one query: its SQL, key,
-retention, sink (and its PRV-8009 failure if the sink was detached), the other names sharing it,
+retention, sink (and its PRV-8009 failure if the sink was detached), its **source** — receiving rows,
+or stopped with the code, the stream#partition and the time (a stopped source leaves the query
+`RUNNING`; the list marks it "source stopped") — the other names sharing it,
 the streams it reads, lifecycle controls, and a raw live tail — with links into the workbench, its
 plan, its view and its live page.
 

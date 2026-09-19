@@ -27,6 +27,8 @@ it did not measure would be invented.
 | Metric | Answers |
 |---|---|
 | `pravaha_query_running` | Is it alive — 1 running, 0 terminal |
+| `pravaha_query_feed_stopped` | 1 while a source of the query has stopped mid-read and is not retried. The query stays `RUNNING` — `running` above says 1 — and its view stops moving, so **alert on this**. The code is on the query's page and in `GET /api/v1/queries/{name}` (`feed`) |
+| `pravaha_query_feed_failures_total` | Failures that stopped a source of the query — distinct failures, not stopped partitions |
 | `pravaha_query_rows_in` | Is anything arriving |
 | `pravaha_query_state_held` | Accumulators and join rows held **now** (the ceiling's units, not bytes) |
 | `pravaha_query_state_ceiling` | What those are refused at. Zero = the plan has no bounded state |
@@ -103,6 +105,14 @@ groups:
           summary: "{{ $labels.query }} is registered and not running"
           description: "A failed query refuses reads rather than serving a stale view. Open it in the console to see the PRV code."
 
+      - alert: PravahaSourceStopped
+        expr: pravaha_query_feed_stopped == 1
+        for: 1m
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.query }} is RUNNING and a source of it has stopped"
+          description: "The view answers at the frontier it reached and will not move again until the source is fixed and the query re-registered. The query's page names the code."
+
       - alert: PravahaQueryStateNearCeiling
         expr: pravaha_query_state_fraction > 0.9
         for: 5m
@@ -146,8 +156,8 @@ groups:
 Two more worth having, depending on the deployment:
 
 - **`pravaha_query_rows_in` flat** (`rate(...[15m]) == 0`) on a query fed by a source that should
-  never be quiet — the source stopped, or a record it could not decode stopped it (see
-  [Dead letters](/help/topics/dead-letters)).
+  never be quiet. A source that *failed* is `pravaha_query_feed_stopped` above; this catches one
+  that is merely silent (see [Dead letters](/help/topics/dead-letters)).
 - **`pravaha_query_subscribers == 0`** on a query somebody expects to be watched.
 
 ## Health probes
@@ -163,6 +173,11 @@ On port 8080, for an orchestrator:
 They are kept distinct because conflating them makes an orchestrator restart a node that is merely
 still restoring state.
 
+A node with a stopped source answers **`DEGRADED`** on the `engine` indicator, with `stoppedFeeds`
+and the first stop's code in the detail — not `DOWN`: every view is still served, and taking the node
+out of rotation would take its healthy queries with it. The server orders `DEGRADED` between
+`OUT_OF_SERVICE` and `UP`, so the aggregate says it and the probe still answers 200.
+
 ## The console's verdict
 
 The console's **Operations** screen scrapes the same endpoint once a second (one scrape however many
@@ -172,6 +187,7 @@ in the console:
 | Finding | Severity | When |
 |---|---|---|
 | Not running | critical | `pravaha_query_running` is 0, or the query's state is `FAILED` |
+| Source stopped | critical | `pravaha_query_feed_stopped` is 1, or the listing says the query's feed is `STOPPED`; the finding carries the code, linked to its help |
 | State ceiling nearly reached | critical | `state_fraction` at or above 0.9 |
 | State growing towards its ceiling | warn | `state_fraction` at or above 0.75 |
 | No watermark yet | info | the lag is `NaN` and the query is not paused — usually no `event-time` declared |

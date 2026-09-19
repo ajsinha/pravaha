@@ -281,6 +281,19 @@ a '-' under ROWS IN means the server did not disclose the count: your access to 
 
 With nothing registered: `no continuous queries are registered`.
 
+A query whose source failed mid-read is still `RUNNING`, so the state cell says so and a line under
+the table says why — without being asked:
+
+```text
+NAME	STATE	FINGERPRINT	ROWS IN
+w10	RUNNING (source stopped)	954ae0e3ea2c	120
+w10: source stopped with PRV-5040 reading ev#0 at 2026-09-19T08:00:00Z: PRV-5040  line 121 ...
+a stopped source is not retried: the view keeps answering at the frontier it reached. Fix the cause, then drop the query and register it again, or restart the node. Each code has a help page: https://docs.pravaha.io/errors/<code>
+```
+
+`pravaha queries --verbose` adds a `FEED` column: `RUNNING`, `PAUSED`, `STOPPED`, or `NONE` when
+nothing is bound to the query's streams.
+
 ### `subscribe`
 
 ```text

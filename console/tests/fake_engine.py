@@ -10,6 +10,8 @@ lets a screenshot of a page be compared with yesterday's.
 """
 from __future__ import annotations
 
+import dataclasses
+
 from core.engine import EngineHttpError, QueryRow
 
 SINK_SECRET = "jdbc-password-that-the-engine-never-publishes"
@@ -76,6 +78,10 @@ class FakeEngine:
         ]
         for q in self._queries:
             object.__setattr__(q, "_shared", q.fingerprint == "fff000")
+        #: Sources that have stopped (FEED-1), by fingerprint -- one computation, one feed, so
+        #: every name on it reports the stop. Empty by default: the screenshots are of a healthy
+        #: engine, and a test that wants a stopped source calls :meth:`stop_source`.
+        self.feed_stops: dict[str, dict] = {}
         #: Whether the engine's policy lets the console's identity read the audit trail.
         self.audit_allowed = True
         self.audit_calls: list[dict] = []
@@ -127,10 +133,25 @@ class FakeEngine:
             return {"reachable": False, "url": self.url, "error": "connection refused"}
         return {"reachable": True, "url": self.url, "queries": len(self._queries)}
 
+    def stop_source(self, fingerprint: str, code: str = "PRV-5040",
+                    message: str = "line 3 of txn.csv: 'abc' is not an INT64", where: str = "txn#0",
+                    at: str = "2026-09-19T08:00:00Z") -> None:
+        """Stops the feed of the computation with this fingerprint, as a source failing mid-read does."""
+        self.feed_stops[fingerprint] = {"code": code, "message": message, "where": where, "at": at}
+
+    def _with_feed(self, q: QueryRow) -> QueryRow:
+        stop = self.feed_stops.get(q.fingerprint)
+        row = dataclasses.replace(
+            q, feed="STOPPED" if stop else "RUNNING", feed_code=(stop or {}).get("code"),
+            feed_message=(stop or {}).get("message"), feed_where=(stop or {}).get("where"),
+            feed_at=(stop or {}).get("at"))
+        object.__setattr__(row, "_shared", q.shared)
+        return row
+
     def queries(self):
         if self.down:
             raise ConnectionError("connection refused")
-        return list(self._queries)
+        return [self._with_feed(q) for q in self._queries]
 
     def register(self, name, sql, keys, sink=None, retention=None):
         self._check()
@@ -232,8 +253,19 @@ class FakeEngine:
                                   "failure": {"code": "PRV-8009", "message": "sink 'audit_out' failed and has been detached",
                                               "helpUrl": ""}, "rowsWritten": 7} if q.sink else None),
                         "rowsIn": q.rows_in, "countsWithheld": False, "registeredAt": "2026-09-19T00:00:00Z",
-                        "failure": None, "reads": ["txn"]}
+                        "failure": None, "reads": ["txn"], "feed": self._feed_detail(q)}
         raise EngineHttpError(404, f"no registered query named '{name}' that you may see", "PRV-8002")
+
+    def _feed_detail(self, q: QueryRow) -> dict:
+        """``GET /api/v1/queries/{name}``'s ``feed``, as the engine sends it."""
+        stop = self.feed_stops.get(q.fingerprint)
+        failure = ({"code": stop["code"], "message": stop["message"],
+                    "helpUrl": f"https://docs.pravaha.io/errors/{stop['code']}"} if stop else None)
+        return {"state": "STOPPED" if stop else "RUNNING", "description": "reading txn (1 partition)",
+                "sources": [{"stream": "txn", "partition": 0, "state": "STOPPED" if stop else "RUNNING",
+                             "shared": False, "origin": bool(stop), "failure": failure,
+                             "stoppedAt": stop["at"] if stop else None}],
+                "stoppedSources": 1 if stop else 0, "failure": failure}
 
     def query_plan(self, name):
         self._check()

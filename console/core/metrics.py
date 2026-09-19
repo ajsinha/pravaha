@@ -94,6 +94,8 @@ QUERY_METERS = {
     "pravaha_query_view_removals": "view_removals",
     "pravaha_query_watermark_lag_seconds": "watermark_lag_seconds",
     "pravaha_query_running": "running",
+    "pravaha_query_feed_stopped": "feed_stopped",
+    "pravaha_query_feed_failures_total": "feed_failures",
     "pravaha_query_subscribers": "subscribers",
     "pravaha_query_checkpoint_last_success_timestamp_seconds": "checkpoint_last_success",
     "pravaha_query_checkpoint_duration_seconds": "checkpoint_duration_seconds",
@@ -163,6 +165,8 @@ class Finding:
     query: str | None
     title: str
     detail: str
+    #: The engine's ``PRV-nnnn`` behind it, when there is one: the screen links it to its help page.
+    code: str | None = None
 
     def as_dict(self) -> dict:
         return dataclasses.asdict(self)
@@ -170,11 +174,31 @@ class Finding:
 
 SEVERITY_ORDER = {"critical": 0, "warn": 1, "info": 2}
 
+#: The title of the finding for a query whose source has stopped (FEED-1).
+SOURCE_STOPPED = "Source stopped"
+
+
+def source_stopped(name: str, stop: dict | None = None) -> Finding:
+    """A query that says RUNNING and whose view has stopped moving, because a source failed.
+
+    Critical, although the query is running: nothing it shows will change again until
+    somebody acts, which is what the verdict's worst tier is for.
+    """
+    stop = stop or {}
+    code = stop.get("code") or None
+    where = f" reading {stop['where']}" if stop.get("where") else ""
+    with_code = f" with {code}" if code else ""
+    return Finding("critical", name, SOURCE_STOPPED,
+                   f"{name} is RUNNING and its view has stopped moving: a source failed mid-read"
+                   f"{where}{with_code} and is not retried. Fix the cause, then drop and register "
+                   "the query again, or restart the node.", code)
+
 
 def findings(queries: dict[str, dict[str, Any]], *, state_warn: float = 0.75,
              state_critical: float = 0.9, lag_warn_seconds: float = 300.0,
              checkpoint_warn_seconds: float = 900.0,
-             registered_states: dict[str, str] | None = None) -> list[Finding]:
+             registered_states: dict[str, str] | None = None,
+             feed_stops: dict[str, dict] | None = None) -> list[Finding]:
     """The health rules, written once.
 
     Each rule names the query and says what to do, because "something is wrong" is the
@@ -188,6 +212,9 @@ def findings(queries: dict[str, dict[str, Any]], *, state_warn: float = 0.75,
                                f"{name} is registered but its lane is not running"
                                + (f" (state {state})" if state else "")
                                + ". Open it to see why, then resume or re-register."))
+        stop = (feed_stops or {}).get(name)
+        if stop is not None or q.get("feed_stopped") == 1:
+            out.append(source_stopped(name, stop))
         fraction = q.get("state_fraction")
         if fraction is not None and fraction >= state_critical:
             out.append(Finding("critical", name, "State ceiling nearly reached",

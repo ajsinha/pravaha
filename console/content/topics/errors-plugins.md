@@ -365,8 +365,16 @@ codes above) and, where the process is short of file descriptors, a hint naming 
 ### PRV-5092 — ingest: feed failed
 
 A source failed **after the query was already running**: the feed stopped part-way. The plugin's error
-follows. The query stops receiving rows; fix the source, then drop and register the query to reattach
-it.
+follows. The query stops receiving rows but stays `RUNNING`, and its view keeps answering at the
+frontier it reached; the stop is not retried. This code is for a stop that was not the source's own —
+an uncoded exception, a commit that threw — and a source that fails with its own code (`PRV-5040`,
+`PRV-5107`, …) is reported under that code instead.
+
+Where it shows: the query's page (**Source**), a critical finding on **Operations**, `pravaha
+queries` (`RUNNING (source stopped)` and a line with the code, the stream#partition and the time),
+`GET /api/v1/queries/{name}` (`feed`), `pravaha_query_feed_stopped{query=}`, `/status` (a count),
+the health indicator (`DEGRADED`) and an `ERROR` line in the node's log. Fix the source, then drop
+and register the query to reattach it, or restart the node.
 
 ### PRV-5093 — egress: no such sink plugin
 

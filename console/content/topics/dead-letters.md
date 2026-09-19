@@ -42,9 +42,18 @@ an `INT64` column.
 
 **No queue configured.** The decode failure ends the poll and stops the source for that query, and
 with it every other row in the file. The query goes on reporting `RUNNING`; its view simply stops
-growing. The feed records why it stopped (`PRV-5092` or the source's own code), but no API, CLI
-command or console screen shows that record yet (FEED-1): look for the source's error in the
-node's log. This used to be the only
+growing. Where to see why:
+
+- the query's page here, under **Source**: the code (`PRV-5040` for a line a file cannot decode,
+  the source's own code otherwise, `PRV-5092` when the feed stopped for a reason that was not the
+  source's), linked to its help, the stream and partition, and when;
+- **Operations**, where a stopped source is a critical finding and the verdict names the query;
+- `pravaha queries`, which shows the query as `RUNNING (source stopped)` and a line with the code;
+- `GET /api/v1/queries/{name}`, whose `feed` has the same, and `pravaha_query_feed_stopped`,
+  which is 1 while it lasts;
+- the node's log, which has an `ERROR` line naming the query, the stream and partition, and the code.
+
+A stopped source is not retried. This used to be the only
 behaviour a server had: one malformed field could take a whole file to zero rows with nothing in the
 query's state to show it (TIME-4).
 

@@ -5,7 +5,7 @@
   {% for q in items %}
   <tr>
     <td><a href="/queries/{{ q.name }}">{{ q.name }}</a></td>
-    <td><span class="chip {{ 'ok' if q.state == 'RUNNING' else 'bad' if q.state == 'FAILED' else 'mute' }}">{{ q.state }}</span></td>
+    <td><span class="chip {{ 'ok' if q.state == 'RUNNING' else 'bad' if q.state == 'FAILED' else 'mute' }}">{{ q.state }}</span>{% if q.source_stopped %} <span class="chip bad source-stopped" title="{{ t('queries.source_stopped_title') }}">{{ t('queries.source_stopped') }}{% if q.feed_code %} · {{ q.feed_code }}{% endif %}</span>{% endif %}</td>
     <td class="num">{{ "{:,}".format(q.rows_in) }}</td>
     <td>{% if q.shared %}<span class="chip warn" title="{{ t('queries.shared_title') }}">{{ t('queries.shared') }}</span>{% endif %}</td>
     {% if wide %}

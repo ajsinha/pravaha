@@ -67,6 +67,16 @@ class Query:
     key_columns: tuple = ()
     sink: str | None = None
     retention: str | None = None
+    #: Whether rows still reach it, and why not (FEED-1); see :class:`core.engine.QueryRow`.
+    feed: str | None = None
+    feed_code: str | None = None
+    feed_message: str | None = None
+    feed_where: str | None = None
+    feed_at: str | None = None
+
+    @property
+    def source_stopped(self) -> bool:
+        return self.feed == "STOPPED"
 
     def as_dict(self) -> dict:
         out = dataclasses.asdict(self)
@@ -296,6 +306,11 @@ class QueryService:
             key_columns=tuple(getattr(row, "key_columns", ()) or ()),
             sink=getattr(row, "sink", None),
             retention=getattr(row, "retention", None),
+            feed=getattr(row, "feed", None),
+            feed_code=getattr(row, "feed_code", None),
+            feed_message=getattr(row, "feed_message", None),
+            feed_where=getattr(row, "feed_where", None),
+            feed_at=getattr(row, "feed_at", None),
         )
 
 
@@ -956,6 +971,9 @@ class OpsService:
         except ServiceError as exc:
             registered, registry_error = {}, str(exc)
         states = {name: q.state for name, q in registered.items()}
+        # FEED-1: a query whose source stopped says RUNNING; this is how the dashboard knows.
+        feed_stops = {name: {"code": q.feed_code, "where": q.feed_where}
+                      for name, q in registered.items() if q.source_stopped}
         per_query = []
         names = sorted(set(scraped["queries"]) | set(registered))
         for name in names:
@@ -968,6 +986,8 @@ class OpsService:
             numbers["name"] = name
             query = registered.get(name)
             numbers["state"] = query.state if query else None
+            numbers["feed"] = query.feed if query else None
+            numbers["feed_code"] = query.feed_code if query else None
             numbers["shared"] = query.shared if query else False
             numbers["fingerprint"] = query.fingerprint if query else None
             if numbers.get("rows_in") is None and query is not None:
@@ -975,13 +995,17 @@ class OpsService:
             numbers["metrics_published"] = name in scraped["queries"]
             per_query.append(numbers)
         found = metrics.findings(scraped["queries"], lag_warn_seconds=self._lag_warn,
-                                 registered_states=states)
+                                 registered_states=states, feed_stops=feed_stops)
         # A query the registry lists as FAILED but the metrics have not caught up with yet
         # (they reconcile every fifteen seconds) is still a finding.
         for name, state in states.items():
             if state == "FAILED" and not any(f.query == name for f in found):
                 found.insert(0, metrics.Finding("critical", name, "Not running",
                                                 f"{name} is FAILED. Open it to see why."))
+        # Likewise a stopped source the metrics have not published yet.
+        for name, stop in feed_stops.items():
+            if not any(f.query == name and f.title == metrics.SOURCE_STOPPED for f in found):
+                found.insert(0, metrics.source_stopped(name, stop))
         return {
             "at": scraped["at"],
             "metrics": {"reachable": scraped["reachable"], "error": scraped["error"]},
