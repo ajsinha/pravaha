@@ -1,0 +1,401 @@
+---
+title: The postgres-cdc source — change data capture from PostgreSQL
+slug: source-postgres-cdc
+category: sources
+order: 45
+icon: journal-arrow-down
+summary: "Streams one PostgreSQL table's inserts, updates and deletes through logical replication: +1 and −1 weights, an update as both, exactly once through a slot confirmed at checkpoints. The prerequisites, the slot, and the recoveries."
+badge: SOURCE
+audience: Operators
+keywords: [postgres-cdc, cdc, change data capture, postgresql, logical replication, pgoutput, wal, wal_level, replication slot, slot, publication, replica identity full, lsn, heartbeat, slot lag, truncate, debezium, retraction, delete]
+guide: operations#change-data-capture-the-replication-slot
+related: [sources-overview, source-jdbc, zset-weights, checkpoints-recovery, sink-kafka, delivery-guarantees, connector-security]
+---
+
+The `postgres-cdc` plugin reads a PostgreSQL table's **changes** — every committed `INSERT`, `UPDATE`
+and `DELETE` — from the database's own write-ahead log, through PostgreSQL's logical replication: a
+replication slot, a publication, and the built-in `pgoutput` stream, decoded by the plugin. It is
+built natively rather than through Debezium ([ADR-041](/help/decisions/041-change-data-capture-without-debezium)).
+
+It is the one shipped source that is a true **changelog**. Every other database source sees a row's
+value at the moment it looks: a poll or a scan cannot see a delete, and an update is a new value with
+nothing withdrawn. Here an insert arrives at weight `+1`, a delete as the whole old row at `−1`, and an
+update as **both** — the old row at `−1`, then the new one at `+1` — so a query's answer goes *down*
+when the table does.
+
+It is also the one source that leaves **state on the database server**: the replication slot, which
+keeps write-ahead log until Pravaha confirms it. Most of running this source is looking after that
+slot, and this page says how.
+
+## At a glance
+
+| | |
+|---|---|
+| Plugin name | `postgres-cdc` |
+| Module | `plugins/pravaha-plugin-postgres-cdc` — **not in the server jar**. The PostgreSQL JDBC driver (42.7 or later) is yours to supply, as for `jdbc` |
+| Database | PostgreSQL **14 or later**, nothing else |
+| Kind | stream source, one table per binding |
+| Delivery guarantee | **`EXACTLY_ONCE`** — the offset is a commit LSN, and the slot is confirmed only at checkpoints |
+| Replayable offsets / ordered | yes / yes |
+| Emits deletes / before-image | **yes / yes** — the first shipped source to declare both |
+| Pushdown | none — the stream is the table's whole rows |
+| Shared between queries | **no** — one slot, one reader, per registration |
+| Initial snapshot | **none**: changes from the moment the slot was created, nothing before |
+| Schema comes from | the table, or a declared `schema` checked against it |
+| Event time | the transaction's **commit time**, or an `event.time` timestamp column |
+
+## Before the first registration: the database
+
+Four things the database must allow. Each one missing is refused when the source opens, with
+PRV-5112 and the statement that fixes it — before any slot or publication is created.
+
+```text
+-- postgresql.conf, or:
+ALTER SYSTEM SET wal_level = logical;      -- then RESTART PostgreSQL; a reload changes nothing
+
+-- room for one slot and one sender per registration
+SHOW max_replication_slots;
+SHOW max_wal_senders;
+
+-- every captured table
+ALTER TABLE public.orders REPLICA IDENTITY FULL;
+
+-- a role that may replicate, and owns the table if the plugin is to create the publication
+CREATE ROLE pravaha_cdc WITH LOGIN REPLICATION PASSWORD '...';
+ALTER TABLE public.orders OWNER TO pravaha_cdc;
+
+-- recommended: cap what a slot may hold (see "The slot" below)
+ALTER SYSTEM SET max_slot_wal_keep_size = '50GB';
+```
+
+(PostgreSQL statements, run in `psql` — not Pravaha SQL; so are the other database statements on
+this page.)
+
+- **PostgreSQL 14 or later.** The heartbeat below needs `pgoutput`'s `messages` option, added in 14.
+- **`wal_level = logical`.** Read only at server start, so it is a change somebody schedules, not one
+  applied during an incident.
+- **`REPLICA IDENTITY FULL`** on the table. PostgreSQL's default puts only the primary key in an
+  update's or delete's before-image — so a delete would retract `(42)` where the view holds
+  `(42, 'silver', 'EU')`, nothing would match, and the view would stay wrong for ever with no error
+  anywhere. That is the trap this source exists to refuse. `FULL` writes the whole old row into the
+  WAL on every update and delete: a real cost on a wide, busy table, agreed to by whoever owns it.
+- **A publication** that publishes inserts, updates and deletes and includes the table. The plugin
+  creates `FOR TABLE <table>` if it may (`create.publication`); an existing one that is missing the
+  table, or does not publish updates and deletes, is refused naming the `ALTER PUBLICATION`.
+
+## Options
+
+| Option | Required | Default | What it does |
+|---|---|---|---|
+| `url` | yes | — | A `jdbc:postgresql:` URL. **TLS goes here** (`sslmode=verify-full&sslrootcert=...`); the replication connection is opened from the same URL. Anything else is PRV-5110 |
+| `table` | yes | — | `schema.table`, or a bare name in `public` |
+| `user` / `password` | no | empty | A role with `REPLICATION` |
+| `stream` | no | the table's name, without its schema | The stream name the plugin reports |
+| `slot` | no | `pravaha_<table>` | The replication slot. 1–63 of `a-z`, `0-9`, `_` |
+| `publication` | no | `pravaha_<table>` | The publication, same rule |
+| `create.slot` | no | `true` | `false`: the slot must exist, or open is refused naming the statement |
+| `create.publication` | no | `true` | `false`: the publication must exist and include the table |
+| `schema` | no | the table's columns | `name:TYPE,...`, checked against the table **by name**: a subset of its columns, in your order, an integer or float widened, a nullable column marked `?` (PRV-5113 otherwise) |
+| `event.time` | no | the commit time; on a server, the stream's declared `event-time` | A timestamp column whose value becomes each row's event time |
+| `heartbeat.interval` | no | `10s` | How often to write a position marker into the WAL so a quiet table's slot still advances. `0` turns it off |
+| `status.interval` | no | `10s` | How often the reader reports its position to the server. Must be positive — PostgreSQL ends a silent replication connection (`wal_sender_timeout`, 60s) |
+| `buffer.rows` | no | `100000` | Decoded rows waiting for the engine before the reader stops reading |
+| `start.timeout` | no | `30s` | How long opening a reader waits to have read the log as far as it stood |
+| `slot.lag.warn.bytes` | no | `1073741824` (1 GiB) | Retained WAL past which the source's health is `DEGRADED` |
+| `drop.slot.on.close` | no | `false` | `true` drops the slot whenever the source closes, a node shutdown included — for tests and throwaway environments only |
+| `share.reader` | no | `true` | Read by the binding layer. An exactly-once source is never shared, so it has no effect here |
+| `tls.*` | — | — | **Refused** (PRV-5110), except `tls.enabled: false`: the driver takes TLS in the URL, and accepting `tls.*` would promise an encryption the connection never made |
+
+Durations take `500ms`, `10s`, `5m`, `1h`, or ISO-8601 (`PT10S`).
+
+### Types
+
+| PostgreSQL | Pravaha |
+|---|---|
+| `boolean` | `BOOLEAN` |
+| `smallint`, `integer`, `bigint` | `INT16`, `INT32`, `INT64` |
+| `real`, `double precision` | `FLOAT32`, `FLOAT64` |
+| `numeric(p,s)` | `DECIMAL`, its scale kept (unconstrained: `DECIMAL(38,9)`) |
+| `text`, `varchar`, `char`, `name`, `uuid`, an enum | `STRING` |
+| `bytea` | `BYTES` |
+| `date` | `DATE` |
+| `timestamp` (read as UTC), `timestamptz` | `TIMESTAMP` |
+| `json`, arrays, `time`, ranges, anything else | not mapped: PRV-5113. Leave the column out of a declared `schema` |
+
+## A complete binding
+
+The table `public.orders` holds the same columns as the stream, with `event_time timestamptz`:
+
+```yaml
+pravaha:
+  checkpoint:
+    directory: /var/lib/pravaha/checkpoints     # required: the slot is confirmed only at checkpoints
+    interval: 1m
+  streams:
+    orders:
+      schema: "order_id:INT64,customer_id:STRING,region:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP"
+      event-time: event_time
+      out-of-orderness: 30s
+  sources:
+    orders:
+      plugin: postgres-cdc
+      options:
+        url: "jdbc:postgresql://db-1.internal:5432/sales?sslmode=verify-full&sslrootcert=/etc/pravaha/tls/pg-ca.pem"
+        user: pravaha_cdc
+        password: "${PRAVAHA_CDC_PASSWORD}"
+        table: public.orders
+        schema: "order_id:INT64,customer_id:STRING,region:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP"
+        slot: pravaha_orders
+        publication: pravaha_orders
+        create.slot: "true"
+        create.publication: "true"
+        heartbeat.interval: 10s
+        status.interval: 10s
+        buffer.rows: "100000"
+        start.timeout: 30s
+        slot.lag.warn.bytes: "1073741824"
+        drop.slot.on.close: "false"
+```
+
+Two things this binding does on purpose:
+
+- **The declared `schema` is the stream's, column for column.** The plugin decodes with it and queries
+  are planned against `pravaha.streams.orders.schema`; writing the same string in both places is how
+  the two stay in step. Without it the plugin uses every column of the table in table order, which is
+  right only if the stream declares exactly those.
+- **`event-time: event_time`** on the stream is handed to the source as its `event.time`, so each row
+  carries the order's own time. Leave both out and a row's event time is the commit time of the
+  transaction that changed it — see the pitfall on windows below.
+
+## Weights: what a change becomes
+
+One `UPDATE` moving an order from `OPEN` to `SHIPPED`:
+
+```text
+UPDATE orders SET status = 'SHIPPED' WHERE order_id = 90114;
+```
+
+arrives as two rows, in one transaction:
+
+```text
+(90114, c42, EU, 250000, OPEN,    ...)   weight -1     <- the old row, from the before-image
+(90114, c42, EU, 250000, SHIPPED, ...)   weight +1     <- the new row
+```
+
+| In PostgreSQL | Reaches the engine as |
+|---|---|
+| `INSERT` | the new row at `+1` |
+| `DELETE` | the whole old row at `−1` |
+| `UPDATE` | the old row at `−1`, then the new row at `+1` |
+| `TRUNCATE` | **refused** — the stream stops (PRV-5116) |
+
+Every operator does the same arithmetic on both weights, so a filter drops or keeps each row on its
+own, a join withdraws a match, and an aggregate subtracts. See [Z-set weights](/help/topics/zset-weights).
+
+**Transactions arrive whole.** Nothing is handed over before the transaction's `Commit`, so a view
+never publishes half of one and a rolled-back transaction is never seen. A transaction larger than
+any batch the engine asks for is handed over in order across batches, and the offset records how far
+in, so a restore inside it delivers exactly the rest.
+
+**An unchanged large value is carried forward.** PostgreSQL does not repeat an out-of-line (TOAST)
+value an update did not touch; it sends a placeholder. The plugin fills it from the old row, which
+`REPLICA IDENTITY FULL` carries whole, and never writes the placeholder as data.
+
+## Queries over it
+
+The current open orders, withdrawn the moment they ship:
+
+```sql
+CREATE CONTINUOUS QUERY open_orders
+    KEYED BY (order_id)
+AS
+SELECT order_id, customer_id, region, amount, status
+FROM orders
+WHERE status = 'OPEN';
+```
+
+The `UPDATE` above: the `−1` of the `OPEN` row passes the filter and removes the order from the view;
+the `+1` of the `SHIPPED` row does not. A `DELETE` of an open order removes it the same way. Read it
+by key, or aggregate the view at read time:
+
+<!-- sql: read -->
+```sql
+SELECT region, COUNT(*) AS open_orders, SUM(amount) AS open_value
+FROM open_orders
+GROUP BY region
+```
+
+A running total over the whole table, maintained as rows come and go — a global aggregate has one
+group, so it is bounded:
+
+```sql
+CREATE CONTINUOUS QUERY open_order_totals
+    KEYED BY (open_orders)
+AS
+SELECT COUNT(*) AS open_orders, SUM(amount) AS open_value
+FROM orders
+WHERE status = 'OPEN';
+```
+
+With 900 open orders, shipping one takes `open_orders` to 899 and `open_value` down by its amount;
+a subscriber sees the old row at `−1` and the new one at `+1` in one commit.
+
+A **keyed** aggregate over the stream is refused exactly as it is over any stream — a changelog does
+not make one group per customer bounded:
+
+<!-- sql: refused PRV-2050 -->
+```sql
+SELECT customer_id, SUM(amount) AS open_value FROM orders WHERE status = 'OPEN' GROUP BY customer_id
+```
+
+Keep the rows in a keyed view, as `open_orders` does, and group at read time; or window the aggregate.
+
+## Exactly once: the slot is confirmed at checkpoints
+
+The source's offset is a **commit LSN** — a position in the log — and replay from one is
+deterministic. Three things make the guarantee `EXACTLY_ONCE`:
+
+1. The reader drops anything ending at or before the position it resumes from, so a restore delivers
+   exactly what the checkpoint does not already hold.
+2. **The slot is confirmed only at positions a durable checkpoint recorded**, never at what was merely
+   delivered, and never backwards. PostgreSQL therefore never discards WAL a restore could ask for.
+3. A restore that asks for a position the slot has **already confirmed past** is refused (PRV-5115)
+   rather than silently resumed from wherever the slot now is — which is what PostgreSQL itself would
+   do.
+
+The consequence is the rule for operating it: **checkpointing is required, not optional.** A node
+without `pravaha.checkpoint.directory` never confirms anything, and the slot keeps every byte of WAL
+since it was created. `pravaha.checkpoint.interval` (a minute by default) is also roughly how far the
+slot's confirmed position trails the reader.
+
+What the guarantee does not survive is the slot itself going away — dropped, invalidated, lost in a
+failover. That is detected and refused, never skipped over.
+
+## The slot
+
+A replication slot keeps write-ahead log from its last confirmed position, and **nothing else ever
+deletes that WAL**. A Pravaha node that stops reading — dead, partitioned, or simply not
+checkpointing — does not fail: the database's disk fills behind it.
+
+**The heartbeat.** The slot moves only when the reader sees something, and it sees only the captured
+table. On a quiet table in a busy database the position would stand still while WAL piles up. Every
+`heartbeat.interval` the reader writes a tiny non-transactional `pg_logical_emit_message` into the WAL;
+it comes back through the slot behind everything committed before it, the position moves to it, and
+the next checkpoint confirms it. `heartbeat.interval: 0` turns it off — right only for a table that is
+never quiet.
+
+**Slot lag, in the source's health.** The source reports the slot as its health:
+`slot 'pravaha_orders' active, retaining N bytes of WAL, confirmed position X/Y (M bytes behind)`. It
+turns `DEGRADED` past `slot.lag.warn.bytes`, when PostgreSQL marks the slot's WAL `unreserved`, or
+while its reader is reconnecting; `UNHEALTHY` when the slot is gone or invalidated. Watch it **from the
+database too** — a node that is down cannot report its own lag:
+
+```text
+SELECT slot_name, active,
+       pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn))        AS retained,
+       pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), confirmed_flush_lsn)) AS confirmed_lag,
+       wal_status
+FROM pg_replication_slots WHERE slot_name LIKE 'pravaha_%';
+```
+
+Alert on `retained` growing without bound, on `active = false` for longer than a
+restart takes, and on `wal_status` leaving `reserved`.
+
+**Cap it.** `max_slot_wal_keep_size` invalidates a slot that would hold more than the limit — the disk
+is protected, the slot is lost. Choose it as "how long a Pravaha outage may last" times "WAL written
+per hour".
+
+**One slot per registration.** A slot has one reader, and an exactly-once source is never shared, so
+two registrations reading the same stream need two bindings with two slots. A second reader of a slot
+already being read waits a few seconds and then fails.
+
+## No initial snapshot
+
+The source delivers changes **from the moment its slot was created**. Rows already in the table then
+are not delivered, so a view over a table that already holds rows starts without them. Register the
+query before the table is loaded, or load its history another way. (The exact seam for a snapshot is
+known; a checkpoint cut *during* the snapshot read has no exact resume point yet, and shipping a
+snapshot that is exact only when nothing restarts would be worse than none.)
+
+## Recovery: when the slot cannot be resumed
+
+A dropped slot, an invalidated one (`wal_status = 'lost'`), a `TRUNCATE` of the captured table, and a
+restore the slot has overtaken all end the same way: **the changes in between are gone from the log**,
+and nothing can replay them. The recovery is one procedure:
+
+1. Stop the registration (`DROP CONTINUOUS QUERY open_orders`).
+2. Delete its checkpoint directory, so no restore asks for the lost position.
+3. Drop the slot on the database, after the reader has stopped (an active slot cannot be dropped):
+
+    ```text
+    SELECT pg_drop_replication_slot('pravaha_orders');
+    ```
+
+4. Register the query again. It is rebuilt from the table's changes from that moment; rows already in
+   the table are not replayed, because there is no initial snapshot.
+
+After a **failover**, whether the slot exists on the new primary depends on the PostgreSQL version and
+on slot synchronisation (`sync_replication_slots`, PostgreSQL 17). Where it does not, the source
+refuses at the next open, and the recovery is the one above.
+
+**Retiring a binding for good**, drop its slot and, if nothing else uses it, its publication — the
+slot does not go with the registration:
+
+```text
+SELECT pg_drop_replication_slot('pravaha_orders');
+DROP PUBLICATION IF EXISTS pravaha_orders;
+```
+
+## Troubleshooting
+
+| Code | When | Usually |
+|---|---|---|
+| [PRV-5110](/help/codes/PRV-5110) | at configuration | An option missing or malformed: a URL that is not `jdbc:postgresql:`, a slot name with a capital, `status.interval: 0`, a `tls.*` option |
+| [PRV-5111](/help/codes/PRV-5111) | at open | The database unreachable, the credentials refused, or the PostgreSQL driver not on the classpath |
+| [PRV-5112](/help/codes/PRV-5112) | at open | A prerequisite missing — `wal_level`, `REPLICA IDENTITY FULL`, the publication, PostgreSQL 14 — or the slot missing, invalidated, or another plugin's. The message names the statement that fixes it |
+| [PRV-5113](/help/codes/PRV-5113) | at open | A declared `schema` that disagrees with the table, or a column with no mapping |
+| [PRV-5114](/help/codes/PRV-5114) | at restore | A checkpoint holds an offset this plugin did not write |
+| [PRV-5115](/help/codes/PRV-5115) | at restore | The slot has confirmed past the checkpoint being restored. Recover as above |
+| [PRV-5116](/help/codes/PRV-5116) | while running | A `TRUNCATE`, or a key-only before-image (the replica identity was changed while capturing). Everything before it was delivered. Recover as above |
+| [PRV-5117](/help/codes/PRV-5117) | while running | The replication stream failed in a way no reconnect fixes: the slot dropped or invalidated, the role's privileges revoked |
+
+## Pitfalls
+
+!!! danger "Pitfall: a Pravaha outage becomes a PostgreSQL outage"
+    The slot retains WAL until confirmed. A node that is down, or a node that never checkpoints, fills
+    the database's disk. Set `pravaha.checkpoint.directory`, keep the heartbeat on, cap the slot with
+    `max_slot_wal_keep_size`, and monitor `pg_replication_slots` from the database side.
+
+!!! danger "Pitfall: `TRUNCATE` stops the source"
+    A truncate carries no rows, so there is nothing to retract, and retracting "what the view holds"
+    would need the table's contents at that point in the log, which the log does not have. Use
+    `DELETE FROM` on a captured table to have its rows withdrawn.
+
+!!! warning "Pitfall: windows over a changelog group by when the change happened"
+    An update's `−1` and `+1` carry one event time. With the default (the commit time) a correction to
+    last month's order lands in *this* minute's window, not last month's; with `event.time` naming the
+    row's own timestamp, a correction to an old row arrives far behind the watermark and is late. A
+    keyed view of current state, or a global aggregate, is the natural shape over this source.
+
+!!! warning "Pitfall: `MIN` and `MAX` cannot take a retraction"
+    Knowing the current minimum does not tell you the previous one once it is withdrawn, so a global
+    `MIN`/`MAX` that receives a `−1` fails at runtime rather than guessing. Over this source,
+    aggregate with `COUNT` and `SUM`, or keep the rows in a keyed view and take the extreme at read
+    time.
+
+!!! warning "Pitfall: `drop.slot.on.close` in production"
+    It drops the slot at every shutdown, so every restart has no position to resume from and a
+    restored view misses everything in between. It exists for tests.
+
+!!! note "Polling is not the legacy option"
+    CDC needs a restart for `wal_level`, a `REPLICATION` role and `REPLICA IDENTITY FULL` on
+    production tables — permissions a DBA grants. Where deletes need not reduce an answer, the
+    [jdbc source](/help/topics/source-jdbc) needs only `SELECT` and leaves no state on the server.
+
+## Where next
+
+- [The Kafka sink](/help/topics/sink-kafka) — deletes in the table reaching a topic as tombstones
+- [Z-set weights](/help/topics/zset-weights) — what `+1` and `−1` do in every operator
+- [Checkpoints and recovery](/help/topics/checkpoints-recovery) — what the slot's confirmation rests on
+- [The jdbc source](/help/topics/source-jdbc) — polling, when CDC is not available
+- [Sources overview](/help/topics/sources-overview) — every source side by side

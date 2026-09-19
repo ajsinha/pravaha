@@ -426,7 +426,13 @@ PLUGINS = {
     "aerospike": "plugins/pravaha-plugin-aerospike", "aerospike-lookup": "plugins/pravaha-plugin-aerospike",
     "aerospike-sink": "plugins/pravaha-plugin-aerospike",
     "cassandra": "plugins/pravaha-plugin-cassandra",
+    "postgres-cdc": "plugins/pravaha-plugin-postgres-cdc",
+    "kafka-sink": "plugins/pravaha-plugin-kafka",
 }
+
+#: Option prefixes a plugin passes through whole, so no literal in its code names each option:
+#: kafka-sink hands every `kafka.<property>` to the Kafka clients, which refuse a name they lack.
+PASS_THROUGH = {"kafka-sink": ("kafka.",)}
 
 
 def _literals(module: str) -> set[str]:
@@ -469,6 +475,8 @@ def test_every_yaml_example_parses_and_every_option_is_one_its_plugin_reads():
                         continue
                     known = literals.setdefault(plugin, _literals(PLUGINS[plugin]))
                     for option in (binding.get("options") or {}):
+                        if option.startswith(PASS_THROUGH.get(plugin, ())):
+                            continue
                         if option not in known:
                             problems.append(f"{path.name}: {plugin} does not read an option called {option!r}")
     assert blocks >= 20, f"only {blocks} YAML examples"
