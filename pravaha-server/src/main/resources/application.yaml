@@ -262,7 +262,11 @@ pravaha:
     #
     # Give every entry at least this one property for a second reason: `x: {}` flattens to no
     # property at all, so Spring's binder never sees the key, the credential is in the file and in
-    # no verifier, and there is nothing in the process that can notice (CFG-10).
+    # no verifier, and there is nothing in the process that can notice (CFG-10). Because nothing
+    # can refuse it, the node states the number instead: it logs "N credentials configured under
+    # pravaha.security.tokens" at startup, so a file declaring more than N shows the discrepancy
+    # there rather than at somebody's first 401. The two neighbouring mistakes ARE refused --
+    # `x:` with a null value fails the bind naming the key, and `x: {id: ""}` gives PRV-7004.
     #
   # tokens:
   #   "a-long-random-string":

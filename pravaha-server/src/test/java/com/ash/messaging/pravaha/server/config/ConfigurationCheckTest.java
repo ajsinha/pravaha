@@ -62,7 +62,10 @@ class ConfigurationCheckTest {
                 binder.bind("pravaha", SourceBindingProperties.class).orElseGet(SourceBindingProperties::new);
         SinkBindingProperties sinks =
                 binder.bind("pravaha", SinkBindingProperties.class).orElseGet(SinkBindingProperties::new);
-        return new ConfigurationCheck(environment, streams, sources0, sinks);
+        com.ash.messaging.pravaha.server.security.SecurityProperties security = binder.bind(
+                        "pravaha.security", com.ash.messaging.pravaha.server.security.SecurityProperties.class)
+                .orElseGet(com.ash.messaging.pravaha.server.security.SecurityProperties::new);
+        return new ConfigurationCheck(environment, streams, sources0, sinks, security);
     }
 
     // ------------------------------------------------------------------ DOCX-21
@@ -120,6 +123,100 @@ class ConfigurationCheckTest {
         assertThat(com.ash.messaging.pravaha.api.HelpUrls.configured()).isFalse();
         assertThat(new com.ash.messaging.pravaha.api.ErrorCode(2002, "X").helpUrl())
                 .isEmpty();
+    }
+
+    // ------------------------------------------------------------------ CFG-10(a)
+
+    /**
+     * The measurement the fix rests on, kept as a test so it cannot quietly stop being true.
+     *
+     * <p>Three ways to write a broken credential, through Spring's own loader and binder. Only one
+     * of the three is invisible, and which one decides whether CFG-10(a) can be a refusal at all.
+     */
+    @Test
+    void onlyAnEmptyMappingIsInvisibleAndTheOtherTwoAlreadyFail_CFG10() {
+        // z: {id: ""} -- binds, and SecurityProperties.validate refuses it by name with PRV-7004
+        // (CFG-11, already covered by ServerSecurityTest). The point here is only that it binds:
+        // an entry the binder produces is an entry something can check.
+        assertThat(checkOf("""
+                                pravaha:
+                                  security:
+                                    authentication: token
+                                    tokens:
+                                      z: {id: ""}
+                                """).credentialCountLine()).startsWith("1 credential configured");
+
+        // y: -- a key with a null value. The binder fails outright, naming the key, before
+        // anything in this class is reached.
+        assertThatThrownBy(() -> checkOf("""
+                        pravaha:
+                          security:
+                            authentication: token
+                            tokens:
+                              y:
+                        """))
+                .as("a null value fails the bind, loudly")
+                .hasMessageContaining("pravaha.security.tokens.y");
+
+        // x: {} -- an empty mapping. It contributes no leaf, so it is absent from the Environment
+        // as well as from the bound map: nothing in this process knows it was written. This is the
+        // one that cannot be refused, and the reason CFG-10(a)'s answer is a count.
+        ConfigurationCheck invisible = checkOf("""
+                pravaha:
+                  security:
+                    authentication: token
+                    tokens:
+                      q: {id: q1}
+                      x: {}
+                """);
+        assertThatCode(invisible::check).doesNotThrowAnyException();
+        assertThat(invisible.credentialCountLine()).startsWith("1 credential configured");
+    }
+
+    /**
+     * CFG-10(a)'s remedy: the node states the number, so a file declaring more than that number is
+     * a discrepancy the operator reads at startup rather than in a ticket about 401s.
+     */
+    @Test
+    void anAuthenticatingNodeSaysHowManyCredentialsItWillVerify_CFG10() {
+        assertThat(checkOf("""
+                                pravaha:
+                                  security:
+                                    authentication: token
+                                    tokens:
+                                      ann-token: {id: ann}
+                                      bob-token: {id: bob, tenant: t1, roles: [reader]}
+                                """).credentialCountLine())
+                .startsWith("2 credentials configured under pravaha.security.tokens")
+                .contains("x: {}")
+                .contains("x: {id: x}")
+                .contains("more than 2");
+    }
+
+    /**
+     * And the line never carries a credential, because the map key is the bearer token (CFG-11).
+     * A line naming the entries would put the secrets into the startup log this fix exists to put
+     * a diagnosis into.
+     */
+    @Test
+    void theCountLineDoesNotPrintTheCredentials_CFG10() {
+        assertThat(checkOf("""
+                                pravaha:
+                                  security:
+                                    authentication: token
+                                    tokens:
+                                      s3cr3t-value: {id: ann}
+                                """).credentialCountLine()).doesNotContain("s3cr3t-value");
+    }
+
+    /** A node that does not authenticate has nothing to say about a token table. */
+    @Test
+    void aNodeThatDoesNotAuthenticateSaysNothingAboutCredentials_CFG10() {
+        assertThat(checkOf("""
+                                pravaha:
+                                  security:
+                                    authentication: none
+                                """).credentialCountLine()).isNull();
     }
 
     // ------------------------------------------------------------------ CFG-3(a)

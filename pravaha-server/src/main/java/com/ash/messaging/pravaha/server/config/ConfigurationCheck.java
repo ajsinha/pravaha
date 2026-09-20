@@ -86,24 +86,84 @@ public class ConfigurationCheck {
     private final com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties declaredStreams;
     private final com.ash.messaging.pravaha.server.ingest.SourceBindingProperties sources;
     private final com.ash.messaging.pravaha.server.egress.SinkBindingProperties sinks;
+    private final com.ash.messaging.pravaha.server.security.SecurityProperties security;
 
     public ConfigurationCheck(
             Environment environment,
             com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties declaredStreams,
             com.ash.messaging.pravaha.server.ingest.SourceBindingProperties sources,
-            com.ash.messaging.pravaha.server.egress.SinkBindingProperties sinks) {
+            com.ash.messaging.pravaha.server.egress.SinkBindingProperties sinks,
+            com.ash.messaging.pravaha.server.security.SecurityProperties security) {
         this.environment = environment;
         this.declaredStreams = declaredStreams;
         this.sources = sources;
         this.sinks = sinks;
+        this.security = security;
     }
 
     @jakarta.annotation.PostConstruct
     public void check() {
         applyDocsBaseUrl();
         refuseKeysThatReachedNothing();
+        reportCredentialCount();
         refuseBareNumberDurations();
         reconcileStreamsAndSources();
+    }
+
+    // ---------------------------------------------------------------- CFG-10(a)
+
+    /**
+     * States how many credentials this node will verify, because the alternative is silence.
+     *
+     * <p>CFG-10(a). {@code pravaha.security.tokens.x: {}} is the one spelling of a broken
+     * credential that nothing in this process can refuse, and that was measured rather than
+     * assumed. Spring's own {@code YamlPropertySourceLoader} flattens
+     *
+     * <pre>
+     * tokens:
+     *   q: {id: q1}
+     *   x: {}
+     *   y:
+     *   z: {id: ""}
+     * </pre>
+     *
+     * to {@code tokens.q.id=q1}, {@code tokens.y=""} and {@code tokens.z.id=""} -- and
+     * <strong>nothing at all</strong> for {@code x}. An empty mapping contributes no leaf, so that
+     * key is missing from the {@code Environment} as well as from the bound map, and no object
+     * anywhere in this JVM knows it was written. The other two spellings are already loud:
+     * {@code y:} fails the bind outright, with a {@code BindException} naming
+     * {@code pravaha.security.tokens.y}, and {@code z: {id: ""}} is refused by
+     * {@code SecurityProperties} with {@code PRV-7004}.
+     *
+     * <p>So this cannot be a refusal, and writing one would be a check that never fires. What it
+     * can be is a number: the node says how many credentials it will verify, and an operator who
+     * wrote three and reads one has the discrepancy in front of them at startup rather than in a
+     * support ticket about 401s. That is CFG-10(b)'s remedy for the empty table, applied to the
+     * case one entry up.
+     *
+     * <p>The credentials are not printed, and cannot be: the map key <em>is</em> the bearer token
+     * (CFG-11).
+     *
+     * @return the line, or null on a node that does not authenticate
+     */
+    String credentialCountLine() {
+        if (!security.authenticates()) {
+            return null;
+        }
+        int bound = security.getTokens().size();
+        return bound + " credential" + (bound == 1 ? "" : "s")
+                + " configured under pravaha.security.tokens. A credential written as an empty mapping -- "
+                + "x: {} -- carries no property, so Spring's binder never sees the key and this node never "
+                + "learns it was written: if your configuration declares more than " + bound + ", that is "
+                + "why, and x: {id: x} is the spelling that binds. The credentials are not printed here, "
+                + "because the map key is the bearer token.";
+    }
+
+    private void reportCredentialCount() {
+        String line = credentialCountLine();
+        if (line != null) {
+            log.info("{}", line);
+        }
     }
 
     // ---------------------------------------------------------------- DOCX-21
