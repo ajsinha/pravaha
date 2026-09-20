@@ -958,6 +958,26 @@ This is ordinary SQL over the view, planned and executed by **the same planner a
 continuous query uses** — so a `WHERE` means exactly what it means in a CQ rather than nearly. §10
 says what that shared surface is and where the one asymmetry lies.
 
+**How the read finds its rows.** The `WHERE` clause decides, and the answer never does:
+
+| What you wrote | How it is answered |
+|---|---|
+| The whole key by equality — `WHERE user_id = 'u_42'` on a view keyed by `user_id` | One hash probe. A view already *is* a map keyed by that, so nothing has to be declared and no index is built |
+| The key's leading columns by equality and its last between bounds — `WHERE user_id = 'u_42' AND window_end >= 1000 AND window_end < 2000` | The ordered index. Walks the run, not the view |
+| Anything else — a partial key, a column outside the key, an `OR` across keys | Every committed row, filtered. Best effort, and honest about it |
+
+The filter runs either way, so which path a read takes changes what it costs and not what it says.
+`RANGE (column)` at registration is what tells you, *then*, that the column can be ordered at all
+(`PRV-2073`); the index itself is available on any view whose key ends in an orderable column, and
+is built the first time a range read needs one — see
+[ADR-047](adr/047-an-ordered-index-over-the-keys-last-column.md) for why the declaration is a check
+rather than an allocation. The ordered index holds one entry per row — a reference, not a copy — so the view's key ceiling
+bounds it too; it is built the first time a range read needs it, maintained by every commit
+afterwards, and dropped and rebuilt on a restore. A row whose ordered column is `NULL` is in no
+index entry, which is the same thing SQL says about it: `NULL > 1000` is UNKNOWN, and `WHERE` reads
+that as false. All of this is the same for Flight SQL, for `GET /api/v1/views/{name}/query` and for
+the PostgreSQL gateway, because all three run the same reader.
+
 Or subscribe, and receive each committed change as it happens:
 
 ```bash
@@ -1339,6 +1359,7 @@ costs whatever was decided on the strength of it.
 ```
 CREATE [OR REPLACE] CONTINUOUS QUERY name
     KEYED BY (column [, column]...)
+    [RANGE (column)]
     [WRITING TO sink]
     [RETAIN FOR duration | RETAIN FOREVER]
     [WITH (option = value [, option = value]...)]
@@ -1353,8 +1374,10 @@ SHOW   CONTINUOUS QUERIES
 - **Keywords in any case; names plain or double-quoted** (`"audit-log"`, with `""` for a quote).
   A name keeps its case, as every identifier here does. The query's name follows the registry's
   rule — a name a `FROM` clause can hold — so a reserved word is refused with `PRV-8008`.
-- **The clauses before `AS` in any order, each once.** `KEYED BY` is required: a view with no key is
-  a log.
+- **The clauses before `AS` in any order, each once.** A key is required: a view with no key is a
+  log, and a point read against it has nothing to look up. `KEYED BY` says it, and so do `RANGE`
+  alone (the ordered column is then the whole key) and `WITH (keys = '...')`. Saying it two ways is
+  refused rather than resolved.
 - **`KEYED BY` names output columns** — by alias where the `SELECT` list gives one, so
   `SUM(amount) AS total` is `total`. The `SELECT` is planned to turn the names into the ordinals the
   view is keyed by; a name it does not produce is refused with `PRV-2071`, and so is a name given
@@ -1366,12 +1389,39 @@ SHOW   CONTINUOUS QUERIES
   holds.
 - **One trailing semicolon** is accepted, and so are comments.
 
+- **`RANGE (column)`** asks for an ordered index over the key's **last** column, so that a read
+  which pins the columns before it and bounds that one is answered by walking the run rather than
+  the view (§4). The design writes it `INDEXED BY (user_id) RANGE (window_end)`, and that is what
+  it means here: `user_id` is probed, `window_end` is scanned between bounds, and the two together
+  are the key — a column the key does not already end with is appended to it. One column only, and
+  it must be the key's last, or the columns after it would be what an index entry is sorted by. A
+  column this engine has no total order for is refused at registration with `PRV-2073`, which says
+  which of the reasons applies.
 - **`OR REPLACE`** starts a blue/green replacement when the name already exists (§8.1), and is an
   ordinary `CREATE` when it does not — so the same script runs on the first deployment and on the
   tenth. It does **not** take the name from its readers: the new version is registered beside the
   running one and the statement answers with the state it is in, which is `BACKFILLING`.
-- **`WITH (...)`** carries a replacement's options, and only a replacement's. On a plain `CREATE` it
-  is refused with `PRV-2072`, because none of its options mean anything there.
+- **`WITH (...)`** is one list parser and two vocabularies, chosen by the statement. On a plain
+  `CREATE` it takes a registration's options, which are the arguments `pravaha register` already
+  took:
+
+  | Option | Means | The other way to say it |
+  |---|---|---|
+  | `retention` | How long the view keeps a row, in event time: `'24h'`, `'7d'`, `'PT30M'`, `PT24H`, or `'forever'` | `RETAIN FOR <duration>` / `RETAIN FOREVER` |
+  | `sink` | The binding under `pravaha.sinks` the changelog is written to | `WRITING TO <sink>`, `pravaha register --sink` |
+  | `keys` | The view's key columns, comma-separated, as the `SELECT` list spells them | `KEYED BY (...)` (`pravaha register --keys` takes ordinals) |
+
+  On `CREATE OR REPLACE` it takes a replacement's instead — `backfill`, `backfill.rate.limit`,
+  `cutover`, `rollback.retention` (§8.1). Either way an option the engine does not build is refused
+  by name with the list of the ones that do — `PRV-8011` on a registration, `PRV-4018` on a
+  replacement — and so is the same setting said twice (`RETAIN FOR` and `retention`, or two
+  different sinks). An option's name may be bare, or quoted
+  as the design writes it: `WITH ('retention' = '24h')`. The short duration form is quoted, because
+  `24h` is a number followed by a word to any lexer.
+
+  Not built, and refused rather than accepted and dropped: the design's `consistency.default` —
+  consistency is chosen by the reader and per read (§4) — and `parallelism` and `allowed.lateness`,
+  which are the engine's to decide.
 
 **What each answers.** `CREATE`: one row — `name`, `state`, `fingerprint`, `sink`. `DROP`, `PAUSE`,
 `RESUME`: `name` and the state it is now in (`DROPPED`, `PAUSED`, `RUNNING`). `SHOW CONTINUOUS
@@ -1387,18 +1437,23 @@ spelling changes nothing about who may do what.
 
 **The design's spellings are accepted where they mean the same thing** (design §11.2): `INTO sink`
 for `WRITING TO sink`, `INDEXED BY (...)` for `KEYED BY (...)`, `SERVE AS VIEW name` when it names
-the query itself, and a trailing `EMIT CHANGES` — which every continuous query does. The rest of
-that design is refused by name with `PRV-2072` rather than ignored: `INDEXED BY ... RANGE (...)`, a
-`WITH (...)` option list on a plain `CREATE` (read a retention there as ignored and a view you asked
-to keep for a day is kept for ever), `EMIT CHANGES WITH (...)`, and a `SERVE AS VIEW` naming
-something other than the query — here a query and its view are one name. `CREATE OR REPLACE` was on
-that list until there was a mechanism behind it that does not take a running query's answers away
-(§8.1, [ADR-046](adr/046-a-replacement-meets-the-running-version-at-a-position.md)).
+the query itself, and a trailing `EMIT CHANGES` — which every continuous query does. Two things in
+that design are still refused by name rather than ignored: `EMIT CHANGES WITH (...)` (`PRV-2072`),
+because every continuous query emits its changes and its options are a query's, not a clause's; and
+a `SERVE AS VIEW` naming something other than the query, because here a query and its view are one
+name. `CREATE OR REPLACE` was on that list until ADR-046, and `INDEXED BY ... RANGE` and a
+`WITH (...)` list on a plain `CREATE` until B8 — what replaced them is not a looser refusal but a
+narrower one, with its own code and its own sentence
+([ADR-047](adr/047-an-ordered-index-over-the-keys-last-column.md)).
 
 **Why this grammar.** `KEYED BY` says what the clause does — a second row with the same key replaces
-the first — where `INDEXED BY` suggests an index beside the view, which nothing builds. `WRITING TO`
-reads as what happens and cannot be mistaken for `INSERT INTO`, which stays refused (§15,
-[ADR-043](adr/043-how-a-continuous-query-names-its-sink.md)). The statements are recognised before
+the first — where `INDEXED BY` reads as an index beside the view, which is not what it is: it names
+the key, and `RANGE` is what asks for the index. `WRITING TO` reads as what happens and cannot be
+mistaken for `INSERT INTO`, which stays refused (§15,
+[ADR-043](adr/043-how-a-continuous-query-names-its-sink.md)): it carries neither the name the query
+is managed and read by — which is not the sink's, and would collide the moment a second query wrote
+to the same sink — nor the key the view needs, and a view keyed on a guess conflates rows that were
+never the same row. The refusal names the three ways to say it instead. The statements are recognised before
 Calcite, by their leading words, rather than added to a fork of Calcite's grammar: only the `SELECT`
 needs a SQL parser, and it gets the real one, exactly as a registration argument does. A statement
 that starts as one of these and goes wrong is refused with `PRV-2070`, the shape that was expected,
@@ -1629,7 +1684,7 @@ then, the message says plainly what is wrong.
 | `IN (subquery)`, `EXISTS`, scalar subqueries | ❌ | `PRV-2021` |
 | Window functions — `ROW_NUMBER() OVER (…)` | ❌ | `PRV-2021` |
 | `VALUES` | ❌ | `PRV-2020` |
-| `INSERT`, `UPDATE`, `DELETE` | ❌ | `PRV-2020` — Pravaha answers questions; sinks write results. A query writes to a sink with `CREATE CONTINUOUS QUERY ... WRITING TO` (§10.1) |
+| `INSERT`, `UPDATE`, `DELETE`, `MERGE` | ❌ | `PRV-2020` — Pravaha answers questions; sinks write results, and there is nothing here whose rows a statement may edit in place. `INSERT INTO <sink> SELECT` carries neither the query's name nor its key, so it is refused rather than read as a registration: write `CREATE CONTINUOUS QUERY <name> KEYED BY (...) WRITING TO <sink> AS <select>`, or `WITH (sink = '<sink>')`, or `pravaha register --sink` (§10.1) |
 
 Note what `ORDER BY` means over a stream: a total order over rows that have not all arrived. It is
 meaningful over a *bounded* read of a maintained view, and that is where it would land if it is
@@ -1713,7 +1768,7 @@ projections correctly; what is not built is arithmetic over it. Recorded as TY-7
 | `PRV-2002` | Validation failed — an unknown column, a type mismatch |
 | `PRV-2003` | The query names a stream that is not registered |
 | `PRV-2011` | A predicate (a long `AND`/`OR` chain, usually) is too large for the planner to convert — §12 |
-| `PRV-2020` | A relational operator Pravaha cannot execute |
+| `PRV-2020` | A relational operator Pravaha cannot execute, including `INSERT`, `UPDATE`, `DELETE` and `MERGE` — there is no DML surface, and `INSERT INTO <sink> SELECT` is not a registration: it carries neither the query's name nor its key — §10.1 |
 | `PRV-2021` | An expression or function Pravaha cannot compile |
 | `PRV-2041` | The query revises its answer and the sink it names can only append — §4 |
 | `PRV-2042` | The query's answer depends on how many times a row arrived — an aggregate, a join, a sink that cannot upsert — and its source repeats rows (`cassandra` or `aerospike` with `deletes: ignore`, a `jdbc` poll an update can re-read); set `deletes: detect` on the binding — §2.1 |
@@ -1721,7 +1776,9 @@ projections correctly; what is not built is arithmetic over it. Recorded as TY-7
 | `PRV-2060`–`PRV-2063` | Parameter binding — see [ADR-032](adr/032-parameters-are-values-not-queries.md) |
 | `PRV-2070` | A `CREATE`/`DROP`/`PAUSE`/`RESUME CONTINUOUS QUERY` or `SHOW CONTINUOUS QUERIES` without that statement's shape — §10.1 |
 | `PRV-2071` | `KEYED BY` names a column the query does not produce, or one twice — §10.1 |
-| `PRV-2072` | A clause of the design's `CREATE CONTINUOUS QUERY` that is not built — §10.1 |
+| `PRV-2072` | A clause of the design's `CREATE CONTINUOUS QUERY` that is not built: `EMIT CHANGES WITH (...)`, a `SERVE AS VIEW` naming another view — §10.1 |
+| `PRV-2073` | `RANGE (column)` over a column this engine has no total order for: text, `FLOAT`, `DECIMAL`, `BYTES`, `BOOLEAN` — §10.1 |
+| `PRV-8011` | A `WITH (...)` option this engine does not build, or one said twice — §10.1 |
 | `PRV-4013` | A backfill reached the end of the history without reaching its seam — §8.1 |
 | `PRV-4014` | A cutover before the new version had caught up, or at a position the two do not share — §8.1 |
 | `PRV-4016` | No replacement of that name is in flight — §8.1 |

@@ -4,10 +4,10 @@ slug: errors-sql
 category: errors
 order: 30
 icon: code-square
-summary: "PRV-2001 to PRV-2072: every way the planner refuses a query — syntax, names, operators and functions it will not run, unbounded state, parameters, sinks, and CREATE CONTINUOUS QUERY."
+summary: "PRV-2001 to PRV-2073: every way the planner refuses a query — syntax, names, operators and functions it will not run, unbounded state, parameters, sinks, and CREATE CONTINUOUS QUERY."
 badge: PRV-2XXX
 audience: Analysts, developers
-keywords: [syntax, validation, unknown column, unsupported, order by, limit, union, unbounded, group by, parameter, placeholder, keyed by, create continuous query, emit mode, retraction, append-only, sink]
+keywords: [syntax, validation, unknown column, unsupported, order by, limit, union, unbounded, group by, parameter, placeholder, keyed by, range, create continuous query, insert into, emit mode, retraction, append-only, sink]
 guide: continuous-queries#19-error-codes
 related: [sql-refusals, sql-reference, create-continuous-query, sql-parameters, errors-overview]
 ---
@@ -419,25 +419,23 @@ you may read what the query reads.
 
 ### PRV-2072 — clause not built
 
-A clause from the design's grammar that this engine does not build: `INDEXED BY ... RANGE (...)`, a
-`WITH (...)` option list on a plain `CREATE`, `EMIT CHANGES WITH (...)`, or a `SERVE AS VIEW` naming
-something other than the query. **Refused by name rather than ignored**: an ignored
-`'retention' = '24h'` in a `WITH` list is a view you asked to keep for a day, kept for ever.
+Two clauses from the design's grammar that this engine does not build: `EMIT CHANGES WITH (...)`,
+and a `SERVE AS VIEW` naming something other than the query. **Refused by name rather than
+ignored**: an ignored `'allowed.lateness' = '30s'` drops rows somebody asked to be waited for.
 
 <!-- sql: refused PRV-2072 -->
 ```sql
 CREATE CONTINUOUS QUERY recent_big_txn
     KEYED BY (txn_id)
-    WITH ('retention' = '24h')
 AS
 SELECT txn_id, user_id, amount FROM txn WHERE amount > 5000
+EMIT CHANGES WITH ('allowed.lateness' = '30s')
 ```
 
-**Do:** say a retention with `RETAIN FOR`; give the query the name clients read. A `WITH (...)` list
-does belong on `CREATE OR REPLACE`, which is built and carries a replacement's options there
-(`backfill`, `backfill.rate.limit`, `cutover`, `rollback.retention`). The spellings the design uses
-that mean the same thing are accepted: `INDEXED BY (...)` for `KEYED BY`, `INTO sink` for
-`WRITING TO`, and a trailing `EMIT CHANGES`.
+**Do:** drop the `EMIT CHANGES WITH` list — every continuous query emits its changes — and say a
+retention with `RETAIN FOR` or `WITH (retention = ...)`; give the query the name clients read. The
+spellings the design uses that mean the same thing are accepted: `INDEXED BY (...)` for `KEYED BY`,
+`INTO sink` for `WRITING TO`, and a trailing `EMIT CHANGES`.
 
 ```sql
 CREATE CONTINUOUS QUERY recent_big_txn
@@ -447,6 +445,57 @@ AS
 SELECT txn_id, user_id, amount FROM txn WHERE amount > 5000
 EMIT CHANGES;
 ```
+
+### PRV-2073 — `RANGE` over a column with no total order
+
+`RANGE (column)` asks for an ordered index over the key's last column, and an index needs an order.
+Three of the types on offer have none here that would not be a guess: text needs a collation (which
+is why `<` on text is refused in a `WHERE` clause at all), `FLOAT` is IEEE 754 and `NaN` is ordered
+against nothing, and a `DECIMAL`'s `compareTo` disagrees with its `equals`, so `1.0` and `1.00`
+would be one index entry and two view rows. `BYTES` and `BOOLEAN` are refused with them.
+
+<!-- sql: refused PRV-2073 -->
+```sql
+CREATE CONTINUOUS QUERY by_currency
+    KEYED BY (merchant) RANGE (currency)
+AS SELECT merchant, currency FROM txn
+```
+
+**Do:** drop the `RANGE` — the key still works as a key, and point reads and full-key lookups are
+unaffected — or range-scan a whole-number or temporal column:
+
+```sql
+CREATE CONTINUOUS QUERY by_amount
+    KEYED BY (merchant) RANGE (amount)
+AS SELECT merchant, amount FROM txn
+```
+
+The check runs at registration, against the columns the view will actually have, rather than at the
+first read that wanted the index.
+
+### PRV-2020 on `INSERT` — there is no DML surface
+
+`INSERT`, `UPDATE`, `DELETE` and `MERGE` are refused: there is nothing here whose rows a statement
+may edit in place. `INSERT INTO <sink> SELECT ...` is refused rather than read as a registration,
+because it carries neither the name the query is managed and read by — which is not the sink's, and
+would collide the moment a second query wrote to the same sink — nor the key its view needs.
+
+<!-- sql: refused PRV-2020 -->
+```sql
+INSERT INTO audit_trail SELECT txn_id, amount FROM txn
+```
+
+**Do:** say the name, the key and the sink:
+
+```sql
+CREATE CONTINUOUS QUERY audited KEYED BY (txn_id) WRITING TO audit_trail
+AS SELECT txn_id, amount FROM txn
+```
+
+or `WITH (sink = 'audit_trail')`, or `pravaha register --sink audit_trail`.
+
+An unknown `WITH (...)` option is the registry's PRV-8011, not a PRV-2xxx — see
+[Registry codes](/help/topics/errors-registry).
 
 A reserved word as the query's name is refused by the registry's name rule, PRV-8008, however the
 query was registered — see [Registry codes](/help/topics/errors-registry).

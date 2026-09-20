@@ -29,6 +29,7 @@ inside an application's own process and adds the ways an application can push ro
 | PRV-8008 | REGISTRY_NAME_UNUSABLE | The name cannot be a view name at all |
 | PRV-8009 | REGISTRY_SINK_WRITE_FAILED | A sink refused a batch and was detached |
 | PRV-8010 | REGISTRY_SINK_SHAPE_MISMATCH | The query's output or key does not fit the sink |
+| PRV-8011 | REGISTRY_OPTION_UNKNOWN | A `WITH (...)` option this engine does not build, or one said twice |
 | PRV-8101 | EMBEDDED_UNKNOWN_STREAM | A row pushed to an undeclared stream |
 | PRV-8102 | EMBEDDED_ROW_REJECTED | A pushed row does not fit its stream |
 | PRV-8103 | EMBEDDED_BACKPRESSURE | A push waited too long for room |
@@ -41,9 +42,10 @@ is `404`.
 
 ### PRV-8001 — name in use
 
-The name is already registered. Drop it first, or register under another name: **silently replacing
-a running query would take its answers away from whoever is reading them**. There is no
-`CREATE OR REPLACE` for the same reason (it is PRV-2072).
+The name is already registered. Drop it first, register under another name, or write
+`CREATE OR REPLACE`, which starts a blue/green replacement: **silently replacing a running query
+would take its answers away from whoever is reading them**, so the new version backfills beside the
+running one and takes the name only at a cutover.
 
 Registering the *same computation* under a second name is not this — it is sharing: the second name
 points at the running computation and costs nothing (see [Sharing](/help/topics/sharing)).
@@ -222,6 +224,28 @@ the query consumes: slow the producer, or size the lane larger.
 
 The engine's configuration says something it cannot do — a stream declared twice, an
 `out-of-orderness` that is not a duration — found **at start** rather than at first use.
+
+### PRV-8011 — unknown option
+
+A `WITH (...)` option this engine does not build, or a value that is not what the option names.
+Which options exist depends on the statement: a plain `CREATE CONTINUOUS QUERY` takes `retention`,
+`sink` and `keys` — the arguments `pravaha register` already took — and `CREATE OR REPLACE` takes
+`backfill`, `backfill.rate.limit`, `cutover` and `rollback.retention`. Each refuses the other's by
+name, with the statement that takes it — a replacement's refusal carries PRV-4018 rather than this
+code, since it is the backfill that reads the list.
+
+```text
+PRV-8011  'consistency.default' is not an option a registration takes, and it is refused rather
+than ignored -- an ignored option is a setting somebody believes is in force. ...
+```
+
+The design's `consistency.default`, `parallelism` and `allowed.lateness` are not built:
+consistency is chosen by the reader and per read, and a query's parallelism and lateness are the
+engine's to decide.
+
+The same code covers the same setting said twice — `RETAIN FOR` and `retention`, or `WRITING TO`
+and a different `sink` — because which of two answers wins is not something to leave to the order
+they were written in.
 
 ## Where next
 

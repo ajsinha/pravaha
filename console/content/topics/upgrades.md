@@ -85,7 +85,8 @@ GROUP BY user_id, window_start, window_end;
 ```
 
 The new registration is a new computation: its view starts empty and fills from its sources.
-`CREATE OR REPLACE` is refused by name with PRV-2072 rather than silently doing something else.
+`CREATE OR REPLACE` does this for you without the gap — the new version backfills beside the
+running one and takes the name only once the two have consumed the same input.
 
 To change without a gap for readers, register the new version under a **new name** beside the old
 one, let it fill, move clients over, then drop the old:

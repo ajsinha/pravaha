@@ -222,7 +222,34 @@ class HelpExamplesSqlTest {
         }
         if (statement.get() instanceof ContinuousStatement.Create create) {
             PhysicalOperator plan = new PhysicalPlanBuilder().build(new SqlPlanner(schema).plan(create.select()));
-            List<Integer> keys = create.keyOrdinals(plan.outputSchema());
+            // The checks a registration makes, in the order ContinuousQueryStatements makes them,
+            // because a help page showing a refusal has to be showing the refusal the engine
+            // actually gives. A WITH list read and not judged, or a RANGE whose column type nobody
+            // looked at, would make an example that says "refused" pass while a user copying it is
+            // told something else.
+            ContinuousStatement.Create registered = create;
+            if (!create.orReplace() && !create.options().isEmpty()) {
+                com.ash.messaging.pravaha.registry.RegistrationOptions options =
+                        com.ash.messaging.pravaha.registry.RegistrationOptions.of(create.options());
+                if (options.retention().isPresent() && create.retain().isPresent()) {
+                    throw new PravahaException(
+                            com.ash.messaging.pravaha.registry.RegistryErrors.OPTION_UNKNOWN,
+                            "'" + create.name() + "' says its retention twice");
+                }
+                if (!options.keyColumns().isEmpty()) {
+                    registered = create.withKeyColumns(options.keyColumns());
+                }
+            }
+            if (create.orReplace()) {
+                com.ash.messaging.pravaha.registry.ReplacementOptions replacement =
+                        com.ash.messaging.pravaha.registry.ReplacementOptions.defaults();
+                for (Map.Entry<String, String> option : create.options().entrySet()) {
+                    replacement = com.ash.messaging.pravaha.registry.ReplacementOptions.with(
+                            replacement, option.getKey(), option.getValue());
+                }
+            }
+            List<Integer> keys = registered.keyOrdinals(plan.outputSchema());
+            registered.rangeOrdinal(plan.outputSchema());
             return Optional.of(
                     new ServedView(create.name(), plan.outputSchema().renamedTo(create.name()), keys, 1_000));
         }

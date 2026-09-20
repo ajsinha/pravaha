@@ -7,7 +7,7 @@ icon: plus-square
 summary: "Registering a query in SQL: KEYED BY, WRITING TO, RETAIN FOR — and DROP, PAUSE, RESUME and SHOW. The full grammar, what each statement answers, and every way one is refused."
 badge: STATEMENTS
 audience: Analysts and developers
-keywords: [create continuous query, keyed by, writing to, retain for, retain forever, drop, pause, resume, show continuous queries, indexed by, into, emit changes, PRV-2070, PRV-2071, PRV-2072, PRV-6211]
+keywords: [create continuous query, keyed by, range, writing to, retain for, retain forever, with, options, drop, pause, resume, show continuous queries, indexed by, into, emit changes, insert into, PRV-2070, PRV-2071, PRV-2072, PRV-2073, PRV-8011, PRV-6211]
 guide: continuous-queries#101-the-statements-that-register-and-manage-queries
 related: [query-lifecycle, views-and-keys, sinks-overview, sql-parameters, sharing]
 ---
@@ -264,18 +264,76 @@ CREATE OR REPLACE CONTINUOUS QUERY replaced KEYED BY (txn_id)
 AS SELECT txn_id, amount FROM txn
 ```
 
-The rest of that design is **refused by name** with PRV-2072 rather than ignored — an ignored
-`'retention' = '24h'` would be a view you asked to keep for a day, kept for ever:
+## `RANGE` — an ordered index over the key's last column
 
-<!-- sql: refused PRV-2072 -->
+`INDEXED BY (a) RANGE (b)` is the design's spelling for "probe by `a`, scan `b` between bounds",
+and the two together are the key. A read that pins the leading columns and bounds the last one then
+walks that run instead of the whole view:
+
 ```sql
-CREATE CONTINUOUS QUERY with_options KEYED BY (txn_id) WITH ('retention' = '24h') AS SELECT txn_id FROM txn
+CREATE CONTINUOUS QUERY by_amount
+    INDEXED BY (merchant) RANGE (amount)
+AS SELECT merchant, amount FROM txn
 ```
 
-<!-- sql: refused PRV-2072 -->
+<!-- sql: read -->
 ```sql
-CREATE CONTINUOUS QUERY ranged INDEXED BY (txn_id) RANGE (amount) AS SELECT txn_id, amount FROM txn
+SELECT merchant, amount FROM by_amount WHERE merchant = 'acme' AND amount >= 100 AND amount < 500
 ```
+
+The column `RANGE` names must be the key's last — one column, and appended to the key if it is not
+already there. It must also be one this engine has a total order for: the whole-number and temporal
+types. Text needs a collation (which is why `<` on text is refused in a `WHERE` clause at all),
+`FLOAT` is IEEE 754 and `NaN` is ordered against nothing, and a `DECIMAL`'s `compareTo` disagrees
+with its `equals`. Anything else is PRV-2073, at registration:
+
+<!-- sql: refused PRV-2073 -->
+```sql
+CREATE CONTINUOUS QUERY by_currency
+    KEYED BY (merchant) RANGE (currency)
+AS SELECT merchant, currency FROM txn
+```
+
+A predicate on a column that is *not* in the key is still a scan and a filter. That is deliberate,
+not an omission: an index over a non-key column has to find the entry to delete from the row's
+previous values, and an index that quietly disagrees with the view it indexes is a wrong answer
+with a confident face.
+
+## `WITH (...)` — a registration's options
+
+On a plain `CREATE` the list carries the arguments a registration already took:
+
+```sql
+CREATE CONTINUOUS QUERY kept_a_day
+    KEYED BY (merchant)
+    WITH ('retention' = '24h', sink = 'audit_trail')
+AS SELECT merchant, amount FROM txn
+```
+
+| Option | Means | The other way to say it |
+|---|---|---|
+| `retention` | How long the view keeps a row, in event time: `'24h'`, `'7d'`, `'PT30M'`, `PT24H`, `'forever'` | `RETAIN FOR` / `RETAIN FOREVER` |
+| `sink` | The binding the changelog is written to | `WRITING TO <sink>` |
+| `keys` | The key columns, comma-separated | `KEYED BY (...)` |
+
+An option this engine does not build is refused by name with PRV-8011 and the list of the ones that
+do — an ignored option is a setting you believe is in force:
+
+<!-- sql: refused PRV-8011 -->
+```sql
+CREATE CONTINUOUS QUERY tuned KEYED BY (txn_id) WITH ('consistency.default' = 'consistent') AS SELECT txn_id FROM txn
+```
+
+Saying the same thing twice is refused rather than decided by which came first:
+
+<!-- sql: refused PRV-8011 -->
+```sql
+CREATE CONTINUOUS QUERY twice KEYED BY (txn_id) RETAIN FOR PT1H WITH (retention = '24h') AS SELECT txn_id FROM txn
+```
+
+## What is still refused
+
+Two clauses of the design are refused by name with PRV-2072 rather than ignored:
 
 <!-- sql: refused PRV-2072 -->
 ```sql
@@ -287,13 +345,22 @@ CREATE CONTINUOUS QUERY emits KEYED BY (txn_id) AS SELECT txn_id FROM txn EMIT C
 CREATE CONTINUOUS QUERY one_name KEYED BY (txn_id) SERVE AS VIEW another_name AS SELECT txn_id FROM txn
 ```
 
-| Refused | Say instead |
-|---|---|
-| `WITH (...)` options | `RETAIN FOR <duration>`; other options have no equivalent |
-| `CREATE OR REPLACE` *(built)* | Starts a blue/green replacement: the new version backfills beside the running one and takes the name at a cutover, so no reader loses an answer |
-| `INDEXED BY ... RANGE (...)` | Put the range column in `KEYED BY` and filter on it when you read |
-| `EMIT CHANGES WITH (...)` | `EMIT CHANGES` alone, or nothing |
-| `SERVE AS VIEW other` | A query and its view are one name — the one clients put in `FROM` |
+And `INSERT INTO <sink> SELECT` is refused with PRV-2020. It is not the same thing as `WRITING TO`:
+it carries neither the name the query is managed and read by — which is not the sink's — nor the
+key its view needs.
+
+<!-- sql: refused PRV-2020 -->
+```sql
+INSERT INTO audit_trail SELECT txn_id, amount FROM txn
+```
+
+| Refused | Code | Say instead |
+|---|---|---|
+| `RANGE` over text, `FLOAT`, `DECIMAL`, `BYTES` or `BOOLEAN` | PRV-2073 | Drop the `RANGE` — the key still works as a key — or range-scan a whole-number or temporal column |
+| A `WITH` option that does not exist, or one said twice | PRV-8011 (PRV-4018 on a replacement) | `retention`, `sink`, `keys` on a `CREATE`; `backfill`, `backfill.rate.limit`, `cutover`, `rollback.retention` on a `CREATE OR REPLACE` |
+| `EMIT CHANGES WITH (...)` | PRV-2072 | `EMIT CHANGES` alone, or nothing |
+| `SERVE AS VIEW other` | PRV-2072 | A query and its view are one name — the one clients put in `FROM` |
+| `INSERT INTO <sink> SELECT` | PRV-2020 | `WRITING TO <sink>`, `WITH (sink = '<sink>')`, or `pravaha register --sink` |
 
 Giving the key twice, even in two spellings, is PRV-2070:
 

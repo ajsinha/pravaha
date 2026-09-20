@@ -175,11 +175,18 @@ corrected by late data arrives as a retraction of the old answer followed by the
   swap off), uniformly random access falls to 1,000–2,500 operations a second on an NVMe — two or
   three page faults each, and 124 KiB read per fault from the kernel's read-around — with a tail of
   seconds while the kernel reclaims. Size the page cache for the index.
-- **The rest of the design's `CREATE CONTINUOUS QUERY` grammar.** The statement registers, and
-  `DROP`, `PAUSE`, `RESUME CONTINUOUS QUERY` and `SHOW CONTINUOUS QUERIES` manage, over Flight SQL
-  and in the embedded engine; the PostgreSQL gateway stays read-only and refuses them (`PRV-6211`).
-  Design §11.2's `INDEXED BY ... RANGE`, `WITH (...)` options and `CREATE OR REPLACE` are refused by
-  name (`PRV-2072`) rather than ignored, and `INSERT INTO <sink>` stays refused (`PRV-2020`).
+- **A secondary index over a column that is not in a view's key.** The rest of the design's
+  `CREATE CONTINUOUS QUERY` grammar is built: `RANGE (column)` keeps an ordered index over the
+  key's last column, so a prefix-and-bounds read walks a run rather than the view, and a lookup by
+  the whole key is a hash probe on any view at all; `WITH (...)` on a plain `CREATE` takes
+  `retention`, `sink` and `keys`, the arguments a registration already had. What is not built is
+  design §17.2's other row — a predicate on a column outside the key, which is still a scan and a
+  filter, as that row itself says it is. `RANGE` over a column this engine has no total order for
+  (text, `FLOAT`, `DECIMAL`, `BYTES`, `BOOLEAN`) is refused at registration by name (`PRV-2073`),
+  as is a `WITH` option that does not exist (`PRV-8011`), `EMIT CHANGES WITH (...)` (`PRV-2072`),
+  and `INSERT INTO <sink> SELECT` (`PRV-2020`) — which carries neither the query's name nor its
+  key, so the refusal names `WRITING TO`, `WITH (sink = ...)` and `--sink` instead
+  ([ADR-047](docs/adr/047-an-ordered-index-over-the-keys-last-column.md)).
 - **The Spring Boot starter on Boot versions other than 3.5.** The starter (ADR-020) has its
   `@PravahaTest` slice, a read-only `pravaha` actuator endpoint and health contribution, and a
   listener error handler. Its Boot matrix is Maven profiles (`-Pboot-3.2` to `-Pboot-3.5`) with a

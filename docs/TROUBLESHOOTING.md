@@ -62,6 +62,17 @@ the query.
 A relational operator (`2020`) or an expression (`2021`) the engine will not run: `ORDER BY`, `LIMIT`,
 `UNION`, an outer join between streams, `DECIMAL` arithmetic, a function the engine does not have.
 
+`INSERT`, `UPDATE`, `DELETE` and `MERGE` are `2020` too: there is nothing here whose rows a statement
+may edit in place. `INSERT INTO <sink> SELECT ...` in particular is refused rather than read as a
+registration, because it carries neither the name the query is managed and read by — which is not
+the sink's — nor the key its view needs. Say both:
+
+```sql
+CREATE CONTINUOUS QUERY user_volume KEYED BY (user_id) WRITING TO warehouse AS SELECT ...
+```
+
+or `WITH (sink = 'warehouse')`, or `pravaha register --sink warehouse`.
+
 The name in a `2021` message is the function the *planner* saw, which is not always the one you
 typed — Calcite rewrites `SQRT(x)` to `POWER(x, 0.5)` before the engine reads the query, so a
 refusal can name a function your SQL does not contain.
@@ -492,7 +503,9 @@ the statement's expected shape.
 |---|---|---|
 | `PRV-2070` | The text starts as one of the statements — `CREATE CONTINUOUS`, `DROP CONTINUOUS`, `SHOW CONTINUOUS`, `PAUSE`, `RESUME` — and does not have its shape: no `KEYED BY`, a clause given twice, a retention that is not a duration, words after the name. Also: parameters bound to one of these statements, which take none | The message says what was expected, what was found, and the line and column. Compare it with the shape at the end of the message |
 | `PRV-2071` | `KEYED BY` names a column the `SELECT` does not produce, or names one twice | Name the column as the `SELECT` list does — by its alias where it has one (`SUM(amount) AS total` is `total`). The message does not list the columns, because it is raised before the registry has decided whether you may read what the query reads |
-| `PRV-2072` | A clause from the design's grammar that is not built: `INDEXED BY ... RANGE`, a `WITH (...)` list on a plain `CREATE`, `EMIT CHANGES WITH (...)`, a `SERVE AS VIEW` naming another view | Say a retention with `RETAIN FOR`; put a replacement's options on `CREATE OR REPLACE`, which does take a `WITH (...)` list; give the query the name clients read. Refused rather than ignored: an ignored `'retention' = '24h'` is a view kept for ever |
+| `PRV-2072` | A clause from the design's grammar that is not built: `EMIT CHANGES WITH (...)`, or a `SERVE AS VIEW` naming a view other than the query | Drop the `EMIT CHANGES WITH` list — every continuous query emits its changes — and say a retention with `RETAIN FOR` or `WITH (retention = ...)`; give the query the name clients read. Refused rather than ignored: an ignored `'allowed.lateness' = '30s'` drops rows somebody asked to be waited for |
+| `PRV-2073` | `RANGE (column)` asks for an ordered index over a column this engine has no total order for: text (needs a collation), `FLOAT` (IEEE 754, and `NaN` is ordered against nothing), `DECIMAL` (`compareTo` disagrees with `equals`, so `1.0` and `1.00` would be one entry and two rows), `BYTES`, `BOOLEAN` | Drop the `RANGE` — the key still works as a key, and point reads and full-key lookups are unaffected — or range-scan a whole-number or temporal column. Refused at registration, against the columns the view will actually have |
+| `PRV-8011` | A `WITH (...)` option this engine does not build, or a value that is not what the option names. A plain `CREATE` takes `retention`, `sink` and `keys`; `CREATE OR REPLACE` takes `backfill`, `backfill.rate.limit`, `cutover` and `rollback.retention`. Also raised for the same setting said twice — `RETAIN FOR` and `retention`, or two different sinks | Use the option the message lists, on the statement that takes it. The design's `consistency.default`, `parallelism` and `allowed.lateness` are not built: consistency is chosen by the reader and per read, and a query's parallelism and lateness are the engine's to decide. Refused rather than ignored, because an option nobody reads is a setting you believe is in force |
 | `PRV-6211` | One of the statements was sent to the PostgreSQL gateway (SQLSTATE `25006`), which is read-only | Send it over Flight SQL: an SDK's `query()`, `pravaha query --sql`, or the console's workbench |
 
 A reserved word as the query's name is refused by the registry's own name rule, `PRV-8008`, whichever
@@ -560,6 +573,7 @@ running computation, not a durable one. Confirm or roll back before a planned re
 | `PRV-2070` | SQL_STATEMENT_MALFORMED | sql |
 | `PRV-2071` | SQL_KEY_COLUMN_UNKNOWN | sql |
 | `PRV-2072` | SQL_CLAUSE_NOT_BUILT | sql |
+| `PRV-2073` | SQL_RANGE_NOT_ORDERED | sql |
 | `PRV-3001` | RUNTIME_ARENA_EXHAUSTED | runtime |
 | `PRV-3002` | RUNTIME_BACKPRESSURED | runtime |
 | `PRV-3010` | RUNTIME_LANE_FAILED | runtime |
@@ -695,6 +709,7 @@ running computation, not a durable one. Confirm or roll back before a planned re
 | `PRV-8008` | REGISTRY_NAME_UNUSABLE | registry |
 | `PRV-8009` | REGISTRY_SINK_WRITE_FAILED | registry |
 | `PRV-8010` | REGISTRY_SINK_SHAPE_MISMATCH | registry |
+| `PRV-8011` | REGISTRY_OPTION_UNKNOWN | registry |
 | `PRV-8101` | EMBEDDED_UNKNOWN_STREAM | registry (embedded engine) |
 | `PRV-8102` | EMBEDDED_ROW_REJECTED | registry (embedded engine) |
 | `PRV-8103` | EMBEDDED_BACKPRESSURE | registry (embedded engine) |
