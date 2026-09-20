@@ -142,6 +142,17 @@ public final class IngestPump implements AutoCloseable {
     private com.ash.messaging.pravaha.api.plugin.DeliveryGuarantee sourceGuarantee;
 
     /**
+     * How fast records are being rejected, and whether that has stopped being normal.
+     *
+     * <p>B5. {@link com.ash.messaging.pravaha.runtime.dlq.DeadLetterRate} existed in this package
+     * and nothing fed it, so a node could reject a third of a feed and publish no number about it.
+     * Fed here, because this is the only place that sees both an accepted record and a rejected
+     * one. Shared by every pump of a query, so the fraction is the query's and not one
+     * partition's; null until the binding layer attaches one.
+     */
+    private com.ash.messaging.pravaha.runtime.dlq.DeadLetterRate deadLetterRate;
+
+    /**
      * A cell-sized buffer rows are decoded into while a dead-letter queue is attached.
      *
      * <p><strong>This is the one copy the fast path does not pay.</strong> Ordinarily the plugin
@@ -224,6 +235,11 @@ public final class IngestPump implements AutoCloseable {
             blocked.cleared(queryId);
             int moved = reader.poll(sink, Math.min(maxRecords, room));
             rowsPumped.addAndGet(moved);
+            if (deadLetterRate != null && moved > 0) {
+                // Once per poll, not once per row: the rate needs the count and the hot path must
+                // not pay a synchronised call per record to supply it.
+                deadLetterRate.recordAccepted(System.nanoTime(), moved);
+            }
             return moved;
         } finally {
             ingest.unlock();
@@ -424,6 +440,9 @@ public final class IngestPump implements AutoCloseable {
                     System.nanoTime(),
                     System.currentTimeMillis()));
             rowsRejected.incrementAndGet();
+            if (deadLetterRate != null) {
+                deadLetterRate.recordRejected(System.nanoTime());
+            }
             return true;
         }
     };
@@ -468,15 +487,23 @@ public final class IngestPump implements AutoCloseable {
                             + "different row, so replaying them would put a row into the view that never existed "
                             + "in the source. Correct the record at the source instead.");
         }
-        if (sourceGuarantee == com.ash.messaging.pravaha.api.plugin.DeliveryGuarantee.EXACTLY_ONCE) {
+        // An exactly-once source keeps its promise by having replayable offsets, so if it is still
+        // positioned at or before this record it is going to deliver the record again on its own --
+        // and feeding it in now would put it in twice, in a pipeline that promised it would not.
+        // Once the reader is past it the source will never send it again, and a replay is the only
+        // way the record can get in at all. A reader that cannot answer the question is treated as
+        // the unsafe case: a refusal costs a manual fix, and a guess costs a wrong total nobody
+        // finds for a month.
+        if (sourceGuarantee == com.ash.messaging.pravaha.api.plugin.DeliveryGuarantee.EXACTLY_ONCE
+                && !reader.hasReadPast(sourceOffset)) {
             throw new PravahaException(
                     com.ash.messaging.pravaha.state.StateErrors.DLQ_REPLAY_REFUSED,
-                    "the source behind stream '" + streamName + "' promises EXACTLY_ONCE delivery, which it can "
-                            + "only do with replayable offsets -- so this record is still readable at "
-                            + (sourceOffset.isEmpty() ? "its own offset" : sourceOffset)
-                            + ", and the source has moved past it. Re-feeding it at the current frontier would "
-                            + "count it a second time and break the promise. Re-register the query from that "
-                            + "offset instead, which re-reads it in order.");
+                    "the source behind stream '" + streamName + "' promises EXACTLY_ONCE delivery, and it has "
+                            + "not read past "
+                            + (sourceOffset.isEmpty() ? "this record's offset" : sourceOffset)
+                            + " -- so it is going to deliver this record again itself, and feeding it in now "
+                            + "would count it twice. Wait for the source to reach it, or correct the record at "
+                            + "the source.");
         }
         ingest.lock();
         try {
@@ -500,6 +527,17 @@ public final class IngestPump implements AutoCloseable {
             replayingId = null;
             ingest.unlock();
         }
+    }
+
+    /**
+     * Shares one query's rejection rate with this pump.
+     *
+     * <p>One instance per query rather than per pump, set by the binding layer: a query reading
+     * four partitions has one feed and one answer to "what share of its records is it rejecting",
+     * and four separate windows would each degrade on a quarter of the evidence.
+     */
+    public void deadLetterRate(com.ash.messaging.pravaha.runtime.dlq.DeadLetterRate rate) {
+        this.deadLetterRate = rate;
     }
 
     /** Which stream this pump feeds, recorded on every dead letter it writes. */

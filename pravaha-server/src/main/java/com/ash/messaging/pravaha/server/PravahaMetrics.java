@@ -212,6 +212,55 @@ public class PravahaMetrics implements AutoCloseable {
                 .tags(tags)
                 .register(meters)
                 .getId());
+        // B5. DeadLetterRate existed in the runtime and was wired to nothing: a node could reject
+        // a third of a feed's records and publish not one number about it, so a dashboard's only
+        // clue was rows_in being lower than somebody expected.
+        //
+        // Read from the writer's own counters rather than from the file. A gauge is scraped every
+        // fifteen seconds, and one that answered by walking a queue of up to a quarter of a
+        // gigabyte would make watching the queue more expensive than filling it.
+        //
+        // Depth first, because it is the one to alert on: what is sitting there now, after
+        // retention and after whatever has been replayed. A rising total with a flat depth is
+        // somebody keeping on top of it; a rising depth is the finding.
+        ids.add(gauge(
+                "pravaha.query.dead.letters",
+                tags,
+                query,
+                q -> deadLetters(name).depth()));
+        ids.add(gauge(
+                "pravaha.query.dead.letters.bytes",
+                tags,
+                query,
+                q -> deadLetters(name).bytes()));
+        // What retention took and will not give back. Beside the depth because a depth without it
+        // cannot be read: a queue steady at two thousand is either one bad afternoon or a bound
+        // throwing two thousand a minute away, and those need opposite responses.
+        ids.add(FunctionCounter.builder("pravaha.query.dead.letters.evicted", query, q ->
+                        (double) deadLetters(name).evicted())
+                .tags(tags)
+                .register(meters)
+                .getId());
+        // Entries the queue itself could not write. Non-zero means the DLQ needs attention before
+        // the records in it do -- these records are gone and nothing else says so.
+        ids.add(FunctionCounter.builder("pravaha.query.dead.letters.write.failures", query, q ->
+                        (double) deadLetters(name).writeFailures())
+                .tags(tags)
+                .register(meters)
+                .getId());
+        // The rate, which is what DeadLetterRate is for: a steady trickle from one partner is
+        // Tuesday, and the same feed rejecting a third of its records is a schema change nobody
+        // announced. Zero until the window has seen enough records for a share to mean anything.
+        ids.add(gauge(
+                "pravaha.query.dead.letters.fraction",
+                tags,
+                query,
+                q -> deadLetters(name).rejectedFraction()));
+        ids.add(gauge(
+                "pravaha.query.dead.letters.degraded",
+                tags,
+                query,
+                q -> deadLetters(name).degraded() ? 1 : 0));
         // Subscribers attached to the computation this name answers to. A sink writing its changelog
         // listens on the same commit and is not counted: a query writing to a table has nobody
         // watching it. Two names on one computation report the same number, because they are one.
@@ -486,6 +535,19 @@ public class PravahaMetrics implements AutoCloseable {
         // Micrometer holds the object weakly, so a query dropped between syncs cannot be kept alive
         // by its own metrics.
         return Gauge.builder(name, query, value).tags(tags).register(meters).getId();
+    }
+
+    /**
+     * One query's dead-letter queue as its writer sees it, or all zeroes when it has none.
+     *
+     * <p>By name and not through the {@link RegisteredQuery}, because the file is named for the
+     * name that opened the feed: two names on one computation share the computation and not the
+     * queue.
+     */
+    private com.ash.messaging.pravaha.runtime.dlq.DeadLetterHealth deadLetters(String name) {
+        return node.sources()
+                .map(sources -> sources.deadLetterHealth(name))
+                .orElseGet(com.ash.messaging.pravaha.runtime.dlq.DeadLetterHealth::none);
     }
 
     private static double lagSeconds(RegisteredQuery query) {

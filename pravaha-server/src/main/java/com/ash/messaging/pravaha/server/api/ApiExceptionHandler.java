@@ -67,8 +67,16 @@ public class ApiExceptionHandler {
         // well-formed, and a client retrying a 400 by fixing its body would be looking for a mistake it
         // did not make.
         if (code.code().equals(com.ash.messaging.pravaha.registry.RegistryErrors.NO_SUCH_QUERY.code())
-                || code.code().equals(com.ash.messaging.pravaha.serving.ServingErrors.NO_SUCH_VIEW.code())) {
+                || code.code().equals(com.ash.messaging.pravaha.serving.ServingErrors.NO_SUCH_VIEW.code())
+                || code.code().equals(com.ash.messaging.pravaha.state.StateErrors.DLQ_NO_SUCH_LETTER.code())) {
             return HttpStatus.NOT_FOUND;
+        }
+        // A replay the engine will not perform because it could not be correct (B5). Not a 500: the
+        // server is fine and the request was well formed. Not a 400 either -- there is nothing in the
+        // body to fix, and a client retrying after correcting one would be looking for a mistake it
+        // did not make. 409: the state of the query says no.
+        if (code.code().equals(com.ash.messaging.pravaha.state.StateErrors.DLQ_REPLAY_REFUSED.code())) {
+            return HttpStatus.CONFLICT;
         }
         return switch (code.category()) {
             case CONFIGURATION, PLANNING -> HttpStatus.BAD_REQUEST;

@@ -318,6 +318,30 @@ final class FilesystemPartitionReader implements PartitionReader {
         return true;
     }
 
+    /**
+     * Whether this reader is past the line a dead letter came from (B5).
+     *
+     * <p>A file source's offset is a line number, so the question has an exact answer: the reader
+     * has read past {@code line N} once it has read line N. That is what makes a replay into a
+     * followed file safe -- the reader will never produce that line again, so nothing can be
+     * duplicated by putting it back.
+     *
+     * <p>An offset that is not a line number gets {@code false}, the "cannot say" answer, rather
+     * than a guess: an entry from a differently-shaped offset did not come from this reader.
+     */
+    @Override
+    public boolean hasReadPast(String sourceOffset) {
+        if (sourceOffset == null || !sourceOffset.startsWith("line ")) {
+            return false;
+        }
+        try {
+            return lineNumber
+                    >= Long.parseLong(sourceOffset.substring("line ".length()).strip());
+        } catch (NumberFormatException notALineNumber) {
+            return false;
+        }
+    }
+
     /** The line number inside {@code "line 812"}, or the reader's position when there is none. */
     private long sequenceOf(String sourceOffset) {
         if (sourceOffset != null && sourceOffset.startsWith("line ")) {

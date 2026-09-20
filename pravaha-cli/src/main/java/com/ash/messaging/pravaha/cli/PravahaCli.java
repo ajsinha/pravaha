@@ -96,6 +96,7 @@ public final class PravahaCli {
                     new ServerCommand(out, err).replacement(command, rest);
                 case "replacements" -> new ServerCommand(out, err).replacements(rest);
                 case "subscribe" -> new ServerCommand(out, err).subscribe(rest);
+                case "dlq" -> new DlqCommand(out, err).run(rest);
                 case "version" -> {
                     out.println("pravaha " + version());
                     yield EXIT_OK;
@@ -293,6 +294,14 @@ public final class PravahaCli {
         out.println("  throttle  --name <view> --rate N   |   pause-backfill | resume-backfill --name <view>");
         out.println("            Control a backfill while it runs. The rate is a ceiling the replacement was");
         out.println("            started with; above it the server refuses.");
+        out.println();
+        out.println("  dlq list   --name <view> [--offset N] [--limit N] [--url ...]");
+        out.println("  dlq show   --name <view> --id <id> [--url ...]");
+        out.println("  dlq replay --name <view> --id <id>[,<id>...] [--url ...]");
+        out.println("            The records a query's feed could not decode: list them newest first,");
+        out.println("            print one whole with its bytes, or feed chosen ones back through the");
+        out.println("            query -- as new rows at its current frontier, not a rewind. A record");
+        out.println("            that fails again goes back on the queue rather than being retried.");
         out.println();
         out.println("  pause | resume | drop   --name <view> [--url ...]");
         out.println("            Lifecycle. A computation is released when its last name is dropped.");

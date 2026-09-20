@@ -25,6 +25,8 @@ bare ImportError from three frames down.
 
 from __future__ import annotations
 
+import base64
+import dataclasses
 import urllib.parse
 from dataclasses import dataclass
 from typing import Any, Iterator, Optional, Sequence
@@ -543,6 +545,95 @@ class Client:
             )
         return out
 
+    def dead_letters(self, name: str, *, offset: int = 0, limit: int = 50) -> "DeadLetterPage":
+        """A page of the records this query's feed could not decode, newest first.
+
+        Newest first and no other order offered: a queue is read because something has just
+        started failing, and the entries that answer "what is happening now" are at the end
+        of the file.
+
+        An entry's ``raw`` may be empty with ``withheld`` saying why -- your access to the
+        view is row-filtered, and a record that failed to decode has no row for that filter
+        to be applied to. The count, the offset and the code are not withheld.
+        """
+        entries: "list[DeadLetter]" = []
+        totals: Optional[DeadLetterPage] = None
+        for row in self._act(_ACTION_DLQ_LIST, [name, str(offset), str(limit)]):
+            # A "#" in the first field is the trailer carrying the queue's totals. An id is a
+            # UUID, so it can never be "#", and a client tells them apart without being told
+            # how many entries to expect.
+            if _at(row, 0) == "#":
+                totals = DeadLetterPage(
+                    query=name,
+                    entries=(),
+                    offset=offset,
+                    total=_int(_at(row, 1)),
+                    bytes=_int(_at(row, 2)),
+                    evicted=_int(_at(row, 3)),
+                    evicted_bytes=_int(_at(row, 4)),
+                    replayed=_int(_at(row, 5)),
+                    failed_again=_int(_at(row, 6)),
+                    retention=_at(row, 7),
+                    configured=_at(row, 8) == "true",
+                )
+                continue
+            entries.append(_dead_letter_of(row))
+        if totals is None:
+            # A server that predates the trailer. The page is still a page; the totals it could
+            # not report are what the page itself shows.
+            return DeadLetterPage(
+                query=name,
+                entries=tuple(entries),
+                offset=offset,
+                total=offset + len(entries),
+                bytes=0,
+                evicted=0,
+                evicted_bytes=0,
+                replayed=0,
+                failed_again=0,
+                retention="unknown",
+                configured=True,
+            )
+        return dataclasses.replace(totals, entries=tuple(entries))
+
+    def dead_letter(self, name: str, letter_id: str) -> "DeadLetter":
+        """One dead letter whole, by its id.
+
+        Raises :class:`QueryError` carrying ``PRV-4091`` when no entry with that id is in the
+        queue -- the id is wrong, the page it came from is stale, or retention evicted it.
+        """
+        rows = self._act(_ACTION_DLQ_SHOW, [name, letter_id])
+        if not rows:
+            raise QueryError("the server answered pravaha.dlq.show with no result")
+        return _dead_letter_of(rows[0])
+
+    def replay_dead_letters(self, name: str, ids: Sequence[str]) -> "list[DeadLetterReplay]":
+        """Feeds chosen dead letters back through the query that rejected them.
+
+        **A new row at the query's current frontier, not a rewind.** Nothing is re-read, no
+        offset moves, and no earlier answer is recomputed. A record that fails to decode again
+        goes back on the queue as a fresh entry -- named in :attr:`DeadLetterReplay.new_id` --
+        and is not retried, so a caller walking a queue moves forwards through it.
+
+        Not idempotent: replaying the same id twice puts the row in twice.
+        """
+        chosen = [i.strip() for i in ids if i and i.strip()]
+        if not chosen:
+            raise ValueError(
+                "say which dead letters to replay; replaying a whole queue by omission is not "
+                "offered, because a queue is usually a mix of causes"
+            )
+        return [
+            DeadLetterReplay(
+                id=_at(row, 0), outcome=_at(row, 1), detail=_at(row, 2), new_id=_at(row, 3)
+            )
+            for row in self._act(_ACTION_DLQ_REPLAY, [name, *chosen])
+        ]
+
+    def replay_dead_letter(self, name: str, letter_id: str) -> "DeadLetterReplay":
+        """Feeds one dead letter back through the query."""
+        return self.replay_dead_letters(name, [letter_id])[0]
+
     def pause(self, name: str) -> None:
         """Stops a query without releasing it; its view keeps answering where it reached."""
         self._act(_ACTION_PAUSE, [name])
@@ -971,6 +1062,10 @@ _ACTION_ABANDON = "pravaha.abandon"
 _ACTION_FINISH = "pravaha.finish"
 _ACTION_BACKFILL = "pravaha.backfill"
 
+_ACTION_DLQ_LIST = "pravaha.dlq.list"
+_ACTION_DLQ_SHOW = "pravaha.dlq.show"
+_ACTION_DLQ_REPLAY = "pravaha.dlq.replay"
+
 
 def _wire_encode(fields: Sequence[str]) -> bytes:
     out = bytearray()
@@ -1021,6 +1116,36 @@ def _ordinals(text: str) -> "tuple[int, ...]":
     except ValueError:
         # Not a field this client understands; an empty key reads as "unknown", not wrong.
         return ()
+
+
+def _int(text: str) -> int:
+    """A numeric field, or zero from a server that did not send one."""
+    try:
+        return int(text) if text else 0
+    except ValueError:
+        return 0
+
+
+def _dead_letter_of(row: Sequence[str]) -> "DeadLetter":
+    """One entry from the wire, with its record decoded from Base64."""
+    try:
+        raw = base64.b64decode(_at(row, 8), validate=True)
+    except Exception:
+        raw = b""
+    return DeadLetter(
+        id=_at(row, 0),
+        sequence=_int(_at(row, 1)),
+        stream=_at(row, 2),
+        offset=_at(row, 3),
+        code=_at(row, 4),
+        reason=_at(row, 5),
+        at=_at(row, 6),
+        size=_int(_at(row, 7)),
+        raw=raw,
+        withheld=_at(row, 9),
+        replay=_at(row, 10) or "NEW",
+        replayed_at=_at(row, 11),
+    )
 
 
 def _segment(name: str) -> str:
@@ -1315,3 +1440,102 @@ def _varint(value: int) -> bytes:
 def _message_of(exc: Exception) -> str:
     text = str(exc)
     return text if text else exc.__class__.__name__
+
+
+@dataclass(frozen=True)
+class DeadLetter:
+    """One record a query's feed could not decode (B5).
+
+    :attr:`raw` may be empty with :attr:`withheld` saying why, and that is not the same as an
+    empty record: a dead letter's bytes are a row of the source, a record that failed to decode
+    has no row for a row filter to be applied to, and a caller entitled to a slice of the view
+    is therefore shown everything about the record except the record. Check
+    :attr:`is_withheld` rather than drawing an empty cell.
+    """
+
+    #: What addresses this entry: the correlation id, the same string the node's log lines carry.
+    id: str
+    #: Its position in the file, oldest first. It shifts when retention evicts, which is why
+    #: :attr:`id` and not this is the handle.
+    sequence: int
+    #: Which of the query's streams it arrived on, or ``""`` for an entry that predates the field.
+    stream: str
+    #: Where it came from in the source's own terms: ``line 812``, ``orders/3@1041``.
+    offset: str
+    #: The ``PRV-`` code of the decode failure, or ``""`` when the source named none.
+    code: str
+    #: The decoder's own sentence, or ``""`` when it is withheld.
+    reason: str
+    #: When it was rejected, ISO-8601, or ``""`` for an entry written before that was recorded.
+    at: str
+    #: How many bytes the record is. Disclosed even when the record is not: a length is not a row.
+    size: int
+    #: The record itself, or empty when withheld.
+    raw: bytes
+    #: Why the record is absent, or ``""`` when it is not.
+    withheld: str
+    #: ``NEW``, ``REPLAYED`` or ``FAILED_AGAIN``.
+    replay: str = "NEW"
+    #: When it was replayed, ISO-8601, or ``""``.
+    replayed_at: str = ""
+
+    @property
+    def is_withheld(self) -> bool:
+        """True when the server would not give this caller the record itself."""
+        return bool(self.withheld)
+
+    def __str__(self) -> str:
+        code = f" {self.code}" if self.code else ""
+        return f"{self.id} at {self.offset}{code}"
+
+
+@dataclass(frozen=True)
+class DeadLetterPage:
+    """A page of one query's dead letters, newest first, with the queue's totals.
+
+    The totals come with the page rather than from a second call, because the first thing
+    anyone does with a page of failures is ask how many there are -- and a second call answers
+    from a different moment.
+    """
+
+    query: str
+    entries: "tuple[DeadLetter, ...]"
+    offset: int
+    total: int
+    bytes: int
+    #: Entries retention has removed and are gone. Never omitted: a depth without it cannot be
+    #: read, since a queue steady at two thousand is either one bad afternoon or a bound
+    #: throwing two thousand a minute away.
+    evicted: int
+    evicted_bytes: int
+    replayed: int
+    failed_again: int
+    #: The bound in force, as words.
+    retention: str
+    #: Whether the server has a dead-letter directory at all. ``False`` means a record it cannot
+    #: decode stops the source rather than being kept -- a different state from an empty queue.
+    configured: bool = True
+
+    @property
+    def has_more(self) -> bool:
+        """Whether there are older entries past this page."""
+        return self.offset + len(self.entries) < self.total
+
+
+@dataclass(frozen=True)
+class DeadLetterReplay:
+    """What replaying one dead letter did."""
+
+    id: str
+    #: ``REPLAYED`` -- the record decoded and is a row of the view now, applied at the frontier
+    #: the query has reached -- or ``FAILED_AGAIN``.
+    outcome: str
+    #: The server's sentence, which says what that means for this query.
+    detail: str = ""
+    #: When it failed again, the entry it went back on the queue as. That is the id to replay
+    #: next; replaying :attr:`id` again would decode the same bytes with the same decoder.
+    new_id: str = ""
+
+    @property
+    def succeeded(self) -> bool:
+        return self.outcome == "REPLAYED"

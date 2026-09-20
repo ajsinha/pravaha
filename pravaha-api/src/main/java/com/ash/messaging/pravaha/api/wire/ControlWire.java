@@ -119,6 +119,27 @@ public final class ControlWire {
             "failure_code",
             "failure");
 
+    /**
+     * A page of a query's dead letters, newest first (B5).
+     *
+     * <p>Request: the query's name, the offset and the page size. Reply: one result per entry,
+     * then one final result whose first field is {@code #} and which carries the queue's totals --
+     * a trailer rather than a header, because a Flight action's results are streamed and the
+     * totals are read from the same file the page was.
+     */
+    public static final String DLQ_LIST = "pravaha.dlq.list";
+
+    /** One dead letter whole, by its id. Request: the query's name and the id. */
+    public static final String DLQ_SHOW = "pravaha.dlq.show";
+
+    /**
+     * Feeds chosen dead letters back through the query. Request: the name, then one id per field.
+     *
+     * <p>One result per id: the id, the outcome ({@code REPLAYED} or {@code FAILED_AGAIN}), the
+     * sentence, and the id of the entry a second failure wrote.
+     */
+    public static final String DLQ_REPLAY = "pravaha.dlq.replay";
+
     private ControlWire() {}
 
     /** Encodes a list of strings. Nulls are encoded as absent and decode as empty. */

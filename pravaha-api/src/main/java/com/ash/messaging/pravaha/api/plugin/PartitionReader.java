@@ -112,6 +112,27 @@ public interface PartitionReader extends AutoCloseable {
         return false;
     }
 
+    /**
+     * Whether this reader has already read past {@code sourceOffset}, so the source will not
+     * deliver that record again by itself.
+     *
+     * <p>The question that decides whether replaying a dead letter can double-count. A source that
+     * promises {@code EXACTLY_ONCE} promises it by having replayable offsets, so if it is still
+     * positioned at or before the record, the record is coming again on its own -- and feeding it
+     * in now would put it in twice. Once the reader is past it, the source will never deliver it
+     * again and a replay is the only way it can get in at all.
+     *
+     * <p>{@code false} by default, which means "I cannot say" and not "no". A reader that does not
+     * answer makes an exactly-once replay refusable rather than guessable: the alternative is
+     * duplicating a record in a pipeline that promised not to, which is the failure nobody
+     * discovers until a total is wrong.
+     *
+     * @param sourceOffset an offset in this source's own terms, as it was recorded on the entry
+     */
+    default boolean hasReadPast(String sourceOffset) {
+        return false;
+    }
+
     @Override
     void close();
 

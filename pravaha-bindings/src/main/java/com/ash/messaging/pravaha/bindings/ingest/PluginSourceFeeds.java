@@ -65,6 +65,15 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
     private final BackpressurePolicy policy;
     private volatile java.nio.file.Path deadLetterDirectory;
 
+    /**
+     * The live dead-letter queue and rejection rate of each query that has one (B5).
+     *
+     * <p>So that a gauge scraped every fifteen seconds can answer from counters the writer already
+     * keeps, rather than by walking a file of up to a quarter of a gigabyte. The entry is removed
+     * when the query's feed closes.
+     */
+    private final Map<String, LiveDeadLetters> liveDeadLetters = new ConcurrentHashMap<>();
+
     /** The bound applied to every dead-letter file this node writes. */
     private volatile com.ash.messaging.pravaha.runtime.dlq.DeadLetterRetention deadLetterRetention =
             com.ash.messaging.pravaha.runtime.dlq.DeadLetterRetention.defaults();
@@ -132,6 +141,37 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
      * files through one implementation. Built per call, because it holds no state: a directory and
      * a bound.
      */
+    /**
+     * What one query's dead-letter queue looks like right now, from the writer's own counters.
+     *
+     * <p>{@link com.ash.messaging.pravaha.runtime.dlq.DeadLetterHealth#none()} for a query with no
+     * queue attached, which is not the same as one that has rejected nothing and is not reported
+     * as though it were.
+     */
+    public com.ash.messaging.pravaha.runtime.dlq.DeadLetterHealth deadLetterHealth(String queryName) {
+        LiveDeadLetters live = liveDeadLetters.get(queryName);
+        return live == null
+                ? com.ash.messaging.pravaha.runtime.dlq.DeadLetterHealth.none()
+                : new com.ash.messaging.pravaha.runtime.dlq.DeadLetterHealth(
+                        live.queue().depth(),
+                        live.queue().bytesInFile(),
+                        live.queue().evicted(),
+                        live.queue().evictedBytes(),
+                        live.queue().failures(),
+                        live.rate().rejectedFraction(),
+                        live.rate().isDegraded());
+    }
+
+    /** The queries with a dead-letter queue open right now. */
+    public java.util.Set<String> deadLetteringQueries() {
+        return java.util.Set.copyOf(liveDeadLetters.keySet());
+    }
+
+    /** One query's open queue and the rate every one of its pumps reports to. */
+    private record LiveDeadLetters(
+            com.ash.messaging.pravaha.runtime.dlq.FileDeadLetterQueue queue,
+            com.ash.messaging.pravaha.runtime.dlq.DeadLetterRate rate) {}
+
     public com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore deadLetters() {
         java.nio.file.Path directory = deadLetterDirectory;
         return directory == null
@@ -761,21 +801,48 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
             // this" a question you answer by reading, and the queryId is already on every entry.
             java.nio.file.Path file =
                     com.ash.messaging.pravaha.runtime.dlq.DeadLetterFiles.letters(directory, queryName);
-            com.ash.messaging.pravaha.runtime.dlq.FileDeadLetterQueue queue =
-                    new com.ash.messaging.pravaha.runtime.dlq.FileDeadLetterQueue(file, deadLetterRetention);
-            resources.add(queue);
+            // One queue and one rate per query, however many pumps it has: the file is the
+            // query's, and four partitions each keeping their own rejection window would each
+            // decide the query was degraded on a quarter of the evidence.
+            LiveDeadLetters live = liveDeadLetters.computeIfAbsent(queryName, name -> {
+                try {
+                    com.ash.messaging.pravaha.runtime.dlq.FileDeadLetterQueue opened =
+                            new com.ash.messaging.pravaha.runtime.dlq.FileDeadLetterQueue(file, deadLetterRetention);
+                    resources.add(opened);
+                    resources.add(() -> liveDeadLetters.remove(name));
+                    return new LiveDeadLetters(opened, com.ash.messaging.pravaha.runtime.dlq.DeadLetterRate.defaults());
+                } catch (java.io.IOException cannot) {
+                    throw new java.io.UncheckedIOException(cannot);
+                }
+            });
+            com.ash.messaging.pravaha.runtime.dlq.FileDeadLetterQueue queue = live.queue();
             pump.deadLetteringTo(queue, queryName);
+            pump.deadLetterRate(live.rate());
+        } catch (java.io.UncheckedIOException wrapped) {
+            // computeIfAbsent cannot throw a checked exception, so opening the file wraps its
+            // IOException; it is unwrapped here so the refusal names the cause and not the wrapper.
+            throw unusable(directory, wrapped.getCause());
         } catch (java.io.IOException | RuntimeException cannot) {
-            // Refused rather than degraded. An operator who set pravaha.dlq.directory asked for
-            // records to be kept; carrying on without one would silently give them the behaviour
-            // they were trying to leave, which is the failure this whole finding is about.
-            throw new com.ash.messaging.pravaha.api.PravahaException(
-                    com.ash.messaging.pravaha.state.StateErrors.DLQ_UNUSABLE,
-                    "pravaha.dlq.directory is " + directory + " and this node cannot write there: "
-                            + cannot.getMessage() + ". Fix the path or unset the key -- starting without the "
-                            + "queue would give you the behaviour you configured it to avoid.",
-                    cannot);
+            throw unusable(directory, cannot);
         }
+    }
+
+    /**
+     * Refused rather than degraded.
+     *
+     * <p>An operator who set {@code pravaha.dlq.directory} asked for records to be kept; carrying
+     * on without one would silently give them the behaviour they were trying to leave, which is
+     * the failure this whole finding is about.
+     */
+    private static com.ash.messaging.pravaha.api.PravahaException unusable(
+            java.nio.file.Path directory, Throwable cannot) {
+        return new com.ash.messaging.pravaha.api.PravahaException(
+                com.ash.messaging.pravaha.state.StateErrors.DLQ_UNUSABLE,
+                "pravaha.dlq.directory is " + directory + " and this node cannot write there: "
+                        + (cannot == null ? "" : cannot.getMessage())
+                        + ". Fix the path or unset the key -- starting without the "
+                        + "queue would give you the behaviour you configured it to avoid.",
+                cannot);
     }
 
     private static void closeQuietly(List<? extends AutoCloseable> resources) {

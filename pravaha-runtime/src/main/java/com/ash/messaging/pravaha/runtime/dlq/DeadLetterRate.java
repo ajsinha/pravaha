@@ -30,6 +30,11 @@ package com.ash.messaging.pravaha.runtime.dlq;
  *
  * <p>Time is passed in rather than read, so the behaviour is deterministic under replay and testable
  * without sleeping.
+ *
+ * <p><strong>Synchronised</strong>, because one of these is shared by every pump of a query --
+ * several partitions on several threads -- and read by whatever scrapes the metrics. The lock is
+ * taken once per poll rather than once per row: a poll reports its whole batch with {@link
+ * #recordAccepted(long, long)}.
  */
 public final class DeadLetterRate {
 
@@ -72,11 +77,25 @@ public final class DeadLetterRate {
     }
 
     public void recordAccepted(long nowNanos) {
-        rollWindow(nowNanos);
-        accepted++;
+        recordAccepted(nowNanos, 1);
     }
 
-    public void recordRejected(long nowNanos) {
+    /**
+     * Several accepted records at once.
+     *
+     * <p>A poll moves up to a thousand rows and knows only the total, so counting them one call at
+     * a time would put a method call per row on the hottest path in the engine to reach the same
+     * number. The window rolls once for the batch, which is right: they arrived together.
+     */
+    public synchronized void recordAccepted(long nowNanos, long records) {
+        if (records <= 0) {
+            return;
+        }
+        rollWindow(nowNanos);
+        accepted += records;
+    }
+
+    public synchronized void recordRejected(long nowNanos) {
         rollWindow(nowNanos);
         rejected++;
         long total = accepted + rejected;
@@ -102,26 +121,26 @@ public final class DeadLetterRate {
     }
 
     /** Whether the query should be reported as degraded. */
-    public boolean isDegraded() {
+    public synchronized boolean isDegraded() {
         return degraded;
     }
 
-    public long rejectedInWindow() {
+    public synchronized long rejectedInWindow() {
         return rejected;
     }
 
-    public long acceptedInWindow() {
+    public synchronized long acceptedInWindow() {
         return accepted;
     }
 
     /** The share rejected in this window, or zero before the sample is large enough to mean anything. */
-    public double rejectedFraction() {
+    public synchronized double rejectedFraction() {
         long total = accepted + rejected;
         return total < minimumSample ? 0 : (double) rejected / total;
     }
 
     /** How often the query has entered the degraded state. Flapping is its own signal. */
-    public long degradedTransitions() {
+    public synchronized long degradedTransitions() {
         return degradedTransitions;
     }
 }

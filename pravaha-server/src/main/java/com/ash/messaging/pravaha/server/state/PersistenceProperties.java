@@ -58,6 +58,17 @@ public class PersistenceProperties {
      * source, taking every other row in the file with it. `pravaha run --dlq` had this; a server did
      * not, which is the deployment that matters.
      */
+    /**
+     * What bounds every dead-letter file this node writes (B5).
+     *
+     * <p>Read even when no directory is set, so that switching the directory on later gets the
+     * bound the operator configured rather than the default.
+     */
+    public com.ash.messaging.pravaha.runtime.dlq.DeadLetterRetention dlqRetention() {
+        return new com.ash.messaging.pravaha.runtime.dlq.DeadLetterRetention(
+                dlq.getMaxBytes(), dlq.getMaxEntries(), dlq.getMaxAge());
+    }
+
     public Optional<Path> dlqPath() {
         String directory = dlq.getDirectory();
         return directory == null || directory.isBlank() ? Optional.empty() : Optional.of(Path.of(directory));
@@ -118,12 +129,53 @@ public class PersistenceProperties {
          */
         private String directory = "";
 
+        /**
+         * The largest one query's dead-letter file may grow, in bytes. Zero means no byte bound.
+         *
+         * <p>B5. Named after {@code pravaha.state.spill.max-bytes}, which is the same question
+         * about the other file this node writes without an upper limit. On by default at 256 MiB,
+         * because a bound that defaults to off is not a bound: the failure it stops is one renamed
+         * column in a busy feed filling the disk the checkpoints are on, and that happens to a
+         * deployment that set a directory and nothing else.
+         */
+        private long maxBytes = com.ash.messaging.pravaha.runtime.dlq.DeadLetterRetention.DEFAULT_MAX_BYTES;
+
+        /** The most entries one query's file may hold, or zero for no count bound. */
+        private long maxEntries;
+
+        /** How long an entry is kept, or zero for no age bound. */
+        private Duration maxAge = Duration.ZERO;
+
         public String getDirectory() {
             return directory;
         }
 
         public void setDirectory(String directory) {
             this.directory = directory;
+        }
+
+        public long getMaxBytes() {
+            return maxBytes;
+        }
+
+        public void setMaxBytes(long maxBytes) {
+            this.maxBytes = maxBytes;
+        }
+
+        public long getMaxEntries() {
+            return maxEntries;
+        }
+
+        public void setMaxEntries(long maxEntries) {
+            this.maxEntries = maxEntries;
+        }
+
+        public Duration getMaxAge() {
+            return maxAge;
+        }
+
+        public void setMaxAge(Duration maxAge) {
+            this.maxAge = maxAge == null ? Duration.ZERO : maxAge;
         }
     }
 

@@ -56,7 +56,7 @@ public class EngineHealthIndicator implements HealthIndicator {
         if (!node.isRunning()) {
             return Health.down().withDetail("engine", "not started").build();
         }
-        boolean[] feedStopped = {false};
+        boolean[] degraded = {false};
         node.registry().ifPresent(registry -> {
             detail.put("queries", registry.size());
             long failed = registry.queries().stream()
@@ -81,7 +81,37 @@ public class EngineHealthIndicator implements HealthIndicator {
                     .findFirst()
                     .ifPresent(source ->
                             detail.put("firstStoppedFeed", source.stop().code() + " reading " + source.where()));
-            feedStopped[0] = !stopped.isEmpty();
+            degraded[0] = !stopped.isEmpty();
+            // B5. How many records this node is holding that it could not decode, and which query
+            // has the most. A node whose feeds are all reading and whose queues are filling looks
+            // perfectly healthy from everything above, and its views are quietly incomplete --
+            // which is the state design 15.6 calls DEGRADED and nothing reported.
+            node.sources().ifPresent(sources -> {
+                long waiting = 0;
+                String worst = "";
+                long most = 0;
+                for (String name : sources.deadLetteringQueries()) {
+                    long depth = sources.deadLetterHealth(name).depth();
+                    waiting += depth;
+                    if (depth > most) {
+                        most = depth;
+                        worst = name;
+                    }
+                }
+                detail.put("deadLetters", waiting);
+                if (!worst.isEmpty()) {
+                    detail.put("deepestDeadLetterQueue", worst + " (" + most + ")");
+                }
+                // Degraded when the rejection rate has passed its threshold, not when the queue is
+                // merely non-empty: every real feed produces some rejects, and an indicator that
+                // went amber on the first one is an indicator whose alerts get muted in week two.
+                boolean anyDegraded = sources.deadLetteringQueries().stream()
+                        .anyMatch(name -> sources.deadLetterHealth(name).degraded());
+                if (anyDegraded) {
+                    detail.put("deadLetterRate", "past pravaha.dlq's threshold: this node's answers are incomplete");
+                    degraded[0] = true;
+                }
+            });
         });
 
         if (node.flightPort().isEmpty()) {
@@ -93,7 +123,7 @@ public class EngineHealthIndicator implements HealthIndicator {
                     .build();
         }
         detail.put("flightPort", node.flightPort().orElseThrow());
-        if (feedStopped[0]) {
+        if (degraded[0]) {
             // Degraded, not down: the node serves every view, the stopped one included, at the
             // frontier it reached, and taking it out of rotation would take its healthy queries
             // with it. application.yaml orders DEGRADED between OUT_OF_SERVICE and UP, so the

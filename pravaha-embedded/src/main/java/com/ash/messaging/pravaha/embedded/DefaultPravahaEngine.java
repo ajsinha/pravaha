@@ -110,6 +110,10 @@ final class DefaultPravahaEngine implements PravahaEngine {
     private volatile List<StreamSchema> lookupSchemas = List.of();
     private PluginLookupSources lookups;
     private PluginSinks sinks;
+
+    /** The source bindings, kept so the engine can answer for the dead letters they wrote (B5). */
+    private PluginSourceFeeds sourceFeeds;
+
     private final List<StateOwnership> claims = new ArrayList<>();
 
     private final Object pushLock = new Object();
@@ -243,10 +247,20 @@ final class DefaultPravahaEngine implements PravahaEngine {
                 configuration.getDuration("pravaha.watermark.tick", Duration.ofSeconds(1)));
 
         PluginSourceFeeds feeds = new PluginSourceFeeds();
+        // B5. The bound on each query's dead-letter file, with the byte bound on by default: an
+        // embedded engine writes these files into its host's filesystem, so an unbounded one is
+        // this library filling somebody else's disk.
+        feeds.retainingDeadLetters(new com.ash.messaging.pravaha.runtime.dlq.DeadLetterRetention(
+                configuration.getLong(
+                        "pravaha.dlq.max-bytes",
+                        com.ash.messaging.pravaha.runtime.dlq.DeadLetterRetention.DEFAULT_MAX_BYTES),
+                configuration.getLong("pravaha.dlq.max-entries", 0),
+                configuration.getDuration("pravaha.dlq.max-age", Duration.ZERO)));
         configuration
                 .getString("pravaha.dlq.directory")
                 .filter(s -> !s.isBlank())
                 .ifPresent(dir -> feeds.deadLetteringTo(Path.of(dir)));
+        this.sourceFeeds = feeds;
         declaredSources.values().forEach(binding -> feeds.bind(withDeclaredEventTime(binding)));
         built.feedingFrom(feeds);
 
@@ -434,6 +448,12 @@ final class DefaultPravahaEngine implements PravahaEngine {
     }
 
     // ------------------------------------------------------------------ running
+
+    @Override
+    public com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore deadLetters() {
+        PluginSourceFeeds open = sourceFeeds;
+        return open == null ? com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore.NONE : open.deadLetters();
+    }
 
     @Override
     public QueryRegistry registry() {

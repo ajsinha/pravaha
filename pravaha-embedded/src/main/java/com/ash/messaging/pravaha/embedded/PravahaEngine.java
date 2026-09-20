@@ -256,6 +256,17 @@ public interface PravahaEngine extends AutoCloseable {
      */
     QueryRegistry registry();
 
+    /**
+     * What this engine has dead-lettered, readable (B5).
+     *
+     * <p>{@link com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore#NONE} when no
+     * {@code pravaha.dlq.directory} is configured, which answers "no queue" rather than "no
+     * records" -- a difference an application showing this to somebody has to be able to make.
+     */
+    default com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore deadLetters() {
+        return com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore.NONE;
+    }
+
     @Override
     void close();
 }

@@ -88,6 +88,24 @@ public class RegistryAccess {
         return sinks.get();
     }
 
+    /**
+     * What has been dead-lettered, read from the source bindings' configured directory (B5).
+     *
+     * <p>Through the bindings rather than through the node, so that the dead-letter surfaces are
+     * constructible over a bare registry the way the listing ones are -- and so that the one place
+     * that knows where the files are is the one place that writes them.
+     */
+    public com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore deadLetters() {
+        return sources.get()
+                .map(PluginSourceFeeds::deadLetters)
+                .orElse(com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore.NONE);
+    }
+
+    /** The node's audit sink, for a surface that builds its own rule object over the registry. */
+    public AuditSink audit() {
+        return audit;
+    }
+
     /** The listing rules, with the registry's own policy; empty before the node has a registry. */
     public Optional<QueryListing> listing() {
         return registry().map(found -> new QueryListing(found, found.policy(), audit));

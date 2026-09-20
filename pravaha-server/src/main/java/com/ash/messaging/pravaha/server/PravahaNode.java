@@ -113,6 +113,10 @@ public class PravahaNode implements SmartLifecycle {
     private final Optional<Path> journalPath;
     private final Configuration clusterConfiguration;
     private final java.util.Optional<java.nio.file.Path> dlqPath;
+
+    /** What bounds the dead-letter files, read whether or not a directory is configured (B5). */
+    private final com.ash.messaging.pravaha.runtime.dlq.DeadLetterRetention dlqRetention;
+
     private final String nodeId;
     private final boolean allowSharedState;
     private final boolean standby;
@@ -404,6 +408,7 @@ public class PravahaNode implements SmartLifecycle {
         this.flightPort = flightPort;
         this.journalPath = persistence.journalPath();
         this.dlqPath = persistence.dlqPath();
+        this.dlqRetention = persistence.dlqRetention();
         this.checkpointPath = persistence.checkpointPath();
         this.checkpointConfiguration = persistence.checkpointConfiguration();
         this.clusterConfiguration = Configuration.builder()
@@ -845,8 +850,11 @@ public class PravahaNode implements SmartLifecycle {
         // the source, taking every other row in the file with it, with the query still RUNNING and
         // nothing in any log. `pravaha run --dlq` had this and a deployment did not.
         dlqPath.ifPresent(directory -> {
-            feeds.deadLetteringTo(directory);
-            log.info("dead-lettering undecodable records to {} (pravaha.dlq.directory)", directory);
+            feeds.deadLetteringTo(directory).retainingDeadLetters(dlqRetention);
+            log.info(
+                    "dead-lettering undecodable records to {} (pravaha.dlq.directory), keeping {}",
+                    directory,
+                    dlqRetention.describe());
         });
         sources.toBindings().forEach(binding -> feeds.bind(withDeclaredEventTime(binding)));
         registry.feedingFrom(feeds);
@@ -963,6 +971,9 @@ public class PravahaNode implements SmartLifecycle {
             // this server, could never start a node with Flight enabled.
             PravahaFlightServer server = new PravahaFlightServer(views)
                     .authorizedBy(securityPolicyOf(registry), auditSink())
+                    // B5. The same files the HTTP endpoints read, so `pravaha dlq` and the REST
+                    // API cannot disagree about what is in the queue.
+                    .withDeadLetters(feeds.deadLetters())
                     .hosting(registry);
             TokenVerifier verifier = security.verifier();
             if (verifier != null) {
@@ -1112,6 +1123,19 @@ public class PravahaNode implements SmartLifecycle {
      * The source bindings this node reads, for striking their option values out of a stopped feed's
      * message before it leaves the node (FEED-1); empty before it starts.
      */
+    /**
+     * What has been dead-lettered on this node, readable (B5).
+     *
+     * <p>{@link com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore#NONE} until the node is
+     * running and while no {@code pravaha.dlq.directory} is set -- a surface then answers "no
+     * queue is configured", which is a different thing from "this query has rejected nothing" and
+     * is said differently.
+     */
+    public com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore deadLetters() {
+        PluginSourceFeeds open = feeds;
+        return open == null ? com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore.NONE : open.deadLetters();
+    }
+
     public Optional<PluginSourceFeeds> sources() {
         return Optional.ofNullable(feeds);
     }

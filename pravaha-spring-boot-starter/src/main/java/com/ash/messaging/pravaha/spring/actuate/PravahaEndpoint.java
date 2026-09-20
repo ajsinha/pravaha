@@ -102,7 +102,32 @@ public class PravahaEndpoint {
                 sink,
                 onQuery,
                 query.failure().map(Throwable::getMessage).orElse(null),
-                describe(query.feedStatus()));
+                describe(query.feedStatus()),
+                deadLetters(name));
+    }
+
+    /**
+     * How deep this query's dead-letter queue is, and what retention has taken from it (B5).
+     *
+     * <p>Counts, never records. This endpoint is read by whatever {@code exposure.include} admits,
+     * which is a management port and not the view's readers, and a dead letter's bytes are a row
+     * of the source. An application that wants the records asks the engine's own store, where the
+     * view's authorization rules can be applied to the question.
+     */
+    private DeadLetterDescriptor deadLetters(String name) {
+        var store = engine.deadLetters();
+        var counts = store.counts(name);
+        return new DeadLetterDescriptor(
+                store.configured(),
+                counts.entries(),
+                counts.bytes(),
+                counts.evicted(),
+                counts.evictedBytes(),
+                counts.replayed(),
+                counts.failedAgain(),
+                counts.oldest().orElse(null),
+                counts.newest().orElse(null),
+                store.retention().describe());
     }
 
     /** Whether rows still reach the query, source by source, and why not when one has stopped (FEED-1). */
@@ -162,7 +187,30 @@ public class PravahaEndpoint {
             SinkDescriptor sink,
             List<ListenerDescriptor> listeners,
             String failure,
-            FeedDescriptor feed) {}
+            FeedDescriptor feed,
+            DeadLetterDescriptor deadLetters) {}
+
+    /**
+     * A query's dead-letter queue, by the numbers.
+     *
+     * @param configured whether {@code pravaha.dlq.directory} is set at all; false means records
+     *     that cannot be decoded stop the source rather than being kept, which is a different
+     *     state from a queue that is empty
+     * @param evicted entries retention has removed and will not give back; published beside the
+     *     depth because a depth without it cannot be read
+     * @param retention the bound in force, as words
+     */
+    public record DeadLetterDescriptor(
+            boolean configured,
+            long waiting,
+            long bytes,
+            long evicted,
+            long evictedBytes,
+            long replayed,
+            long failedAgain,
+            Instant oldest,
+            Instant newest,
+            String retention) {}
 
     /**
      * A query's feed.

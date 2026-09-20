@@ -509,6 +509,138 @@ public final class PravahaFlightClient implements AutoCloseable {
                     false);
         }
         return ReplacementInfo.of(results.get(0));
+
+    /**
+     * A page of the records this query's feed could not decode, newest first (B5).
+     *
+     * <p>Newest first and no other order offered: a queue is read because something has just
+     * started failing, and the entries that answer "what is happening now" are at the end of the
+     * file.
+     *
+     * <p>An entry's record may be withheld -- see {@link DeadLetterInfo#isWithheld()} -- when this
+     * caller reads the view through a row filter. The count, the offset and the code are not.
+     *
+     * @param offset how many of the newest to skip
+     * @param limit how many to return; the server clamps it
+     */
+    public DeadLetterPageInfo deadLetters(String name, int offset, int limit) {
+        List<DeadLetterInfo> entries = new java.util.ArrayList<>();
+        DeadLetterPageInfo totals = null;
+        for (List<String> row : act(ControlWire.DLQ_LIST, name, Integer.toString(offset), Integer.toString(limit))) {
+            // A '#' in the first field is the trailer carrying the queue's totals. It cannot be an
+            // id, which is a UUID, so a client tells the two apart without being told how many
+            // entries to expect.
+            if ("#".equals(field(row, 0))) {
+                totals = new DeadLetterPageInfo(
+                        name,
+                        entries,
+                        offset,
+                        number(row, 1),
+                        number(row, 2),
+                        number(row, 3),
+                        number(row, 4),
+                        number(row, 5),
+                        number(row, 6),
+                        field(row, 7),
+                        Boolean.parseBoolean(field(row, 8)));
+                continue;
+            }
+            entries.add(deadLetterOf(row));
+        }
+        // A server that predates the trailer sends entries and nothing else; the page is still a
+        // page, with the totals it could not report left at what the page itself shows.
+        return totals != null
+                ? totals
+                : new DeadLetterPageInfo(
+                        name, entries, offset, offset + entries.size(), 0, 0, 0, 0, 0, "unknown", true);
+    }
+
+    /** The newest fifty. */
+    public DeadLetterPageInfo deadLetters(String name) {
+        return deadLetters(name, 0, 50);
+    }
+
+    /**
+     * One dead letter whole, by its id.
+     *
+     * @throws PravahaClientException {@code PRV-4091} when no entry with that id is in the queue
+     */
+    public DeadLetterInfo deadLetter(String name, String id) {
+        List<List<String>> results = act(ControlWire.DLQ_SHOW, name, id);
+        if (results.isEmpty()) {
+            throw new IllegalStateException("the server answered pravaha.dlq.show with no result");
+        }
+        return deadLetterOf(results.get(0));
+    }
+
+    /**
+     * Feeds chosen dead letters back through the query that rejected them.
+     *
+     * <p><strong>A new row at the current frontier, not a rewind.</strong> Nothing is re-read, no
+     * offset moves, and no earlier result is recomputed. A record that fails to decode again goes
+     * back on the queue as a fresh entry -- named in {@link DeadLetterReplayInfo#newId()} -- and
+     * is not retried, so a caller walking a queue moves forwards through it.
+     *
+     * <p>Not idempotent: replaying the same id twice puts the row in twice.
+     *
+     * @throws PravahaClientException {@code PRV-7002} when this caller may not administer the
+     *     view, {@code PRV-4091} when an id is not in the queue, {@code PRV-4092} when replaying
+     *     one could not be correct
+     */
+    public List<DeadLetterReplayInfo> replayDeadLetters(String name, List<String> ids) {
+        if (ids == null || ids.isEmpty()) {
+            throw new IllegalArgumentException("say which dead letters to replay; replaying a whole queue by "
+                    + "omission is not offered, because a queue is usually a mix of causes");
+        }
+        String[] fields = new String[ids.size() + 1];
+        fields[0] = name;
+        for (int i = 0; i < ids.size(); i++) {
+            fields[i + 1] = ids.get(i);
+        }
+        List<DeadLetterReplayInfo> replayed = new java.util.ArrayList<>(ids.size());
+        for (List<String> row : act(ControlWire.DLQ_REPLAY, fields)) {
+            replayed.add(new DeadLetterReplayInfo(field(row, 0), field(row, 1), field(row, 2), field(row, 3)));
+        }
+        return replayed;
+    }
+
+    /** Feeds one dead letter back through the query. */
+    public DeadLetterReplayInfo replayDeadLetter(String name, String id) {
+        return replayDeadLetters(name, List.of(id)).get(0);
+    }
+
+    private static DeadLetterInfo deadLetterOf(List<String> row) {
+        String at = field(row, 6);
+        String replayedAt = field(row, 11);
+        byte[] raw;
+        try {
+            raw = java.util.Base64.getDecoder().decode(field(row, 8));
+        } catch (IllegalArgumentException notBase64) {
+            raw = new byte[0];
+        }
+        return new DeadLetterInfo(
+                field(row, 0),
+                number(row, 1),
+                field(row, 2),
+                field(row, 3),
+                field(row, 4),
+                field(row, 5),
+                at.isEmpty() ? null : java.time.Instant.parse(at),
+                (int) number(row, 7),
+                raw,
+                field(row, 9),
+                field(row, 10),
+                replayedAt.isEmpty() ? null : java.time.Instant.parse(replayedAt));
+    }
+
+    /** A numeric field, or zero from a server that did not send one. */
+    private static long number(List<String> row, int at) {
+        try {
+            String value = field(row, at);
+            return value.isEmpty() ? 0 : Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     /** Stops a query without releasing it; its view keeps answering at the frontier it reached. */

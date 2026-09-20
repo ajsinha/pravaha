@@ -62,6 +62,18 @@ public final class PravahaFlightServer implements AutoCloseable {
     private AuditSink audit = AuditSink.NONE;
     private ReadAdmission admission = ReadAdmission.UNLIMITED;
     private com.ash.messaging.pravaha.registry.QueryRegistry registry;
+
+    /**
+     * What has been dead-lettered, when a node has a {@code pravaha.dlq.directory} (B5).
+     *
+     * <p>Separate from the registry because it is a different thing a deployment may or may not
+     * have configured: a node with a registry and no queue answers the dead-letter actions with an
+     * empty queue and says the directory is not set, which is a different answer from "this query
+     * has rejected nothing".
+     */
+    private com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore deadLetters =
+            com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore.NONE;
+
     private java.io.File certificateChain;
     private java.io.File privateKey;
     private java.time.Duration readDeadline = java.time.Duration.ZERO;
@@ -211,6 +223,13 @@ public final class PravahaFlightServer implements AutoCloseable {
      * that something else maintains, and tells a client that asks to register so, rather than
      * offering an operation that quietly does nothing.
      */
+    /** Lets clients read and replay this node's dead letters (B5). */
+    public PravahaFlightServer withDeadLetters(com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore store) {
+        requireNotStarted("a dead-letter store");
+        this.deadLetters = store == null ? com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore.NONE : store;
+        return this;
+    }
+
     public PravahaFlightServer hosting(com.ash.messaging.pravaha.registry.QueryRegistry registry) {
         requireNotStarted("a registry");
         this.registry = java.util.Objects.requireNonNull(registry, "registry");
@@ -271,7 +290,8 @@ public final class PravahaFlightServer implements AutoCloseable {
                     allocator,
                     requested,
                     new PravahaFlightSqlProducer(catalog, allocator, requested, policy, audit, admission, readDeadline)
-                            .withRegistry(registry));
+                            .withRegistry(registry)
+                            .withDeadLetters(deadLetters));
             if (verifier != null) {
                 builder.middleware(PrincipalMiddleware.KEY, new PrincipalMiddleware.Factory(verifier));
             }

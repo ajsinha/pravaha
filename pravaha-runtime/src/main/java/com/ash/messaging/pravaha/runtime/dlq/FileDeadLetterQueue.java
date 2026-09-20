@@ -296,6 +296,11 @@ public final class FileDeadLetterQueue implements DeadLetterQueue {
         return evictedBytes;
     }
 
+    /** How large the file is, tracked as it is written so a gauge costs no stat. */
+    public long bytesInFile() {
+        return bytesInFile;
+    }
+
     /** How many entries the file holds right now, after any eviction. */
     @Override
     public long depth() {
