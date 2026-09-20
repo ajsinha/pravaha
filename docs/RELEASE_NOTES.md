@@ -83,7 +83,7 @@ part under load, several are too noisy to state as a figure, and the harness say
 The register is [`qa/FINDINGS.md`](qa/FINDINGS.md), and it is the honest list: every defect found,
 what happened to it, and what is still true of the build.
 
-At this cut: **361 findings — 331 fixed, 17 open, 0 GA-BLOCKER, 0 GA-REQUIRED**, 15 of the open ones
+At this cut: **362 findings — 332 fixed, 17 open, 0 GA-BLOCKER, 0 GA-REQUIRED**, 15 of the open ones
 triaged POST-GA and 2 recorded as notes rather than defects. The header's counts are enforced by
 `FindingsRegisterTest`, so this page and the register cannot drift apart silently.
 
