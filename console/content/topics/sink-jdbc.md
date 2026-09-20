@@ -286,7 +286,7 @@ which the upsert makes harmless in upsert mode and which an append table receive
 
 ## Where next
 
-- [Delivery guarantees](/help/topics/delivery-guarantees) — how the four shipped sinks compare
+- [Delivery guarantees](/help/topics/delivery-guarantees) — how the five shipped sinks compare
 - [Checkpoints and recovery](/help/topics/checkpoints-recovery) — what the exactly-once guarantee
   rests on
 - [How a query writes to a sink](/help/topics/sinks-overview) — the shape check and detach

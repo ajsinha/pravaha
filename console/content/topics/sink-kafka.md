@@ -384,7 +384,7 @@ topic, a repeat of every row on a changelog.
 
 - [How a query writes to a sink](/help/topics/sinks-overview) — the shape check, the retraction check
   and detach
-- [Delivery guarantees](/help/topics/delivery-guarantees) — how the four shipped sinks compare
+- [Delivery guarantees](/help/topics/delivery-guarantees) — how the five shipped sinks compare
 - [The Kafka source](/help/topics/source-kafka) — reading a changelog topic back into another query
 - [The postgres-cdc source](/help/topics/source-postgres-cdc) — deletes and updates that reach the
   topic as tombstones

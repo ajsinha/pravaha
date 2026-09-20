@@ -45,8 +45,8 @@ What the sink does with that second copy is the guarantee.
 
 | Sink declares | Example | With `pravaha.checkpoint.directory` set | Without it |
 |---|---|---|---|
-| **transactional** | [`jdbc-sink`](/help/topics/sink-jdbc) and [`kafka-sink`](/help/topics/sink-kafka) (both by default) | **exactly once** (for `kafka-sink`, to a `read_committed` consumer) | no checkpoint to tie a transaction to, so each commit is its own and a restart repeats it: **effectively once** in upsert mode (the default — a repeated upsert rewrites the value already there), at least once in `mode: append` or `mode: changelog` |
-| **idempotent upsert** | [`aerospike-sink`](/help/topics/sink-aerospike); `jdbc-sink` or `kafka-sink` with `transactional: false`, `mode: upsert` (Kafka on a compacted topic) | effectively once | effectively once |
+| **transactional** | [`jdbc-sink`](/help/topics/sink-jdbc), [`kafka-sink`](/help/topics/sink-kafka) and [`delta-sink`](/help/topics/sink-delta) (all by default) | **exactly once** (for `kafka-sink`, to a `read_committed` consumer) | no checkpoint to tie a transaction to, so each commit is its own and a restart repeats it: **effectively once** in upsert mode (the default — a repeated upsert rewrites the value already there), at least once in `mode: append` or `mode: changelog` |
+| **idempotent upsert** | [`aerospike-sink`](/help/topics/sink-aerospike); `jdbc-sink`, `kafka-sink` or `delta-sink` with `transactional: false`, `mode: upsert` (Kafka on a compacted topic) | effectively once | effectively once |
 | **neither** | [`filesystem`](/help/topics/sink-filesystem); `jdbc-sink` with `transactional: false`, `mode: append`; `kafka-sink` with `transactional: false`, `mode: changelog` | at least once | at least once |
 
 ### Exactly once: prepare at the checkpoint, commit when it is durable
@@ -158,7 +158,10 @@ table now changes once per checkpoint, all of a checkpoint's rows together.
   restarted leaves that tail out of the sink.
 - **At a second writer.** Exactly-once for `jdbc-sink` assumes one writer per `transaction.id` and
   nothing else writing the target's keys; for `kafka-sink`, one writer per `transactional.id` — a
-  second fences the first.
+  second fences the first. `delta-sink` is the one that says so out loud: another writer that
+  commits to the table *inside* its commit window is refused with `PRV-5059` and the sink is
+  detached, because the merge's removals name files that writer has just rewritten and retrying
+  would be a guess. One that commits *before* it is merged onto, and this sink's keys win.
 - **At a `read_uncommitted` consumer.** `kafka-sink`'s exactly-once is what a `read_committed`
   consumer sees; one reading uncommitted can also see a commit a crash aborted and the restore redid.
   That includes a `kafka` source configured with `isolation.level: read_uncommitted`.
