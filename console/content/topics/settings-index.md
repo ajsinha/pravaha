@@ -37,8 +37,8 @@ A few keys are bound from configuration classes rather than written out in the s
 | Setting | Default | What it does |
 |---|---|---|
 | `pravaha.flight.enabled` | `true` | Serve Arrow Flight SQL — the protocol the SDKs, the CLI and the console speak |
-| `pravaha.flight.host` | `0.0.0.0` | Where Flight listens |
-| `pravaha.flight.port` | `9090` | Flight's port — what every client and example defaults to |
+| `pravaha.flight.host` | `0.0.0.0` | Where Flight listens. Write an address in full: `127` is legal input to `InetAddress` and means `0.0.0.127`, so an abbreviated one is refused at startup (PRV-3010). An IPv6 host is reported bracketed, `[::1]:9090` |
+| `pravaha.flight.port` | `9090` | Flight's port — what every client and example defaults to. `0` lets the operating system pick, and `GET /api/v1/status`'s `flight` field reports the port it picked. Outside 0-65535 is PRV-3010 naming the key, rather than gRPC's own unnamed argument check |
 | `pravaha.flight.tls.certificate` | *empty* | PEM certificate chain. With the key, Flight serves TLS; without both, plaintext. One without the other is refused at startup (PRV-6104) — see [TLS](/help/topics/tls) |
 | `pravaha.flight.tls.key` | *empty* | PEM private key, the other half of the pair |
 | `pravaha.pgwire.enabled` | `false` | Serve the read-only [PostgreSQL gateway](/help/topics/pgwire), for `psql`, Grafana and ORMs |
@@ -61,7 +61,7 @@ down as such.
 | `pravaha.security.authentication` | `none` | `none` or `token` — whether callers present a bearer token |
 | `pravaha.security.policy` | `permissive` | `permissive` (everyone sees everything) or `authenticated` (only verified callers see anything); or a `SecurityPolicy` of your own |
 | `pravaha.security.allow-anonymous` | `false` | Acknowledges an open server. Deliberately awkward to set by accident |
-| `pravaha.security.tokens` | *none* | Static credentials for development and tests: a map from token to `id`, `tenant` (default `public`) and `roles`. A real deployment implements a `TokenVerifier` |
+| `pravaha.security.tokens` | *none* | Static credentials for development and tests: a map from **the token itself** to `id` (**required**), `tenant` (default `public`) and `roles`. The `id` is what the audit trail and the registry journal record, so it must not be allowed to fall back to the map key -- which is the credential. A real deployment implements a `TokenVerifier` |
 | `pravaha.security.audit` | `none` | `none`, `memory` (in-process only, readable by nothing) or `file` (JSON Lines an operator can read) |
 | `pravaha.security.audit-file` | `pravaha-audit.jsonl` | Where `audit: file` writes; created owner-read-write only. A path the node cannot write is PRV-7004 at startup |
 | `pravaha.security.audit-rotate-bytes` | `67108864` (64 MiB) | Rotate the audit file past this size |
@@ -72,12 +72,16 @@ down as such.
 ## Streams, sources, lookups and sinks
 
 These are maps whose keys are **your** names — a stream called `txn` is configured under
-`pravaha.streams.txn`. See [Streams](/help/topics/streams), [Sources](/help/topics/sources-overview),
+`pravaha.streams.txn`. A name with anything but letters, digits and hyphens has to be **bracketed**
+-- `"[txnü]": {schema: ...}` -- because Spring canonicalises a map key before binding it and
+discards one it cannot. A key that reaches nothing is refused at startup with PRV-1027; it used to
+be dropped with no message at any level, and the first query against the stream reported it as
+unknown. See [Streams](/help/topics/streams), [Sources](/help/topics/sources-overview),
 [Lookups](/help/topics/lookups) and [Sinks](/help/topics/sinks-overview).
 
 | Setting | Default | What it does |
 |---|---|---|
-| `pravaha.streams.<name>.schema` | — | The stream's columns, `name:TYPE,name:TYPE` (`?` after a type for nullable) |
+| `pravaha.streams.<name>.schema` | — | The stream's columns, `name:TYPE,name:TYPE` (`?` after a type for nullable). It must match a source binding's own `schema` option for the same stream, and a disagreement is refused at startup: one is what queries are planned against and the other is what the plugin decodes with |
 | `pravaha.streams.<name>.event-time` | *none* | The column carrying each row's own time. **Without it no watermark advances and no window ever closes** |
 | `pravaha.streams.<name>.out-of-orderness` | `10s` | How late *this* stream's rows may be. The key that is actually read — see `pravaha.watermark.out-of-orderness` below |
 | `pravaha.streams.<name>.allowed-lateness` | `0s` | How long after a window closes a late row may still correct it (a `−1` and a `+1`). Needs `event-time`; non-zero makes windowed queries over the stream revise, so they need a sink that takes retractions (PRV-2041). See [late data](/help/topics/late-data) |
@@ -100,10 +104,10 @@ sinks [filesystem](/help/topics/sink-filesystem), [jdbc-sink](/help/topics/sink-
 
 | Setting | Default | What it does |
 |---|---|---|
-| `pravaha.registry.journal` | *empty* | A file where registrations are written down and replayed at startup. Unset: queries live only in memory and a restart loses them (the node warns). Holds SQL and bound values — permission it like data |
-| `pravaha.checkpoint.directory` | *empty* | Where each query checkpoints its state, one directory per query. Unset: no checkpoints, and a restart recovers questions but not answers. Needed by a standby and by exactly-once sinks |
-| `pravaha.checkpoint.interval` | `1m` | How often a query checkpoints. Bounds how much a restart replays — and how far a transactional sink trails the view |
-| `pravaha.checkpoint.keep` | `3` | Checkpoints kept per query. Counted, not timed: an age rule would delete the last fallback after a quiet night |
+| `pravaha.registry.journal` | *empty* | A file where registrations are written down and replayed at startup. Unset: queries live only in memory and a restart loses them (the node warns). **Its directory has to exist** -- it used to be created on the first append, so a typo journalled to the wrong place silently; a missing one is now PRV-8006 at startup. Holds SQL and bound values — permission it like data |
+| `pravaha.checkpoint.directory` | *empty* | Where each query checkpoints its state, one directory per query. Unset: no checkpoints, and a restart recovers questions but not answers. Needed by a standby and by exactly-once sinks. A path that exists and is not a directory, or one whose parent does not, is PRV-4093 at startup |
+| `pravaha.checkpoint.interval` | `1m` | How often a query checkpoints. Bounds how much a restart replays — and how far a transactional sink trails the view. **Write the unit**: a bare number is read as milliseconds by Spring and is refused (PRV-1023) |
+| `pravaha.checkpoint.keep` | `3` | Checkpoints kept per query, at least 1 (PRV-1026 at startup). Counted, not timed: an age rule would delete the last fallback after a quiet night |
 | `pravaha.checkpoint.timeout` | `30s` | How long one checkpoint may take before it is abandoned (and counted in `pravaha_query_checkpoint_failures_total`) |
 | `pravaha.dlq.directory` | *empty* | Where records a source cannot decode are written, one file per query, instead of stopping the source. Set and unwritable: the node refuses to start (PRV-4090). See [Dead letters](/help/topics/dead-letters) |
 | `pravaha.dlq.max-bytes` | `268435456` | The largest one query's dead-letter file may grow. Past it the **oldest** entries are evicted, and the loss is written to `<query>.dlq.evicted`, warned about, and counted on every surface. `0` for no byte bound |
@@ -195,10 +199,13 @@ See [The embedded engine](/help/topics/embedded-engine) and
 
 | Property | What it does |
 |---|---|
-| `pravaha.memory` | Selects the off-heap memory implementation by name; unset means "choose for me" |
-| `pravaha.ffm` | Opts into the Foreign Function & Memory implementation on JDK 22 and later |
+| `pravaha.memory` | Selects the off-heap memory implementation by name -- `agrona`, `foreign` or `bytebuffer`; unset means "choose for me". A name that is not one of those is refused at startup rather than ignored, because the only reason to set it is to be certain |
+| `pravaha.ffm` | Opts into the Foreign Function & Memory implementation on JDK 22 and later. On an older JDK it falls through silently and deliberately: a launcher that starts working on an upgrade is not a mistake |
 
-Set with `-D` on the JVM command line, not in `application.yaml`.
+Set with `-D` on the JVM command line, not in `application.yaml`. All the selections produce
+byte-identical results, so this is about knowing what is running, not about correctness -- and the
+node logs the answer once at startup: `off-heap access: bytebuffer (-Dpravaha.memory,
+-Dpravaha.ffm=false)`.
 
 ## Where next
 

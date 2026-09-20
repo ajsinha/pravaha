@@ -441,6 +441,38 @@ gapful: see "Is the subscription attached?" above.
 
 ---
 
+## "The node refused to start" — a configuration value that cannot mean what it says
+
+Each of these used to start a node. That is the point of the section: every row below was a
+deployment that came up, passed every liveness and readiness probe, and was wrong — either
+silently, or once per client for the rest of its life. One bad value should be one startup failure,
+which is what these now are.
+
+| | |
+|---|---|
+| `PRV-1027` a key reached nothing | A key under `pravaha.streams`, `pravaha.sources`, `pravaha.lookups` or `pravaha.sinks` is in the file and is not in the map the server bound. Spring canonicalises a map key before binding it and **discards one it cannot** — a trailing space, a non-ASCII letter — with no message at any level, so the stream was in the file, absent from the catalog, and the first query against it said "Object not found. Known streams: [...]". Quote the key in brackets to bind it verbatim: `"[txnü]": {schema: "..."}`. Or rename it to letters, digits and hyphens (CFG-3) |
+| `PRV-1023` a duration with no unit | Spring reads a bare number on a duration key as **milliseconds**. `pravaha.checkpoint.interval: 2`, written meaning two seconds, produced 6,409 checkpoints in twenty seconds with nothing in the log naming the interval in force. Write the unit — `2s`, `500ms`, `1m` — or ISO-8601, `PT2S`. The engine's own duration parser has always refused a bare number for this reason; this is the same rule on the Spring side (CFG-15) |
+| `PRV-1026` a bound this value is outside | `pravaha.checkpoint.keep` below 1, or a non-positive `interval` or `timeout`. `keep: 0` used to start a healthy node that then refused **every** registration with "at least one checkpoint must be kept" — once per client, because the bound lived in the checkpointer's constructor and that runs per registration (CFG-16) |
+| `PRV-4093` the checkpoint directory is unusable | `pravaha.checkpoint.directory` names something that exists and is not a directory, a directory this process cannot write to, or a path whose parent does not exist. Pointing it at a CSV file used to log `checkpointing registered queries under .../txnA.csv` and then fail every registration (CFG-7) |
+| `PRV-8006` the registry journal is unwritable | `pravaha.registry.journal` is a directory, sits in a directory that does not exist, or sits in one this process cannot write to. **The middle one is the commonest typo and used to be invisible**: the directory was created on the first append, so the node journalled perfectly to somewhere nobody meant while the real journal stayed empty. Create the directory, or correct the path (CFG-7) |
+| `PRV-3010` the Flight endpoint cannot be bound | `pravaha.flight.port` outside 0–65535 — which used to fail inside gRPC's own argument check, naming neither the key nor a code — or `pravaha.flight.host` written as an abbreviated IPv4 address. `127` is legal input to `InetAddress` and means `0.0.0.127`; write the address in full (CFG-2) |
+| `PRV-7004` a security value that is not one | `pravaha.security.policy`, `.audit`, or a credential under `pravaha.security.tokens` with no `id`. **The id is required** because the map key is the bearer credential, and the id is written to the audit trail and durably into the registry journal as a query's owner (CFG-11). `pravaha.security.authentication` is refused the same way, and all four now fail while the properties object is built rather than four `Caused by:` levels under a Tomcat startup failure (CFG-21) |
+| `-Dpravaha.memory` names nothing | An off-heap implementation that does not exist is refused rather than ignored. The values are `agrona`, `foreign` and `bytebuffer`, or leave it unset. An implementation that exists and is **unavailable** on this JDK still falls through silently — `-Dpravaha.ffm=true` on Java 21 is a launcher that will start working on an upgrade, not a mistake. The node logs which one it chose (CFG-22) |
+
+Two things in this class are **warnings, not refusals**, because both are legitimate:
+
+- **bound and undeclared** — `pravaha.sources` names a stream `pravaha.streams` does not. A stream
+  can also be declared over `POST /api/v1/streams` after the node is up.
+- **declared and unbound** — a stream nothing feeds, which is correct for one a client pushes rows
+  into. Before these lines existed, `txn` declared and `txns` bound was paired in no log line
+  anywhere and presented as a query that ran for ever receiving nothing (CFG-8).
+
+What *is* refused there is one stream with two schemas: `pravaha.streams.<n>.schema` and the
+binding's own `schema` option disagreeing. The first is what a query is planned against and the
+second is what the plugin decodes rows with, so a divergence is a node that plans one shape and
+reads another — and it used to surface at the first registration as a complaint about a column
+name, blaming whichever of the two the message happened to be built from.
+
 ## Two ceilings that used to have no code of their own
 
 Two ceilings a query can reach that are real, reproducible, and — as of X-11 — carry a `PRV-` code
@@ -551,6 +583,21 @@ its lanes are its own — so a refusal here means the session did not start, nev
 query is in a strange state. If a session is open and the query looks wrong, the session is not the
 cause; end it and read `pravaha queries`.
 
+## `PRV-1052` — an HTTP request that reached no endpoint
+
+Every non-2xx response on `/api/v1/**` is an `ApiError` — `code`, `message`, `helpUrl`,
+`timestamp`, `path` — and nothing else. A client that has to parse two error shapes will handle one
+of them badly, and it will be the one that occurs rarely.
+
+`PRV-1052` is what a request that reached no handler answers with: a method the path does not
+support (405), a body in a media type the endpoint does not read (415), an unmapped path (404). The
+status is what distinguishes them and the client already has it; the code says the body is an
+`ApiError`. Before it existed those three fell through to Spring Boot's own error controller and
+came back as a *third* shape — `{"timestamp":…,"status":405,"error":"Method Not Allowed","path":…}`
+— with no code, no message and no help URL (CFG-20). The published OpenAPI document now carries the
+`ApiError` schema with its five fields and a `default` response on every operation, so a generated
+client models the error rather than an empty object.
+
 ## Every code
 
 | Code | Name | Range |
@@ -558,6 +605,7 @@ cause; end it and read `pravaha queries`.
 | `PRV-1001` | CONFIG_FILE_UNREADABLE | config |
 | `PRV-1050` | API_MISSING_FIELD | api |
 | `PRV-1051` | API_INVALID_PARAMETER | api |
+| `PRV-1052` | API_UNHANDLED_REQUEST | api |
 | `PRV-1002` | CONFIG_FILE_MALFORMED | config |
 | `PRV-1010` | CONFIG_UNRESOLVED_REFERENCE | config |
 | `PRV-1011` | CONFIG_CIRCULAR_REFERENCE | config |
@@ -568,6 +616,7 @@ cause; end it and read `pravaha queries`.
 | `PRV-1024` | CONFIG_NOT_A_DATA_SIZE | config |
 | `PRV-1025` | CONFIG_NOT_AN_ENUM | config |
 | `PRV-1026` | CONFIG_OUT_OF_RANGE | config |
+| `PRV-1027` | CONFIG_KEY_UNREACHABLE | config |
 | `PRV-1030` | CLIENT_MALFORMED_ENDPOINT | client (SDK) |
 | `PRV-1031` | CLIENT_INVALID_OPTIONS | client (SDK) |
 | `PRV-1032` | CLIENT_INVALID_TLS_OPTIONS | client (SDK) |
@@ -610,6 +659,7 @@ cause; end it and read `pravaha queries`.
 | `PRV-4004` | STATE_OWNERSHIP_UNREADABLE | state/serving |
 | `PRV-4005` | STATE_SPILL_QUOTA_REACHED | state |
 | `PRV-4006` | STATE_SPILL_DISK_FULL | state |
+| `PRV-4093` | STATE_CHECKPOINT_DIRECTORY_UNUSABLE | state |
 | `PRV-4010` | BACKFILL_BUFFER_FULL | state/serving |
 | `PRV-4011` | BACKFILL_MISSING_VERSION | state/serving |
 | `PRV-4012` | BACKFILL_UNSUPPORTED_KEY | state/serving |

@@ -4,7 +4,7 @@ slug: errors-config
 category: errors
 order: 20
 icon: sliders
-summary: "PRV-1001 to PRV-1051: a configuration value that cannot be read, a request the REST API cannot accept, and every refusal the Java and Python SDKs raise before or while talking to a node."
+summary: "PRV-1001 to PRV-1052: a configuration value that cannot be read, a key that reached nothing, a request the REST API cannot accept, and every refusal the Java and Python SDKs raise before or while talking to a node."
 badge: PRV-1XXX
 audience: Operators, developers
 keywords: [configuration, duration, data size, enum, reference, placeholder, endpoint, client options, tls options, connect failed, missing field, invalid parameter, sdk]
@@ -21,9 +21,9 @@ They are grouped here by who raises them:
 
 | Codes | Raised by | When |
 |---|---|---|
-| PRV-1001 – PRV-1026 | The engine's configuration library (`pravaha-common`), which the embedded engine and plugin options are read through | When a configuration is built — at start, not at first use |
+| PRV-1001 – PRV-1027 | The engine's configuration library (`pravaha-common`), which the embedded engine and plugin options are read through | When a configuration is built — at start, not at first use |
 | PRV-1030 – PRV-1044 | The Java and Python SDKs | Constructing a client, or talking to the node |
-| PRV-1050, PRV-1051 | The REST API itself | A request whose body or parameters cannot be read |
+| PRV-1050 – PRV-1052 | The REST API itself | A request whose body or parameters cannot be read, or that reached no endpoint at all |
 
 !!! note "A server's application.yaml is bound by Spring Boot"
     The server reads `application.yaml` through Spring Boot's binder, which reports a value it cannot
@@ -123,6 +123,32 @@ strategy must be one of `BUSY_SPIN`, `SPIN_THEN_YIELD`, `BACKOFF_PARK`, `BLOCKIN
 A number outside the range the key allows, or one that does not fit the integer type the component
 reads it into. The message has the shape `'<key>' is <value>; must be between <min> and <max>`
 followed by where the value came from, or `does not fit in a 32-bit int`.
+
+On a server it is also what `pravaha.checkpoint.keep: 0` answers with. Keeping no checkpoints means
+every restart starts from nothing, which is what leaving `pravaha.checkpoint.directory` unset
+already means — and the bound used to live in the checkpointer's constructor, which runs once per
+registration, so the node started healthy, advertised itself as checkpointing, and refused every
+query separately.
+
+### PRV-1027 — CONFIG_KEY_UNREACHABLE
+
+**A key that is in the file and reached nothing.** Spring canonicalises a map key before binding it
+and silently discards one it cannot, so a stream declared as `txn ` (trailing space) or `txnü` was
+present, syntactically valid, absent from the catalog, and reported at no log level at all — and
+the first query against it said `Object 'txnü' not found. Known streams: [...]`, which is accurate
+and impossible to act on beside a file that clearly declares it.
+
+Quote the key in brackets to bind it verbatim:
+
+```yaml
+pravaha:
+  streams:
+    "[txnü]":
+      schema: "id:INT64,amount:INT64"
+```
+
+or rename it to letters, digits and hyphens. The same rule covers `pravaha.sources`,
+`pravaha.lookups` and `pravaha.sinks`.
 
 ## The client SDKs
 
@@ -230,6 +256,20 @@ A query-string parameter the endpoint could not read — today on `GET /api/v1/a
 `allow` nor `deny`, a `cursor` that is not a previous page's `nextCursor`. Refused with a `400`
 naming the parameter rather than the filter being dropped: an audit search that ignored a malformed
 `since` would answer a different question and look right.
+
+### PRV-1052 — API_UNHANDLED_REQUEST
+
+The request reached **no endpoint**: a method the path does not support (405), a body in a media
+type the endpoint does not read (415), or an unmapped path (404). The status distinguishes them and
+a client already has it; the code says the body is an `ApiError` like every other failure on this
+API.
+
+Before it existed, those three fell past the exception handler to Spring Boot's own error
+controller and came back as a third error shape —
+`{"timestamp":…,"status":405,"error":"Method Not Allowed","path":…}` — with no `code`, no `message`
+and no `helpUrl`, on a surface whose stated contract is one shape and nothing else. The published
+OpenAPI document now carries the `ApiError` schema with its five fields and a `default` response on
+every operation, so a generated client models the error rather than an empty object.
 
 ## Where next
 

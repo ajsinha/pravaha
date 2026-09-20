@@ -131,6 +131,11 @@ pravaha:
 
   flight:
     enabled: true
+    # Write the address in full. `127` is legal input to InetAddress and means 0.0.0.127, so a
+    # node written for loopback bound something else and failed with "Cannot assign requested
+    # address" -- true, and silent about the reinterpretation. An abbreviated IPv4 address is now
+    # refused at startup naming this key (PRV-3010, CFG-2). An IPv6 host is fine and is reported
+    # bracketed, [::1]:9090, so what the node logs and advertises can be pasted into a client.
     host: 0.0.0.0
     # Without these the transport is grpc+tcp and every row, credential and query travels in clear
     # text. Defensible on a loopback socket and nowhere else: authentication over an unencrypted
@@ -142,6 +147,11 @@ pravaha:
     # default to. Arrow's registered port is 8815 and using it here would have been defensible in
     # isolation -- and wrong, because a default that disagrees with every example in the repository
     # costs each new user the same twenty minutes.
+    #
+    # 0 lets the operating system pick, and GET /api/v1/status's "flight" field reports the port it
+    # picked -- which is the only one a client can use. A value outside 0-65535 is refused at
+    # startup with PRV-3010 naming this key, rather than by gRPC's own argument check, which named
+    # neither the key nor a code (CFG-2).
     port: 9090
 
   # The streams this node knows about. Until these are in the catalog nothing can be planned
@@ -150,6 +160,13 @@ pravaha:
   #
   # Declaring them here is what lets a node be described by a file. The alternative, and for a long
   # time the only way, is POST /api/v1/streams after every restart.
+  #
+  # A NAME WITH ANYTHING BUT LETTERS, DIGITS AND HYPHENS NEEDS BRACKETS. Spring canonicalises a map
+  # key before binding it and discards one it cannot: `txn ` (trailing space) and `txnu"` were in
+  # the file, absent from the catalog, and reported at no log level at all, so the first query
+  # against one said "Object not found. Known streams: [...]" beside a file that clearly declares
+  # it. Such a key is now refused at startup (PRV-1027, CFG-3); write it as "[txn ]": {...} to bind
+  # it verbatim. The same rule applies to the sources:, lookups: and sinks: blocks below.
   #
 # streams:
 #   txn:
@@ -208,6 +225,16 @@ pravaha:
     # StaticTokenVerifier so that nobody mistakes it for an identity system. A real deployment
     # implements TokenVerifier against whatever issues its credentials.
     #
+    # THE MAP KEY IS THE SECRET AND `id` IS REQUIRED. The id used to default to the map key, so a
+    # deployment that wrote `tokens: {s3cr3t-value: {}}` and registered a query put the credential
+    # in the audit trail and, durably, in the registry journal as the query's owner -- where it
+    # survives restarts and backups (CFG-11). An entry with no id is refused at startup, and the
+    # refusal does not print the credential.
+    #
+    # Give every entry at least this one property for a second reason: `x: {}` flattens to no
+    # property at all, so Spring's binder never sees the key, the credential is in the file and in
+    # no verifier, and there is nothing in the process that can notice (CFG-10).
+    #
   # tokens:
   #   "a-long-random-string":
   #     id: ann
@@ -228,12 +255,23 @@ pravaha:
   # leaves a replication slot on the database that retains WAL until a checkpoint confirms it, so
   # set pravaha.checkpoint.directory with it, and read docs/OPERATIONS.md before the first one.
   #
+  # A BINDING'S `schema` OPTION AND THE STREAM'S DECLARED SCHEMA MUST AGREE. The declaration is what
+  # a query is planned against and the option is what the plugin decodes rows with, and nothing
+  # compared them: the divergence surfaced at the first registration as PRV-5040 complaining about a
+  # column name, blaming whichever of the two the message was built from. They are now compared at
+  # startup and a disagreement is refused (CFG-8). Write it once, here or above; the example below
+  # repeats the declared schema exactly.
+  #
+  # The node also says at startup which streams are declared and unbound and which are bound and
+  # undeclared, so a plural -- `txn` declared, `txns` bound -- is a line rather than a query that
+  # runs for ever receiving nothing.
+  #
 # sources:
 #   txn:
 #     plugin: filesystem
 #     options:
 #       path: /var/lib/pravaha/incoming/txn.csv
-#       schema: "id:INT64,user_id:STRING,amount:INT64"
+#       schema: "txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP"
 #       # Optional. Names a column saying whether a row inserts or retracts. Without one a file is
 #       # an append-only log of insertions, which is what it was before this existed -- and the
 #       # engine's whole retraction model had no way in from a configured source.
@@ -292,6 +330,12 @@ pravaha:
     # a restart loses them -- which the node warns about at startup rather than leaving to be found
     # out at the next restart. The file holds query text and bound parameter values (account numbers,
     # customer ids), so permission it like data, not like configuration.
+    #
+    # THE DIRECTORY ABOVE IT HAS TO EXIST. It used to be created on the first append, so a typo in
+    # this path produced a node that journalled perfectly to somewhere nobody meant while the real
+    # journal stayed empty, and PRV-8006 never fired for the commonest mistake there is. A missing
+    # directory, a path that is itself a directory, and a directory this process cannot write to
+    # are all refused at startup now with PRV-8006 (CFG-7).
     journal: ""
 
   # Where records this node cannot decode are written, one file per query.
@@ -431,14 +475,30 @@ pravaha:
   # one shared store would make pruning global, so a busy query would evict a quiet one's only
   # fallback.
   checkpoint:
+    # A path that exists and is not a directory, or one whose parent does not exist, is refused at
+    # startup with PRV-4093. It used to start a healthy node that logged "checkpointing registered
+    # queries under .../txnA.csv" and then failed every registration separately (CFG-7).
     directory: ""
+    # WRITE THE UNIT. Spring reads a bare number on a duration as MILLISECONDS, so `interval: 2`
+    # meaning two seconds gave a node that did nothing but checkpoint -- 6,409 files in twenty
+    # seconds, no warning. The engine's own parser refuses a bare number for exactly this reason,
+    # and so does this file now (PRV-1023, CFG-15). 2s, 500ms, 1m or ISO-8601 PT2S. The interval,
+    # the count and the timeout in force are logged once at startup beside the directory.
     interval: 1m
     # Counted, not timed, and deliberately. An age rule would delete the last fallback precisely
     # when nothing is happening: an idle system takes no new checkpoints, so after a quiet night
     # every checkpoint is old and a time rule would remove them all. More than one is kept because
     # the newest is the likeliest to be unreadable -- it is the one being written when a process
     # died.
+    #
+    # At least 1. `keep: 0` used to start a node that passed every probe, advertised itself as
+    # checkpointing, and refused every registration -- once per client rather than once at startup
+    # (PRV-1026, CFG-16).
     keep: 3
+    # How long one checkpoint may take before it is abandoned. Bound, forwarded to the engine and
+    # read by PeriodicCheckpointer -- the case file's claim that it had a reader and no writer is
+    # false against this build (CFG-17).
+    timeout: 30s
 
   # The time-travel debugger (ADR-048). A session forks a query from one of the checkpoints above
   # and steps it under inspection, with every sink disabled and nothing able to read its view --

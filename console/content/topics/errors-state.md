@@ -4,7 +4,7 @@ slug: errors-state
 category: errors
 order: 50
 icon: exclamation-triangle
-summary: "PRV-4001 to PRV-4092: state past its ceiling, spill quota and disk, unreadable checkpoints, directories another node owns, the dead-letter queue and its replays, backfill, and every way a view read is refused."
+summary: "PRV-4001 to PRV-4093: state past its ceiling, spill quota and disk, unreadable checkpoints, directories another node owns, the dead-letter queue and its replays, an unusable checkpoint directory, backfill, and every way a view read is refused."
 badge: PRV-4XXX
 audience: Operators, developers
 keywords: [state too large, ceiling, spill, quota, disk full, checkpoint, snapshot, ownership, owner, allow-shared, dlq, dead letter, replay, retention, evicted, backfill, view too large, no such view, admission, tenant, deadline, consistency, frontier]
@@ -52,6 +52,7 @@ The codes split into two families that call for different people:
 | PRV-4090 | STATE_DLQ_UNUSABLE | The configured dead-letter directory cannot be written |
 | PRV-4091 | STATE_DLQ_NO_SUCH_LETTER | No dead letter with that id is in the query's queue |
 | PRV-4092 | STATE_DLQ_REPLAY_REFUSED | Replaying that dead letter could not be correct |
+| PRV-4093 | STATE_CHECKPOINT_DIRECTORY_UNUSABLE | The configured checkpoint directory is not a directory, is unwritable, or has no parent |
 
 ## The node's state
 
@@ -194,6 +195,21 @@ source will never send again.
 Replaying is also refused with `PRV-7002` for a caller who may read the view but not administer it:
 a replay puts a row into a view other people read, so it is authorized like `DROP`, `PAUSE` and
 `RESUME` rather than like a read.
+
+### PRV-4093 — checkpoint directory unusable
+
+`pravaha.checkpoint.directory` names something that already exists and is not a directory, a
+directory this process cannot write to, or a path whose parent does not exist. The node **refuses
+to start**.
+
+It used to start. Pointed at a CSV file, a node logged `checkpointing registered queries under
+.../txnA.csv`, reported `UP` on every probe, and then failed every registration separately with
+`cannot create the checkpoint directory .../txnA.csv/QW` — up, green, and unable to accept work
+(CFG-7). Each query checkpoints into its own directory beneath this root, so the root has to be a
+directory.
+
+**Do:** name a directory, or leave the key unset to run without checkpoints — which the node also
+says at startup. See [Checkpoints and recovery](/help/topics/checkpoints-recovery).
 
 ## Backfill and blue/green replacement
 

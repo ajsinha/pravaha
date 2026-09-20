@@ -1154,9 +1154,38 @@ pravaha:
 A node with no `registry.journal` starts and **says so** — a development run does not need
 durability, but the cost of finding out at the next restart is every client's registrations.
 
+**`port: 0` is supported and is reportable.** The operating system picks the port, and
+`GET /api/v1/status` carries it in a `flight` field — `"flight":"127.0.0.1:44131"` — as does the
+plain HTML page at `/status` and the startup log line. That is the only place the bound port is
+readable from outside the process: `/actuator/health`'s components are suppressed by the shipped
+`show-details: when-authorized` on a node with `authentication: none` (CFG-2). An IPv6 host is
+written bracketed there, `[::1]:9090`, so the string can be pasted into a client.
+
+**Two values in that block are refused rather than reinterpreted.** A port outside 0–65535 fails
+with `PRV-3010` naming `pravaha.flight.port`, instead of gRPC's own `IllegalArgumentException: port
+out of range` with no key and no code. And `host: 127` — legal input to `InetAddress`, meaning
+`0.0.0.127` — is refused naming what it would have been read as. Write the address in full.
+
+**What an operator can read back about the node itself.** The startup line for the cluster now names
+the member this node joined as, `cluster mode SINGLE on single (consensus), self-contained, this
+node pravaha-node-01@10.0.0.7:9090 (pravaha.node.id=pravaha-node-01)` — `pravaha.node.id` decides
+which checkpoint directory and which registry journal this node may claim, and it used to reach one
+served field and no log line at all (CFG-1). It is also a `node` tag on every metric, and
+`GET /actuator/info` reports the name, the version and the id.
+
+A node also logs, once, the off-heap implementation it chose: `off-heap access: bytebuffer
+(-Dpravaha.memory, -Dpravaha.ffm=false)`. See [JVM flags](#jvm-flags).
+
 ## Watching a running node
 
-Prometheus metrics are at `/actuator/prometheus`. Per continuous query:
+Prometheus metrics are at `/actuator/prometheus`. **Every series this node publishes carries two
+common tags** — `application`, from `spring.application.name`, and `node`, from `pravaha.node.id`
+(CFG-19). Without them a fleet scraped into one Prometheus had nothing distinguishing Pravaha's own
+series from any other application's, and nothing saying which node a number came from; the only
+label was `query`. `GET /actuator/info` reports the same name, the version and the node id, and
+answered `{}` until it did.
+
+Per continuous query:
 
 | Metric | Question it answers |
 |---|---|
@@ -1559,7 +1588,36 @@ pravaha:
     directory: /var/lib/pravaha/checkpoints
     interval: 1m
     keep: 3
+    timeout: 30s
 ```
+
+**Write the unit on `interval`.** Spring reads a bare number on a duration as *milliseconds*, while
+the engine's own parser refuses one outright — so the two dialects met in one file and
+`interval: 2`, written meaning two seconds, produced 6,409 checkpoints in twenty seconds with no
+warning anywhere. A bare number is now refused at startup with `PRV-1023` (CFG-15). `2s`, `500ms`,
+`1m` and `PT2S` are all fine, and the effective settings are logged once when the node starts:
+
+```
+checkpointing registered queries under /var/lib/pravaha/checkpoints every PT1M, keeping the newest 3, timing out at PT30S
+```
+
+Three more values in this block are checked when the node starts rather than when the first query
+registers, because the bound used to live in the checkpointer's constructor — which runs *per
+registration*, so one bad number produced a node that passed every probe, advertised itself as
+checkpointing, and refused every query, once per client (CFG-16, CFG-7):
+
+- `keep` below 1 → `PRV-1026`. Keeping none means every restart starts from nothing, which is what
+  leaving `directory` unset already means.
+- `directory` naming something that exists and is not a directory, or under a parent that does not
+  exist → `PRV-4093`. Pointing it at a CSV file used to log "checkpointing registered queries under
+  …/txnA.csv" and then fail every registration.
+- `pravaha.registry.journal` inside a directory that does not exist → `PRV-8006`. It used to be
+  created on the first append, so a typo produced a node journalling correctly to the wrong place
+  while the real journal stayed empty.
+
+`timeout` bounds one checkpoint. It is bound here, forwarded to the engine's configuration in
+nanoseconds and read by the checkpointer — a claim worth stating because a stale case file had it
+recorded as a key with a reader and no writer (CFG-17).
 
 Two different durability questions, easy to confuse. The **journal** remembers which queries exist;
 replaying it re-registers them and re-authorizes each against the policy as it is now.
@@ -1680,6 +1738,33 @@ Arrow allocates off-heap through `java.nio` internals the module system closes b
 Without them a Flight server fails *inside* `putNext` and cancels the stream; the client sees
 `RST_STREAM` and nothing explains why. On Java 24+ add `--sun-misc-unsafe-memory-access=allow` — it is
 **not** a valid option on 21, where the JVM refuses to start rather than ignoring it.
+
+### Choosing the off-heap implementation
+
+Two settings, and they are **system properties rather than configuration keys** — they are read
+before any Spring context exists, so they cannot live in `application.yaml`:
+
+| Property | Values | Effect |
+|---|---|---|
+| `-Dpravaha.memory` | `agrona`, `foreign`, `bytebuffer` | Asks for one implementation by name. Unset means "choose for me", which is `bytebuffer` |
+| `-Dpravaha.ffm` | `true` | Opts into the Foreign Function and Memory implementation, which needs JDK 22 or later |
+
+**All of these produce byte-identical results.** The switch is about how memory is reached, not
+about what is computed, and that was measured across all four selections. So the reason to set one
+is to be *certain* which is running — which is why a name that does not exist is now refused at
+startup rather than falling through to the default (CFG-22). An implementation that exists and is
+merely unavailable still falls through silently and deliberately: `-Dpravaha.ffm=true` on Java 21
+is a launcher that starts working on an upgrade, not a mistake.
+
+Either way the node logs the answer once, at startup:
+
+```
+off-heap access: bytebuffer (-Dpravaha.memory, -Dpravaha.ffm=true)
+```
+
+Before that line existed, a deployment that set `-Dpravaha.ffm=true`, upgraded its JDK expecting
+the switch to take effect, or typed `-Dpravaha.memory=agrone` had no way to find out what it was
+running.
 
 ## Backup and recovery
 

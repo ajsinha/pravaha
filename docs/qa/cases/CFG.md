@@ -70,12 +70,14 @@ more interesting than the case that referenced it.
    `MAXIMUM_IDLE_TIMEOUT = 10m`, **refused rather than clamped**. `pravaha.watermark.tick` is
    **not** validated at startup; `tick <= idle-after` is checked per registration in
    `QueryExecution.generatingWatermarks` (`QueryExecution.java:339`).
-9. `PersistenceProperties.checkpointConfiguration()` builds a `Configuration` containing exactly two
-   keys — `pravaha.checkpoint.interval` (in nanoseconds, deliberately: `PersistenceProperties.java:66-80`)
-   and `pravaha.checkpoint.keep`. `PeriodicCheckpointer.from` reads **three**:
-   interval, keep and `pravaha.checkpoint.timeout` (`PeriodicCheckpointer.java:122-126`).
-   **`pravaha.checkpoint.timeout` is therefore inert on the server path** and always falls back to
-   `DEFAULT_TIMEOUT = 30s` (`PeriodicCheckpointer.java:67`).
+9. ~~`PersistenceProperties.checkpointConfiguration()` builds a `Configuration` containing exactly
+   two keys — interval and keep — so `pravaha.checkpoint.timeout` is inert on the server path.~~
+   **WITHDRAWN 2026-09-19 (CFG-17).** False against this build, in both halves:
+   `PersistenceProperties.Checkpoint` *has* a `timeout` field with a 30 s default, and
+   `checkpointConfiguration()` emits **three** keys, `pravaha.checkpoint.timeout` among them, in
+   nanoseconds — which is exactly what `PeriodicCheckpointer.from` reads. Pinned by
+   `PersistencePropertiesTest.theCheckpointTimeoutIsBoundForwardedAndReadable_CFG17`. What CFG-024
+   now asks is whether the timeout is *enforced*.
 10. `PeriodicCheckpointer` refuses `keep < 1` with an `IllegalArgumentException`
     (`PeriodicCheckpointer.java:93-95`) — **at construction, which is at first registration, not at
     startup**. `PersistenceProperties.Checkpoint.keep` is a plain `int` with no validation.
@@ -707,29 +709,31 @@ registration**, not at startup (fact 10).
 **Vacuity:** the `1` and `5` rows produce different file counts from identical timing. A build that
 never pruned would show ~10 in both.
 
-## CFG-024 — `pravaha.checkpoint.timeout` — read by the engine, never written by the server
-**Intent:** `PeriodicCheckpointer.from` reads three keys; `PersistenceProperties.checkpointConfiguration()`
-writes two (fact 9). This is the same class of defect as
-`pravaha.watermark.out-of-orderness`: a key with a reader and no writer.
-**Falsifier:** setting `pravaha.checkpoint.timeout` to a value that would be observable changes the
-observed timeout.
-**Setup:** `base.yaml`, `checkpoint.directory: $QA/ckpt`, `checkpoint.interval: 2s`.
-**Steps:** set `pravaha.checkpoint.timeout: 1ms`; start; register `QW`; feed enough rows that a
-checkpoint takes longer than 1 ms; watch for a timeout.
-**Expected:**
-- `PersistenceProperties.checkpointConfiguration()` emits only `pravaha.checkpoint.interval` and
-  `pravaha.checkpoint.keep`, so `configuration.getDuration("pravaha.checkpoint.timeout")` is empty
-  and `DEFAULT_TIMEOUT = 30s` is used (`PeriodicCheckpointer.java:67,125`).
-- **Therefore `1ms` has no effect and no checkpoint times out.** The key is inert on the server path.
-- Cross-check the other direction: `PersistenceProperties.Checkpoint` has **no `timeout` field**, so
-  `pravaha.checkpoint.timeout` in the YAML is not even bound — it is an unknown key that Spring
-  ignores silently.
-- Confirm `pravaha.checkpoint.timeout` appears in no documentation, so the defect is latent rather
-  than user-visible today — and say that in the finding, because it is one field away from being
-  user-visible.
+## CFG-024 — `pravaha.checkpoint.timeout` — is it *enforced*?
+**CORRECTED 2026-09-19 (CFG-17).** This case used to assert that the key had a reader and no
+writer, and that `PersistenceProperties.Checkpoint` had no `timeout` field so the key was not even
+bound. **Both halves are false**, and were checked against the code rather than re-run: the field
+exists with a 30 s default (`PersistenceProperties.java`), `checkpointConfiguration()` emits
+`pravaha.checkpoint.timeout` in nanoseconds beside `interval` and `keep`, and
+`PeriodicCheckpointer.from` reads it. Assumed fact 9 is withdrawn.
+`PersistencePropertiesTest.theCheckpointTimeoutIsBoundForwardedAndReadable_CFG17` now pins all
+three, so the case cannot go stale in the other direction either.
 
-**Vacuity:** the case is falsifiable in one direction only, and that is the point: if `1ms` *did*
-time out, the fact above would be wrong and the finding withdrawn.
+**Intent (rewritten):** whether the configured timeout is *enforced* — a bound that is bound,
+forwarded and read is not yet a bound that fires.
+**Falsifier:** a checkpoint that takes longer than the configured timeout completes anyway.
+**Setup:** `base.yaml`, `checkpoint.directory: $QA/ckpt`, `checkpoint.interval: 2s`,
+`checkpoint.timeout: 1ms`.
+**Steps:** register a query whose state is **large enough that one checkpoint genuinely exceeds the
+bound** — a twelve-row view checkpoints well inside a millisecond, which is why the previous run
+produced three checkpoint files, zero timeout-related log lines, and no evidence either way. Feed
+until the state is of the order of hundreds of megabytes, then watch
+`pravaha_query_checkpoint_failures_total` and the log.
+**Expected:** the checkpoint is abandoned and counted, rather than running to completion past its
+own bound.
+
+**Vacuity:** a run whose state checkpoints inside the timeout proves nothing. Record the state size
+and the measured checkpoint duration alongside the result, or the case has not been executed.
 
 ### Watermarks
 
@@ -824,14 +828,16 @@ mechanism's guarantees before anything else in `start()` (fact 3).
 | valid | `REPLICATED` with `mechanism: socket` + peers | starts (peers cannot be supplied — see CFG-030; expect `PRV-9005`) |
 | valid | `replicated` (lower case) | `toUpperCase(ROOT)` at `CoordinatorFactory.java:106` → accepted |
 | valid | `  SINGLE  ` | `strip()` → accepted |
-| invalid | `HA` — **the value `system_design.md:3528` documents** | `PRV-9001`: *"'HA' is not a cluster mode; one of [SINGLE, REPLICATED, PARTITIONED]"*. The design document's `EMBEDDED | SINGLE | HA` is three names, none of which but `SINGLE` exists. **Finding against the design document** |
-| **invalid** | `PARTITIONED` with `mechanism: single` | `PRV-9002 CLUSTER_INSUFFICIENT_GUARANTEE` at startup, with the full message about two nodes writing the same aggregate (`CoordinatorFactory.java:82-92`). Refused, never warned |
+| invalid | `HA` — the value `system_design.md` §27.1 documents | `PRV-9001`: *"'HA' is not a cluster mode; one of [SINGLE, REPLICATED, PARTITIONED]"*. The design document's `EMBEDDED \| SINGLE \| HA` is three names, none of which but `SINGLE` exists. **The documentation half is closed** (CFG-18): that document's own header now names `mode: HA` in its list of things it describes and the tree does not have — it is the record of intent, not of the build |
+| valid | `PARTITIONED` with `mechanism: single` | **CORRECTED 2026-09-19 (CFG-18): the coordinator starts.** This cell predicted `PRV-9002`, which does not fire and should not: `single` genuinely excludes split-brain because there is no second node, which is what `OPERATIONS.md`'s own mechanism table says. The guarantee check is working — the row below is where it fires. A **node** then refuses to serve the mode for a different reason (`PRV-9002` from `PravahaNode.refusePartitionedServing`, S-3): nothing in a node consumes partition ownership yet. Two refusals in two places, and only the second occurs here |
 | invalid | `PARTITIONED` with `mechanism: socket` | `PRV-9002` — `socket` cannot exclude split-brain |
 | boundary | `""` | `""` is not a `ClusterMode` → `PRV-9001`. Note that the message quotes the uppercased empty string |
 | wrong type | `mode: 1` | `"1"` → `PRV-9001` |
 
-**Vacuity:** the `PARTITIONED`/`single` row is the one that matters, and it is falsified by the node
-starting at all.
+**Vacuity:** the `PARTITIONED`/`socket` row is the one that matters, and it is falsified by the
+factory building a coordinator at all. (This said `PARTITIONED`/`single`, falsified by "the node
+starting" — which is what that combination correctly does at the factory, so the case could only
+ever fail. CFG-18.)
 
 ## CFG-029 — `pravaha.cluster.mechanism`
 **Intent:** Which coordinator provides it — an operational question — resolved through
@@ -848,7 +854,7 @@ displace them (`CoordinatorFactory.java:38-46`).
 | valid | `single` | starts; guarantees exclude split-brain trivially |
 | valid | `socket` | requires `pravaha.cluster.socket.peers`, which cannot be delivered (CFG-030) → `PRV-9005` |
 | invalid | `zookeeper` **without** `plugins/pravaha-cluster-zookeeper` on the classpath | `PRV-9001`: *"no cluster coordinator called 'zookeeper' is on the classpath. Available: [single, socket]"* |
-| invalid | `SOCKET` (upper case) | `providers.get(mechanism)` is a **plain map lookup with no case folding** (`CoordinatorFactory.java:61`), while `mode` **is** upper-cased. So `SOCKET` → `PRV-9001`. Two adjacent keys, two case rules. **Finding** |
+| valid | `SOCKET` (upper case) | **CORRECTED 2026-09-19 (CFG-18): accepted.** The lookup was a plain map lookup with no case folding while `mode` **was** upper-cased, so two adjacent keys had two case rules and `SOCKET` answered "no cluster coordinator called 'SOCKET' is on the classpath" beside an `Available: [single, socket]` list that appears to contradict it. `CoordinatorFactory.providerNamed` now matches exactly first and then ignoring case, so `SOCKET` reaches the socket provider and fails on its missing peer list (`PRV-9005`, CFG-030) — the same answer lower-case `socket` gives |
 | boundary | `"  socket  "` | `.strip()` at `CoordinatorFactory.java:59` → accepted |
 | boundary | `""` | `PRV-9001` listing the available mechanisms |
 | wrong type | `mechanism: 1` | `"1"` → `PRV-9001` |
