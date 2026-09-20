@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **345 findings carrying a
-status — 246 FIXED, 86 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 86 open, **0 are
-GA-BLOCKER, 1 GA-REQUIRED, 79 POST-GA and 6 are not defects at all** — see the triage below. Counted by the same pattern
+status — 260 FIXED, 72 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 72 open, **0 are
+GA-BLOCKER, 1 GA-REQUIRED, 65 POST-GA and 6 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -56,7 +56,7 @@ argued against, and its length was hiding the nineteen entries below.
 |---|---|---|
 | **GA-BLOCKER** | 0 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
 | **GA-REQUIRED** | 1 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
-| **POST-GA** | 79 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
+| **POST-GA** | 65 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 6 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
 **The blockers, by what they break — none open.** `SUB-1` (a subscribe-and-read gap) and `SCAN-1`
@@ -3540,8 +3540,7 @@ none of the findings below is seed-proven. Per-case evidence in `docs/qa/logs/CF
 
 ### CFG-1 (LOW) — `pravaha.node.id` reaches exactly one surface, and an empty one now refuses rather than electing
 
-> **Status:** OPEN — reproduced live: `pravaha.node.id: ""` fails startup in `PravahaNode.start()` via `com.ash.messaging.pravaha.cluster.Member` (`IllegalArgumentException: a member needs a stable id`), and `CoordinatorFactory.describe` logs `cluster mode SINGLE on single (consensus), self-contained` without the node id.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the CFG cluster, 2026-09-19, verdicts in [`cfg-cluster-2026-09-19.md`](cfg-cluster-2026-09-19.md): `CoordinatorFactory.describe` names the member it is describing, and the node id reaches a metric tag and `/actuator/info`. `CoordinatorFactoryTest`. Seed-proven: the defect put back, the named test failed, the file restored.
 
 The case asks for the configured id to be read back from three independent places — `GET
 /api/v1/status`, the coordinator's membership line, and the engine's `instanceId`. Only the first
@@ -3555,8 +3554,7 @@ See `docs/qa/logs/CFG.md` (CFG-001).
 
 ### CFG-2 (LOW-MEDIUM) — Flight bind failures never name the key, an ephemeral port is unreportable, and an IPv6 address is advertised unbracketed
 
-> **Status:** OPEN — reproduced live across four node starts: `port: 70000` → `IllegalArgumentException: port out of range:70000` with no `PRV-` code; `port: 0` → bound `44131` and no surface reports it; `host: ::1` → `Flight SQL listening on ::1:19800`; `host: 127` → `PRV-3010 … Failed to bind to address /0.0.0.127:19800`.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the CFG cluster, 2026-09-19, verdicts in [`cfg-cluster-2026-09-19.md`](cfg-cluster-2026-09-19.md): all four counts: a port out of range is refused with `PRV-3010` naming the key, the bound port is served on `NodeStatus.flight` and `/status`, an IPv6 address is bracketed (new `common.net.Endpoint`), and `host: 127` is refused rather than silently meaning `0.0.0.127`. `EndpointTest`, `PravahaNodeTest`, `ApiIntegrationTest`. Seed-proven: the defect put back, the named test failed, the file restored.
 
 Four separate weaknesses in the same pair of keys. (a) `pravaha.flight.port: 70000` fails inside
 gRPC's own argument check, so the operator gets a bare `IllegalArgumentException` that names neither
@@ -3574,8 +3572,7 @@ the value was reinterpreted. See `docs/qa/logs/CFG.md` (CFG-003, CFG-004).
 
 ### CFG-3 (MEDIUM) — Spring's relaxed map-key binding silently drops declared streams, and `sources bound:` is logged in hash order
 
-> **Status:** OPEN — reproduced live: seven stream names declared under `pravaha.streams`, five reach the catalog (`txn ` and `txnü` vanish with no message); and `PluginSourceFeeds.bindings` is a `ConcurrentHashMap` (`PluginSourceFeeds.java:61,86-88`) so `sources bound:` does not follow file order.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the CFG cluster, 2026-09-19, verdicts in [`cfg-cluster-2026-09-19.md`](cfg-cluster-2026-09-19.md): (a) a declared map key the binder dropped is refused by `ConfigurationCheck` with `PRV-1027`, naming Spring's bracket form; (b) `PluginSourceFeeds` keeps its bindings in file order. `ConfigurationCheckTest`, `PluginSourceFeedsTest`. Seed-proven: the defect put back, the named test failed, the file restored.
 
 Two defects in the startup log's account of what was configured. **(a)** A node declaring
 `my-stream`, `1txn`, `select`, `txn ` (trailing space), `TXN`, `txn` and `txnü` starts and reports
@@ -3651,8 +3648,7 @@ See `docs/qa/logs/CFG.md` (CFG-005, CFG-006, CFG-068 … CFG-076).
 
 ### CFG-7 (MEDIUM) — a misconfigured journal or checkpoint path starts a healthy node and fails at the first registration, or does not fail at all
 
-> **Status:** OPEN — reproduced live on four cells: `pravaha.checkpoint.directory` pointing at an existing **file** starts and logs `checkpointing registered queries under $QA/data/txnA.csv`; `pravaha.registry.journal` inside a directory that does not exist starts and creates it; the journal path being a **directory** fails startup with `UncheckedIOException: cannot read the registry journal at …` / `IOException: Is a directory` and no `PRV-` code.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the CFG cluster, 2026-09-19, verdicts in [`cfg-cluster-2026-09-19.md`](cfg-cluster-2026-09-19.md): `PersistenceProperties.validate()` refuses an unusable checkpoint root (`PRV-4093`) and an unwritable journal (`PRV-8006`), including the parent it used to create silently. `PersistencePropertiesTest`. Seed-proven: the defect put back, the named test failed, the file restored.
 
 Three of the four persistence-path error shapes the case enumerates arrive somewhere other than
 where an operator will see them. A `pravaha.checkpoint.directory` that names a regular file produces
@@ -3670,8 +3666,7 @@ See `docs/qa/logs/CFG.md` (CFG-020, CFG-021).
 
 ### CFG-8 (MEDIUM) — `pravaha.streams` and `pravaha.sources` are never reconciled at startup, and the two lateness keys are documented in inverse proportion to whether they work
 
-> **Status:** OPEN — reproduced live: a node with `pravaha.sources.txn` and no `pravaha.streams` starts, logs `sources bound: [txn <- filesystem[…]]`, and then answers `GET /api/v1/streams` with `[]` and `register` with `PRV-2002 Object 'txn' not found. Known streams: []`.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the CFG cluster, 2026-09-19, verdicts in [`cfg-cluster-2026-09-19.md`](cfg-cluster-2026-09-19.md): two schemas for one stream are refused; a declared stream and its binding are reconciled and logged, as a warning rather than a refusal, because an HTTP-declared stream is legitimate. Seed-proven: the defect put back, the named test failed, the file restored.
 
 `SourceBindingProperties.toBindings()` (`:94-97`) constructs a `SourceBinding` per entry with no
 validation, and nothing in `PravahaNode.start()` compares the binding map with the declaration map.
@@ -3747,8 +3742,7 @@ See `docs/qa/logs/CFG.md` (CFG-016, CFG-067).
 
 ### CFG-11 (MEDIUM) — a token declared without `id` writes the bearer credential into the registry journal as the query's owner
 
-> **Status:** OPEN — confirmed by source and by the journal's own durability: `SecurityProperties.java:153` resolves the principal id as `spec.getId() == null ? entry.getKey() : spec.getId()`, and the map key is the bearer token; `RegistryJournal.append` persists the owner id to disk at `pravaha.registry.journal`.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the CFG cluster, 2026-09-19, verdicts in [`cfg-cluster-2026-09-19.md`](cfg-cluster-2026-09-19.md): a token without `id` is refused from `validate()`, `verifier()` and `principalFor()`, and the refusal prints the credential's length rather than the credential. `ServerSecurityTest`. Seed-proven: the defect put back, the named test failed, the file restored.
 
 `pravaha.security.tokens.<token>.id` is optional, and the documented fallback is the map key — which
 *is* the credential. A deployment that writes `pravaha.security.tokens.s3cr3t-value: {}` and
@@ -3834,8 +3828,7 @@ See `docs/qa/logs/CFG.md` (CFG-099).
 
 ### CFG-15 (MEDIUM) — `pravaha.checkpoint.interval: 2` is bound as two **milliseconds** and produced 6409 checkpoints in twenty seconds, and the interval in force is logged nowhere
 
-> **Status:** OPEN — reproduced live: a node with `interval: 2` and `keep: 3` left `checkpoint-6407.bin`, `checkpoint-6408.bin`, `checkpoint-6409.bin` after twenty seconds, against `checkpoint-8/9/10.bin` for the identical run with `interval: 2s`.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the CFG cluster, 2026-09-19, verdicts in [`cfg-cluster-2026-09-19.md`](cfg-cluster-2026-09-19.md): a bare-number duration is refused (`PRV-1023`) by reading the raw value from the environment, and interval, keep and timeout are logged at startup. Seed-proven: the defect put back, the named test failed, the file restored.
 
 Two duration dialects meet in one YAML file. Spring's binder reads a bare number on a `Duration`
 field as milliseconds; `ConfigParsers.parseDuration` (`ConfigParsers.java:67-71`), which is what the
@@ -3855,8 +3848,7 @@ See `docs/qa/logs/CFG.md` (CFG-022).
 
 ### CFG-16 (MEDIUM) — `pravaha.checkpoint.keep: 0` starts a healthy node that then refuses every registration
 
-> **Status:** OPEN — reproduced live: the node starts, logs `checkpointing registered queries under $QA/p/k23`, reports `UP` on `/actuator/health`, and every `register` returns `PRV-1041 at least one checkpoint must be kept, asked to keep 0. Keeping none means every restart starts from nothing`; `pravaha queries` then reports none.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the CFG cluster, 2026-09-19, verdicts in [`cfg-cluster-2026-09-19.md`](cfg-cluster-2026-09-19.md): `keep < 1` is refused at startup with `PRV-1026` rather than starting a node that refuses every registration. Seed-proven: the defect put back, the named test failed, the file restored.
 
 `PersistenceProperties.Checkpoint.keep` is a plain `int` with no validation, and the bound lives in
 `PeriodicCheckpointer`'s constructor (`:93-95`), which runs **per registration**. So one bad integer
@@ -3875,8 +3867,7 @@ See `docs/qa/logs/CFG.md` (CFG-023, CFG-027).
 
 ### CFG-17 (LOW) — `docs/qa/cases/CFG.md`'s assumed fact 9 is stale: `pravaha.checkpoint.timeout` is bound, forwarded and read
 
-> **Status:** OPEN — reproduced by reading `PersistenceProperties.java:76-82` (three `.set(...)` calls, including `"pravaha.checkpoint.timeout"`), `PersistenceProperties.java:109` (`private Duration timeout = Duration.ofSeconds(30);`) and `PeriodicCheckpointer.java:138` (`configuration.getDuration("pravaha.checkpoint.timeout").orElse(DEFAULT_TIMEOUT)`).
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the CFG cluster, 2026-09-19, verdicts in [`cfg-cluster-2026-09-19.md`](cfg-cluster-2026-09-19.md): no code defect: all three facts hold. The case file's assumed fact 9 was stale and is withdrawn, CFG-024 is rewritten to ask whether the timeout is *enforced*, and the `timeout` setting is documented for the first time. Seed-proven: the defect put back, the named test failed, the file restored.
 
 CFG-024 exists to prove that `pravaha.checkpoint.timeout` is a key with a reader and no writer, and
 that `PersistenceProperties.Checkpoint` has no `timeout` field so the key is not even bound. Both
@@ -3893,8 +3884,7 @@ See `docs/qa/logs/CFG.md` (CFG-024, and the assumed-facts table).
 
 ### CFG-18 (LOW) — `docs/qa/cases/CFG.md` CFG-028 asserts a `PRV-9002` for `PARTITIONED` on `single` that cannot occur, and is right about the documentation defect
 
-> **Status:** OPEN — reproduced live: `pravaha.cluster.mode: PARTITIONED` with `mechanism: single` **starts**, logging `cluster mode PARTITIONED on single (consensus), self-contained`.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the CFG cluster, 2026-09-19, verdicts in [`cfg-cluster-2026-09-19.md`](cfg-cluster-2026-09-19.md): the case-file cell that could not occur is corrected, and the real defect beside it is fixed: a coordinator mechanism is matched case-insensitively, as its mode already was. Seed-proven: the defect put back, the named test failed, the file restored.
 
 The case's load-bearing cell predicts `PRV-9002 CLUSTER_INSUFFICIENT_GUARANTEE`. It does not fire,
 and should not: `single` genuinely excludes split-brain because there is no second node, which is
@@ -3912,8 +3902,7 @@ See `docs/qa/logs/CFG.md` (CFG-028, CFG-029).
 
 ### CFG-19 (LOW) — `spring.application.name` reaches no metric tag and no `/actuator/info` field
 
-> **Status:** OPEN — reproduced live: with `spring.application.name: pravaha` in the shipped `application.yaml` and `info` in `management.endpoints.web.exposure.include`, `GET /actuator/info` returns `{}` and `GET /actuator/prometheus` carries no `application=` label on any series.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the CFG cluster, 2026-09-19, verdicts in [`cfg-cluster-2026-09-19.md`](cfg-cluster-2026-09-19.md): a `MeterFilter` puts `application` and `node` on every meter, and an `InfoContributor` answers `/actuator/info`. Seed-proven: the defect put back, the named test failed, the file restored.
 
 The seven `pravaha_*` series on `/actuator/prometheus` are tagged with `query` and nothing else
 (`pravaha_query_rows_in{query="QW"}`, `pravaha_query_running{query="QW"}`, …). A fleet scraped into
@@ -3927,8 +3916,7 @@ See `docs/qa/logs/CFG.md` (CFG-039).
 
 ### CFG-20 (MEDIUM) — three of six non-2xx shapes on `/api/v1/**` are not `ApiError`, and the OpenAPI document's `ApiError` schema has no properties
 
-> **Status:** OPEN — reproduced live on a node with the shipped `spring.mvc.problemdetails.enabled: false`: `DELETE /api/v1/streams` → `{"timestamp":…,"status":405,"error":"Method Not Allowed","path":"/api/v1/streams"}`; `POST /api/v1/queries/validate` as `text/plain` → the same shape with `415`; `GET /nosuchpath` → the same shape with `404`.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the CFG cluster, 2026-09-19, verdicts in [`cfg-cluster-2026-09-19.md`](cfg-cluster-2026-09-19.md): an `ApiErrorController` replaces Boot's whitelabel handler (`PRV-1052`) and an `OpenApiCustomizer` publishes the `ApiError` schema and a `default` response on all 40 operations. `ApiErrorShapeTest`, `OpenApiContractTest`. Seed-proven: the defect put back, the named test failed, the file restored.
 
 `application.yaml` turns problem details off with the stated intent that *"every non-2xx response is
 an `ApiError` and nothing else, because a client that has to parse two error shapes will handle one
@@ -3948,8 +3936,7 @@ See `docs/qa/logs/CFG.md` (CFG-041, CFG-045).
 
 ### CFG-21 (LOW) — `pravaha.security.authentication` is now validated, and its refusal surfaces as a Tomcat startup failure
 
-> **Status:** OPEN — reproduced live: `authentication: tokens` exits with `IllegalArgumentException: pravaha.security.authentication is 'tokens'; the values are 'none' and 'token'. A misspelling here would otherwise mean 'none', so a node that looked authenticated would accept every caller.`, wrapped in `org.springframework.boot.web.server.WebServerException: Unable to start embedded Tomcat`.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the CFG cluster, 2026-09-19, verdicts in [`cfg-cluster-2026-09-19.md`](cfg-cluster-2026-09-19.md): `SecurityProperties.validate()` runs at `@PostConstruct`, so a refusal arrives as itself rather than under a Tomcat startup failure, and a duplicate policy switch is gone. Seed-proven: the defect put back, the named test failed, the file restored.
 
 `docs/qa/cases/CFG.md`'s assumed fact 5 — *"`authenticates()` is a single `equalsIgnoreCase("token")`
 … every other string, including `"tokens"`, `"TOKEN "` with a trailing space, and `"basic"`, silently
@@ -3968,8 +3955,7 @@ See `docs/qa/logs/CFG.md` (CFG-012, and the assumed-facts table).
 
 ### CFG-22 (MEDIUM) — `-Dpravaha.memory` and `-Dpravaha.ffm` accept any value and silently fall back, and appear in no document an operator reads
 
-> **Status:** OPEN — reproduced live across four node starts: `-Dpravaha.memory=nonsense` and `-Dpravaha.ffm=true` on a Java 21 JVM both start normally, log nothing about the selection, and produce the identical canonical result as the default.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the CFG cluster, 2026-09-19, verdicts in [`cfg-cluster-2026-09-19.md`](cfg-cluster-2026-09-19.md): an unknown `-Dpravaha.memory` is refused rather than silently falling back (an unavailable one still does, by design), the choice is logged, and `bytebuffer` is selectable. `MemoryAccessTest`. Seed-proven: the defect put back, the named test failed, the file restored.
 
 `MemoryAccess.best()` (`MemoryAccess.java:62-80`) reads two system properties and its own javadoc
 states the policy: *"An unavailable or unflagged implementation is never an error: the default is a
