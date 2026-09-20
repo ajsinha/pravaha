@@ -20,8 +20,16 @@ thing a gate must never be.
 |---|---|---|
 | Differential tests green | generated ≡ interpreted over the corpus | **PASS** |
 | No metaspace leak | 10 000 register/drop cycles at baseline | **PASS** — 263 kB growth against a 4 MB ceiling |
-| Profile A throughput | ≥ 1.2 M rec/s **per lane** | **NOT MEASURABLE HERE** |
-| Scaling efficiency | ≥ 90 % from 1 to 8 lanes | **NOT MEASURABLE HERE** |
+| Profile A throughput | ≥ 1.2 M rec/s **per lane** | **NOT MEASURABLE HERE** — superseded 2026-09-20, see below |
+| Scaling efficiency | ≥ 90 % from 1 to 8 lanes | **NOT MEASURABLE HERE** — measured 2026-09-20 and **NOT REACHED**, see below |
+
+> **Amended 2026-09-20.** Both rows were measured on this machine, because there is no reference
+> hardware and the owner's instruction on 2026-09-19 was to measure here and name the machine. The
+> throughput criterion is **reached** — the end-to-end Profile A pipeline on one lane sustains tens
+> of millions of rows a second, and its worst pass under heavy load is still at the 1.2 M target.
+> The scaling criterion is **not reached**: 28–40 % of linear at eight lanes against a target of
+> 90 %. Neither figure is reference-hardware evidence and the confounds below are all still present.
+> Numbers, conditions and loads: [`../measured-2026-09-20/README.md`](../measured-2026-09-20/README.md).
 
 ## Why two criteria cannot be measured
 

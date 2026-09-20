@@ -15,7 +15,16 @@ Copyright © 2026 Ashutosh Sinha. Proprietary and confidential.
 | Unbounded `GROUP BY` rejected at planning, **naming the key** | yes | **PASS** — names columns, not ordinals, for composite keys too |
 | Windowed aggregate runs end to end | yes | **PASS** — `TABLE(TUMBLE(...))` and `HOP`, SQL to results |
 | Correctness invariants | 1–8 green | **PARTIAL** — see below |
-| Profile B throughput | ≥ 350 k rec/s/lane | **NOT MEASURABLE HERE** — same three confounds as Gate P2 |
+| Profile B throughput | ≥ 350 k rec/s/lane | **NOT MEASURABLE HERE** — superseded 2026-09-20: measured on this machine and **reached** |
+
+> **Amended 2026-09-20.** Profile B was measured on the development machine, because there is no
+> reference hardware and the owner's instruction on 2026-09-19 was to measure here and name it. A
+> ten-second tumbling `COUNT`/`SUM`/`AVG` over Zipf-skewed keys, run through the whole SQL path and
+> served, sustained **2.5–2.8 M rows a second**, and the worst of fifteen timed passes — taken
+> during a load spike — was 1,096,560, three times the target. The three confounds below are still
+> present and this is not reference-hardware evidence; what has changed is that the criterion is no
+> longer unmeasured. Numbers and conditions:
+> [`../measured-2026-09-20/README.md`](../measured-2026-09-20/README.md).
 
 ## What was built
 

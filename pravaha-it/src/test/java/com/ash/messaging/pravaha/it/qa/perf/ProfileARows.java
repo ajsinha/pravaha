@@ -44,8 +44,17 @@ import com.ash.messaging.pravaha.runtime.plan.ScanOperator;
  */
 final class ProfileARows implements AutoCloseable {
 
-    /** Distinct rows in the pool: enough that the predicate is not one branch, small enough to stay warm. */
-    static final int POOL = 512;
+    /**
+     * Distinct rows in the pool, and therefore how much memory a pass walks.
+     *
+     * <p>512 rows is about 100 KiB, which lives in L2 and never leaves it. That is the friendliest
+     * possible working set and it inflates the figure: the same harness over a pool too large for
+     * cache measures the memory system as well as the pipeline, and {@code ProfileAGateIT} reports
+     * both because the difference between them is roughly an order of magnitude and a reader given
+     * only the warm number would be misled. Set {@code pravaha.gate.p2.pool} to change it; the
+     * report prints the pool's size in bytes beside the rate.
+     */
+    static final int POOL = Integer.getInteger("pravaha.gate.p2.pool", 512);
 
     private static final String COMPLETED = "COMPLETED";
 
@@ -193,6 +202,12 @@ final class ProfileARows implements AutoCloseable {
     /** The widest encoded row, which is the floor for an inbox cell. */
     int widestRow() {
         return widest;
+    }
+
+    /** How many bytes of row a pass walks before it starts again: the working set. */
+    long workingSetBytes() {
+        long last = offsets[POOL - 1];
+        return last + lengths[POOL - 1];
     }
 
     @Override

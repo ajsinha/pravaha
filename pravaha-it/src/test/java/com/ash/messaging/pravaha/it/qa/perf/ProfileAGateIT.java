@@ -132,9 +132,14 @@ final class ProfileAGateIT {
                     samples);
             System.out.print(reading.report(MachineState.now()));
             System.out.printf(
-                    "    detail  : %,d rows a pass, pool of %d distinct rows, %d of them passing "
-                            + "the predicate (%.1f %% selectivity, design section 28.4 asks for 10 %%)%n",
-                    ROWS, ProfileARows.POOL, rows.passing(), 100.0 * rows.passing() / ProfileARows.POOL);
+                    "    detail  : %,d rows a pass, pool of %,d distinct rows over %,d KiB, %d of them"
+                            + " passing the predicate (%.1f %% selectivity, design section 28.4 asks"
+                            + " for 10 %%)%n",
+                    ROWS,
+                    ProfileARows.POOL,
+                    rows.workingSetBytes() / 1024,
+                    rows.passing(),
+                    100.0 * rows.passing() / ProfileARows.POOL);
 
             // The harness measured something. Every pass asserted its own row count; this is the
             // statement that the measurement itself exists and is a rate rather than a zero.

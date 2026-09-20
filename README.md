@@ -224,16 +224,28 @@ corrected by late data arrives as a retraction of the old answer followed by the
 
 **The requirement is about 1,000 rows per second** ([ADR-042](docs/adr/042-the-throughput-bar-is-the-requirement.md)),
 because Pravaha maintains answers to registered questions rather than moving bulk data. The design's
-original figures — 1.2 M rows/s per lane, ≥ 90 % scaling from one lane to eight — are kept as
-aspirations, and gates P2 and P3 stay **unmeasured**: they need 16 homogeneous physical cores, and the
-development machine is a 12-core heterogeneous laptop part. No number from it is quoted as if it
-were one of those.
+original figures — 1.2 M rows/s per lane for Profile A, 350 k for Profile B, ≥ 90 % scaling from one
+lane to eight — are kept, unchanged, as the gate criteria.
 
-What this machine can report: the lane machinery runs at about **21 M rows/s**, and the cost of a
-query — threads, off-heap bytes, file descriptors, registration time — which `NodeScaleTest` and
-`SourceScaleTest` measure. A thousand distinct continuous queries register in 3.7 ms each and hold
-61 MiB off-heap at the advised inbox sizing. The evidence packs in [`docs/gates`](docs/gates/) say
-what was and was not measured, wave by wave.
+**On 2026-09-20 they were measured on the development machine**, because there is no reference
+hardware and there is not going to be any. Profile A's per-lane throughput and Profile B's are both
+**reached**, with room; the scaling criterion is **not reached** — 28–40 % of linear at eight lanes
+against a target of 90 %, recorded as measured rather than restated. The machine is a 12-core
+heterogeneous laptop part with SMT2 and one shared frequency envelope, it was running other work
+throughout, and the load average is printed beside every figure. **None of those numbers is
+reference-hardware evidence and none is quoted as the engine's capability.**
+[`docs/gates/measured-2026-09-20`](docs/gates/measured-2026-09-20/README.md) has them all with their
+conditions, and says plainly what a reader must not conclude from them.
+
+Also measured there: **5 of Nexmark's 23 published queries run at all**, so win condition W5's
+head-to-head has nothing to compare on yet, and the eighteen that do not run are missing SQL rather
+than missing speed.
+
+What this machine reported earlier: the lane machinery runs at about **21 M rows/s**, and the cost
+of a query — threads, off-heap bytes, file descriptors, registration time — which `NodeScaleTest`
+and `SourceScaleTest` measure. A thousand distinct continuous queries register in 3.7 ms each and
+hold 61 MiB off-heap at the advised inbox sizing. The evidence packs in
+[`docs/gates`](docs/gates/) say what was and was not measured, wave by wave.
 
 ## Try it
 
@@ -377,8 +389,8 @@ console is its own artefact in [`console`](console).
 |---|---|---|---|
 | 1 | 1–2 | Foundations; deterministic harness | ✅ `M1` |
 | 2 | 3–5 | Vertical slice; **go/no-go on the incremental core** | ✅ `M2` |
-| 3 | 6–11 | Codegen, lanes, exchange — Profile A ≥ 1.2 M rec/s/lane | ✅ built · gate P2 needs hardware |
-| 4 | 12–18 | Windows, watermarks, late data, tiered state | ✅ built, with a memory-mapped L1 instead of RocksDB (ADR-044) · gate P3 needs hardware |
+| 3 | 6–11 | Codegen, lanes, exchange — Profile A ≥ 1.2 M rec/s/lane | ✅ built · gate P2 throughput reached here 2026-09-20, **scaling not reached** ([numbers](docs/gates/measured-2026-09-20/README.md)) |
+| 4 | 12–18 | Windows, watermarks, late data, tiered state | ✅ built, with a memory-mapped L1 instead of RocksDB (ADR-044) · gate P3 reached here 2026-09-20 ([numbers](docs/gates/measured-2026-09-20/README.md)) |
 | 5 | 19–25 | Joins, Aerospike, checkpointing and recovery | ✅ built |
 | 6 | 26–32 | Backfill, blue/green, serving layer — **first defensible demo** | ✅ built · blue/green reachable from SQL, the CLI, both SDKs and the API ([ADR-046](docs/adr/046-a-replacement-meets-the-running-version-at-a-position.md)) |
 | 7 | 33–38 | Flight SQL, SDKs, security, registration, subscriptions, console | ✅ built |
