@@ -57,6 +57,11 @@ public final class ConfigErrors {
      */
     public static final ErrorCode KEY_UNREACHABLE = new ErrorCode(1027, "CONFIG_KEY_UNREACHABLE");
 
+    // PRV-1029 CONFIG_DOCS_BASE_URL_INVALID is allocated here and declared in
+    // com.ash.messaging.pravaha.api.HelpUrls, for the same reason as PRV-1028 below: the base URL
+    // for a failure's help page is read by pravaha-api itself, which cannot see this class
+    // (DOCX-21).
+
     // PRV-1028 CONFIG_SCHEMA_MALFORMED is allocated here and declared in
     // com.ash.messaging.pravaha.plugin.filesystem.DelimitedCodec, because the `name:TYPE,name:TYPE`
     // schema grammar lives in the filesystem plugin and a plugin depends on pravaha-api only -- it

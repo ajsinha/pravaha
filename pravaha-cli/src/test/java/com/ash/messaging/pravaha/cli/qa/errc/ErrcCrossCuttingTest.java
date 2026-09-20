@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 import com.ash.messaging.pravaha.api.ErrorCode;
+import com.ash.messaging.pravaha.api.HelpUrls;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.flight.FlightErrors;
@@ -42,6 +43,7 @@ import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * ERRC-111, ERRC-114, ERRC-116, ERRC-118 -- the cross-cutting cases that are tractable without
@@ -159,31 +161,65 @@ class ErrcCrossCuttingTest {
 
     // ------------------------------------------------------------ ERRC-116
 
+    /**
+     * ERRC-116, rewritten for DOCX-21.
+     *
+     * <p>The case asked two things: that every code's help URL is the base plus that code, and --
+     * "the honest part" -- whether {@code docs.pravaha.io} resolves. The second half was a DNS
+     * lookup inside a unit test, which could only ever answer a question about the machine running
+     * it: a sandbox with no resolver and a domain that does not exist are the same result, which
+     * is why the assertion below it was a {@code System.out.println} rather than an assertion.
+     *
+     * <p>The owner's answer removed the question. There is no built-in host any more: the base is
+     * {@code pravaha.docs.base-url}, a deployment sets it to something it can reach, and unset
+     * means the engine emits no URL. So what this case checks now is the property that made the
+     * dead domain possible -- that the engine can ship a link nobody configured. It cannot: with
+     * no base, every code's help URL is empty, and with one, every code's help URL is that base
+     * plus that code and nothing else. A link this product prints is one its operator chose, and
+     * that is a fact about the code rather than about the network under the test.
+     */
     @Test
-    void everyDeclaredCodesHelpUrlIsTheDocsBaseUrlPlusItsOwnCode() {
-        assertThat(new ErrorCode(2050, "SQL_UNBOUNDED_STATE").helpUrl())
-                .isEqualTo("https://docs.pravaha.io/errors/PRV-2050");
-        assertThat(new ErrorCode(1030, "CLIENT_MALFORMED_ENDPOINT").helpUrl())
-                .isEqualTo("https://docs.pravaha.io/errors/PRV-1030");
-        assertThat(new ErrorCode(1043, "CLIENT_CLOSED").helpUrl())
-                // Was "even the unreachable, undocumented code ... that cannot help": PRV-1043 is
-                // now thrown (PravahaFlightClient.requireOpen, added with E-7) and has a row in
-                // TROUBLESHOOTING.md, so the helpUrl points at something.
-                .as("the helpUrl is the docs base plus the code, for every code")
-                .isEqualTo("https://docs.pravaha.io/errors/PRV-1043");
-        // The honest part the case asks for: whether docs.pravaha.io resolves. It does not in this
-        // sandbox (no network per the harness notes -- confirmed by DNS resolution failing instantly
-        // rather than timing out, consistent with no resolver configured), which this round cannot
-        // distinguish from "the domain does not exist" -- recorded as NOT DETERMINED, not as a
-        // finding either way, since a sandboxed negative is not evidence about the real domain.
-        String resolution;
+    void noCodeCarriesAHelpUrlTheDeploymentDidNotConfigure() {
+        HelpUrls.configure(null);
         try {
-            java.net.InetAddress.getByName("docs.pravaha.io");
-            resolution = "resolved";
-        } catch (java.net.UnknownHostException e) {
-            resolution = "did not resolve (or no network in this sandbox): " + e.getMessage();
+            assertThat(new ErrorCode(2050, "SQL_UNBOUNDED_STATE").helpUrl()).isEmpty();
+            assertThat(new ErrorCode(1030, "CLIENT_MALFORMED_ENDPOINT").helpUrl())
+                    .isEmpty();
+            assertThat(new ErrorCode(1043, "CLIENT_CLOSED").helpUrl()).isEmpty();
+
+            // And the line a reader gets instead names two places that work with no network at
+            // all, which is what the resolution probe was really asking after.
+            assertThat(HelpUrls.helpLine("PRV-2050"))
+                    .contains("the console's help")
+                    .contains("docs/TROUBLESHOOTING.md")
+                    .doesNotContain("http");
+
+            HelpUrls.configure("http://localhost:8088/help/errors/");
+            // Sampled across the whole four-digit space, as the original did: the URL is
+            // mechanically the configured base plus the rendered code, for every code.
+            for (int number = 1000; number <= 9999; number += 137) {
+                assertThat(new ErrorCode(number, "X").helpUrl())
+                        .as("PRV-" + number)
+                        .isEqualTo("http://localhost:8088/help/errors/PRV-" + number);
+            }
+            assertThat(new ErrorCode(2050, "SQL_UNBOUNDED_STATE").helpUrl())
+                    .isEqualTo("http://localhost:8088/help/errors/PRV-2050");
+
+            // The dead host is gone from the product, not merely unused: nothing can put it back
+            // except an operator who types it.
+            assertThat(HelpUrls.base()).doesNotContain("docs.pravaha.io");
+        } finally {
+            HelpUrls.configure(null);
         }
-        System.out.println("ERRC-116 docs.pravaha.io resolution: " + resolution);
+    }
+
+    /** A base that is not a URL is refused where it is set, rather than pasted onto a code. */
+    @Test
+    void aHelpBaseThatIsNotAUrlIsRefusedByName() {
+        assertThatThrownBy(() -> HelpUrls.configure("docs.pravaha.io/errors/"))
+                .isInstanceOf(com.ash.messaging.pravaha.api.PravahaException.class)
+                .hasMessageContaining("PRV-1029")
+                .hasMessageContaining("pravaha.docs.base-url");
     }
 
     // ------------------------------------------------------------ ERRC-118

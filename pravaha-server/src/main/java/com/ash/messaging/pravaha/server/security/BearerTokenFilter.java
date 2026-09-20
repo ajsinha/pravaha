@@ -177,8 +177,16 @@ public final class BearerTokenFilter extends OncePerRequestFilter {
         chain.doFilter(request, response);
     }
 
-    /** Matches what ApiError carries, so one error shape reaches a client rather than two. */
-    private static final String HELP_URL = "https://docs.pravaha.io/errors/PRV-7001";
+    /**
+     * Matches what ApiError carries, so one error shape reaches a client rather than two.
+     *
+     * <p>DOCX-21: read from {@code pravaha.docs.base-url} on every refusal rather than held as a
+     * constant, so this filter cannot drift from {@code ErrorCode.helpUrl()} again. Empty when the
+     * deployment publishes no help pages -- the field stays, as the contract says it does.
+     */
+    private static String helpUrl() {
+        return com.ash.messaging.pravaha.api.HelpUrls.forCode("PRV-7001");
+    }
 
     /** Where an authenticated principal is left for a controller that needs one. */
     public static final String PRINCIPAL_ATTRIBUTE = "pravaha.principal";
@@ -206,7 +214,7 @@ public final class BearerTokenFilter extends OncePerRequestFilter {
         response.getWriter()
                 .write("{\"code\":\"PRV-7001\""
                         + ",\"message\":\"" + reason.replace("\"", "'") + "\""
-                        + ",\"helpUrl\":\"" + HELP_URL + "\""
+                        + ",\"helpUrl\":\"" + helpUrl() + "\""
                         + ",\"timestamp\":\"" + java.time.Instant.now() + "\""
                         + ",\"path\":\"" + String.valueOf(path).replace("\"", "'") + "\"}");
     }

@@ -25,12 +25,28 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ErrorCodeTest {
 
+    @org.junit.jupiter.api.AfterEach
+    void clearTheConfiguredBase() {
+        HelpUrls.configure(null);
+    }
+
     @Test
     void rendersTheDocumentedForm() {
         ErrorCode c = new ErrorCode(2041, "EMIT_MODE_MISMATCH");
         assertThat(c.code()).isEqualTo("PRV-2041");
-        assertThat(c.helpUrl()).isEqualTo("https://docs.pravaha.io/errors/PRV-2041");
         assertThat(c.toString()).isEqualTo("PRV-2041 (EMIT_MODE_MISMATCH)");
+    }
+
+    /**
+     * DOCX-21. The help URL is a deployment's setting, not a constant, and there is no default:
+     * the constant this used to be named a host that has never resolved.
+     */
+    @Test
+    void theHelpUrlIsEmptyUntilADeploymentPublishesOne() {
+        ErrorCode c = new ErrorCode(2041, "EMIT_MODE_MISMATCH");
+        assertThat(c.helpUrl()).isEmpty();
+        HelpUrls.configure("http://localhost:8088/help/errors/");
+        assertThat(c.helpUrl()).isEqualTo("http://localhost:8088/help/errors/PRV-2041");
     }
 
     @Test

@@ -124,7 +124,9 @@ final class DlqCommand {
                     + orDash(entry.at() == null ? "" : entry.at().toString()));
             out.println(Ansi.bold("code     ")
                     + orDash(entry.code())
-                    + (entry.code().isEmpty() ? "" : Ansi.dim("  https://docs.pravaha.io/errors/" + entry.code())));
+                    + (entry.code().isEmpty()
+                            ? ""
+                            : Ansi.dim("  " + com.ash.messaging.pravaha.api.HelpUrls.helpLine(entry.code()))));
             out.println(Ansi.bold("reason   ") + reasonText(entry));
             out.println(Ansi.bold("replay   ")
                     + entry.replay()

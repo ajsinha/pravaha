@@ -1279,6 +1279,34 @@ served field and no log line at all (CFG-1). It is also a `node` tag on every me
 A node also logs, once, the off-heap implementation it chose: `off-heap access: bytebuffer
 (-Dpravaha.memory, -Dpravaha.ffm=false)`. See [JVM flags](#jvm-flags).
 
+### Where a failure's help link points
+
+Every refusal carries a `PRV-nnnn` code, and where that code is written up is the deployment's to
+say. One setting, three spellings of it:
+
+| Where | How it is set |
+|---|---|
+| `pravaha-server` | `pravaha.docs.base-url`, like every other `pravaha.*` key |
+| An embedded engine | `pravaha.docs.base-url` in the `Configuration` it is built from |
+| The CLI, the Java and Python SDKs, scripts | the environment variable `PRAVAHA_DOCS_BASE_URL` |
+
+The engine appends the rendered code, so the value is the part before it:
+`http://localhost:8088/help/errors/` gives `http://localhost:8088/help/errors/PRV-2002`. A missing
+trailing slash is supplied. Pointing it at the console's help gives every code a page that resolves
+with no internet connection at all.
+
+**There is no default, and unset is a supported state.** With no base the engine emits **no** URL:
+`helpUrl` is present and empty in the REST and Flight contracts, and every printed line that would
+have carried a link says to look the code up in the console's help under Errors, or in
+[`TROUBLESHOOTING.md`](TROUBLESHOOTING.md), which is the code index. Until DOCX-21 the base was the
+constant `https://docs.pravaha.io/errors/`, on a host that has never been registered — a link that
+failed to connect rather than 404ing, which reads like a network problem at exactly the moment
+somebody is diagnosing one.
+
+A base that is not an absolute `http` or `https` URL is refused at startup with `PRV-1029`, naming
+the key, rather than concatenated with a code into something that only looks like a link. The node
+logs which of the two states it is in, once, at startup.
+
 ## Watching a running node
 
 Prometheus metrics are at `/actuator/prometheus`. **Every series this node publishes carries two

@@ -143,7 +143,16 @@ class SdkErrorCodeFidelityTest {
                     .isInstanceOfSatisfying(PravahaClientException.class, e -> {
                         assertThat(e.errorCode().code()).isEqualTo("PRV-6100");
                         assertThat(e.errorCode().number()).isEqualTo(6100);
-                        assertThat(e.errorCode().helpUrl()).isEqualTo("https://docs.pravaha.io/errors/PRV-6100");
+                        // DOCX-21. The help URL is the client's own setting, not the server's: no
+                        // link travels over the wire, the client builds it from the code. Empty
+                        // until this deployment names a base, so a dead one cannot be shipped.
+                        assertThat(e.errorCode().helpUrl()).isEmpty();
+                        com.ash.messaging.pravaha.api.HelpUrls.configure("https://help.example.test/errors/");
+                        try {
+                            assertThat(e.errorCode().helpUrl()).isEqualTo("https://help.example.test/errors/PRV-6100");
+                        } finally {
+                            com.ash.messaging.pravaha.api.HelpUrls.configure(null);
+                        }
                     });
         }
     }

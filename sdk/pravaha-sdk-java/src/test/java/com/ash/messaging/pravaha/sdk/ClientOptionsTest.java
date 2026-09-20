@@ -114,7 +114,16 @@ class ClientOptionsTest {
                 new com.ash.messaging.pravaha.api.ErrorCode(3001, "UNAVAILABLE"), "node is draining", true);
         assertThat(e.retryable()).isTrue();
         assertThat(e.getMessage()).startsWith("PRV-3001");
-        assertThat(e.helpUrl()).endsWith("PRV-3001");
+        // DOCX-21. The help URL is the deployment's, set through PRAVAHA_DOCS_BASE_URL for a
+        // client, and empty until one names a base: an SDK that shipped a link to a host nobody
+        // registered was the defect, not the absence of a link.
+        assertThat(e.helpUrl()).isEmpty();
+        com.ash.messaging.pravaha.api.HelpUrls.configure("https://help.example.test/errors/");
+        try {
+            assertThat(e.helpUrl()).isEqualTo("https://help.example.test/errors/PRV-3001");
+        } finally {
+            com.ash.messaging.pravaha.api.HelpUrls.configure(null);
+        }
     }
 
     @Test

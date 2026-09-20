@@ -144,12 +144,18 @@ class ExamplesTest {
     }
 
     @Test
-    void aMistypedColumnExitsOneWithItsCodeAndHelpUrl() {
+    void aMistypedColumnExitsOneWithItsCodeAndSaysWhereToLookTheCodeUp() {
         // Exit 1 for a query problem, 2 for a command-line mistake. Scripts distinguish these, and
         // the quickstart says so.
         Result result = run("validate", "--sql", "SELECT user_idd FROM txn", "--schema", SCHEMA);
         assertThat(result.exitCode()).isOne();
-        assertThat(result.err()).contains("PRV-2002").contains("docs.pravaha.io/errors/PRV-2002");
+        // DOCX-21. This used to assert `docs.pravaha.io/errors/PRV-2002`, so the build enforced a
+        // link to a host that has never resolved. Nothing here configures pravaha.docs.base-url,
+        // so there is no URL -- and the line in its place names two references that exist.
+        assertThat(result.err())
+                .contains("PRV-2002")
+                .doesNotContain("docs.pravaha.io")
+                .contains("look PRV-2002 up in the console's help under Errors, or in docs/TROUBLESHOOTING.md");
     }
 
     @Test

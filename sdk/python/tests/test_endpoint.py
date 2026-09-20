@@ -70,7 +70,31 @@ def test_equality_is_by_value() -> None:
     assert Endpoint.parse("grpc://a:1") != Endpoint.parse("grpc+tls://a:1")
 
 
-def test_error_carries_a_help_url() -> None:
+def test_error_carries_no_help_url_until_a_deployment_configures_one() -> None:
+    """DOCX-21. The base used to be the constant ``https://docs.pravaha.io/errors/``,
+    on a host that has never resolved. Unset now means no URL, and the line a caller
+    prints instead names two references that exist offline."""
+    from pravaha import errors as _errors
+
+    _errors.configure_docs_base(None)
     with pytest.raises(MalformedEndpointError) as excinfo:
         Endpoint.parse("nope://x")
-    assert excinfo.value.help_url.endswith("PRV-1030")
+    assert excinfo.value.help_url == ""
+    assert _errors.help_line("PRV-1030") == (
+        "look PRV-1030 up in the console's help under Errors, or in docs/TROUBLESHOOTING.md"
+    )
+
+    try:
+        _errors.configure_docs_base("http://localhost:8088/help/errors")
+        assert excinfo.value.help_url == "http://localhost:8088/help/errors/PRV-1030"
+    finally:
+        _errors.configure_docs_base(None)
+
+
+def test_a_docs_base_that_is_not_a_url_is_refused_by_name() -> None:
+    from pravaha import errors as _errors
+
+    with pytest.raises(_errors.InvalidDocsBaseUrlError) as excinfo:
+        _errors.configure_docs_base("docs.pravaha.io/errors/")
+    assert "PRV-1029" in str(excinfo.value)
+    assert _errors.docs_base_url() == ""

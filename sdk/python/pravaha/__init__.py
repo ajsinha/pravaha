@@ -25,9 +25,16 @@ from pravaha.debug import (
 from pravaha.endpoint import Endpoint, HostPort
 from pravaha.errors import (
     PravahaError,
+    InvalidDocsBaseUrlError,
     MalformedEndpointError,
     InvalidOptionsError,
     InvalidTlsOptionsError,
+    configure_docs_base,
+    configure_docs_base_from_environment,
+    docs_base_url,
+    help_hint,
+    help_line,
+    help_url_for,
 )
 from pravaha.options import ClientOptions
 from pravaha.rest import ApiError
@@ -63,11 +70,18 @@ __all__ = [
     "StateSlot",
     "ViewDelta",
     "HostPort",
+    "InvalidDocsBaseUrlError",
     "InvalidOptionsError",
     "InvalidTlsOptionsError",
     "MalformedEndpointError",
     "PravahaError",
     "TlsOptions",
+    "configure_docs_base",
+    "configure_docs_base_from_environment",
+    "docs_base_url",
+    "help_hint",
+    "help_line",
+    "help_url_for",
 ]
 
 __version__ = "0.1.0"

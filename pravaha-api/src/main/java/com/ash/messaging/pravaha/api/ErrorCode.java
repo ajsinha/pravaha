@@ -24,8 +24,6 @@ package com.ash.messaging.pravaha.api;
  */
 public record ErrorCode(int number, String name) {
 
-    private static final String DOCS_BASE = "https://docs.pravaha.io/errors/";
-
     public ErrorCode {
         if (number < 1000 || number > 9999) {
             throw new IllegalArgumentException("error code must be a four-digit number, got " + number);
@@ -74,8 +72,15 @@ public record ErrorCode(int number, String name) {
         throw new IllegalStateException("no category for " + code());
     }
 
+    /**
+     * The help page for this code, or the empty string when the deployment publishes none.
+     *
+     * <p>DOCX-21: this used to be a constant {@code https://docs.pravaha.io/errors/PRV-nnnn} and
+     * that host does not resolve. The base is now {@link HelpUrls#KEY}, and unset means no URL
+     * rather than a dead one -- see {@link HelpUrls} for what a message says instead.
+     */
     public String helpUrl() {
-        return DOCS_BASE + code();
+        return HelpUrls.forCode(code());
     }
 
     @Override

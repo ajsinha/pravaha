@@ -3513,10 +3513,12 @@ PRV-2041  Query produces updates but sink 'alerts_http' is append-only.
     · add  EMIT CHANGES WITH ('emit.mode'='upsert')  and declare key.fields
     · change the LEFT JOIN to an INNER JOIN if unmatched rows are not needed
 
-  See: https://docs.pravaha.io/errors/PRV-2041
+  See: http://localhost:8088/help/errors/PRV-2041
 ```
 
 Every error code is stable, documented, and has a page with a runnable reproduction. This is boring work with a disproportionate effect on adoption.
+
+The base of that link is the deployment's — `pravaha.docs.base-url`, or `PRAVAHA_DOCS_BASE_URL` for the CLI and the SDKs — and there is no default. An unset base means the engine emits **no** URL at all and says to look the code up in the console's help or in [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md), which is the code index. The build once enforced a link to a host that had never been registered, on the reasoning that a help URL is obviously better than none; a URL that does not resolve is worse than none, because it spends the one line a reader acts on (DOCX-21).
 
 ### 24.5 Catalog-typed clients
 

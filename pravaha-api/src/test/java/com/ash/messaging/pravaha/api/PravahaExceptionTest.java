@@ -29,7 +29,15 @@ class PravahaExceptionTest {
         PravahaException e = new PravahaException(CODE, "sink is append-only");
         assertThat(e).hasMessage("PRV-2041  sink is append-only");
         assertThat(e.errorCode()).isEqualTo(CODE);
-        assertThat(e.helpUrl()).endsWith("PRV-2041");
+        // DOCX-21: the help URL is the deployment's, and there is none here. The code is in the
+        // message either way, which is the claim this case makes.
+        assertThat(e.helpUrl()).isEmpty();
+        HelpUrls.configure("https://help.example.test/errors/");
+        try {
+            assertThat(e.helpUrl()).endsWith("PRV-2041");
+        } finally {
+            HelpUrls.configure(null);
+        }
     }
 
     @Test

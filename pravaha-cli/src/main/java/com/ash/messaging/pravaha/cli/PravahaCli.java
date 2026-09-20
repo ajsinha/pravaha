@@ -21,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.ash.messaging.pravaha.api.HelpUrls;
 import com.ash.messaging.pravaha.api.PravahaException;
 
 /**
@@ -50,6 +51,17 @@ public final class PravahaCli {
     }
 
     public static void main(String[] args) {
+        // DOCX-21. The CLI has no configuration file, so the help-page base is an environment
+        // variable, and a bad one is refused here rather than pasted onto a code. `run` is left
+        // out of this deliberately: it is the testable entry point, and a unit test must not
+        // depend on the environment of the machine running it.
+        try {
+            HelpUrls.configureFromEnvironment();
+        } catch (PravahaException e) {
+            System.err.println(e.getMessage());
+            System.exit(EXIT_USAGE);
+            return;
+        }
         System.exit(new PravahaCli(System.out, System.err).run(args));
     }
 
@@ -118,7 +130,7 @@ public final class PravahaCli {
             // Engine errors already carry a PRV code and an actionable message; a stack trace here
             // would bury the useful part.
             err.println(Ansi.bad(e.getMessage()));
-            err.println(Ansi.dim("  " + e.helpUrl()));
+            err.println(Ansi.dim("  " + HelpUrls.helpLine(e.errorCode().code())));
             return EXIT_FAILED;
         } catch (RuntimeException e) {
             err.println(Ansi.bad(e.getClass().getSimpleName() + ": " + e.getMessage()));

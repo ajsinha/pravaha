@@ -124,6 +124,12 @@ final class DefaultPravahaEngine implements PravahaEngine {
         this.configuration = Objects.requireNonNull(configuration, "configuration");
         this.instanceId = configuration.getString("pravaha.node.id", "pravaha-embedded");
         this.pushTimeout = configuration.getDuration("pravaha.embedded.push-timeout", Duration.ofSeconds(30));
+        // DOCX-21. Where a failure's help page lives, for a host that publishes one. Read here --
+        // at construction, before anything can fail -- so a bad value is refused while the host is
+        // still building the engine rather than inside the first error it tries to report. Unset
+        // is supported and is the default: no base means no URL, anywhere.
+        com.ash.messaging.pravaha.api.HelpUrls.configureOrFromEnvironment(
+                configuration.getString(com.ash.messaging.pravaha.api.HelpUrls.KEY, null));
     }
 
     // ------------------------------------------------------------------ declarations

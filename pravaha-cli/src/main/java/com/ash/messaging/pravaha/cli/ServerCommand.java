@@ -285,7 +285,7 @@ final class ServerCommand {
             if (!stopped.isEmpty()) {
                 out.println(Ansi.dim("a stopped source is not retried: the view keeps answering at the frontier it "
                         + "reached. Fix the cause, then drop the query and register it again, or restart the "
-                        + "node. Each code has a help page: https://docs.pravaha.io/errors/<code>"));
+                        + "node. " + codeLookupSentence()));
             }
             // SINK-3. Beside the stopped-source lines and for the same reason: a query that says
             // RUNNING while nothing reaches the table it was registered to write is the other thing
@@ -351,6 +351,20 @@ final class ServerCommand {
             text.append(": ").append(failure.message());
         }
         return text.toString();
+    }
+
+    /**
+     * How the listing tells a reader to resolve the codes it has just printed (DOCX-21).
+     *
+     * <p>It used to be the sentence "Each code has a help page:
+     * {@code https://docs.pravaha.io/errors/<code>}", naming a host that has never resolved. The
+     * deployment decides whether there is a help page at all, and when there is not this says
+     * where the codes are written down instead rather than saying nothing.
+     */
+    static String codeLookupSentence() {
+        return com.ash.messaging.pravaha.api.HelpUrls.configured()
+                ? "Each code has a help page: " + com.ash.messaging.pravaha.api.HelpUrls.base() + "<code>"
+                : "Look each code up in the console's help under Errors, or in docs/TROUBLESHOOTING.md.";
     }
 
     /** One stopped source, as the line under the listing says it: code, where, when, and why. */

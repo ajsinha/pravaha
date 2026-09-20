@@ -168,8 +168,23 @@ class CliDeadLetterTest {
         assertThat(out).contains("id       corr-1");
         assertThat(out).contains("offset   line 1");
         assertThat(out).contains("code     PRV-5040");
-        assertThat(out).contains("https://docs.pravaha.io/errors/PRV-5040");
+        // DOCX-21. No pravaha.docs.base-url here, so the line beside the code says where to look
+        // it up rather than naming a host that does not resolve.
+        assertThat(out)
+                .doesNotContain("docs.pravaha.io")
+                .contains("look PRV-5040 up in the console's help under Errors, or in docs/TROUBLESHOOTING.md");
         assertThat(out).contains("1,not-a-number");
+    }
+
+    @Test
+    void aConfiguredHelpBasePutsThisDeploymentsUrlBesideTheCode() {
+        com.ash.messaging.pravaha.api.HelpUrls.configure("https://help.example.test/errors");
+        try {
+            String out = plain(cli("dlq", "show", "--name", "big_txn", "--id", "corr-1", "--url", url));
+            assertThat(out).contains("https://help.example.test/errors/PRV-5040");
+        } finally {
+            com.ash.messaging.pravaha.api.HelpUrls.configure(null);
+        }
     }
 
     @Test

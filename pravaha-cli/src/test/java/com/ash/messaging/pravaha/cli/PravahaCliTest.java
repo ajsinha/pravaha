@@ -145,11 +145,44 @@ class PravahaCliTest {
         assertThat(stdout()).contains("valid").contains("user_id");
     }
 
+    @org.junit.jupiter.api.AfterEach
+    void clearTheConfiguredHelpBase() {
+        com.ash.messaging.pravaha.api.HelpUrls.configure(null);
+    }
+
     @Test
     void validateRejectsAnUnknownColumnWithItsErrorCode() {
         assertThat(run("validate", "--sql", "SELECT nope FROM txn", "--schema", SCHEMA))
                 .isEqualTo(1);
-        assertThat(stderr()).contains("PRV-2002").contains("docs.pravaha.io/errors/PRV-2002");
+        assertThat(stderr()).contains("PRV-2002");
+    }
+
+    /**
+     * DOCX-21. The second line under a refusal used to be
+     * {@code https://docs.pravaha.io/errors/PRV-2002}, on a host that has never resolved. With no
+     * {@code pravaha.docs.base-url} there is no URL at all, and the line says where the code is
+     * written down offline instead -- which is the whole point of dropping the link.
+     */
+    @Test
+    void withNoHelpBaseARefusalPrintsNoUrlAndSaysWhereToLookTheCodeUp() {
+        assertThat(run("validate", "--sql", "SELECT nope FROM txn", "--schema", SCHEMA))
+                .isEqualTo(1);
+        assertThat(stderr())
+                .contains("PRV-2002")
+                .doesNotContain("http://")
+                .doesNotContain("https://")
+                .contains("look PRV-2002 up in the console's help under Errors, or in docs/TROUBLESHOOTING.md");
+    }
+
+    @Test
+    void withAHelpBaseConfiguredARefusalPrintsThatDeploymentsUrl() {
+        com.ash.messaging.pravaha.api.HelpUrls.configure("http://localhost:8088/help/errors/");
+        assertThat(run("validate", "--sql", "SELECT nope FROM txn", "--schema", SCHEMA))
+                .isEqualTo(1);
+        assertThat(stderr())
+                .contains("PRV-2002")
+                .contains("http://localhost:8088/help/errors/PRV-2002")
+                .doesNotContain("docs.pravaha.io");
     }
 
     @Test

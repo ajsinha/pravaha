@@ -185,11 +185,14 @@ public class DtoMapper {
                 status.history(),
                 status.failureCode() == null
                         ? null
+                        // DOCX-21: through HelpUrls like every other help link, so an unset base
+                        // gives an empty field rather than a dead one. It also stops lower-casing
+                        // the code on the way: this was the one surface that published
+                        // `.../errors/prv-5040` while everything else published `PRV-5040`.
                         : new ApiDtos.Problem(
                                 status.failureCode(),
                                 status.failure(),
-                                "https://docs.pravaha.io/errors/"
-                                        + status.failureCode().toLowerCase(java.util.Locale.ROOT)));
+                                com.ash.messaging.pravaha.api.HelpUrls.forCode(status.failureCode())));
     }
 
     public ApiDtos.Problem toProblem(com.ash.messaging.pravaha.api.PravahaException failure, String message) {

@@ -91,8 +91,27 @@ class CliFeedStatusTest {
         assertThat(out)
                 .contains("stalled: source stopped with PRV-5040 reading txn#0 at 2026-09-19T08:00:00Z: ")
                 .contains("line 3: 'abc' is not an INT64");
-        assertThat(out).contains("is not retried").contains("https://docs.pravaha.io/errors/<code>");
+        // DOCX-21. The sentence used to be "Each code has a help page:
+        // https://docs.pravaha.io/errors/<code>". With no base configured there is no help page to
+        // promise, so it names the two places the codes are written down.
+        assertThat(out)
+                .contains("is not retried")
+                .doesNotContain("docs.pravaha.io")
+                .contains("Look each code up in the console's help under Errors, or in docs/TROUBLESHOOTING.md.");
         assertThat(out).doesNotContain("healthy: source stopped");
+    }
+
+    @Test
+    void aConfiguredHelpBaseTurnsTheLookupSentenceBackIntoALink() {
+        feeds.get("stalled").stopped =
+                new PravahaException(new ErrorCode(5040, "FILESYSTEM_DECODE_FAILED"), "line 3: 'abc' is not an INT64");
+        com.ash.messaging.pravaha.api.HelpUrls.configure("https://help.example.test/errors/");
+        try {
+            String out = plain(cli("queries", "--url", url));
+            assertThat(out).contains("Each code has a help page: https://help.example.test/errors/<code>");
+        } finally {
+            com.ash.messaging.pravaha.api.HelpUrls.configure(null);
+        }
     }
 
     @Test

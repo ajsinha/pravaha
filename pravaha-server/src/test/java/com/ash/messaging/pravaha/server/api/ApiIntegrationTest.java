@@ -101,13 +101,33 @@ class ApiIntegrationTest {
                 .andExpect(jsonPath("$.fields[0].nullable").value(false));
     }
 
+    /**
+     * DOCX-21. The {@code helpUrl} field is part of the contract and stays in every error body.
+     * What it carries is the deployment's: this context configures no {@code
+     * pravaha.docs.base-url}, so it is empty rather than the dead {@code docs.pravaha.io} link it
+     * used to be, and a client reads "this deployment publishes no help pages" from the empty
+     * string rather than from a missing field.
+     */
     @Test
-    void anUnknownStreamIsA400WithTheErrorCodeAndAHelpUrl() throws Exception {
+    void anUnknownStreamIsA400WithTheErrorCodeAndAnEmptyHelpUrlWhenNoneIsConfigured() throws Exception {
         mvc.perform(get("/api/v1/streams/nope"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("PRV-2003"))
-                .andExpect(jsonPath("$.helpUrl").value("https://docs.pravaha.io/errors/PRV-2003"))
+                .andExpect(jsonPath("$.helpUrl").exists())
+                .andExpect(jsonPath("$.helpUrl").value(""))
                 .andExpect(jsonPath("$.path").value("/api/v1/streams/nope"));
+    }
+
+    @Test
+    void aConfiguredHelpBaseReachesTheErrorBody() throws Exception {
+        com.ash.messaging.pravaha.api.HelpUrls.configure("http://localhost:8088/help/errors/");
+        try {
+            mvc.perform(get("/api/v1/streams/nope"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.helpUrl").value("http://localhost:8088/help/errors/PRV-2003"));
+        } finally {
+            com.ash.messaging.pravaha.api.HelpUrls.configure(null);
+        }
     }
 
     @Test
@@ -212,7 +232,9 @@ class ApiIntegrationTest {
                     .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("SELECT")))
                     .andExpect(jsonPath("$.message")
                             .value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("String.length"))))
-                    .andExpect(jsonPath("$.helpUrl").value("https://docs.pravaha.io/errors/PRV-1050"));
+                    // DOCX-21: the field is there, and empty, because nothing configured a base.
+                    .andExpect(jsonPath("$.helpUrl").exists())
+                    .andExpect(jsonPath("$.helpUrl").value(""));
 
             mvc.perform(post("/api/v1/queries/explain")
                             .contentType(MediaType.APPLICATION_JSON)

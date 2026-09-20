@@ -33,7 +33,7 @@ from typing import Any, Iterator, Optional, Sequence
 
 from pravaha.debug import DebugCommands
 from pravaha.endpoint import Endpoint
-from pravaha.errors import PravahaError
+from pravaha.errors import PravahaError, configure_docs_base_from_environment
 from pravaha.options import ClientOptions
 from pravaha.rest import ApiError, RestClient
 from pravaha.tls import TlsOptions
@@ -371,6 +371,10 @@ class Client(DebugCommands):
 
     def __init__(self, options: ClientOptions) -> None:
         self._options = options
+        # DOCX-21. The help-page base, read once while the client is being built, so a
+        # value that is not a URL is refused here rather than pasted onto a code inside
+        # the report of some later failure. Unset is the default and means no URL.
+        configure_docs_base_from_environment()
         node = options.endpoint.nodes[0]
         scheme = "grpc+tls" if options.endpoint.tls else "grpc"
         self._uri = f"{scheme}://{node.host}:{node.port}"

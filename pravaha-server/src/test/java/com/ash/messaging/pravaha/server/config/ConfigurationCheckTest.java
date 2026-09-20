@@ -65,6 +65,63 @@ class ConfigurationCheckTest {
         return new ConfigurationCheck(environment, streams, sources0, sinks);
     }
 
+    // ------------------------------------------------------------------ DOCX-21
+
+    @org.junit.jupiter.api.AfterEach
+    void clearTheConfiguredHelpBase() {
+        com.ash.messaging.pravaha.api.HelpUrls.configure(null);
+    }
+
+    @Test
+    void aDocsBaseUrlThatIsNotAUrlIsRefusedAtStartupByName_DOCX21() {
+        // The whole point of making this configuration is that the value reaches every error
+        // message this node will ever print. A node that started with `docs.example.test/errors/`
+        // would emit `docs.example.test/errors/PRV-2002` on every failure -- not a URL, and
+        // discovered by whoever clicked it.
+        ConfigurationCheck check = checkOf("""
+                pravaha:
+                  docs:
+                    base-url: "docs.example.test/errors/"
+                """);
+
+        assertThatThrownBy(check::check)
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-1029")
+                .hasMessageContaining("pravaha.docs.base-url is 'docs.example.test/errors/'")
+                .hasMessageContaining("docs/TROUBLESHOOTING.md");
+    }
+
+    @Test
+    void aConfiguredDocsBaseUrlReachesEveryErrorCode_DOCX21() {
+        ConfigurationCheck check = checkOf("""
+                pravaha:
+                  docs:
+                    base-url: "http://localhost:8088/help/errors"
+                """);
+
+        assertThatCode(check::check).doesNotThrowAnyException();
+        assertThat(new com.ash.messaging.pravaha.api.ErrorCode(2002, "X").helpUrl())
+                .isEqualTo("http://localhost:8088/help/errors/PRV-2002");
+    }
+
+    /** Unset is a supported state, and it means no URL rather than the old dead one. */
+    @Test
+    void withNoDocsBaseUrlTheNodeStartsAndEmitsNoUrl_DOCX21() {
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+                System.getenv(com.ash.messaging.pravaha.api.HelpUrls.ENVIRONMENT_VARIABLE) == null,
+                "PRAVAHA_DOCS_BASE_URL is set in this shell, so 'unset' cannot be observed here");
+        ConfigurationCheck check = checkOf("""
+                pravaha:
+                  streams:
+                    txn: {schema: "a:INT64"}
+                """);
+
+        assertThatCode(check::check).doesNotThrowAnyException();
+        assertThat(com.ash.messaging.pravaha.api.HelpUrls.configured()).isFalse();
+        assertThat(new com.ash.messaging.pravaha.api.ErrorCode(2002, "X").helpUrl())
+                .isEmpty();
+    }
+
     // ------------------------------------------------------------------ CFG-3(a)
 
     @Test

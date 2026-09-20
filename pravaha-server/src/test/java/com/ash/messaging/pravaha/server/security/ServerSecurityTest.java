@@ -354,6 +354,38 @@ class ServerSecurityTest {
                 .isFalse();
     }
 
+    /**
+     * DOCX-21. The 401 body is the one error shape a client meets before it is authenticated, and
+     * its {@code helpUrl} used to be a second, hand-written copy of the dead {@code
+     * docs.pravaha.io} constant. It reads the same setting as everything else now: the field stays
+     * in the body, empty when the deployment publishes no help pages.
+     */
+    @Test
+    void theUnauthenticatedBodyCarriesTheConfiguredHelpUrlAndNothingWhenThereIsNone() throws Exception {
+        assertThat(refusalBody()).contains("\"code\":\"PRV-7001\"").contains("\"helpUrl\":\"\"");
+
+        com.ash.messaging.pravaha.api.HelpUrls.configure("http://localhost:8088/help/errors/");
+        try {
+            assertThat(refusalBody())
+                    .contains("\"helpUrl\":\"http://localhost:8088/help/errors/PRV-7001\"")
+                    .doesNotContain("docs.pravaha.io");
+        } finally {
+            com.ash.messaging.pravaha.api.HelpUrls.configure(null);
+        }
+    }
+
+    private static String refusalBody() throws Exception {
+        BearerTokenFilter filter = new BearerTokenFilter(TokenVerifier.rejectAll());
+        org.springframework.mock.web.MockHttpServletRequest request =
+                new org.springframework.mock.web.MockHttpServletRequest("GET", "/api/v1/streams");
+        request.setRequestURI("/api/v1/streams");
+        org.springframework.mock.web.MockHttpServletResponse response =
+                new org.springframework.mock.web.MockHttpServletResponse();
+        filter.doFilter(request, response, new org.springframework.mock.web.MockFilterChain());
+        assertThat(response.getStatus()).isEqualTo(401);
+        return response.getContentAsString();
+    }
+
     private static jakarta.servlet.http.HttpServletRequest get(String uri) {
         org.springframework.mock.web.MockHttpServletRequest request =
                 new org.springframework.mock.web.MockHttpServletRequest("GET", uri);

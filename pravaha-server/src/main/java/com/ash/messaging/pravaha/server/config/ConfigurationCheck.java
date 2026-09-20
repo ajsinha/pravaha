@@ -27,6 +27,7 @@ import org.springframework.core.env.EnumerablePropertySource;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.PropertySource;
 
+import com.ash.messaging.pravaha.api.HelpUrls;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.common.config.ConfigErrors;
 
@@ -99,9 +100,34 @@ public class ConfigurationCheck {
 
     @jakarta.annotation.PostConstruct
     public void check() {
+        applyDocsBaseUrl();
         refuseKeysThatReachedNothing();
         refuseBareNumberDurations();
         reconcileStreamsAndSources();
+    }
+
+    // ---------------------------------------------------------------- DOCX-21
+
+    /**
+     * Publishes {@code pravaha.docs.base-url} to the engine, and refuses a value that is not a URL.
+     *
+     * <p>Here rather than in a {@code @ConfigurationProperties} bean because it has to run before
+     * anything can fail: a node whose first act is to report a misconfiguration must not report it
+     * with a help link built out of a second misconfiguration. Unset is a supported state -- no
+     * base means no URL anywhere, and every message that would have carried one says how to look
+     * the code up offline instead.
+     */
+    private void applyDocsBaseUrl() {
+        String written = environment.getProperty(HelpUrls.KEY);
+        HelpUrls.configureOrFromEnvironment(written);
+        if (HelpUrls.configured()) {
+            log.info("help pages: {} -> {}PRV-nnnn", HelpUrls.KEY, HelpUrls.base());
+        } else {
+            log.info(
+                    "help pages: {} is unset, so failures carry no help URL; {}",
+                    HelpUrls.KEY,
+                    HelpUrls.lookupHint(null));
+        }
     }
 
     // ---------------------------------------------------------------- CFG-3(a)

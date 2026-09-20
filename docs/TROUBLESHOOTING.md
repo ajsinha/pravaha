@@ -11,12 +11,16 @@ ticket.
 This page is for when the message was not enough, or when you are searching for a code you found in
 a log.
 
-> **The URL in the message does not resolve.** Every refusal ends with
-> `https://docs.pravaha.io/errors/PRV-nnnn`, and `docs.pravaha.io` is not registered — the host does
-> not exist, so the link fails to connect rather than 404ing, which reads like a network problem at
-> exactly the wrong moment. **This file is the reference those links were meant to reach.** Recorded
-> as DOCX-21; whether to register the domain or drop the line from the message is the owner's call,
-> not a documentation edit.
+> **Where the help link comes from.** A refusal used to end with
+> `https://docs.pravaha.io/errors/PRV-nnnn`, and that host has never been registered: the link
+> failed to connect rather than 404ing, which reads like a network problem at exactly the wrong
+> moment. It is gone. The base of that link is now configuration — `pravaha.docs.base-url` on the
+> server, `pravaha.docs.base-url` in an embedded engine's configuration, and the environment
+> variable `PRAVAHA_DOCS_BASE_URL` for the CLI and the SDKs — and there is **no default**. A
+> deployment that sets it to the console's help gets a link to a page that resolves offline; a
+> deployment that sets nothing gets no URL at all, and every message that would have carried one
+> says to look the code up in the console's help under Errors, or here. **This file is the code
+> index.** (DOCX-21.)
 
 ## The ranges
 
@@ -549,6 +553,7 @@ which is what these now are.
 
 | | |
 |---|---|
+| `PRV-1029` the help-page base is not a URL | `pravaha.docs.base-url` is set to something that is not an absolute `http` or `https` URL. The engine appends a code to it to build the help link every failure carries, so a value like `docs.example.test/errors/` or `/errors/` would produce a link nobody can follow. Write a base that resolves — `http://localhost:8088/help/errors/` points at the console's own help — or leave the key unset, which is supported and means the engine emits no URL at all (DOCX-21) |
 | `PRV-1027` a key reached nothing | A key under `pravaha.streams`, `pravaha.sources`, `pravaha.lookups` or `pravaha.sinks` is in the file and is not in the map the server bound. Spring canonicalises a map key before binding it and **discards one it cannot** — a trailing space, a non-ASCII letter — with no message at any level, so the stream was in the file, absent from the catalog, and the first query against it said "Object not found. Known streams: [...]". Quote the key in brackets to bind it verbatim: `"[txnü]": {schema: "..."}`. Or rename it to letters, digits and hyphens (CFG-3) |
 | `PRV-1012` a reference chain too deep to walk | `${a}` referring to `${b}` referring to `${c}`, nested past 256 levels. A backstop against the stack, not a statement about configuration. **It used to be `PRV-1011` at 32 levels**, so a genuine 34-deep chain with no loop in it was refused as a circular reference that did not exist and the operator went looking for one (E-8). A cycle is still `PRV-1011` and still names the keys in it |
 | `PRV-1023` a duration with no unit | Spring reads a bare number on a duration key as **milliseconds**. `pravaha.checkpoint.interval: 2`, written meaning two seconds, produced 6,409 checkpoints in twenty seconds with nothing in the log naming the interval in force. Write the unit — `2s`, `500ms`, `1m` — or ISO-8601, `PT2S`. The engine's own duration parser has always refused a bare number for this reason; this is the same rule on the Spring side (CFG-15) |
@@ -689,6 +694,11 @@ Every non-2xx response on `/api/v1/**` is an `ApiError` — `code`, `message`, `
 `timestamp`, `path` — and nothing else. A client that has to parse two error shapes will handle one
 of them badly, and it will be the one that occurs rarely.
 
+`helpUrl` is **always present and may be empty**: it is `pravaha.docs.base-url` plus the code, and
+an empty string means this deployment publishes no help pages. A client should treat the empty
+string as "no link" rather than expecting the field to disappear; the field is part of the
+contract, the value is the operator's (DOCX-21).
+
 `PRV-1052` is what a request that reached no handler answers with: a method the path does not
 support (405), a body in a media type the endpoint does not read (415), an unmapped path (404). The
 status is what distinguishes them and the client already has it; the code says the body is an
@@ -719,6 +729,7 @@ client models the error rather than an empty object.
 | `PRV-1025` | CONFIG_NOT_AN_ENUM | config |
 | `PRV-1026` | CONFIG_OUT_OF_RANGE | config |
 | `PRV-1027` | CONFIG_KEY_UNREACHABLE | config |
+| `PRV-1029` | CONFIG_DOCS_BASE_URL_INVALID | config |
 | `PRV-1030` | CLIENT_MALFORMED_ENDPOINT | client (SDK) |
 | `PRV-1031` | CLIENT_INVALID_OPTIONS | client (SDK) |
 | `PRV-1032` | CLIENT_INVALID_TLS_OPTIONS | client (SDK) |
