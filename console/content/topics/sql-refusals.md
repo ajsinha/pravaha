@@ -507,18 +507,26 @@ too.
 SELECT txn_id, status IS NOT NULL AND status = 'SETTLED' AS settled_known FROM txn
 ```
 
-### `IS NULL` over an expression
+### `IS NULL` over an expression — not a refusal any more
 
-<!-- sql: refused PRV-2021 -->
+This was refused: the compiler required a bare column reference and turned everything else away,
+including the ordinary idiom of null-checking a computed `CASE`. It plans now (TY-5), over
+arithmetic and over a `CASE` alike:
+
 ```sql
 SELECT txn_id FROM txn WHERE (amount * 2) IS NULL
+```
+
+```sql
+SELECT txn_id FROM txn WHERE (CASE WHEN amount > 100 THEN status ELSE 'none' END) IS NULL
 ```
 
 ```sql
 SELECT txn_id FROM txn WHERE amount IS NULL
 ```
 
-(`amount` is `NOT NULL` here, so that filter never matches — it plans, and is honest about it.)
+(`amount` is `NOT NULL` here, so the first and last filters never match — they plan, and are honest
+about it.)
 
 ## Names that do not resolve — PRV-2002 and PRV-2001
 

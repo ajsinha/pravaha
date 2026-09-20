@@ -126,13 +126,26 @@ txn_id  large_flag
 4       NULL
 ```
 
-Every branch must produce the same type — with one exception that surprises people. A number in a
-text `CASE` is accepted, because the validator coerces `0` to the string `'0'` before the engine sees
-it. The column is **text**:
+Every branch must produce the same type, and there is no longer an exception. A number in a text
+`CASE` used to be accepted — the validator coerces `0` to the string `'0'` before the engine sees
+it, and the column came out as text — while the same `CASE` with a numeric *column* in the other
+branch was refused. There is no number-to-text conversion anywhere in this engine, so the literal
+form was the odd one out and is refused now (TY-23):
 
+<!-- sql: refused PRV-2021 -->
 ```sql
 SELECT txn_id, CASE WHEN amount > 100 THEN 'big' ELSE 0 END AS band FROM txn
 ```
+
+Write the branch as text, and it plans:
+
+```sql
+SELECT txn_id, CASE WHEN amount > 100 THEN 'big' ELSE 'small' END AS band FROM txn
+```
+
+Branches that disagree on a *numeric* type are refused too, and by the decimal rule rather than by
+a rule of their own: `CASE WHEN c THEN 1 ELSE 1.5 END` is `DECIMAL` to SQL, exactly as
+`amount * 1.5` is. It used to escape as an uncoded Java exception (TY-4).
 
 A guarded division is safe, because the untaken branch is never evaluated:
 
