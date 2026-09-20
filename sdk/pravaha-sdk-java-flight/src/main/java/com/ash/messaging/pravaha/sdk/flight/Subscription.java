@@ -21,11 +21,14 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
+import org.apache.arrow.flight.FlightRuntimeException;
 import org.apache.arrow.flight.FlightStream;
 import org.apache.arrow.vector.VectorSchemaRoot;
 
 import com.ash.messaging.pravaha.api.wire.ControlWire;
+import com.ash.messaging.pravaha.sdk.PravahaClientException;
 
 /**
  * A client's handle on a running subscription.
@@ -43,6 +46,19 @@ public final class Subscription implements AutoCloseable {
     private final FlightStream stream;
     private final Consumer<ChangeBatch> onBatch;
     private final Consumer<Subscription> onClosed;
+
+    /**
+     * What a Flight failure on this stream means in Pravaha's own vocabulary.
+     *
+     * <p>API-F7. Every other call in this SDK goes through {@code PravahaFlightClient.failureOf},
+     * which recovers the server's own code from the wire and turns an {@code UNAVAILABLE} that
+     * carries none into {@code PRV-1040} naming the endpoint. A subscription did not: {@link #run}
+     * rethrew Arrow's exception as it arrived, so {@code pravaha subscribe} against a node that was
+     * not running printed the bare words {@code io exception} -- no code, no address, nothing to
+     * act on -- while {@code pravaha queries} against the same dead node named it.
+     */
+    private final Function<FlightRuntimeException, PravahaClientException> failureOf;
+
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicBoolean streamClosed = new AtomicBoolean();
     private final AtomicBoolean running = new AtomicBoolean();
@@ -55,10 +71,38 @@ public final class Subscription implements AutoCloseable {
     /** Snapshot rows received so far, until the part that ends the snapshot. Run's thread only. */
     private final List<Row> snapshot = new ArrayList<>();
 
-    Subscription(FlightStream stream, Consumer<ChangeBatch> onBatch, Consumer<Subscription> onClosed) {
+    Subscription(
+            FlightStream stream,
+            Consumer<ChangeBatch> onBatch,
+            Consumer<Subscription> onClosed,
+            Function<FlightRuntimeException, PravahaClientException> failureOf) {
         this.stream = stream;
         this.onBatch = onBatch;
         this.onClosed = onClosed;
+        this.failureOf = failureOf;
+    }
+
+    /**
+     * Waits until the server has accepted this subscription, and raises its refusal if it did not.
+     *
+     * <p>API-F7, the other half. {@code subscribe} builds a lazy stream: nothing is sent until a
+     * batch is pulled, so the call returns whether or not there is a server, whether or not the
+     * view exists, and whether or not this principal may read it. {@code pravaha subscribe} printed
+     * {@code subscribed to x; changes print as they are committed} on the strength of that return
+     * -- to stdout, ahead of the failure on stderr -- so a pipeline reading stdout saw a
+     * confirmation from a command that was about to exit 1.
+     *
+     * <p>The schema is what makes it knowable: Flight sends it before any data, and the server's
+     * subscription path starts the listener as soon as it has authorized the reader and resolved
+     * the view. Waiting for it costs nothing on a working subscription -- the message is already in
+     * flight -- and turns "the call returned" into "the server said yes".
+     */
+    public void awaitOpen() {
+        try {
+            stream.getSchema();
+        } catch (FlightRuntimeException e) {
+            throw failureOf.apply(e);
+        }
     }
 
     /**
@@ -119,7 +163,11 @@ public final class Subscription implements AutoCloseable {
             }
         } catch (RuntimeException e) {
             if (!closed.get()) {
-                throw e;
+                // Under the same code any other call on this connection would answer with, and
+                // naming the same node. A subscriber losing its stream half way through and a
+                // caller failing to start one are the same event from two moments, and a client
+                // should not need two handlers for it.
+                throw e instanceof FlightRuntimeException flight ? failureOf.apply(flight) : e;
             }
             // Closing mid-stream surfaces as a cancellation. Expected, not a failure.
         } finally {

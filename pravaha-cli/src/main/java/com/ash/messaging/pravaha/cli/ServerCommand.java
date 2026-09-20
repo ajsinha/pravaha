@@ -459,16 +459,17 @@ final class ServerCommand {
             Subscription subscription = fromSnapshot
                     ? client.subscribeFromSnapshot(view, filters, print)
                     : client.subscribe(view, filters, print);
-            // API-F7. This banner used to go to STDOUT, and to go there before the connection had
-            // been opened at all -- so `pravaha subscribe --view x` against a dead server wrote
-            // "subscribed to x" to stdout and then failed on stderr, and anything reading stdout
-            // alone had an apparent success confirmation from a command that exited 1.
+            // API-F7, fixed twice over and kept both ways. The banner was printed at the top of
+            // this block, before anything had been sent to the server at all, because a Flight
+            // stream is lazy: against a node that was not running, "subscribed to x" went to
+            // stdout and the failure went to stderr a moment later, so a pipeline reading stdout
+            // had a confirmation from a command that exited 1.
             //
-            // Moved twice: to stderr, because it is a note to a person and stdout carries the
-            // rows; and to after the subscription object exists, so the call that opens it has at
-            // least returned. It is still not a promise that the stream is live -- `run()` below
-            // is where a broken connection surfaces -- and that is the other reason it is not on
-            // stdout.
+            // So it waits, and it moves. awaitOpen returns when the server has sent its schema,
+            // which it does once it has authorized the reader and found the view -- the banner is
+            // then a statement about something that happened. And it goes to stderr, because it
+            // is a note to a person and stdout carries the rows.
+            subscription.awaitOpen();
             err.println(Ansi.dim("subscribed to " + view + (filters.isEmpty() ? "" : " " + filters)
                     + (fromSnapshot ? "; the view's rows print first, then" : ";")
                     + " changes print as they are committed. Ctrl-C to stop."));

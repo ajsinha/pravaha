@@ -744,7 +744,12 @@ public final class PravahaFlightClient implements AutoCloseable {
     private Subscription open(byte[] ticket, Consumer<ChangeBatch> onBatch) {
         requireOpen();
         FlightStream stream = client.getStream(new Ticket(ticket), callOptions);
-        Subscription subscription = new Subscription(stream, onBatch, subscriptions::remove);
+        // API-F7: the same mapper every other call on this connection uses. A subscription is a
+        // result that arrives over time, so its fallback is READ_FAILED rather than QUERY_REFUSED,
+        // matching QueryResult; a server that diagnosed the failure is reported under its own code
+        // either way, and a node that is not there is PRV-1040 naming the address.
+        Subscription subscription =
+                new Subscription(stream, onBatch, subscriptions::remove, e -> failureOf(e, ClientErrors.READ_FAILED));
         subscriptions.add(subscription);
         return subscription;
     }

@@ -177,6 +177,44 @@ class JavaSdkSnapshotSubscriptionTest {
         assertThat(copy.rows()).containsOnlyKeys(List.of("T-2", "SWAP"));
     }
 
+    /**
+     * API-F7. {@code subscribe} returns before anything has been sent -- the stream is lazy -- so
+     * "the call returned" said nothing about whether there is a server, whether the view exists or
+     * whether this caller may read it. {@code awaitOpen} waits for the schema, which is the first
+     * thing the server sends once it has decided all three, and reports the server's own refusal
+     * rather than Arrow's text.
+     */
+    @Test
+    void awaitOpenReportsTheServersRefusalBeforeAnythingClaimsToBeSubscribed() {
+        Subscription subscription = client.subscribe("nosuch", batch -> {});
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(subscription::awaitOpen)
+                .isInstanceOf(com.ash.messaging.pravaha.sdk.PravahaClientException.class)
+                .hasMessageContaining("nosuch");
+
+        subscription.close();
+    }
+
+    @Test
+    void awaitOpenOnALiveSubscriptionReturnsAndTheSubscriptionThenWorks() throws Exception {
+        client.register("feed", SQL, List.of(0));
+        RegisteredQuery query = registry.require("feed");
+
+        Copy copy = new Copy();
+        Subscription subscription = client.subscribe("feed", copy::accept);
+        // The control for the refusal above: waiting for the schema must not cost the caller
+        // anything on a subscription that is fine.
+        subscription.awaitOpen();
+        Thread reader = Thread.ofVirtual().start(subscription::run);
+        await(() -> query.subscriberCount() > 0, "the subscription to attach");
+        apply(query, "T-9", "SWAP", true);
+        await(() -> copy.batches() >= 1, "a commit");
+        subscription.close();
+        reader.join(5_000);
+
+        assertThat(copy.rows()).containsOnlyKeys(List.of("T-9", "SWAP"));
+    }
+
     private static void await(BooleanSupplier condition, String what) throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
         while (!condition.getAsBoolean()) {

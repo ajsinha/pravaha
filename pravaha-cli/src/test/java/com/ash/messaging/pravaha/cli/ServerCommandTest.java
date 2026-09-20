@@ -137,6 +137,57 @@ class ServerCommandTest {
         assertThat(result.err()).isNotBlank();
     }
 
+    /**
+     * API-F7. Seven commands against a node that is not running answered the bare words
+     * {@code PRV-1041  io exception}. An operator whose script prints that and exits 1 has nothing
+     * to act on, and on a machine talking to three nodes not even a way to tell which one.
+     */
+    @Test
+    void everyCommandAgainstADeadNodeNamesTheAddressItTried() {
+        for (String[] command : new String[][] {
+            {"queries"},
+            {"query", "--sql", "SELECT 1 FROM t"},
+            {"register", "--name", "v", "--sql", "SELECT 1 FROM t"},
+            {"drop", "--name", "v"},
+            {"pause", "--name", "v"},
+            {"resume", "--name", "v"},
+            {"subscribe", "--view", "v"}
+        }) {
+            String[] args = new String[command.length + 2];
+            System.arraycopy(command, 0, args, 0, command.length);
+            args[command.length] = "--url";
+            args[command.length + 1] = "grpc://localhost:1";
+
+            Result result = run(args);
+
+            assertThat(result.code())
+                    .as("`pravaha %s` against nothing listening exits 1", command[0])
+                    .isEqualTo(PravahaCli.EXIT_FAILED);
+            assertThat(result.err())
+                    .as("`pravaha %s` must say which address it could not reach", command[0])
+                    .contains("localhost:1")
+                    // PRV-1040 CLIENT_CONNECT_FAILED, not PRV-1041 CLIENT_QUERY_REFUSED: no server
+                    // refused anything, because no server answered.
+                    .contains("PRV-1040");
+        }
+    }
+
+    /**
+     * API-F7, the second half. {@code subscribe} wrote its success banner to stdout before it had
+     * sent anything at all -- a Flight stream is lazy -- so a pipeline reading stdout got a
+     * confirmation from a command that failed a moment later on stderr.
+     */
+    @Test
+    void subscribeSaysNothingOnStandardOutputWhenTheSubscriptionNeverOpened() {
+        Result result = run("subscribe", "--url", "grpc://localhost:1", "--view", "v");
+
+        assertThat(result.code()).isEqualTo(PravahaCli.EXIT_FAILED);
+        assertThat(result.out())
+                .as("a reader of stdout alone must not see a subscription that does not exist")
+                .doesNotContain("subscribed to");
+        assertThat(result.err()).contains("PRV-1040").contains("localhost:1");
+    }
+
     @Test
     void eachLifecycleCommandSaysWhatItDidInEnglish() {
         // HLP-10: the past tense was built as action + "ped", so pause and resume printed
