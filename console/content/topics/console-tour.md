@@ -134,6 +134,12 @@ checkpoint failures and a stale checkpoint. A query whose source has stopped is 
 finding, with the code linked to its help page, and the verdict names it. Commit latency is shown as a **mean**, labelled as one:
 the engine publishes a count and a total, so a percentile would be invented.
 
+A query whose lane had nowhere to put a row for a fifth of the time or more is a finding too, with
+the share, how full its inbox is and — where the node counts operators — the operator most of its
+time goes into, which the verdict then names beside the query. Below the table, **Shared lanes**
+gives each lane's own blocked share and depth, which is how a query blocked *by* a neighbour is
+told from one blocking itself. See [reading the numbers on a plan](/help/topics/reading-a-plan).
+
 `/overview` is the compact version: is it up, what is registered, what is shared, the busiest
 queries.
 
@@ -149,6 +155,13 @@ plan, its view and its live page.
 
 **Drop needs the query's name typed**, because it removes the name for everybody reading through it.
 Pause and resume do not; they are reversible.
+
+`/queries/{name}/dead-letters` is the records its feed could not decode, newest first, each
+replayable. `/queries/{name}/replacement` is its **backfill and cutover**: a new version prepared
+beside the running one, what the backfill has read — with no ETA and no percentage, because a
+source does not say how much history it holds — a ceiling that may only be lowered, and a cutover
+and a rollback each needing the name typed, as drop does. See
+[backfill and cutover](/help/topics/backfill-cutover).
 
 ## Plugins
 
@@ -184,9 +197,12 @@ is missing: the workbench keeps your drafts and edits without validation, operat
 registry without metrics, a view's page says which call failed.
 
 !!! note "What the engine does not publish yet"
-    Per-operator rows and state on the plan (the runtime counts per query), lane backpressure,
-    commit-latency percentiles, the live health of a classpath plugin, per-plugin throughput, and
+    Commit-latency percentiles, the live health of a classpath plugin, per-plugin throughput, and
     grants to edit. Each screen says so where the number would be, rather than drawing a zero.
+    Lane backpressure and per-operator numbers **are** published now — see
+    [reading the numbers on a plan](/help/topics/reading-a-plan) — but per-operator counting is
+    off by default because it costs about 8 %, and a node with it off says so rather than drawing
+    an empty graph.
 
 ## Settings that change what you see
 

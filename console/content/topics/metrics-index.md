@@ -87,6 +87,11 @@ Zero until the query spills (see [State and spill](/help/topics/state-spill)).
 | `pravaha_query_checkpoint_failures_total{query}` | counter | Checkpoints that did not happen | rising while the last-success age rises |
 | `pravaha_query_commit_latency_seconds_count{query}` | counter | Commits that changed the view | — |
 | `pravaha_query_commit_latency_seconds_sum{query}` | counter | Total time those commits took: from applying the changes to the last subscriber **and sink** having them (a slow sink is on this path) | the mean climbing |
+| `pravaha_query_backpressure_waits_total{query}` | counter | Episodes in which one of this query's writers found nowhere to put a row. **Episodes, not rows**: a source held off for an hour is one | — |
+| `pravaha_query_backpressure_wait_seconds_total{query}` | counter | How long those episodes lasted altogether, counting one still open. `rate()` of it is the share of time the query could not be fed | over about 0.2 as a rate |
+| `pravaha_query_backpressure_blocked_fraction{query}` | gauge | The same share as the *lanes* see it, 0 to 1, counting every writer into those lanes. **The one to alert on** for "is this query the limit" | over 0.2 sustained; near 1 the lane is the limit |
+| `pravaha_query_inbox_depth{query}` | gauge | Rows queued into the lane and not yet taken, right now. Instantaneous: a burst between two scrapes is invisible | near `inbox_cells` sustained |
+| `pravaha_query_inbox_cells{query}` | gauge | What that depth is out of, so the depth reads as a fraction without knowing `pravaha.lane.inbox.cells` | — |
 
 The mean commit latency over a window is exact:
 
@@ -104,6 +109,9 @@ not timed. This console's Operations screen shows the mean and labels it as a me
 | Metric | Type | What it answers | Alert when |
 |---|---|---|---|
 | `pravaha_lane_shared_queries{lane}` | gauge | Queries on each shared lane, against `pravaha.lane.multiplex.max-queries-per-lane`. Absent with sharing off | near the ceiling on every lane |
+| `pravaha_lane_blocked_fraction{lane}` | gauge | The share of time a writer into that shared lane had no room, 0 to 1. **Per lane, not per query**, because the lane is what is waited on: a query reading high on its own blocked fraction and low on its own waiting is queued behind a neighbour. Absent with sharing off | over 0.2 sustained |
+| `pravaha_lane_inbox_depth{lane}` | gauge | Cells published into that shared lane and not yet drained. Absent with sharing off | near the lane's cells sustained |
+| `pravaha_metrics_operators_enabled` | gauge | 1 when `pravaha.metrics.operators` is on, so this node's plans carry per-operator numbers. A dashboard that finds none can say which of the two it is looking at | — |
 | `pravaha_lane_own_queries` | gauge | Queries holding a lane — and an inbox — of their own. All of them with sharing off | rising on a node with sharing on: registrations are not fitting on shared lanes |
 | `pravaha_lane_shared_bytes` | gauge | Off-heap the shared lanes hold — inboxes and arenas — counted once however many queries they carry. Zero with sharing off | growing with lanes built, not with queries |
 | `pravaha_state_spill_bytes_mapped` | gauge | Overflow slab mapped on the node across every query — what `pravaha.state.spill.max-bytes` counts | well before the quota: at it, the next query to need a slab stops (PRV-4005) |
@@ -130,6 +138,9 @@ groups:
   - alert: PravahaWatermarkBehind
     expr: pravaha_query_watermark_lag_seconds > 600
     for: 10m
+  - alert: PravahaQueryBackpressured
+    expr: pravaha_query_backpressure_blocked_fraction > 0.2
+    for: 5m
   - alert: PravahaSpillNearQuota
     expr: pravaha_state_spill_bytes_mapped > 0.8 * 21474836480
     for: 5m
@@ -143,8 +154,7 @@ watermark-lag finding at its own `ui.lag_warn_seconds` (300 s by default).
 
 | Would-be metric | Why it is absent |
 |---|---|
-| Per-operator rows, state or watermarks | The runtime counts per query, not per operator. `GET /api/v1/queries/{name}/plan` says so rather than splitting a query's totals across its operators |
-| Lane backpressure | The engine does not sample it |
+| Per-operator rows, state, watermarks and time, **as Prometheus meters** | They are measured with `pravaha.metrics.operators` on, and they ride on `GET /api/v1/queries/{name}/plan` keyed by the plan's own node ids rather than on the scrape: a meter per operator per query is a cardinality bill nobody asked for. `pravaha_metrics_operators_enabled` says whether they exist at all |
 | Commit-latency percentiles | Not measured — see above |
 | Per-plugin throughput and errors | There are no `pravaha_plugin_*` meters; plugin health is on `GET /api/v1/plugins` |
 | Read admission refusals | Counted on the `ReadAdmission` object (`rejectedCount()`, `queueTimedOutCount()`, `tenantRejectedCount()`) and not yet exported |

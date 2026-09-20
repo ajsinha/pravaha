@@ -244,9 +244,11 @@ critical in itself. Each finding names the query and says what to do.
     For bytes on disk use the `spill` meters.
 
 !!! note "What is not published"
-    Lane throughput, lane backpressure, per-operator rows and state, per-plugin throughput and
-    errors, and latency percentiles. The console's plan view says so rather than dividing a query's
-    totals across its operators.
+    Lane throughput, per-plugin throughput and errors, and latency percentiles. Lane backpressure
+    **is** published now (`pravaha_query_backpressure_blocked_fraction`, `pravaha_lane_blocked_fraction`),
+    and per-operator rows, state, watermarks and a sampled self time ride on
+    `GET /api/v1/queries/{name}/plan` rather than on the scrape — see
+    [reading the numbers on a plan](/help/topics/reading-a-plan).
 
 ## Where next
 

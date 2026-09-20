@@ -121,8 +121,10 @@ becomes the engine's own answer: two fingerprints, two computations, each droppe
 
 - **Identical plans are not a promise of sharing.** Keys, retention and row filters are part of the
   fingerprint too; only the fingerprint the registration answers with settles it.
-- **The totals are v1's.** They describe the registered query's running plan as a whole — the engine
-  does not count per operator — and say nothing about how the new version will behave.
+- **The totals are v1's, and so are the numbers on its operators.** They describe the registered
+  query's running plan and say nothing about how the new version will behave. The draft's side of
+  the comparison carries no numbers at all, because nothing has run it — the shapes are comparable
+  and the measurements are not.
 - **Comparing two drafts** works the same way, without the registered-query findings: there are no
   fingerprints, keys or totals until one is registered.
 - **A side the engine will not plan** (a refusal) or will not show you (the policy) is said on that

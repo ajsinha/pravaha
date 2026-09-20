@@ -160,9 +160,13 @@ curl -s -H "Authorization: Bearer $PRAVAHA_TOKEN" http://engine:8080/api/v1/quer
 | `countsWithheld` | `true` when your access is a row-filtered slice; `rowsIn` is then `-1` rather than the unfiltered total |
 | `failure` | `{code, message, helpUrl}` for a `FAILED` query |
 
-`GET /api/v1/queries/{name}/plan` returns `nodes`, `edges`, `operatorMetrics`, a `metricsNote` (per-operator
-figures are not measured; the note says so) and `query`: `rowsIn`, `stateHeld`, `stateCeiling`,
-`viewSize`, `watermark`, `subscribers`.
+`GET /api/v1/queries/{name}/plan` returns `nodes`, `edges`, `operatorMetrics` (keyed by the graph's
+own node ids: `rowsIn`, `rowsOut`, `stateBytes`, `watermark`, `selfNanos`, `sampledRows`,
+`selfTimeShare`), `bottleneck` — the node most of the sampled time went into, measured and not
+inferred from row counts — a `metricsNote` saying which of three answers a null `operatorMetrics`
+is (not registered, `pravaha.metrics.operators` off, or measured), and `query`: `rowsIn`,
+`stateHeld`, `stateCeiling`, `viewSize`, `watermark`, `subscribers`, `backpressureWaits`,
+`backpressureWaitSeconds`, `blockedFraction`, `inboxDepth`, `inboxCells`.
 
 ## Declaring a stream
 
