@@ -1,0 +1,31 @@
+{{/*
+Project Pravaha -- Ask once. Answer always.
+Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+Proprietary and confidential; see the LICENSE file in the root of this repository.
+
+Off by default, and the reason is the one that makes PodDisruptionBudgets a trap here.
+
+The design (27.3) lists a PDB, written for a clustered deployment. This is one node. On one
+replica a `minAvailable: 1` budget is unsatisfiable by definition -- the only pod is always the
+one being evicted -- so `kubectl drain` blocks for ever and a cluster upgrade stalls on the
+engine. pravaha.validate refuses that setting outright rather than letting it be discovered
+during a node drain at 2 a.m.
+
+maxUnavailable: 1 is what is left, and it is honest: it says nothing is protected, because with
+one node nothing can be. What a voluntary disruption costs is a restart, and what that costs is
+in docs/OPERATIONS.md "Restarts: what survives" -- with a checkpoint directory, a resumption.
+*/}}
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "pravaha.fullname" . }}
+  labels:
+    {{- include "pravaha.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "pravaha.selectorLabels" . | nindent 6 }}
+      pravaha.io/role: node
+{{- end }}

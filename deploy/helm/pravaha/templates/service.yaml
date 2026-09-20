@@ -1,0 +1,65 @@
+{{/*
+Project Pravaha -- Ask once. Answer always.
+Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+Proprietary and confidential; see the LICENSE file in the root of this repository.
+
+Two Services, and the difference matters.
+
+  <name>          the one clients use. Endpoints follow READINESS, so while the engine is
+                  restoring state or its Flight server is not listening, this Service has no
+                  endpoints and a client gets a connection refused instead of a wrong answer.
+
+  <name>-headless the StatefulSet's governing Service. It publishes a stable DNS name per pod
+                  and, unlike the one above, publishes it BEFORE the pod is ready -- which is
+                  what lets a standby find the primary, and what makes `kubectl port-forward`
+                  to a starting node possible at all.
+*/}}
+{{- include "pravaha.validate" . -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pravaha.fullname" . }}
+  labels:
+    {{- include "pravaha.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.service.httpPort }}
+      targetPort: http
+      protocol: TCP
+    - name: flight
+      port: {{ .Values.service.flightPort }}
+      targetPort: flight
+      protocol: TCP
+  # Deliberately NOT narrowed to pravaha.io/role: node. The standby carries the same name and
+  # instance labels, so it is a member of this Service too -- and it is kept out of rotation by
+  # READINESS, which is red while it holds no lanes and serves nothing. The moment it promotes
+  # itself its readiness goes green and it is in, with no second Service to switch over.
+  selector:
+    {{- include "pravaha.selectorLabels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pravaha.fullname" . }}-headless
+  labels:
+    {{- include "pravaha.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: http
+      port: {{ .Values.service.httpPort }}
+      targetPort: http
+      protocol: TCP
+    - name: flight
+      port: {{ .Values.service.flightPort }}
+      targetPort: flight
+      protocol: TCP
+  selector:
+    {{- include "pravaha.selectorLabels" . | nindent 4 }}

@@ -1,0 +1,33 @@
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+apiVersion: v2
+name: pravaha
+description: A Pravaha engine node -- one node, with its state, its probes and its volume.
+type: application
+
+# The chart's own version, bumped when the chart changes. SemVer 2, which Helm requires.
+version: 0.1.0
+
+# The engine this chart's default image tag points at. Quoted: -SNAPSHOT is not a number and an
+# unquoted appVersion has been read as one before.
+appVersion: "0.1.0-SNAPSHOT"
+
+kubeVersion: ">=1.25.0-0"
+
+home: https://github.com/ajsinha/pravaha
+sources:
+  - https://github.com/ajsinha/pravaha
+maintainers:
+  - name: Ashutosh Sinha
+    email: ajsinha@gmail.com
+keywords:
+  - streaming
+  - continuous-query
+  - sql
+
+annotations:
+  # Said here as well as in docs/DEPLOYMENT.md, because a chart found on its own is a chart whose
+  # documentation was not read. Multi-node execution is on hold (ADR-045); this chart runs ONE
+  # node and refuses to render more.
+  pravaha.io/clustering: "none -- replicas is 1 by design, ADR-034 / ADR-045"

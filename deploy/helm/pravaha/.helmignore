@@ -1,0 +1,8 @@
+# Nothing here belongs in the packaged chart.
+.DS_Store
+.git/
+.gitignore
+*.tmp
+*.orig
+*.swp
+ci/

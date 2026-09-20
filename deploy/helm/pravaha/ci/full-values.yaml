@@ -1,0 +1,35 @@
+# Everything on at once: TLS, a token Secret, the spill tier on its own claim, the dead-letter
+# queue, a PodDisruptionBudget, a ServiceMonitor. Rendered by deploy/helm/test.sh, which asserts
+# what each of them must produce -- a scenario that renders is not the same as one that is right.
+nodeId: pravaha-node-01
+javaOpts: "-XX:MaxRAMPercentage=60.0"
+image:
+  tag: "1.2.3"
+  pullSecrets: [regcred]
+auth:
+  existingSecret: pravaha-tokens
+  key: tokens.yaml
+tls:
+  enabled: true
+  existingSecret: pravaha-flight-tls
+spill:
+  enabled: true
+  separateVolume: true
+  storageClass: local-nvme
+  maxBytes: 20GB
+dlq:
+  enabled: true
+podDisruptionBudget:
+  enabled: true
+serviceMonitor:
+  enabled: true
+extraEnv:
+  - name: PRAVAHA_LANE_MULTIPLEX_ENABLED
+    value: "true"
+config:
+  pravaha:
+    streams:
+      txn:
+        schema: "txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP"
+        event-time: event_time
+        out-of-orderness: 10s

@@ -1,0 +1,63 @@
+{{/*
+Project Pravaha -- Ask once. Answer always.
+Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+Proprietary and confidential; see the LICENSE file in the root of this repository.
+
+The standby (ADR-035). Off by default.
+
+It holds no lanes and serves nothing. It polls the primary's ownership marker every two seconds
+and promotes itself when the claim has gone unrefreshed for the lease. That is the whole HA story
+this engine has: no consensus, no membership protocol, two processes and a directory.
+
+WHAT IT BUYS IS RECOVERY TIME, NOT CONTINUITY. It resumes from the newest checkpoint, so whatever
+the primary processed after that is replayed from the source offsets the checkpoint carries --
+and anything the source can no longer supply is gone. The node says so in the promotion log line
+every time; the chart says it here so nobody deploys this expecting a hot standby.
+
+It is configured with the SAME pravaha.node.id as the primary, on purpose: StateOwnership already
+distinguishes "our node id, claim expired" from "our node id, claim live", so there is one
+mechanism deciding who owns the state rather than two that can disagree. That is why
+standby.enabled demands an explicit nodeId and an existing ReadWriteMany claim -- see
+pravaha.validate in _helpers.tpl for the refusals.
+
+It carries the same labels as the node, so the client Service selects both; its readiness is what
+keeps it out of rotation until it is promoted, which is what a standby is for.
+*/}}
+{{- if .Values.standby.enabled }}
+{{- include "pravaha.validate" . -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "pravaha.fullname" . }}-standby
+  labels:
+    {{- include "pravaha.labels" . | nindent 4 }}
+    pravaha.io/role: standby
+spec:
+  serviceName: {{ include "pravaha.fullname" . }}-headless
+  replicas: 1
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "pravaha.selectorLabels" . | nindent 6 }}
+      pravaha.io/role: standby
+  template:
+    metadata:
+      labels:
+        {{- include "pravaha.selectorLabels" . | nindent 8 }}
+        # The client Service selects on name and instance only, so this pod is one of its
+        # members from the start -- and its readiness keeps it out of the endpoints until it has
+        # promoted itself. Nothing has to switch over.
+        pravaha.io/role: standby
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include "pravaha.applicationYaml" . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "pravaha.podSpec" (dict "ctx" . "role" "standby") | nindent 6 }}
+{{- end }}

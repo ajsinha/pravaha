@@ -1,0 +1,7 @@
+# A node with nothing: no volume, no TLS, no ServiceAccount of its own. It renders, and NOTES.txt
+# says out loud what it has given up. Kept as a scenario because "it still renders" is the claim
+# a chart makes that is easiest to break without noticing.
+persistence:
+  enabled: false
+serviceAccount:
+  create: false

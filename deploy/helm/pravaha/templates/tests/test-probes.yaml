@@ -1,0 +1,58 @@
+{{/*
+Project Pravaha -- Ask once. Answer always.
+Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+Proprietary and confidential; see the LICENSE file in the root of this repository.
+
+`helm test <release>`: does the thing this release installed actually answer?
+
+Three checks, each of which has been wrong in this project before:
+
+  1. readiness answers 200 -- the Service has an endpoint at all
+  2. /api/v1/status answers -- the HTTP surface is the engine's, not a stray proxy's
+  3. the Flight PORT accepts a connection -- the port every client speaks is open. It is checked
+     separately from HTTP because a node with Flight disabled answered UP on every HTTP probe and
+     no client could reach it, which is the bug EngineHealthIndicator exists for.
+
+It uses the node's own image, so it pulls nothing extra.
+*/}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "pravaha.fullname" . }}-test-probes
+  labels:
+    {{- include "pravaha.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  securityContext:
+    {{- toYaml .Values.podSecurityContext | nindent 4 }}
+  containers:
+    - name: probe
+      image: {{ include "pravaha.image" . | quote }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      securityContext:
+        {{- toYaml .Values.containerSecurityContext | nindent 8 }}
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          set -e
+          host={{ include "pravaha.fullname" . }}
+          echo "readiness:"
+          wget -q -O - "http://$host:{{ .Values.service.httpPort }}/actuator/health/readiness"
+          echo
+          echo "status:"
+          wget -q -O - "http://$host:{{ .Values.service.httpPort }}/api/v1/status"
+          echo
+          echo "flight port {{ .Values.service.flightPort }}:"
+          nc -z -w 5 "$host" {{ .Values.service.flightPort }}
+          echo "  open"
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+  volumes:
+    - name: tmp
+      emptyDir:
+        medium: Memory
+        sizeLimit: 8Mi

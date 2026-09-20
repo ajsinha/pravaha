@@ -1,0 +1,9 @@
+# The standby, which needs an explicit node id -- the primary's -- and one ReadWriteMany claim
+# that both pods mount. deploy/helm/test.sh asserts both StatefulSets carry the same node id,
+# because a standby on a different id watches a directory it will never be allowed to take.
+nodeId: pravaha-node-01
+persistence:
+  existingClaim: pravaha-state
+  accessModes: [ReadWriteMany]
+standby:
+  enabled: true

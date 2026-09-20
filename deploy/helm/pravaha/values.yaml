@@ -1,0 +1,258 @@
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+#
+# Every value, one line of documentation each. A value whose comment is longer than a line is a
+# value that needs docs/DEPLOYMENT.md, and says which section.
+
+# -- Name overrides -------------------------------------------------------------------------
+
+# Replaces the chart name in every generated resource name; leave empty to use "pravaha".
+nameOverride: ""
+# Replaces the whole "<release>-<chart>" prefix; leave empty to have it built for you.
+fullnameOverride: ""
+
+# -- The image ------------------------------------------------------------------------------
+
+image:
+  # The repository the node image was pushed to; deploy/docker/build.sh tags it pravaha/pravaha-server.
+  repository: pravaha/pravaha-server
+  # The image tag; empty means the chart's appVersion, so the chart and the engine cannot drift apart.
+  tag: ""
+  # Pull policy; IfNotPresent, because a mutable tag that is re-pulled is how two pods run two builds.
+  pullPolicy: IfNotPresent
+  # Names of pull secrets that already exist in the namespace; this chart never creates one.
+  pullSecrets: []
+
+# -- The node -------------------------------------------------------------------------------
+
+# pravaha.node.id; empty means the pod's own name, which is stable because this is a StatefulSet.
+nodeId: ""
+
+# How many nodes; 1 is the only supported value and the chart refuses to render anything else (ADR-045).
+replicaCount: 1
+
+# Extra arguments appended to bin/pravaha-server, e.g. ["--spring.profiles.active=prod"].
+extraArgs: []
+
+# Extra environment variables as a list of {name, value} or {name, valueFrom}; the last word in configuration.
+extraEnv: []
+
+# Names of ConfigMaps and Secrets to import wholesale as environment, in order, before extraEnv.
+envFrom: []
+
+# JVM options; empty keeps the image's -XX:MaxRAMPercentage=50.0 -XX:+ExitOnOutOfMemoryError.
+javaOpts: ""
+
+# -- Configuration --------------------------------------------------------------------------
+
+config:
+  # The pravaha.* tree, rendered verbatim into a ConfigMap mounted at /etc/pravaha/application.yaml.
+  pravaha:
+    # The wire protocol every client speaks; the HTTP port below is for operators, not for clients.
+    flight:
+      enabled: true
+      host: 0.0.0.0
+      port: 9090
+    # The security block ships refusing to start, on purpose; pick one of the three ways in docs/DEPLOYMENT.md.
+    security:
+      authentication: token
+      policy: authenticated
+      audit: file
+      audit-file: /var/lib/pravaha/audit.jsonl
+    # Registered queries, so a restart recovers the questions; on the volume because a pod is rescheduled for a living.
+    registry:
+      journal: /var/lib/pravaha/registry.journal
+    # What those queries had accumulated, so a restart is a resumption rather than a warm-up.
+    checkpoint:
+      directory: /var/lib/pravaha/checkpoints
+      interval: 1m
+      keep: 3
+  # Anything under spring.* -- logging, management, the server port -- merged into the same file.
+  spring: {}
+
+# Additional Spring config; a list of {name, mountPath, configMap|secret} mounted beside the one above.
+extraConfigMounts: []
+
+# -- Secrets: referenced, never created ------------------------------------------------------
+
+auth:
+  # Name of an existing Secret holding static tokens as a Spring-shaped YAML file; empty means none.
+  existingSecret: ""
+  # The key in that Secret whose value is the YAML; it is mounted as an extra Spring config file.
+  key: tokens.yaml
+
+tls:
+  # Turns on Flight TLS by pointing pravaha.flight.tls.* at the mounted files below.
+  enabled: false
+  # Name of an existing Secret of type kubernetes.io/tls holding the certificate chain and key.
+  existingSecret: ""
+  # The Secret key holding the PEM certificate chain.
+  certKey: tls.crt
+  # The Secret key holding the PEM private key.
+  keyKey: tls.key
+  # Where the pair is mounted read-only; NOT under /etc/pravaha, which is the ConfigMap's own mount.
+  mountPath: /etc/pravaha-tls
+
+# -- Storage --------------------------------------------------------------------------------
+
+persistence:
+  # Whether the node gets a PersistentVolumeClaim at all; false is a node that loses everything on reschedule.
+  enabled: true
+  # An existing claim to use instead of the StatefulSet's own template; required when standby.enabled.
+  existingClaim: ""
+  # The StorageClass for the generated claim; empty means the cluster's default.
+  storageClass: ""
+  # Access modes; ReadWriteOnce is right for one node, and standby.enabled needs ReadWriteMany instead.
+  accessModes:
+    - ReadWriteOnce
+  # How much the claim asks for; the journal is tiny and the checkpoints are the whole state, three deep.
+  size: 20Gi
+  # Where it is mounted; the image puts checkpoints/, dlq/ and spill/ beneath this one path.
+  mountPath: /var/lib/pravaha
+
+spill:
+  # Turns on the memory-mapped overflow tier; off by default, because it changes what a full query does (ADR-044).
+  enabled: false
+  # A SEPARATE claim for spilled state, so it can be node-local NVMe while the checkpoints are network storage.
+  separateVolume: false
+  # The StorageClass for that separate claim; empty means the cluster's default.
+  storageClass: ""
+  # How much that separate claim asks for; keep pravaha.state.spill.max-bytes below it.
+  size: 100Gi
+  # pravaha.state.spill.max-bytes -- the node's disk budget across every query; a query past it stops with PRV-4005.
+  maxBytes: 0
+
+dlq:
+  # Writes records the engine cannot decode to the volume and keeps reading; without it the source stops, loudly.
+  enabled: false
+
+# -- Networking -----------------------------------------------------------------------------
+
+service:
+  # The Service type in front of the node; ClusterIP, because neither port belongs on the internet.
+  type: ClusterIP
+  # The HTTP port: operator pages, the REST read API and the actuator probes.
+  httpPort: 8080
+  # The Flight SQL port: the SDKs, the CLI and the console, and the only way to register a query.
+  flightPort: 9090
+  # Annotations for the Service, e.g. an internal load balancer's.
+  annotations: {}
+
+# -- Scheduling and resources ----------------------------------------------------------------
+
+resources:
+  requests:
+    # CPU: one core per lane the node will really run, plus one for the control plane; see docs/DEPLOYMENT.md.
+    cpu: "2"
+    # Memory: the measured floor for one spilling query was ~480 MiB; 2Gi is a node with room to hold a few.
+    memory: 2Gi
+  limits:
+    # A CPU limit throttles lane threads that spin, so it is set well above the request rather than at it.
+    cpu: "4"
+    # The heap is 50% of THIS number; the rest is off-heap state, Arrow direct buffers and page cache.
+    memory: 4Gi
+
+# Node selector for the pod.
+nodeSelector: {}
+# Tolerations for the pod.
+tolerations: []
+# Affinity rules for the pod; there is one replica, so this is about which node, not about spreading.
+affinity: {}
+# Topology spread constraints for the pod.
+topologySpreadConstraints: []
+# Extra labels on the pod.
+podLabels: {}
+# Extra annotations on the pod.
+podAnnotations: {}
+# Priority class for the pod.
+priorityClassName: ""
+# How long Kubernetes waits for a graceful shutdown; the node stops accepting, releases queries, then leaves.
+terminationGracePeriodSeconds: 60
+
+# -- Security context --------------------------------------------------------------------------
+
+podSecurityContext:
+  # Refuse to start the pod if the image would run as root; the image is built for 10001.
+  runAsNonRoot: true
+  # The uid the image creates and owns its directories as.
+  runAsUser: 10001
+  # The gid to match.
+  runAsGroup: 10001
+  # Makes the mounted volume group-writable by that gid, which is what lets a fresh PV be written at all.
+  fsGroup: 10001
+  # Chown the volume only when it does not already match, so a large restored volume is not walked on every start.
+  fsGroupChangePolicy: OnRootMismatch
+  # The default seccomp profile, rather than unconfined.
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  # No setuid path out of the container.
+  allowPrivilegeEscalation: false
+  # Nothing but the volume and /tmp is writable; verified with `docker run --read-only` in deploy/docker/smoke.sh.
+  readOnlyRootFilesystem: true
+  # Every capability dropped; the engine needs none of them.
+  capabilities:
+    drop: ["ALL"]
+
+# -- Probes ------------------------------------------------------------------------------------
+
+probes:
+  startup:
+    # How long the node may take to come up before Kubernetes gives up; periodSeconds x failureThreshold.
+    periodSeconds: 5
+    # 60 x 5s = five minutes, which is a recovery from a large checkpoint, not a hang.
+    failureThreshold: 60
+  liveness:
+    # /actuator/health/liveness -- the JVM is alive. It deliberately does NOT know whether the engine serves.
+    periodSeconds: 10
+    # Three misses before a restart; one slow response is not a dead node.
+    failureThreshold: 3
+    # How long a single probe may take.
+    timeoutSeconds: 3
+  readiness:
+    # /actuator/health/readiness -- includes the engine indicator, so it is red while no client could be served.
+    periodSeconds: 5
+    # Two misses take the pod out of the Service; going out and back in is cheap, serving a client is not.
+    failureThreshold: 2
+    # How long a single probe may take.
+    timeoutSeconds: 3
+
+# -- The standby (ADR-035) ----------------------------------------------------------------------
+
+standby:
+  # A second pod that holds no lanes, serves nothing, and takes over from the newest checkpoint; needs RWX storage.
+  enabled: false
+  # Resources for it; it watches a file, so it needs a fraction of the primary's until it is promoted.
+  resources:
+    requests:
+      cpu: "1"
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+
+# -- The rest -----------------------------------------------------------------------------------
+
+serviceAccount:
+  # Whether to create a ServiceAccount for the pod; the node calls no Kubernetes API.
+  create: true
+  # A name to use instead of the generated one, or the one to use when create is false.
+  name: ""
+  # Annotations on it, e.g. a cloud IAM role.
+  annotations: {}
+
+podDisruptionBudget:
+  # OFF by default, and read the next line before switching it on.
+  enabled: false
+  # With one replica, minAvailable: 1 makes `kubectl drain` block for ever; maxUnavailable: 1 is the usable setting.
+  maxUnavailable: 1
+
+serviceMonitor:
+  # A Prometheus Operator ServiceMonitor for /actuator/prometheus; off, because the CRD may not be installed.
+  enabled: false
+  # How often Prometheus scrapes it.
+  interval: 30s
+  # Labels the operator's serviceMonitorSelector looks for.
+  labels: {}

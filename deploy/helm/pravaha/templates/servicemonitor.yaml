@@ -1,0 +1,34 @@
+{{/*
+Project Pravaha -- Ask once. Answer always.
+Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+Proprietary and confidential; see the LICENSE file in the root of this repository.
+
+Off by default, because monitoring.coreos.com is a CRD that may not be installed and a chart
+that assumes it fails at install time with an error about an unknown kind rather than about a
+missing operator.
+
+What to alert on once it is scraping is in docs/OPERATIONS.md "Watching a running node". The
+short version, because a ServiceMonitor with no alerts is a dashboard nobody looks at:
+pravaha_query_feed_stopped (the query still says RUNNING and its view has stopped moving),
+pravaha_query_state_fraction (the query at nine tenths of its ceiling, before PRV-4001), and the
+age of pravaha_query_checkpoint_last_success_timestamp_seconds (how much recovery would replay).
+*/}}
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "pravaha.fullname" . }}
+  labels:
+    {{- include "pravaha.labels" . | nindent 4 }}
+    {{- with .Values.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "pravaha.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: http
+      path: /actuator/prometheus
+      interval: {{ .Values.serviceMonitor.interval }}
+{{- end }}

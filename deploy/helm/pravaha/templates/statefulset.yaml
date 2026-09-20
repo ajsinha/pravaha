@@ -1,0 +1,104 @@
+{{/*
+Project Pravaha -- Ask once. Answer always.
+Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+Proprietary and confidential; see the LICENSE file in the root of this repository.
+
+A StatefulSet, not a Deployment, and the reason is the engine's own, not a convention.
+
+A node CLAIMS the directories it writes durable state into -- the checkpoint root and the
+directory holding the registry journal -- by writing a .pravaha-owner marker naming its node id,
+refreshed on a 30-second lease (ADR-035, OPERATIONS "Who owns the state, and the standby"). Two
+things follow, and a Deployment breaks both:
+
+  * The identity has to be STABLE. The directory is namespaced by pravaha.node.id, not by
+    address, precisely so a node restarting on a new pod IP finds its own checkpoints. A
+    Deployment's pod names are random per pod, so a restarted node would either look for state
+    under a name nothing wrote, or need a hardcoded id -- and then a rolling update would run two
+    pods under one id.
+  * The storage has to follow the identity. A StatefulSet's volumeClaimTemplate gives pod-0 the
+    same claim every time it is rescheduled; a Deployment with one PVC gives it to whichever pod
+    is running, which during a rolling update is two of them.
+
+And a rolling update must never overlap. Podmanagement is OrderedReady and the strategy is
+RollingUpdate with one replica, so the old pod is gone before the new one starts; if it were not,
+the new pod would meet PRV-4003 -- "the state in /var/lib/pravaha/checkpoints belongs to node X"
+-- and refuse to start, which is the engine being right and the chart being wrong.
+
+replicas is 1 and the chart refuses anything else. Multi-node execution is on hold (ADR-045).
+*/}}
+{{- include "pravaha.validate" . -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "pravaha.fullname" . }}
+  labels:
+    {{- include "pravaha.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "pravaha.fullname" . }}-headless
+  replicas: {{ .Values.replicaCount }}
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "pravaha.selectorLabels" . | nindent 6 }}
+      pravaha.io/role: node
+  template:
+    metadata:
+      labels:
+        {{- include "pravaha.selectorLabels" . | nindent 8 }}
+        pravaha.io/role: node
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        # Roll the pod when the configuration changes. Without this a `helm upgrade` that only
+        # edits values.config replaces the ConfigMap and leaves the node running the old one --
+        # the upgrade reports success and changes nothing, which is the worst of both.
+        checksum/config: {{ include "pravaha.applicationYaml" . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "pravaha.podSpec" (dict "ctx" . "role" "node") | nindent 6 }}
+  {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
+  volumeClaimTemplates:
+    # One claim holds all four: the registry journal, the checkpoints, the dead-letter queue and
+    # (unless spill.separateVolume) the overflow tier. They are one filesystem in the image and
+    # one blast radius in an incident; splitting them would also split the ownership marker from
+    # the state it guards.
+    #
+    # Deleting the release does NOT delete this. That is Kubernetes' default and the right one:
+    # it holds the registered queries and everything they had computed.
+    - metadata:
+        name: data
+        labels:
+          {{- include "pravaha.labels" . | nindent 10 }}
+      spec:
+        accessModes:
+          {{- toYaml .Values.persistence.accessModes | nindent 10 }}
+        {{- with .Values.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size }}
+    {{- if and .Values.spill.enabled .Values.spill.separateVolume }}
+    # Separate, because the spill tier wants a local disk and the checkpoints want a durable one.
+    # Spilled state is not worth surviving a reschedule -- it is rebuilt from the checkpoint --
+    # so this claim can be the cheap, fast, node-local one.
+    - metadata:
+        name: spill
+        labels:
+          {{- include "pravaha.labels" . | nindent 10 }}
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        {{- with .Values.spill.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.spill.size }}
+    {{- end }}
+  {{- end }}

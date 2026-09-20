@@ -1,0 +1,45 @@
+{{ .Chart.Name }} {{ .Chart.Version }} -- {{ include "pravaha.fullname" . }}
+
+One node. Multi-node execution is on hold (ADR-045), so this release is one StatefulSet with one
+replica, and the chart refuses to render more.
+
+  HTTP    {{ include "pravaha.fullname" . }}:{{ .Values.service.httpPort }}    operator pages, the REST read API, /actuator
+  Flight  {{ include "pravaha.fullname" . }}:{{ .Values.service.flightPort }}    the SDKs, the CLI, the console -- and the ONLY way to register a query
+
+Watch it come up:
+
+  kubectl -n {{ .Release.Namespace }} rollout status statefulset/{{ include "pravaha.fullname" . }}
+
+Readiness is red until the engine can actually serve a client -- the engine indicator is in that
+group -- so a pod that stays 0/1 is a node that has not got there, not a probe that is wrong.
+Its reason:
+
+  kubectl -n {{ .Release.Namespace }} logs statefulset/{{ include "pravaha.fullname" . }} | tail -50
+
+Ask it something from your own machine:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "pravaha.fullname" . }} {{ .Values.service.flightPort }}:{{ .Values.service.flightPort }}
+  pravaha queries --url grpc://127.0.0.1:{{ .Values.service.flightPort }}
+{{ if .Values.tls.enabled }}
+TLS is on, from Secret {{ .Values.tls.existingSecret }}; use grpc+tls:// above.
+{{- else }}
+TLS IS OFF. Flight is grpc+tcp, so every row, credential and query on that port crosses the
+network in clear text. Defensible inside a mesh that encrypts it for you and nowhere else --
+set tls.enabled and tls.existingSecret.
+{{- end }}
+{{ if not .Values.persistence.enabled }}
+PERSISTENCE IS OFF. This node loses every registered query and everything they had computed the
+moment the pod is rescheduled, which Kubernetes will do without asking.
+{{- end }}
+{{- if eq (dig "security" "allow-anonymous" false (default (dict) .Values.config.pravaha)) true }}
+pravaha.security.allow-anonymous is TRUE. Every view on this node is served to every caller, and
+this release says that on purpose.
+{{- end }}
+{{ if .Values.standby.enabled }}
+A standby is deployed as {{ include "pravaha.fullname" . }}-standby, on node id {{ .Values.nodeId }} -- the
+primary's, deliberately. It serves nothing until the primary's ownership claim goes unrefreshed.
+What it buys is RECOVERY TIME, NOT CONTINUITY: it resumes from the newest checkpoint, and
+whatever the primary processed after that is replayed from the source offsets that checkpoint
+carries. Anything the source can no longer supply is gone.
+{{- end }}
+What this chart deliberately does not do: docs/DEPLOYMENT.md, "What the chart does not do".
