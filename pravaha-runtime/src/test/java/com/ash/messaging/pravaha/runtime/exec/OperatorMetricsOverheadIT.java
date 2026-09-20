@@ -98,16 +98,26 @@ class OperatorMetricsOverheadIT {
 
     @Test
     void measureTheCostOfPerOperatorCounters() {
-        double off = bestRowsPerSecond(false);
-        double on = bestRowsPerSecond(true);
+        double[] both = bestRowsPerSecondInterleaved();
+        double off = both[0];
+        double on = both[1];
         double cost = 1.0 - on / off;
 
         System.out.printf(
-                "%n  pravaha.metrics.operators, %,d rows a pass, best of %d:%n"
+                "%n  pravaha.metrics.operators, %,d rows a pass, best of %d interleaved:%n"
                         + "    off : %,.0f rows/s%n"
                         + "    on  : %,.0f rows/s%n"
-                        + "    cost: %.1f %%%n%n",
-                ROWS, PASSES, off, on, cost * 100);
+                        + "    cost: %.1f %%%n"
+                        + "    load: %.2f over %d processors -- a figure taken above about half of"
+                        + " these is the machine's other work, not the engine's%n%n",
+                ROWS,
+                PASSES,
+                off,
+                on,
+                cost * 100,
+                java.lang.management.ManagementFactory.getOperatingSystemMXBean()
+                        .getSystemLoadAverage(),
+                Runtime.getRuntime().availableProcessors());
 
         // Not a gate on the number -- the point of the measurement is the number, and a threshold
         // here would turn a result into a flaky test on a loaded machine. What is asserted is that
@@ -117,16 +127,37 @@ class OperatorMetricsOverheadIT {
         assertThat(on).isGreaterThan(0);
     }
 
-    private static double bestRowsPerSecond(boolean measuring) {
-        InterpretedPipeline.measureOperators(measuring);
-        double best = 0;
+    /**
+     * The best pass of each arm, with the arms alternating.
+     *
+     * <p>Interleaved rather than one arm after the other, and the reason is a result this harness
+     * actually produced: run on a machine that was busy with another build, the arm that went
+     * first absorbed the contention and the instrumented arm came out <em>57 % faster</em> than
+     * the uninstrumented one. Taking the best of several passes rejects a slow pass, but it cannot
+     * reject a slow <em>arm</em> -- so whichever arm ran while the machine was loaded lost, and
+     * running them in a fixed order made that a fixed bias rather than noise.
+     *
+     * <p>Alternating puts each arm's passes across the same stretch of wall clock, so a load spike
+     * hits both. It does not make the measurement trustworthy on a loaded machine -- nothing does,
+     * and {@link #measureTheCostOfPerOperatorCounters} prints the load average so a reader can see
+     * the conditions -- but it removes the one bias that was systematic.
+     *
+     * @return {@code {off, on}} rows a second
+     */
+    private static double[] bestRowsPerSecondInterleaved() {
+        double bestOff = 0;
+        double bestOn = 0;
         for (int pass = 0; pass < WARMUPS + PASSES; pass++) {
-            double rate = onePass();
+            InterpretedPipeline.measureOperators(false);
+            double off = onePass();
+            InterpretedPipeline.measureOperators(true);
+            double on = onePass();
             if (pass >= WARMUPS) {
-                best = Math.max(best, rate);
+                bestOff = Math.max(bestOff, off);
+                bestOn = Math.max(bestOn, on);
             }
         }
-        return best;
+        return new double[] {bestOff, bestOn};
     }
 
     private static double onePass() {
