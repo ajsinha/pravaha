@@ -689,8 +689,11 @@ def test_a_snapshot_ticket_has_its_own_verb_and_a_plain_one_is_unchanged():
 def test_a_batch_mark_is_read_and_anything_else_is_no_mark():
     from pravaha.client import _mark_of
 
-    assert _mark_of(pyarrow.py_buffer(b"pravaha:snapshot-end:42")) == ("snapshot-end", 42)
-    assert _mark_of(pyarrow.py_buffer(b"pravaha:commit:-7")) == ("commit", -7)
+    assert _mark_of(pyarrow.py_buffer(b"pravaha:snapshot-end:42")) == ("snapshot-end", 42, 0)
+    assert _mark_of(pyarrow.py_buffer(b"pravaha:commit:-7")) == ("commit", -7, 0)
+    # STRM-10: a fourth component carries how many whole commits this subscriber has lost.
+    # Split on every colon rather than on the last one, or "commit:42" reads as the kind.
+    assert _mark_of(pyarrow.py_buffer(b"pravaha:commit:42:9")) == ("commit", 42, 9)
     assert _mark_of(None) is None
     assert _mark_of(pyarrow.py_buffer(b"")) is None
     assert _mark_of(pyarrow.py_buffer(b"somebody else's")) is None

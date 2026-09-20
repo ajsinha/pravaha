@@ -249,29 +249,46 @@ class ChangeBatch(list):
     ``frontier``
         The committed frontier the batch brings the view to, or ``None`` on a plain
         subscription, whose server does not say.
+    ``dropped_before``
+        How many whole commits this subscription has lost before this batch, cumulative
+        (STRM-10). Non-zero means the rows you hold are not the view. A plain subscription
+        drops whole commits when it falls behind -- deliberately, so one slow client cannot
+        slow the query -- and the count used to reach an audit sink and never the client, so
+        a dashboard that had lost 98 % of its changes looked exactly like one that had not.
     """
 
     def __init__(self, rows: "Sequence[Row]", *, snapshot: bool = False,
-                 frontier: Optional[int] = None) -> None:
+                 frontier: Optional[int] = None, dropped_before: int = 0) -> None:
         super().__init__(rows)
         self.snapshot = snapshot
         self.frontier = frontier
+        self.dropped_before = dropped_before
+
+    def missed_anything(self) -> bool:
+        """Whether anything was lost before this batch."""
+        return self.dropped_before > 0
 
     def __repr__(self) -> str:
         kind = "snapshot" if self.snapshot else "commit"
-        return f"ChangeBatch({kind}, frontier={self.frontier}, rows={list.__repr__(self)})"
+        lost = f", dropped_before={self.dropped_before}" if self.dropped_before else ""
+        return f"ChangeBatch({kind}, frontier={self.frontier}{lost}, rows={list.__repr__(self)})"
 
 
 _MARK_PREFIX = "pravaha:"
 _MARK_SNAPSHOT = "snapshot"
 _MARK_SNAPSHOT_END = "snapshot-end"
 
+# What the server sends for "this batch has no frontier", which is every plain subscription's.
+_NO_FRONTIER = -(2 ** 63)
 
-def _mark_of(metadata: Any) -> "Optional[tuple[str, int]]":
-    """A snapshot stream's batch mark, ``pravaha:<kind>:<frontier>``; None when absent.
 
-    Only a snapshot subscription's batches carry one. Anything else in the metadata is not
-    ours and reads as no mark, rather than as a failure.
+def _mark_of(metadata: Any) -> "Optional[tuple[str, int, int]]":
+    """A batch mark, ``pravaha:<kind>:<frontier>[:<dropped>]``; None when absent.
+
+    Anything in the metadata that is not one of ours reads as no mark, rather than as a
+    failure. Split on every colon rather than on the last one: a fourth component moved
+    where "the last colon" is, and reading ``commit:42`` as a kind is the sort of thing that
+    decodes to a plausible wrong answer instead of to nothing.
     """
     if metadata is None:
         return None
@@ -279,11 +296,13 @@ def _mark_of(metadata: Any) -> "Optional[tuple[str, int]]":
     if not raw:
         return None
     text = raw.decode("utf-8", errors="replace")
-    kind, _, frontier = text[len(_MARK_PREFIX):].rpartition(":")
-    if not text.startswith(_MARK_PREFIX) or not kind:
+    if not text.startswith(_MARK_PREFIX):
+        return None
+    parts = text[len(_MARK_PREFIX):].split(":")
+    if len(parts) < 2 or not parts[0]:
         return None
     try:
-        return kind, int(frontier)
+        return parts[0], int(parts[1]), int(parts[2]) if len(parts) > 2 else 0
     except ValueError:
         return None
 
@@ -752,6 +771,8 @@ class Client(DebugCommands):
         *,
         batch_size_hint: Optional[int] = None,
         snapshot: bool = False,
+        buffer_rows: Optional[int] = None,
+        overflow: Optional[str] = None,
     ) -> Iterator[ChangeBatch]:
         """Yields one list of rows per commit, for as long as you keep iterating.
 
@@ -787,12 +808,30 @@ class Client(DebugCommands):
         that falls too far behind has its stream ended with ``PRV-6105`` rather than skipped
         past a commit; subscribe again to start from a fresh snapshot. A server older than
         this SDK refuses ``snapshot=True`` with ``PRV-6102``.
+
+        **Falling behind.** ``buffer_rows`` and ``overflow`` say what the server's own
+        buffer should do when you cannot keep up (STRM-16): ``"CONFLATE"`` keeps the latest
+        value per key, ``"DROP_OLDEST"`` keeps the newest changes, and ``"FAIL"`` ends this
+        subscription rather than lose a change -- which is what anything maintaining its own
+        total from the weights should ask for, because conflating drops the intermediate
+        weights that total is built from. Left unset, the server's default applies, which is
+        ``(10000, CONFLATE)``; until this was carried on the ticket it was the *only* thing a
+        remote subscriber could have. Whatever is lost is reported on each batch as
+        ``batch.dropped_before`` (STRM-10).
         """
         pairs: list = []
         for column, value in (filters or {}).items():
             pairs.append(str(column))
             pairs.append(str(value))
-        ticket = _flight.Ticket(_subscribe_ticket(view, pairs, snapshot=snapshot))
+        preference = None
+        if buffer_rows is not None or overflow is not None:
+            rows = 10_000 if buffer_rows is None else int(buffer_rows)
+            if rows < 1:
+                raise QueryError(f"a subscriber's buffer must hold at least one row, not {rows}")
+            preference = f"rows={rows};overflow={(overflow or 'CONFLATE').upper()}"
+        ticket = _flight.Ticket(
+            _subscribe_ticket(view, pairs, snapshot=snapshot, preference=preference)
+        )
         try:
             reader = self._client.do_get(ticket, self._call_options)
         except Exception as exc:
@@ -813,7 +852,16 @@ class Client(DebugCommands):
                         yield ChangeBatch(whole, snapshot=True, frontier=mark[1])
                     continue
                 if rows:
-                    yield ChangeBatch(rows, frontier=None if mark is None else mark[1])
+                    # A plain subscription's mark carries no frontier -- the server sends
+                    # Long.MIN_VALUE for it, because the mark exists to carry the dropped
+                    # count (STRM-10) and the frontier a plain subscription never had is
+                    # still not sent.
+                    frontier = None if mark is None or mark[1] == _NO_FRONTIER else mark[1]
+                    yield ChangeBatch(
+                        rows,
+                        frontier=frontier,
+                        dropped_before=0 if mark is None else mark[2],
+                    )
         except (KeyboardInterrupt, GeneratorExit):
             raise
         except QueryError:
@@ -1138,11 +1186,24 @@ def _wire_decode(payload: bytes) -> "list[str]":
     return fields
 
 
-def _subscribe_ticket(view: str, filter_pairs: Sequence[str], *, snapshot: bool = False) -> bytes:
+def _subscribe_ticket(
+    view: str,
+    filter_pairs: Sequence[str],
+    *,
+    snapshot: bool = False,
+    preference: Optional[str] = None,
+) -> bytes:
     # A verb of its own for the snapshot form, so an older server refuses it as a ticket it
     # does not know rather than reading a flag as a filter column.
     verb = "subscribe.snapshot" if snapshot else "subscribe"
-    return _wire_encode([verb, view, *filter_pairs])
+    fields = [verb, view, *filter_pairs]
+    if preference is not None:
+        # Last, and that is what makes it safe to add (STRM-16). Filter pairs are alternating
+        # column and value, so their count is even; one more field makes it odd, which both
+        # ends can tell without a version bump and with no chance of a filter column being
+        # read as a policy.
+        fields.append(preference)
+    return _wire_encode(fields)
 
 
 def _at(row: Sequence[str], index: int) -> str:

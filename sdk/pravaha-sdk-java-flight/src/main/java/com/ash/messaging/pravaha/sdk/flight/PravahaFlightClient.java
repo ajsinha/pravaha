@@ -122,19 +122,38 @@ public final class PravahaFlightClient implements AutoCloseable {
      */
     private volatile boolean closed;
 
+    /**
+     * What this client's options ask its server-side subscription buffer to do (STRM-16).
+     *
+     * <p>{@code ClientOptions.subscriberBufferRows} and {@code conflateOnOverflow} had <strong>no
+     * reader</strong> anywhere in this SDK or in the gateway: a subscription ticket carried a view
+     * name and filter pairs and nothing else, so every remote subscriber was
+     * {@code (10 000, CONFLATE)} whatever it set, and a client that called
+     * {@code subscriberBufferRows(1)} had configured a setting with no reachable effect. The two
+     * options are not new; carrying them is.
+     *
+     * <p>{@code conflateOnOverflow(false)} means {@code FAIL}, not {@code DROP_OLDEST}. A client
+     * that says "do not conflate" is one keeping its own total from the weights, and dropping the
+     * oldest change corrupts that total in exactly the way conflating it does; being told is the
+     * whole difference.
+     */
+    private final com.ash.messaging.pravaha.api.wire.ControlWire.SubscriberPreference preference;
+
     private PravahaFlightClient(
             BufferAllocator allocator,
             boolean ownsAllocator,
             FlightClient transport,
             FlightSqlClient client,
             CallOption[] callOptions,
-            String endpoint) {
+            String endpoint,
+            com.ash.messaging.pravaha.api.wire.ControlWire.SubscriberPreference preference) {
         this.transport = transport;
         this.allocator = allocator;
         this.ownsAllocator = ownsAllocator;
         this.client = client;
         this.callOptions = callOptions;
         this.endpoint = endpoint;
+        this.preference = preference;
     }
 
     /** Connects to {@code host:port}. */
@@ -175,7 +194,9 @@ public final class PravahaFlightClient implements AutoCloseable {
                     transport,
                     new FlightSqlClient(transport),
                     credentialsOf(options),
-                    node.host() + ":" + node.port());
+                    node.host() + ":" + node.port(),
+                    new com.ash.messaging.pravaha.api.wire.ControlWire.SubscriberPreference(
+                            options.subscriberBufferRows(), options.conflateOnOverflow() ? "CONFLATE" : "FAIL"));
         } catch (RuntimeException e) {
             if (ownsAllocator) {
                 allocator.close();
@@ -678,7 +699,7 @@ public final class PravahaFlightClient implements AutoCloseable {
      *     the network. Equality only. A column the view does not have is refused rather than ignored
      */
     public Subscription subscribe(String view, Map<String, String> filters, Consumer<ChangeBatch> onBatch) {
-        return open(ControlWire.subscribeTicket(view, pairs(filters)), onBatch);
+        return open(ControlWire.subscribeTicket(view, pairs(filters), preference), onBatch);
     }
 
     /**

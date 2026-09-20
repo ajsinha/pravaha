@@ -21,7 +21,7 @@ becomes a surprise.
 | …and as a backstop | `maxRowsPerSide` | **fails** (`PRV-3021`) — never evicts, see below |
 | A served view | **retention** — forever unless the registration sets one (`RETAIN FOR`, `--retain`) | oldest rows forgotten |
 | …and as a backstop | `maxKeys` | **fails** (`PRV-4022`) |
-| Subscriber buffers | `SubscriptionOptions` | conflate / drop / fail, per the subscriber's choice |
+| Subscriber buffers | `SubscriptionOptions` | conflate / drop / fail, per the subscriber's choice -- which over Flight it now genuinely is: the choice rides on the subscription ticket, where until STRM-16 it went nowhere and every remote subscriber was `(10 000, CONFLATE)` |
 | Concurrent reads | `ReadAdmission` | refuse (`PRV-4026`–`4028`) |
 | Readable audit trail (`GET /api/v1/audit`) | `pravaha.security.audit-recent` decisions (10,000 default), only with `audit: memory` or `file` | oldest dropped from the readable window; the response says how many, and a `file` sink still has them |
 
@@ -39,7 +39,7 @@ to fit would silently lose matches the query asked for, and a wrong answer is wo
 |---|---|---|
 | `evicted()` on a view | `ServedView` | Retention is working. **Rising fast** means the window may be shorter than the questions being asked of it |
 | `joinRowsEvicted()` | `InterpretedPipeline` | The match window is releasing join state, as intended |
-| `dropped()` / `conflated()` | `Subscription` | A consumer is falling behind. Never silent — this is why it is counted |
+| `dropped()` / `conflated()` | `Subscription` | A consumer is falling behind. Never silent — this is why it is counted. Over Flight the count reaches the client too, on every batch after a loss (`ChangeBatch.droppedBefore`), where it used to reach an audit sink once and the subscriber never (STRM-10) |
 | `rejectedCount()`, `queueTimedOutCount()`, `tenantRejectedCount()` | `ReadAdmission` | Read load exceeding capacity, and which of the three ways |
 | `avoidableForks()` | `RegisteredQuery` | You are running N computations where one would do |
 | Shared fingerprints | `pravaha queries`, console | The sharing claim holding — or not |

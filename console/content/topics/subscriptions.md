@@ -239,20 +239,32 @@ commits:
 
 | Where | Bound | What happens past it |
 |---|---|---|
-| Server, per Flight subscription | 64 commits waiting to be written to your connection | Further commits are **dropped whole** for this subscriber; when the subscription ends the number dropped is recorded in the audit trail (`N batches dropped for a slow subscriber`) |
+| Server, per Flight subscription | 64 commits **or** 250,000 rows across them, whichever comes first | Further commits are **dropped whole** for this subscriber, and the running count rides on every later batch (`batch.droppedBefore`, `batch.dropped_before`) as well as being recorded in the audit trail when the subscription ends |
 | Server, per Flight **snapshot** subscription | the same 64 commits | Nothing is dropped: the stream **ends with `PRV-6105`**, because a copy missing a commit is silently wrong. Subscribe again to start from a fresh snapshot |
-| Server, between the view and the tap | 10,000 rows, conflated by key | The latest value per key wins |
-| Embedded engine | `SubscriptionOptions.of(bufferRows, Overflow)` — `CONFLATE`, `DROP_OLDEST` or `FAIL` | `FAIL` ends *your* subscription, never the query |
+| Server, between the view and the tap | what you asked for, or 10,000 rows conflated by key | Your policy decides: `CONFLATE`, `DROP_OLDEST` or `FAIL` |
+| Embedded engine | `SubscriptionOptions.of(bufferRows, Overflow)` | `FAIL` ends *your* subscription, never the query |
 
-The SDKs' `subscriberBufferRows` / `subscriber_buffer_rows` and `conflateOnOverflow` options are
-declared but not yet sent to the server; the server's own bounds above are what apply over Flight.
+**Two bounds on the hand-over, and the second one is why** (STRM-15). 64 is small in *batches*, and
+a batch is one commit: a commit under a real feed has been measured at 2,830 rows, so the queue
+could hold hundreds of thousands of rows and one stalled subscriber was measured taking 1.7 GB of
+the server's heap. The row bound is the one that says what the queue costs.
 
-!!! warning "Pitfall: a lost commit is silent to the client"
-    Over Flight, a plain subscriber that falls more than 64 commits behind loses commits and is not
-    told on the stream; the audit trail records it. For a ledger or anything that must not miss a
-    change, subscribe from a snapshot: it is ended with `PRV-6105` instead of skipped past a commit,
-    and subscribing again starts from a fresh snapshot. Either way, keep up by handing the work to
-    your own queue.
+**Your overflow policy now reaches the server** (STRM-16). `subscriberBufferRows` and
+`conflateOnOverflow` in the Java SDK, and `buffer_rows=` / `overflow=` on the Python
+`subscribe(...)`, ride on the subscription ticket. Until they did, every remote subscriber was
+`(10000, CONFLATE)` whatever it set — and `CONFLATE` is, by its own definition, wrong for anything
+maintaining its own aggregate from the weights, because it drops the intermediate weights that
+aggregate is built from. Ask for `FAIL` if a gap is worse than a stop. An overflow policy the
+server does not recognise is refused, not defaulted.
+
+!!! note "A lost commit is no longer silent"
+    Over Flight, a plain subscriber that falls past either bound loses whole commits — deliberately,
+    so one slow client cannot slow the query — and every batch after that carries how many
+    (`batch.droppedBefore` in Java, `batch.dropped_before` in Python, `subscription.dropped()` for
+    the running total). Non-zero means the rows you hold are not the view. For a ledger or anything
+    that must not miss a change, subscribe from a snapshot: it is ended with `PRV-6105` instead of
+    skipped past a commit, and subscribing again starts from a fresh snapshot. Either way, keep up
+    by handing the work to your own queue.
 
 ## Rows are flyweights (Java)
 

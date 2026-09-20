@@ -49,6 +49,9 @@ public final class Subscription implements AutoCloseable {
     private final AtomicLong batches = new AtomicLong();
     private final AtomicLong rows = new AtomicLong();
 
+    /** Whole commits the server has dropped for this subscriber, as the last batch reported it. */
+    private final AtomicLong dropped = new AtomicLong();
+
     /** Snapshot rows received so far, until the part that ends the snapshot. Run's thread only. */
     private final List<Row> snapshot = new ArrayList<>();
 
@@ -108,7 +111,10 @@ public final class Subscription implements AutoCloseable {
                 } else if (!batch.isEmpty()) {
                     batches.incrementAndGet();
                     rows.addAndGet(batch.size());
-                    onBatch.accept(new ChangeBatch(batch, false, mark == null ? Long.MIN_VALUE : mark.frontier()));
+                    long lost = mark == null ? 0L : mark.dropped();
+                    dropped.set(lost);
+                    onBatch.accept(
+                            new ChangeBatch(batch, false, mark == null ? Long.MIN_VALUE : mark.frontier(), lost));
                 }
             }
         } catch (RuntimeException e) {
@@ -139,6 +145,24 @@ public final class Subscription implements AutoCloseable {
     /** Rows delivered across all commits. */
     public long rows() {
         return rows.get();
+    }
+
+    /**
+     * Whole commits the server dropped for this subscriber, as of the last batch it delivered.
+     *
+     * <p>STRM-10. A plain subscription drops whole commits rather than slowing the query, which is
+     * the right choice and is done cleanly -- every delivered batch is a whole commit, never a
+     * fragment. What was missing is telling the client: the count reached an {@code AuditSink}
+     * once, when the subscription ended, and only with audit configured, and the only observables
+     * this class exposed were {@code rows()}, {@code batches()} and {@code isClosed()}. A dashboard
+     * that had lost 58 400 of 59 700 rows looked exactly like one that had received all of them.
+     *
+     * <p>Zero on a snapshot subscription, which is ended with {@code PRV-6105} rather than skipped
+     * past a commit, and zero until a batch arrives after the first drop -- the count rides on the
+     * next batch, because that is the next time the server speaks.
+     */
+    public long dropped() {
+        return dropped.get();
     }
 
     public boolean isClosed() {

@@ -36,6 +36,19 @@ scale with *subscriber* count. A socket write of an already-encoded Arrow buffer
 the difference between a thousand subscribers being a capacity-planning line item and being an
 incident.
 
+> **Not built, and a reader planning capacity should plan from this paragraph rather than from the
+> one above it (STRM-4).** The Flight carrier encodes **per subscriber**:
+> `PravahaFlightSqlProducer.streamSubscription` allocates a `VectorSchemaRoot` per subscription and
+> writes each committed batch on that call's own thread, so N subscribers on one query are N
+> serialisations of every batch — the alternative this ADR names and rejects. Arrow Flight's server
+> API has no way to hand an already-serialised record batch to a second `ServerStreamListener`, so
+> making the decision true needs a shared encoder below the listener, not a change of loop; it is
+> scheduled as its own batch.
+>
+> What *is* shared is everything above the encoder: `ViewSink` stages one change log per commit for
+> the whole audience, and a `Subscription` copies references into its own buffer rather than rows.
+> So the per-subscriber cost is the Arrow encode and the socket write, and nothing else.
+
 **A lane never sees a subscriber.** It writes to a conflating, drop-oldest tap ring and returns, so
 lane cost is O(1) in subscriber count ([ADR-011](011-ui-out-of-the-data-path.md)). A slow browser
 conflates and reports `dropped_count`, or is disconnected under `RELIABLE`; it never backpressures a

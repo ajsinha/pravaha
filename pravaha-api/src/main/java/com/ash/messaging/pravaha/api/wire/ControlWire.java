@@ -289,20 +289,99 @@ public final class ControlWire {
 
     /** The ticket a subscriber returns with: a view name, then alternating filter column and value. */
     public static byte[] subscribeTicket(String view, List<String> filterPairs) {
-        return ticket(SUBSCRIBE, view, filterPairs);
+        return ticket(SUBSCRIBE, view, filterPairs, null);
+    }
+
+    /** {@link #subscribeTicket}, carrying what this subscriber asked its buffer to do (STRM-16). */
+    public static byte[] subscribeTicket(String view, List<String> filterPairs, SubscriberPreference preference) {
+        return ticket(SUBSCRIBE, view, filterPairs, preference);
     }
 
     /** {@link #subscribeTicket}, for a subscription that starts from the view's snapshot. */
     public static byte[] subscribeFromSnapshotTicket(String view, List<String> filterPairs) {
-        return ticket(SUBSCRIBE_FROM_SNAPSHOT, view, filterPairs);
+        return ticket(SUBSCRIBE_FROM_SNAPSHOT, view, filterPairs, null);
     }
 
-    private static byte[] ticket(String verb, String view, List<String> filterPairs) {
+    private static byte[] ticket(String verb, String view, List<String> filterPairs, SubscriberPreference preference) {
         List<String> fields = new ArrayList<>();
         fields.add(verb);
         fields.add(view);
         fields.addAll(filterPairs);
+        if (preference != null) {
+            fields.add(preference.encode());
+        }
         return encode(fields);
+    }
+
+    /**
+     * What a subscriber asked its server-side buffer to do when it cannot keep up (STRM-16).
+     *
+     * <p>Until this existed the ticket was {@code ["subscribe", view, pairs…]} and nothing else, so
+     * {@code streamSubscription} passed {@code SubscriptionOptions.DEFAULT} and every remote
+     * subscriber was {@code (10 000, CONFLATE)} whatever it asked for -- while
+     * {@code ClientOptions.subscriberBufferRows} and {@code conflateOnOverflow} had no reader
+     * anywhere and {@code OPERATIONS.md} presented the overflow policy as "per the subscriber's
+     * choice". `CONFLATE` is the wrong default for anything maintaining its own total from the
+     * weights, by its own javadoc, and it was the only policy reachable.
+     *
+     * <p><strong>It rides last, and that is what makes it safe to add.</strong> Everything from
+     * field 2 on is alternating filter column and value, so their count is even; one more field
+     * makes it odd, which is unambiguous in both directions. A server that does not know about this
+     * sees an unpaired trailing field and ignores it, exactly as it did before; a server that does
+     * reads an even tail as a ticket with no preference and uses its defaults. No version bump, and
+     * no filter silently read as a policy.
+     *
+     * @param bufferRows rows this subscriber may fall behind by, at least 1
+     * @param overflow what happens past it: {@code CONFLATE}, {@code DROP_OLDEST} or {@code FAIL},
+     *     spelled as {@code SubscriptionOptions.Overflow} spells them
+     */
+    public record SubscriberPreference(int bufferRows, String overflow) {
+
+        public SubscriberPreference {
+            if (bufferRows < 1) {
+                throw new PravahaException(
+                        BAD_REQUEST, "a subscriber's buffer must hold at least one row, not " + bufferRows);
+            }
+            overflow = overflow == null ? "" : overflow.strip().toUpperCase(java.util.Locale.ROOT);
+        }
+
+        /** {@code rows=10000;overflow=CONFLATE}. */
+        public String encode() {
+            return "rows=" + bufferRows + ";overflow=" + overflow;
+        }
+
+        /**
+         * Reads one back, or null when {@code text} is not one.
+         *
+         * <p>Null rather than a refusal, because the only thing that reaches here that is not one of
+         * these is an odd trailing field from a client that meant something else, and reading it as
+         * a policy would be the guess this format exists to avoid.
+         */
+        public static SubscriberPreference decode(String text) {
+            if (text == null || !text.startsWith("rows=")) {
+                return null;
+            }
+            int rows = -1;
+            String overflow = "";
+            for (String part : text.split(";")) {
+                int split = part.indexOf('=');
+                if (split < 0) {
+                    continue;
+                }
+                String key = part.substring(0, split).strip();
+                String value = part.substring(split + 1).strip();
+                if (key.equals("rows")) {
+                    try {
+                        rows = Integer.parseInt(value);
+                    } catch (NumberFormatException e) {
+                        return null;
+                    }
+                } else if (key.equals("overflow")) {
+                    overflow = value;
+                }
+            }
+            return rows < 1 ? null : new SubscriberPreference(rows, overflow);
+        }
     }
 
     /**
@@ -314,8 +393,11 @@ public final class ControlWire {
      * every batch after it is a {@link #COMMIT}, whole.
      *
      * @param frontier the committed frontier the snapshot is the view at, or the commit published
+     * @param dropped how many whole commits this subscriber has lost before this batch, cumulative
+     *     (STRM-10). Zero for a subscriber that has kept up, and for a snapshot subscription, which
+     *     is ended rather than skipped past a commit
      */
-    public record BatchMark(String kind, long frontier) {
+    public record BatchMark(String kind, long frontier, long dropped) {
 
         /** A part of the snapshot with more to follow. */
         public static final String SNAPSHOT = "snapshot";
@@ -328,8 +410,23 @@ public final class ControlWire {
 
         private static final String PREFIX = "pravaha:";
 
+        /** A mark for a subscriber that has lost nothing, which is every mark but STRM-10's. */
+        public BatchMark(String kind, long frontier) {
+            this(kind, frontier, 0L);
+        }
+
+        /**
+         * {@code pravaha:<kind>:<frontier>}, with {@code :<dropped>} appended only when something
+         * has been dropped.
+         *
+         * <p>Appended rather than always present so the common mark is byte-for-byte what it has
+         * always been. The parser splits on every colon instead of the last one, because a fourth
+         * component moved where "the last colon" is -- which is the kind of thing that decodes to
+         * a plausible wrong answer rather than to a failure.
+         */
         public byte[] encode() {
-            return (PREFIX + kind + ":" + frontier).getBytes(StandardCharsets.UTF_8);
+            String text = PREFIX + kind + ":" + frontier + (dropped > 0 ? ":" + dropped : "");
+            return text.getBytes(StandardCharsets.UTF_8);
         }
 
         /** The mark in {@code metadata}, or null when there is none or it is not one of ours. */
@@ -338,12 +435,16 @@ public final class ControlWire {
                 return null;
             }
             String text = new String(metadata, StandardCharsets.UTF_8);
-            int split = text.lastIndexOf(':');
-            if (!text.startsWith(PREFIX) || split <= PREFIX.length()) {
+            if (!text.startsWith(PREFIX)) {
+                return null;
+            }
+            String[] parts = text.substring(PREFIX.length()).split(":");
+            if (parts.length < 2 || parts[0].isEmpty()) {
                 return null;
             }
             try {
-                return new BatchMark(text.substring(PREFIX.length(), split), Long.parseLong(text.substring(split + 1)));
+                return new BatchMark(
+                        parts[0], Long.parseLong(parts[1]), parts.length > 2 ? Long.parseLong(parts[2]) : 0L);
             } catch (NumberFormatException e) {
                 return null;
             }

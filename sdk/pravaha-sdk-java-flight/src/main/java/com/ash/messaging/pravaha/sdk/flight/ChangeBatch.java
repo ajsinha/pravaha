@@ -35,8 +35,12 @@ import java.util.List;
  * @param snapshot whether this is the snapshot a subscription started from
  * @param frontier the committed frontier this batch brings the view to; {@link Long#MIN_VALUE} on a
  *     plain subscription, whose server does not say
+ * @param droppedBefore how many whole commits this subscription has lost before this batch,
+ *     cumulative (STRM-10). Non-zero means the rows you hold are not the view: a subscriber that
+ *     had lost 98 % of its changes used to look exactly like one that had received everything
  */
-public record ChangeBatch(List<Row> rows, boolean snapshot, long frontier) implements Iterable<Row> {
+public record ChangeBatch(List<Row> rows, boolean snapshot, long frontier, long droppedBefore)
+        implements Iterable<Row> {
 
     public ChangeBatch {
         rows = List.copyOf(rows);
@@ -44,7 +48,23 @@ public record ChangeBatch(List<Row> rows, boolean snapshot, long frontier) imple
 
     /** A commit on a plain subscription, as batches were before snapshots existed. */
     public ChangeBatch(List<Row> rows) {
-        this(rows, false, Long.MIN_VALUE);
+        this(rows, false, Long.MIN_VALUE, 0L);
+    }
+
+    /** A batch from a server that says nothing about drops. */
+    public ChangeBatch(List<Row> rows, boolean snapshot, long frontier) {
+        this(rows, snapshot, frontier, 0L);
+    }
+
+    /**
+     * Whether anything was lost before this batch.
+     *
+     * <p>The question a consumer has to be able to ask. A plain subscription drops whole commits
+     * when it falls behind -- deliberately, so one slow client cannot slow the query -- and the
+     * count used to reach an audit sink and never the client (STRM-10).
+     */
+    public boolean missedAnything() {
+        return droppedBefore > 0;
     }
 
     /** Whether this is the view a snapshot subscription started from, rather than a commit. */

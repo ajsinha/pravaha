@@ -141,4 +141,63 @@ class ControlWireTest {
         assertThat(ControlWire.decode(ControlWire.encode(java.util.Arrays.asList("a", null))))
                 .containsExactly("a", "");
     }
+
+    @Test
+    void strm16ASubscriberPreferenceRidesLastAndIsToldApartFromAFilterByParity() {
+        // STRM-16. The ticket was [subscribe, view, pairs...] and nothing else, so
+        // streamSubscription passed SubscriptionOptions.DEFAULT and every remote subscriber was
+        // (10 000, CONFLATE) whatever it asked for -- while ClientOptions.subscriberBufferRows and
+        // conflateOnOverflow had no reader anywhere.
+        //
+        // Everything from field 2 on is alternating filter column and value, so their count is
+        // even. One more field makes it odd, which is what both ends read, and is why this needed
+        // no version bump and cannot turn a filter column into a policy.
+        byte[] ticket = ControlWire.subscribeTicket(
+                "trade_feed", List.of("product_type", "SWAP"), new ControlWire.SubscriberPreference(5, "FAIL"));
+        List<String> decoded = ControlWire.decode(ticket);
+
+        assertThat(decoded).containsExactly("subscribe", "trade_feed", "product_type", "SWAP", "rows=5;overflow=FAIL");
+        assertThat((decoded.size() - 2) % 2).as("odd, which is the flag").isEqualTo(1);
+        assertThat(ControlWire.SubscriberPreference.decode(decoded.get(decoded.size() - 1)))
+                .isEqualTo(new ControlWire.SubscriberPreference(5, "FAIL"));
+
+        // A ticket with no preference is byte-for-byte what it always was.
+        assertThat(ControlWire.subscribeTicket("trade_feed", List.of("product_type", "SWAP")))
+                .isEqualTo(ControlWire.subscribeTicket("trade_feed", List.of("product_type", "SWAP"), null));
+
+        // And anything that is not a preference reads as none, rather than as a guess.
+        assertThat(ControlWire.SubscriberPreference.decode("product_type")).isNull();
+        assertThat(ControlWire.SubscriberPreference.decode("rows=nope;overflow=FAIL"))
+                .isNull();
+        assertThat(ControlWire.SubscriberPreference.decode(null)).isNull();
+        assertThatThrownBy(() -> new ControlWire.SubscriberPreference(0, "FAIL"))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("at least one row");
+    }
+
+    @Test
+    void strm10ABatchMarkCarriesWhatThisSubscriberHasLost() {
+        // STRM-10. A plain subscriber that falls behind loses whole batches and had no way to find
+        // out: the count reached an AuditSink once, at the end, and only with audit configured.
+        // The mark is the channel that already existed, so the count rides on it.
+        ControlWire.BatchMark lost = new ControlWire.BatchMark(ControlWire.BatchMark.COMMIT, 42L, 9L);
+        assertThat(new String(lost.encode(), java.nio.charset.StandardCharsets.UTF_8))
+                .isEqualTo("pravaha:commit:42:9");
+        assertThat(ControlWire.BatchMark.decode(lost.encode())).isEqualTo(lost);
+
+        // Appended only when there is something to say, so the common mark is unchanged on the
+        // wire -- and the parser splits on every colon rather than the last one, because a fourth
+        // component moves where "the last colon" is and 'commit:42' would decode as a kind.
+        ControlWire.BatchMark clean = new ControlWire.BatchMark(ControlWire.BatchMark.SNAPSHOT_END, 42L);
+        assertThat(new String(clean.encode(), java.nio.charset.StandardCharsets.UTF_8))
+                .isEqualTo("pravaha:snapshot-end:42");
+        assertThat(ControlWire.BatchMark.decode(clean.encode())).isEqualTo(clean);
+        assertThat(clean.dropped()).isZero();
+
+        assertThat(ControlWire.BatchMark.decode("somebody else's".getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                .isNull();
+        assertThat(ControlWire.BatchMark.decode(
+                        "pravaha:commit:soon".getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                .isNull();
+    }
 }

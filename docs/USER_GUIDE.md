@@ -317,6 +317,22 @@ depending on the order they attached (STRM-2). Reconnect and re-read the view to
 Whatever is lost is **counted** (`dropped()`, `conflated()`), because a subscriber silently missing
 data is the failure the mechanism exists to make visible.
 
+**Over Flight, the policy is yours now** (STRM-16). `ClientOptions.subscriberBufferRows` and
+`conflateOnOverflow` ride on the subscription ticket, and the Python SDK takes `buffer_rows=` and
+`overflow=` on `subscribe(...)`. Until they did, both options had no reader anywhere: every remote
+subscriber was `(10 000, CONFLATE)` whatever it set, so a client keeping its own total from the
+weights could not decline the one policy that corrupts one. An overflow the server does not
+recognise is refused rather than defaulted — being quietly given `CONFLATE` after asking for `FAIL`
+is the corruption itself.
+
+**And a loss is told to the client** (STRM-10). Between the engine's thread and your socket sits a
+hand-over bounded at 64 commits **or** 250,000 rows across them, whichever comes first — a bound in
+batches alone is not a bound on memory, and one stalled subscriber was measured taking 1.7 GB
+(STRM-15). Past either, whole commits are dropped, and every batch after that says how many:
+`ChangeBatch.droppedBefore` and `Subscription.dropped()` in Java, `batch.dropped_before` in Python.
+Non-zero means the rows you hold are not the view. It used to reach an audit sink once, at the end,
+and the client never.
+
 ### How a subscription ends
 
 Four endings, and telling them apart is the difference between a client that reconnects and one
