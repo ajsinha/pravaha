@@ -102,6 +102,14 @@ class OrphanedClassTest {
             // JMH generates the harness that calls these.
             Map.entry("FalseSharingBenchmark", "JMH harness"),
             Map.entry("MemoryAccessBenchmark", "JMH harness"),
+            // The other two in the same module, and for the same reason: a @Benchmark method is
+            // called by the runner JMH's annotation processor generates, which this scan cannot
+            // see. They appear here only now because nothing named them until B13's gate
+            // harnesses cited ProfileABenchmark in their javadoc -- a type nothing mentions at all
+            // is invisible to a scan that looks for mentions, which is a gap in the check rather
+            // than a fact about the type.
+            Map.entry("ProfileABenchmark", "JMH harness"),
+            Map.entry("LaneScalingBenchmark", "JMH harness"),
             // pravaha-testkit exists to be used by tests. That is the whole module.
             Map.entry("CapturingRowWriter", "testkit, by design"),
             Map.entry("SourcePluginTck", "testkit, by design"),
