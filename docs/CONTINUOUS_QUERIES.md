@@ -1764,6 +1764,15 @@ projections correctly; what is not built is arithmetic over it. Recorded as TY-7
 | `GROUP BY` works on a view and is refused on a stream | Deliberate, and the reason is the input rather than the query (§13) |
 | `COUNT(*)` over a Cassandra or Aerospike binding is refused, a projection of it is not | The default `deletes: ignore` repeats rows, which a keyed view absorbs and a count does not (`PRV-2042`, §2.1) |
 
+**When the symptom is not on that list**, the query is doing exactly what it was asked and the
+question is which row and which operator. Fork it: a debug session replays the query from one of
+its checkpoints, one row at a time, reporting every operator's rows in and out beside the view's
+changes — which is what tells a filter that rejected the row apart from an aggregate that produced
+a zero delta. Every sink is disabled and nothing can read the fork, so the live query is
+untouched. See [`USER_GUIDE.md` §11](USER_GUIDE.md#11-the-time-travel-debugger) and
+[ADR-047](adr/047-a-debug-fork-is-a-second-computation-nothing-can-read.md); the incident exports
+as a JUnit test that compiles and passes.
+
 ---
 
 ## 19. Error codes

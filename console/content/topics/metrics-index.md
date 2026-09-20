@@ -103,6 +103,7 @@ not timed. This console's Operations screen shows the mean and labels it as a me
 | `pravaha_lane_own_queries` | gauge | Queries holding a lane — and an inbox — of their own. All of them with sharing off | rising on a node with sharing on: registrations are not fitting on shared lanes |
 | `pravaha_lane_shared_bytes` | gauge | Off-heap the shared lanes hold — inboxes and arenas — counted once however many queries they carry. Zero with sharing off | growing with lanes built, not with queries |
 | `pravaha_state_spill_bytes_mapped` | gauge | Overflow slab mapped on the node across every query — what `pravaha.state.spill.max-bytes` counts | well before the quota: at it, the next query to need a slab stops (PRV-4005) |
+| `pravaha_debug_sessions_open` | gauge | [Debug sessions](/help/topics/time-travel-debugger) open on this node, against `pravaha.debug.sessions.max`. Each holds a whole second copy of a query's lanes, arena and state. Zero when nobody is debugging | above zero for longer than an investigation takes: a forgotten session is a query running twice |
 
 Spring Boot also publishes its standard JVM, process and HTTP metrics (`jvm_*`, `process_*`,
 `http_server_requests_*`) on the same endpoint.

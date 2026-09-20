@@ -277,6 +277,7 @@ it does with it off. What that costs is the inbox sharing exists to save, and it
   on** means the shared lanes are full: raise `lanes` or `max-queries-per-lane`, or accept the inbox
   each costs
 - `pravaha_lane_shared_bytes` — the off-heap the shared lanes hold between them, once
+- `pravaha_debug_sessions_open` — debug sessions open on this node, each a second copy of a query
 - the node's status and its startup log carry one line: `lanes: shared, queries per lane [..] of at
   most 300; N on lanes of their own`
 
@@ -1215,6 +1216,7 @@ And per node, for lane sharing (`pravaha.lane.multiplex.*`) and the spill tier:
 | `pravaha_lane_shared_bytes` | Off-heap the shared lanes hold between them — inboxes and arenas, counted once however many queries they carry. Zero with sharing off |
 | `pravaha_metrics_operators_enabled` | 1 when `pravaha.metrics.operators` is on, so per-operator numbers exist on this node's plans |
 | `pravaha_state_spill_bytes_mapped` | Overflow slab mapped on the node, across every query — what `pravaha.state.spill.max-bytes` counts. Alert well before it reaches the quota: at the quota the next query to need a slab stops with `PRV-4005` |
+| `pravaha_debug_sessions_open` | Debug sessions open on this node, against `pravaha.debug.sessions.max`. Each holds a whole second copy of a query's lanes, arena and operator state, so a forgotten one is a query running twice. Published as zero when nobody is debugging, which is what makes an alert on it possible |
 
 `state_held` and `state_ceiling` are counted in the units the ceiling is expressed in —
 accumulators for a windowed aggregate, rows for a join — **not in bytes**. They are what
@@ -1464,6 +1466,48 @@ replace a query whose computation is shared with another name (`PRV-8003`); or r
 streams cannot be replayed — a table scan's position names where its pass began rather than the
 record it was taken after, so there is no offset a history and a live stream could meet at
 (`PRV-4018`, before anything starts).
+
+## Debugging a live query: the operator's side
+
+A query is answering wrongly and nothing in the log says why. Fork it (ADR-047, and
+[`USER_GUIDE.md`](USER_GUIDE.md#11-the-time-travel-debugger) for the walk-through).
+
+A debug session is a **second copy of the query**, restored from one of its retained checkpoints
+and reading the same sources from the offsets that checkpoint recorded. What matters operationally
+is what it does *not* do: no sink is attached to it, its view is in no catalogue so nothing can
+read or subscribe to it, and its lanes are its own rather than shared with the live query's. The
+running query goes on running. A fork cannot make it worse; if a session is open and the query
+looks wrong, end the session and read `pravaha queries`, because the session is not the cause.
+
+**What it costs.** Everything the query costs, again: its lanes, its arena, its operator state, and
+one source reader per partition. That is the whole reason for the bounds below, and it is why a
+session on a query holding forty gigabytes of join state is a decision rather than a click.
+
+```yaml
+pravaha:
+  debug:
+    sessions:
+      max: 4          # PRV-8014 past it, naming the sessions this node holds
+    session:
+      ttl: 15m        # released when nobody has touched it for this long
+      max-rows: 20000 # a session keeps every row it read, so it can be exported
+    step:
+      max-rows: 10000 # how far "to the next commit" or "until this holds" will search
+```
+
+Expiry is checked on the way in to the next call rather than on a timer of its own, so a node that
+debugs nothing runs nothing extra. Watch **`pravaha_debug_sessions_open`**: it is published whether
+or not anybody has ever opened a session, so it reads zero the rest of the time and an alert on it
+is possible. A node quietly holding four forks of a large query has four extra copies of its state
+and nothing else says so.
+
+**It needs checkpoints.** No `pravaha.checkpoint.directory` means no position to fork from, and the
+refusal (`PRV-8011`) says which of the three it is. **And it needs a rewindable source**: the same
+constraint a backfill has, refused the same way and for the same reason (`PRV-8012`).
+
+**It needs the administer permission**, not read. A fork exposes the query's SQL, its input rows
+and its operator state, which is more than reading its view exposes. Everything in the session,
+including reading its status, takes that permission, and an export is recorded in the audit.
 
 ## Restarts: what survives
 

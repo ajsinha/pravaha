@@ -775,6 +775,140 @@ yet.
 
 ---
 
+## 11. The time-travel debugger
+
+A query is producing a wrong row and the logs do not say why. Forking it lets you watch the row
+that caused it go through, one step at a time (ADR-047, design §16.4).
+
+A **debug session** is a second copy of the query, restored from one of its retained checkpoints,
+reading the same sources from the offsets that checkpoint recorded. **Every sink is disabled, the
+fork's view is in no catalogue, and its lanes are its own** — the live query, its view and its
+subscribers carry on and see nothing. It needs `pravaha.checkpoint.directory` to be set, because a
+fork starts from a checkpoint.
+
+```bash
+# Which positions this node can still start from.
+pravaha debug checkpoints --name user_volume
+4471
+4470
+4469
+
+# Fork. The last line is the session id, so a shell can capture it.
+SESSION=$(pravaha debug fork --name user_volume --checkpoint 4471 | tail -1)
+
+# Step: one row, then ten, then until the thing that is wrong happens.
+pravaha debug step --session "$SESSION" --step row
+pravaha debug step --session "$SESSION" --step rows:10
+pravaha debug step --session "$SESSION" --step until:total:<:0
+```
+
+Each step reports four things at once, which is what makes a wrong answer explainable rather than
+mysterious: **the rows that entered** with their weights and event times, **each operator's rows in
+and out**, **the view's changes** with their weights, and **where event time stands**.
+
+```
+step 11 (UNTIL)  the view satisfies total < 0
+  in   +1 txn#0@8842 [user_42, -160]
+  op   scan#3 txn  in=1 out=1
+  op   filter#2  in=1 out=1
+  op   aggregate#1  in=1 out=2
+  view -1 [user_42, 120]
+  view +1 [user_42, -40]
+  rows consumed 11, view 3 rows, watermark 1740000000000000000
+```
+
+An operator that took a row and produced nothing is the answer to "where did my row go": a filter
+that rejected it and an aggregate that produced a zero delta look identical from the view alone.
+
+### Reading an operator's state
+
+```bash
+pravaha debug state --session "$SESSION"
+OPERATOR        KIND       WHAT               ENTRIES
+aggregate#0     aggregate  groups             1284
+
+pravaha debug inspect --session "$SESSION" --operator aggregate#0 --key user_42
+user_42    rows=3  n=3  total=-40
+```
+
+Bounded and paged: `--offset` and `--limit`, and a page above the ceiling is refused
+(`PRV-8015`) rather than built. Reading changes nothing — a join's index is walked without
+evicting from it, and an aggregate is read without emitting it.
+
+A **windowed** aggregate shows the windows it has fired and is still retaining, not the ones still
+filling. That is a real limit rather than an oversight: the only way to read an open window's
+answer is to fire it, and a debugger that published a window early would have changed the query it
+was asked about. Windows stay readable for as long as the stream's allowed lateness keeps them
+correctable.
+
+### Stepping
+
+| Step | What it does |
+|---|---|
+| `row` | One input row, whichever partition offers it next |
+| `rows:N` | Up to N |
+| `commit` | Rows until the view actually changes, or until `pravaha.debug.step.max-rows` |
+| `watermark:<nanos>` | No rows: event time advances, and any window it closes fires. It does not go backwards |
+| `until:<column>:<op>:<value>` | Rows until any row of the view satisfies the comparison |
+
+A predicate is **one column of the view against one value**, with `= != < <= > >=`. That is
+deliberate and ADR-047 says why: a second expression language that is nearly SQL's is a source of
+wrong answers in the one tool you are using because you already have one. An unknown column is
+refused by name with the columns there are.
+
+### The same session twice gives the same answers
+
+Two sessions forked from the same checkpoint and given the same steps produce identical reports —
+the same rows, in the same order, the same operator counts, the same view changes. Nothing drives a
+fork but you: no feed thread, no watermark clock, no periodic checkpointer.
+
+One cost is worth knowing. The replay reads a query's partitions **round-robin in a fixed order**,
+which the live query does not — its pumps are on separate threads. That is what buys
+reproducibility, and it means a bug that depends on one particular interleaving of two partitions
+may not appear in a fork.
+
+### Exporting the incident as a test
+
+```bash
+pravaha debug fixture --session "$SESSION" --name "user 42 goes negative" \
+    --out pravaha-it/src/test/java/com/ash/messaging/pravaha/it/fixtures/
+wrote .../User42GoesNegativeFixtureTest.java
+```
+
+The generated file is a self-contained JUnit test: the schema of every stream the query reads, its
+SQL and key columns, the rows the session consumed in order with their weights and event times, the
+watermarks it pushed, and the view it produced. It registers the query the ordinary way and replays
+the script — it needs nothing from the node it came from, so it runs offline and keeps running when
+the state format changes.
+
+**What it asserts is the answer over those rows, from empty.** The session was forked from a
+checkpoint, so the fork's own view also held everything before it; the fixture does not, and its
+expectation is produced by running the script through an empty copy of the query at export time
+rather than copied from the fork. The generated file says so at the top.
+
+### Sessions are resources
+
+A session is a whole second copy of a query. So a node holds at most
+`pravaha.debug.sessions.max` (4), releases one nobody has touched for
+`pravaha.debug.session.ttl` (15 minutes), and bounds what one may consume with
+`pravaha.debug.session.max-rows`. End one when you are finished:
+
+```bash
+pravaha debug end --session "$SESSION"
+```
+
+Every debug call needs the **administer** permission on the query — the same one dropping it
+takes — because a fork exposes the query's SQL, its input rows and its operator state, which is
+more than reading its view exposes. The gauge `pravaha_debug_sessions_open` says how many a node is
+holding.
+
+Over HTTP the same verbs are `POST /api/v1/queries/{name}/debug`,
+`POST /api/v1/debug/sessions/{id}/step`, `GET /api/v1/debug/sessions/{id}/state/{operator}`,
+`POST /api/v1/debug/sessions/{id}/fixture` and `DELETE /api/v1/debug/sessions/{id}`; both SDKs have
+`debug_fork` / `debugFork` and the rest. The console's debugger screen is not built.
+
+---
+
 ## Next
 
 | | |

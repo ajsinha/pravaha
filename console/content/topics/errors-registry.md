@@ -4,12 +4,12 @@ slug: errors-registry
 category: errors
 order: 90
 icon: journal-x
-summary: "PRV-8001 to PRV-8104: a query's name and lifecycle, a failed query whose view refuses reads, the journal, replay after revocation, sinks that fail or do not fit, and the embedded engine's four."
+summary: "PRV-8001 to PRV-8104: a query's name and lifecycle, a failed query whose view refuses reads, the journal, replay after revocation, sinks that fail or do not fit, the time-travel debugger's six refusals, a `WITH (...)` option the engine does not build, and the embedded engine's four."
 badge: PRV-8XXX
 audience: Analysts, operators, developers
-keywords: [registry, name in use, reserved word, no such query, drop, pause, resume, failed, journal, replay, sink detached, sink shape, keyed by, embedded, push, backpressure, row rejected]
+keywords: [registry, name in use, reserved word, no such query, drop, pause, resume, failed, journal, replay, sink detached, sink shape, keyed by, embedded, push, backpressure, row rejected, debug, debugger, debug session, fork, step, fixture, checkpoint, with, option, unknown option]
 guide: continuous-queries#8-the-life-of-a-query
-related: [query-lifecycle, create-continuous-query, sinks-overview, embedded-engine, errors-overview]
+related: [query-lifecycle, create-continuous-query, sinks-overview, time-travel-debugger, embedded-engine, errors-overview]
 ---
 
 The registry is where a continuous query lives once it is registered: its name, its state
@@ -29,6 +29,12 @@ inside an application's own process and adds the ways an application can push ro
 | PRV-8008 | REGISTRY_NAME_UNUSABLE | The name cannot be a view name at all |
 | PRV-8009 | REGISTRY_SINK_WRITE_FAILED | A sink refused a batch and was detached |
 | PRV-8010 | REGISTRY_SINK_SHAPE_MISMATCH | The query's output or key does not fit the sink |
+| PRV-8011 | DEBUG_NO_CHECKPOINT | There is no checkpoint for a debug session to fork from |
+| PRV-8012 | DEBUG_SOURCE_NOT_REPLAYABLE | A source cannot be rewound to the checkpoint's offsets |
+| PRV-8013 | DEBUG_NO_SUCH_SESSION | No debug session by that id: ended, or expired |
+| PRV-8014 | DEBUG_TOO_MANY_SESSIONS | This node already holds as many sessions as it allows |
+| PRV-8015 | DEBUG_BAD_STEP | A step, a predicate or a page this session cannot make sense of |
+| PRV-8016 | DEBUG_QUERY_GONE | The query this session forked from has been dropped or replaced |
 | PRV-8017 | REGISTRY_OPTION_UNKNOWN | A `WITH (...)` option this engine does not build, or one said twice |
 | PRV-8101 | EMBEDDED_UNKNOWN_STREAM | A row pushed to an undeclared stream |
 | PRV-8102 | EMBEDDED_ROW_REJECTED | A pushed row does not fit its stream |
@@ -225,6 +231,70 @@ the query consumes: slow the producer, or size the lane larger.
 The engine's configuration says something it cannot do — a stream declared twice, an
 `out-of-orderness` that is not a duration — found **at start** rather than at first use.
 
+## The time-travel debugger
+
+A debug session forks a query from one of its retained checkpoints and steps it with every sink
+disabled. See [The time-travel debugger](/help/topics/time-travel-debugger). All six of these mean
+the session did not start or did not advance; **none of them means the live query is in a strange
+state**, because a fork writes into a view of its own and has no sink at all.
+
+### PRV-8011 — no checkpoint to fork from
+
+Three different absences, and the message says which: this node is not checkpointing
+(`pravaha.checkpoint.directory` is unset), this query has not taken its first checkpoint yet (wait
+one `pravaha.checkpoint.interval`), or the id you asked for has been pruned — this node keeps the
+newest `pravaha.checkpoint.keep`, and the ones it still has are listed in the message.
+
+```bash
+pravaha debug checkpoints --name user_volume
+```
+
+### PRV-8012 — source not replayable
+
+A fork reads the sources from the offsets the checkpoint recorded, so every stream the query reads
+has to be rewindable to them. Refused when nothing is bound to the stream (its rows are pushed in
+by an embedder, so there is no position), when the plugin cannot be read again from a position it
+handed out, or when its positions do not order the records within a partition — a table scan
+reports where its pass began. It is the same question a backfill asks (`PRV-4018`), answered by the
+same code and named the same way.
+
+### PRV-8013 — no such session
+
+The id is not one this node holds. A session is released when it is ended and when nobody has
+touched it for `pravaha.debug.session.ttl` (15 minutes by default) — it holds a whole second copy
+of a query's state, so it is not kept indefinitely. `pravaha debug sessions` lists the open ones;
+fork again to carry on.
+
+### PRV-8014 — too many sessions
+
+`pravaha.debug.sessions.max` (4 by default). The ceiling is memory rather than policy: each session
+is a second copy of a query's lanes, arena and operator state. The message lists the sessions this
+node is holding, so one can be ended. The gauge `pravaha_debug_sessions_open` is what to watch.
+
+### PRV-8015 — a step this session cannot make
+
+An unreadable step verb; a predicate over a column the view does not have, or a comparison that is
+not one of `= != < <= > >=`; a watermark that would go backwards, which would let a fired window
+fire again; a page above the ceiling; a session past `pravaha.debug.session.max-rows`; or a fixture
+name that cannot be a Java class.
+
+A predicate is deliberately **one column of the view against one value**. A second expression
+language that is nearly SQL's would disagree with SQL somewhere, in the one tool you opened because
+you already have a wrong answer. Step to the row and read the view instead.
+
+```text
+PRV-8015  'balance' is not a column of this query's view, which has [user_id, n, total].
+          A debug predicate reads the view's own columns, so it can only name one of those.
+```
+
+### PRV-8016 — the query is gone
+
+The query was dropped, or replaced by a different computation (a blue/green cutover), after the
+session was forked. Stepping on would report the old version's behaviour under a name that now
+answers a new one. Export what the session has if you still want it, then end it.
+
+## Registration options
+
 ### PRV-8017 — unknown option
 
 A `WITH (...)` option this engine does not build, or a value that is not what the option names.
@@ -249,6 +319,7 @@ they were written in.
 
 ## Where next
 
+- [The time-travel debugger](/help/topics/time-travel-debugger)
 - [The life of a query](/help/topics/query-lifecycle) and [CREATE CONTINUOUS QUERY](/help/topics/create-continuous-query)
 - [How a query writes to a sink](/help/topics/sinks-overview) and [Delivery guarantees](/help/topics/delivery-guarantees)
 - [The embedded engine](/help/topics/embedded-engine)

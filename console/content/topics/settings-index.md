@@ -112,6 +112,18 @@ sinks [filesystem](/help/topics/sink-filesystem), [jdbc-sink](/help/topics/sink-
 
 See [Checkpoints and recovery](/help/topics/checkpoints-recovery).
 
+## The debugger
+
+| Setting | Default | What it does |
+|---|---|---|
+| `pravaha.debug.sessions.max` | `4` | Debug sessions this node holds at once. PRV-8014 past it. The ceiling is memory: each session is a second copy of a query's lanes, arena and state |
+| `pravaha.debug.session.ttl` | `15m` | How long a session nobody has touched survives. Checked on the way in to the next call, so a node that debugs nothing runs nothing extra |
+| `pravaha.debug.session.max-rows` | `20000` | How many rows one session may consume. It keeps every one, so that it can be exported as a fixture |
+| `pravaha.debug.step.max-rows` | `10000` | How far one `commit` or `until:` step searches before giving up. "Until it happens" over ten million rows is a call that never returns |
+
+A session needs `pravaha.checkpoint.directory` set, because it forks from a checkpoint. See
+[The time-travel debugger](/help/topics/time-travel-debugger).
+
 ## Lanes
 
 What one registered query costs in memory, and how its lane waits. See

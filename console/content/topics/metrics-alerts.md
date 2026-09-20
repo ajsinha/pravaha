@@ -57,6 +57,7 @@ it did not measure would be invented.
 | `pravaha_lane_own_queries` | Queries holding a lane of their own |
 | `pravaha_lane_shared_bytes` | Off-heap the shared lanes hold between them, counted once |
 | `pravaha_state_spill_bytes_mapped` | Overflow mapped across every query — what `pravaha.state.spill.max-bytes` counts |
+| `pravaha_debug_sessions_open` | [Debug sessions](/help/topics/time-travel-debugger) open on this node. Each is a second copy of a query's state |
 
 Plus the JVM and process meters Spring Boot publishes (`jvm_memory_used_bytes`,
 `process_cpu_usage`, ...). Meters are removed when a query is dropped, so a dashboard of dropped

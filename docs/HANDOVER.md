@@ -41,6 +41,22 @@ ordering argument, `TransactionalSinkDeliveryTest` the crash cases). `jdbc-sink`
 transactional (a staging table, applied in one database transaction per checkpoint), so it is
 exactly once; `aerospike-sink` is effectively once and `filesystem` at least once. The registry logs
 which at registration.
+**The time-travel debugger's engine is built** (2026-09-19,
+[ADR-047](adr/047-a-debug-fork-is-a-second-computation-nothing-can-read.md), batch B4). A query is
+forked from one of its retained checkpoints into a second computation on lanes of its own, reading
+the same sources from that checkpoint's offsets — with no sink attached, its view in no catalogue
+and the live query untouched — and stepped by hand: one row, N rows, to the next commit, to a
+watermark, or until one column of the view crosses a value. Each step reports the rows that
+entered, every operator's rows in and out, the view's changes with weights, and the watermark.
+Operator state reads on the lane that owns it, bounded and paged, emitting and evicting nothing.
+The session exports as a self-contained JUnit fixture whose expectation is *rehearsed* through a
+second empty execution at export time, and `DebugFixtureExportTest` compiles and runs one — which
+is W10's acceptance ("a seeded production bug is found by replay and exported as a passing JUnit
+fixture") met, in the engine. The console's screen (§23.9) is not built; that is B9.
+ADR-038 had moved this to the roadmap, and it is worth saying why it came back: the
+reasoning there was "a debugger diagnoses a system people already depend on", and the six console
+journeys that stop at it are how people would come to.
+
 `SX-5` closed by measurement on 2026-09-16 (denied and absent reads now cost the same, 0.033 against
 0.036 ms), and `E-1`'s last code, `PRV-8007`, has a throw site. The register's header carries the current counts and
 `FindingsRegisterTest` holds it to them. What is left is ADR-039's road — its progress note says
