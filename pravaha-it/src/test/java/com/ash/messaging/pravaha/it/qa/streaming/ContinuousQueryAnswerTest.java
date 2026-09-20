@@ -246,6 +246,8 @@ class ContinuousQueryAnswerTest {
             push("w", 1, "ann", 100, 1, 100_000_000L);
             push("w", 2, "cat", 900, 1, 1_500_000_000L);
             advanceTo("w", 1_500_000_000L);
+            // Handed to the subscriber on its own thread, not inside the commit (STRM-8).
+            assertThat(one.awaitQuiet(java.time.Duration.ofSeconds(10))).isTrue();
             assertThat(firstWatcher).isNotEmpty();
         }
         assertThat(query.subscriberCount()).isZero();
@@ -258,6 +260,7 @@ class ContinuousQueryAnswerTest {
         try (Subscription two = query.subscribe(SubscriptionOptions.DEFAULT, b -> secondWatcher.addAll(b))) {
             push("w", 4, "dee", 7, 1, 3_100_000_000L);
             advanceTo("w", 3_500_000_000L);
+            assertThat(two.awaitQuiet(java.time.Duration.ofSeconds(10))).isTrue();
             assertThat(secondWatcher)
                     .as("a subscriber arriving late sees what happens from then on")
                     .isNotEmpty();
@@ -288,6 +291,12 @@ class ContinuousQueryAnswerTest {
             push("w", 2, "bob", 250, 1, 200_000_000L);
             push("w", 3, "cat", 900, 1, 1_500_000_000L);
             advanceTo("w", 1_500_000_000L);
+            // A subscriber is handed its batch on its own thread, not inside the commit (STRM-8).
+            for (Subscription subscription : java.util.List.of(filtered, unfiltered)) {
+                assertThat(subscription.awaitQuiet(java.time.Duration.ofSeconds(10)))
+                        .as("the subscriber was handed everything committed to it")
+                        .isTrue();
+            }
         }
 
         assertThat(annOnly).as("the filtered subscriber sees only its slice").hasSize(1);

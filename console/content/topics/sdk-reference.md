@@ -80,8 +80,8 @@ with connect(options=options) as client:
 | `.tls(TlsOptions)` | `tls` | defaults | How to verify the server, and mTLS; refused on a `grpc://` endpoint |
 | `.applicationName(String)` | `application_name` | `pravaha-java-sdk` / `pravaha-python-sdk` | |
 | `.defaultConsistency(Consistency)` | `default_consistency` | `CONSISTENT` | Declared; the server answers every read at the committed frontier today |
-| `.subscriberBufferRows(int)` | `subscriber_buffer_rows` | 10,000 | Declared; not yet sent to the server |
-| `.conflateOnOverflow(boolean)` | `conflate_on_overflow` | `true` | Declared; not yet sent to the server |
+| `.subscriberBufferRows(int)` | `subscriber_buffer_rows` | 10,000 | Rides on the subscription ticket. How far behind this subscriber may fall, in changes |
+| `.conflateOnOverflow(boolean)` | `conflate_on_overflow` | `true` | Rides on the subscription ticket. `false` means `FAIL` rather than conflate |
 | — | `http_url` | none | The engine's HTTP port, for the catalogue calls |
 | `.applyConfig(Map)` | `ClientOptions.from_config(map)` | | From a flat config map (keys below) |
 
@@ -271,9 +271,12 @@ except QueryError as e:
     (user_id, window_end)` by name. Reordering the `SELECT` list silently changes an ordinal key, never a
     named one — prefer the SQL form.
 
-!!! warning "Pitfall: options that are declared but not yet honoured"
-    `defaultConsistency`, `subscriberBufferRows` and `conflateOnOverflow` validate and are carried, but
-    the server does not read them yet. Do not build on them.
+!!! warning "Pitfall: an option that is declared but not yet honoured"
+    `defaultConsistency` validates and is carried, but the server does not read it yet: every read is
+    answered at the committed frontier. Do not build on it. `subscriberBufferRows` and
+    `conflateOnOverflow` *are* honoured — they ride on the subscription ticket (STRM-16) — and the
+    buffer they size is a bound on how far behind the subscriber may fall, across as many commits as
+    that takes (STRM-8).
 
 !!! warning "Pitfall: holding a Java Row"
     A `Row` from a subscription or a result is a view over a reused buffer. Keep `toArray()` or the

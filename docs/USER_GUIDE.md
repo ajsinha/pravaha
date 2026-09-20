@@ -302,15 +302,23 @@ starter's `PravahaTester.awaitView` and the console's live page are built on thi
 Every subscription has a bounded buffer, and blocking is deliberately not on the menu — a subscriber
 that blocked would apply backpressure to the *query*, slowing it for everyone keeping up.
 
-> **In process, a slow consumer still does exactly that (STRM-8).** The buffer is drained before
-> `onCommit` returns and listeners are called serially on the committing thread, so a consumer that
-> takes two seconds makes the commit take two seconds and three of them make it take six — against
-> a 20 ms publish cadence, on a thread that drives every query on that feed. `bufferRows` therefore
-> bounds **one commit** rather than how far behind you may fall. Over Flight none of this applies:
-> the gateway offers each batch to a bounded hand-over and returns, so the network and the client
-> are already off the engine's thread. If you subscribe in process, hand the work to your own
-> queue — `@PravahaListener` in the Spring starter does it for you. Delivering off the committing
-> thread is scheduled work, not a setting.
+**Your consumer runs on your subscription's own thread** (STRM-8), in process exactly as over
+Flight. A commit files the batch in your buffer and returns; your thread calls your consumer. So
+`bufferRows` bounds what it says — how far behind you may fall, in changes, across as many commits
+as it takes — and your overflow policy decides what happens when it fills. Each delivery is still
+one whole commit: a subscriber four commits behind receives four batches, not one merged batch of
+a commit that never happened.
+
+Until this, an in-process consumer was called on the committing thread and the commit waited for
+it: two seconds in your callback made the commit take two seconds and three such subscribers made
+it take six, against a 20 ms publish cadence, on the thread that drives every query on that feed.
+`bufferRows` then bounded *one commit*, because the buffer was drained before the callback
+returned.
+
+> **A commit no longer ends with your consumer having been called.** If you step the engine by
+> hand — a test, an embedder — wait for delivery with `Subscription.awaitQuiet(timeout)`;
+> `Subscription.pending()` is how far behind the subscriber is. The Spring starter's
+> `PravahaTester.awaitListeners(...)` already does this for you.
 
 | Policy | Right for |
 |---|---|
@@ -611,7 +619,7 @@ try (PravahaEngine engine = PravahaEngine.createDefault()) {
     engine.query("CREATE CONTINUOUS QUERY small_txn KEYED BY (user_id) AS "
             + "SELECT user_id, amount FROM txn WHERE amount <= 100");
 
-    // Committed changes, retractions included, on the committing thread: keep it short.
+    // Committed changes, retractions included, on this subscription's own thread.
     engine.subscribe("totals", changes -> changes.forEach(c ->
             System.out.println((c.isRetraction() ? "- " : "+ ") + c.values())));
 

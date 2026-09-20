@@ -47,8 +47,10 @@ import com.ash.messaging.pravaha.registry.SubscriptionOptions;
  * One {@link PravahaListener} method, subscribed: the subscription, the threads that call the method,
  * and what it has done.
  *
- * <p>The subscription's callback runs on the engine's committing thread and must not block it, so it
- * only sorts each commit's changes by key onto a worker and returns. Each worker is one thread with a
+ * <p>The subscription's callback runs on the subscription's own delivery thread, one commit at a
+ * time, so blocking it would stall this listener and nothing else (STRM-8). It still only sorts
+ * each commit's changes by key onto a worker and returns, because a listener method that took a
+ * second would otherwise hold up the key ordering of every other key. Each worker is one thread with a
  * bounded queue: one thread per worker is what keeps a key's changes in order, and the bound is what
  * keeps a stuck listener from holding unbounded memory. A queue that fills detaches the listener,
  * loudly -- it is the listener that has fallen behind, and a stream with a silent gap in it is worse
@@ -180,7 +182,7 @@ public final class ListenerContainer implements AutoCloseable {
                 this::dispatch);
     }
 
-    /** On the engine's committing thread: sort by key onto workers, and return. */
+    /** On the subscription's delivery thread: sort by key onto workers, and return. */
     private void dispatch(List<RowChange> changes) {
         if (detached.get() || stopped.get() || changes.isEmpty()) {
             return;
@@ -311,11 +313,21 @@ public final class ListenerContainer implements AutoCloseable {
      *
      * <p>Each worker is one thread taking from one queue in order, so a marker queued behind what is
      * already waiting runs only after all of it -- no polling, and no guess at how long is enough.
-     * A dispatch happens inside the engine's commit, so every commit that has returned is covered.
+     *
+     * <p>Two waits, and the first one is why the second is sound. A commit no longer dispatches:
+     * it hands its changes to the subscription's buffer and returns, and the subscription's own
+     * thread dispatches them into these queues (STRM-8). So the subscription is waited out first,
+     * and only then is the marker queued -- behind everything that commit produced. Queueing the
+     * marker first would let it run before the dispatch it is supposed to follow.
      *
      * @return whether it finished within {@code timeout}
      */
     public boolean awaitDelivered(java.time.Duration timeout) throws InterruptedException {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        Subscription attached = subscription;
+        if (attached != null && !attached.awaitQuiet(timeout)) {
+            return false;
+        }
         ThreadPoolExecutor[] current = workers;
         java.util.concurrent.CountDownLatch drained = new java.util.concurrent.CountDownLatch(current.length);
         for (ThreadPoolExecutor worker : current) {
@@ -332,7 +344,7 @@ public final class ListenerContainer implements AutoCloseable {
                 drained.countDown();
             }
         }
-        return drained.await(timeout.toNanos(), TimeUnit.NANOSECONDS);
+        return drained.await(Math.max(0L, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
     }
 
     /** Detaches, then lets each worker finish what it was already handed. */

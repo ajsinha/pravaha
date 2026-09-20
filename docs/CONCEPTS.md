@@ -230,14 +230,18 @@ A subscriber that cannot keep up never blocks the engine. Its buffer is bounded 
 declared choice — conflate, drop the oldest, or fail — and whatever is lost is **counted**, because a
 subscriber silently missing data is the failure the mechanism exists to make visible.
 
-> **True over Flight, not yet true in process (STRM-8).** A remote subscriber is already off the
-> engine's thread: the gateway offers each committed batch to a bounded hand-over and returns. An
-> **in-process** subscriber is called on the committing thread and the commit waits for it, so a
-> consumer that takes two seconds makes the commit take two seconds — and in a configured node the
-> committing thread is the feed's publish timer, which drives every query on that feed. If you
-> subscribe in process, hand the work to your own queue; the Spring starter's
-> `@PravahaListener` does that for you. Delivering off the committing thread is scheduled work,
-> not a setting.
+**A consumer runs on its own subscription's thread**, in process as well as over Flight (STRM-8).
+A commit hands each subscriber the batch and returns; the subscriber's own thread calls the
+consumer. That is what makes the bound a bound: while your consumer is busy, the commits behind it
+accumulate in *your* buffer against `bufferRows`, and your overflow policy decides what happens
+when it fills. Until this, an in-process consumer was called on the committing thread and the
+commit waited for it — a consumer that took two seconds made the commit take two seconds, on the
+feed's publish timer, which drives every query on that feed.
+
+The one thing that changes for you: a commit no longer ends with your consumer having been called.
+A caller that steps the engine by hand — a test, an embedder — waits with
+`Subscription.awaitQuiet(timeout)`, and `Subscription.pending()` says how far behind a subscriber
+is right now.
 
 ---
 

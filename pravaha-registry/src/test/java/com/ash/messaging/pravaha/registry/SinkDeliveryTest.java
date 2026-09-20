@@ -274,6 +274,9 @@ class SinkDeliveryTest {
                 .isEmpty();
         assertThat(query.state()).isEqualTo(QueryState.RUNNING);
         assertThat(query.view().size()).isEqualTo(2);
+        // A subscriber is handed its batches on the subscription's own thread, not inside the
+        // commit (STRM-8), so this waits for the two commits to have reached it.
+        assertThat(subscription.awaitQuiet(java.time.Duration.ofSeconds(10))).isTrue();
         assertThat(subscribed).as("the view's subscribers carry on").hasSize(2);
         assertThat(subscription.failure()).isEmpty();
         subscription.close();

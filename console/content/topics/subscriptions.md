@@ -290,14 +290,18 @@ engine.subscribe("large_payments", changes -> changes.forEach(c ->
 + {txn_id=9001, user_id=u1, merchant=ACME-GROCERY, amount=1250}
 ```
 
-The consumer runs **on the committing thread, and the commit waits for it** (STRM-8): a consumer
-that takes two seconds makes the commit take two seconds, and in a configured node that thread is
-the feed's publish timer, which drives every query on that feed. For the same reason the buffer
-bounds *one commit* rather than how far behind you may fall — it is drained before the callback
-returns. Keep it short or hand the work on; a remote subscriber over Flight is unaffected, because
-the gateway is already off the engine's thread. In Spring,
-`@PravahaListener(query = "large_payments")` does the hand-off for you — see
-[Spring Boot starter](/help/topics/spring-boot-starter).
+The consumer runs **on the subscription's own thread, and the commit does not wait for it**
+(STRM-8). A commit files the batch in your buffer and returns, so a consumer that takes two seconds
+costs the engine nothing and costs *you* two seconds of backlog: the commits behind it accumulate
+against `bufferRows` and your overflow policy decides what happens when that fills. Each delivery
+is one whole commit — four commits behind is four batches, never one merged batch. It used to be
+called on the committing thread, which in a configured node is the feed's publish timer that drives
+every query on that feed, and the buffer then bounded *one commit* rather than a backlog.
+
+Because delivery is no longer finished when the commit returns, a caller that steps the engine by
+hand waits with `Subscription.awaitQuiet(timeout)`. In Spring,
+`@PravahaListener(query = "large_payments")` and `PravahaTester.awaitListeners(...)` do this for
+you — see [Spring Boot starter](/help/topics/spring-boot-starter).
 
 ## Pitfalls
 

@@ -99,6 +99,19 @@ class SubscribeFromSnapshotTest {
         assertThat(query.awaitApplied(Duration.ofSeconds(10))).isTrue();
     }
 
+    /**
+     * Waits until the subscriber has been handed its snapshot and everything committed after it.
+     *
+     * <p>The snapshot and every commit reach the consumer on the subscription's own thread, so
+     * that a slow one cannot hold the thread that committed the view (STRM-8). Subscribing and
+     * committing start the work; this is where a test that wants a definite answer waits for it.
+     */
+    private static void settle(Subscription subscription) {
+        assertThat(subscription.awaitQuiet(Duration.ofSeconds(10)))
+                .as("the subscriber was handed everything meant for it")
+                .isTrue();
+    }
+
     @Test
     void subscribingThenReadingLosesTheCommitInFlight() {
         // The defect, as a plain subscription still has it: kept so the documentation's word
@@ -126,6 +139,7 @@ class SubscribeFromSnapshotTest {
 
         Mirror mirror = new Mirror();
         try (Subscription subscription = query.subscribeFromSnapshot(mirror)) {
+            settle(subscription);
             assertThat(mirror.snapshots)
                     .as("the subscription drew the commit boundary itself, so the snapshot is here")
                     .isEqualTo(1);
@@ -135,6 +149,7 @@ class SubscribeFromSnapshotTest {
 
             applied(query, "u3", 30);
             query.commit();
+            settle(subscription);
         }
         assertThat(mirror.rows()).isEqualTo(zset(query.view().committedRows()));
         assertThat(query.subscriberCount()).isZero();
@@ -150,6 +165,7 @@ class SubscribeFromSnapshotTest {
         Mirror mirror = new Mirror();
         SubscriptionFilter onlyU2 = SubscriptionFilter.matching(query.outputSchema(), Map.of("user_id", "u2"));
         try (Subscription subscription = query.subscribeFromSnapshot(SubscriptionOptions.DEFAULT, onlyU2, mirror)) {
+            settle(subscription);
             assertThat(mirror.rows()).containsOnlyKeys(List.of("u2", 20L));
             assertThat(subscription.delivered()).isEqualTo(1);
         }
@@ -157,6 +173,7 @@ class SubscribeFromSnapshotTest {
         Mirror nothing = new Mirror();
         SubscriptionFilter noOne = SubscriptionFilter.matching(query.outputSchema(), Map.of("user_id", "u9"));
         try (Subscription ignored = query.subscribeFromSnapshot(SubscriptionOptions.DEFAULT, noOne, nothing)) {
+            settle(ignored);
             assertThat(nothing.snapshots).isEqualTo(1);
             assertThat(nothing.rows()).isEmpty();
         }
@@ -174,6 +191,7 @@ class SubscribeFromSnapshotTest {
             @Override
             public void onCommit(List<ViewChange> changes, long frontier) {}
         });
+        settle(subscription);
         assertThat(subscription.isClosed()).isTrue();
         assertThat(subscription.failure())
                 .get()

@@ -39,6 +39,13 @@ class EmbeddedSnapshotSubscriptionTest {
 
     private static final String TXN = "user_id:STRING,amount:INT64";
 
+    /** Waits until the subscriber has been handed its snapshot and every commit after it. */
+    private static void settle(Subscription subscription) {
+        assertThat(subscription.awaitQuiet(java.time.Duration.ofSeconds(10)))
+                .as("the subscriber was handed everything meant for it")
+                .isTrue();
+    }
+
     @Test
     void aSnapshotSubscriberStartsFromWhatWasPushedAndKeepsUp() {
         try (PravahaEngine engine = PravahaEngine.createDefault()) {
@@ -49,11 +56,16 @@ class EmbeddedSnapshotSubscriptionTest {
 
             Copy copy = new Copy();
             try (Subscription subscription = engine.subscribeFromSnapshot("big", copy)) {
+                // The snapshot and every commit reach the consumer on the subscription's own
+                // thread, so that a slow consumer cannot hold the thread that committed the view
+                // (STRM-8). A test reading the copy waits for it to have been handed over.
+                settle(subscription);
                 assertThat(copy.snapshots).hasSize(1);
                 assertThat(copy.snapshots.get(0)).isEqualTo(Map.of(Map.of("user_id", "u1", "amount", 300L), 1L));
                 assertThat(subscription.snapshotFrontier()).isPresent();
 
                 engine.push("txn", new Object[] {"u3", 400L});
+                settle(subscription);
                 assertThat(copy.rows())
                         .containsOnlyKeys(
                                 Map.of("user_id", "u1", "amount", 300L), Map.of("user_id", "u3", "amount", 400L));
@@ -85,6 +97,7 @@ class EmbeddedSnapshotSubscriptionTest {
 
             Copy copy = new Copy();
             try (Subscription ignored = engine.subscribeFromSnapshot("all_txn", copy)) {
+                settle(ignored);
                 assertThat(copy.rows()).containsOnlyKeys(Map.of("user_id", "u1", "amount", 10L));
             }
         }

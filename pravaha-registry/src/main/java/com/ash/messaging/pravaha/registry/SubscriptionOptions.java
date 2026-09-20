@@ -23,26 +23,23 @@ package com.ash.messaging.pravaha.registry;
  * the <em>query</em>, so one slow dashboard would slow the computation for everybody reading it,
  * including the people who are keeping up.
  *
- * <p><strong>That is the design, and in process it is not yet the behaviour</strong> (STRM-8).
- * {@code ViewSink.commit} hands each committed batch to its listeners <em>serially, on the
- * committing thread</em>, and {@code Subscription.onCommit} drains the buffer before returning --
- * so a consumer that takes two seconds makes the commit take two seconds, three of them make it
- * take six, and in a configured node that caller is {@code PumpingFeed}'s publish timer, which
- * drives every query on that feed. Measured at 2001 ms and 6002 ms against a 20 ms publish
- * cadence.
+ * <p><strong>{@code bufferRows} bounds how far behind this subscriber may fall</strong>, in
+ * changes, and it does so because the consumer is called on the subscription's own thread rather
+ * than on the committing one (STRM-8). While the consumer is busy with one batch, the changes of
+ * every commit after it accumulate here against that bound, and {@link Overflow} decides what
+ * happens when it is reached.
  *
- * <p>It also means {@code bufferRows} does not bound how far behind a subscriber may fall, which
- * is what this javadoc used to say it did: nothing is ever left in the buffer between commits, so
- * it bounds <em>one commit</em>. A slow consumer conflates nothing and a fast one conflates
- * whatever a single large commit overflows -- the opposite of what the names suggest.
+ * <p>It did not always. {@code Subscription.onCommit} used to drain the buffer and call the
+ * consumer before returning, on the thread that committed the view -- so nothing was ever left in
+ * the buffer between commits and this number bounded <em>one commit</em> rather than a backlog: a
+ * slow consumer conflated nothing and a fast one conflated whatever a single large commit
+ * overflowed, the opposite of what the names suggest. A consumer that slept two seconds made the
+ * commit take two seconds and three of them made it take six, against a 20 ms publish cadence, on
+ * the timer that drives every query on that feed.
  *
- * <p><strong>Over Flight none of this applies</strong>, and that is where most subscribers are: the
- * gateway's consumer only offers the batch to a bounded hand-over and returns, so the network and
- * the client are already off the engine's thread. What is exposed is an <em>in-process</em>
- * subscriber -- an embedder, the Spring starter's listener container without its own executor, the
- * console's own consumer. Closing it means delivering off the committing thread, which changes the
- * delivery contract for every in-process subscriber and every test that asserts on one, so it is
- * scheduled as its own batch rather than done in passing.
+ * <p>The cost of the change is that a commit no longer ends with the subscriber having its batch.
+ * {@code Subscription.awaitQuiet} is how a caller that stepped the engine by hand waits for it,
+ * and {@code Subscription.pending} is how anything else asks how far behind a subscriber is.
  *
  * @param bufferRows how many changes may wait for this subscriber
  * @param overflow what to do when that is exceeded

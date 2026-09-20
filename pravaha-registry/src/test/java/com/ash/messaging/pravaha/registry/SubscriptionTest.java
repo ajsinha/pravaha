@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterEach;
@@ -92,6 +93,23 @@ class SubscriptionTest {
         query.awaitApplied(java.time.Duration.ofSeconds(10));
     }
 
+    /**
+     * Waits until each subscriber has been handed everything committed to it.
+     *
+     * <p>A commit no longer ends with the consumer holding its batch: the consumer runs on the
+     * subscription's own thread, so that one that takes two seconds cannot make the commit take
+     * two seconds for every query on the feed (STRM-8). A test that feeds, commits and reads wants
+     * a definite answer at a definite moment, and this is where it waits for one -- exactly as
+     * {@code awaitApplied} above is where it waits for the lane.
+     */
+    private static void settle(Subscription... subscriptions) {
+        for (Subscription subscription : subscriptions) {
+            assertThat(subscription.awaitQuiet(java.time.Duration.ofSeconds(10)))
+                    .as("the subscriber was handed everything committed to it")
+                    .isTrue();
+        }
+    }
+
     @Test
     void aSubscriberReceivesChangesOnCommit() {
         List<ViewChange> seen = new ArrayList<>();
@@ -99,6 +117,7 @@ class SubscriptionTest {
             feed("u1", 300L);
             feed("u2", 50L);
             query.commit();
+            settle(subscription);
 
             assertThat(seen).hasSize(2);
             assertThat(subscription.delivered()).isEqualTo(2);
@@ -117,6 +136,7 @@ class SubscriptionTest {
             assertThat(seen).isEmpty();
 
             query.commit();
+            settle(subscription);
             assertThat(seen).hasSize(2);
         }
     }
@@ -128,8 +148,10 @@ class SubscriptionTest {
             feed("u1", 1L);
             feed("u2", 2L);
             query.commit();
+            settle(subscription);
             feed("u3", 3L);
             query.commit();
+            settle(subscription);
 
             assertThat(batchSizes).containsExactly(2, 1);
         }
@@ -141,6 +163,7 @@ class SubscriptionTest {
         try (Subscription subscription = query.subscribe(seen::addAll)) {
             feed("u1", 300L);
             query.commit();
+            settle(subscription);
 
             // +1 for a row appearing. A correction would arrive as -1 then +1, which is the same
             // arithmetic as everything else rather than a message type to special-case.
@@ -160,6 +183,7 @@ class SubscriptionTest {
                 Subscription b = query.subscribe(second::addAll)) {
             feed("u1", 300L);
             query.commit();
+            settle(a, b);
 
             assertThat(first).hasSize(1);
             assertThat(second).hasSize(1);
@@ -175,9 +199,94 @@ class SubscriptionTest {
             leaving.close();
             feed("u1", 300L);
             query.commit();
+            settle(stays);
 
             assertThat(staying).hasSize(1);
             assertThat(query.state()).isEqualTo(QueryState.RUNNING);
+        }
+    }
+
+    @Test
+    void aSlowSubscriberDoesNotHoldTheCommit() throws InterruptedException {
+        // STRM-8. Measured before this: commit() with one subscriber sleeping 2000 ms took
+        // 2001 ms and with three of them 6002 ms, against a 20 ms publish cadence -- and in a
+        // configured node the caller of commit() is the feed's publish timer, which drives every
+        // query on that feed. Three consumers that are still inside their callback must cost the
+        // committing thread nothing.
+        CountDownLatch entered = new CountDownLatch(3);
+        CountDownLatch release = new CountDownLatch(1);
+        List<Subscription> slow = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            slow.add(query.subscribe(changes -> {
+                entered.countDown();
+                try {
+                    // Bounded, so that breaking the fix deliberately fails this in five seconds a
+                    // consumer rather than hanging the suite on a latch nothing will count down.
+                    release.await(5, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }));
+        }
+        try {
+            feed("u1", 1L);
+            long started = System.nanoTime();
+            query.commit();
+            long tookMillis = (System.nanoTime() - started) / 1_000_000L;
+
+            assertThat(entered.await(30, java.util.concurrent.TimeUnit.SECONDS))
+                    .as("all three consumers were handed the batch")
+                    .isTrue();
+            assertThat(tookMillis)
+                    .as("the commit did not wait for three consumers still inside their callback")
+                    .isLessThan(1_000L);
+        } finally {
+            release.countDown();
+            slow.forEach(Subscription::close);
+        }
+    }
+
+    @Test
+    void theBufferBoundsHowFarBehindASlowSubscriberFalls() throws InterruptedException {
+        // STRM-8's second half. The buffer bounded one commit, not a backlog: it was drained
+        // inside every onCommit, so nothing was ever left in it between commits and a slow
+        // consumer conflated and dropped nothing at all. Here the consumer is held inside its
+        // first batch and nineteen more commits arrive behind it, against a bound of four.
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        Subscription subscription =
+                query.subscribe(SubscriptionOptions.of(4, SubscriptionOptions.Overflow.DROP_OLDEST), changes -> {
+                    if (calls.incrementAndGet() == 1) {
+                        entered.countDown();
+                        try {
+                            release.await(5, java.util.concurrent.TimeUnit.SECONDS);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                });
+        try {
+            feed("u0", 0L);
+            query.commit();
+            assertThat(entered.await(30, java.util.concurrent.TimeUnit.SECONDS))
+                    .as("the consumer is inside its first batch")
+                    .isTrue();
+
+            for (int i = 1; i <= 19; i++) {
+                feed("u" + i, i);
+                query.commit();
+            }
+
+            assertThat(subscription.pending())
+                    .as("four changes waiting, which is what bufferRows bounds")
+                    .isEqualTo(4);
+            assertThat(subscription.dropped())
+                    .as("the other fifteen were dropped and counted, rather than not happening")
+                    .isEqualTo(15);
+        } finally {
+            release.countDown();
+            subscription.close();
         }
     }
 
@@ -191,6 +300,7 @@ class SubscriptionTest {
             feed("u1", 20L);
             feed("u1", 30L);
             query.commit();
+            settle(subscription);
 
             // One key, so the newest change for it supersedes the waiting ones. The engine was
             // never blocked, and what was superseded is counted rather than silently gone.
@@ -209,6 +319,7 @@ class SubscriptionTest {
             feed("u3", 3L);
             feed("u4", 4L);
             query.commit();
+            settle(subscription);
 
             // A subscriber quietly missing data is the failure this option exists to make visible.
             assertThat(subscription.dropped()).isEqualTo(2);
@@ -248,8 +359,10 @@ class SubscriptionTest {
 
         feed("u1", 1L);
         query.commit();
+        settle(subscription);
         feed("u2", 2L);
         query.commit();
+        settle(subscription);
 
         // Called once. Calling it again every commit turns one broken subscriber into a stream of
         // exceptions on the engine's own thread.
@@ -280,6 +393,7 @@ class SubscriptionTest {
             feed("u2", 20L);
             feed("u3", 30L);
             query.commit();
+            settle(subscription);
 
             assertThat(seen)
                     .singleElement()
@@ -299,6 +413,7 @@ class SubscriptionTest {
             feed("u1", 10L);
             feed("u2", 20L);
             query.commit();
+            settle(subscription);
 
             assertThat(seen)
                     .singleElement()
@@ -373,6 +488,7 @@ class SubscriptionTest {
             feed("u1", 10L);
             feed("u2", 20L);
             query.commit();
+            settle(a, b);
 
             // Two subscribers, two different slices, one read of the source and one copy of the
             // state. This is the argument for separating registration from subscription.
@@ -395,6 +511,7 @@ class SubscriptionTest {
                 feed("other-" + i, i);
             }
             query.commit();
+            settle(subscription);
 
             // Filtering happens before buffering. Otherwise a subscriber watching one key would
             // have its own row pushed out by fifty rows it never asked for.
@@ -495,6 +612,7 @@ class SubscriptionTest {
 
         feed("u1", 10);
         query.commit();
+        settle(dropped, surviving);
         assertThat(onDropped).hasSize(1);
         assertThat(onSurviving).hasSize(1);
 
@@ -512,6 +630,7 @@ class SubscriptionTest {
 
         feed("u2", 20);
         query.commit();
+        settle(surviving);
         assertThat(onDropped)
                 .as("nothing more reaches a subscriber on a name that does not exist")
                 .hasSize(1);

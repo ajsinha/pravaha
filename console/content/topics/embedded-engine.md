@@ -71,7 +71,7 @@ public final class Payments {
             engine.register("large_payments",
                     "SELECT txn_id, merchant, amount FROM txn WHERE amount > 1000", "txn_id");
 
-            // 3. Subscribe: every commit, retractions included, on the committing thread.
+            // 3. Subscribe: every commit, retractions included, on the subscription's thread.
             engine.subscribe("merchant_minutes", changes -> changes.forEach(c ->
                     System.out.println((c.isRetraction() ? "- " : "+ ") + c.values())));
 

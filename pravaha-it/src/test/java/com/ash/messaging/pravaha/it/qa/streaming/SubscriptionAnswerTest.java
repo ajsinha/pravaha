@@ -103,6 +103,22 @@ class SubscriptionAnswerTest {
         arena.close();
     }
 
+    /**
+     * Waits until each subscriber has been handed everything committed to it.
+     *
+     * <p>A commit no longer ends with the consumer holding its batch: the consumer runs on the
+     * subscription's own thread so that one that is slow cannot hold the thread that committed the
+     * view, which in a configured node drives every query on its feed (STRM-8). These cases feed,
+     * commit and read, and this is where they wait for a definite answer.
+     */
+    private static void settle(Subscription... subscriptions) {
+        for (Subscription subscription : subscriptions) {
+            assertThat(subscription.awaitQuiet(java.time.Duration.ofSeconds(10)))
+                    .as("the subscriber was handed everything committed to it")
+                    .isTrue();
+        }
+    }
+
     // ================================================== A. change kinds delivered
 
     @Test
@@ -113,6 +129,7 @@ class SubscriptionAnswerTest {
         try (Subscription subscription = query.subscribe(seen::addAll)) {
             feed("u1", 300);
             query.commit();
+            settle(subscription);
             assertThat(seen).hasSize(1);
             assertThat(seen.get(0).weight()).isEqualTo(1L);
             assertThat(seen.get(0).isRetraction()).isFalse();
@@ -137,6 +154,7 @@ class SubscriptionAnswerTest {
             assertThat(subscription.delivered()).isZero();
 
             query.commit();
+            settle(subscription);
             assertThat(batches).hasSize(1);
             assertThat(batches.get(0)).hasSize(3);
             assertThat(subscription.delivered()).isEqualTo(3);
@@ -215,6 +233,7 @@ class SubscriptionAnswerTest {
         try (Subscription subscription = query.subscribe(seen::addAll)) {
             feedW("u1", 300, -1, 1);
             query.commit();
+            settle(subscription);
             assertThat(seen).hasSize(1);
             assertThat(seen.get(0).weight()).isEqualTo(-1L);
             assertThat(seen.get(0).isRetraction()).isTrue();
@@ -235,6 +254,7 @@ class SubscriptionAnswerTest {
         try (Subscription subscription = query.subscribe(seen::addAll)) {
             feedW("u1", 999, 0, 1);
             query.commit();
+            settle(subscription);
             assertThat(query.view().get("u1").values().orElseThrow()[1])
                     .as("a zero-weight change must not overwrite the row")
                     .isEqualTo(300L);
@@ -251,6 +271,7 @@ class SubscriptionAnswerTest {
             feed("u1", 300);
             feedW("u1", 300, -1, 2);
             query.commit();
+            settle(subscription);
             assertThat(seen).hasSize(2);
             assertThat(seen.get(0).weight()).isEqualTo(1L);
             assertThat(seen.get(1).weight()).isEqualTo(-1L);
@@ -266,6 +287,7 @@ class SubscriptionAnswerTest {
             feedW("u2", 300, -1, 3);
             feedW("u2", 300, 1, 4);
             query.commit();
+            settle(subscription);
             assertThat(second).hasSize(2);
             assertThat(query.view().get("u2").found())
                     .as("1 - 1 + 1 = 1, so the key stands")
@@ -283,6 +305,7 @@ class SubscriptionAnswerTest {
             feedW("u2", 20, -2, 2);
             feedW("u3", 30, 7, 3);
             query.commit();
+            settle(subscription);
             assertThat(seen.stream().map(ViewChange::weight)).containsExactly(3L, -2L, 7L);
             assertThat(seen.stream().mapToLong(ViewChange::weight).sum()).isEqualTo(8); // 3 - 2 + 7
             assertThat(seen.stream().map(ViewChange::isRetraction)).containsExactly(false, true, false);
@@ -306,6 +329,7 @@ class SubscriptionAnswerTest {
             feedKind("c", 3, RowKind.UPDATE_BEFORE, 3);
             feedKind("d", 4, RowKind.DELETE, 4);
             query.commit();
+            settle(subscription);
             assertThat(seen.stream().map(ViewChange::weight)).containsExactly(1L, 1L, -1L, -1L);
             assertThat(seen.stream().mapToLong(ViewChange::weight).sum()).isZero(); // 1 + 1 - 1 - 1
             assertThat(query.view().get("a").found()).isTrue();
@@ -343,6 +367,7 @@ class SubscriptionAnswerTest {
             query.awaitApplied(Duration.ofSeconds(10));
 
             query.commit();
+            settle(subscription);
             assertThat(seen).hasSize(2);
             assertThat(seen.get(0).weight())
                     .as("rowKind(INSERT) written after weight(-1)")
@@ -365,6 +390,7 @@ class SubscriptionAnswerTest {
             feedW("u1", 300, -1, 2);
             feedW("u2", 300, 1, 3);
             query.commit();
+            settle(subscription);
             assertThat(seen).hasSize(2);
             assertThat(seen.get(0).weight()).isEqualTo(-1L);
             assertThat(seen.get(0).values()).containsExactly("u1", 300L);
@@ -420,6 +446,7 @@ class SubscriptionAnswerTest {
                 nullableQuery.awaitApplied(Duration.ofSeconds(10));
 
                 nullableQuery.commit();
+                settle(subscription);
                 assertThat(seen).hasSize(2);
                 assertThat(seen.get(0).values()[0]).isEqualTo("u1");
                 assertThat(seen.get(0).values()[1])
@@ -447,6 +474,7 @@ class SubscriptionAnswerTest {
                 Subscription second = query.subscribe(b::addAll)) {
             feed("u1", 300);
             query.commit();
+            settle(first, second);
             assertThat(b.get(0).values()[1])
                     .as("the other subscriber's copy is untouched")
                     .isEqualTo(300L);
@@ -473,6 +501,7 @@ class SubscriptionAnswerTest {
                 feed("u" + i, i);
             }
             query.commit();
+            settle(subscription);
             assertThat(subscription.delivered()).isEqualTo(10_000);
             assertThat(subscription.dropped()).isZero();
             assertThat(subscription.conflated()).isZero();
@@ -498,6 +527,7 @@ class SubscriptionAnswerTest {
                 feed("u" + i, i);
             }
             query.commit();
+            settle(subscription);
             assertThat(subscription.delivered()).isEqualTo(10_000);
             assertThat(subscription.dropped() + subscription.conflated()).isEqualTo(1);
             Set<Object> amounts = new java.util.HashSet<>();
@@ -519,6 +549,7 @@ class SubscriptionAnswerTest {
             feed("m", 3);
             feed("b", 4);
             query.commit();
+            settle(subscription);
             assertThat(seen.stream().map(c -> c.values()[0])).containsExactly("z", "a", "m", "b");
         }
     }
@@ -532,8 +563,10 @@ class SubscriptionAnswerTest {
         try (Subscription subscription = query.subscribe(b -> batches.add(List.copyOf(b)))) {
             feed("u1", 1);
             query.commit();
+            settle(subscription);
             feed("u2", 2);
             query.commit();
+            settle(subscription);
             assertThat(batches).hasSize(2);
             assertThat(batches.get(0)).hasSize(1);
             assertThat(batches.get(0).get(0).values()).containsExactly("u1", 1L);
@@ -558,6 +591,7 @@ class SubscriptionAnswerTest {
         try (Subscription subscription = query.subscribe(seen::addAll)) {
             feed("u4", 4);
             query.commit();
+            settle(subscription);
             assertThat(seen).hasSize(1);
             assertThat(seen.get(0).values()).containsExactly("u4", 4L);
             assertThat(subscription.delivered()).isEqualTo(1);
@@ -573,12 +607,18 @@ class SubscriptionAnswerTest {
         AtomicInteger callbacks = new AtomicInteger();
         try (Subscription subscription = query.subscribe(changes -> callbacks.incrementAndGet())) {
             query.commit();
+            settle(subscription);
             query.commit();
+            settle(subscription);
             query.commit();
+            settle(subscription);
             feed("u1", 1);
             query.commit();
+            settle(subscription);
             query.commit();
+            settle(subscription);
             query.commit();
+            settle(subscription);
             assertThat(callbacks.get()).isEqualTo(1);
             assertThat(subscription.delivered()).isEqualTo(1);
         }
@@ -616,6 +656,7 @@ class SubscriptionAnswerTest {
                 feedTrade(ownArena, trades, "u2", 30, "SWAP", 3);
                 feedTrade(ownArena, trades, "u2", 40, "BOND", 4);
                 trades.commit();
+                settle(a, b, c);
 
                 assertThat(swapsOnly).hasSize(2); // u1/SWAP and u2/SWAP
                 assertThat(bothColumns).hasSize(1); // 4 rows, 4 - 1 = 3 filtered out
@@ -688,8 +729,10 @@ class SubscriptionAnswerTest {
             first[0] = one;
             feed("u1", 1);
             query.commit();
+            settle(one, two, three);
             feed("u2", 2);
             query.commit();
+            settle(one, two, three);
 
             assertThat(a).as("A saw the first batch and then left").hasSize(1);
             assertThat(b).hasSize(2);
@@ -712,6 +755,7 @@ class SubscriptionAnswerTest {
             for (int commit = 1; commit <= 3; commit++) {
                 feed("u" + commit, commit);
                 query.commit();
+                settle(broken, good);
             }
             assertThat(calls.get()).as("called once, then detached").isEqualTo(1);
             assertThat(broken.isClosed()).isTrue();
@@ -749,6 +793,7 @@ class SubscriptionAnswerTest {
         try (Subscription subscription = query.subscribe(seen::addAll)) {
             feed("a", 1);
             query.commit();
+            settle(subscription);
             assertThat(seen).hasSize(1);
 
             registry.pause("q");
@@ -759,12 +804,14 @@ class SubscriptionAnswerTest {
             assertThat(offer("b", 2)).isFalse();
             assertThat(offer("c", 3)).isFalse();
             query.commit();
+            settle(subscription);
             assertThat(query.rowsIn()).isEqualTo(before);
             assertThat(seen).hasSize(1);
 
             registry.resume("q");
             feed("d", 4);
             query.commit();
+            settle(subscription);
             assertThat(seen).hasSize(2);
             assertThat(seen.get(1).values()).containsExactly("d", 4L);
             // b and c appear nowhere: the view holds a and d, and that is the cost of a pause.
@@ -827,6 +874,7 @@ class SubscriptionAnswerTest {
                     feedInto(ownArena, q, "u" + i, i);
                 }
                 q.commit();
+                settle(subscription);
                 assertThat(subscription.delivered()).isEqualTo(100);
                 assertThat(subscription.dropped()).isEqualTo(1);
                 // The first fed is gone, so the amounts are 2..101: 101 * 102 / 2 - 1 = 5,150.
@@ -852,6 +900,7 @@ class SubscriptionAnswerTest {
                     feedInto(ownArena, q, "k" + i, i);
                 }
                 q.commit();
+                settle(subscription);
                 assertThat(subscription.delivered()).isEqualTo(1);
                 assertThat(subscription.dropped()).isEqualTo(4); // 1 + 4 = 5 fed
                 assertThat(seen.get(0).values()[1]).as("the newest survives").isEqualTo(5L);
@@ -881,6 +930,7 @@ class SubscriptionAnswerTest {
                 feedInto(ownArena, q, "k2", 40);
                 feedInto(ownArena, q, "k1", 50);
                 q.commit();
+                settle(subscription);
                 assertThat(seen).hasSize(2);
                 assertThat(seen.stream().map(c -> c.values()[1])).containsExactly(50L, 40L);
                 assertThat(subscription.conflated()).isEqualTo(3);
@@ -903,6 +953,7 @@ class SubscriptionAnswerTest {
                 feedInto(otherArena, q, "c", 3);
                 feedInto(otherArena, q, "d", 4);
                 q.commit();
+                settle(subscription);
                 assertThat(seen.stream().map(c -> c.values()[1])).containsExactly(3L, 4L);
                 assertThat(subscription.dropped()).isEqualTo(2);
                 assertThat(subscription.conflated()).isZero();
@@ -926,6 +977,7 @@ class SubscriptionAnswerTest {
                     feedInto(ownArena, q, "k" + i, i);
                 }
                 q.commit();
+                settle(subscription);
                 assertThat(subscription.delivered()).isEqualTo(2);
                 assertThat(subscription.dropped()).isEqualTo(9_998);
                 assertThat(subscription.delivered() + subscription.dropped()).isEqualTo(10_000);
@@ -952,6 +1004,7 @@ class SubscriptionAnswerTest {
                 // others were reading. What STRM-084 is actually about -- an actionable message on
                 // the subscriber's own channel -- is unchanged and asserted below.
                 q.commit();
+                settle(subscription);
                 assertThat(subscription.isClosed()).isTrue();
                 assertThat(subscription.failure()).isPresent();
                 assertThat(subscription.failure().orElseThrow().getMessage())
@@ -979,6 +1032,7 @@ class SubscriptionAnswerTest {
                 feed("b" + commit, commit);
                 feed("c" + commit, commit);
                 query.commit();
+                settle(subscription);
             }
             assertThat(subscription.isClosed()).isTrue();
             assertThat(subscription.delivered()).isEqualTo(12); // four batches of three
@@ -1119,9 +1173,11 @@ class SubscriptionAnswerTest {
                     // row that is meant to be on time.
                     if (watermarkSeconds.size() > 1 && watermark == 0 && rows.indexOf(row) == rows.size() - 2) {
                         windowed.advanceWatermark(watermarkSeconds.get(watermark++) * SECOND);
+                        settle(subscription);
                     }
                 }
                 windowed.advanceWatermark(watermarkSeconds.get(watermarkSeconds.size() - 1) * SECOND);
+                settle(subscription);
             }
         }
         return batches;
@@ -1158,6 +1214,7 @@ class SubscriptionAnswerTest {
                     feedInto(ownArena, q, "u" + i, i);
                 }
                 q.commit();
+                settle(subscription);
             }
         }
         return seen;
