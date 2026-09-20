@@ -111,19 +111,51 @@ public final class ApiDtos {
      * <p>Node {@code n0} is the root, and ids follow the order the text plan prints operators. Edges run
      * the way rows flow, from an input to the operator that consumes it.
      *
-     * @param operatorMetrics per-operator telemetry, keyed by node id. <strong>Always null
-     *     today</strong>: the runtime does not count rows or state per operator, and inventing a split
-     *     of the query's totals across its operators would be a number that looks measured and is not.
-     *     {@code metricsNote} says so in words.
-     * @param query what the engine does measure, for the query as a whole, when this is the plan of a
+     * @param operatorMetrics per-operator telemetry, keyed by node id -- {@code n0} is the root, the
+     *     same ids {@code nodes} carries. Null for SQL that is not registered (there is nothing
+     *     running to measure) and null on a node started with {@code pravaha.metrics.operators} off,
+     *     which is deliberately distinguishable from every counter reading zero. {@code metricsNote}
+     *     says which of those it is
+     * @param bottleneck the node id most of this query's own time goes into, or null when nothing
+     *     has been sampled yet. Measured, not inferred from row counts: a filter that drops 99 % of
+     *     its input is not the bottleneck for dropping them
+     * @param metricsNote what is and is not measured here, in words, so a client never has to guess
+     *     what a null means
+     * @param query what the engine measures for the query as a whole, when this is the plan of a
      *     registered query; null for SQL that is not registered
      */
     public record PlanGraph(
             List<PlanNode> nodes,
             List<PlanEdge> edges,
-            java.util.Map<String, Object> operatorMetrics,
+            java.util.Map<String, OperatorTelemetry> operatorMetrics,
+            String bottleneck,
             String metricsNote,
             QueryTelemetry query) {}
+
+    /**
+     * What one operator of a running query has done.
+     *
+     * @param rowsIn rows handed to it; a join counts both sides here
+     * @param rowsOut rows it emitted. Against {@code rowsIn} this is the operator's selectivity
+     * @param stateBytes bytes its state store holds, or null where it keeps no state of its own or
+     *     keeps it on the heap, where there is no byte count that is not a guess
+     * @param watermark the event time it has been advanced to, ISO-8601, or null before the first
+     *     advance. Every node of one plan carries the same figure: an advance reaches all of them
+     *     in one call on the lane thread
+     * @param selfNanos its own work on the sampled rows, its children's time subtracted
+     * @param sampledRows how many rows that time covers -- one in every 1,024 that entered the
+     *     pipeline. Published beside the time so the rate can be checked rather than assumed
+     * @param selfTimeShare its share of the query's sampled time, 0 to 1. This is the number that
+     *     names a bottleneck
+     */
+    public record OperatorTelemetry(
+            long rowsIn,
+            long rowsOut,
+            Long stateBytes,
+            String watermark,
+            long selfNanos,
+            long sampledRows,
+            double selfTimeShare) {}
 
     /**
      * One operator.
@@ -141,9 +173,29 @@ public final class ApiDtos {
     /**
      * What the engine measures for one registered query as a whole. Row counts are {@code -1} when
      * withheld from a principal entitled only to a row-filtered slice of the view.
+     *
+     * @param backpressureWaits episodes in which one of this query's writers found nowhere to put a
+     *     row. A count of episodes, not of rows: a source held off for an hour is one
+     * @param backpressureWaitSeconds how long those episodes lasted altogether, including one still
+     *     open. Against uptime this is the share of time the query could not be fed
+     * @param blockedFraction the same share as the lanes see it, 0 to 1, counting every writer into
+     *     those lanes. On a shared lane that includes other queries' writers, which is the point:
+     *     a query can be blocked by a neighbour and this is where that shows
+     * @param inboxDepth rows queued into the lane and not yet taken, now
+     * @param inboxCells what that depth is out of
      */
     public record QueryTelemetry(
-            long rowsIn, long stateHeld, long stateCeiling, long viewSize, String watermark, int subscribers) {}
+            long rowsIn,
+            long stateHeld,
+            long stateCeiling,
+            long viewSize,
+            String watermark,
+            int subscribers,
+            long backpressureWaits,
+            double backpressureWaitSeconds,
+            double blockedFraction,
+            int inboxDepth,
+            int inboxCells) {}
 
     /** A key column of a view: its name, and the ordinal registration took. */
     public record KeyColumn(String name, int ordinal) {}

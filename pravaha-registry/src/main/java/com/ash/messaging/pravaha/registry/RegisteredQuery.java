@@ -154,6 +154,35 @@ public final class RegisteredQuery implements AutoCloseable {
         return execution.spillStatistics();
     }
 
+    /**
+     * What each operator of this query's plan has done: rows in, rows out, state bytes, the
+     * watermark it has reached and its sampled share of the query's own time.
+     *
+     * <p>In plan-node order, so entry {@code i} is the node {@code GET
+     * /api/v1/queries/{name}/plan} calls {@code ni}. Empty when the node runs with {@code
+     * pravaha.metrics.operators} off, which is deliberately distinguishable from a plan whose
+     * counters happen to be zero.
+     */
+    public java.util.List<com.ash.messaging.pravaha.runtime.exec.OperatorMetrics.Snapshot> operatorMetrics() {
+        return execution.operatorMetrics();
+    }
+
+    /**
+     * How often and how long this query's writers had nowhere to put a row.
+     *
+     * <p>The lane's view, so on a shared lane it names every query whose writer waited there --
+     * which is the point: a query that is fine can be the one waiting, because the lane it waits
+     * on is being held by somebody else.
+     */
+    public com.ash.messaging.pravaha.runtime.lane.LaneBackpressure.Snapshot backpressure() {
+        return execution.backpressure();
+    }
+
+    /** Episodes this query's own pumps spent waiting for room, and how long they lasted in total. */
+    public long[] pumpBackpressure() {
+        return execution.pumpBackpressure();
+    }
+
     /** The view this computation keeps current. */
     public ServedView view() {
         return view;

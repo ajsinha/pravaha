@@ -305,7 +305,11 @@ class RegistryEndpointsTest {
     }
 
     @Test
-    void aRegisteredPlanIsAGraphAndSaysPlainlyThatItHasNoPerOperatorNumbers() {
+    void aRegisteredPlanIsAGraphAndSaysPlainlyWhyItHasNoPerOperatorNumbers() {
+        // pravaha.metrics.operators is off here, as it is by default, so the counters were never
+        // built into this query's stages. The note has to say that rather than leave a client to
+        // read a null as "the engine cannot do this" -- see PlanOperatorMetricsTest for the
+        // measured case.
         ApiDtos.PlanGraph plan = queries.plan("orders_view", as(ANALYST));
 
         assertThat(plan.nodes()).isNotEmpty();
@@ -313,11 +317,16 @@ class RegistryEndpointsTest {
         assertThat(plan.nodes()).extracting(ApiDtos.PlanNode::operator).contains("Scan");
         assertThat(plan.edges()).hasSize(plan.nodes().size() - 1);
         assertThat(plan.operatorMetrics())
-                .as("the runtime does not count per operator")
+                .as("nothing was counting them, which is not the same as every count being zero")
                 .isNull();
-        assertThat(plan.metricsNote()).contains("not published");
+        assertThat(plan.bottleneck()).isNull();
+        assertThat(plan.metricsNote()).contains("not published").contains("pravaha.metrics.operators is off");
         assertThat(plan.query()).isNotNull();
         assertThat(plan.query().rowsIn()).isZero();
+        assertThat(plan.query().backpressureWaits())
+                .as("backpressure is measured whether or not per-operator detail is on")
+                .isZero();
+        assertThat(plan.query().inboxCells()).isPositive();
     }
 
     @Test

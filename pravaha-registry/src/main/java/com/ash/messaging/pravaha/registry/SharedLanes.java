@@ -145,6 +145,19 @@ final class SharedLanes implements AutoCloseable {
         return count;
     }
 
+    /**
+     * One shared lane's backpressure, or nothing when that lane has not been built.
+     *
+     * <p>Per lane rather than per query, because on a shared lane that is the honest unit: the
+     * lane's writers are every hosted query's, and its inbox depth is one queue they all wait
+     * behind. A per-query figure taken from here would report the same number for every query on
+     * the lane, which is true and reads as though each of them were the cause.
+     */
+    java.util.Optional<com.ash.messaging.pravaha.runtime.lane.LaneBackpressure.Snapshot> backpressureOn(int index) {
+        LaneGroup group = index >= 0 && index < lanes.length ? lanes[index] : null;
+        return group == null ? java.util.Optional.empty() : java.util.Optional.of(group.backpressure());
+    }
+
     /** Pipelines on every configured lane, zero for one not built yet. */
     List<Integer> pipelinesPerLane() {
         List<Integer> counts = new ArrayList<>(lanes.length);

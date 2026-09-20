@@ -161,6 +161,32 @@ public class PravahaMetrics implements AutoCloseable {
                 tags,
                 query,
                 q -> q.spillStatistics().slabsReleased()));
+        // Backpressure, which was measured nowhere at all: rejectedOffers counted refusals with no
+        // time in them, so a source held off for an hour and a source refused twice in an hour
+        // reported the same. These three are the time.
+        ids.add(FunctionCounter.builder(
+                        "pravaha.query.backpressure.waits", query, q -> (double) q.pumpBackpressure()[0])
+                .tags(tags)
+                .register(meters)
+                .getId());
+        ids.add(FunctionCounter.builder(
+                        "pravaha.query.backpressure.wait.seconds", query, q -> q.pumpBackpressure()[1] / 1e9)
+                .tags(tags)
+                .baseUnit("seconds")
+                .register(meters)
+                .getId());
+        // The lane's view rather than the query's: on a shared lane this counts every writer into
+        // the lane, so a query blocked by a neighbour reads high here and low on the two above.
+        // **The one to alert on** for "is this query the limit" -- near 1 means it is.
+        ids.add(gauge(
+                "pravaha.query.backpressure.blocked.fraction",
+                tags,
+                query,
+                q -> q.backpressure().blockedFraction()));
+        ids.add(gauge(
+                "pravaha.query.inbox.depth", tags, query, q -> q.backpressure().inboxDepth()));
+        ids.add(gauge(
+                "pravaha.query.inbox.cells", tags, query, q -> q.backpressure().inboxCells()));
         ids.add(gauge("pravaha.query.view.size", tags, query, q -> q.view().size()));
         // Rising steadily is retention doing its job. Flat at zero on a long-running query means
         // either nothing is old enough yet or the retention is longer than anyone intended.
@@ -353,6 +379,14 @@ public class PravahaMetrics implements AutoCloseable {
                 .baseUnit("bytes")
                 .register(meters)
                 .getId());
+        // Whether per-operator counters exist on this node at all, so a dashboard that finds none
+        // can say "switched off" rather than "zero" (pravaha.metrics.operators).
+        laneMeters.add(Gauge.builder(
+                        "pravaha.metrics.operators.enabled",
+                        node,
+                        n -> com.ash.messaging.pravaha.runtime.exec.InterpretedPipeline.measuringOperators() ? 1 : 0)
+                .register(meters)
+                .getId());
         int sharedLanes = registry.pipelinesPerSharedLane().size();
         for (int i = 0; i < sharedLanes; i++) {
             int lane = i;
@@ -360,7 +394,33 @@ public class PravahaMetrics implements AutoCloseable {
                     .tags(Tags.of("lane", Integer.toString(lane)))
                     .register(meters)
                     .getId());
+            // The shared lane's own backpressure. Per lane rather than per query because the lane
+            // is the thing being waited on: every query hosted on it queues behind one inbox, and
+            // reporting the same fraction under each of their names would read as though each of
+            // them were the cause.
+            laneMeters.add(Gauge.builder("pravaha.lane.blocked.fraction", node, n -> sharedLaneBlocked(n, lane))
+                    .tags(Tags.of("lane", Integer.toString(lane)))
+                    .register(meters)
+                    .getId());
+            laneMeters.add(Gauge.builder("pravaha.lane.inbox.depth", node, n -> sharedLaneDepth(n, lane))
+                    .tags(Tags.of("lane", Integer.toString(lane)))
+                    .register(meters)
+                    .getId());
         }
+    }
+
+    private static double sharedLaneBlocked(PravahaNode node, int lane) {
+        return node.registry()
+                .flatMap(registry -> registry.sharedLaneBackpressure(lane))
+                .map(com.ash.messaging.pravaha.runtime.lane.LaneBackpressure.Snapshot::blockedFraction)
+                .orElse(0d);
+    }
+
+    private static double sharedLaneDepth(PravahaNode node, int lane) {
+        return node.registry()
+                .flatMap(registry -> registry.sharedLaneBackpressure(lane))
+                .map(snapshot -> (double) snapshot.inboxDepth())
+                .orElse(0d);
     }
 
     private static double queriesOnOwnLanes(PravahaNode node) {

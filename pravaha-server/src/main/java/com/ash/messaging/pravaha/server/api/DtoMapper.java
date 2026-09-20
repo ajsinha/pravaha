@@ -69,7 +69,26 @@ public class DtoMapper {
     /** The plan as nodes and edges, with the query-level telemetry the engine measures, if any. */
     public ApiDtos.PlanGraph toPlanGraph(
             com.ash.messaging.pravaha.runtime.plan.PhysicalOperator plan, ApiDtos.QueryTelemetry telemetry) {
+        return toPlanGraph(plan, telemetry, java.util.List.of());
+    }
+
+    /**
+     * The plan as nodes and edges, with what the engine measures for each of its operators.
+     *
+     * <p>Keyed by the same ids the nodes carry, because both come from {@code PlanNodes} -- one
+     * definition of the order, so the counters cannot land on the wrong boxes.
+     *
+     * @param operators in plan-node order, or empty when nothing is measuring them: SQL that is not
+     *     registered has nothing running, and a node started with {@code pravaha.metrics.operators}
+     *     off has counters that were never built. Those are different answers and the note says
+     *     which one this is
+     */
+    public ApiDtos.PlanGraph toPlanGraph(
+            com.ash.messaging.pravaha.runtime.plan.PhysicalOperator plan,
+            ApiDtos.QueryTelemetry telemetry,
+            java.util.List<com.ash.messaging.pravaha.runtime.exec.OperatorMetrics.Snapshot> operators) {
         var graph = com.ash.messaging.pravaha.sql.plan.PlanGraph.of(plan);
+        java.util.Map<String, ApiDtos.OperatorTelemetry> measured = toOperatorMetrics(operators);
         return new ApiDtos.PlanGraph(
                 graph.nodes().stream()
                         .map(node -> new ApiDtos.PlanNode(
@@ -78,12 +97,56 @@ public class DtoMapper {
                 graph.edges().stream()
                         .map(edge -> new ApiDtos.PlanEdge(edge.from(), edge.to()))
                         .toList(),
-                null,
-                "Per-operator rows, state and watermarks are not published: the runtime counts them per "
-                        + "query, not per operator, and splitting a query's totals across its operators would "
-                        + "be a number that looks measured and is not."
-                        + (telemetry == null ? "" : " The query's own totals are under 'query'."),
+                measured,
+                com.ash.messaging.pravaha.runtime.exec.OperatorTelemetry.bottleneck(operators)
+                        .map(com.ash.messaging.pravaha.runtime.exec.OperatorMetrics.Snapshot::nodeId)
+                        .orElse(null),
+                metricsNote(telemetry, measured),
                 telemetry);
+    }
+
+    private static String metricsNote(
+            ApiDtos.QueryTelemetry telemetry, java.util.Map<String, ApiDtos.OperatorTelemetry> measured) {
+        if (measured != null) {
+            return "Per-operator rows, rows out, state bytes and watermark are measured. Self time is "
+                    + "sampled: one row in every 1,024 that enters the pipeline is timed at every operator "
+                    + "on its path, and 'sampledRows' says how many that was, so a share read off a handful "
+                    + "of samples can be recognised as one. 'bottleneck' is the node most of the sampled "
+                    + "time went into.";
+        }
+        if (telemetry == null) {
+            return "Per-operator numbers are not published for a plan that is not running: there is nothing "
+                    + "to measure. Register the query and read its plan to get them.";
+        }
+        return "Per-operator numbers are not published on this node: pravaha.metrics.operators is off, so the "
+                + "counters were never built into this query's stages. Set it and re-register the query. "
+                + "The query's own totals are under 'query'.";
+    }
+
+    /** Each operator's numbers, by node id, or null when nothing was measuring them. */
+    private static java.util.Map<String, ApiDtos.OperatorTelemetry> toOperatorMetrics(
+            java.util.List<com.ash.messaging.pravaha.runtime.exec.OperatorMetrics.Snapshot> operators) {
+        if (operators.isEmpty()) {
+            return null;
+        }
+        long total = com.ash.messaging.pravaha.runtime.exec.OperatorTelemetry.totalSelfNanos(operators);
+        java.util.Map<String, ApiDtos.OperatorTelemetry> byNode = new java.util.LinkedHashMap<>();
+        for (var each : operators) {
+            byNode.put(
+                    each.nodeId(),
+                    new ApiDtos.OperatorTelemetry(
+                            each.rowsIn(),
+                            each.rowsOut(),
+                            each.stateBytes(),
+                            each.watermarkNanos() == null
+                                    ? null
+                                    : java.time.Instant.ofEpochSecond(0, each.watermarkNanos())
+                                            .toString(),
+                            each.selfNanos(),
+                            each.sampledRows(),
+                            total == 0 ? 0 : (double) each.selfNanos() / total));
+        }
+        return byNode;
     }
 
     /** A refusal or failure, as the API shows one. */

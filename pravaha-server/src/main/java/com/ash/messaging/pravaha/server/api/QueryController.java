@@ -298,7 +298,13 @@ public class QueryController {
         Principal principal = authorizer.principalOf(http);
         QueryListing listing = requireListing(http, name);
         QueryListing.Entry entry = listing.find(principal, name, "http.plan").orElseThrow(() -> noSuchQuery(name));
-        return mapper.toPlanGraph(entry.query().plan(), telemetry(entry));
+        // Withheld from a caller entitled only to a row-filtered slice, for the same reason the
+        // query's own row count is: rows in at an operator is a count of the data, and a count of
+        // the data past a filter the caller may not see is a count of rows outside its entitlement.
+        var operators = entry.restricted()
+                ? java.util.List.<com.ash.messaging.pravaha.runtime.exec.OperatorMetrics.Snapshot>of()
+                : entry.query().operatorMetrics();
+        return mapper.toPlanGraph(entry.query().plan(), telemetry(entry), operators);
     }
 
     /**
@@ -405,6 +411,12 @@ public class QueryController {
     private static ApiDtos.QueryTelemetry telemetry(QueryListing.Entry entry) {
         RegisteredQuery query = entry.query();
         var usage = query.stateUsage();
+        // The query's own pumps for the counts, the lanes for the fraction. They answer different
+        // questions on a shared lane: the pumps say how long this query's writers waited, and the
+        // lanes say how much of the time the lane was unwritable at all -- which is how a query
+        // held up by a neighbour is told from one holding itself up.
+        long[] pump = query.pumpBackpressure();
+        var lanes = query.backpressure();
         return new ApiDtos.QueryTelemetry(
                 entry.rowsIn(),
                 // How many groups a query holds is a count of the data too, so it is withheld on the
@@ -415,7 +427,12 @@ public class QueryController {
                 query.watermarkNanos()
                         .map(nanos -> java.time.Instant.ofEpochSecond(0, nanos).toString())
                         .orElse(null),
-                query.subscriberCount());
+                query.subscriberCount(),
+                pump[0],
+                pump[1] / 1e9,
+                lanes.blockedFraction(),
+                lanes.inboxDepth(),
+                lanes.inboxCells());
     }
 
     public record ValidateRequest(String sql) {}

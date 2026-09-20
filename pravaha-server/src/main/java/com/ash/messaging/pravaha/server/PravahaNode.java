@@ -128,6 +128,19 @@ public class PravahaNode implements SmartLifecycle {
     private final SinkBindingProperties sinks;
 
     private final com.ash.messaging.pravaha.server.state.StateSpillProperties stateSpill;
+
+    /**
+     * {@code pravaha.metrics.operators}: whether queries compiled on this node count rows, state
+     * and time per operator (B6).
+     *
+     * <p>Off by default, and the default is a measurement rather than a preference --
+     * {@code OperatorMetricsOverheadIT} puts the wrappers at more than a few percent of a narrow
+     * query's throughput on the reference machine, which is over the bar for something everybody
+     * pays for. Read once, at start-up, for the same reason the spill tier is: a lane that has
+     * already compiled its stages cannot be given counters afterwards.
+     */
+    private final boolean measureOperators;
+
     private volatile com.ash.messaging.pravaha.bindings.egress.PluginSinks pluginSinks;
 
     private PluginLookupSources lookupSources;
@@ -188,6 +201,7 @@ public class PravahaNode implements SmartLifecycle {
         private com.ash.messaging.pravaha.server.ingest.LaneProperties lanes;
         private SinkBindingProperties sinks;
         private com.ash.messaging.pravaha.server.state.StateSpillProperties stateSpill;
+        private boolean measureOperators;
         private boolean pgwireEnabled;
         private String pgwireHost = "127.0.0.1";
         private int pgwirePort;
@@ -290,6 +304,12 @@ public class PravahaNode implements SmartLifecycle {
             return this;
         }
 
+        /** {@code pravaha.metrics.operators}: per-operator rows, state and sampled time. Off by default. */
+        public Builder measuringOperators(boolean measure) {
+            this.measureOperators = measure;
+            return this;
+        }
+
         public PravahaNode build() {
             return new PravahaNode(
                     streams,
@@ -316,7 +336,8 @@ public class PravahaNode implements SmartLifecycle {
                     pgwireHost,
                     pgwirePort,
                     pgwireTlsCertificate,
-                    pgwireTlsKey);
+                    pgwireTlsKey,
+                    measureOperators);
         }
     }
 
@@ -350,7 +371,8 @@ public class PravahaNode implements SmartLifecycle {
             @Value("${pravaha.pgwire.host:0.0.0.0}") String pgwireHost,
             @Value("${pravaha.pgwire.port:5432}") int pgwirePort,
             @Value("${pravaha.pgwire.tls.certificate:}") String pgwireTlsCertificate,
-            @Value("${pravaha.pgwire.tls.key:}") String pgwireTlsKey) {
+            @Value("${pravaha.pgwire.tls.key:}") String pgwireTlsKey,
+            @Value("${pravaha.metrics.operators:false}") boolean measureOperators) {
         this.streams = streams;
         this.sources = sources;
         // Defaults to empty if no bean is supplied, so the existing test call sites that construct
@@ -388,6 +410,7 @@ public class PravahaNode implements SmartLifecycle {
                 .set("pravaha.cluster.mode", clusterMode)
                 .set("pravaha.cluster.mechanism", clusterMechanism)
                 .build();
+        this.measureOperators = measureOperators;
     }
 
     /**
@@ -864,6 +887,16 @@ public class PravahaNode implements SmartLifecycle {
         // that an overflow tier exists. Off unless configured, because a spill tier is a real cost
         // and a deployment chooses it -- the same reasoning as pravaha.pgwire.enabled.
         com.ash.messaging.pravaha.runtime.exec.InterpretedPipeline.configureSpill(stateSpill.toSpillSettings());
+        // B6, and set here for the same reason and in the same breath: the counters are built into
+        // a pipeline's stages when it compiles, so a query that has already started cannot be
+        // given them. Off unless configured -- the wrappers cost throughput and a deployment that
+        // has not asked for per-operator detail should not pay for it.
+        com.ash.messaging.pravaha.runtime.exec.InterpretedPipeline.measureOperators(measureOperators);
+        if (measureOperators) {
+            log.info("pravaha.metrics.operators is on: queries registered from now on count rows, rows out, "
+                    + "state bytes and a sampled self time per operator, which GET /api/v1/queries/"
+                    + "{{name}}/plan returns beside each node. It costs throughput; see docs/OPERATIONS.md");
+        }
         if (stateSpill.resolvedEnabled()) {
             log.info(
                     "state spills to {} past its memory tier, up to {} overflow slabs per store and {} on the "
