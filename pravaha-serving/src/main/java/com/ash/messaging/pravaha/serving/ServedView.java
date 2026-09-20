@@ -302,6 +302,14 @@ public final class ServedView {
             throw new IllegalArgumentException("frontier went backwards: " + frontier + " after " + committedFrontier);
         }
         pending.forEach((key, values) -> {
+            // The index entry goes with the row it points at, in this same critical section: the
+            // previous row first, because an update that changed the ordered column would otherwise
+            // leave the old entry behind and the index would answer with a row the view no longer
+            // holds.
+            Object[] replaced = visible.get(key);
+            if (replaced != null) {
+                indexRemove(replaced);
+            }
             if (values == null) {
                 visible.remove(key);
                 writtenAt.remove(key);
@@ -313,6 +321,7 @@ public final class ServedView {
                 // least recently written, or a hot key would age out while stale ones survived.
                 visible.remove(key);
                 visible.put(key, values);
+                indexPut(values);
                 // The row's own event time, not the commit's. A commit covers a batch and the rows
                 // in it are not all the same age.
                 writtenAt.put(key, pendingTime.getOrDefault(key, frontier));
@@ -415,7 +424,213 @@ public final class ServedView {
 
     /** Every key currently committed. For a full scan at a pinned frontier. */
     public synchronized List<Object[]> scan() {
+        scans++;
         return new ArrayList<>(visible.values());
+    }
+
+    // ------------------------------------------------------------------ the ordered index
+    //
+    // Design section 17.2 asks for three access paths and this engine had one of them. A point
+    // lookup by the whole key was a full scan with a filter on top, because every read surface --
+    // Flight SQL, GET /api/v1/views/{name}/query and the PostgreSQL gateway alike -- goes through
+    // ViewQuery, and ViewQuery scanned. So `WHERE user_id = 'u_42'` over a million-row view read a
+    // million rows to answer with one, and the 50 microsecond target in that table was a target
+    // nothing was measured against.
+    //
+    // Two paths are added here and one is deliberately not.
+    //
+    //  * The whole key, by equality: one hash probe into `visible`. It needs no index and no
+    //    declaration, because the view already IS a hash map keyed by exactly that.
+    //  * The key's leading columns by equality and its LAST column between bounds: the ordered
+    //    index below. `RANGE (column)` in the statement declares it -- see ADR-047 for why that
+    //    declaration is a check rather than an allocation.
+    //  * A predicate on a column that is not in the key stays a scan and a filter, which is what
+    //    design section 17.2 says it is ("Secondary predicate | Best effort"). An index over a
+    //    non-key column is a different structure with a different failure mode: a row's non-key
+    //    values change under it, so every update is a delete and an insert in the index as well as
+    //    in the view, and the entry to delete is found from the row's PREVIOUS values -- which a
+    //    Z-set retraction may or may not carry. That is not refused here because it is hard; it is
+    //    refused because getting it subtly wrong leaves an index that disagrees with the view it
+    //    indexes, which is a wrong answer with a confident face.
+
+    /**
+     * The ordered index: for each value of the key's leading columns, the rows with that prefix
+     * sorted by the key's last column.
+     *
+     * <p>Null until something asks for a range, and dropped when a restore replaces the contents.
+     * The rows in it are the same {@code Object[]} instances the visible map holds -- an index
+     * entry is a reference and a tree node, not a copy of the row -- so the index adds a bounded
+     * per-key overhead to a map that already keeps three entries per key, and it holds exactly one
+     * entry per visible key: the ceiling that bounds the view bounds it too, with no second number
+     * for an operator to get wrong. It does not spill. Neither does the view (the mapped tier of
+     * ADR-044 is operator state, not the serving map), and an index that spilled while the rows it
+     * points at did not would be slower than the scan it replaces.
+     *
+     * <p>Guarded by {@code this}, with the maps above, and maintained inside {@code commit} -- so
+     * an index entry becomes visible in the same critical section as the row it points at, and a
+     * reader can never see one without the other.
+     */
+    private Map<Key, java.util.TreeMap<Object, Object[]>> ordered;
+
+    private long pointLookups;
+    private long rangeLookups;
+    private long scans;
+    private long indexBuilds;
+
+    /**
+     * Compares the key's last column. Every type an ordered index is allowed over ({@code
+     * ContinuousStatement.Create.rangeOrdinal}) arrives here as a {@link Number} whose {@code
+     * longValue} is exact -- the integral widths, {@code DATE} as an epoch day, {@code TIME} and
+     * {@code TIMESTAMP} as a count since their epoch -- so one comparator covers them all and none
+     * of them needs a widening that could lose a digit.
+     */
+    private static final java.util.Comparator<Object> RANGE_ORDER =
+            java.util.Comparator.comparingLong(value -> ((Number) value).longValue());
+
+    /** Whether {@code value} is one this index can sort. A null range value is in no range. */
+    private static boolean orderable(Object value) {
+        return value instanceof Long || value instanceof Integer || value instanceof Short || value instanceof Byte;
+    }
+
+    private Key prefixOf(Object[] values) {
+        Object[] prefix = new Object[keyOrdinals.length - 1];
+        for (int i = 0; i < prefix.length; i++) {
+            prefix[i] = values[keyOrdinals[i]];
+        }
+        return new Key(prefix);
+    }
+
+    private void indexPut(Object[] values) {
+        if (ordered == null) {
+            return;
+        }
+        Object last = values[keyOrdinals[keyOrdinals.length - 1]];
+        if (!orderable(last)) {
+            // A NULL in the ordered column, or a column this index was never meant to sort. It
+            // satisfies no bound, so leaving it out of the index costs no answer -- and this is
+            // why a range read is the only read the index answers: a prefix-only read would have
+            // to find these rows too.
+            return;
+        }
+        ordered.computeIfAbsent(prefixOf(values), ignored -> new java.util.TreeMap<>(RANGE_ORDER))
+                .put(last, values);
+    }
+
+    private void indexRemove(Object[] values) {
+        if (ordered == null) {
+            return;
+        }
+        Object last = values[keyOrdinals[keyOrdinals.length - 1]];
+        if (!orderable(last)) {
+            return;
+        }
+        Key prefix = prefixOf(values);
+        java.util.TreeMap<Object, Object[]> bucket = ordered.get(prefix);
+        if (bucket != null) {
+            bucket.remove(last);
+            if (bucket.isEmpty()) {
+                ordered.remove(prefix);
+            }
+        }
+    }
+
+    /** Builds the index from the committed map. Called under the monitor, once, on first use. */
+    private void buildIndex() {
+        ordered = new HashMap<>();
+        indexBuilds++;
+        for (Object[] values : visible.values()) {
+            indexPut(values);
+        }
+    }
+
+    /**
+     * The committed row under the whole key, or empty when there is none.
+     *
+     * <p>One hash probe. This is design section 17.2's point lookup, and it is the same map a
+     * consistent read of {@link #get} sees -- {@link #scan} would have found exactly this row and
+     * read every other one on the way.
+     */
+    public synchronized Optional<Object[]> committedRow(Object[] key) {
+        pointLookups++;
+        return Optional.ofNullable(visible.get(new Key(key.clone())));
+    }
+
+    /**
+     * The committed rows whose key begins with {@code prefix} and whose last key column lies
+     * between the bounds, in ascending order of that column.
+     *
+     * <p>A null bound is unbounded on that side. Rows whose ordered column is null are in no range
+     * and are not returned, which is what SQL's three-valued logic says about {@code column >
+     * anything} when the column is null.
+     *
+     * @param prefix the key's leading columns, one value each; empty for a single-column key
+     */
+    public synchronized List<Object[]> committedRange(
+            Object[] prefix, Object low, boolean lowInclusive, Object high, boolean highInclusive) {
+        if (prefix.length != keyOrdinals.length - 1) {
+            throw new IllegalArgumentException("view '" + name + "' is keyed by " + keyOrdinals.length
+                    + " columns, so a range needs " + (keyOrdinals.length - 1) + " leading values, not "
+                    + prefix.length);
+        }
+        if (ordered == null) {
+            buildIndex();
+        }
+        rangeLookups++;
+        // An empty range, before the tree is asked. `WHERE at > 90 AND at < 40` is a predicate a
+        // generated query reaches in seconds and a human writes by getting two bounds the wrong way
+        // round, and a TreeMap answers it by throwing "toKey out of range" rather than with no
+        // rows -- which would have turned a read that correctly finds nothing into an internal
+        // error (caught by ViewIndexEquivalenceTest, seed 2026091908).
+        if (low != null && high != null) {
+            int order = RANGE_ORDER.compare(low, high);
+            if (order > 0 || (order == 0 && !(lowInclusive && highInclusive))) {
+                return List.of();
+            }
+        }
+        java.util.TreeMap<Object, Object[]> bucket = ordered.get(new Key(prefix.clone()));
+        if (bucket == null) {
+            return List.of();
+        }
+        java.util.NavigableMap<Object, Object[]> slice = bucket;
+        if (low != null) {
+            slice = slice.tailMap(low, lowInclusive);
+        }
+        if (high != null) {
+            slice = slice.headMap(high, highInclusive);
+        }
+        return new ArrayList<>(slice.values());
+    }
+
+    /** Entries the ordered index holds; zero when nothing has asked for a range yet. */
+    public synchronized long indexedRows() {
+        if (ordered == null) {
+            return 0;
+        }
+        long rows = 0;
+        for (java.util.TreeMap<Object, Object[]> bucket : ordered.values()) {
+            rows += bucket.size();
+        }
+        return rows;
+    }
+
+    /** Reads answered by a hash probe on the whole key rather than by a scan. */
+    public long pointLookups() {
+        return pointLookups;
+    }
+
+    /** Reads answered from the ordered index rather than by a scan. */
+    public long rangeLookups() {
+        return rangeLookups;
+    }
+
+    /** Reads that walked every committed row. */
+    public long scans() {
+        return scans;
+    }
+
+    /** Times the ordered index has been built from the committed map: once, then once per restore. */
+    public long indexBuilds() {
+        return indexBuilds;
     }
 
     /**
@@ -639,6 +854,10 @@ public final class ServedView {
             return;
         }
         SnapshotContents contents = read(snapshot);
+        // Dropped rather than maintained through the restore: the whole contents are being
+        // replaced, so rebuilding it once from the restored rows is cheaper than the row-by-row
+        // maintenance would be -- and it happens on the next range read, which may never come.
+        ordered = null;
         visible.clear();
         weights.clear();
         writtenAt.clear();
@@ -795,9 +1014,11 @@ public final class ServedView {
             java.util.Iterator<Map.Entry<Key, Object[]>> entries =
                     visible.entrySet().iterator();
             while (entries.hasNext()) {
-                Key key = entries.next().getKey();
+                Map.Entry<Key, Object[]> entry = entries.next();
+                Key key = entry.getKey();
                 Long written = writtenAt.get(key);
                 if (written != null && written < horizon) {
+                    indexRemove(entry.getValue());
                     entries.remove();
                     writtenAt.remove(key);
                     // The weight goes with the row. Leaving it behind would mean a key that is

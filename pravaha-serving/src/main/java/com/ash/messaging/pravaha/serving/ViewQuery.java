@@ -230,6 +230,11 @@ public final class ViewQuery {
 
     private Result run(PhysicalOperator plan, ServedView view) {
         List<Object[]> results = new ArrayList<>();
+        // Which rows this read has to look at (design section 17.2). A lookup by the whole key is a
+        // hash probe and a run of the key's ordered last column is an index walk; everything else
+        // is every row, as before. The plan below is untouched either way, so the filter runs over
+        // whatever comes back and the answer does not depend on which path was taken.
+        List<Object[]> rows = ViewAccessPath.rowsFor(plan, view).orElseGet(view::scan);
         RowLayout inputLayout = RowLayout.of(view.schema());
         StreamSchema outputSchema = plan.outputSchema();
         long expiry = deadlineNanos == 0L ? Long.MAX_VALUE : System.nanoTime() + deadlineNanos;
@@ -251,7 +256,7 @@ public final class ViewQuery {
 
             BinaryRowWriter writer = new BinaryRowWriter(inputLayout);
             BinaryRowView cursor = new BinaryRowView(inputLayout);
-            for (Object[] row : view.scan()) {
+            for (Object[] row : rows) {
                 // Checked periodically rather than per row: System.nanoTime() is a few nanoseconds
                 // and the loop body is not much more, so per-row checking would make the deadline
                 // the dominant cost of a read that meets it.
