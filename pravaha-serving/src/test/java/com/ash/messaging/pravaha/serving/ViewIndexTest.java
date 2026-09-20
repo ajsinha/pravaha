@@ -308,6 +308,48 @@ class ViewIndexTest {
         assertThat(small.rangeLookups()).isEqualTo(1);
     }
 
+    // ------------------------------------------------------------------ the bound-parameter path
+
+    @Test
+    void aPreparedStatementWithItsKeyBoundIsTheSameProbe() {
+        // This is the shape the REST view read and the PostgreSQL gateway's extended protocol take:
+        // the key arrives as a bound value rather than as text. ADR-032 binds at plan-build time,
+        // so the value is a literal in the predicate by the time the access path looks at it -- and
+        // a path that only recognised written literals would leave both of those surfaces scanning.
+        ViewQuery query = new ViewQuery(catalog);
+        ViewQuery.Prepared statement = query.prepare(
+                "SELECT total FROM user_volume WHERE user_id = ? AND window_end = ?",
+                com.ash.messaging.pravaha.security.Principal.ANONYMOUS);
+
+        ViewQuery.Result result = query.execute(
+                statement,
+                com.ash.messaging.pravaha.sql.plan.BoundParameters.of("u3", 7000L),
+                com.ash.messaging.pravaha.security.Principal.ANONYMOUS);
+
+        assertThat(result.rows())
+                .singleElement()
+                .satisfies(row -> assertThat(row[0]).isEqualTo(700L));
+        assertThat(view.pointLookups()).isEqualTo(1);
+        assertThat(view.scans()).isZero();
+    }
+
+    @Test
+    void aPreparedRangeWithItsBoundsBoundWalksTheIndex() {
+        ViewQuery query = new ViewQuery(catalog);
+        ViewQuery.Prepared statement = query.prepare(
+                "SELECT window_end FROM user_volume WHERE user_id = ? AND window_end >= ? AND window_end < ?",
+                com.ash.messaging.pravaha.security.Principal.ANONYMOUS);
+
+        ViewQuery.Result result = query.execute(
+                statement,
+                com.ash.messaging.pravaha.sql.plan.BoundParameters.of("u3", 3000L, 6000L),
+                com.ash.messaging.pravaha.security.Principal.ANONYMOUS);
+
+        assertThat(result.rows().stream().map(row -> row[0]).toList()).containsExactly(3000L, 4000L, 5000L);
+        assertThat(view.rangeLookups()).isEqualTo(1);
+        assertThat(view.scans()).isZero();
+    }
+
     // ------------------------------------------------------------------ concurrency
 
     @Test
