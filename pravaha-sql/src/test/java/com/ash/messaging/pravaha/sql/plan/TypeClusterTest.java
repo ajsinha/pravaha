@@ -222,13 +222,16 @@ class TypeClusterTest {
         // other ORDER BY was refused with PRV-2020: the optimiser drops a sort inside a derived
         // table with no FETCH before a Sort node ever reaches the plan builder, so the refusal was
         // a property of the plan's shape rather than a promise about SQL.
+        // The finding's own shape first: it is the one that planned and ran, and the ones after it
+        // were refused all along -- by a message that did not say ORDER BY, which is why they are
+        // here too.
         for (String sql : List.of(
+                "SELECT * FROM (SELECT id FROM types ORDER BY id) x",
+                "SELECT COUNT(*) FROM (SELECT id FROM types ORDER BY id) x",
+                "SELECT * FROM (SELECT id FROM types ORDER BY id FETCH FIRST 2 ROWS ONLY) x",
                 "SELECT id FROM types ORDER BY id",
                 "SELECT id FROM types ORDER BY id DESC",
-                "SELECT id FROM types ORDER BY id FETCH FIRST 3 ROWS ONLY",
-                "SELECT * FROM (SELECT id FROM types ORDER BY id) x",
-                "SELECT * FROM (SELECT id FROM types ORDER BY id FETCH FIRST 2 ROWS ONLY) x",
-                "SELECT COUNT(*) FROM (SELECT id FROM types ORDER BY id) x")) {
+                "SELECT id FROM types ORDER BY id FETCH FIRST 3 ROWS ONLY")) {
             assertThat(refusalOf(sql))
                     .as("%s", sql)
                     .hasMessageContaining("PRV-2020")
