@@ -23,6 +23,27 @@ package com.ash.messaging.pravaha.registry;
  * the <em>query</em>, so one slow dashboard would slow the computation for everybody reading it,
  * including the people who are keeping up.
  *
+ * <p><strong>That is the design, and in process it is not yet the behaviour</strong> (STRM-8).
+ * {@code ViewSink.commit} hands each committed batch to its listeners <em>serially, on the
+ * committing thread</em>, and {@code Subscription.onCommit} drains the buffer before returning --
+ * so a consumer that takes two seconds makes the commit take two seconds, three of them make it
+ * take six, and in a configured node that caller is {@code PumpingFeed}'s publish timer, which
+ * drives every query on that feed. Measured at 2001 ms and 6002 ms against a 20 ms publish
+ * cadence.
+ *
+ * <p>It also means {@code bufferRows} does not bound how far behind a subscriber may fall, which
+ * is what this javadoc used to say it did: nothing is ever left in the buffer between commits, so
+ * it bounds <em>one commit</em>. A slow consumer conflates nothing and a fast one conflates
+ * whatever a single large commit overflows -- the opposite of what the names suggest.
+ *
+ * <p><strong>Over Flight none of this applies</strong>, and that is where most subscribers are: the
+ * gateway's consumer only offers the batch to a bounded hand-over and returns, so the network and
+ * the client are already off the engine's thread. What is exposed is an <em>in-process</em>
+ * subscriber -- an embedder, the Spring starter's listener container without its own executor, the
+ * console's own consumer. Closing it means delivering off the committing thread, which changes the
+ * delivery contract for every in-process subscriber and every test that asserts on one, so it is
+ * scheduled as its own batch rather than done in passing.
+ *
  * @param bufferRows how many changes may wait for this subscriber
  * @param overflow what to do when that is exceeded
  */

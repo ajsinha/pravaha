@@ -46,10 +46,26 @@ Nothing is published until `query.commit()`.
 
 ```
 RegisteredQuery agg = registry.register(
-    "agg", "SELECT user_id, SUM(amount) AS total FROM txn GROUP BY user_id", List.of(0), DANA);
+    "agg",
+    "SELECT window_start, window_end, user_id, SUM(amount) AS total FROM "
+        + "TABLE(TUMBLE(TABLE txn, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) "
+        + "GROUP BY window_start, window_end, user_id",
+    List.of(2),
+    DANA);
 ```
 
 so that a second row for a key produces a real retract+insert pair rather than an upsert.
+
+> **Corrected 2026-09-19 (STRM-18).** This harness used to read
+> `SELECT user_id, SUM(amount) AS total FROM txn GROUP BY user_id`, which **cannot be
+> registered**: `PhysicalPlanBuilder` admits a keyed `GROUP BY` only over a window
+> (`PRV-2050`), because an unwindowed one holds one accumulator per key for ever. Eight cases
+> name `H-EA` and were run against a windowed substitute. The windowed form above is what they
+> were actually run against, so it is what the file says; `txn` needs an `event_time TIMESTAMP`
+> column and an `event-time` declaration for it, which `H-S` below now has.
+>
+> `STRM-013` stays BLOCKED: its assertion, "five updates in one commit deliver nine changes", is
+> about the unwindowed shape and is unreachable on any shape the build admits.
 
 **`H-S` — server over Flight.** `pravaha server` with
 
@@ -57,8 +73,16 @@ so that a second row for a key produces a real retract+insert pair rather than a
 pravaha:
   streams:
     txn:
-      fields: "user_id STRING, amount INT64, product_type STRING"
-      event-time: ""
+      schema: "user_id:STRING,amount:INT64,product_type:STRING,event_time:TIMESTAMP"
+      event-time: event_time
+  sources:
+    txn:
+      plugin: filesystem
+      options:
+        directory: /tmp/strm-feed
+        format: csv
+        schema: "user_id:STRING,amount:INT64,product_type:STRING,event_time:TIMESTAMP"
+        event.time: event_time
   security:
     authentication: none
     policy: permissive
@@ -66,9 +90,28 @@ pravaha:
 ```
 
 then `pravaha register --name q --sql "SELECT user_id, amount, product_type FROM txn" --keys 0`
-against `grpc://localhost:9090`, and `pravaha subscribe --view q` as the subscriber. Rows are
-pushed with `DoPut` unless a case says otherwise. Note `PumpingFeed.PUBLISH_INTERVAL_NANOS =
+against `grpc://localhost:9090`, and `pravaha subscribe --view q` as the subscriber. Rows reach
+the node by being written to the source's directory. Note `PumpingFeed.PUBLISH_INTERVAL_NANOS =
 20_000_000L` — the 20 ms commit cadence every latency case is measured against.
+
+> **Corrected 2026-09-19 (STRM-18).** Four things in this block were false against the build, and
+> each of them changes what can be run at all.
+>
+> * **The schema key is `schema:`, in `name:TYPE` form**, not `fields: "user_id STRING, …"`. A
+>   node configured the old way refuses to start.
+> * **There is no `DoPut` path for stream rows.** `acceptPutPreparedStatementQuery` is the only
+>   put the producer implements and it carries prepared-statement parameters. A node is fed
+>   through `pravaha.sources.*`; every case that says "DoPut N rows" means "write N rows where
+>   the bound source reads them".
+> * **`event-time: ""` is not a way to say "no event time".** It is refused where it matters
+>   (`TIME-6`): a windowed query over a stream with no declared event time is refused at
+>   registration, because no watermark advances over it and no window it opens can ever close.
+>   The stream declares a real column.
+> * **`pravaha.security.policy` has no `tenant` value.** It is `permissive` or `authenticated`,
+>   and no configured policy can produce an `AccessDecision` carrying a row filter — so section
+>   G's cases cannot be run against a configured node at all. They were run against an in-process
+>   `PravahaFlightServer` with a policy written in the test, which is what `STRM-100` is BLOCKED
+>   on.
 
 **`H-S2` — server, two names, one computation.** `H-S` plus a second registration with
 byte-identical SQL under the name `q2`, which `QueryRegistry.register` resolves to the *same*

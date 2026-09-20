@@ -290,7 +290,12 @@ engine.subscribe("large_payments", changes -> changes.forEach(c ->
 + {txn_id=9001, user_id=u1, merchant=ACME-GROCERY, amount=1250}
 ```
 
-The consumer runs **on the committing thread**: keep it short or hand the work on. In Spring,
+The consumer runs **on the committing thread, and the commit waits for it** (STRM-8): a consumer
+that takes two seconds makes the commit take two seconds, and in a configured node that thread is
+the feed's publish timer, which drives every query on that feed. For the same reason the buffer
+bounds *one commit* rather than how far behind you may fall — it is drained before the callback
+returns. Keep it short or hand the work on; a remote subscriber over Flight is unaffected, because
+the gateway is already off the engine's thread. In Spring,
 `@PravahaListener(query = "large_payments")` does the hand-off for you — see
 [Spring Boot starter](/help/topics/spring-boot-starter).
 

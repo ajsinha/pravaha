@@ -221,6 +221,15 @@ A subscriber that cannot keep up never blocks the engine. Its buffer is bounded 
 declared choice — conflate, drop the oldest, or fail — and whatever is lost is **counted**, because a
 subscriber silently missing data is the failure the mechanism exists to make visible.
 
+> **True over Flight, not yet true in process (STRM-8).** A remote subscriber is already off the
+> engine's thread: the gateway offers each committed batch to a bounded hand-over and returns. An
+> **in-process** subscriber is called on the committing thread and the commit waits for it, so a
+> consumer that takes two seconds makes the commit take two seconds — and in a configured node the
+> committing thread is the feed's publish timer, which drives every query on that feed. If you
+> subscribe in process, hand the work to your own queue; the Spring starter's
+> `@PravahaListener` does that for you. Delivering off the committing thread is scheduled work,
+> not a setting.
+
 ---
 
 ## Where to go next

@@ -302,6 +302,16 @@ starter's `PravahaTester.awaitView` and the console's live page are built on thi
 Every subscription has a bounded buffer, and blocking is deliberately not on the menu — a subscriber
 that blocked would apply backpressure to the *query*, slowing it for everyone keeping up.
 
+> **In process, a slow consumer still does exactly that (STRM-8).** The buffer is drained before
+> `onCommit` returns and listeners are called serially on the committing thread, so a consumer that
+> takes two seconds makes the commit take two seconds and three of them make it take six — against
+> a 20 ms publish cadence, on a thread that drives every query on that feed. `bufferRows` therefore
+> bounds **one commit** rather than how far behind you may fall. Over Flight none of this applies:
+> the gateway offers each batch to a bounded hand-over and returns, so the network and the client
+> are already off the engine's thread. If you subscribe in process, hand the work to your own
+> queue — `@PravahaListener` in the Spring starter does it for you. Delivering off the committing
+> thread is scheduled work, not a setting.
+
 | Policy | Right for |
 |---|---|
 | `CONFLATE` | A dashboard. Wants the latest value per key, does not care how many times it changed |
