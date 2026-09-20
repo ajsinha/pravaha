@@ -21,13 +21,25 @@ minutes). The slots: the engine's core, serial, because `QueryRegistry`, `QueryE
 `ViewSink` are one another's neighbours; two isolated lanes (a plugin, `pravaha-state`,
 `pravaha-sql`); the console; and the findings clusters.
 
-## Wave 1 — in flight
+## In flight, 2026-09-20
+
+Five agents, which is the cap. Each owns a disjoint tree.
 
 | Batch | What | Owns |
 |---|---|---|
-| **B1** | **Blue/green and backfill (ADR-039 item 6's successor).** Register v2 beside v1, backfill it from history spliced onto the live stream at an exact point, cut over atomically, roll back. `CREATE OR REPLACE CONTINUOUS QUERY`, REST, Flight, CLI, both SDKs, progress metrics. | `pravaha-registry`, `pravaha-backfill`, `pravaha-sql` recognizer, `pravaha-server`, `pravaha-flight`, `pravaha-cli`, SDKs |
-| **B2** | **The spill tier past the page cache.** Measure it with state larger than the memory the process may use; spill a join key index's slot table. | `pravaha-state`, the join index in `pravaha-runtime`, `tools/` |
-| **B3** | **The console's strings and its eight states.** Every user-visible string through the catalog with a test that keeps it there; the §23.12 states audited screen by screen, each driven in a browser. | `console/` |
+| B9's remainder | The debugger's console screen (journey 7), then `ReplacementStatus.history` on the replacement screen and the accessor the Python SDK needs for it | `console/`, `sdk-python` |
+| B10 | `CKPT-3`, `SINK-3`, and a query's sink on `pravaha queries` with `PRV-8009` reachable | `pravaha-registry`, `pravaha-security`, CLI |
+| B13 | The performance gates measured on this machine, with what was not reached recorded as not reached | `pravaha-it` performance packs, `pravaha-benchmarks`, `docs/gates/` |
+| B14's lanes and streams | `LANE-6` (a shared lane's queries read *past* the equivalence model, intermittently), `STRM-4`, `STRM-8` | `pravaha-runtime`, `pravaha-bindings`, `pravaha-flight` |
+| B14's singletons | The 44 open findings outside the cleared clusters, verdicts to `qa/singletons-2026-09-20.md` | scattered, one finding at a time |
+
+## Wave 1 — built
+
+| Batch | What | Owns |
+|---|---|---|
+| **B1** | **Built 2026-09-19.** Blue/green and backfill (ADR-039 item 6's successor). Register v2 beside v1, backfill it from history spliced onto the live stream at an exact point, cut over atomically, roll back. `CREATE OR REPLACE CONTINUOUS QUERY`, REST, Flight, CLI, both SDKs, progress metrics. | `pravaha-registry`, `pravaha-backfill`, `pravaha-sql` recognizer, `pravaha-server`, `pravaha-flight`, `pravaha-cli`, SDKs |
+| **B2** | **Built 2026-09-19.** The spill tier past the page cache. Measure it with state larger than the memory the process may use; spill a join key index's slot table. `SPILL-2` (the slot table stopped at 2^26 slots and the next doubling went negative) is fixed: segmented `SlotTable`, ceiling 2^30 slots, refused by name rather than overflowed. `SPILL-3` stays open and POST-GA — firing a large window builds it on the heap, which is the operator's own sizing rather than the spill tier's promise. | `pravaha-state`, the join index in `pravaha-runtime`, `tools/` |
+| **B3** | **Built 2026-09-19.** The console's strings and its eight states. Every user-visible string through the catalog with a test that keeps it there; the §23.12 states audited screen by screen, each driven in a browser. | `console/` |
 
 ## Wave 2 — startable as each slot frees
 
@@ -45,7 +57,7 @@ minutes). The slots: the engine's core, serial, because `QueryRegistry`, `QueryE
 
 | Batch | What | Owns | After |
 |---|---|---|---|
-| **B9** | **The console screens the journeys wait on.** Backfill and cutover control; the debugger; a backpressure dashboard. One agent, in that order, as each engine piece lands. The dead-letter screen landed with B5, which is where journey 4 needed it. | `console/` | B1, B4, B6 |
+| **B9** | **Two thirds built 2026-09-19.** Backfill and cutover control and the backpressure dashboard landed, with journeys 3, 5 and 6 driving the screens instead of asserting their absence. **Left:** the debugger's screen (journey 7), and `ReplacementStatus.history`, which the engine returns and no screen shows — in flight 2026-09-20. | `console/` | B1, B4, B6 |
 | **B10** | **ADR-039 item 5's leftovers.** `CKPT-3` (a closed continuous aggregate re-emits its answer with no retraction), `SINK-3` (no per-sink authorization, and the audit does not record the sink), `pravaha queries` showing a query's sink and a detached sink's `PRV-8009`. | `pravaha-registry`, `pravaha-security`, CLI | — |
 | **B11** | **Tenancy and quotas.** Per-tenant isolation and admission quotas in the engine, then the admin screens. Editing grants stays out: grants live in the deployment's identity system. | `pravaha-registry`, `pravaha-security`, then `console/` | B10 |
 
@@ -55,7 +67,7 @@ minutes). The slots: the engine's core, serial, because `QueryRegistry`, `QueryE
 |---|---|---|
 | **B12** | **Built 2026-09-19.** `deploy/docker/` builds a ~437 MB non-root image (uid 10001, `eclipse-temurin:21-jre-alpine`, the Arrow `--add-opens` on the launcher's exec line, config in three layers, no credential) from artefacts the reactor already produced — not Jib and not distroless, [ADR-047](adr/047-the-image-is-a-dockerfile-over-built-artefacts.md). `deploy/docker/smoke.sh` runs ten steps against a real container. `deploy/helm/pravaha/` is a StatefulSet, because a node claims its state directories by node id (ADR-035); `replicaCount` other than 1 is refused naming [ADR-045](adr/045-cluster-mode-assigns-queries-not-rows.md). `deploy/release/` sets one version across 37 poms, two wheels and the chart, and drives what a release can do offline. Four workflows, with `verify` now asserting the integration tests actually executed and `suites` asserting the browser tests did not skip themselves. `docs/DEPLOYMENT.md` is the page. **Left**: nothing in CI has ever run here — the `verify` integration leg, the JDK 25 leg and the Spring Boot 3.2–3.4 legs are still unrun, and no registry, index, `<distributionManagement>` or signing key exists, so nothing is published. | a new `deploy/`, `.github/workflows` |
 | **B13** | **The performance gates, on the machine we have.** There is no reference hardware, so P2, P3 and ADR-038's Nexmark comparison are measured on the development machine and reported with it named (owner, 2026-09-19). A target the machine cannot reach is recorded as not reached, with the number, rather than restated as passed. | `pravaha-it` performance packs, `pravaha-benchmarks`, `docs/gates/` |
-| **B14** | **The 95 open post-GA findings**, which cluster and can be split three ways: `CFG-*` (17, configuration), `STRM-*` and `TIME-*` (24, streams and event time), `API-F*` and `SX-19` (12, API shape and disclosure), `DOCX-*`/`DOCR-*` (8, documentation), `PF-*` (4, performance), `SRC-*`/`SINK-*` (4). The `STRM`/`TIME` cluster ran on 2026-09-19 and `CASE-1`+`TIME-6` followed on 2026-09-20: a windowed query over a stream with no declared event time is now refused at plan time (`PRV-2002`), which is a query that planned before and does not plan now. | by cluster, mostly disjoint |
+| **B14** | **The open post-GA findings** — 95 when this was written, 41 on 2026-09-20, which cluster and can be split three ways: `CFG-*` (17, configuration), `STRM-*` and `TIME-*` (24, streams and event time), `API-F*` and `SX-19` (12, API shape and disclosure), `DOCX-*`/`DOCR-*` (8, documentation), `PF-*` (4, performance), `SRC-*`/`SINK-*` (4). The `STRM`/`TIME` cluster ran on 2026-09-19 and `CASE-1`+`TIME-6` followed on 2026-09-20: a windowed query over a stream with no declared event time is now refused at plan time (`PRV-2002`), which is a query that planned before and does not plan now. | by cluster, mostly disjoint |
 
 ## Not scheduled
 
