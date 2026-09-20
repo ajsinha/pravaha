@@ -33,6 +33,7 @@ import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.wire.ControlWire;
 import com.ash.messaging.pravaha.common.io.SensitiveFiles;
 import com.ash.messaging.pravaha.serving.Retention;
+import com.ash.messaging.pravaha.sql.plan.BoundParameters;
 
 /**
  * What was registered, written down, so that a restart does not lose it.
@@ -188,6 +189,28 @@ public final class RegistryJournal {
             Retention retention,
             List<String> parameters) {
         recordRegistration(name, sql, keyColumns, owner, retention, parameters, null);
+    }
+
+    /**
+     * Appends a registration whose bound values are still values, encoding them on the way.
+     *
+     * <p>Here rather than at the call site so that a parameter is encoded by the class that decodes
+     * it. The sink goes in the same record: two appends could leave a restart with the query and
+     * without its sink, which recovers "successfully" while the table the query fed stops moving.
+     */
+    public void recordRegistration(
+            String name,
+            String sql,
+            List<Integer> keyColumns,
+            String owner,
+            Retention retention,
+            BoundParameters parameters,
+            String sink) {
+        List<String> encoded = new ArrayList<>();
+        for (int index = 0; index < parameters.size(); index++) {
+            encoded.add(encodeParameter(parameters.at(index)));
+        }
+        recordRegistration(name, sql, keyColumns, owner, retention, encoded, sink);
     }
 
     /**

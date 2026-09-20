@@ -81,6 +81,26 @@ public interface SourceFeedFactory {
     }
 
     /**
+     * Opens the query's inputs for reading by hand, from {@code from}, for a debug fork (ADR-047).
+     *
+     * <p>Not a feed: see {@link ReplaySource} for why a debugger pulls rows rather than being
+     * pushed them. The offsets are a checkpoint's, keyed {@code partition-N} in the order the feed
+     * creates its readers -- the same keying {@link #open}'s {@code resumeFrom} uses, so a fork
+     * starts exactly where the checkpoint says the query was.
+     *
+     * <p>Refused by default, and the refusal names the stream. A factory that silently opened at
+     * the present instead would step a fork through rows the live query had already counted, into
+     * state restored from before them, and report the double count as the query's answer.
+     */
+    default ReplaySource replayFrom(String queryName, List<String> sourceStreams, java.util.Map<String, String> from) {
+        throw new com.ash.messaging.pravaha.api.PravahaException(
+                DebugErrors.SOURCE_NOT_REPLAYABLE,
+                "nothing here can replay the inputs of '" + queryName + "': this engine's rows are pushed in "
+                        + "by its embedder rather than read from a bound source, so there is no position to "
+                        + "rewind to and nothing to step through.");
+    }
+
+    /**
      * Why a replacement's backfill cannot read {@code stream}, or empty when it can.
      *
      * <p>Asked before a replacement starts, so the refusal names the stream and the reason rather

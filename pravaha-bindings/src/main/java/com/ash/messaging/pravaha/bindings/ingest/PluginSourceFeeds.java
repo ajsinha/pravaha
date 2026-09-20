@@ -32,6 +32,7 @@ import com.ash.messaging.pravaha.api.plugin.SourcePartition;
 import com.ash.messaging.pravaha.api.plugin.StreamSourcePlugin;
 import com.ash.messaging.pravaha.backfill.OffsetSplicedReader;
 import com.ash.messaging.pravaha.connect.PluginErrors;
+import com.ash.messaging.pravaha.registry.ReplaySource;
 import com.ash.messaging.pravaha.registry.SourceFeed;
 import com.ash.messaging.pravaha.registry.SourceFeedFactory;
 import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
@@ -493,6 +494,68 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                 new PumpingFeed(queryName, pumps, inputs, resources, describe(partitionCounts, pushed), publish);
         feed.start();
         return feed;
+    }
+
+    /**
+     * Opens every bound partition for reading by hand, from a checkpoint's offsets (ADR-047).
+     *
+     * <p>Readers of its own, never a shared one: a shared reader fans one poll out to every query
+     * on it, and a debugger pulling a row at a time from it would either starve the live queries
+     * or take rows they were about to be handed. A fork must not be able to affect the query it
+     * forked from, and this is the sharpest way it could.
+     *
+     * <p>The refusals are the same three {@link #backfillRefusal} gives, for the same reasons and
+     * with the same words, because "can this be rewound to that position" is one question. They
+     * are raised before any reader opens, so a fork that cannot be honest is refused rather than
+     * started and quietly reading from the present.
+     */
+    @Override
+    public ReplaySource replayFrom(String queryName, List<String> sourceStreams, Map<String, String> from) {
+        List<String> wanted = sourceStreams.stream().distinct().toList();
+        for (String stream : wanted) {
+            backfillRefusal(stream).ifPresent(why -> {
+                throw new PravahaException(
+                        com.ash.messaging.pravaha.registry.DebugErrors.SOURCE_NOT_REPLAYABLE,
+                        "'" + queryName + "' cannot be forked for debugging because " + why + ". A debug "
+                                + "session restores a checkpoint and reads the sources from the offsets it "
+                                + "recorded, so every stream it reads has to be rewindable to them.");
+            });
+        }
+        List<PluginReplaySource.PartitionSpec> specs = new ArrayList<>();
+        List<AutoCloseable> opened = new ArrayList<>();
+        int ordinal = 0;
+        try {
+            for (String stream : wanted) {
+                SourceBinding binding = bindings.get(stream);
+                StreamSourcePlugin plugin = openPlugin(binding);
+                opened.add(plugin);
+                StreamSchema schema = plugin.discoverSchemas().stream()
+                        .filter(candidate -> candidate.name().equals(stream))
+                        .findFirst()
+                        .orElseGet(() -> plugin.discoverSchemas().get(0));
+                List<SourcePartition> partitions = plugin.partitions(stream);
+                for (int index = 0; index < partitions.size(); index++) {
+                    String token = from.get("partition-" + ordinal++);
+                    SourceOffset at =
+                            token == null || token.isBlank() ? SourceOffset.BEGINNING : new SourceOffset(token);
+                    // No pushdown: a debugger shows the row as the source has it. See
+                    // PluginReplaySource.
+                    PartitionReader reader = plugin.createReader(partitions.get(index), at);
+                    opened.add(reader);
+                    specs.add(new PluginReplaySource.PartitionSpec(stream, index, schema, reader));
+                }
+            }
+        } catch (RuntimeException e) {
+            closeQuietly(opened);
+            throw e;
+        }
+        if (specs.isEmpty()) {
+            throw new PravahaException(
+                    com.ash.messaging.pravaha.registry.DebugErrors.SOURCE_NOT_REPLAYABLE,
+                    "nothing is bound to any stream '" + queryName + "' reads, so there are no rows to step "
+                            + "through: its rows are pushed in by an embedder rather than read from a source.");
+        }
+        return new PluginReplaySource(wanted, specs);
     }
 
     /**

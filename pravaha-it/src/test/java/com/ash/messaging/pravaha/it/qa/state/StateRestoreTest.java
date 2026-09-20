@@ -99,6 +99,11 @@ class StateRestoreTest extends StateTestSupport {
         // QueryCheckpoints.restore when the checkpoint placement came out of the registry
         // (ADR-046); they are the same calls on the same shipped path -- register() still makes
         // them on every registration a checkpoint root is configured for.
+        //
+        // A second shipped caller arrived with the time-travel debugger (ADR-047). DebugSessions
+        // reads the store's ids, loads one checkpoint and restores it into a forked execution, so
+        // both greps gain one line. That is the opposite of STATE-050's premise twice over: the
+        // read half is not only wired, it is now a product surface of its own.
         Path root = repoRoot();
 
         List<String> latestCalls = grep("\\.latest()", root).stream()
@@ -106,20 +111,26 @@ class StateRestoreTest extends StateTestSupport {
                 .toList();
         assertThat(latestCalls)
                 .as("STATE-050 expects only the CheckpointStore declaration and FileCheckpointStore's "
-                        + "implementation; there is now a third, real caller")
-                .hasSize(1);
-        assertThat(latestCalls.get(0)).contains("QueryCheckpoints.java");
+                        + "implementation; there are now two real callers, register() and a debug fork")
+                .hasSize(2);
+        assertThat(latestCalls.stream().map(l -> l.substring(l.lastIndexOf('/') + 1)))
+                .anyMatch(l -> l.startsWith("QueryCheckpoints.java"))
+                .anyMatch(l -> l.startsWith("DebugSessions.java"));
 
         List<String> restoreCalls = grep("\\.restore(", root).stream()
                 .filter(l -> l.contains("/src/main/"))
                 .toList();
         assertThat(restoreCalls)
-                .as("STATE-050 expects only PartitionHandoff.java (an unrelated type); there are now two "
-                        + "more, and both are the one shipped path: QueryCheckpoints.restore calls "
-                        + "execution.restore, and QueryRegistry.start calls QueryCheckpoints.restore")
-                .hasSize(3);
+                .as("STATE-050 expects only PartitionHandoff.java (an unrelated type); there are now three "
+                        + "more, and all are shipped: QueryCheckpoints.restore calls execution.restore, "
+                        + "QueryRegistry.start calls QueryCheckpoints.restore, and DebugSessions.fork "
+                        + "restores a checkpoint into the fork it is about to step")
+                .hasSize(4);
         assertThat(restoreCalls.stream().anyMatch(l -> l.contains("QueryCheckpoints.java")))
                 .as("QueryCheckpoints.restore calls execution.restore(...), for register()")
+                .isTrue();
+        assertThat(restoreCalls.stream().anyMatch(l -> l.contains("DebugSessions.java")))
+                .as("DebugSessions.fork calls execution.restore(...), for the time-travel debugger")
                 .isTrue();
 
         List<String> restoreStateCalls = grep("restoreState", root).stream()

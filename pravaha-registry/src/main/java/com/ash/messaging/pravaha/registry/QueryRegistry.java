@@ -29,11 +29,11 @@ import java.util.Set;
 import com.ash.messaging.pravaha.api.ErrorCode;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
+import com.ash.messaging.pravaha.common.config.Configuration;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
 import com.ash.messaging.pravaha.runtime.lane.LaneConfig;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
-import com.ash.messaging.pravaha.runtime.plan.ScanOperator;
 import com.ash.messaging.pravaha.security.AccessDecision;
 import com.ash.messaging.pravaha.security.AuditEvent;
 import com.ash.messaging.pravaha.security.AuditSink;
@@ -132,7 +132,7 @@ public final class QueryRegistry implements AutoCloseable {
      */
     private volatile com.ash.messaging.pravaha.runtime.lane.LaneRunner laneRunner;
 
-    private synchronized com.ash.messaging.pravaha.runtime.lane.LaneRunner laneRunner() {
+    synchronized com.ash.messaging.pravaha.runtime.lane.LaneRunner laneRunner() {
         if (laneRunner == null) {
             laneRunner = new com.ash.messaging.pravaha.runtime.lane.LaneRunner(
                     com.ash.messaging.pravaha.runtime.lane.LaneRunner.defaultThreads(),
@@ -312,11 +312,11 @@ public final class QueryRegistry implements AutoCloseable {
         return this;
     }
 
-    private LaneConfig laneConfig = LaneConfig.defaults()
+    LaneConfig laneConfig = LaneConfig.defaults()
             .withWaitStrategy(com.ash.messaging.pravaha.common.queue.WaitStrategy.Kind.BACKOFF_PARK)
             .withThreads("pravaha-query", true);
 
-    private MemoryAccess access = MemoryAccess.best();
+    MemoryAccess access = MemoryAccess.best();
     private Duration watermarkIdleAfter;
     private Duration watermarkTick;
     private final Map<QueryFingerprint, RegisteredQuery> byFingerprint = new LinkedHashMap<>();
@@ -375,7 +375,7 @@ public final class QueryRegistry implements AutoCloseable {
     }
 
     /** Dimension tables registered queries may join against, by the name the SQL refers to. */
-    private final Map<String, com.ash.messaging.pravaha.api.plugin.LookupSourcePlugin> lookups = new LinkedHashMap<>();
+    final Map<String, com.ash.messaging.pravaha.api.plugin.LookupSourcePlugin> lookups = new LinkedHashMap<>();
 
     private final Map<String, StreamSchema> lookupSchemas = new LinkedHashMap<>();
 
@@ -461,6 +461,33 @@ public final class QueryRegistry implements AutoCloseable {
             java.nio.file.Path root, com.ash.messaging.pravaha.common.config.Configuration configuration) {
         this.checkpoints = root == null ? QueryCheckpoints.NONE : new QueryCheckpoints(root, configuration);
         return this;
+    }
+
+    /** Settings the debugger reads: {@code pravaha.debug.*} (ADR-047). Defaults until told. */
+    private Configuration configuration = Configuration.builder().build();
+
+    /** Gives this registry the node's configuration, which today only the debugger reads. */
+    public QueryRegistry configuredWith(Configuration settings) {
+        this.configuration = settings == null ? Configuration.builder().build() : settings;
+        return this;
+    }
+
+    /** Debug sessions, created with the first fork (ADR-047, design section 16.4). */
+    private volatile DebugSessions debugSessions;
+
+    /** The time-travel debugger's sessions on this registry (ADR-047, design section 16.4). */
+    public DebugSessions debugSessions() {
+        DebugSessions open = debugSessions;
+        if (open == null) {
+            synchronized (DebugSessions.class) {
+                open = debugSessions;
+                if (open == null) {
+                    open = new DebugSessions(this, policy, audit, configuration);
+                    debugSessions = open;
+                }
+            }
+        }
+        return open;
     }
 
     public QueryRegistry generatingWatermarks(Duration idleAfter, Duration tick) {
@@ -687,7 +714,7 @@ public final class QueryRegistry implements AutoCloseable {
         // name, and the policy was never told what the view derives from. A careful policy author
         // could not have refused it; the engine gave them nothing to refuse on.
         List<String> rowFilters = new ArrayList<>();
-        for (String source : sourceStreams(plan)) {
+        for (String source : PlanSources.of(plan)) {
             AccessDecision read = policy.mayRead(principal, source);
             audit.record(AuditEvent.of(principal, action + ":source", source, read, sql));
             if (!read.allowed()) {
@@ -924,17 +951,9 @@ public final class QueryRegistry implements AutoCloseable {
             Retention retention,
             BoundParameters parameters,
             String sinkName) {
-        if (journal == null) {
-            return;
+        if (journal != null) {
+            journal.recordRegistration(name, sql, keyColumns, principal.id(), retention, parameters, sinkName);
         }
-        List<String> encoded = new ArrayList<>();
-        for (int index = 0; index < parameters.size(); index++) {
-            encoded.add(RegistryJournal.encodeParameter(parameters.at(index)));
-        }
-        // The sink goes in the same record as the registration. Two appends could leave a restart
-        // with the query and without its sink, which recovers "successfully" while the table the
-        // query fed stops moving.
-        journal.recordRegistration(name, sql, keyColumns, principal.id(), retention, encoded, sinkName);
     }
 
     /** Registration during recovery: the journal is being read, so nothing is written back to it. */
@@ -969,26 +988,6 @@ public final class QueryRegistry implements AutoCloseable {
      */
     private String recoveringInto;
 
-    /**
-     * Every stream the plan reads, in the order it reads them.
-     *
-     * <p>Taken from the plan rather than from the SQL text, because the text can name a stream the
-     * planner optimised away and can omit one a view expanded into. What the plan scans is what the
-     * query will actually read.
-     */
-    private static List<String> sourceStreams(PhysicalOperator plan) {
-        List<String> found = new ArrayList<>();
-        collectSources(plan, found);
-        return found;
-    }
-
-    private static void collectSources(PhysicalOperator operator, List<String> into) {
-        if (operator instanceof ScanOperator scan && !into.contains(scan.streamName())) {
-            into.add(scan.streamName());
-        }
-        operator.inputs().forEach(input -> collectSources(input, into));
-    }
-
     private RegisteredQuery start(
             String name,
             String sql,
@@ -1012,7 +1011,7 @@ public final class QueryRegistry implements AutoCloseable {
         ServedView view = new ServedView(name, schema, keyColumns, DEFAULT_MAX_KEYS, retention)
                 // SX-11. What the query reads, recorded on the view, so a reader is judged against
                 // the data and not against the name a registrant happened to choose for it.
-                .derivedFrom(sourceStreams(plan));
+                .derivedFrom(PlanSources.of(plan));
         ViewSink sink = new ViewSink(view, schema);
 
         // The engine, not a pipeline of our own. Until now the registry compiled an
@@ -1076,9 +1075,9 @@ public final class QueryRegistry implements AutoCloseable {
             }
             query.feedFrom(
                     backfill == null
-                            ? feeds.open(name, execution, sourceStreams(plan), query::commit, resumeFrom)
+                            ? feeds.open(name, execution, PlanSources.of(plan), query::commit, resumeFrom)
                             : feeds.openBackfill(
-                                    name, execution, sourceStreams(plan), query::commit, resumeFrom, backfill));
+                                    name, execution, PlanSources.of(plan), query::commit, resumeFrom, backfill));
         } catch (RuntimeException e) {
             // A feed that cannot open must not leave a half-started query behind holding a lane
             // thread and an arena. Fail the registration instead, with the execution released.
@@ -1105,11 +1104,8 @@ public final class QueryRegistry implements AutoCloseable {
      * cut over to at a position both have consumed exactly, and rolled back from while the replaced
      * version is retained. Every one of those requires the administer permission on the name, as
      * dropping it does: a replacement takes the answer away from its readers just as thoroughly.
-     *
-     * <p>Created with the first replacement, so a registry that never replaces anything starts no
-     * thread. Not synchronized on this registry: a replacement takes its own monitor and then the
-     * registry's for the moments that change a name, and a registry method that took them the other
-     * way round would eventually meet a cutover coming the other way.
+     * Created with the first replacement, so a registry that never replaces anything starts no
+     * thread; see the field above for why it is not synchronized on this registry.
      */
     public QueryReplacements replacements() {
         QueryReplacements running = replacements;
@@ -1149,7 +1145,7 @@ public final class QueryRegistry implements AutoCloseable {
 
     /** The streams {@code sql} would read if it were registered here, planned as registration plans it. */
     synchronized List<String> sourceStreamsOf(String sql) {
-        return sourceStreams(PreparedContinuousQuery.of(
+        return PlanSources.of(PreparedContinuousQuery.of(
                         sql, BoundParameters.none(), java.util.List.of(streams), List.copyOf(lookupSchemas.values()))
                 .plan());
     }
@@ -1463,6 +1459,13 @@ public final class QueryRegistry implements AutoCloseable {
         replacements = null;
         if (running != null) {
             running.close();
+        }
+        // Forks before queries, for the same reason: a session holds a second execution of a
+        // query's plan and its own lane, and leaving one running would outlive the registry.
+        DebugSessions debugging = debugSessions;
+        debugSessions = null;
+        if (debugging != null) {
+            debugging.close();
         }
         closeQueries();
     }
