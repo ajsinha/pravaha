@@ -59,7 +59,7 @@ Every one of them decides whether memory is bounded at all — not one is a matt
 
 | Setting | Default | What it decides |
 |---|---|---|
-| `pravaha.streams.<name>.event-time` | none | which `TIMESTAMP` column is the stream's time. **Without it no watermark advances** |
+| `pravaha.streams.<name>.event-time` | none | which `TIMESTAMP` column is the stream's time. **Without it no watermark advances, and a windowed query over the stream is refused** (`PRV-2002`) |
 | `pravaha.streams.<name>.out-of-orderness` | `10s` | how far the watermark trails the newest row: how long a window waits for stragglers |
 | `pravaha.watermark.idle-after` | `30s` | how long a partition may produce nothing before it stops holding the watermark back (1 s to 10 min, refused outside that, never clamped) |
 | `pravaha.watermark.tick` | `1s` | how often event time advances and idleness is checked; **must** be finer than `idle-after`, and at least `1ms`. Both refused at startup, never clamped |
@@ -169,9 +169,10 @@ Every bound in the engine is armed by event time.
 ## Pitfalls
 
 !!! warning "RUNNING, rows arriving, view empty"
-    The stream has no `event-time`; the source is not stamping rows with it; or no row has yet
-    arrived far enough past a window's end. Append a row later in event time and watch the window
-    publish.
+    The source is not stamping rows with the event-time column, or no row has yet arrived far
+    enough past a window's end. Append a row later in event time and watch the window publish. A
+    stream with no `event-time` at all is no longer one of the answers here: a windowed query over
+    one is refused with `PRV-2002` when it is registered, so it never reaches `RUNNING`.
 
 !!! warning "Everything stopped closing at 17:00"
     One partition went quiet and `idle-after` is longer than the gap. Shorten it, or check that the

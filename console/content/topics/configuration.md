@@ -328,9 +328,10 @@ A node with a journal and a checkpoint directory comes back with its queries and
     read by different components and must agree column for column.
 
 !!! warning "Pitfall: no `event-time`, no answers"
-    A stream without `event-time` has no watermark, so no window ever closes: a windowed query
-    registers, reports `RUNNING`, ingests every row and emits nothing. The console's operations
-    screen shows this as "No watermark yet".
+    A stream without `event-time` has no watermark, so no window over it could ever close — and a
+    windowed query over it is refused with `PRV-2002` when you register it, rather than reporting
+    `RUNNING` and ingesting every row for ever. An unwindowed query over the same stream is fine,
+    and the console's operations screen shows it as "No watermark yet".
 
 !!! tip "The JVM flags are not optional"
     `bin/pravaha-server` adds `--add-opens=java.base/java.nio=ALL-UNNAMED` and

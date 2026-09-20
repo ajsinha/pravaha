@@ -159,7 +159,10 @@ a query written ahead of its source needs — so they are separate blocks:
 pravaha:
   streams:
     txn:
-      schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING"
+      schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP"
+      event-time: event_time        # the column carrying each row's own time. Declare it before
+                                    # any windowed query: without it no watermark advances, so no
+                                    # window could ever close, and such a query is refused (PRV-2002)
   sources:
     txn:
       plugin: filesystem            # the only plugin in the server jar; feedfile, jdbc,
@@ -167,7 +170,7 @@ pravaha:
                                     # put on the classpath for a source to name them
       options:
         path: /var/lib/pravaha/incoming/txn.csv
-        schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING"
+        schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP"
 ```
 
 **A file that keeps growing.** By default a file source is a bounded read: it ends where the file
@@ -181,8 +184,9 @@ without anything being restarted:
       plugin: filesystem
       options:
         path: /var/lib/pravaha/incoming/txn.csv
-        schema: "txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP"
-        event.time: event_time      # which column holds the row's own time
+        schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP"
+        event.time: event_time      # which column holds the row's own time; on a node the
+                                    # stream's own event-time is handed down as this option
         follow: true
 ```
 
@@ -196,10 +200,14 @@ the engine's own unit for that type: days for a date, nanoseconds for the other 
 the sink writes so a file round-trips. A time written as milliseconds used to be stored unscaled,
 which made every predicate over it quietly wrong.
 
-**If the query is windowed, name the event-time column.** `event.time` tells the source which column
-holds each row's own time. Without it every row carries the time it was *read*, the watermark runs at
-wall-clock, and every row is dropped as late — an empty view under a query reporting `RUNNING`. The
-same option exists on the Aerospike source, and matters there for the same reason.
+**If the query is windowed, name the event-time column — twice, in effect.** The stream's
+`event-time` says which column a window is measured in; leave it out and the windowed query is
+refused when you register it (`PRV-2002`), because no watermark could advance and no window could
+ever close. On a node that same column is handed down to the source as its `event.time` option, so
+you write it once; set `event.time` by hand and every row carries the time it was *read* instead,
+the watermark runs at wall-clock, and every row is dropped as late — an empty view under a query
+reporting `RUNNING`. The same option exists on the Aerospike source, and matters there for the
+same reason.
 
 With that file, the whole loop works from the command line:
 

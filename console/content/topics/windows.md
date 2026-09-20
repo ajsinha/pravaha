@@ -131,13 +131,16 @@ For `[09:30, 09:31)` over `trades` (5 s of out-of-orderness), the window is publ
 stamped 09:31:05 or later has arrived. A subscriber receives it as one commit — never a partly closed
 window. See [event time and watermarks](/help/topics/event-time-watermarks).
 
-This is why **a windowed query over a stream with no `event-time` emits nothing, for ever**. It is
-not slow; it is waiting for a clock that will never tick.
+This is why **a windowed query over a stream with no `event-time` is refused** rather than
+registered. It would not be slow; it would be waiting for a clock that never ticks, reporting
+`RUNNING` and ingesting every row for ever, so the engine says so when you register it
+(`PRV-2002`) and names the key to set.
 
 A bounded input is different: when a file read with `follow: false` ends, every open window is
-closed and published, because nothing more can arrive.
+closed and published, because nothing more can arrive. So the same SQL over a bounded read is
+accepted with no event-time declaration — its windows are fired by the end of the scan.
 
-## The descriptor must name the stream's event time
+## The descriptor must name the stream's event time, and the stream must have one
 
 ```text
 -- refused: 'placed_at' is a timestamp, but not the one the watermark tracks
@@ -147,6 +150,17 @@ TUMBLE(TABLE orders, DESCRIPTOR(placed_at), INTERVAL '10' SECOND)
 Windows are closed by the watermark, and the watermark advances only on the declared event-time
 column. A grid keyed to another column would be closed by a clock that knows nothing about it, and
 the answer would be **wrong rather than late** (TIME-2).
+
+The same check refuses a stream that declares **no** event-time column at all (TIME-6), because a
+grid over it could never be closed by anything:
+
+```text
+PRV-2002  TUMBLE is given DESCRIPTOR(placed_at), but 'orders' declares no event-time column -- so
+          no watermark advances over it and no window this query opens can ever close. It would
+          register, report RUNNING, ingest every row and emit nothing, for ever.
+            Declare the column: pravaha.streams.orders.event-time: placed_at, or 'eventTime' on
+            POST /api/v1/streams. The column must be a TIMESTAMP.
+```
 
 ## Keying a windowed view
 
@@ -182,7 +196,9 @@ late row within it reopens the window as a correction: the old result at `−1`,
 ## Pitfalls
 
 !!! warning "RUNNING and empty"
-    No `event-time` on the stream, or no newer rows to move the watermark past a window's end.
+    No newer rows to move the watermark past a window's end, or an `out-of-orderness` larger than
+    the span of the data on hand. It is no longer a missing `event-time`: a windowed query over a
+    stream that declares none is refused with `PRV-2002` when you register it.
 
 !!! warning "A window closed later than expected"
     `out-of-orderness` is larger than the data needs, or — in a join — a slow input is holding the

@@ -7,7 +7,10 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 > [`../README.md`](../README.md)'s "What is not built",
 > [ADR-039](adr/039-ga-includes-the-known-gaps-and-clustering.md)'s items, the design's §23.20
 > console gate, and the open findings in [`qa/FINDINGS.md`](qa/FINDINGS.md). Written 2026-09-19,
-> when no GA-BLOCKER and no GA-REQUIRED finding was open.
+> when no GA-BLOCKER and no GA-REQUIRED finding was open. One GA-REQUIRED finding was opened and
+> closed after that: `CASE-1`, the case studies windowing over streams with no declared event time,
+> done on 2026-09-20 with `TIME-6`'s plan-time refusal
+> ([`qa/case1-time6-2026-09-20.md`](qa/case1-time6-2026-09-20.md)).
 
 Each batch names the files it owns, so batches in the same wave touch disjoint trees and can be
 built by different agents at the same time without merging into each other. The constraint that
@@ -52,7 +55,7 @@ minutes). The slots: the engine's core, serial, because `QueryRegistry`, `QueryE
 |---|---|---|
 | **B12** | **Built 2026-09-19.** `deploy/docker/` builds a ~437 MB non-root image (uid 10001, `eclipse-temurin:21-jre-alpine`, the Arrow `--add-opens` on the launcher's exec line, config in three layers, no credential) from artefacts the reactor already produced — not Jib and not distroless, [ADR-047](adr/047-the-image-is-a-dockerfile-over-built-artefacts.md). `deploy/docker/smoke.sh` runs ten steps against a real container. `deploy/helm/pravaha/` is a StatefulSet, because a node claims its state directories by node id (ADR-035); `replicaCount` other than 1 is refused naming [ADR-045](adr/045-cluster-mode-assigns-queries-not-rows.md). `deploy/release/` sets one version across 37 poms, two wheels and the chart, and drives what a release can do offline. Four workflows, with `verify` now asserting the integration tests actually executed and `suites` asserting the browser tests did not skip themselves. `docs/DEPLOYMENT.md` is the page. **Left**: nothing in CI has ever run here — the `verify` integration leg, the JDK 25 leg and the Spring Boot 3.2–3.4 legs are still unrun, and no registry, index, `<distributionManagement>` or signing key exists, so nothing is published. | a new `deploy/`, `.github/workflows` |
 | **B13** | **The performance gates, on the machine we have.** There is no reference hardware, so P2, P3 and ADR-038's Nexmark comparison are measured on the development machine and reported with it named (owner, 2026-09-19). A target the machine cannot reach is recorded as not reached, with the number, rather than restated as passed. | `pravaha-it` performance packs, `pravaha-benchmarks`, `docs/gates/` |
-| **B14** | **The 95 open post-GA findings**, which cluster and can be split three ways: `CFG-*` (17, configuration), `STRM-*` and `TIME-*` (24, streams and event time), `API-F*` and `SX-19` (12, API shape and disclosure), `DOCX-*`/`DOCR-*` (8, documentation), `PF-*` (4, performance), `SRC-*`/`SINK-*` (4). | by cluster, mostly disjoint |
+| **B14** | **The 95 open post-GA findings**, which cluster and can be split three ways: `CFG-*` (17, configuration), `STRM-*` and `TIME-*` (24, streams and event time), `API-F*` and `SX-19` (12, API shape and disclosure), `DOCX-*`/`DOCR-*` (8, documentation), `PF-*` (4, performance), `SRC-*`/`SINK-*` (4). The `STRM`/`TIME` cluster ran on 2026-09-19 and `CASE-1`+`TIME-6` followed on 2026-09-20: a windowed query over a stream with no declared event time is now refused at plan time (`PRV-2002`), which is a query that planned before and does not plan now. | by cluster, mostly disjoint |
 
 ## Not scheduled
 

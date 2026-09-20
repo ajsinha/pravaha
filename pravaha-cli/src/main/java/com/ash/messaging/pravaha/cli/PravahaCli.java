@@ -185,8 +185,10 @@ public final class PravahaCli {
         commands.put(
                 "validate",
                 List.of(
-                        "  validate  --sql <query> --schema <spec> [--stream <name>]",
-                        "            Parse, validate and plan without running anything."));
+                        "  validate  --sql <query> --schema <spec> [--stream <name>] [--event-time <column>]",
+                        "            Parse, validate and plan without running anything.",
+                        "            --event-time marks the stream's event-time column; a windowed",
+                        "            query over a stream without one is refused, as a node refuses it."));
         commands.put(
                 "query",
                 List.of(
@@ -227,12 +229,13 @@ public final class PravahaCli {
                 "explain",
                 List.of(
                         "  explain   --sql <query> --schema <spec> [--level logical|physical|codegen|all]",
+                        "            [--event-time <column>]",
                         "            Show the plan the engine would execute."));
         commands.put(
                 "run",
                 List.of(
                         "  run       --sql <query> --schema <spec> --in <file>",
-                        "            --out <file> --out-schema <spec> [--dlq <file>]",
+                        "            --out <file> --out-schema <spec> [--dlq <file>] [--event-time <column>]",
                         "            Run a query over a delimited file."));
         commands.put(
                 "debug",
@@ -333,10 +336,11 @@ public final class PravahaCli {
         out.println("            writes the session out as a JUnit test you can commit.");
         out.println();
         out.println("  explain   --sql <query> --schema <spec> [--level logical|physical|codegen|all]");
+        out.println("            [--event-time <column>]");
         out.println("            Show the plan the engine would execute.");
         out.println();
         out.println("  run       --sql <query> --schema <spec> --in <file>");
-        out.println("            --out <file> --out-schema <spec> [--dlq <file>]");
+        out.println("            --out <file> --out-schema <spec> [--dlq <file>] [--event-time <column>]");
         out.println("            Run a query over a delimited file.");
         out.println();
         out.println("  version");

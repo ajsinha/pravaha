@@ -78,11 +78,29 @@ once under the source's `options` for the plugin to parse rows with. That is a w
 the two are read by different components that do not share a parser today. They must agree.
 
 **`event-time` is the setting people most often omit, and its absence used to be silent.** Without
-it no watermark advances, so no window ever closes: a windowed query plans, registers, reports
-`RUNNING`, ingests every row and emits nothing, for ever. The `name:TYPE` grammar has no syntax for
+it no watermark advances, so no window ever closes: a windowed query used to plan, register, report
+`RUNNING`, ingest every row and emit nothing, for ever. The `name:TYPE` grammar has no syntax for
 marking a column, so this key is the only way to say it.
 
-**The node now states what is in force, one line per stream, at startup** (TIME-6):
+**A windowed query over a stream that declares no event time is now refused when it is
+registered** (TIME-6), because it could never have answered:
+
+```text
+PRV-2002  TUMBLE is given DESCRIPTOR(event_time), but 'txn' declares no event-time column -- so no
+          watermark advances over it and no window this query opens can ever close. It would
+          register, report RUNNING, ingest every row and emit nothing, for ever.
+            Declare the column: pravaha.streams.txn.event-time: event_time, or 'eventTime' on
+            POST /api/v1/streams. The column must be a TIMESTAMP.
+          Refused at registration rather than discovered from an empty view later.
+```
+
+This is a query that planned before and does not plan now. Declaring the column is the fix; there
+is no flag to turn the refusal off, because there is no configuration in which the refused query
+does something useful. It is only for an unbounded input: a **bounded** read fires its windows from
+the end of the scan rather than from a watermark, so the same SQL over a finite input still
+answers, and is still accepted.
+
+**The node also states what is in force, one line per stream, at startup** (TIME-6):
 
 ```
 stream txn: event-time=event_time, out-of-orderness=PT10S, allowed-lateness=PT0S
@@ -90,10 +108,11 @@ stream ref: event-time=none -- no window over this stream can ever close
 ```
 
 Read those first when a windowed query is `RUNNING` with a climbing `ROWS IN` and an empty view.
-They cover all four ways to get there, which a plan-time refusal could not: a missing or blank
-`event-time` is decidable, and an out-of-orderness larger than the data's span is a legitimate
-setting that simply leaves the view empty. Before this, `grep -icE "out-of-orderness"` over a whole
-startup log was 0 on every configuration tried.
+Between them the refusal and the startup line cover all four ways to get there: the refusal takes
+the two that are decidable at plan time — a missing or blank `event-time` — and the line covers the
+other two, because an out-of-orderness larger than the data's span is a legitimate setting that
+simply leaves the view empty and nothing could refuse it. Before this, `grep -icE "out-of-orderness"`
+over a whole startup log was 0 on every configuration tried.
 
 A stream declared over HTTP says the same two things in its body —
 `{"name": "txn", "schema": "...", "eventTime": "event_time", "outOfOrderness": "PT10S"}` to
@@ -1120,8 +1139,8 @@ When the watermark passes its end. The watermark is *"nothing earlier than this 
 from the rows arriving minus the stream's `out-of-orderness`. Until it passes, the window is open and
 its result is not published.
 
-**This is why a query with no `event-time` emits nothing.** It is not slow; it is waiting for a clock
-that will never tick.
+**This is why a query with no `event-time` could emit nothing.** It was not slow; it was waiting for
+a clock that would never tick — so it is now refused at registration instead (`PRV-2002`, §2).
 
 ---
 
@@ -1790,7 +1809,8 @@ Pravaha types arrive that way — the refusal used to name only `ANY`, a word no
 
 | Symptom | Cause |
 |---|---|
-| Query is `RUNNING`, view is empty, rows are arriving | No `event-time` declared, so no watermark, so no window ever closes (§2) |
+| Query is `RUNNING`, view is empty, rows are arriving | `out-of-orderness` larger than the data's span, or a bounded source that has read its last window. It is no longer a missing `event-time`: that is refused at registration with `PRV-2002` (§2) |
+| A windowed query that used to register is refused with `PRV-2002` | Its stream declares no `event-time`, so it could never have emitted. Declare the column (§2) |
 | Windows close but lag real time badly | `out-of-orderness` larger than the data needs, or a slow input dragging a join's watermark down |
 | Two queries that look identical are not shared | Different `--keys`, different retention, or `AND` operands written in a different order (§3) |
 | A count went down | A correction: a late row retracted a result and replaced it. Working as designed (§6) |

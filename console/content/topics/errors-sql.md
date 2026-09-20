@@ -92,6 +92,24 @@ with no event time for them to be about. Each names the stream and both spelling
 `pravaha.streams.<name>.out-of-orderness`, or `outOfOrderness` on `POST /api/v1/streams`. See
 [Event time and watermarks](/help/topics/event-time-watermarks).
 
+**And so does a window over a stream that declares no event time at all.** The query is
+well-formed and the column it names is real; what is missing is the declaration that makes a
+watermark advance, and without one no window the query opens could ever close. It is refused when
+you register it rather than left running empty:
+
+```text
+PRV-2002  TUMBLE is given DESCRIPTOR(event_time), but 'txn' declares no event-time column -- so no
+          watermark advances over it and no window this query opens can ever close. It would
+          register, report RUNNING, ingest every row and emit nothing, for ever.
+            Declare the column: pravaha.streams.txn.event-time: event_time, or 'eventTime' on
+            POST /api/v1/streams. The column must be a TIMESTAMP.
+          Refused at registration rather than discovered from an empty view later.
+```
+
+The fix is the declaration; there is nothing to turn off, because there is no configuration in
+which the refused query answers. A query over a **bounded** read is not refused: those windows are
+fired by the end of the scan, not by a watermark.
+
 ### PRV-2003 — unknown stream
 
 A stream named by an API call — `GET /api/v1/streams/{name}`, a registration against a stream — is not

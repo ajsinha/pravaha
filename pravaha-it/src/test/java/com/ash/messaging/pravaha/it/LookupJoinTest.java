@@ -73,6 +73,10 @@ class LookupJoinTest {
                 .field("order_id", Types.int64())
                 .field("user_id", Types.int64())
                 .field("ts", Types.timestamp())
+                // Declared, not merely present: a windowed query over a stream with no declared
+                // event time is refused (TIME-6), because no watermark advances over it and no
+                // window it opens could ever close.
+                .eventTime("ts")
                 .build();
     }
 
@@ -457,6 +461,7 @@ class LookupJoinTest {
                 .field("user_id", Types.int64())
                 .field("amount", Types.int64())
                 .field("event_time", Types.timestamp())
+                .eventTime("event_time")
                 .build();
         StreamSchema dim = StreamSchema.builder("users")
                 .field("user_id", Types.int64())

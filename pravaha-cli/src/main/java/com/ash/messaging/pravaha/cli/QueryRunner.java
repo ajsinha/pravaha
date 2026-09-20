@@ -132,8 +132,30 @@ public final class QueryRunner {
             String outputPath,
             int lanes,
             Path deadLetterFile) {
+        return run(
+                sql, streamName, inputSchemaSpec, "", inputPath, outputSchemaSpec, outputPath, lanes, deadLetterFile);
+    }
 
-        StreamSchema sourceSchema = FilesystemSourcePlugin.parseSchema(streamName, inputSchemaSpec);
+    /**
+     * The same run, with the stream's event-time column declared.
+     *
+     * @param eventTimeColumn the column carrying each row's own time, or blank for none. Blank
+     *     refuses a windowed query (TIME-6) rather than planning one whose windows a watermark
+     *     could never close -- the same refusal a node makes, which is the point of being able to
+     *     rehearse a query here at all
+     */
+    public static Result run(
+            String sql,
+            String streamName,
+            String inputSchemaSpec,
+            String eventTimeColumn,
+            String inputPath,
+            String outputSchemaSpec,
+            String outputPath,
+            int lanes,
+            Path deadLetterFile) {
+
+        StreamSchema sourceSchema = SchemaOption.parse(streamName, inputSchemaSpec, eventTimeColumn);
 
         long planStart = System.nanoTime();
         PhysicalOperator plan = new PhysicalPlanBuilder()

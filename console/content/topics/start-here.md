@@ -158,9 +158,11 @@ merchant_minute  RUNNING  7c1e2a9b4f03
 | Embedding it in a **JVM application** | No server, no network | [The embedded engine](/help/topics/embedded-engine), [Spring Boot](/help/topics/spring-boot-starter) |
 
 !!! tip "The single most common first-run surprise"
-    A windowed query that reports `RUNNING`, ingests rows and shows an empty view is almost always
-    a stream declared without `event-time`. Without it no watermark advances and no window ever
-    closes. See [event time and watermarks](/help/topics/event-time-watermarks).
+    A windowed query refused with `PRV-2002` saying the stream "declares no event-time column".
+    Without that key no watermark advances and no window could ever close, so the engine refuses
+    the query instead of running it empty for ever. Declare it and register again. If the query
+    *did* register and the view is still empty, no row has yet arrived past a window's end plus the
+    stream's `out-of-orderness`. See [event time and watermarks](/help/topics/event-time-watermarks).
 
 !!! note "Three ports"
     The engine's Flight SQL endpoint is **9090**, its HTTP API and Prometheus endpoint **8080**, the

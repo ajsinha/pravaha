@@ -153,9 +153,10 @@ A subscriber to `block_trades` saw the `−1` for trade 7 in the commit that car
 !!! warning "Windows need the stream's `event-time`"
     Each row is stamped with its `event.time` column's value, and the engine's watermark comes from
     those stamps. On a server the stream's declared `event-time` is handed to the source as
-    `event.time`, so `buys_by_symbol` publishes its windows as the table's own times advance. Without
-    it every row is stamped zero, and a windowed aggregate plans, registers, reads the table and never
-    publishes a window. A **retraction** carries the removed row's own time, so a correction to a
+    `event.time`, so `buys_by_symbol` publishes its windows as the table's own times advance. A
+    windowed query over a stream that declares none is refused at registration (`PRV-2002`); declare
+    `event.time` alone, with no `event-time` on the stream, and every row is stamped zero instead, so
+    the query registers and never publishes a window. A **retraction** carries the removed row's own time, so a correction to a
     window that has already closed is late — dropped, unless the stream declares allowed lateness.
 
 ## Pushdown

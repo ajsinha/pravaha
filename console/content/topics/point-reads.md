@@ -290,8 +290,9 @@ registry, fix the cause, and re-register it.
     (`pravaha queries`, or the query's page in the console) when numbers stop moving.
 
 !!! warning "Pitfall: an empty result from a RUNNING windowed query"
-    A windowed view is empty until the watermark passes the first window's end. If the stream has no
-    declared event time, the watermark never moves and the view stays empty for ever. See
+    A windowed view is empty until the watermark passes the first window's end — so append a row
+    past it. A stream with no declared event time cannot get here at all: the query is refused with
+    `PRV-2002` rather than registered. See
     [Event time and watermarks](/help/topics/event-time-watermarks).
 
 !!! tip "Name your columns"

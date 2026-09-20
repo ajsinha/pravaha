@@ -93,7 +93,7 @@ GROUP BY region, window_start, window_end;
 | `enabled` | `true` | `false` turns the auto-configuration off |
 | `node.id` | `pravaha-embedded` | The engine's id in logs and metrics |
 | `streams.<name>.schema` | — | The stream, as `name:TYPE,…` (`?` for nullable) |
-| `streams.<name>.event-time` | none | The event-time column. Without it no window over the stream closes |
+| `streams.<name>.event-time` | none | The event-time column. Without it no window over the stream could close, so a windowed query over it is refused (`PRV-2002`) |
 | `streams.<name>.out-of-orderness` | the engine's | How late this stream's rows may be |
 | `sources.<name>.plugin` / `.options` | — | A source binding: [Sources](/help/topics/sources-overview) |
 | `lookups.<name>.plugin` / `.options` | — | A dimension table: [Lookups](/help/topics/lookups) |

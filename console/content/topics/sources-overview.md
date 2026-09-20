@@ -54,9 +54,10 @@ Three rules that catch everyone once:
   The two are read by different components that do not share a parser, and must agree column for
   column. JDBC, Delta and postgres-cdc read the schema from the store, so only the catalogue copy is
   yours (postgres-cdc also takes a declared `schema`, checked against the table).
-- **`event-time` is the setting people most often omit, and its absence is silent.** Without it no
-  watermark advances and no window ever closes: a windowed query registers, reports `RUNNING`, ingests
-  every row and emits nothing. `out-of-orderness` is dropped too if `event-time` is not also declared.
+- **`event-time` is the setting people most often omit, and its absence used to be silent.** Without
+  it no watermark advances and no window over the stream could ever close, so a windowed query over
+  one is now refused at registration with `PRV-2002` naming the key. `out-of-orderness` is dropped
+  too if `event-time` is not also declared.
   On a server node the declared column is handed down to the source as its `event.time` option, so you
   write it once.
 

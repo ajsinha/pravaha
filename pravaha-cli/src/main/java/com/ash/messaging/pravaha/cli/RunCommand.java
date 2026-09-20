@@ -43,6 +43,7 @@ final class RunCommand {
                 args.require("sql"),
                 args.get("stream", "txn"),
                 args.require("schema"),
+                args.get("event-time", ""),
                 args.require("in"),
                 args.require("out-schema"),
                 args.require("out"),

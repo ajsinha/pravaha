@@ -75,6 +75,10 @@ class SqlAnswerTest {
                 .field("status", Types.string().withNullable(true))
                 .field("flagged", Types.bool())
                 .field("event_time", Types.timestamp())
+                // Declared, not merely present: a windowed query over a stream with no declared
+                // event time is refused (TIME-6), because no watermark advances over it and no
+                // window it opens could ever close.
+                .eventTime("event_time")
                 .build();
     }
 

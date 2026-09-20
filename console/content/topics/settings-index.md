@@ -82,7 +82,7 @@ unknown. See [Streams](/help/topics/streams), [Sources](/help/topics/sources-ove
 | Setting | Default | What it does |
 |---|---|---|
 | `pravaha.streams.<name>.schema` | — | The stream's columns, `name:TYPE,name:TYPE` (`?` after a type for nullable). It must match a source binding's own `schema` option for the same stream, and a disagreement is refused at startup: one is what queries are planned against and the other is what the plugin decodes with |
-| `pravaha.streams.<name>.event-time` | *none* | The column carrying each row's own time. **Without it no watermark advances and no window ever closes** |
+| `pravaha.streams.<name>.event-time` | *none* | The column carrying each row's own time. **Without it no watermark advances, and a windowed query over the stream is refused with `PRV-2002`** |
 | `pravaha.streams.<name>.out-of-orderness` | `10s` | How late *this* stream's rows may be. The key that is actually read — see `pravaha.watermark.out-of-orderness` below |
 | `pravaha.streams.<name>.allowed-lateness` | `0s` | How long after a window closes a late row may still correct it (a `−1` and a `+1`). Needs `event-time`; non-zero makes windowed queries over the stream revise, so they need a sink that takes retractions (PRV-2041). See [late data](/help/topics/late-data) |
 | `pravaha.sources.<stream>.plugin` | — | The source plugin feeding the stream: `filesystem`, `feedfile`, `jdbc`, `delta`, `aerospike`, `cassandra`, `postgres-cdc`, `kafka` |

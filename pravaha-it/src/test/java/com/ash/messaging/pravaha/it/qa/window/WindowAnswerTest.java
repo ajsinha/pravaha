@@ -147,17 +147,23 @@ class WindowAnswerTest extends WindowTestSupport {
     }
 
     @Test
-    void win005_tumbleOverAStreamWithNoDeclaredEventTimeNeverFiresRatherThanRefusing(@TempDir Path dir)
-            throws Exception {
-        // WIN-005. DESCRIPTOR(event_time) names a real column, so WindowAssignOperator is
-        // constructible even though the stream declared no event-time key -- the registration
-        // succeeds and nothing ever fires, silently, rather than being refused at plan time.
-        // v_t10 is the control: it must hold 4 rows in the same run, or the server itself is dead
-        // rather than this declaration being the cause.
-        // The control runs in the registry() helper every other WIN-0xx case already trusts, in its
-        // own registry, so that nothing about a second stream declared on the same registry (which
-        // measurably changes when this build's watermark reaches its maximum -- worth its own
-        // finding, noted below) can be blamed for the control's own answer.
+    void win005_tumbleOverAStreamWithNoDeclaredEventTimeIsRefusedAtRegistration(@TempDir Path dir) throws Exception {
+        // WIN-005, with a NEW OUTCOME. It was recorded as "never fires rather than refusing": the
+        // registration succeeded, six rows went in, nothing came out, and nothing anywhere said
+        // why. That was true of the engine when the case was run, and it is the behaviour TIME-6
+        // then measured from four directions -- state=RUNNING, a climbing ROWS IN, an empty view,
+        // a NaN lag gauge and not one log line, indistinguishable on every surface from a query
+        // that was working.
+        //
+        // It is now refused at plan time, under the owner's standing rule: "Where the engine could
+        // accept something doubtful or refuse it, it refuses -- by name, with a code and the way to
+        // say it properly. Silent coercions, guessed units and papering defaults are the bugs
+        // nobody finds." A window over a stream with no declared event time is not a slow answer;
+        // no watermark advances over such a stream, so the window cannot close, ever. Recording
+        // "it stays empty" as the expected outcome is recording the bug.
+        //
+        // The control is unchanged and still passes in the same run, so the refusal is about this
+        // declaration and not about the server being dead.
         List<String> controlRows =
                 configured(dir, A, SPEC, Duration.ZERO, tumble("s0", "10' SECOND"), List.of(0, 1, 2), 6, 4);
         assertThat(controlRows).hasSize(4);
@@ -177,20 +183,20 @@ class WindowAnswerTest extends WindowTestSupport {
         try (QueryRegistry registry = new QueryRegistry(views, snoevent)
                 .feedingFrom(feeds)
                 .generatingWatermarks(Duration.ofSeconds(1), Duration.ofMillis(50))) {
-            RegisteredQuery underTest = registry.register(
-                    "v_noev",
-                    "SELECT window_start, window_end, user_id, COUNT(*) AS n, SUM(amount) AS total FROM "
-                            + "TABLE(TUMBLE(TABLE snoevent, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) "
-                            + "GROUP BY window_start, window_end, user_id",
-                    List.of(0, 1, 2),
-                    Principal.ANONYMOUS);
-            awaitRowsIn(underTest, 6);
-            Thread.sleep(500);
-            assertThat(new ViewQuery(views).execute("SELECT * FROM v_noev").rows())
-                    .as("no event-time declaration means every row is stamped 0, the watermark never "
-                            + "leaves 0, and no window ever fires -- registration succeeded and nothing "
-                            + "reports why the view stays empty")
-                    .isEmpty();
+            assertThatThrownBy(() -> registry.register(
+                            "v_noev",
+                            "SELECT window_start, window_end, user_id, COUNT(*) AS n, SUM(amount) AS total FROM "
+                                    + "TABLE(TUMBLE(TABLE snoevent, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) "
+                                    + "GROUP BY window_start, window_end, user_id",
+                            List.of(0, 1, 2),
+                            Principal.ANONYMOUS))
+                    .isInstanceOf(PravahaException.class)
+                    .hasMessageContaining("PRV-2002")
+                    .hasMessageContaining("'snoevent' declares no event-time column")
+                    .as("the refusal names the stream, says what would have happened, and gives the key")
+                    .hasMessageContaining("pravaha.streams.snoevent.event-time: event_time");
+            // And nothing was registered: there is no half-built query left behind to go quiet.
+            assertThat(registry.names()).doesNotContain("v_noev");
         }
     }
 

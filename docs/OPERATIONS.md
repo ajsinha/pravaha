@@ -590,7 +590,7 @@ pravaha:
   streams:
     txn:
       schema: "txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP"
-      event-time: event_time    # without this no watermark advances and no window closes
+      event-time: event_time    # without this no watermark advances and a windowed query is refused
       out-of-orderness: 10s     # how late this stream's rows may be
       allowed-lateness: 0s      # how long a closed window still takes a correction; 0 = final
   watermark:
@@ -645,8 +645,11 @@ should get three tolerances rather than the worst of them. Configuration does th
 > reader or to remove it, and both are code decisions.
 
 *Event time* is `pravaha.streams.<name>.event-time`, naming the column that carries each row's own
-time. Without it every row carries the time it was read, the watermark runs at wall-clock, and a
-windowed query reports `RUNNING` over an empty view for ever.
+time. Without it no watermark advances over the stream at all, so a windowed query over one is
+**refused when it is registered** (`PRV-2002`, TIME-6) instead of reporting `RUNNING` over an empty
+view for ever; the refusal names the stream and the key to set. An unwindowed query over the same
+stream is unaffected, and so is a windowed query over a bounded read, whose windows are fired by
+the end of the scan.
 
 The node hands that column to the stream's source as its `event.time` option, and each source
 stamps a row with the column's value. `feedfile` and `delta` did not until HLP-6: they ignored the

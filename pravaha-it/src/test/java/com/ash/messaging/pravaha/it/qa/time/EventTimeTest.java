@@ -27,6 +27,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.bindings.ingest.PluginSourceFeeds;
@@ -115,12 +116,19 @@ class EventTimeTest {
     }
 
     @Test
-    void time002And009_aStreamWithNoDeclaredEventTimeIngestsEverythingAndServesNothing(@TempDir Path dir)
-            throws Exception {
-        // TIME-002 and TIME-009. Without an event-time column every row is stamped zero, the
-        // watermark never reaches a window in the present, and the query reports RUNNING with
-        // 121 rows in and nothing out -- for ever, with no warning anywhere. This is the failure
-        // mode that looks exactly like a healthy query, and pinning it is the point.
+    void time002And009_aStreamWithNoDeclaredEventTimeIsRefusedRatherThanRunForEver(@TempDir Path dir) throws Exception {
+        // TIME-002 and TIME-009, with a NEW OUTCOME. They were recorded as "ingests everything and
+        // serves nothing": without an event-time column every row is stamped zero, the watermark
+        // never reaches a window in the present, and the query reported RUNNING with 121 rows in
+        // and nothing out -- for ever, with no warning anywhere. TIME-6 then showed that this is
+        // indistinguishable, on every surface the engine has, from a query that is working.
+        //
+        // It is now refused when the query is registered, under the owner's standing rule: "Where
+        // the engine could accept something doubtful or refuse it, it refuses -- by name, with a
+        // code and the way to say it properly. Silent coercions, guessed units and papering
+        // defaults are the bugs nobody finds." A query that can never emit is not a doubtful
+        // query, it is a broken one, and the schema needed to see that is in hand at plan time.
+        // The old outcome described the engine accurately and was still the wrong thing to keep.
         Path data = dir.resolve("evB.csv");
         Files.writeString(data, evB());
         StreamSchema noEventTime = StreamSchema.builder("ev")
@@ -135,14 +143,24 @@ class EventTimeTest {
         try (QueryRegistry registry = new QueryRegistry(views, noEventTime)
                 .feedingFrom(feeds)
                 .generatingWatermarks(Duration.ofSeconds(1), Duration.ofMillis(50))) {
-            RegisteredQuery query = registry.register("w", Q10, List.of(0), Principal.ANONYMOUS);
-            awaitRowsIn(query, 121);
-            Thread.sleep(1_000);
-            assertThat(new ViewQuery(views).execute("SELECT * FROM w").size())
-                    .as("121 rows in, nothing out, and nothing says why")
-                    .isZero();
-            assertThat(query.failure()).isEmpty();
+            assertThatThrownBy(() -> registry.register("w", Q10, List.of(0), Principal.ANONYMOUS))
+                    .isInstanceOf(PravahaException.class)
+                    .hasMessageContaining("PRV-2002")
+                    .hasMessageContaining("'ev' declares no event-time column")
+                    .hasMessageContaining("ingest every row and emit nothing, for ever")
+                    .as("and the refusal says how to say it properly, in the spelling a node takes")
+                    .hasMessageContaining("pravaha.streams.ev.event-time: event_time");
+            assertThat(registry.names()).doesNotContain("w");
         }
+    }
+
+    @Test
+    void time002_theSameQueryOverTheSameStreamRunsOnceTheEventTimeIsDeclared(@TempDir Path dir) throws Exception {
+        // The other half of the refusal above, and the reason it is a fix rather than a removal:
+        // one declaration turns the refused query into the answer TIME-001 records. Nothing else
+        // about the stream, the file or the query changes.
+        List<String> rows = configured(dir, evB(), Duration.ofSeconds(10), Q10, 121, 11);
+        assertThat(windowTotals(rows)).isEqualTo(expected(11));
     }
 
     // ================================================== out-of-orderness

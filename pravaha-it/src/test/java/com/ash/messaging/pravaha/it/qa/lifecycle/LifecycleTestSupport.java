@@ -49,6 +49,11 @@ abstract class LifecycleTestSupport {
             .field("usr", Types.string())
             .field("amount", Types.int64())
             .field("event_time", Types.timestamp())
+            // Declared, not merely present. A windowed query over a stream with no declared event
+            // time is refused (TIME-6): no watermark advances over it, so no window it opens could
+            // ever close. Several LIFE cases window over txn, and this is what makes them the
+            // queries a node would actually run.
+            .eventTime("event_time")
             .build();
 
     /** {@code S1} from LIFE.md's standing setup: output columns (usr, amount), ordinals 0 and 1. */

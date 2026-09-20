@@ -137,8 +137,23 @@ Read those before anything else when a windowed query is `RUNNING` with a climbi
 empty view. An out-of-orderness larger than the span of the data on hand holds every window open
 for ever, and it is a legitimate setting, so nothing refuses it — it is only visible here.
 **A unitless number is seconds**: `out-of-orderness: 60` is a minute, not sixty milliseconds
-(TIME-3). A stream with **no** event-time column says so in words, and a windowed query over it can
-never close a window -- which is the one line to look for before anything else.
+(TIME-3).
+
+**A stream with no event-time column is no longer one of the ways to get here.** It says so in the
+startup line above, and a windowed query over it is refused when it is registered rather than left
+running (TIME-6):
+
+```text
+PRV-2002  TUMBLE is given DESCRIPTOR(event_time), but 'ref' declares no event-time column -- so no
+          watermark advances over it and no window this query opens can ever close. It would
+          register, report RUNNING, ingest every row and emit nothing, for ever.
+            Declare the column: pravaha.streams.ref.event-time: event_time, or 'eventTime' on
+            POST /api/v1/streams. The column must be a TIMESTAMP.
+```
+
+A query that registered before an upgrade and is refused after it is this: it could never have
+answered, and the declaration is the fix. Over a **bounded** read the same SQL is still accepted,
+because those windows are fired by the end of the scan rather than by a watermark.
 
 **Is the subscription attached?** A plain subscription starts from *now*, not from the beginning of
 time: a change committed before the subscriber attached was published to nobody. Worse, reading the

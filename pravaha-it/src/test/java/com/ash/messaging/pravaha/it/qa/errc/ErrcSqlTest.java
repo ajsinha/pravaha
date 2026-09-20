@@ -303,16 +303,33 @@ class ErrcSqlTest extends ErrcTestSupport {
         // E3: the time dimension is explained, and the windowed rewrite is offered.
         assertThat(refused.stderr()).containsIgnoringCase("window");
 
+        // --event-time is required for the rewrite: `name:TYPE` cannot say which TIMESTAMP is the
+        // stream's own time, and a windowed query over a stream that declares none is refused
+        // here exactly as a node refuses it (TIME-6).
         ErrcTestSupport.CliResult windowed = cli(
                 "validate",
                 "--sql",
                 "SELECT window_start, window_end, usr, SUM(amount) FROM TABLE(TUMBLE(TABLE txn, "
                         + "DESCRIPTOR(event_time), INTERVAL '1' MINUTE)) GROUP BY window_start, window_end, usr",
                 "--schema",
-                SCHEMA);
+                SCHEMA,
+                "--event-time",
+                "event_time");
         assertThat(windowed.exitCode())
                 .as("vacuity: the windowed rewrite of the same aggregation must succeed")
                 .isZero();
+
+        ErrcTestSupport.CliResult undeclared = cli(
+                "validate",
+                "--sql",
+                "SELECT window_start, window_end, usr, SUM(amount) FROM TABLE(TUMBLE(TABLE txn, "
+                        + "DESCRIPTOR(event_time), INTERVAL '1' MINUTE)) GROUP BY window_start, window_end, usr",
+                "--schema",
+                SCHEMA);
+        assertThat(undeclared.exitCode())
+                .as("and the same query without --event-time is refused rather than validated")
+                .isEqualTo(1);
+        assertThat(undeclared.stderr()).contains("PRV-2002").contains("declares no event-time column");
     }
 
     /**

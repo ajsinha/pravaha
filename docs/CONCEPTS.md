@@ -106,6 +106,14 @@ this one idea.
 > "no output" — it is unbounded state**, because joins evict at `watermark − matchWithin` and views
 > forget past the committed frontier, and neither moves. Every bound in this engine is armed by
 > event time.
+>
+> **Which is why the declaration is required rather than encouraged.** A stream says which of its
+> columns carries event time — `pravaha.streams.<name>.event-time`, `eventTime` on
+> `POST /api/v1/streams`, `StreamSchema.Builder.eventTime` in code — and a windowed query over a
+> stream that declares none is refused when it is registered, with `PRV-2002` naming the column to
+> set. The engine can see at plan time that such a query could never emit; letting it run would be
+> a query reporting `RUNNING`, ingesting everything and serving nothing, for ever (TIME-6). Over a
+> **bounded** read the same query is accepted, because `finish()` closes its windows.
 
 ## 4. Changes carry weights, and a correction is a retraction plus an insert
 

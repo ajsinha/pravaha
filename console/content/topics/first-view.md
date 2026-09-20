@@ -389,9 +389,10 @@ A drop removes a **name**; the computation goes when its last name goes.
 ## What goes wrong on a first run
 
 !!! warning "The view is empty and the query says RUNNING"
-    No `event-time` on the stream, or no `event.time` on the source, so the watermark never
-    advances. Or every row so far is within `out-of-orderness` of the newest one — append a row
-    later in event time. See [event time and watermarks](/help/topics/event-time-watermarks).
+    No `event.time` on the source, so nothing stamps the rows and the watermark never advances. Or
+    every row so far is within `out-of-orderness` of the newest one — append a row later in event
+    time. (A missing `event-time` on the *stream* does not get this far: the query is refused with
+    `PRV-2002`.) See [event time and watermarks](/help/topics/event-time-watermarks).
 
 !!! warning "Object 'txn' not found"
     The query names a stream the catalogue does not have. Check the `pravaha.streams` block — the

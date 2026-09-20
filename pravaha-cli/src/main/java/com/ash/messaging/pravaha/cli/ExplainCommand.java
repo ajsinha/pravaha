@@ -21,7 +21,6 @@ import java.util.List;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.codegen.FilterProjectGenerator;
-import com.ash.messaging.pravaha.plugin.filesystem.FilesystemSourcePlugin;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 import com.ash.messaging.pravaha.sql.SqlPlanner;
 import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
@@ -56,7 +55,7 @@ final class ExplainCommand {
         String sql = args.require("sql");
         String level = args.get("level", "physical");
         String streamName = args.get("stream", "txn");
-        StreamSchema schema = FilesystemSourcePlugin.parseSchema(streamName, args.require("schema"));
+        StreamSchema schema = SchemaOption.parse(streamName, args.require("schema"), args.get("event-time", ""));
         SqlPlanner planner = SqlPlanner.withStreams(schema);
 
         try {

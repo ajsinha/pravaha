@@ -19,7 +19,6 @@ import java.io.PrintStream;
 import java.util.List;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
-import com.ash.messaging.pravaha.plugin.filesystem.FilesystemSourcePlugin;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 import com.ash.messaging.pravaha.sql.SqlPlanner;
 import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
@@ -46,7 +45,7 @@ final class ValidateCommand {
         Args args = Args.parse(arguments);
         String sql = args.require("sql");
         String streamName = args.get("stream", "txn");
-        StreamSchema schema = FilesystemSourcePlugin.parseSchema(streamName, args.require("schema"));
+        StreamSchema schema = SchemaOption.parse(streamName, args.require("schema"), args.get("event-time", ""));
 
         long startNanos = System.nanoTime();
         PhysicalOperator plan;
@@ -61,6 +60,10 @@ final class ValidateCommand {
         long elapsedMicros = (System.nanoTime() - startNanos) / 1_000L;
 
         out.println(Ansi.good("valid") + "  " + Ansi.dim(elapsedMicros + " us"));
+        return printedOutput(plan);
+    }
+
+    private int printedOutput(PhysicalOperator plan) {
         out.println(Ansi.dim("  output: ")
                 + plan.outputSchema().fields().stream()
                         .map(f -> f.name() + " " + f.type().sqlName())

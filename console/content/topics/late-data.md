@@ -176,6 +176,14 @@ revises, and can go anywhere. See [sinks](/help/topics/sinks-overview).
     A correction, working as designed: a late row (or a retraction from the source) withdrew a
     result and replaced it.
 
+!!! warning "None of this exists without `event-time`"
+    Lateness is measured against the watermark, and the watermark advances on the stream's declared
+    event-time column. A stream with none has no watermark, so no window over it could ever
+    publish and nothing could ever be late for one — which is why `allowed-lateness` without
+    `event-time` is refused (PRV-2002), and why a windowed query over such a stream is refused when
+    it is registered rather than left ingesting for ever (TIME-6). See
+    [event time and watermarks](/help/topics/event-time-watermarks).
+
 !!! warning "Late rows vanish without a trace by default"
     With allowed lateness zero, a late row is dropped. If the numbers are consistently low, compare
     the source's real disorder with the stream's `out-of-orderness`, or declare `allowed-lateness`.

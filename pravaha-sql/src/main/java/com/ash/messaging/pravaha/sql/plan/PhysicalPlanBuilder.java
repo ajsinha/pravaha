@@ -790,32 +790,34 @@ public final class PhysicalPlanBuilder {
      * the column the stream declared. A window grid keyed to any other column is not a slower answer
      * to the same question; it is an answer to a question the engine cannot bound.
      *
-     * <p><strong>A stream that declares no event time at all is left alone HERE AND ONLY FOR NOW:
-     * the refusal is agreed and scheduled as its own batch (TIME-6).</strong> Refusing it is one
-     * line and it was written and measured: it closes two of TIME-6's four ways to reach "RUNNING,
-     * ingesting, serving nothing", and it is correct -- no watermark advances over such a stream,
-     * so no window this query opens can ever close, and the query reports success throughout. That
-     * is the defect class the owner's standing rule is about: <em>leniencies create silent and hard
-     * to find bugs</em>. Do not read this early return as a decision that the engine should be
-     * lenient; it is a decision about <em>when</em>, taken because the change is not
-     * self-contained.
+     * <p><strong>A stream that declares no event time at all is refused too, when the input is a
+     * stream</strong> (TIME-6). It used to be left alone, with the reasoning that TIME-002 owned
+     * that case; what TIME-6 measured is what being left alone cost. Four separate
+     * misconfigurations -- no {@code event-time} key, a blank one, and an out-of-orderness larger
+     * than the data's span twice over -- each produced a query reporting {@code RUNNING} with a
+     * climbing {@code ROWS IN}, an empty view, a {@code NaN} lag gauge and not one log line, and
+     * nothing on any surface told them apart from a query that was working. Two of the four are
+     * this one, and they are decidable here, where the schema is in hand. No watermark advances
+     * over such a stream, so no window this query opens can ever close: it would ingest everything
+     * and serve nothing, for ever, under a success status, which is exactly the defect class the
+     * owner's standing rule is about -- <em>leniencies create silent and hard to find bugs</em>.
      *
-     * <p>It fails 54 tests in {@code pravaha-it}, most of them fixtures that carry a timestamp
-     * column without declaring it -- declaring it is the fix, not a workaround -- several case
-     * studies whose SQL would therefore never emit on a real node, and two cases that assert the
-     * current behaviour <em>by name</em>:
-     * {@code WindowAnswerTest.win005_tumbleOverAStreamWithNoDeclaredEventTimeNeverFiresRatherThan
-     * Refusing} and {@code EventTimeTest.time002And009_...IngestsEverythingAndServesNothing}.
-     * Those get rewritten outcomes with the reason when the batch lands; reversing a recorded
-     * decision is what made this the lead's call rather than a findings batch's.
+     * <p>The refusal was written, measured and backed out once, because it fails 54 tests in
+     * {@code pravaha-it} and two of them assert the old behaviour by name; the lead ruled it
+     * correct and scheduled it as its own batch, which is this one. The fixtures declaring their
+     * event time <em>is</em> the fix rather than a workaround, and
+     * {@code WindowAnswerTest.win005} and {@code EventTimeTest.time002And009} carry rewritten
+     * outcomes saying why the old ones were recorded and what replaced them.
      *
-     * <p>What TIME-6 has in the meantime is the other half it asked for: {@code PravahaNode} states
-     * the event time, out-of-orderness and allowed lateness in force for every declared stream at
-     * startup, including {@code event-time=none -- no window over this stream can ever close}. That
-     * covers all four causes rather than two, because a lateness larger than the data's span is a
-     * legitimate setting no refusal could catch -- but it is a line in a log, not a refusal, and
-     * TIME-6 stays open until the refusal is here.
+     * <p>The other half of TIME-6 is still worth having beside it: {@code PravahaNode} states the
+     * event time, out-of-orderness and allowed lateness in force for every declared stream at
+     * startup, including {@code event-time=none -- no window over this stream can ever close}.
+     * That covers all four causes where this refusal covers two, because a lateness larger than
+     * the data's span is a legitimate setting no refusal could catch.
      *
+     * <p>Only for an unbounded input. Over a bounded read the windows are fired by {@code finish()}
+     * at the end of the scan rather than by a watermark, so the same plan does terminate and does
+     * answer, and refusing it would take away a query that works.
      */
     private void requireDeclaredEventTime(String function, int descriptorOrdinal, PhysicalOperator input) {
         StreamSchema schema = input.outputSchema();
@@ -825,7 +827,26 @@ public final class PhysicalPlanBuilder {
         String stream = streamNameOf(input);
         java.util.OptionalInt declared = schema.eventTimeOrdinal();
         if (declared.isEmpty()) {
-            return;
+            if (boundedInput || sourceSchemaOf(input).eventTimeOrdinal().isPresent()) {
+                // The source stream declares one; this operator's schema simply does not carry the
+                // marker. A join's output schema is built from two sides and keeps neither side's
+                // marker, so asking the derived schema alone would refuse every windowed query
+                // over a lookup join -- which is four of the five case studies, all of them
+                // correct. The watermark is the source's, so the source's declaration is what
+                // decides whether a window can ever close.
+                return;
+            }
+            throw new PravahaException(
+                    SqlErrors.VALIDATION_FAILED,
+                    function + " is given DESCRIPTOR("
+                            + schema.field(descriptorOrdinal).name() + "), but '"
+                            + stream + "' declares no event-time column -- so no watermark advances "
+                            + "over it and no window this query opens can ever close. It would register, "
+                            + "report RUNNING, ingest every row and emit nothing, for ever.\n"
+                            + "  Declare the column: pravaha.streams." + stream + ".event-time: "
+                            + schema.field(descriptorOrdinal).name() + ", or 'eventTime' on "
+                            + "POST /api/v1/streams. The column must be a TIMESTAMP.\n"
+                            + "Refused at registration rather than discovered from an empty view later.");
         }
         if (declared.getAsInt() == descriptorOrdinal) {
             return;
@@ -851,11 +872,24 @@ public final class PhysicalPlanBuilder {
      * operator could put in a configuration file. The scan's does.
      */
     private static String streamNameOf(PhysicalOperator operator) {
+        return sourceSchemaOf(operator).name();
+    }
+
+    /**
+     * The schema of the stream a plan fragment reads, by the same descent.
+     *
+     * <p>What a window can be closed by lives here and not on the operator above it. A projection's
+     * output carries the event-time marker forward; a <em>join's</em> does not, because its schema
+     * is built from two sides and neither side's marker survives the merge. Reading the derived
+     * schema alone would therefore refuse every windowed query over a lookup join, all of them
+     * correct, so the question "does this stream have an event time at all" is asked of the scan.
+     */
+    private static StreamSchema sourceSchemaOf(PhysicalOperator operator) {
         PhysicalOperator current = operator;
         while (!current.inputs().isEmpty()) {
             current = current.inputs().get(0);
         }
-        return current.outputSchema().name();
+        return current.outputSchema();
     }
 
     private static void requireIntervals(String function, List<Long> intervals, int expected) {

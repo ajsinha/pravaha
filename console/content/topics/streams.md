@@ -45,7 +45,7 @@ pravaha:
 | Key | Required | Default | What it does |
 |---|---|---|---|
 | `schema` | yes | — | the columns, as `name:TYPE,name:TYPE`; a `?` suffix makes a column nullable |
-| `event-time` | for any windowed query or time-bounded join | none | the `TIMESTAMP` column that carries each row's own time. **Without it no watermark advances and no window ever closes** |
+| `event-time` | for any windowed query or time-bounded join | none | the `TIMESTAMP` column that carries each row's own time. **Without it no watermark advances, no window could ever close, and a windowed query over the stream is refused with `PRV-2002`** |
 | `out-of-orderness` | no | `10s` | how late this stream's rows may arrive and still be waited for; the watermark trails the newest event time by this much |
 | `allowed-lateness` | no | `0s` | how long after a window has been published a late row may still **correct** it — the old result at `−1`, the new one at `+1`. Needs `event-time`; refused negative. Non-zero makes every windowed query over the stream one that revises, so it needs a sink that takes retractions (PRV-2041) |
 

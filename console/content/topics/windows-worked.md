@@ -98,9 +98,10 @@ correction path instead: a `-1` for the old row and a `+1` for the new one.
 
 ### Why a window "never closes"
 
-If the stream has **no declared event time**, no watermark ever advances and no window ever closes:
-the query plans, registers, reports `RUNNING`, ingests every row and emits nothing, for ever. Declare
-`event-time` on the stream. The same symptom appears when a stream simply stops — the last window
+If the stream has **no declared event time**, no watermark ever advances and no window could ever
+close — so the query is **refused when you register it** (`PRV-2002`), rather than left reporting
+`RUNNING` and ingesting every row for ever. Declare `event-time` on the stream and register it
+again. The same symptom, from a query that did register, appears when a stream simply stops — the last window
 closes only when a later row, or the idle-partition timer (`pravaha.watermark.idle-after`), moves the
 watermark on.
 
@@ -244,10 +245,11 @@ GROUP BY t.user_id, p.tier, window_start, window_end
 
 ## Pitfalls
 
-!!! warning "Pitfall: a window that emits nothing, for ever"
-    No `event-time` on the stream means no watermark means no window ever closes. The query is
-    `RUNNING`, rows are counted in, and the view is empty. It is not slow — it is waiting for a
-    clock that will never tick.
+!!! warning "Pitfall: a window that could never emit"
+    No `event-time` on the stream means no watermark means no window could ever close. That query
+    used to register, report `RUNNING`, count rows in and serve an empty view for ever; it is now
+    refused with `PRV-2002` at registration, naming the key to declare. A **bounded** read is still
+    accepted, because its windows are closed by the end of the scan.
 
 !!! warning "Pitfall: an out-of-orderness that is too generous"
     A 10-minute out-of-orderness holds every window open ten minutes past its end. Windows close
