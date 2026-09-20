@@ -258,7 +258,17 @@ public final class ViewSink {
             }
             if (!audience.isEmpty()) {
                 for (int i = 0; i < count; i++) {
-                    pending.add(new ViewChange(values.get(i), weights[i]));
+                    // STRM-1: a weight of zero is not a change, so it is not staged. The view adds
+                    // it to the key's net weight, which moves nothing, and keeps the row it held;
+                    // delivering it told a subscriber the opposite, because ViewChange.isRetraction
+                    // is weight < 0 and the consumption model ViewChange recommends -- "ignore
+                    // negative weights and overwrite by key" -- then wrote the zero-weight row's
+                    // values over a copy of a view that had not changed. Skipped here rather than
+                    // in the view, so the change stream and the view agree by construction instead
+                    // of by both happening to keep the old row.
+                    if (weights[i] != 0) {
+                        pending.add(new ViewChange(values.get(i), weights[i]));
+                    }
                 }
             }
             frontier.accumulateAndGet(furthest, Math::max);

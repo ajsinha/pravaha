@@ -283,4 +283,39 @@ class ViewSinkTest {
         sink.commit(100L);
         assertThat(sink.pendingChanges()).isZero();
     }
+
+    @Test
+    void strm1AZeroWeightChangeIsNotDeliveredAndTheViewKeepsWhatItHeld() {
+        // STRM-1. The Z-set rule is that a row is present exactly while its weights sum positive,
+        // so a delta of zero moves nothing and ServedView keeps the row it had. The change stream
+        // used to say otherwise: the zero-weight row was staged and delivered, and
+        // ViewChange.isRetraction() being `weight < 0` reported it as an insertion -- so the
+        // consumption model ViewChange itself recommends, "ignore negative weights and overwrite
+        // by key", wrote [u1, 9] into a copy of a view that still held [u1, 1].
+        ServedView view = view();
+        ViewSink sink = sink(view);
+        List<ViewChange> received = new ArrayList<>();
+        sink.onCommit((batch, frontier) -> received.addAll(batch));
+
+        sink.begin().setString(0, "u1").setLong(1, 1).weight(1).sequence(1).commit();
+        sink.commit(1L);
+        received.clear();
+
+        sink.begin().setString(0, "u1").setLong(1, 9).weight(0).sequence(2).commit();
+        sink.commit(2L);
+
+        assertThat(received)
+                .as("a weight of zero is not a change, so no subscriber is told one happened")
+                .isEmpty();
+        assertThat(view.get("u1").values().orElseThrow()[1])
+                .as("and the view still holds what it held, which is what the two now agree on")
+                .isEqualTo(1L);
+
+        // And the record itself answers both questions honestly rather than by negation.
+        ViewChange zero = new ViewChange(new Object[] {"u1", 9L}, 0);
+        assertThat(zero.isRetraction()).isFalse();
+        assertThat(zero.isInsertion())
+                .as("STRM-1: !isRetraction() is not insertion, which is how a zero got read as one")
+                .isFalse();
+    }
 }

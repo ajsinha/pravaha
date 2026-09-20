@@ -121,6 +121,13 @@ If you consume a subscription and only want current values, ignore negative weig
 key. If you maintain your own aggregate, **apply the weights** or your total drifts from the view's
 the first time a window is corrected.
 
+A row is present exactly while its weights **sum positive**, so a net weight of zero means the row is
+not there. A *change* of weight zero is therefore not a change at all, and a subscription never
+delivers one: it would move nothing in the view, and a consumer following the advice above would
+overwrite by key from a change that changed nothing (STRM-1). `ViewChange.isRetraction()` and
+`isInsertion()` are both false for one built by hand — insertion is `weight > 0`, not
+`!isRetraction()`.
+
 ## 5. Sharing is by fingerprint, not by name or text
 
 Two registrations whose plans normalise to the same thing are **one computation with two names**,
