@@ -1018,6 +1018,26 @@ class Client(DebugCommands):
         ``GET /api/v1/queries/{name}/plan``."""
         return dict(self._http().get("/api/v1/queries/" + _segment(name) + "/plan") or {})
 
+    def replacement_http(self, name: str) -> dict:
+        """The replacement of ``name`` in the API's JSON shape, over HTTP.
+
+        The same answer :meth:`replacement` gives over Flight, plus the one field the Flight
+        row does not carry: ``history``, the versions that have served this name and the
+        frontier each took over at, oldest first, as the engine words them. The control wire
+        lays a status out as a flat list of strings (ADR-046) and a variable-length list of
+        sentences has no place in one, so the audit trail is answered where a list is a list.
+
+        Everything else is as :meth:`replacement`: ``state``, ``sql``, ``candidate``,
+        ``replacing``, ``sink``, ``options``, ``owner``, ``startedAt``, ``cutOverAt``,
+        ``rollbackUntil``, ``rollbackAvailable``, a ``backfill`` object and ``failure``.
+        Takes the administer permission, reading included. A name that is not being replaced
+        is refused with ``PRV-4017`` rather than answered with nothing, because "there is no
+        replacement" and "there is no such query" are different answers and only the second
+        is safe to give a caller who may not read the name.
+        ``GET /api/v1/queries/{name}/replacement``.
+        """
+        return dict(self._http().get("/api/v1/queries/" + _segment(name) + "/replacement") or {})
+
     def describe_view(self, name: str) -> dict:
         """A view's ``schema``, ``keyColumns``, ``retention``, ``sink`` and ``fingerprint``,
         without reading it. ``GET /api/v1/views/{name}``."""

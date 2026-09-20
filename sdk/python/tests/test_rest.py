@@ -92,6 +92,7 @@ def test_each_call_reaches_its_published_endpoint_with_the_token(engine):
     client.describe_queries()
     client.describe_query("orders")
     client.query_plan("orders")
+    client.replacement_http("orders")
     client.describe_view("orders")
     assert client.sinks() == [{"name": "orders_out", "plugin": "filesystem"}]
     client.status()
@@ -107,6 +108,7 @@ def test_each_call_reaches_its_published_endpoint_with_the_token(engine):
         ("GET", "/api/v1/queries"),
         ("GET", "/api/v1/queries/orders"),
         ("GET", "/api/v1/queries/orders/plan"),
+        ("GET", "/api/v1/queries/orders/replacement"),
         ("GET", "/api/v1/views/orders"),
         ("GET", "/api/v1/sinks"),
         ("GET", "/api/v1/status"),
@@ -122,6 +124,45 @@ def test_each_call_reaches_its_published_endpoint_with_the_token(engine):
         "eventTime": "at",
         "outOfOrderness": "PT5S",
     }
+
+
+def test_the_replacement_over_http_carries_the_history_the_flight_row_cannot(engine):
+    """The reason this call exists beside :meth:`Client.replacement`: the control wire lays a
+    status out as a flat list of strings, and the list of versions that have served a name
+    does not fit in one. Over HTTP a list is a list."""
+    _Recorder.answers[("GET", "/api/v1/queries/orders/replacement")] = (
+        200,
+        {
+            "name": "orders",
+            "state": "CUT_OVER",
+            "history": ["from the beginning: abc123def456", "from 4471: 0f9e8d7c6b5a"],
+            "backfill": {"historyRows": 412000, "historyComplete": True},
+        },
+    )
+    client = _client(engine)
+
+    status = client.replacement_http("orders")
+
+    assert _Recorder.calls[0]["path"] == "/api/v1/queries/orders/replacement"
+    assert status["history"] == ["from the beginning: abc123def456", "from 4471: 0f9e8d7c6b5a"]
+    assert status["state"] == "CUT_OVER"
+
+
+def test_a_name_that_is_not_being_replaced_is_refused_rather_than_answered_with_nothing(engine):
+    """PRV-4017, not an empty body: "there is no replacement" and "there is no such query"
+    are different answers, and only the second is safe to give a caller who may not read the
+    name. The SDK passes the engine's refusal through with its code."""
+    _Recorder.answers[("GET", "/api/v1/queries/orders/replacement")] = (
+        404,
+        {"code": "PRV-4017", "message": "'orders' is not being replaced"},
+    )
+    client = _client(engine)
+
+    with pytest.raises(ApiError) as refused:
+        client.replacement_http("orders")
+
+    assert refused.value.status == 404
+    assert refused.value.engine_code == "PRV-4017"
 
 
 def test_audit_sends_only_the_filters_given_and_passes_the_cursor_back(engine):

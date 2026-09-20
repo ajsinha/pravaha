@@ -90,6 +90,7 @@ with connect(options=options) as client:
     client.explain(sql, graph=True)["graph"]
     client.describe_query("hourly_spend") # keys, retention, sink and its failure, rows in
     client.query_plan("hourly_spend"); client.describe_view("hourly_spend")
+    client.replacement_http("hourly_spend")["history"]  # who has served this name
     client.sinks(); client.status(); client.metrics_text()
     client.plugins()                      # manifests, declared capabilities, visible bindings
     client.permissions()                  # what the policy lets this principal do

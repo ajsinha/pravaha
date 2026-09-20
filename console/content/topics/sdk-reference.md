@@ -209,6 +209,7 @@ Each needs `http_url`; without it the call raises `ApiError` saying so.
 | `explain(sql, level="physical", graph=False)` | `POST /api/v1/queries/explain` | The plan, text and optionally a graph |
 | `describe_queries()`, `describe_query(name)`, `query_plan(name)` | `GET /api/v1/queries…` | Full descriptions, running plan |
 | `describe_view(name)` | `GET /api/v1/views/{name}` | Schema, key, retention, sink, fingerprint |
+| `replacement_http(name)` | `GET /api/v1/queries/{name}/replacement` | The blue/green status, plus the `history` the Flight row cannot carry |
 | `sinks()`, `plugins()`, `status()` | `GET /api/v1/sinks`, `/plugins`, `/status` | |
 | `permissions()` | `GET /api/v1/me/permissions` | What you may do |
 | `audit(since=, until=, principal=, view=, action=, decision=, limit=, cursor=)` | `GET /api/v1/audit` | One page, newest first |
