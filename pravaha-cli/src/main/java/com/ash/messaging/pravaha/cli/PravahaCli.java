@@ -97,6 +97,9 @@ public final class PravahaCli {
                 case "replacements" -> new ServerCommand(out, err).replacements(rest);
                 case "subscribe" -> new ServerCommand(out, err).subscribe(rest);
                 case "dlq" -> new DlqCommand(out, err).run(rest);
+                // The time-travel debugger (ADR-047). Its own command with verbs of its own,
+                // because a session is a conversation rather than a single call.
+                case "debug" -> new DebugCommand(out, err).run(rest);
                 case "version" -> {
                     out.println("pravaha " + version());
                     yield EXIT_OK;
@@ -231,6 +234,23 @@ public final class PravahaCli {
                         "  run       --sql <query> --schema <spec> --in <file>",
                         "            --out <file> --out-schema <spec> [--dlq <file>]",
                         "            Run a query over a delimited file."));
+        commands.put(
+                "debug",
+                List.of(
+                        "  debug     <verb> [--url ...]",
+                        "            Fork a query from a checkpoint and step it under inspection. Every sink is",
+                        "            disabled and nothing can read the fork's view; the live query is untouched.",
+                        "",
+                        "            fork        --name <view> [--checkpoint <id>]   open a session; prints its id",
+                        "            checkpoints --name <view>                        which checkpoints to fork from",
+                        "            step        --session <id> [--step row|rows:N|commit|watermark:<nanos>|",
+                        "                                        until:<column>:<op>:<value>]",
+                        "            state       --session <id>                       what state the fork holds",
+                        "            inspect     --session <id> --operator <id> [--key k] [--offset N] [--limit N]",
+                        "            view        --session <id>                       the fork's own answer",
+                        "            fixture     --session <id> --name <what it reproduces> [--out <path>]",
+                        "            sessions                                         every session you may see",
+                        "            end         --session <id>                       release the fork"));
         commands.put("version", List.of("  version", "            Print the version and exit."));
         return java.util.Collections.unmodifiableMap(commands);
     }
@@ -305,6 +325,12 @@ public final class PravahaCli {
         out.println();
         out.println("  pause | resume | drop   --name <view> [--url ...]");
         out.println("            Lifecycle. A computation is released when its last name is dropped.");
+        out.println();
+        out.println("  debug     fork | step | state | inspect | view | fixture | sessions | end | checkpoints");
+        out.println("            Fork a query from a checkpoint and step it under inspection, with every sink");
+        out.println("            disabled and nothing able to read the fork's view. `pravaha debug --help`");
+        out.println("            lists each verb's flags. The end of the journey is `debug fixture`, which");
+        out.println("            writes the session out as a JUnit test you can commit.");
         out.println();
         out.println("  explain   --sql <query> --schema <spec> [--level logical|physical|codegen|all]");
         out.println("            Show the plan the engine would execute.");

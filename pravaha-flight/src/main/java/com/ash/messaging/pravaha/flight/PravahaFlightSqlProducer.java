@@ -636,6 +636,13 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
             Principal principal = principalOf(context);
             QueryRegistry required = requireRegistry();
             List<String> fields = ControlWire.decode(action.getBody());
+            if (DebugActions.handles(type)) {
+                // The debugger's nine verbs, in a class of their own: this switch is already the
+                // largest method here and this file is near the repository's size limit.
+                DebugActions.act(type, required, principal, fields, encoded -> listener.onNext(new Result(encoded)));
+                listener.onCompleted();
+                return;
+            }
             switch (type) {
                 case ControlWire.REGISTER -> {
                     if (fields.size() < 3) {

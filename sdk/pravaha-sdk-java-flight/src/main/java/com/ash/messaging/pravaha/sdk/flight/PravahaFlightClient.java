@@ -727,6 +727,142 @@ public final class PravahaFlightClient implements AutoCloseable {
         return subscribe(view, Map.of(), onBatch);
     }
 
+    // ------------------------------------------------------------------ the debugger (ADR-047)
+
+    /**
+     * Forks a debug session from a query's newest retained checkpoint.
+     *
+     * <p>A second copy of the query, restored from that checkpoint, reading the same sources from
+     * the offsets it recorded, with every sink disabled and nothing able to read its view. It costs
+     * what the query costs, so it is bounded and it expires; end it when the incident is understood.
+     */
+    public DebugSessionInfo debugFork(String query) {
+        return debugFork(query, null);
+    }
+
+    /** Forks from a particular checkpoint. {@link #debugCheckpoints} says which there are. */
+    public DebugSessionInfo debugFork(String query, Long checkpointId) {
+        return oneSession(act(ControlWire.DEBUG_FORK, query, checkpointId == null ? "" : checkpointId.toString()));
+    }
+
+    /** Which checkpoints of {@code query} a session could be forked from, newest first. */
+    public List<Long> debugCheckpoints(String query) {
+        List<List<String>> results = act(ControlWire.DEBUG_CHECKPOINTS, query);
+        List<Long> ids = new java.util.ArrayList<>();
+        if (!results.isEmpty()) {
+            // Field 0 is the query's name, so the ids start at 1.
+            for (int index = 1; index < results.get(0).size(); index++) {
+                ids.add(Wire.number(results.get(0), index));
+            }
+        }
+        return ids;
+    }
+
+    /**
+     * Advances a session and reports what changed.
+     *
+     * @param step {@code row}, {@code rows:N}, {@code commit}, {@code watermark:<nanos>} or {@code
+     *     until:<column>:<op>:<value>}; a blank one is {@code row}
+     */
+    public DebugStepReport debugStep(String sessionId, String step) {
+        List<List<String>> results = act(ControlWire.DEBUG_STEP, sessionId, step == null ? "row" : step);
+        if (results.isEmpty()) {
+            throw new PravahaClientException(
+                    ClientErrors.QUERY_REFUSED,
+                    "the server accepted the step but said nothing about what it did",
+                    false);
+        }
+        return DebugStepReport.of(results.get(0));
+    }
+
+    /** Every debug session on the server that this caller may administer. */
+    public List<DebugSessionInfo> debugSessions() {
+        List<DebugSessionInfo> open = new java.util.ArrayList<>();
+        act(ControlWire.DEBUG_SESSION, "").forEach(row -> open.add(DebugSessionInfo.of(row)));
+        return open;
+    }
+
+    /** One session, or empty if the server does not know it. */
+    public java.util.Optional<DebugSessionInfo> debugSession(String sessionId) {
+        List<List<String>> results = act(ControlWire.DEBUG_SESSION, sessionId);
+        return results.isEmpty()
+                ? java.util.Optional.empty()
+                : java.util.Optional.of(DebugSessionInfo.of(results.get(0)));
+    }
+
+    /** What state a session's fork holds: the operator, its kind, and how many entries. */
+    public List<DebugStateSlot> debugState(String sessionId) {
+        List<DebugStateSlot> slots = new java.util.ArrayList<>();
+        act(ControlWire.DEBUG_STATE, sessionId)
+                .forEach(row -> slots.add(new DebugStateSlot(
+                        Wire.text(row, 0), Wire.text(row, 1), Wire.text(row, 2), Wire.number(row, 3))));
+        return slots;
+    }
+
+    /** One piece of inspectable state, as {@link #debugState} reports it. */
+    public record DebugStateSlot(String id, String kind, String label, long entries) {}
+
+    /** One page of one operator's state, read without changing it. */
+    public DebugStatePage debugInspect(String sessionId, String operator, String key, int offset, int limit) {
+        List<List<String>> results = act(
+                ControlWire.DEBUG_INSPECT,
+                sessionId,
+                operator,
+                key == null ? "" : key,
+                Integer.toString(offset),
+                Integer.toString(limit));
+        if (results.isEmpty()) {
+            throw new PravahaClientException(
+                    ClientErrors.QUERY_REFUSED, "the server answered no page for '" + operator + "'", false);
+        }
+        return DebugStatePage.of(results.get(0));
+    }
+
+    /** The fork's own view, which nothing outside the session can read. */
+    public List<DebugStepReport.ViewDelta> debugView(String sessionId) {
+        List<DebugStepReport.ViewDelta> rows = new java.util.ArrayList<>();
+        act(ControlWire.DEBUG_VIEW, sessionId).forEach(row -> {
+            List<String> values = new java.util.ArrayList<>(row.subList(Math.min(1, row.size()), row.size()));
+            rows.add(new DebugStepReport.ViewDelta(Wire.number(row, 0), values));
+        });
+        return rows;
+    }
+
+    /**
+     * Writes the session out as a JUnit test, returning the generated source.
+     *
+     * @param name what to call it, turned into a class name: "bob goes negative" becomes
+     *     {@code BobGoesNegativeFixtureTest}
+     * @return the class name, the path it belongs at, and the source
+     */
+    public DebugFixture debugExport(String sessionId, String name) {
+        List<List<String>> results = act(ControlWire.DEBUG_EXPORT, sessionId, name);
+        if (results.isEmpty()) {
+            throw new PravahaClientException(
+                    ClientErrors.QUERY_REFUSED, "the server accepted the export and returned no fixture", false);
+        }
+        List<String> row = results.get(0);
+        return new DebugFixture(Wire.text(row, 0), Wire.text(row, 1), Wire.text(row, 2));
+    }
+
+    /** A generated JUnit fixture: what to call the file, where it goes, and what is in it. */
+    public record DebugFixture(String className, String path, String source) {}
+
+    /** Ends a session and releases its fork. */
+    public void debugEnd(String sessionId) {
+        act(ControlWire.DEBUG_END, sessionId);
+    }
+
+    private static DebugSessionInfo oneSession(List<List<String>> results) {
+        if (results.isEmpty()) {
+            throw new PravahaClientException(
+                    ClientErrors.QUERY_REFUSED,
+                    "the server accepted the fork and said nothing about the session it opened",
+                    false);
+        }
+        return DebugSessionInfo.of(results.get(0));
+    }
+
     private List<List<String>> act(String type, String... fields) {
         requireOpen();
         List<List<String>> results = new java.util.ArrayList<>();

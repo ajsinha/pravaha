@@ -440,6 +440,30 @@ pravaha:
     # died.
     keep: 3
 
+  # The time-travel debugger (ADR-047). A session forks a query from one of the checkpoints above
+  # and steps it under inspection, with every sink disabled and nothing able to read its view --
+  # so it needs pravaha.checkpoint.directory to be set, and refuses with PRV-8011 when it is not.
+  #
+  # Every setting here is a bound rather than a feature switch. A session is a second copy of a
+  # query's state, its lanes and its arena, so the cost of leaving one open is the cost of running
+  # the query twice.
+  debug:
+    sessions:
+      # How many sessions this node will hold at once. PRV-8014 past it, naming the ones it holds.
+      max: 4
+    session:
+      # How long a session may go untouched before it is released. Checked on the way in to the
+      # next call rather than on a timer of its own, so a node that debugs nothing starts nothing.
+      ttl: 15m
+      # How many rows one session may consume in total. A session keeps every row it has read so
+      # that it can be exported as a fixture, so it is bounded; PRV-8015 past it.
+      max-rows: 20000
+    step:
+      # How many rows one "to the next commit" or "until this predicate holds" step will read
+      # before giving up. "Until it happens" over a source with ten million rows is a call that
+      # never returns.
+      max-rows: 10000
+
   # Event time. Every bound in the engine is armed by it: a join evicts at the watermark minus
   # its match window, a view forgets past the committed frontier, a window closes when the
   # watermark passes its end. A watermark that does not advance is not a quiet query, it is

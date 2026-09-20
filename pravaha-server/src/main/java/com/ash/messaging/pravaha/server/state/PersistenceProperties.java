@@ -45,6 +45,11 @@ public class PersistenceProperties {
     private final Registry registry = new Registry();
     private final Checkpoint checkpoint = new Checkpoint();
     private final Dlq dlq = new Dlq();
+    private final Debug debug = new Debug();
+
+    public Debug getDebug() {
+        return debug;
+    }
 
     public Dlq getDlq() {
         return dlq;
@@ -109,6 +114,93 @@ public class PersistenceProperties {
                 // documents was bound to nothing.
                 .set("pravaha.checkpoint.timeout", checkpoint.timeout.toNanos() + "ns")
                 .build();
+    }
+
+    /**
+     * The debugger's own bounds, in the engine's configuration type (ADR-047).
+     *
+     * <p>Durations in nanoseconds for the same reason the checkpointer's are: Spring parses
+     * {@code 15m} into a {@code Duration} whose {@code toString} is ISO-8601, and the engine's own
+     * parser does not read ISO-8601.
+     */
+    public Configuration debugConfiguration() {
+        return Configuration.builder()
+                .set("pravaha.debug.sessions.max", String.valueOf(debug.sessions.max))
+                .set("pravaha.debug.session.ttl", debug.session.ttl.toNanos() + "ns")
+                .set("pravaha.debug.session.max-rows", String.valueOf(debug.session.maxRows))
+                .set("pravaha.debug.step.max-rows", String.valueOf(debug.step.maxRows))
+                .build();
+    }
+
+    /** {@code pravaha.debug.*}: how many forks a node will hold and how long they live. */
+    public static class Debug {
+
+        private final Sessions sessions = new Sessions();
+        private final Session session = new Session();
+        private final Step step = new Step();
+
+        public Sessions getSessions() {
+            return sessions;
+        }
+
+        public Session getSession() {
+            return session;
+        }
+
+        public Step getStep() {
+            return step;
+        }
+
+        /** {@code pravaha.debug.sessions.*} */
+        public static class Sessions {
+
+            private int max = 4;
+
+            public int getMax() {
+                return max;
+            }
+
+            public void setMax(int max) {
+                this.max = max;
+            }
+        }
+
+        /** {@code pravaha.debug.session.*} */
+        public static class Session {
+
+            private Duration ttl = Duration.ofMinutes(15);
+            private long maxRows = 20_000;
+
+            public Duration getTtl() {
+                return ttl;
+            }
+
+            public void setTtl(Duration ttl) {
+                this.ttl = ttl;
+            }
+
+            public long getMaxRows() {
+                return maxRows;
+            }
+
+            public void setMaxRows(long maxRows) {
+                this.maxRows = maxRows;
+            }
+        }
+
+        /** {@code pravaha.debug.step.*} */
+        public static class Step {
+
+            private long maxRows = 10_000;
+
+            public long getMaxRows() {
+                return maxRows;
+            }
+
+            public void setMaxRows(long maxRows) {
+                this.maxRows = maxRows;
+            }
+        }
     }
 
     private static Optional<Path> pathOf(String value) {

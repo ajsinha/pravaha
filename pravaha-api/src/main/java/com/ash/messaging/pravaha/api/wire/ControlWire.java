@@ -140,6 +140,67 @@ public final class ControlWire {
      */
     public static final String DLQ_REPLAY = "pravaha.dlq.replay";
 
+    /**
+     * The time-travel debugger (ADR-047). One action per verb, because a debugger is a
+     * conversation -- fork, step, step, inspect, export -- and a single action carrying a verb
+     * field would put the routing in the body where no client's types can see it.
+     */
+    public static final String DEBUG_FORK = "pravaha.debug.fork";
+
+    /** The state of one session, or of every one the caller may administer when the id is empty. */
+    public static final String DEBUG_SESSION = "pravaha.debug.session";
+
+    /** Advances a session: {@code row}, {@code rows:N}, {@code commit}, {@code watermark:N}, {@code until:...}. */
+    public static final String DEBUG_STEP = "pravaha.debug.step";
+
+    /** What state a session's fork holds, and how much of each. */
+    public static final String DEBUG_STATE = "pravaha.debug.state";
+
+    /** One page of one operator's state. */
+    public static final String DEBUG_INSPECT = "pravaha.debug.inspect";
+
+    /** The fork's own view, which nothing else can read. */
+    public static final String DEBUG_VIEW = "pravaha.debug.view";
+
+    /** Writes the session out as a JUnit fixture. */
+    public static final String DEBUG_EXPORT = "pravaha.debug.export";
+
+    /** Ends a session and releases its fork. */
+    public static final String DEBUG_END = "pravaha.debug.end";
+
+    /** Which checkpoints of a query a session could be forked from. */
+    public static final String DEBUG_CHECKPOINTS = "pravaha.debug.checkpoints";
+
+    /**
+     * The fields a debug session's status carries, in order. Positional and append-only, as the
+     * replacement's are.
+     */
+    public static final java.util.List<String> DEBUG_SESSION_FIELDS = java.util.List.of(
+            "id",
+            "query",
+            "sql",
+            "checkpoint_id",
+            "owner",
+            "started_at",
+            "last_used_at",
+            "steps",
+            "rows_consumed",
+            "view_size",
+            "watermark_nanos",
+            "sinks_disabled",
+            "streams");
+
+    /**
+     * The fields one step's report carries, in order.
+     *
+     * <p>The three lists -- the rows that entered, what each operator did, what changed in the
+     * view -- are encoded as counts followed by their own fields, because the control wire is a
+     * flat list of strings and a nested structure has to be laid out somehow. See
+     * {@code DebugActions} for the layout and the reason it is not JSON.
+     */
+    public static final java.util.List<String> DEBUG_STEP_FIELDS = java.util.List.of(
+            "session", "sequence", "kind", "watermark_nanos", "rows_consumed", "view_size", "exhausted", "stopped");
+
     private ControlWire() {}
 
     /** Encodes a list of strings. Nulls are encoded as absent and decode as empty. */

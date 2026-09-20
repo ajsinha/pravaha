@@ -31,6 +31,7 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Any, Iterator, Optional, Sequence
 
+from pravaha.debug import DebugCommands
 from pravaha.endpoint import Endpoint
 from pravaha.errors import PravahaError
 from pravaha.options import ClientOptions
@@ -339,7 +340,7 @@ class QueryResult:
         return [row.to_dict() for row in self]
 
 
-class Client:
+class Client(DebugCommands):
     """A connection to a Pravaha server.
 
     Reads are consistent: a query sees each view as of its last committed frontier,
@@ -1102,6 +1103,7 @@ _ACTION_BACKFILL = "pravaha.backfill"
 _ACTION_DLQ_LIST = "pravaha.dlq.list"
 _ACTION_DLQ_SHOW = "pravaha.dlq.show"
 _ACTION_DLQ_REPLAY = "pravaha.dlq.replay"
+
 
 
 def _wire_encode(fields: Sequence[str]) -> bytes:

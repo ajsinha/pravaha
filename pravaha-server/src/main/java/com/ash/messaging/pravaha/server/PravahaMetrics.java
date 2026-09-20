@@ -414,6 +414,18 @@ public class PravahaMetrics implements AutoCloseable {
         laneMeters.add(Gauge.builder("pravaha.lane.own.queries", node, PravahaMetrics::queriesOnOwnLanes)
                 .register(meters)
                 .getId());
+        // Debug sessions open on this node (ADR-047). A gauge rather than a counter, and published
+        // whether or not anybody has ever opened one, because a node quietly holding four forks of
+        // a large query has four extra copies of its state and nothing else would say so. It reads
+        // zero the rest of the time, which is what makes an alert on it possible.
+        laneMeters.add(Gauge.builder(
+                        "pravaha.debug.sessions.open",
+                        node,
+                        n -> n.registry()
+                                .map(open -> (double) open.debugSessions().open())
+                                .orElse(0.0))
+                .register(meters)
+                .getId());
         // The node's spilled state against pravaha.state.spill.max-bytes (ADR-044): every query's
         // overflow slabs together, which is what the quota counts. Zero with spilling off.
         laneMeters.add(Gauge.builder(
