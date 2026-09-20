@@ -265,6 +265,11 @@ def test_a_screen_whose_engine_call_failed_matches_its_baseline(shooters, compar
     correlation id -- photographed like a page, because it is one an operator sees during the
     incident the console was opened for."""
     console.engine.fail("streams")
+    # The catalogue is cached for five seconds, so without this the page draws whatever the
+    # previous test's page load left behind and never calls the failing engine at all: the
+    # test then waits twenty seconds for an error state that was never going to be rendered.
+    # It passed only when it happened to run first.
+    console.app.state.services.catalog.forget()
     try:
         test_every_page_matches_its_baseline(
             shooters, comparer, console, baseline_chrome, "catalog-error", "/catalog",

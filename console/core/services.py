@@ -639,6 +639,17 @@ class CatalogService:
         self._cached: list[dict] | None = None
         self._at = 0.0
 
+    def forget(self) -> None:
+        """Drop what is cached, so the next read asks the engine.
+
+        The cache is five seconds deep, which is right for a catalogue an administrator changes
+        by hand and wrong for anything that needs to see the engine's current answer now -- a
+        test photographing the error state of a failed call among them, which otherwise
+        photographs whatever the previous page load left behind.
+        """
+        with self._lock:
+            self._cached, self._at = None, 0.0
+
     def streams(self, fresh: bool = False) -> list[dict]:
         with self._lock:
             if (not fresh and self._cached is not None

@@ -86,6 +86,11 @@ def create_app(config: PropertiesConfigurator, engine: Engine | None = None) -> 
     # The session the sign-in writes into. A generated secret when none is configured: it
     # means sessions do not survive a restart, which is the right default for one instance
     # and a worse one for several -- so it is configurable rather than assumed.
+    # The services the routes close over, reachable from the application for a test that has to
+    # put one of them into a particular state -- an empty catalogue cache, say -- before driving
+    # a browser at it. Nothing in the console reads it back out.
+    app.state.services = services
+
     secret = config.get("console.session_secret") or secrets.token_urlsafe(32)
     app.add_middleware(SessionMiddleware, secret_key=secret, same_site="lax", https_only=False)
 
