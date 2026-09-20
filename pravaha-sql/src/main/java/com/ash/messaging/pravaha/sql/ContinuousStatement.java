@@ -68,16 +68,22 @@ public sealed interface ContinuousStatement
     }
 
     /**
-     * {@code CREATE CONTINUOUS QUERY name KEYED BY (...) [WRITING TO sink] [RETAIN ...] AS select}.
+     * {@code CREATE CONTINUOUS QUERY name KEYED BY (...) [RANGE (...)] [WRITING TO sink] [RETAIN
+     * ...] [WITH (...)] AS select}.
      *
      * @param keyColumns the key, by output column name; resolved to ordinals by {@link
-     *     #keyOrdinals(StreamSchema)} once the {@code SELECT} has been planned
+     *     #keyOrdinals(StreamSchema)} once the {@code SELECT} has been planned. When {@code
+     *     rangeColumn} is present it is the last of these, because that is what makes an ordered
+     *     index over it useful: the columns before it are probed, and it is scanned between bounds
+     * @param rangeColumn the key's ordered column, from {@code RANGE (column)} -- design section
+     *     17.2's "ordered index over the key when declared {@code INDEXED BY RANGE}"
      * @param select the query itself, exactly as written between {@code AS} and the end (less any
      *     trailing {@code EMIT CHANGES} or semicolon), so the text a listing shows is the user's
      */
     record Create(
             String name,
             List<String> keyColumns,
+            Optional<String> rangeColumn,
             Optional<String> sink,
             Optional<Retain> retain,
             String select,
@@ -88,25 +94,108 @@ public sealed interface ContinuousStatement
         public Create {
             Objects.requireNonNull(name, "name");
             keyColumns = List.copyOf(keyColumns);
+            Objects.requireNonNull(rangeColumn, "rangeColumn");
             Objects.requireNonNull(sink, "sink");
             Objects.requireNonNull(retain, "retain");
             Objects.requireNonNull(select, "select");
-            options = options == null ? java.util.Map.of() : java.util.Map.copyOf(options);
-            if (!orReplace && !options.isEmpty()) {
-                throw new IllegalArgumentException("only CREATE OR REPLACE takes options");
-            }
+            // Insertion-ordered, so an option list reads back in the order it was written: the
+            // order is what a refusal names first and what a listing would show.
+            options = options == null
+                    ? java.util.Map.of()
+                    : java.util.Collections.unmodifiableMap(new java.util.LinkedHashMap<>(options));
+            List<String> key = keyColumns;
+            rangeColumn.ifPresent(column -> {
+                if (key.isEmpty() || !key.get(key.size() - 1).equals(column)) {
+                    throw new IllegalArgumentException(
+                            "RANGE names '" + column + "', which must be the key's last column; the key is " + key);
+                }
+            });
         }
 
-        /** A plain {@code CREATE}: no replacement, no options. */
+        /** A plain {@code CREATE}: no range index, no replacement, no options. */
         public Create(
                 String name, List<String> keyColumns, Optional<String> sink, Optional<Retain> retain, String select) {
-            this(name, keyColumns, sink, retain, select, false, java.util.Map.of());
+            this(name, keyColumns, Optional.empty(), sink, retain, select, false, java.util.Map.of());
+        }
+
+        /** This statement with its key taken from somewhere else -- a {@code WITH (keys = ...)} option. */
+        public Create withKeyColumns(List<String> columns) {
+            return new Create(name, columns, rangeColumn, sink, retain, select, orReplace, options);
+        }
+
+        /** This statement with the sink an option named. */
+        public Create withSink(String sinkName) {
+            return new Create(
+                    name, keyColumns, rangeColumn, Optional.ofNullable(sinkName), retain, select, orReplace, options);
         }
 
         @Override
         public String verb() {
             return orReplace ? "CREATE OR REPLACE CONTINUOUS QUERY" : "CREATE CONTINUOUS QUERY";
         }
+
+        /**
+         * The ordinal of the key column an ordered index is to be kept over, or empty when the
+         * statement asked for none.
+         *
+         * <p>The type is checked here, against the columns the view will actually have rather than
+         * against the text, because "this engine cannot order that column" is a fact about the
+         * planned output and is worth knowing at registration rather than at the first range read.
+         *
+         * @throws PravahaException {@code PRV-2071} for a column the query does not produce;
+         *     {@code PRV-2073} for one whose type this engine has no total order for
+         */
+        public Optional<Integer> rangeOrdinal(StreamSchema output) {
+            if (rangeColumn.isEmpty()) {
+                return Optional.empty();
+            }
+            int ordinal = ordinalOf(output, rangeColumn.get());
+            com.ash.messaging.pravaha.api.data.TypeName type =
+                    output.field(ordinal).type().typeName();
+            if (!ORDERED_FOR_INDEX.contains(type)) {
+                throw new PravahaException(
+                        SqlErrors.RANGE_NOT_ORDERED,
+                        "RANGE (" + rangeColumn.get() + ") asks for an ordered index over a " + type
+                                + " column, and this engine has no total order for one. " + whyNot(type)
+                                + " The key still works as a key -- point reads and full-key lookups are "
+                                + "unaffected -- so drop the RANGE, or range-scan a column that is one of "
+                                + ORDERED_FOR_INDEX + ".");
+            }
+            return Optional.of(ordinal);
+        }
+
+        private static String whyNot(com.ash.messaging.pravaha.api.data.TypeName type) {
+            return switch (type) {
+                case STRING ->
+                    "Ordering text needs a collation, and guessing one gives wrong answers that look "
+                            + "right -- which is why '<' and '>' on text are refused in a WHERE clause too.";
+                case FLOAT32, FLOAT64 ->
+                    "Floating-point comparison here is IEEE 754 (TY-3), under which NaN is neither less "
+                            + "than, equal to nor greater than anything -- so there is no order for an index "
+                            + "to be sorted in.";
+                case DECIMAL ->
+                    "A DECIMAL's compareTo disagrees with its equals: 1.0 and 1.00 compare equal and are "
+                            + "not equal, so they would be one entry in the index and two rows in the view.";
+                case BYTES -> "Bytes have no declared collation here, so there is no order to sort them in.";
+                case BOOLEAN -> "There are two values; a range over them is the whole column or one of them.";
+                default -> "";
+            };
+        }
+
+        /**
+         * The types an ordered index may be kept over: whole numbers and the temporal types, whose
+         * order is the one every reader expects and is the same order the engine's own comparisons
+         * use.
+         */
+        private static final java.util.Set<com.ash.messaging.pravaha.api.data.TypeName> ORDERED_FOR_INDEX =
+                java.util.Collections.unmodifiableSet(java.util.EnumSet.of(
+                        com.ash.messaging.pravaha.api.data.TypeName.INT8,
+                        com.ash.messaging.pravaha.api.data.TypeName.INT16,
+                        com.ash.messaging.pravaha.api.data.TypeName.INT32,
+                        com.ash.messaging.pravaha.api.data.TypeName.INT64,
+                        com.ash.messaging.pravaha.api.data.TypeName.DATE,
+                        com.ash.messaging.pravaha.api.data.TypeName.TIME,
+                        com.ash.messaging.pravaha.api.data.TypeName.TIMESTAMP_LTZ));
 
         /**
          * The key, as the output ordinals the registry takes.

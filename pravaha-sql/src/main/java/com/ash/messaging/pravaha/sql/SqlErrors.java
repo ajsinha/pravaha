@@ -92,13 +92,33 @@ public final class SqlErrors {
 
     /**
      * A clause the design describes for {@code CREATE CONTINUOUS QUERY} and this engine does not
-     * build: {@code INDEXED BY ... RANGE (...)}, a {@code WITH (...)} option list, {@code OR
-     * REPLACE}, or a {@code SERVE AS VIEW} whose name differs from the query's.
+     * build: {@code EMIT CHANGES WITH (...)}, or a {@code SERVE AS VIEW} whose name differs from the
+     * query's.
      *
-     * <p>Refused by name rather than ignored. Ignoring {@code 'retention' = '24h'} in a {@code WITH}
-     * list would keep a view for ever that somebody asked to keep for a day.
+     * <p>Refused by name rather than ignored. Ignoring {@code 'allowed.lateness' = '30s'} in an
+     * {@code EMIT CHANGES WITH} list would drop late rows a caller asked to be waited for.
+     *
+     * <p>{@code OR REPLACE} was on this list until ADR-046, {@code INDEXED BY ... RANGE} and a
+     * {@code WITH (...)} list on a plain {@code CREATE} until B8. What replaced them is not a
+     * looser refusal: a {@code RANGE} this engine cannot order is {@link #RANGE_NOT_ORDERED}, and
+     * an option that does not exist is {@code PRV-8011}, each by name.
      */
     public static final ErrorCode CLAUSE_NOT_BUILT = new ErrorCode(2072, "SQL_CLAUSE_NOT_BUILT");
+
+    /**
+     * {@code RANGE (column)} over a column this engine has no total order for.
+     *
+     * <p>An ordered index needs one, and three of the types on offer do not have one here that
+     * would not be a guess: text needs a collation (which is why {@code <} on text is refused at
+     * all, see {@code Predicate.CompareString}), {@code FLOAT}'s comparison is IEEE 754 and
+     * {@code NaN} is ordered against nothing (TY-3), and {@code DECIMAL}'s {@code compareTo}
+     * disagrees with its {@code equals}, so {@code 1.0} and {@code 1.00} would be one entry in the
+     * index and two rows in the view.
+     *
+     * <p>Refused at registration, against the columns the view will actually have, rather than at
+     * the first read that wanted the index.
+     */
+    public static final ErrorCode RANGE_NOT_ORDERED = new ErrorCode(2073, "SQL_RANGE_NOT_ORDERED");
 
     private SqlErrors() {}
 }

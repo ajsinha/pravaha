@@ -326,8 +326,6 @@ class ContinuousStatementsTest {
     @ParameterizedTest
     @ValueSource(
             strings = {
-                "CREATE CONTINUOUS QUERY v INDEXED BY (a) RANGE (b) AS SELECT 1",
-                "CREATE CONTINUOUS QUERY v KEYED BY (a) WITH ('retention' = '24h') AS SELECT 1",
                 "CREATE CONTINUOUS QUERY v KEYED BY (a) AS SELECT 1 EMIT CHANGES WITH ('parallelism' = '16')",
                 "CREATE CONTINUOUS QUERY q_user_volume SERVE AS VIEW user_volume INDEXED BY (a) AS SELECT 1",
             })
@@ -367,12 +365,108 @@ class ContinuousStatementsTest {
                         java.util.Map.entry("rollback.retention", "PT30M"));
     }
 
+    // ------------------------------------------------------------------ B8: RANGE
+
     @Test
-    void anOptionListOnAPlainCreateIsStillRefusedByName() {
-        PravahaException refused =
-                refusal("CREATE CONTINUOUS QUERY v KEYED BY (a) WITH (backfill = 'history') AS SELECT 1");
-        assertThat(refused.errorCode()).isEqualTo(SqlErrors.CLAUSE_NOT_BUILT);
-        assertThat(refused.getMessage()).contains("CREATE OR REPLACE");
+    void theDesignsRangeSpellingMakesTheOrderedColumnTheKeysLast() {
+        // Design section 17.2, verbatim: INDEXED BY (user_id) RANGE (window_end) -- "point + range".
+        // The two together are the key, so the column RANGE names is appended to it.
+        ContinuousStatement.Create create = create("""
+                CREATE CONTINUOUS QUERY user_volume
+                  INDEXED BY (user_id) RANGE (window_end)
+                AS SELECT user_id, window_end, COUNT(*) AS n FROM txn GROUP BY user_id, window_end
+                """);
+
+        assertThat(create.keyColumns()).containsExactly("user_id", "window_end");
+        assertThat(create.rangeColumn()).contains("window_end");
+    }
+
+    @Test
+    void aRangeColumnTheKeyAlreadyEndsWithIsNotAddedTwice() {
+        ContinuousStatement.Create create =
+                create("CREATE CONTINUOUS QUERY v KEYED BY (a, b) RANGE (b) AS SELECT a, b FROM t");
+
+        assertThat(create.keyColumns()).containsExactly("a", "b");
+        assertThat(create.rangeColumn()).contains("b");
+    }
+
+    @Test
+    void aRangeWithNoKeyOfItsOwnIsTheKey() {
+        ContinuousStatement.Create create = create("CREATE CONTINUOUS QUERY v RANGE (t) AS SELECT t FROM s");
+
+        assertThat(create.keyColumns()).containsExactly("t");
+        assertThat(create.rangeColumn()).contains("t");
+    }
+
+    @Test
+    void aRangeCanBeWrittenBeforeTheKeyLikeEveryOtherClause() {
+        ContinuousStatement.Create create =
+                create("CREATE CONTINUOUS QUERY v RANGE (b) KEYED BY (a) RETAIN FOREVER AS SELECT a, b FROM t");
+
+        assertThat(create.keyColumns()).containsExactly("a", "b");
+    }
+
+    @Test
+    void aRangeOverSomethingThatIsNotTheKeysLastColumnIsRefusedWhereItGoesWrong() {
+        assertThat(refusal("CREATE CONTINUOUS QUERY v KEYED BY (a, b) RANGE (a) AS SELECT 1")
+                        .getMessage())
+                .contains("PRV-2070")
+                .contains("position 1 of 2")
+                .contains("last");
+        assertThat(refusal("CREATE CONTINUOUS QUERY v KEYED BY (a) RANGE (b, c) AS SELECT 1")
+                        .getMessage())
+                .contains("PRV-2070")
+                .contains("an ordered index is kept over one");
+        assertThat(refusal("CREATE CONTINUOUS QUERY v KEYED BY (a) RANGE (b) RANGE (c) AS SELECT 1")
+                        .getMessage())
+                .contains("RANGE is given twice");
+    }
+
+    // ------------------------------------------------------------------ B8: WITH on a plain CREATE
+
+    @Test
+    void aPlainCreateCarriesItsOptionListToBeJudgedByTheRegistry() {
+        // Read here, judged in RegistrationOptions: the recognizer's job is the shape, and which
+        // options exist depends on whether this is a registration or a replacement.
+        ContinuousStatement.Create create = create(
+                "CREATE CONTINUOUS QUERY v KEYED BY (a) WITH ('retention' = '24h', sink = warehouse) " + "AS SELECT 1");
+
+        assertThat(create.orReplace()).isFalse();
+        assertThat(create.options())
+                .containsExactly(java.util.Map.entry("retention", "24h"), java.util.Map.entry("sink", "warehouse"));
+    }
+
+    @Test
+    void anOptionNameMayBeWrittenAsTheDesignWritesIt() {
+        // Design sections 11.2 and 17.2 single-quote their option names. A grammar that refused the
+        // document it came from would be a second grammar.
+        assertThat(create("CREATE CONTINUOUS QUERY v KEYED BY (a) WITH ('retention' = 'PT1H') AS SELECT 1")
+                        .options())
+                .containsExactly(java.util.Map.entry("retention", "PT1H"));
+        assertThat(create("CREATE CONTINUOUS QUERY v KEYED BY (a) WITH (\"retention\" = 'PT1H') AS SELECT 1")
+                        .options())
+                .containsExactly(java.util.Map.entry("retention", "PT1H"));
+        assertThat(create("CREATE OR REPLACE CONTINUOUS QUERY v KEYED BY (a) "
+                                + "WITH ('backfill'.'rate'.'limit' = 10) AS SELECT 1")
+                        .options())
+                .containsExactly(java.util.Map.entry("backfill.rate.limit", "10"));
+    }
+
+    @Test
+    void aKeyFromAnOptionStandsInForKeyedBy() {
+        ContinuousStatement.Create create =
+                create("CREATE CONTINUOUS QUERY v WITH (keys = 'a, b') AS SELECT a, b FROM t");
+
+        assertThat(create.keyColumns()).as("resolved by the registry, not here").isEmpty();
+        assertThat(create.options()).containsExactly(java.util.Map.entry("keys", "a, b"));
+    }
+
+    @Test
+    void sayingTheKeyTwiceIsRefusedRatherThanResolved() {
+        assertThat(refusal("CREATE CONTINUOUS QUERY v KEYED BY (a) WITH (keys = 'b') AS SELECT 1")
+                        .getMessage())
+                .contains("PRV-2070")
+                .contains("keyed by twice");
     }
 
     @Test
@@ -510,5 +604,68 @@ class ContinuousStatementsTest {
                         .keyOrdinals(twoCases))
                 .as("the exact spelling wins over a case-insensitive one")
                 .isEqualTo(List.of(1));
+    }
+
+    // ------------------------------------------------------------------ the ordered column's type
+
+    @Test
+    void anOrderableRangeColumnResolvesToItsOrdinal() {
+        assertThat(create("CREATE CONTINUOUS QUERY v KEYED BY (user_id) RANGE (total) AS SELECT 1")
+                        .rangeOrdinal(OUTPUT))
+                .contains(2);
+        assertThat(create("CREATE CONTINUOUS QUERY v KEYED BY (user_id) AS SELECT 1")
+                        .rangeOrdinal(OUTPUT))
+                .isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"region", "price", "ratio", "flag", "blob"})
+    void aRangeOverATypeWithNoTotalOrderIsRefusedAtRegistrationAndSaysWhy(String column) {
+        // Refused against the columns the view will actually have, not against the text, and with
+        // the reason for that type rather than one sentence for all of them.
+        StreamSchema output = StreamSchema.builder("out")
+                .field("user_id", Types.string())
+                .field("region", Types.string())
+                .field("price", Types.decimal(18, 4))
+                .field("ratio", Types.float64())
+                .field("flag", Types.bool())
+                .field("blob", Types.bytes())
+                .build();
+
+        assertThatThrownBy(() -> create(
+                                "CREATE CONTINUOUS QUERY v KEYED BY (user_id) RANGE (" + column + ") " + "AS SELECT 1")
+                        .rangeOrdinal(output))
+                .isInstanceOfSatisfying(
+                        PravahaException.class, e -> assertThat(e.errorCode()).isEqualTo(SqlErrors.RANGE_NOT_ORDERED))
+                .hasMessageContaining("PRV-2073")
+                .hasMessageContaining("no total order")
+                .hasMessageContaining("point reads and full-key lookups are unaffected");
+    }
+
+    @Test
+    void aRangeOverAColumnTheQueryDoesNotProduceIsTheKeyRefusal() {
+        assertThatThrownBy(() -> create("CREATE CONTINUOUS QUERY v KEYED BY (user_id) RANGE (nope) AS SELECT 1")
+                        .rangeOrdinal(OUTPUT))
+                .hasMessageContaining("PRV-2071");
+    }
+
+    @Test
+    void everyTemporalAndIntegerWidthCanBeRanged() {
+        StreamSchema widths = StreamSchema.builder("out")
+                .field("a", Types.int8())
+                .field("b", Types.int16())
+                .field("c", Types.int32())
+                .field("d", Types.int64())
+                .field("e", Types.date())
+                .field("f", Types.time())
+                .field("g", Types.timestamp(9))
+                .build();
+        for (String column : List.of("a", "b", "c", "d", "e", "f", "g")) {
+            assertThat(create("CREATE CONTINUOUS QUERY v KEYED BY (" + column + ") RANGE (" + column + ") "
+                                    + "AS SELECT 1")
+                            .rangeOrdinal(widths))
+                    .as(column)
+                    .isNotEmpty();
+        }
     }
 }

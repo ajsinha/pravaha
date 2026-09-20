@@ -169,6 +169,38 @@ class SqlPlannerTest {
     }
 
     @Test
+    void insertIsRefusedByNameAndNamesTheWayToSayIt() {
+        // B8 looked at building INSERT INTO <sink> SELECT and did not: it carries neither the name
+        // the query is managed and read by nor the key its view needs, and both would have to be
+        // invented. So the refusal has to hand the reader the spelling that says them.
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> planner().plan("INSERT INTO user_volume_agg SELECT user_id, amount FROM txn_stream"))
+                .isInstanceOfSatisfying(
+                        com.ash.messaging.pravaha.api.PravahaException.class,
+                        e -> assertThat(e.errorCode()).isEqualTo(SqlErrors.UNSUPPORTED_OPERATOR))
+                .hasMessageContaining("PRV-2020")
+                .hasMessageContaining("INSERT is not built")
+                .hasMessageContaining("WRITING TO <sink>")
+                .hasMessageContaining("WITH (sink = '<sink>')")
+                .hasMessageContaining("--sink")
+                .hasMessageContaining("docs/CONTINUOUS_QUERIES.md");
+    }
+
+    @Test
+    void theOtherDmlVerbsAreRefusedTheSameWay() {
+        for (String sql : java.util.List.of(
+                "UPDATE txn_stream SET user_id = 'x'",
+                "DELETE FROM txn_stream WHERE user_id = 'x'",
+                "MERGE INTO txn_stream t USING txn_stream s ON t.txn_id = s.txn_id "
+                        + "WHEN MATCHED THEN UPDATE SET user_id = s.user_id")) {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> planner().plan(sql))
+                    .as(sql)
+                    .hasMessageContaining("PRV-2020")
+                    .hasMessageContaining("no DML surface");
+        }
+    }
+
+    @Test
     void severalStreamsCoexistInOneCatalog() {
         StreamSchema other =
                 StreamSchema.builder("other").field("k", Types.string()).build();

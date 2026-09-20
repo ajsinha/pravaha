@@ -130,6 +130,8 @@ public final class SqlPlanner {
                 throw new PravahaException(SqlErrors.PARSE_FAILED, e.getMessage(), e);
             }
 
+            refuseDml(parsed);
+
             SqlNode validated;
             try {
                 validated = planner.validate(dropStreamKeyword(parsed));
@@ -184,6 +186,52 @@ public final class SqlPlanner {
         } catch (Exception e) {
             throw planningFailure(e);
         }
+    }
+
+    /**
+     * Refuses {@code INSERT}, {@code UPDATE}, {@code DELETE} and {@code MERGE} by name, before
+     * validation can call one of them an unknown table.
+     *
+     * <p><strong>{@code INSERT INTO sink SELECT ...} is not built, and B8 looked at building it.</strong>
+     * It is not the same thing as {@code WRITING TO}, which is what it would have to be to be worth
+     * a second spelling. A registration needs two things the {@code INSERT} form does not carry: a
+     * <em>name</em>, which is what {@code DROP}, {@code PAUSE}, {@code RESUME} and every reader's
+     * {@code FROM} clause use and which is not the sink's, and a <em>key</em>, without which the
+     * view behind the query is a log and a point read against it has nothing to look up. Deriving
+     * the name from the sink would give one object two identities the moment a second query writes
+     * to the same sink; deriving the key from the {@code SELECT} list means guessing, and a view
+     * keyed on a guess conflates rows that were never the same row. The alternative spelling is
+     * three words longer and says both, so the refusal names it rather than inventing them
+     * (ADR-043, ADR-047).
+     *
+     * <p>Before validation deliberately. Calcite validates the target table first, so {@code INSERT
+     * INTO user_volume_agg SELECT ...} over a sink -- which is not in the catalogue, because a sink
+     * is not a table you read -- was refused as an unknown identifier ({@code PRV-2002}), which
+     * sends the reader looking for a typo.
+     */
+    private static void refuseDml(SqlNode parsed) {
+        String verb =
+                switch (parsed.getKind()) {
+                    case INSERT -> "INSERT";
+                    case UPDATE -> "UPDATE";
+                    case DELETE -> "DELETE";
+                    case MERGE -> "MERGE";
+                    default -> null;
+                };
+        if (verb == null) {
+            return;
+        }
+        String how = "INSERT".equals(verb)
+                ? " A continuous query names where its output goes beside its own name and key, not instead "
+                        + "of them: CREATE CONTINUOUS QUERY <name> KEYED BY (<column>, ...) WRITING TO <sink> AS "
+                        + "<select>. The same thing is said by WITH (sink = '<sink>'), by `pravaha register "
+                        + "--sink <sink>`, and by the fourth field of the pravaha.register Flight action."
+                : "";
+        throw new PravahaException(
+                SqlErrors.UNSUPPORTED_OPERATOR,
+                verb + " is not built: this engine answers questions and maintains views, and it has no DML "
+                        + "surface -- there is nothing here whose rows a statement may edit in place." + how
+                        + " See docs/CONTINUOUS_QUERIES.md for what this engine executes and what it refuses.");
     }
 
     /**

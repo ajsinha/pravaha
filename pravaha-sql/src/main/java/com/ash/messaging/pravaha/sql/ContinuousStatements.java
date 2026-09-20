@@ -32,10 +32,12 @@ import com.ash.messaging.pravaha.api.PravahaException;
  * <p>The canonical grammar -- keywords in any case, names plain or double-quoted:
  *
  * <pre>
- * CREATE CONTINUOUS QUERY name
+ * CREATE [OR REPLACE] CONTINUOUS QUERY name
  *     KEYED BY (column [, column]...)
+ *     [RANGE (column)]
  *     [WRITING TO sink]
  *     [RETAIN FOR duration | RETAIN FOREVER]
+ *     [WITH (option = value [, option = value]...)]
  *     AS select
  *
  * DROP   CONTINUOUS QUERY name
@@ -50,6 +52,18 @@ import com.ash.messaging.pravaha.api.PravahaException;
  * 11.2) are accepted as aliases where they mean the same thing: {@code INTO sink} for {@code WRITING
  * TO sink}, {@code INDEXED BY (...)} for {@code KEYED BY (...)}, {@code SERVE AS VIEW name} when it
  * names the query itself, and a trailing {@code EMIT CHANGES} -- which every continuous query does.
+ *
+ * <p>{@code RANGE (column)} asks for the ordered index design section 17.2 calls for, and the
+ * column it names is the key's last one: the design writes {@code INDEXED BY (user_id) RANGE
+ * (window_end)}, where {@code user_id} is probed and {@code window_end} is scanned between bounds,
+ * and the two together are the key. A column the key does not already end with is appended to it,
+ * so that spelling means what it reads as.
+ *
+ * <p>{@code WITH (...)} is read here and judged elsewhere, because which options exist depends on
+ * what the statement is: a plain {@code CREATE} takes a registration's ({@code
+ * RegistrationOptions}), {@code CREATE OR REPLACE} takes a replacement's ({@code
+ * ReplacementOptions}). One list parser, so the two spellings cannot drift apart; two vocabularies,
+ * each refusing an option it does not build by name rather than ignoring it.
  *
  * <p><strong>Why a recognizer and not a Calcite parser extension.</strong> The design planned these
  * as Freemarker/JavaCC extensions. That means building and maintaining a fork of Calcite's grammar
@@ -67,7 +81,7 @@ import com.ash.messaging.pravaha.api.PravahaException;
 public final class ContinuousStatements {
 
     static final String CREATE_SHAPE = "CREATE [OR REPLACE] CONTINUOUS QUERY <name> KEYED BY (<column>, ...) "
-            + "[WRITING TO <sink>] [RETAIN FOR <duration> | RETAIN FOREVER] "
+            + "[RANGE (<column>)] [WRITING TO <sink>] [RETAIN FOR <duration> | RETAIN FOREVER] "
             + "[WITH (<option> = <value>, ...)] AS <select>";
     static final String DROP_SHAPE = "DROP CONTINUOUS QUERY <name>";
     static final String PAUSE_SHAPE = "PAUSE CONTINUOUS QUERY <name>";
@@ -201,6 +215,8 @@ public final class ContinuousStatements {
             keyword("QUERY");
             String name = identifier("the query's name");
             List<String> keys = null;
+            String range = null;
+            StatementLexer.Token rangeAt = null;
             String sink = null;
             ContinuousStatement.Retain retain = null;
             java.util.Map<String, String> options = new java.util.LinkedHashMap<>();
@@ -212,17 +228,26 @@ public final class ContinuousStatements {
                         : "";
                 switch (word) {
                     case "AS" -> {
-                        if (keys == null) {
+                        if (namesAKey(options) && (keys != null || range != null)) {
                             throw malformed(
                                     clause.start(),
-                                    "query '" + name + "' has no key: KEYED BY (<column>, ...) must come before "
-                                            + "AS. A view with no key is a log, and a point read against it has "
-                                            + "nothing to look up");
+                                    "query '" + name + "' says what it is keyed by twice: in the statement and "
+                                            + "again as a WITH option. The option exists for a caller that has "
+                                            + "the key as a value rather than as text; when the statement says "
+                                            + "it, drop the option");
+                        }
+                        if (keys == null && range == null && !namesAKey(options)) {
+                            throw malformed(
+                                    clause.start(),
+                                    "query '" + name + "' has no key: KEYED BY (<column>, ...) -- or WITH (keys = "
+                                            + "'<column>, ...') -- must come before AS. A view with no key is a "
+                                            + "log, and a point read against it has nothing to look up");
                         }
                         String select = select(clause);
                         return new ContinuousStatement.Create(
                                 name,
-                                keys,
+                                withRange(keys, range, rangeAt),
+                                Optional.ofNullable(range),
                                 Optional.ofNullable(sink),
                                 Optional.ofNullable(retain),
                                 select,
@@ -233,12 +258,20 @@ public final class ContinuousStatements {
                         once(keys == null, clause, "the key");
                         keyword("BY");
                         keys = columns();
-                        if (isWord(peek(), "RANGE")) {
-                            throw notBuilt(
-                                    next(),
-                                    "INDEXED BY ... RANGE (...) is not built: a view is read by its whole key. "
-                                            + "Put the range column in KEYED BY and read a range with WHERE.");
+                    }
+                    case "RANGE" -> {
+                        once(range == null, clause, "RANGE");
+                        rangeAt = peek();
+                        List<String> ranged = columns();
+                        if (ranged.size() != 1) {
+                            throw malformed(
+                                    clause.start(),
+                                    "RANGE names " + ranged.size() + " columns and an ordered index is kept over "
+                                            + "one: the key's last column, which the columns before it are probed "
+                                            + "by. Two ordered columns would be two indexes, and this engine "
+                                            + "builds one");
                         }
+                        range = ranged.get(0);
                     }
                     case "WRITING", "INTO" -> {
                         once(sink == null, clause, "the sink");
@@ -267,25 +300,54 @@ public final class ContinuousStatements {
                         served = true;
                     }
                     case "WITH" -> {
-                        if (!orReplace) {
-                            throw notBuilt(
-                                    clause,
-                                    "a WITH (...) option list is not built on a plain CREATE, and its options "
-                                            + "are refused rather than ignored. Say the retention with RETAIN "
-                                            + "FOR <duration>; the options a WITH list does carry -- backfill, "
-                                            + "backfill.rate.limit, cutover, rollback.retention -- are a "
-                                            + "replacement's, so they belong on CREATE OR REPLACE.");
-                        }
                         once(options.isEmpty(), clause, "the options");
                         options.putAll(options(clause));
                     }
                     default ->
                         throw unexpected(
                                 clause,
-                                "KEYED BY (...), WRITING TO <sink>, RETAIN FOR <duration>, "
-                                        + "RETAIN FOREVER or AS <select>");
+                                "KEYED BY (...), RANGE (<column>), WRITING TO <sink>, RETAIN FOR <duration>, "
+                                        + "RETAIN FOREVER, WITH (...) or AS <select>");
                 }
             }
+        }
+
+        /** Whether a {@code WITH (...)} list says what the view is keyed by. */
+        private static boolean namesAKey(java.util.Map<String, String> options) {
+            return options.containsKey("key") || options.containsKey("keys");
+        }
+
+        /**
+         * The key, with the {@code RANGE} column at the end of it.
+         *
+         * <p>{@code INDEXED BY (user_id) RANGE (window_end)} is design section 17.2's spelling and
+         * means a key of {@code (user_id, window_end)} whose last column is ordered, so a column
+         * the key does not already end with is appended rather than refused. A column the key holds
+         * somewhere other than at the end is refused: the ordered column has to be the last one, or
+         * the columns after it would be what an index entry is sorted by.
+         */
+        private List<String> withRange(List<String> keys, String range, StatementLexer.Token at) {
+            if (range == null) {
+                return keys == null ? List.of() : keys;
+            }
+            if (keys == null) {
+                return List.of(range);
+            }
+            int held = keys.indexOf(range);
+            if (held < 0) {
+                List<String> extended = new ArrayList<>(keys);
+                extended.add(range);
+                return extended;
+            }
+            if (held != keys.size() - 1) {
+                throw malformed(
+                        at == null ? 0 : at.start(),
+                        "RANGE names '" + range + "', which the key holds at position " + (held + 1) + " of "
+                                + keys.size() + ". An ordered index is over the key's last column -- the ones "
+                                + "before it are probed for equality and it is scanned between bounds -- so "
+                                + "write the key with '" + range + "' last");
+            }
+            return keys;
         }
 
         /** Everything after {@code AS}, less a trailing {@code EMIT CHANGES} and semicolon. */
@@ -335,24 +397,31 @@ public final class ContinuousStatements {
         }
 
         /**
-         * {@code WITH (backfill = 'history', backfill.rate.limit = 1000)}.
+         * {@code WITH (backfill = 'history', backfill.rate.limit = 1000)}, or the design's {@code
+         * WITH ('retention' = '24h')}.
          *
-         * <p>Read here and judged elsewhere: which options exist is the registry's business (see
-         * {@code ReplacementOptions}), and one it does not build is refused by name with its own
-         * code rather than silently ignored -- an ignored rate limit is a backfill that took a
-         * production store down at full speed.
+         * <p>Read here and judged elsewhere: which options exist depends on the statement -- a
+         * plain {@code CREATE} takes {@code RegistrationOptions}, a replacement takes {@code
+         * ReplacementOptions} -- and an option the engine does not build is refused by name with
+         * its own code rather than silently ignored. An ignored rate limit is a backfill that took
+         * a production store down at full speed; an ignored retention is a view kept for ever that
+         * somebody asked to keep for a day.
+         *
+         * <p>An option's name may be written bare, double-quoted, or single-quoted, because design
+         * sections 11.2 and 17.2 write these lists with single-quoted names and a grammar that
+         * refused the design's own spelling would be a second grammar.
          */
         private java.util.Map<String, String> options(StatementLexer.Token with) {
             symbol("(");
             java.util.Map<String, String> read = new java.util.LinkedHashMap<>();
             while (true) {
-                StringBuilder key = new StringBuilder(identifier("an option's name"));
+                StringBuilder key = new StringBuilder(optionName());
                 StatementLexer.Token after = next();
                 // Dotted names are the design's spelling -- backfill.rate.limit -- and the lexer
                 // hands back the dot as a symbol of its own.
                 while (after.kind() == StatementLexer.Kind.SYMBOL
                         && after.text().equals(".")) {
-                    key.append('.').append(identifier("the rest of the option's name"));
+                    key.append('.').append(optionName());
                     after = next();
                 }
                 if (after.kind() != StatementLexer.Kind.SYMBOL || !after.text().equals("=")) {
@@ -464,6 +533,19 @@ public final class ContinuousStatements {
             if (!first) {
                 throw malformed(clause.start(), what + " is given twice; each clause may appear once");
             }
+        }
+
+        /** An option's name: bare, double-quoted, or single-quoted as the design writes them. */
+        private String optionName() {
+            StatementLexer.Token token = peek();
+            if (token.kind() == StatementLexer.Kind.STRING) {
+                next();
+                if (token.text().isEmpty()) {
+                    throw malformed(token.start(), "an option's name is empty");
+                }
+                return token.text();
+            }
+            return identifier("an option's name");
         }
 
         private String identifier(String what) {
