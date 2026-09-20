@@ -22,7 +22,8 @@ otherwise have to rediscover the hard way.
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **48** |
 
-**Where it stands, 2026-09-19.** **No GA-BLOCKER is open.** `SUB-1` (a subscribe-and-read gap) and
+**Where it stands, 2026-09-19.** **No GA-BLOCKER is open**, and one GA-REQUIRED: `CASE-1`, four of the five case studies window
+over a stream with no declared event time, and their READMEs explain the silence away. `SUB-1` (a subscribe-and-read gap) and
 `SCAN-1` (aggregates over scans that repeat rows), both found this day, are fixed. No GA-REQUIRED finding is open: `FEED-1`
 (a stopped source feed shown nowhere) is fixed. `S-3` was
 reopened and closed again the same day: ADR-039 item 8's first slice had removed the refusal of

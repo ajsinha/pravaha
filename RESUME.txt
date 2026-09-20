@@ -15,8 +15,9 @@ what changed and why. docs/qa/FINDINGS.md status lines come next. This file and 
   main     merged from develop when the owner says "drill" or "drill to
            main", so between drills it is BEHIND develop. That is intended.
 
-  Findings register: 0 GA-BLOCKER (SUB-1 and SCAN-1 fixed 2026-09-19),
-  0 GA-REQUIRED (FEED-1 fixed the same day). The header of
+  Findings register: 0 GA-BLOCKER; 1 GA-REQUIRED, CASE-1 (the case
+  studies window with no declared event time and say the silence is
+  correct) -- scheduled with TIME-6's refusal. The header of
   docs/qa/FINDINGS.md has the exact counts and FindingsRegisterTest holds it
   to them.
 

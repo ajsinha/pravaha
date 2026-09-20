@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **343 findings carrying a
-status — 246 FIXED, 84 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 84 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 78 POST-GA and 6 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **344 findings carrying a
+status — 246 FIXED, 85 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 85 open, **0 are
+GA-BLOCKER, 1 GA-REQUIRED, 78 POST-GA and 6 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -55,7 +55,7 @@ argued against, and its length was hiding the nineteen entries below.
 | | | |
 |---|---|---|
 | **GA-BLOCKER** | 0 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
-| **GA-REQUIRED** | 0 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
+| **GA-REQUIRED** | 1 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
 | **POST-GA** | 78 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 6 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
@@ -6777,3 +6777,10 @@ runs is how a default becomes folklore, and this project has already found two o
 
 > **Status:** OPEN — `PeriodicCheckpointer.checkpointNow` takes the id first (`nextId.getAndIncrement()`) and only then cuts and stores, so a checkpoint that throws has spent its id and written nothing. `FileCheckpointStore.prune` is strictly newest-K-by-id, so a directory ends up holding `5,7,8,9,10`: the newest five that exist, over a sequence where 6 was attempted and lost. Recovery restores the newest readable one and is correct either way, which is why the hole stays invisible — a directory with a gap and one without look identical to `ls`, and no surface reports the difference. The fleet-level signals exist (`pravaha_query_checkpoint_failures_total`, the age of the last success); what is missing is the answer to "is this directory healthy?" asked of the directory itself.
 > **Disposition:** POST-GA — it misleads a diagnosis rather than losing data; the fix is either to take the id after the store succeeds, which makes a gap impossible (and then `nextId`'s seeding from `availableIds().max() + 1` needs checking against a restart), or to keep the gap and surface it: logged when it happens, and reported wherever checkpoint health is. Found by the CFG cluster's agent, correcting CFG-16's own inference that pruning was not newest-K — it is.
+
+### CASE-1 (HIGH) — four of the five case studies window over a stream with no declared event time, and their READMEs explain the silence away
+
+> **Status:** OPEN — `examples/case-studies/` declares an event-time column nowhere: not in each study's `schema/streams.properties`, not in `SETUP.md`, not in a README, and the directory ships no `application.yaml` at all. A `grep` for `event-time`, `eventTime` or `event.time` across the tree returns one hit, and it is prose. Four studies window regardless — `banking-card-velocity` on `card_auth.auth_time`, `biology-sequencing-qc` on `read_metric.called_at`, `finance-counterparty-exposure` on `settlement.value_time`, `trading-order-flow` on `order_event.event_time` in two queries — so no watermark advances, no window closes, and the view stays empty for ever. (`trade-processing` is unaffected: its continuous queries are unwindowed.)
+> **Disposition:** GA-REQUIRED — the product is not usable from the path a new reader is most likely to copy, and the documentation actively defends the failure. The fix belongs with TIME-6's refusal (a windowed query over a stream with no declared event time should be refused rather than silently never emitting), because that refusal is what would have made this impossible to ship: declare the event time in every study, fix the fixture, then let the refusal hold the line. Found by the STRM/TIME cluster's agent while measuring TIME-6's blast radius.
+> **What makes it a defect rather than a missing line of configuration:** each study explains the symptom away at the moment it appears. `banking-card-velocity`'s README says "**Nothing appears yet, and that is correct**", offers a remedy — insert a row whose `auth_time` is past the end of the minute — that cannot work because nothing reads `auth_time` as event time, and closes with "The engine is not slow; it is refusing to publish an answer it might have to retract." `SETUP.md`'s *A note on time* says the same for every study. A reader who follows the instructions, sees nothing and reads the paragraph concludes the product is working correctly.
+> **And the test cannot see it:** `CaseStudySqlTest` plans this SQL against a fixture (`schemaOf`) that never calls `StreamSchema.Builder.eventTime`, so it has the same gap as the studies and is green today — and would stay green after a fix that only touched the studies. The fixture must declare an event time first, or the test cannot tell.
