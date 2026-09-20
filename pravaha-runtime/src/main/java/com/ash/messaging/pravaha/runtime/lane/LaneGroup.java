@@ -271,6 +271,7 @@ public final class LaneGroup implements AutoCloseable {
         long highWater = 0;
         double fill = 0;
         long exchanged = 0;
+        LaneBackpressure.Snapshot blocked = LaneBackpressure.Snapshot.NONE;
         for (LaneMetrics m : metrics()) {
             in += m.rowsIn();
             out += m.rowsOut();
@@ -280,8 +281,27 @@ public final class LaneGroup implements AutoCloseable {
             highWater += m.arenaHighWaterBytes();
             fill += m.inboxFill();
             exchanged += m.exchangedIn();
+            blocked = blocked.plus(m.backpressure());
         }
-        return new LaneMetrics(-1, in, out, batches, idle, rejected, highWater, fill / lanes.size(), exchanged);
+        return new LaneMetrics(
+                -1, in, out, batches, idle, rejected, highWater, fill / lanes.size(), exchanged, blocked);
+    }
+
+    /**
+     * Every lane's backpressure as one figure: how often and how long a writer into this group had
+     * no room, and whose writer it was.
+     *
+     * <p>The fraction is the sum of the lanes' blocked time over the longest lane's wall clock,
+     * clamped at 1 -- so a query on four lanes with one of them blocked half the time reports about
+     * 0.5 rather than 0.125. The question an operator is asking is "is any lane of this query the
+     * limit", and an average over lanes answers a different one.
+     */
+    public LaneBackpressure.Snapshot backpressure() {
+        LaneBackpressure.Snapshot total = LaneBackpressure.Snapshot.NONE;
+        for (Lane lane : lanes) {
+            total = total.plus(lane.backpressure().snapshot(lane.inboxDepth(), lane.inboxCells()));
+        }
+        return total;
     }
 
     /**

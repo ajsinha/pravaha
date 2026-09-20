@@ -112,6 +112,14 @@ public final class Lane implements AutoCloseable {
     private final LongAdder rejectedOffers = new LongAdder();
 
     /**
+     * How long producers into this lane have spent unable to place a row, and whose they were.
+     *
+     * <p>Written by the producers, at the two ends of an episode, and never by the lane thread --
+     * so nothing here is on the drain loop at all. See {@link LaneBackpressure}.
+     */
+    private final LaneBackpressure backpressure = new LaneBackpressure();
+
+    /**
      * Work to run on the lane thread, between batches.
      *
      * <p>The single-writer principle makes a lane's state unreachable from anywhere else, which is
@@ -606,6 +614,38 @@ public final class Lane implements AutoCloseable {
         return inboxes[input].fill();
     }
 
+    /**
+     * Cells published into this lane and not yet drained, on whichever input holds the most.
+     *
+     * <p>The number {@link #inboxFill()} is a ratio of, in cells. A fill of 0.98 says nothing about
+     * how many rows are queued until you also know the inbox is 64 cells or 65,536 of them, and an
+     * operator reading a dashboard has only one of those to hand.
+     */
+    public int inboxDepth() {
+        int deepest = 0;
+        for (RowInbox each : inboxes) {
+            deepest = Math.max(deepest, each.size());
+        }
+        return deepest;
+    }
+
+    /** One named input's depth, in cells. */
+    public int inboxDepth(int input) {
+        return inboxes[input].size();
+    }
+
+    /**
+     * This lane's backpressure: how often and how long its writers waited for room, and whose
+     * writers they were.
+     *
+     * <p>Handed to the pumps feeding this lane, which are the only things that know they are
+     * waiting -- the lane itself sees an empty inbox and cannot tell "nothing has arrived" from
+     * "the producer is parked outside".
+     */
+    public LaneBackpressure backpressure() {
+        return backpressure;
+    }
+
     // ---------------------------------------------------------------- the loop
 
     private boolean allInboxesEmpty() {
@@ -1024,7 +1064,8 @@ public final class Lane implements AutoCloseable {
                 rejectedOffers.sum(),
                 arena.highWaterMark(),
                 inboxFill(),
-                exchangedIn);
+                exchangedIn,
+                backpressure.snapshot(inboxDepth(), inboxCells()));
     }
 
     /**

@@ -77,6 +77,26 @@ public final class IngestPump implements AutoCloseable {
     private final AtomicLong resumes = new AtomicLong();
     private final AtomicLong pausedNanos = new AtomicLong();
 
+    /**
+     * How long this pump has spent unable to place a row, in episodes.
+     *
+     * <p>Not the same thing as {@link #pausedNanos}, and both are worth having. A pause is the
+     * hysteresis firing at the high watermark, which is the engine choosing to stop reading; being
+     * blocked is there being nowhere to put a row, which includes every moment between the last
+     * free cell going and the low watermark being reached again. The first is a policy, the second
+     * is the symptom an operator is looking at.
+     */
+    private final BackpressureClock blocked = new BackpressureClock();
+
+    /**
+     * Whose writer this is, for the lane's per-query attribution.
+     *
+     * <p>Empty until something says. A lane a query owns has one writer and needs no name; a lane
+     * several queries share has one per query, and "which query's writer waited" is the whole
+     * question.
+     */
+    private String queryId = "";
+
     private final int input;
 
     /**
@@ -172,18 +192,54 @@ public final class IngestPump implements AutoCloseable {
         try {
             updateBackpressure();
             if (paused) {
+                blocked.blocked(lane.backpressure(), queryId);
                 return 0;
             }
             int room = freeCells();
             if (room == 0) {
+                blocked.blocked(lane.backpressure(), queryId);
                 return 0;
             }
+            // There is room, so whatever episode was open ends here. One branch, once per poll.
+            blocked.cleared(queryId);
             int moved = reader.poll(sink, Math.min(maxRecords, room));
             rowsPumped.addAndGet(moved);
             return moved;
         } finally {
             ingest.unlock();
         }
+    }
+
+    /**
+     * Names the query this pump feeds, so a lane several of them share can say whose writer waited.
+     *
+     * <p>Set once, at wiring time. A pump whose name changed mid-stream would split one query's
+     * waiting across two entries and attribute neither correctly.
+     */
+    public IngestPump attributedTo(String name) {
+        this.queryId = name == null ? "" : name;
+        return this;
+    }
+
+    /** Episodes in which this pump found nowhere to put a row. */
+    public long backpressureWaits() {
+        return blocked.waits();
+    }
+
+    /**
+     * How long those episodes lasted, including one in progress.
+     *
+     * <p>Against wall clock this is the fraction of time this source could not be read because the
+     * engine had nowhere to put its rows -- the number design section 13.5 asks for and the one
+     * {@link #pauseCount} could only hint at.
+     */
+    public long backpressureWaitNanos() {
+        return blocked.waitNanos();
+    }
+
+    /** Whether this pump is waiting for room right now. */
+    public boolean isBackpressured() {
+        return blocked.waiting();
     }
 
     /**
@@ -201,7 +257,13 @@ public final class IngestPump implements AutoCloseable {
      */
     public int roomForSharedPoll() {
         updateBackpressure();
-        return paused ? 0 : freeCells();
+        int room = paused ? 0 : freeCells();
+        if (room == 0) {
+            blocked.blocked(lane.backpressure(), queryId);
+        } else {
+            blocked.cleared(queryId);
+        }
+        return room;
     }
 
     /**
@@ -406,11 +468,19 @@ public final class IngestPump implements AutoCloseable {
 
     private void offerWhenThereIsRoom() {
         int size = stagingWriter.sizeSoFar();
-        long deadline = System.nanoTime() + SHARED_INBOX_WAIT.toNanos();
+        long began = System.nanoTime();
+        long deadline = began + SHARED_INBOX_WAIT.toNanos();
+        boolean waited = false;
         while (true) {
             if (lane.inboxFill(input) < 1.0 && lane.offer(input, staging, 0, size)) {
+                if (waited) {
+                    // Timed exactly rather than by poll, because this one really does block inside
+                    // a single call: the row is decoded and parked in staging with nowhere to go.
+                    blocked.waited(lane.backpressure(), queryId, System.nanoTime() - began);
+                }
                 return;
             }
+            waited = true;
             Lane.State state = lane.state();
             if (closed || state == Lane.State.FAILED || state == Lane.State.STOPPED) {
                 throw new PravahaException(

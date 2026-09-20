@@ -71,6 +71,19 @@ public final class PartitionedIngestPump implements AutoCloseable {
     private final AtomicLong rejected = new AtomicLong();
     private final long[] rowsPerLane;
 
+    /**
+     * How long this pump has spent with nowhere to put a row, in episodes rather than per row.
+     *
+     * <p>One clock for the fan-out, not one per lane: this pump stops when the <em>fullest</em>
+     * lane has no room, because a poll cannot be given back and a row it cannot place would have
+     * to be dropped. So the episode is the fan-out's, and {@link #freeCells} already takes the
+     * minimum. The lane it is attributed to is the one that was full.
+     */
+    private final BackpressureClock blocked = new BackpressureClock();
+
+    /** Whose writer this is, for a lane several queries share. */
+    private String queryId = "";
+
     /** Serialises a poll against a checkpoint's reading of the offset. See {@link #freezeIngest}. */
     private final java.util.concurrent.locks.ReentrantLock ingest = new java.util.concurrent.locks.ReentrantLock();
 
@@ -130,12 +143,15 @@ public final class PartitionedIngestPump implements AutoCloseable {
         try {
             updateBackpressure();
             if (paused) {
+                blocked.blocked(blockedLane().backpressure(), queryId);
                 return 0;
             }
             int room = freeCells();
             if (room == 0) {
+                blocked.blocked(blockedLane().backpressure(), queryId);
                 return 0;
             }
+            blocked.cleared(queryId);
             int moved = reader.poll(this::beginRow, Math.min(maxRecords, room));
             rowsPumped.addAndGet(moved);
             return moved;
@@ -262,6 +278,49 @@ public final class PartitionedIngestPump implements AutoCloseable {
 
     public boolean isPaused() {
         return paused;
+    }
+
+    /**
+     * Names the query this pump feeds, so a lane several of them share can say whose writer waited.
+     * Set once, at wiring time.
+     */
+    public PartitionedIngestPump attributedTo(String name) {
+        this.queryId = name == null ? "" : name;
+        return this;
+    }
+
+    /** Episodes in which this pump found nowhere to put a row on at least one of its lanes. */
+    public long backpressureWaits() {
+        return blocked.waits();
+    }
+
+    /** How long those episodes lasted, including one in progress. */
+    public long backpressureWaitNanos() {
+        return blocked.waitNanos();
+    }
+
+    /** Whether this pump is waiting for room right now. */
+    public boolean isBackpressured() {
+        return blocked.waiting();
+    }
+
+    /**
+     * The lane holding the most, which is the one that stops the fan-out.
+     *
+     * <p>Attribution has to name one lane, and naming the fullest is the only choice that points
+     * at the lane an operator should look at: a poll is bounded by the tightest of them.
+     */
+    private Lane blockedLane() {
+        Lane fullest = lanes.get(0);
+        double highest = -1;
+        for (Lane lane : lanes) {
+            double fill = lane.inboxFill(input);
+            if (fill > highest) {
+                highest = fill;
+                fullest = lane;
+            }
+        }
+        return fullest;
     }
 
     /** How many rows went to each lane, which is the only way to see a skewed key from outside. */

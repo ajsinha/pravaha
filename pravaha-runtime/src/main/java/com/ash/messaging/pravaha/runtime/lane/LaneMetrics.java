@@ -36,6 +36,9 @@ package com.ash.messaging.pravaha.runtime.lane;
  * @param exchangedIn rows received from other lanes. Against {@code rowsIn} this is the share of the
  *     lane's work that arrived through a repartition, which is what decides whether an exchange is
  *     earning its cost.
+ * @param backpressure how long this lane's writers spent unable to place a row, and whose writers
+ *     they were. {@code rejectedOffers} counts refusals with no time in them, so "this lane is the
+ *     limit" and "this lane refused twice in an hour" used to read the same; this is the time
  */
 public record LaneMetrics(
         int laneId,
@@ -46,10 +49,21 @@ public record LaneMetrics(
         long rejectedOffers,
         long arenaHighWaterBytes,
         double inboxFill,
-        long exchangedIn) {
+        long exchangedIn,
+        LaneBackpressure.Snapshot backpressure) {
 
     /** Rows per batch actually achieved. Zero before the first batch. */
     public double averageBatchSize() {
         return batches == 0 ? 0 : (double) rowsIn / batches;
+    }
+
+    /** Cells published and not yet drained, on the fullest input. */
+    public int inboxDepth() {
+        return backpressure.inboxDepth();
+    }
+
+    /** The share of wall clock a writer into this lane spent waiting for room, 0 to 1. */
+    public double blockedFraction() {
+        return backpressure.blockedFraction();
     }
 }
