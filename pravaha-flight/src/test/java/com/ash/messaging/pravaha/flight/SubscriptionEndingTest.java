@@ -142,14 +142,27 @@ class SubscriptionEndingTest {
      * and it is what the drop path itself consults.
      */
     private void awaitSubscriber(String name) throws InterruptedException {
+        awaitSubscribers(name, 1);
+    }
+
+    /**
+     * Waits until {@code count} subscriptions are open on the computation {@code name} belongs to.
+     *
+     * <p>The count is the <em>computation's</em>, not the name's, and two names can share one
+     * computation -- which is the whole subject of STRM-14. Waiting for "at least one" therefore
+     * returns as soon as the *other* name's subscriber opens, and the drop can still land before
+     * this one's does; the test then waits for an ending that was never going to come. Every
+     * caller says how many it started.
+     */
+    private void awaitSubscribers(String name, int count) throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
         while (System.nanoTime() < deadline) {
-            if (registry.find(name).map(q -> q.subscriberCount() > 0).orElse(false)) {
+            if (registry.find(name).map(q -> q.subscriberCount() >= count).orElse(false)) {
                 return;
             }
             Thread.sleep(20);
         }
-        throw new AssertionError("no subscriber reached '" + name + "' within 30s");
+        throw new AssertionError("fewer than " + count + " subscribers reached '" + name + "' within 30s");
     }
 
     @Test
@@ -204,8 +217,9 @@ class SubscriptionEndingTest {
 
         AtomicReference<String> onDropped = subscribeUntilItEnds("q68");
         AtomicReference<String> onSurviving = subscribeUntilItEnds("q68b");
-        awaitSubscriber("q68");
-        awaitSubscriber("q68b");
+        // One computation, two names (that is the point of the test), so the count is shared:
+        // wait for both subscribers rather than twice for "at least one".
+        awaitSubscribers("q68", 2);
         assertThat(onDropped.get()).isNull();
         assertThat(onSurviving.get()).isNull();
 
