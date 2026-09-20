@@ -210,9 +210,16 @@ class UIRoutes(Routes):
             """
             if (refusal := login_required(request)) is not None:
                 return refusal
-            logger.info("%s replayed %d dead letters on '%s'", current_user(request), len(ids), name)
+            chosen = [i for i in ids if i and i.strip()]
+            if not chosen:
+                # Said here rather than left to the engine: there is nothing wrong with the
+                # request, the operator just has not ticked anything.
+                return RedirectResponse(
+                    f"/queries/{name}/dead-letters?replay_error={quote(self.t('dlq.error.none_chosen'))}",
+                    status_code=303)
+            logger.info("%s replayed %d dead letters on '%s'", current_user(request), len(chosen), name)
             try:
-                result = services.dead_letters.replay(name, list(ids))
+                result = services.dead_letters.replay(name, chosen)
             except ServiceError as exc:
                 return RedirectResponse(
                     f"/queries/{name}/dead-letters?replay_error={quote(str(exc))}", status_code=303)

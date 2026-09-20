@@ -1168,7 +1168,9 @@ class DeadLetterService:
         """
         chosen = [i.strip() for i in ids if i and i.strip()]
         if not chosen:
-            raise ServiceError(ui_text("dlq.error.none_chosen"), status=400)
+            # A backstop, not the message a person reads: the screen checks first and says it in
+            # the catalog's words. Strings belong above this layer, where there is a language.
+            raise ServiceError("no dead letters were chosen to replay", status=400)
         try:
             return self._engine.replay_dead_letters(name, chosen)
         except Exception as exc:

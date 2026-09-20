@@ -17,7 +17,6 @@ package com.ash.messaging.pravaha.runtime.dlq;
 
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -51,6 +50,8 @@ import com.ash.messaging.pravaha.common.io.SensitiveFiles;
  * record has no file, which is the ordinary case and not an error; it reads as a queue of zero.
  */
 public final class FileDeadLetterStore implements DeadLetterStore {
+
+    private static final System.Logger LOG = System.getLogger(FileDeadLetterStore.class.getName());
 
     private final Path directory;
     private final DeadLetterRetention retention;
@@ -218,9 +219,15 @@ public final class FileDeadLetterStore implements DeadLetterStore {
             Files.writeString(file, line, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         } catch (IOException unwritable) {
             // A replay that happened and could not be noted is still a replay, and failing the call
-            // afterwards would tell the caller their record was not fed in when it was. The note is
-            // an aid to the next person, not the transaction.
-            throw new UncheckedIOException("could not record the replay of " + id + " for '" + query + "'", unwritable);
+            // afterwards would tell the caller their record was not fed in when it was -- which is
+            // the worse of the two wrong answers, because it invites them to do it again. The note
+            // is an aid to the next person, not the transaction, so the failure is logged and the
+            // replay stands.
+            LOG.log(
+                    System.Logger.Level.WARNING,
+                    "replayed " + id + " for '" + query + "' and could not record it in "
+                            + DeadLetterFiles.replays(directory, query) + ": " + unwritable
+                            + ". The record went through; the entry will still read as NEW.");
         }
     }
 
