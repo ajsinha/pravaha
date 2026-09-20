@@ -64,5 +64,20 @@ public final class ApiErrors {
      */
     public static final ErrorCode UNHANDLED_REQUEST = new ErrorCode(1052, "API_UNHANDLED_REQUEST");
 
+    /**
+     * A string in a request body is not text: it carries a UTF-16 surrogate with no partner.
+     *
+     * <p>API-F10. {@code "\ud800"} parses as JSON and decodes to a Java {@code String}, and encodes
+     * to nothing -- there is no UTF-8 for it. As a stream name it reached the catalogue and stayed
+     * there, unaddressable by any later request; as anything reaching Flight it becomes {@code ?},
+     * because protobuf's encoder substitutes rather than fails. See {@link WellFormedTextModule},
+     * which is where it is refused and why it is refused there rather than per field.
+     *
+     * <p>In the 1xxx API range with {@link #MISSING_FIELD} and {@link #INVALID_PARAMETER}, and for
+     * the same reason: nothing was planned and nothing could be, so a 2xxx would send the reader to
+     * the SQL documentation for a request the SQL never saw.
+     */
+    public static final ErrorCode MALFORMED_TEXT = new ErrorCode(1053, "API_MALFORMED_TEXT");
+
     private ApiErrors() {}
 }

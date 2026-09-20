@@ -335,6 +335,102 @@ class ApiIntegrationTest {
                 .andExpect(status().isOk());
     }
 
+    /**
+     * API-F10. The finding looked at {@code {"sql":"\ud800"}}, where a lone surrogate reaches the
+     * lexer and is refused cleanly, and filed it as a disagreement about a status code. The weight
+     * is on the other endpoints: the same escape as a {@code name} answered 201 and put a key in
+     * the stream catalogue that no later request could address -- not by URL, which has no UTF-8
+     * for a lone surrogate, not in SQL, and over Flight only as {@code ?}, because protobuf
+     * substitutes rather than fails.
+     */
+    @Test
+    void aStringCarryingALoneSurrogateIsRefusedBeforeItBecomesAName() throws Exception {
+        mvc.perform(post("/api/v1/streams")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"bad\\ud800name\",\"schema\":\"id:INT64,v:STRING\"}"
+                                .getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PRV-1053"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("'name'")))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("\\ud800")));
+
+        // And it is not in the catalogue afterwards, which is the half that matters: the refusal
+        // has to arrive before the registration, not beside it.
+        mvc.perform(get("/api/v1/streams"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.name =~ /bad.*name/)]").isEmpty());
+
+        // The same escape in `sql`, which is where the case found it. 400 now rather than a 200
+        // carrying a lexer diagnostic: the body was malformed, and the SQL never had to be read to
+        // know it.
+        mvc.perform(post("/api/v1/queries/validate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sql\":\"\\ud800\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PRV-1053"));
+    }
+
+    /**
+     * The control for the refusal above. A surrogate <em>pair</em> is one character and has to keep
+     * working, or the guard has quietly banned every code point above the basic plane.
+     */
+    @Test
+    void aProperSurrogatePairIsOrdinaryTextAndStillRegisters() throws Exception {
+        // U+1D4C1, a mathematical script small l, as the pair \ud835\udcc1.
+        mvc.perform(post("/api/v1/streams")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"script_\\ud835\\udcc1\",\"schema\":\"id:INT64\"}"
+                                .getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value("script_\ud835\udcc1"));
+    }
+
+    /**
+     * API-F8. An empty parameter is a value the caller sent, and it is not one of the three this
+     * endpoint accepts. Spring's {@code defaultValue} applied the default to it, so {@code ?level=}
+     * answered 200 with the physical plan while {@code ?level=PHYSICAL} answered 400 -- two answers
+     * to the same class of mistake on the same parameter of the same request.
+     */
+    @Test
+    void anEmptyLevelIsRefusedAndAnAbsentOneIsStillTheDefault() throws Exception {
+        String body = json.writeValueAsString(new QueryController.ValidateRequest("SELECT user_id FROM txn"));
+
+        mvc.perform(post("/api/v1/queries/explain?level=")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PRV-0400"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("an empty value")))
+                // The message names every level the endpoint takes, codegen included: it named two
+                // of the three, so a caller who mistyped `codegen` was told it was not a level.
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("codegen")));
+
+        mvc.perform(post("/api/v1/queries/explain?format=")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PRV-0400"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("format must be")));
+
+        // The control, and the reason this is not simply "reject the empty string everywhere":
+        // omitting the parameter is not a claim about anything, and still means physical/text.
+        // `graph` absent is what says `format` defaulted to text rather than being compared
+        // against null and falling through to the graph arm -- which is the mistake the explicit
+        // default invites, and which the level assertion alone does not catch.
+        mvc.perform(post("/api/v1/queries/explain")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.level").value("physical"))
+                .andExpect(jsonPath("$.graph").doesNotExist());
+
+        mvc.perform(post("/api/v1/queries/explain?format=graph")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.graph.nodes").isArray());
+    }
+
     @Test
     void anUnboundedGroupByIsRefusedWithAnActionableMessage() throws Exception {
         mvc.perform(post("/api/v1/queries/validate")

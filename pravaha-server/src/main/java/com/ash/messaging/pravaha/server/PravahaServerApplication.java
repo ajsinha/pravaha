@@ -61,11 +61,16 @@ public class PravahaServerApplication {
      * authentication was off would still be on the stack, one misread condition away from doing
      * nothing at all -- and "is this server authenticating?" should be answerable by whether the
      * filter is registered rather than by reading its body.
+     *
+     * <p>API-F11: the OpenAPI document and the docs UI are open by design, and the filter used to
+     * carry its own transcription of where they live. It is handed the configured paths instead, so
+     * "which paths are open" and "which paths springdoc serves" are one answer.
      */
     @Bean
     public org.springframework.boot.web.servlet.FilterRegistrationBean<
                     com.ash.messaging.pravaha.server.security.BearerTokenFilter>
-            pravahaAuthentication(com.ash.messaging.pravaha.server.security.SecurityProperties security) {
+            pravahaAuthentication(
+                    com.ash.messaging.pravaha.server.security.SecurityProperties security, Environment environment) {
         var registration = new org.springframework.boot.web.servlet.FilterRegistrationBean<
                 com.ash.messaging.pravaha.server.security.BearerTokenFilter>();
         com.ash.messaging.pravaha.security.TokenVerifier verifier = security.verifier();
@@ -74,11 +79,50 @@ public class PravahaServerApplication {
         // with "'filter' must not be null", which MockMvc never reaches because it does not start
         // one. That bug shipped as far as the first run of the executable jar.
         registration.setFilter(new com.ash.messaging.pravaha.server.security.BearerTokenFilter(
-                verifier == null ? com.ash.messaging.pravaha.security.TokenVerifier.rejectAll() : verifier));
+                verifier == null ? com.ash.messaging.pravaha.security.TokenVerifier.rejectAll() : verifier,
+                documentationPath(
+                        environment,
+                        "springdoc.api-docs.enabled",
+                        "springdoc.api-docs.path",
+                        com.ash.messaging.pravaha.server.security.BearerTokenFilter.DEFAULT_API_DOCS_PATH),
+                documentationPath(
+                        environment,
+                        "springdoc.swagger-ui.enabled",
+                        "springdoc.swagger-ui.path",
+                        com.ash.messaging.pravaha.server.security.BearerTokenFilter.DEFAULT_SWAGGER_UI_PATH)));
         registration.setEnabled(verifier != null);
         registration.addUrlPatterns("/*");
         registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE);
         return registration;
+    }
+
+    /**
+     * Refuses a request body carrying a UTF-16 surrogate with no partner (API-F10).
+     *
+     * <p>A {@code Module} bean rather than a customised {@code ObjectMapper}: Spring Boot adds it
+     * to the mapper it builds, so the rest of the mapper stays the auto-configured one and this is
+     * one behaviour rather than a second configuration of everything.
+     *
+     * <p>{@link com.ash.messaging.pravaha.server.api.WellFormedTextModule} carries the reasoning,
+     * including why refusing at the deserializer is the only place it can be done once.
+     */
+    @Bean
+    public com.fasterxml.jackson.databind.Module pravahaWellFormedText() {
+        return new com.ash.messaging.pravaha.server.api.WellFormedTextModule();
+    }
+
+    /**
+     * Where springdoc serves one of its two documents, or null when the deployment turned it off.
+     *
+     * <p>Null rather than the default path, so an operator who disabled the UI does not leave an
+     * unauthenticated opening onto the address it used to occupy.
+     */
+    private static String documentationPath(
+            Environment environment, String enabledKey, String pathKey, String fallback) {
+        if (!environment.getProperty(enabledKey, Boolean.class, Boolean.TRUE)) {
+            return null;
+        }
+        return environment.getProperty(pathKey, fallback);
     }
 
     /**
