@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **344 findings carrying a
-status — 246 FIXED, 85 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 85 open, **0 are
-GA-BLOCKER, 1 GA-REQUIRED, 78 POST-GA and 6 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **345 findings carrying a
+status — 246 FIXED, 86 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 86 open, **0 are
+GA-BLOCKER, 1 GA-REQUIRED, 79 POST-GA and 6 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -56,7 +56,7 @@ argued against, and its length was hiding the nineteen entries below.
 |---|---|---|
 | **GA-BLOCKER** | 0 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
 | **GA-REQUIRED** | 1 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
-| **POST-GA** | 78 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
+| **POST-GA** | 79 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 6 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
 **The blockers, by what they break — none open.** `SUB-1` (a subscribe-and-read gap) and `SCAN-1`
@@ -6784,3 +6784,9 @@ runs is how a default becomes folklore, and this project has already found two o
 > **Disposition:** GA-REQUIRED — the product is not usable from the path a new reader is most likely to copy, and the documentation actively defends the failure. The fix belongs with TIME-6's refusal (a windowed query over a stream with no declared event time should be refused rather than silently never emitting), because that refusal is what would have made this impossible to ship: declare the event time in every study, fix the fixture, then let the refusal hold the line. Found by the STRM/TIME cluster's agent while measuring TIME-6's blast radius.
 > **What makes it a defect rather than a missing line of configuration:** each study explains the symptom away at the moment it appears. `banking-card-velocity`'s README says "**Nothing appears yet, and that is correct**", offers a remedy — insert a row whose `auth_time` is past the end of the minute — that cannot work because nothing reads `auth_time` as event time, and closes with "The engine is not slow; it is refusing to publish an answer it might have to retract." `SETUP.md`'s *A note on time* says the same for every study. A reader who follows the instructions, sees nothing and reads the paragraph concludes the product is working correctly.
 > **And the test cannot see it:** `CaseStudySqlTest` plans this SQL against a fixture (`schemaOf`) that never calls `StreamSchema.Builder.eventTime`, so it has the same gap as the studies and is green today — and would stay green after a fix that only touched the studies. The fixture must declare an event time first, or the test cannot tell.
+
+### LANE-6 (MEDIUM) — a shared lane's queries can read past the model in the equivalence property, intermittently
+
+> **Status:** OPEN — `SharedLaneIngestPropertyTest.queriesSharingALanesIngestAnswerExactlyAsOnLanesOfTheirOwn` fails intermittently with the shared side **ahead** of the answer `LaneEquivalence.expected` computes from `CountingScanPlugin.STORE`, e.g. `[74, 13750]` where `[49, 9325]` was expected, after `awaitAnswer` has waited its full 30 seconds. Ahead, not behind, is the interesting direction: the query has counted rows the model excludes, and the model excludes rows by `pausedAt`, so the suspect is the boundary at which a paused query on a *shared* lane stops receiving — LANE-2's routes and its pause-at-an-exact-row task — rather than the test's timing.
+> **Disposition:** POST-GA — it is a property test over lane sharing, which is off by default; no shipped path is known to be wrong, and the same seeds pass on other runs. It must not be closed by re-running it or by widening a timeout: either the pause boundary is exact and the model is wrong, or the boundary is not exact and LANE-2 is incomplete, and the answer decides whether anything ships broken.
+> **Evidence, both directions:** the debugger batch's agent saw it fail three times in its worktree at load 1.9–2.8, including against `84348b5` with none of its own code; the lead ran it three times at the same commit and load and saw it pass three times. A test that reports a mismatch when `awaitAnswer` gives up — comparing two sides at different positions — also cannot tell "not yet" from "wrong", and that is worth fixing whichever way the engine question lands.
