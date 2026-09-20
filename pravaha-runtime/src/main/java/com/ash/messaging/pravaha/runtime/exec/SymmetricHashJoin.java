@@ -249,6 +249,34 @@ final class SymmetricHashJoin implements AutoCloseable {
         return unmatchedEmitted;
     }
 
+    /**
+     * Every row one side of this join is holding, keyed by its join key, as text (ADR-047).
+     *
+     * <p>Read-only, and rendered as it walks: a stored row is a flyweight over the row store, and
+     * the cursor moves to the next entry as soon as the visitor returns.
+     */
+    void describe(boolean left, java.util.function.BiConsumer<String, java.util.Map<String, String>> into) {
+        JoinSide side = left ? leftState : rightState;
+        com.ash.messaging.pravaha.api.data.StreamSchema schema = left ? leftSchema : rightSchema;
+        int[] keys = left ? leftKeys : rightKeys;
+        side.describeHeld((row, weight, matched) -> {
+            java.util.Map<String, String> values = RowText.of(row, schema);
+            values.put("weight", Long.toString(weight));
+            values.put("matched", Boolean.toString(matched));
+            into.accept(RowText.key(row, keys, schema), values);
+        });
+    }
+
+    /** Distinct rows one side holds, for the state listing's count. */
+    long distinctRowsHeld(boolean left) {
+        return (left ? leftState : rightState).distinctRows();
+    }
+
+    /** What this join is called in a plan, so a state listing can name it. */
+    String label() {
+        return plan.label();
+    }
+
     /** What either side may hold before it is refused, so the ceiling can be seen before it is hit. */
     long rowCeilingPerSide() {
         return plan.maxRowsPerSide();

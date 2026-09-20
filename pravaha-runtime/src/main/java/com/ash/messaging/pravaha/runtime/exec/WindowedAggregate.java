@@ -417,6 +417,61 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
         emitted.put(windowEnd, current);
     }
 
+    /**
+     * Every window this aggregate is still retaining, with what it published for each key (ADR-047).
+     *
+     * <p><strong>Fired windows only, and that is a real limit rather than an oversight.</strong> A
+     * window still filling lives in the sliced accumulators, and the only way to read a slice's
+     * answer is {@code fire()}, which emits it -- so listing an open window would publish it early
+     * and change the answer the operator was being asked about. A debugger that alters the query it
+     * is debugging is worse than one that shows less, so this shows what has fired and is still
+     * within allowed lateness, which is exactly the state a correction would retract.
+     *
+     * <p>Sorted by window end and then by key, because {@code emitted} is a hash map and a page of
+     * an unordered collection is a different page every time it is asked for.
+     */
+    void describe(java.util.function.BiConsumer<String, java.util.Map<String, String>> into) {
+        java.util.List<com.ash.messaging.pravaha.runtime.plan.AggregateOperator.AggregateCall> calls =
+                operator.aggregates();
+        java.util.List<Long> windowEnds = new java.util.ArrayList<>(emitted.keySet());
+        java.util.Collections.sort(windowEnds);
+        for (long windowEnd : windowEnds) {
+            java.util.List<Published> rows =
+                    new java.util.ArrayList<>(emitted.get(windowEnd).values());
+            rows.sort(java.util.Comparator.comparing(row -> keyText(row.keyValues())));
+            for (Published row : rows) {
+                java.util.Map<String, String> values = new java.util.LinkedHashMap<>();
+                values.put("window_start", Long.toString(row.windowStartNanos()));
+                values.put("window_end", Long.toString(windowEnd));
+                Object[] keyValues = row.keyValues();
+                for (int i = 0; i < keyValues.length; i++) {
+                    values.put("key" + i, String.valueOf(keyValues[i]));
+                }
+                long[] published = row.values();
+                for (int i = 0; i < published.length && i < calls.size(); i++) {
+                    values.put(calls.get(i).outputName(), Long.toString(published[i]));
+                }
+                into.accept(windowEnd + "|" + keyText(keyValues), values);
+            }
+        }
+    }
+
+    private static String keyText(Object[] keyValues) {
+        StringBuilder text = new StringBuilder();
+        for (int i = 0; i < keyValues.length; i++) {
+            if (i > 0) {
+                text.append('|');
+            }
+            text.append(keyValues[i]);
+        }
+        return text.toString();
+    }
+
+    /** Windows this aggregate is retaining a published answer for. */
+    int retainedWindows() {
+        return emitted.size();
+    }
+
     /** Keys withdrawn because a correction removed them from a window already published. */
     private long withdrawals;
 

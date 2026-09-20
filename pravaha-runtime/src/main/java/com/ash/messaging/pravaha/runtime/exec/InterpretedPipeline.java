@@ -171,6 +171,9 @@ public final class InterpretedPipeline implements AutoCloseable {
     private final List<LookupJoin> lookupJoins = new ArrayList<>();
     private final List<GlobalAggregate> globals = new ArrayList<>();
 
+    /** Keyed aggregates, in build order, so a debug session can name one and read its groups. */
+    private final List<KeyedAggregate> keyed = new ArrayList<>();
+
     /**
      * Where rows enter, by stream name.
      *
@@ -351,8 +354,22 @@ public final class InterpretedPipeline implements AutoCloseable {
      */
     public static InterpretedPipeline compile(
             PhysicalOperator plan, RowOutput sink, Map<String, LookupSourcePlugin> lookups) {
+        return compile(plan, sink, lookups, false);
+    }
+
+    /**
+     * Builds a pipeline that measures its operators whether or not the node asked for it (ADR-048).
+     *
+     * <p>{@code measured} false is every other caller and leaves {@link #measureOperators} to
+     * decide, which is the node-wide setting. A debug fork passes true: a session exists to say
+     * which operator did what to which row, and that answer cannot depend on whether an operator
+     * happened to turn {@code pravaha.metrics.operators} on beforehand. It is one lane and one
+     * person stepping, so the measurement costs nothing anybody is counting.
+     */
+    public static InterpretedPipeline compile(
+            PhysicalOperator plan, RowOutput sink, Map<String, LookupSourcePlugin> lookups, boolean measured) {
         RowArena arena = new RowArena(MemoryAccess.best(), slabFor(plan), slabsFor(plan));
-        Builder builder = new Builder(arena, sink, lookups, measureOperators ? plan : null);
+        Builder builder = new Builder(arena, sink, lookups, measured || measureOperators ? plan : null);
         RowProcessor built = builder.build(plan);
         RowProcessor head = builder.joins.isEmpty() ? built : null;
         InterpretedPipeline pipeline =
@@ -363,6 +380,7 @@ public final class InterpretedPipeline implements AutoCloseable {
         pipeline.joins.addAll(builder.joins);
         pipeline.lookupJoins.addAll(builder.lookupJoins);
         pipeline.globals.addAll(builder.globals);
+        pipeline.keyed.addAll(builder.keyed);
         pipeline.inputs.putAll(builder.heads);
         pipeline.partialAggregateTargets.putAll(builder.partialAggregateTargets);
         pipeline.partialAggregateSchemas.putAll(builder.partialAggregateSchemas);
@@ -524,6 +542,110 @@ public final class InterpretedPipeline implements AutoCloseable {
     /** Whether this pipeline has anything to publish on a tick. */
     public boolean hasContinuousAggregates() {
         return !continuousEmitters.isEmpty();
+    }
+
+    /**
+     * The pieces of state in this pipeline that can be looked at, and how much each holds (ADR-047).
+     *
+     * <p>Ids are positional within a kind -- {@code aggregate#0}, {@code join#1.left} -- and are
+     * stable for the life of a pipeline because the builder wires the plan in a fixed order. They
+     * are not the plan's operator ids: the plan has operators with no state at all, and a join has
+     * two indexes rather than one.
+     *
+     * <p>Called on the lane's own thread. Everything it reads is written there, and reading it from
+     * anywhere else is a second thread on a lane's state -- which is the rule this whole runtime is
+     * built around. See {@link OperatorStateReader}.
+     */
+    public List<OperatorState.Slot> stateSlots() {
+        List<OperatorState.Slot> slots = new ArrayList<>();
+        for (int index = 0; index < keyed.size(); index++) {
+            slots.add(new OperatorState.Slot(
+                    "aggregate#" + index,
+                    "aggregate",
+                    "groups",
+                    keyed.get(index).groupCount()));
+        }
+        for (int index = 0; index < globals.size(); index++) {
+            slots.add(new OperatorState.Slot("global#" + index, "global", "accumulators", 1));
+        }
+        for (int index = 0; index < windowed.size(); index++) {
+            slots.add(new OperatorState.Slot(
+                    "window#" + index,
+                    "window",
+                    "windows retained",
+                    windowed.get(index).retainedWindows()));
+        }
+        for (int index = 0; index < joins.size(); index++) {
+            SymmetricHashJoin join = joins.get(index);
+            slots.add(new OperatorState.Slot(
+                    "join#" + index + ".left", "join", join.label() + " left", join.distinctRowsHeld(true)));
+            slots.add(new OperatorState.Slot(
+                    "join#" + index + ".right", "join", join.label() + " right", join.distinctRowsHeld(false)));
+        }
+        return List.copyOf(slots);
+    }
+
+    /**
+     * One page of one operator's state, filtered by key (ADR-047).
+     *
+     * <p>Bounded in memory as well as in what it returns: entries outside the page are counted and
+     * discarded as the walk goes, so paging a join holding a million rows costs the walk and a page,
+     * not a million rendered rows.
+     *
+     * @param keyFilter a key to show, or null or blank for every key
+     */
+    public OperatorState.Page inspectState(String id, String keyFilter, int offset, int limit) {
+        String wanted = keyFilter == null || keyFilter.isBlank() ? null : keyFilter;
+        List<OperatorState.Entry> page = new ArrayList<>();
+        long[] seen = {0};
+        java.util.function.BiConsumer<String, Map<String, String>> collector = (key, values) -> {
+            if (wanted != null && !wanted.equals(key)) {
+                return;
+            }
+            long index = seen[0]++;
+            if (index >= offset && page.size() < limit) {
+                page.add(new OperatorState.Entry(key, values));
+            }
+        };
+        String kind = describeInto(id, collector);
+        return new OperatorState.Page(id, kind, wanted, offset, limit, seen[0], page);
+    }
+
+    /** Routes {@code id} to the operator that holds it, returning its kind. */
+    private String describeInto(String id, java.util.function.BiConsumer<String, Map<String, String>> collector) {
+        if (id != null && id.startsWith("aggregate#")) {
+            keyed.get(ordinalOf(id, "aggregate#", keyed.size())).describe(collector);
+            return "aggregate";
+        }
+        if (id != null && id.startsWith("global#")) {
+            globals.get(ordinalOf(id, "global#", globals.size())).describe(collector);
+            return "global";
+        }
+        if (id != null && id.startsWith("window#")) {
+            windowed.get(ordinalOf(id, "window#", windowed.size())).describe(collector);
+            return "window";
+        }
+        if (id != null && id.startsWith("join#")) {
+            boolean left = !id.endsWith(".right");
+            String ordinal = id.substring("join#".length()).replace(".left", "").replace(".right", "");
+            joins.get(ordinalOf("join#" + ordinal, "join#", joins.size())).describe(left, collector);
+            return "join";
+        }
+        throw new IllegalArgumentException("'" + id + "' is not a piece of state in this query. It holds "
+                + stateSlots().stream().map(OperatorState.Slot::id).toList());
+    }
+
+    private static int ordinalOf(String id, String prefix, int count) {
+        int ordinal;
+        try {
+            ordinal = Integer.parseInt(id.substring(prefix.length()));
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("'" + id + "' does not name a " + prefix + "N operator");
+        }
+        if (ordinal < 0 || ordinal >= count) {
+            throw new IllegalArgumentException("'" + id + "' is out of range: this query has " + count + " of them");
+        }
+        return ordinal;
     }
 
     /** Rows this pipeline's joins have released for falling outside their match window. */
@@ -972,6 +1094,7 @@ public final class InterpretedPipeline implements AutoCloseable {
         private final List<SymmetricHashJoin> joins = new ArrayList<>();
         private final List<LookupJoin> lookupJoins = new ArrayList<>();
         private final List<GlobalAggregate> globals = new ArrayList<>();
+        private final List<KeyedAggregate> keyed = new ArrayList<>();
         private final List<ScanOperator> scans = new ArrayList<>();
         private final Map<String, RowProcessor> heads = new LinkedHashMap<>();
         private final Map<String, PartialAggregateSink> partialAggregateTargets = new LinkedHashMap<>();
@@ -1124,6 +1247,7 @@ public final class InterpretedPipeline implements AutoCloseable {
                     KeyedAggregate aggregate = new KeyedAggregate(
                             a, a.input().outputSchema(), arena, downstream, KeyedAggregate.DEFAULT_MAX_GROUPS);
                     finishers.add(aggregate::emit);
+                    keyed.add(aggregate);
                     onlyStreamOf(a.input()).ifPresent(stream -> {
                         partialAggregateTargets.put(stream, aggregate::processPartial);
                         partialAggregateSchemas.put(stream, a.outputSchema());

@@ -275,6 +275,38 @@ final class KeyedAggregate implements RowProcessor {
         };
     }
 
+    /**
+     * Every group this aggregate holds, as text, for somebody looking at it (ADR-047).
+     *
+     * <p>Read-only and non-emitting. {@link #emit} produces rows and pushes them downstream, which
+     * is the last thing an inspection should do -- looking at a query must not change its answer.
+     * So this reads the same accumulators and writes nothing.
+     */
+    void describe(java.util.function.BiConsumer<String, Map<String, String>> into) {
+        List<AggregateOperator.AggregateCall> calls = operator.aggregates();
+        StreamSchema output = operator.outputSchema();
+        for (Map.Entry<Key, Group> entry : groups.entrySet()) {
+            Object[] key = entry.getKey().values;
+            StringBuilder text = new StringBuilder();
+            for (int i = 0; i < key.length; i++) {
+                if (i > 0) {
+                    text.append('|');
+                }
+                text.append(key[i]);
+            }
+            Group group = entry.getValue();
+            Map<String, String> values = new java.util.LinkedHashMap<>();
+            for (int i = 0; i < key.length; i++) {
+                values.put(output.field(i).name(), String.valueOf(key[i]));
+            }
+            values.put("rows", Long.toString(group.rowCount));
+            for (int i = 0; i < calls.size(); i++) {
+                values.put(calls.get(i).outputName(), Long.toString(group.valueOf(i, calls.get(i))));
+            }
+            into.accept(text.toString(), values);
+        }
+    }
+
     /** Groups present, including any whose weights have cancelled to zero. */
     int groupCount() {
         return groups.size();

@@ -386,6 +386,44 @@ final class JoinSide implements AutoCloseable {
         }
     }
 
+    /**
+     * Every row this side holds, keyed by its join key, as text (ADR-047).
+     *
+     * <p>Read-only. It walks the buckets exactly as {@link #writeTo} does and rewrites nothing:
+     * inspecting a join's index must not evict from it, and eviction is what every other walk here
+     * exists to do.
+     *
+     * <p>The rows are rendered while the cursor still points at them, because the flyweight moves
+     * on to the next entry immediately afterwards -- the same reason {@code evictOlderThan} hands
+     * an outer join's unmatched row to its callback rather than collecting the rows and returning
+     * them.
+     */
+    void describeHeld(HeldVisitor visitor) {
+        List<Long> bucketHandles = new ArrayList<>(buckets.size());
+        buckets.forEach(bucketHandles::add);
+        for (long bucketHandle : bucketHandles) {
+            long head = buckets.valueRegionOf(bucketHandle).getLong(buckets.valueOffsetOf(bucketHandle));
+            for (long entry = head; entry != ArenaHandle.NULL; entry = nextOf(entry)) {
+                visitor.held(wrap(entry), weightOf(entry), matchedOf(entry));
+            }
+        }
+    }
+
+    /** What {@link #describeHeld} reports for one stored row. */
+    interface HeldVisitor {
+        void held(RowView row, long weight, boolean matched);
+    }
+
+    /** The schema the rows on this side are encoded with, for rendering them. */
+    StreamSchema schema() {
+        return schema;
+    }
+
+    /** The ordinals this side is keyed on, for rendering a stored row's key. */
+    int[] keyOrdinals() {
+        return keyOrdinals.clone();
+    }
+
     /** Net weight held: the sum over stored rows, which retractions bring back down. */
     long rowCount() {
         return rows;

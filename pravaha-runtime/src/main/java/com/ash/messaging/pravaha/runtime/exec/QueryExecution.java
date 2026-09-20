@@ -206,6 +206,27 @@ public final class QueryExecution implements AutoCloseable {
             Supplier<RowOutput> sinkPerLane,
             Map<String, com.ash.messaging.pravaha.api.plugin.LookupSourcePlugin> lookups,
             com.ash.messaging.pravaha.runtime.lane.LaneRunner runner) {
+        return start(plan, laneCount, config, access, sinkPerLane, lookups, runner, false);
+    }
+
+    /**
+     * Starts an execution whose operators are measured whether or not the node asked for it
+     * (ADR-048).
+     *
+     * <p>{@code measureOperators} false is every other caller and leaves {@code
+     * pravaha.metrics.operators} to decide. A debug fork passes true: a session exists to say
+     * which operator did what to which row, and that answer must not depend on a node-wide
+     * setting somebody may not have turned on before the incident.
+     */
+    public static QueryExecution start(
+            PhysicalOperator plan,
+            int laneCount,
+            LaneConfig config,
+            MemoryAccess access,
+            Supplier<RowOutput> sinkPerLane,
+            Map<String, com.ash.messaging.pravaha.api.plugin.LookupSourcePlugin> lookups,
+            com.ash.messaging.pravaha.runtime.lane.LaneRunner runner,
+            boolean measureOperators) {
 
         List<InterpretedPipeline> pipelines = new ArrayList<>(laneCount);
         List<String> streams = PlanShape.streamsOf(plan);
@@ -216,7 +237,8 @@ public final class QueryExecution implements AutoCloseable {
                 config,
                 access,
                 context -> {
-                    InterpretedPipeline pipeline = InterpretedPipeline.compile(plan, sinkPerLane.get(), lookups);
+                    InterpretedPipeline pipeline =
+                            InterpretedPipeline.compile(plan, sinkPerLane.get(), lookups, measureOperators);
                     pipelines.add(pipeline);
 
                     // One view per input, because the two sides of a join have different layouts and
@@ -793,6 +815,11 @@ public final class QueryExecution implements AutoCloseable {
 
     public Lane lane(int index) {
         return lanes.lane(index);
+    }
+
+    /** One lane's pipeline, for reading what its operators hold. See {@link OperatorStateReader}. */
+    public InterpretedPipeline pipeline(int index) {
+        return pipelines.get(index);
     }
 
     public int laneCount() {

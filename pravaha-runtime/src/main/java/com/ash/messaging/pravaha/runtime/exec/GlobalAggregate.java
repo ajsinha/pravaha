@@ -492,6 +492,23 @@ final class GlobalAggregate implements RowProcessor {
         return values;
     }
 
+    /**
+     * The accumulators this aggregate holds, as text (ADR-047). One entry, because an unkeyed
+     * aggregate is one row of state.
+     *
+     * <p>Read-only: {@link #emit} and {@link #emitIncremental} push rows downstream, and an
+     * inspection that did that would change the answer it was asked about.
+     */
+    void describe(java.util.function.BiConsumer<String, java.util.Map<String, String>> into) {
+        List<AggregateOperator.AggregateCall> calls = operator.aggregates();
+        java.util.Map<String, String> values = new java.util.LinkedHashMap<>();
+        values.put("rows", Long.toString(rowCount));
+        for (int i = 0; i < calls.size(); i++) {
+            values.put(calls.get(i).outputName(), Long.toString(valueOf(i, calls.get(i))));
+        }
+        into.accept("", values);
+    }
+
     /** Net rows seen, weights included. Negative is possible and legitimate. */
     long rowCount() {
         return rowCount;
