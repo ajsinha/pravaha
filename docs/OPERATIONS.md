@@ -1240,15 +1240,33 @@ path and reports no self time at all.
 
 Measured on the reference machine (an AMD Ryzen AI 9 HX 370 laptop, 12 cores / 24 threads, 61 GiB
 RAM — the owner's decision of 2026-09-19 that the development machine is the reference), with
-`OperatorMetricsOverheadIT`: a three-operator plan, 20 million rows a pass, best of five passes
-after three warm-ups.
+`OperatorMetricsOverheadIT`: a three-operator plan, 20 million rows a pass, the arms interleaved,
+best of five passes after three warm-ups.
+
+**On an idle machine, three runs:**
 
 | `pravaha.metrics.operators` | Rows a second |
 |---|---|
 | off | 11.4 – 12.6 M |
 | on | 10.5 – 11.6 M |
 
-**Cost: 7.9 %, 8.2 % and 8.6 % over three runs.** That is more than a few percent, so the detail is
+**Cost: 7.9 %, 8.2 %, 8.6 % — call it 8 %.**
+
+**This measurement needs an idle machine, and says so.** Repeated while another build was running
+(load 8 to 14 of 24 threads) the same harness gave 6.1 %, 13.8 %, 14.1 % and 17.1 % — an eleven-point
+spread that is the other build, not the engine. The harness prints the load average beside its
+result for exactly this reason; a figure taken above about half the processor count is partly a
+measurement of whatever else was running. Re-measure on a quiet machine before quoting a new
+number, and prefer the spread to a point estimate when you cannot get one.
+
+Two footnotes on the idle figures, so they are not read as more precise than they are. They were
+taken before the harness interleaved its arms, when `off` always ran first; on a quiet machine the
+bias is small, and it penalises `off`, so if anything the true cost is at or above 8 %. And the
+plan is deliberately the worst case — the narrowest plan and tightest loop the engine has, with no
+lane, no inbox and no view commit beside it — so the wrappers are the largest share of a total they
+will ever be.
+
+Every measurement taken, idle or loaded, is well above "a few percent". So the detail is
 **switchable and off by default**:
 
 ```yaml
@@ -1257,10 +1275,8 @@ pravaha:
     operators: true
 ```
 
-The number is deliberately pessimistic — the narrowest plan and the tightest loop the engine has,
-with no lane, no inbox and no view commit beside it, so the wrappers are the largest share of the
-total they will ever be. Backpressure measurement is *not* behind the switch and is always on: it
-costs one branch per poll, which is per batch of up to a few hundred rows.
+Backpressure measurement is *not* behind the switch and is always on: it costs one branch per poll,
+which is per batch of up to a few hundred rows.
 
 The switch is read when a query compiles its stages, so turning it on does not give counters to a
 query that is already running. Set it, restart the node or re-register the query, and read the plan

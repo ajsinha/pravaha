@@ -131,9 +131,9 @@ public final class InterpretedPipeline implements AutoCloseable {
      *
      * <p><strong>Off by default, and the default is a measurement rather than a preference.</strong>
      * Wrapping every stage costs two extra calls and two increments per row per operator;
-     * {@code OperatorMetricsOverheadIT} puts that at more than a few percent of a narrow query's
-     * throughput on this machine, which is over the bar this project set for something that is on
-     * by default. With it off there is no wrapper at all -- not a wrapper that checks a flag -- so
+     * {@code OperatorMetricsOverheadIT} puts that at about 8 % of a narrow query's throughput on an
+     * idle reference machine -- and every reading taken on a busy one was higher -- which is over
+     * the bar this project set for something that is on by default. With it off there is no wrapper at all -- not a wrapper that checks a flag -- so
      * a deployment that has not asked for the detail pays nothing for its existence.
      *
      * <p>Process-wide and read at compile time, exactly like {@link #configureSpill}: a query
