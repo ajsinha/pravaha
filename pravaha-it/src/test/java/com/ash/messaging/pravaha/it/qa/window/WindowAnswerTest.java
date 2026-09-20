@@ -664,10 +664,12 @@ class WindowAnswerTest extends WindowTestSupport {
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-2010");
         // Four digits do parse, and truncate to zero milliseconds, which is where WindowSpec's own
-        // guard takes over -- with a plain IllegalArgumentException carrying no PRV code, which is
-        // the finding WIN-008 pins.
+        // guard takes over. WIN-008 and W-6 recorded that guard reaching the person as a plain
+        // IllegalArgumentException with no PRV code; the planner now wraps it, so the sentence is
+        // the same one WindowSpec writes and the refusal carries a code and a help URL.
         assertThatThrownBy(() -> plan(tumble("s0", "0.0001' SECOND")))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-2020")
                 .hasMessageContaining("window size must be positive, got 0");
         assertThatThrownBy(() -> plan(tumble("s0", "0.000' SECOND")))
                 .hasMessageContaining("window size must be positive, got 0");

@@ -218,6 +218,32 @@ class StringExpressionTest {
         assertThat(matches("WHERE first LIKE '%.com'", "mailxcom")).isFalse();
     }
 
+    /**
+     * Y-6. {@code LIKE}'s {@code _} and {@code SUBSTRING}'s length have to count the same thing, or
+     * two clauses of one query disagree about how long a string is.
+     *
+     * <p>The finding predicted they would: {@code SUBSTRING} was made code-point-correct and
+     * {@code LIKE} was left on a regex {@code .}, which the finding read as counting UTF-16 units.
+     * It does not -- Java's {@code Pattern} advances by code point, so {@code .} consumes a whole
+     * surrogate pair -- and the two agree. Pinned rather than merely recorded, because the
+     * translation in {@code Predicate.Like} walks the <em>pattern</em> by {@code char}, and a
+     * future edit that walked the <em>subject</em> the same way would break this and nothing else.
+     */
+    @Test
+    void y6_likeAndSubstringAgreeAboutTheLengthOfAStringWithASurrogatePair() {
+        assertThat(matches("WHERE first LIKE '_ok'", "👍ok"))
+                .as("one _ matches the whole emoji, as one character")
+                .isTrue();
+        assertThat(matches("WHERE first LIKE '__ok'", "👍ok"))
+                .as("and two do not, because there is only one character before 'ok'")
+                .isFalse();
+        assertThat(text("SELECT SUBSTRING(first FROM 1 FOR 1) FROM person", "👍ok", "x"))
+                .as("SUBSTRING counts the same character the same way")
+                .isEqualTo("👍");
+        assertThat(text("SELECT SUBSTRING(first FROM 2) FROM person", "👍ok", "x"))
+                .isEqualTo("ok");
+    }
+
     @Test
     void aNullIsDroppedByLikeAndByNotLikeAlike() {
         // LIKE over a null is UNKNOWN, and UNKNOWN drops the row under both forms. Implementing NOT

@@ -272,7 +272,9 @@ class ComputedProjectionTest {
                         .build(SqlPlanner.withStreams(money).plan("SELECT amount * 2 FROM ledger")))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("rounding error in a ledger")
-                .hasMessageContaining("Cast to DOUBLE explicitly");
+                // Y-5: the advice now names both rewrites that work, because the refusal reaches
+                // queries that mention no decimal and the reader needs to know which part is one.
+                .hasMessageContaining("CAST(col AS DOUBLE)");
     }
 
     @Test

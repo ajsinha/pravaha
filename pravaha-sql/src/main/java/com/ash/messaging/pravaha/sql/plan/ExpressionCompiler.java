@@ -188,13 +188,20 @@ final class ExpressionCompiler {
                     case "*" -> Expression.Operator.MULTIPLY;
                     case "/" -> Expression.Operator.DIVIDE;
                     case "%", "MOD" -> Expression.Operator.MODULO;
-                    default ->
+                    default -> {
+                        // X-7. A correlated scalar subquery arrived here as an unsupported
+                        // "$SCALAR_QUERY" function, which is Calcite's internal spelling and not a
+                        // thing the person wrote.
+                        if (CorrelatedSubqueries.isCorrelated(call)) {
+                            throw CorrelatedSubqueries.refusal(call);
+                        }
                         throw new PravahaException(
                                 SqlErrors.UNSUPPORTED_EXPRESSION,
                                 "function '" + call.getOperator().getName() + "' in '" + call
                                         + "' is not supported in a projection. Supported: + - * / %, "
                                         + "ABS, FLOOR, CEIL, ROUND, CASE WHEN, UPPER, LOWER, TRIM, "
                                         + "SUBSTRING and || .");
+                    }
                 };
         if (call.getOperands().size() == 1) {
             // Unary. The refusal here used to say unary minus was supported "which Calcite
@@ -508,10 +515,20 @@ final class ExpressionCompiler {
         Expression source = compile(call.getOperands().get(0));
         TypeName target = typeOf(call.getType().getSqlTypeName(), call.toString());
         if (!isNumeric(source.type()) || !isNumeric(target)) {
+            // Y-5 and DOCX-20. This is the refusal a person actually meets for `name || amount`:
+            // SQL's own coercion inserts the cast, so the concatenation never gets as far as
+            // Expression.Concat's message. It used to stop at "numeric conversions only", which
+            // leaves the reader to guess whether some other spelling of the cast would work. None
+            // would, and saying so is the difference between a refusal and a riddle.
             throw new PravahaException(
                     SqlErrors.UNSUPPORTED_EXPRESSION,
                     "'" + call + "' converts between " + source.type() + " and " + target
-                            + "; Pravaha evaluates numeric conversions only");
+                            + ", and this engine converts between numbers only -- there is no number-to-text "
+                            + "or text-to-number conversion here, and writing the CAST out by hand is refused "
+                            + "identically, so it is not a spelling to look for. If the cast was not written, "
+                            + "SQL's own coercion inserted it: || joins text, and a number beside it is "
+                            + "coerced. Format the value where the text is assembled, or carry it as a "
+                            + "separate column.");
         }
         return source.type() == target ? source : new Expression.Cast(source, target);
     }
@@ -557,8 +574,13 @@ final class ExpressionCompiler {
         throw new PravahaException(
                 SqlErrors.UNSUPPORTED_EXPRESSION,
                 "'" + context + "' is DECIMAL arithmetic, which Pravaha refuses rather than approximates. "
+                        + "A query need not mention DECIMAL to be this: a literal written with a decimal point "
+                        + "-- 2.5, 0.01 -- is a DECIMAL literal in SQL, and an integer column beside one makes "
+                        + "the whole expression DECIMAL. (The same literal beside a DOUBLE column does not: "
+                        + "there the result is DOUBLE and the expression plans.) "
                         + "Evaluating it in double would pass every test anybody writes and produce a rounding "
                         + "error in a ledger. The row layout carries 128-bit decimals; the arithmetic over them "
-                        + "is not built. Cast to DOUBLE explicitly if approximate is genuinely acceptable.");
+                        + "is not built. Write the literal as approximate -- 2.5e0 -- or cast the column with "
+                        + "CAST(col AS DOUBLE), if approximate is genuinely acceptable.");
     }
 }

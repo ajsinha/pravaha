@@ -358,10 +358,20 @@ LEFT JOIN shipments s
 
 ### Subqueries and window functions
 
-<!-- sql: refused PRV-2021 -->
+A *correlated* subquery — one naming a column of the outer row, as this one does — is PRV-2020, and
+the refusal names the one correlated form that runs, `JOIN dim FOR SYSTEM_TIME AS OF <time>`:
+
+<!-- sql: refused PRV-2020 -->
 ```sql
 SELECT txn_id FROM txn
 WHERE EXISTS (SELECT 1 FROM orders WHERE orders.customer_id = txn.user_id)
+```
+
+An uncorrelated one is PRV-2021:
+
+<!-- sql: refused PRV-2021 -->
+```sql
+SELECT txn_id, (SELECT COUNT(*) FROM orders) AS orders FROM txn
 ```
 
 <!-- sql: refused PRV-2021 -->

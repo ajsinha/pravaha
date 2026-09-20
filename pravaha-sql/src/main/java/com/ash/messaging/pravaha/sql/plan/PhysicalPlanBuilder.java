@@ -648,11 +648,11 @@ public final class PhysicalPlanBuilder {
                 switch (function) {
                     case "TUMBLE" -> {
                         requireIntervals(function, intervals, 1);
-                        yield WindowSpec.tumbling(intervals.get(0));
+                        yield windowSpec(function, () -> WindowSpec.tumbling(intervals.get(0)));
                     }
                     case "HOP" -> {
                         requireIntervals(function, intervals, 2);
-                        yield WindowSpec.hopping(intervals.get(1), intervals.get(0));
+                        yield windowSpec(function, () -> WindowSpec.hopping(intervals.get(1), intervals.get(0)));
                     }
                     default -> throw unsupported("GROUP BY " + function + " is not supported; use TUMBLE or HOP");
                 };
@@ -749,14 +749,14 @@ public final class PhysicalPlanBuilder {
                 switch (function) {
                     case "TUMBLE" -> {
                         requireIntervals(function, intervals, 1);
-                        yield WindowSpec.tumbling(intervals.get(0));
+                        yield windowSpec(function, () -> WindowSpec.tumbling(intervals.get(0)));
                     }
                     case "HOP" -> {
                         // Calcite passes HOP as (slide, size), which is the opposite of the order the SQL
                         // reads in. Getting this backwards produces windows of the wrong width that still
                         // fire plausibly, so it is asserted by test rather than trusted.
                         requireIntervals(function, intervals, 2);
-                        yield WindowSpec.hopping(intervals.get(1), intervals.get(0));
+                        yield windowSpec(function, () -> WindowSpec.hopping(intervals.get(1), intervals.get(0)));
                     }
                     case "SESSION" ->
                         throw unsupported(
@@ -890,6 +890,28 @@ public final class PhysicalPlanBuilder {
             current = current.inputs().get(0);
         }
         return current.outputSchema();
+    }
+
+    /**
+     * Builds a {@link WindowSpec}, turning its invariants into refusals with a code (W-6).
+     *
+     * <p>{@code WindowSpec}'s compact constructor refuses a non-positive size, a non-positive slide
+     * and -- the one a person actually writes -- a slide wider than the size, which leaves gaps that
+     * rows fall into and vanish. It refuses them with {@link IllegalArgumentException}, because it
+     * is a runtime value class and an invariant it holds is not a sentence about SQL. That exception
+     * reached the person unwrapped: {@code HOP(..., INTERVAL '60' SECOND, INTERVAL '10' SECOND)}
+     * printed a raw Java exception with no {@code PRV-} code and no help URL, which is the one shape
+     * this engine's error contract says cannot happen.
+     *
+     * <p>Wrapped here rather than changed there, so the invariant still holds for every caller --
+     * the embedded builder included -- and the SQL surface still answers in its own vocabulary.
+     */
+    private static WindowSpec windowSpec(String function, java.util.function.Supplier<WindowSpec> build) {
+        try {
+            return build.get();
+        } catch (IllegalArgumentException e) {
+            throw unsupported(function + " cannot be built as written: " + e.getMessage());
+        }
     }
 
     private static void requireIntervals(String function, List<Long> intervals, int expected) {

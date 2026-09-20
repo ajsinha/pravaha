@@ -1729,7 +1729,8 @@ then, the message says plainly what is wrong.
 | `ORDER BY` | ❌ | `PRV-2020`, in every shape it can be written in — including one inside a derived table with no `FETCH`, which the optimiser deletes as harmless before any plan exists. That one planned and ran, exit 0, while every other spelling was refused (TY-20). The refusal is made on the statement now, not on the plan |
 | `LIMIT` / `OFFSET` | ❌ | `PRV-2020` |
 | `UNION`, `UNION ALL`, `INTERSECT`, `EXCEPT` | ❌ | `PRV-2020` |
-| `IN (subquery)`, `EXISTS`, scalar subqueries | ❌ | `PRV-2021` |
+| `IN (subquery)`, uncorrelated `EXISTS`, uncorrelated scalar subqueries | ❌ | `PRV-2021` |
+| Correlated subqueries — an `EXISTS` or a scalar subquery naming a column of the outer row | ❌ | `PRV-2020`, and the refusal names the one correlated form that does run: `JOIN dim FOR SYSTEM_TIME AS OF <time>`. Until X-7 was fixed the two shapes anybody writes were answered by the expression compiler's generic arms instead, so the refusal that names the alternative was unreachable |
 | Window functions — `ROW_NUMBER() OVER (…)` | ❌ | `PRV-2021` |
 | `VALUES` | ❌ | `PRV-2020` |
 | `INSERT`, `UPDATE`, `DELETE`, `MERGE` | ❌ | `PRV-2020` — Pravaha answers questions; sinks write results, and there is nothing here whose rows a statement may edit in place. `INSERT INTO <sink> SELECT` carries neither the query's name nor its key, so it is refused rather than read as a registration: write `CREATE CONTINUOUS QUERY <name> KEYED BY (...) WRITING TO <sink> AS <select>`, or `WITH (sink = '<sink>')`, or `pravaha register --sink` (§10.1) |

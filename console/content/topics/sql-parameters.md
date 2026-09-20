@@ -169,10 +169,11 @@ SELECT txn_id FROM big_txn WHERE merchant LIKE ?
 SELECT txn_id FROM big_txn WHERE merchant LIKE 'ac%'
 ```
 
-In a continuous query, a placeholder the expression compiler meets in a projection is refused with
-PRV-2021 before binding is considered:
+A placeholder anywhere but a `WHERE` or `HAVING` clause is refused with PRV-2063, before binding is
+considered — a projection, a group key, a window size and a bare `SELECT ?` all answer alike
+(finding X-9; three different codes used to come back depending on where the `?` stood):
 
-<!-- sql: refused PRV-2021 -->
+<!-- sql: refused PRV-2063 -->
 ```sql
 SELECT txn_id, amount * ? AS scaled FROM txn
 ```

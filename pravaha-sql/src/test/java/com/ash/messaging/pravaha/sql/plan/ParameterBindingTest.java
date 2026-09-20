@@ -176,11 +176,33 @@ class ParameterBindingTest {
     void aPlaceholderInTheSelectListIsRefused() {
         // A parameter selects rows. `SELECT total * ?` computes a different answer from the same
         // rows, which is a different query rather than a different binding of one.
-        assertThatThrownBy(() ->
-                        ParameterMetadata.of(SqlPlanner.withStreams(SCHEMA).plan("SELECT total * ? FROM user_volume")))
+        //
+        // X-9: the refusal now comes out of `plan` itself rather than waiting for
+        // `ParameterMetadata.of` to be invoked, so a caller who never asks for the metadata still
+        // gets it -- and gets PRV-2063 rather than the expression compiler's PRV-2021.
+        assertThatThrownBy(() -> SqlPlanner.withStreams(SCHEMA).plan("SELECT total * ? FROM user_volume"))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-2063")
-                .hasMessageContaining("WHERE clause");
+                .hasMessageContaining("WHERE or HAVING clause");
+    }
+
+    /**
+     * X-9. A bare {@code ?} was Calcite's to refuse, and Calcite said {@code PRV-2002 Illegal use of
+     * dynamic parameter} -- an SQL-validation code, and a sentence that says nothing about the rule
+     * ADR-032 states. Three positions, one code now.
+     */
+    @Test
+    void x9_everyPlaceholderOutsideAFilterAnswersWithOneCode() {
+        for (String sql : java.util.List.of(
+                "SELECT ? FROM user_volume",
+                "SELECT COUNT(*) FROM user_volume GROUP BY ?",
+                "SELECT total * ? FROM user_volume")) {
+            assertThatThrownBy(() -> SqlPlanner.withStreams(SCHEMA).plan(sql))
+                    .as(sql)
+                    .isInstanceOf(PravahaException.class)
+                    .hasMessageContaining("PRV-2063")
+                    .hasMessageContaining("WHERE or HAVING clause");
+        }
     }
 
     @Test

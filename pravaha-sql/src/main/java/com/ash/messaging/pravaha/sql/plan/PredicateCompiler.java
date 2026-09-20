@@ -378,6 +378,11 @@ public final class PredicateCompiler {
     }
 
     private static PravahaException unsupported(RexNode node) {
+        if (CorrelatedSubqueries.isCorrelated(node)) {
+            // X-7. A correlated EXISTS used to land in the sentence below, which lists AND, OR and
+            // IS NULL at somebody who wrote a subquery.
+            return CorrelatedSubqueries.refusal(node);
+        }
         return new PravahaException(
                 SqlErrors.UNSUPPORTED_EXPRESSION,
                 "cannot compile the expression '" + node + "' (" + node.getKind() + ") yet. "

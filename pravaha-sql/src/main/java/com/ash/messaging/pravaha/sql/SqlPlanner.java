@@ -134,6 +134,13 @@ public final class SqlPlanner {
 
             SqlNode validated;
             SqlNode written = dropStreamKeyword(parsed);
+
+            // Findings W-6 and X-9. Before validation, because for both of them Calcite answers
+            // first and answers about its own internals -- an unresolved function signature for
+            // CUMULATE, "Illegal use of dynamic parameter" for a bare `SELECT ?`. See
+            // SqlShapeRefusals.checkBeforeValidation.
+            SqlShapeRefusals.checkBeforeValidation(written);
+
             try {
                 validated = planner.validate(written);
             } catch (ValidationException e) {

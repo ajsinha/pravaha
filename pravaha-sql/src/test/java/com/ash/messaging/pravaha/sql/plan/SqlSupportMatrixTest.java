@@ -421,10 +421,17 @@ class SqlSupportMatrixTest {
             Case.refused("EXCEPT", "SELECT user_id FROM txn EXCEPT SELECT user_id FROM other", "PRV-2020"),
             Case.refused(
                     "IN (subquery)", "SELECT txn_id FROM txn WHERE user_id IN (SELECT user_id FROM other)", "PRV-2021"),
+            // Correlated, so PRV-2020 and the lookup-join sentence (X-7): the subquery reads a
+            // column of the row around it, which is a plan shape this engine does not build, not
+            // an expression it cannot evaluate.
             Case.refused(
                     "EXISTS",
                     "SELECT txn_id FROM txn WHERE EXISTS (SELECT 1 FROM other WHERE other.user_id = txn.user_id)",
-                    "PRV-2021"),
+                    "PRV-2020"),
+            Case.refused(
+                    "correlated scalar subquery",
+                    "SELECT txn_id, (SELECT COUNT(*) FROM other WHERE other.user_id = txn.user_id) FROM txn",
+                    "PRV-2020"),
             Case.refused("scalar subquery", "SELECT txn_id, (SELECT COUNT(*) FROM other) FROM txn", "PRV-2021"),
             Case.refused(
                     "window function (OVER)",

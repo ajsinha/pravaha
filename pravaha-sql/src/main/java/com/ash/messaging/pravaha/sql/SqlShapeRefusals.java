@@ -17,6 +17,7 @@ package com.ash.messaging.pravaha.sql;
 
 import org.apache.calcite.sql.SqlCall;
 import org.apache.calcite.sql.SqlDataTypeSpec;
+import org.apache.calcite.sql.SqlDynamicParam;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.SqlLiteral;
 import org.apache.calcite.sql.SqlNode;
@@ -61,18 +62,59 @@ final class SqlShapeRefusals {
 
     private SqlShapeRefusals() {}
 
+    /**
+     * The refusals that have to be decided <em>before</em> validation, because Calcite's own
+     * validator answers first and answers worse.
+     *
+     * <p>Two of them, both singleton findings.
+     *
+     * <ul>
+     *   <li><strong>W-6.</strong> {@code CUMULATE} is a SQL:2016 windowing function this engine does
+     *       not implement. Calcite parses it and then refuses it as an unresolved function
+     *       signature -- or, in the {@code TABLE(CUMULATE(...))} spelling, as a {@code $SCALAR_QUERY}
+     *       whose record type has too many fields, which is a sentence about nothing the person
+     *       wrote. Named here so the refusal says what it is and what to write instead.
+     *   <li><strong>X-9.</strong> A {@code ?} outside a {@code WHERE} or {@code HAVING} clause was
+     *       refused with three different codes depending on where it stood: {@code PRV-2002} from
+     *       Calcite's validator for a bare {@code SELECT ?} it cannot type, {@code PRV-2021} from
+     *       the expression compiler for {@code amount * ?}, and {@code PRV-2063} from
+     *       {@code ParameterMetadata} only when that class was separately invoked. ADR-032 states
+     *       one rule, so there is one code: {@code PRV-2063}, decided on the parse tree where the
+     *       clause a placeholder stands in is still visible.
+     * </ul>
+     *
+     * <p>{@code ORDER BY}, {@code LIMIT} and {@code OFFSET} subtrees are skipped by the placeholder
+     * walk: those clauses are refused whole, below, and "this engine has no sort operator" is a
+     * better answer to {@code ORDER BY ?} than "a placeholder is not a value here".
+     */
+    static void checkBeforeValidation(SqlNode node) {
+        refuseUnbuiltWindowFunctions(node);
+        refusePlaceholdersOutsideAFilter(node, false);
+    }
+
     /** Walks the statement and refuses the shapes the optimiser would otherwise erase. */
     static void check(SqlNode node) {
         if (node == null) {
             return;
         }
         if (node instanceof SqlOrderBy orderBy) {
-            throw orderByRefusal(orderBy.orderList);
+            if (orderBy.orderList != null && !orderBy.orderList.isEmpty()) {
+                throw orderByRefusal(orderBy.orderList);
+            }
+            // X-6's neighbour, found while reproducing it. `SELECT ... LIMIT 5` and
+            // `... OFFSET 5 ROWS` parse into this same node with an EMPTY order list, and the
+            // refusal above printed "'ORDER BY '" -- naming a clause the statement does not
+            // contain, with nothing between the quotes. The row limit is refused for a reason of
+            // its own and now says so.
+            throw rowLimitRefusal(orderBy.fetch != null, orderBy.offset != null);
         }
-        if (node instanceof SqlSelect select
-                && select.getOrderList() != null
-                && !select.getOrderList().isEmpty()) {
-            throw orderByRefusal(select.getOrderList());
+        if (node instanceof SqlSelect select) {
+            if (select.getOrderList() != null && !select.getOrderList().isEmpty()) {
+                throw orderByRefusal(select.getOrderList());
+            }
+            if (select.getFetch() != null || select.getOffset() != null) {
+                throw rowLimitRefusal(select.getFetch() != null, select.getOffset() != null);
+            }
         }
         if (node instanceof SqlCall call) {
             refuseCastOfALiteralToText(call);
@@ -95,6 +137,116 @@ final class SqlShapeRefusals {
                         + "one inside a derived table with no FETCH -- and the query then ran as though the "
                         + "clause had never been written. See docs/CONTINUOUS_QUERIES.md for what this engine "
                         + "executes and what it refuses.");
+    }
+
+    /**
+     * {@code LIMIT} and {@code OFFSET} over a continuous view, named as themselves.
+     *
+     * <p>Refused for a reason of their own rather than as a sort. A view is maintained, not
+     * returned: rows arrive, change and retract, so "the first five" is whichever five the engine
+     * happens to hold at the instant of the read and a different five a moment later. Without a
+     * sort there is not even a rule saying which five. Refusing is the no-leniency answer -- the
+     * alternative is an answer that is arbitrary and looks deliberate.
+     */
+    private static PravahaException rowLimitRefusal(boolean hasFetch, boolean hasOffset) {
+        String clause = hasFetch && hasOffset ? "LIMIT and OFFSET" : hasFetch ? "LIMIT" : "OFFSET";
+        return new PravahaException(
+                SqlErrors.UNSUPPORTED_OPERATOR,
+                clause + " is not executed by this engine, and is refused rather than ignored. A continuous "
+                        + "view is maintained rather than returned: rows arrive, update and retract, so "
+                        + "'the first five' is whichever five happened to be held at the instant of the read "
+                        + "and a different five a moment later. There is no sort operator either, so nothing "
+                        + "even decides which five. Take the rows you want in whatever reads the view. "
+                        + "See docs/CONTINUOUS_QUERIES.md for what this engine executes and what it refuses.");
+    }
+
+    /**
+     * Windowing functions SQL knows and this engine does not execute, refused by name (W-6).
+     *
+     * <p>Before validation, because Calcite gets there first and its answer is about its own
+     * internals: {@code CUMULATE(...)} in a {@code GROUP BY} is "No match found for function
+     * signature", and {@code TABLE(CUMULATE(...))} is a complaint about {@code $SCALAR_QUERY}
+     * receiving a record with more than one field. Neither names {@code CUMULATE}'s absence, and
+     * neither reaches the plan builder's own {@code default} arm, which does.
+     */
+    private static void refuseUnbuiltWindowFunctions(SqlNode node) {
+        if (node == null) {
+            return;
+        }
+        if (node instanceof SqlCall call) {
+            String name = call.getOperator().getName().toUpperCase(java.util.Locale.ROOT);
+            if (name.equals("CUMULATE")) {
+                throw new PravahaException(
+                        SqlErrors.UNSUPPORTED_OPERATOR,
+                        "CUMULATE is a SQL:2016 windowing function this engine does not implement: its windows "
+                                + "share a start and grow to a maximum, so a row belongs to every step from its "
+                                + "own to the last and the slice grid that makes TUMBLE and HOP O(1) per row does "
+                                + "not describe it. Use TUMBLE or HOP. See docs/CONTINUOUS_QUERIES.md for what "
+                                + "this engine executes and what it refuses.");
+            }
+            call.getOperandList().forEach(SqlShapeRefusals::refuseUnbuiltWindowFunctions);
+            return;
+        }
+        if (node instanceof SqlNodeList list) {
+            list.forEach(SqlShapeRefusals::refuseUnbuiltWindowFunctions);
+        }
+    }
+
+    /**
+     * ADR-032's one rule, enforced in one place with one code (X-9).
+     *
+     * <p>A {@code ?} belongs in a {@code WHERE} or {@code HAVING} clause. Decided on the parse tree
+     * because that is the last copy of the statement in which the clause a placeholder stands in is
+     * still a clause -- by the time a plan exists a group key and a projection are both a {@code
+     * RexNode} under a {@code Project}, and Calcite's validator has already refused the ones it
+     * cannot type.
+     *
+     * <p>A subquery's own clauses are judged on their own: a {@code ?} in the select list of a
+     * subquery written inside a {@code WHERE} is still in a select list.
+     */
+    private static void refusePlaceholdersOutsideAFilter(SqlNode node, boolean insideAFilter) {
+        if (node == null) {
+            return;
+        }
+        if (node instanceof SqlDynamicParam param) {
+            if (!insideAFilter) {
+                throw placeholderRefusal(param.getIndex());
+            }
+            return;
+        }
+        if (node instanceof SqlOrderBy orderBy) {
+            // ORDER BY, LIMIT and OFFSET are refused whole, after validation. Naming the clause is
+            // a better answer than naming the placeholder inside it.
+            refusePlaceholdersOutsideAFilter(orderBy.query, insideAFilter);
+            return;
+        }
+        if (node instanceof SqlSelect select) {
+            refusePlaceholdersOutsideAFilter(select.getSelectList(), false);
+            refusePlaceholdersOutsideAFilter(select.getFrom(), false);
+            refusePlaceholdersOutsideAFilter(select.getWhere(), true);
+            refusePlaceholdersOutsideAFilter(select.getGroup(), false);
+            refusePlaceholdersOutsideAFilter(select.getHaving(), true);
+            refusePlaceholdersOutsideAFilter(select.getWindowList(), false);
+            return;
+        }
+        if (node instanceof SqlCall call) {
+            call.getOperandList().forEach(operand -> refusePlaceholdersOutsideAFilter(operand, insideAFilter));
+            return;
+        }
+        if (node instanceof SqlNodeList list) {
+            list.forEach(operand -> refusePlaceholdersOutsideAFilter(operand, insideAFilter));
+        }
+    }
+
+    private static PravahaException placeholderRefusal(int index) {
+        return new PravahaException(
+                SqlErrors.PARAMETER_NOT_A_VALUE,
+                "?" + (index + 1) + " is not in a WHERE or HAVING clause. A placeholder stands for a value "
+                        + "that selects rows, and nothing else: a projection, a window size, a group key, an "
+                        + "aggregate argument or a table name decides what the query *is* rather than which "
+                        + "rows it returns. Two window sizes have no rows in common, so they cannot share a "
+                        + "computation or its state -- binding one would create a separate query per size, "
+                        + "and the first anyone would know of it is a memory alarm. See ADR-032.");
     }
 
     /**

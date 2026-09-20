@@ -269,25 +269,28 @@ class SqlxMultiStreamTest {
     }
 
     @Test
-    void aCorrelatedSubqueryIsRefusedButNeitherReachableFormOffersTheLookupJoinAlternative() {
-        // SQLX-144. buildLookupJoin's message naming "JOIN dim FOR SYSTEM_TIME AS OF <time>" is the
-        // best-written refusal in this engine, and the case asks whether a query anybody would
-        // actually type reaches it. Neither of the two ordinary correlated shapes does: a
-        // correlated EXISTS is refused by the predicate compiler as an unsupported EXISTS
-        // expression, and a correlated scalar subquery in the select list is refused by the
-        // expression compiler as an unsupported $SCALAR_QUERY function -- both before planning ever
-        // reaches buildLookupJoin's Correlate branch. Recorded as the case's own anticipated
-        // "Finding if neither does": the best refusal in the file is unreachable from any query a
-        // user would write.
+    void aCorrelatedSubqueryIsRefusedAndBothReachableFormsOfferTheLookupJoinAlternative() {
+        // SQLX-144, and finding X-7 which it became. buildLookupJoin's message naming "JOIN dim FOR
+        // SYSTEM_TIME AS OF <time>" is the best-written refusal in this engine, and the case asked
+        // whether a query anybody would actually type reaches it. Neither of the two ordinary
+        // correlated shapes did: a correlated EXISTS was refused by the predicate compiler as an
+        // unsupported EXISTS expression, and a correlated scalar subquery in the select list by the
+        // expression compiler as an unsupported $SCALAR_QUERY function -- both before planning
+        // reached buildLookupJoin's Correlate branch, and both listing constructs (AND, OR, IS
+        // NULL; ABS, FLOOR, ROUND) at somebody who wrote a subquery.
+        //
+        // Both arms now ask whether the subquery is correlated and, if it is, answer with the one
+        // sentence CorrelatedSubqueries holds. The assertion is inverted from the one this test
+        // carried while the finding was open.
         String correlatedExists = refusalOf(
                 "SELECT txn_id FROM txn WHERE EXISTS (SELECT 1 FROM other WHERE other.user_id = txn.user_id)");
         String correlatedScalar = refusalOf(
                 "SELECT txn_id, " + "(SELECT COUNT(*) FROM other WHERE other.user_id = txn.user_id) FROM txn");
-        assertThat(correlatedExists).startsWith("PRV-2021").contains("EXISTS");
-        assertThat(correlatedScalar).startsWith("PRV-2021").contains("$SCALAR_QUERY");
+        assertThat(correlatedExists).startsWith("PRV-2020").contains("correlated subquery");
+        assertThat(correlatedScalar).startsWith("PRV-2020").contains("correlated subquery");
         assertThat(correlatedExists + " " + correlatedScalar)
-                .as("SQLX-144 finding: neither reachable correlated form mentions the lookup join")
-                .doesNotContain("lookup");
+                .as("X-7: both reachable correlated forms now name the lookup join")
+                .contains("FOR SYSTEM_TIME AS OF");
     }
 
     @Test
