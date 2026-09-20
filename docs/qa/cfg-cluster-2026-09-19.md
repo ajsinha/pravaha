@@ -5,16 +5,24 @@ id order, each reproduced against today's code before anything was changed.
 
 `docs/qa/FINDINGS.md` is the lead's file and is not edited here. This is the input to it: one
 section per finding, with a verdict, the cause, the fix, the test, the seed-proof result and the
-commit. One **new** finding, raised out of CFG-16 and unfiled, is at the end.
+commit. One finding raised out of CFG-16, which the lead has since filed as `CKPT-5`, is at
+the end.
 
-> **Rebase state.** This branch is **not rebased** and is held deliberately: the time-travel
-> debugger and the CQ grammar batches are rebasing onto `develop` and both touch `pravaha-registry`,
-> `pravaha-server` and the docs. It rebases once, onto the result of both, rather than chasing
-> them. When it does: keep **both** sides in `application.yaml`, `PravahaNode` and `ApiDtos`, and
-> **regenerate** `api/openapi.lock.json` rather than merging it — the debugger adds debug paths and
-> the dead-letter batch has already added four, so a merged lock would be a lock of a document
-> nobody generated. `PRV-1027`, `PRV-1052` and `PRV-4091` do not collide with the debugger's
-> `PRV-8011..8016` or the grammar's `PRV-8017` and `PRV-2073`.
+> **Rebase state: done**, once, onto `develop` at `1c7ebed` — the time-travel debugger (ADR-048,
+> `PRV-8011..8016`) on top of the CQ grammar (ADR-049, `PRV-8017`, `PRV-2073`) and the licence
+> correction. Both sides kept everywhere they met. Three things it needed, in `298cd76`:
+>
+> - **`PRV-4091` → `PRV-4093`.** The dead-letter batch took 4091 and 4092 while this branch was
+>   held. `STATE_CHECKPOINT_DIRECTORY_UNUSABLE` moved once, in code, tests, TROUBLESHOOTING,
+>   OPERATIONS, `application.yaml` and two console topics. `PRV-1027` and `PRV-1052` are clear.
+> - **`api/openapi.lock.json` regenerated, not merged.** The merge was clean and the result was
+>   wrong: it carried the other batches' thirteen new paths with their own response lists and the
+>   CFG-20 `default` only on the operations that existed when this branch was cut. Regenerated from
+>   develop's: 35 paths, 40 operations, 40 `default` entries, and the diff against develop's lock
+>   is those 40 lines and nothing else.
+> - **One silent semantic conflict**, in `PluginSourceFeeds`: the dead-letter batch added a
+>   `ConcurrentHashMap` for its live counters while CFG-3(b) removed the import. Both sides merged
+>   without a marker and the file did not compile.
 
 **The shape of the cluster, once all sixteen were read together.** Fourteen of them are one defect
 wearing different clothes: *a value that is present in the configuration file, correct-looking, and
@@ -31,27 +39,34 @@ server, so an operator reads the sentence rather than Tomcat's.
 
 | Finding | Verdict | What closed it | Commit |
 |---|---|---|---|
-| `CFG-1` | Reproduced, **fixed** | The cluster line names the member | `68bab30` |
-| `CFG-2` | Reproduced (4 of 4), **fixed** | Port and host refused by name; the bound port served; IPv6 bracketed | `68bab30`, `b000c94` |
-| `CFG-3` | Reproduced (a and b), **fixed** | A key that reached nothing is refused; `sources bound:` follows the file | `cc949e1`, `7a209f2` |
-| `CFG-4` | Reproduced, **fixed as far as it can be**; `I-7` stays open | The message says what "available" means; the missing mechanism is written down | `7a209f2` |
-| `CFG-7` | Reproduced (3 of 3), **fixed** | Journal and checkpoint paths validated at startup, with codes | `70fc9c5` |
-| `CFG-8` | Reproduced, **fixed** | Two schemas for one stream refused; declared and bound reconciled in the log | `cc949e1` |
-| `CFG-10` | (a) reproduced, **partly closable**; (b) already fixed | `id` required removes the reason to write `{}`; the empty mapping itself is undetectable | `4f5cb59` |
-| `CFG-11` | Reproduced, **fixed** | `pravaha.security.tokens.<token>.id` is required | `4f5cb59` |
-| `CFG-15` | Reproduced, **fixed** | A bare number on a duration is refused; the interval in force is logged | `cc949e1`, `b000c94` |
-| `CFG-16` | Reproduced, **fixed** | `keep` bounded at startup | `70fc9c5` |
-| `CFG-17` | **Stale case file. No code defect** | Case corrected; the three facts pinned by a test | `70fc9c5`, `48f4f4e` |
-| `CFG-18` | **Stale cell, plus one real defect** | Case corrected; a mechanism is matched the way a mode is | `68bab30`, `48f4f4e` |
-| `CFG-19` | Reproduced, **fixed** | `application` and `node` tags on every metric; `/actuator/info` identifies the node | `feee526` |
-| `CFG-20` | Reproduced, **fixed** | One error shape out of every path; `ApiError` published with its fields | `feee526` |
-| `CFG-21` | Reproduced, **fixed** | The security names refuse while the properties bean is built | `4f5cb59` |
-| `CFG-22` | Reproduced, **fixed** | An implementation that does not exist is refused; the choice is logged | `a8703a8`, `b000c94` |
+| `CFG-1` | Reproduced, **fixed** | The cluster line names the member | `fbe5a6b` |
+| `CFG-2` | Reproduced (4 of 4), **fixed** | Port and host refused by name; the bound port served; IPv6 bracketed | `fbe5a6b`, `0cc54c8` |
+| `CFG-3` | Reproduced (a and b), **fixed** | A key that reached nothing is refused; `sources bound:` follows the file | `1b64c4a`, `8e5f327` |
+| `CFG-4` | Reproduced, **fixed as far as it can be**; `I-7` stays open | The message says what "available" means; the missing mechanism is written down | `8e5f327` |
+| `CFG-7` | Reproduced (3 of 3), **fixed** | Journal and checkpoint paths validated at startup, with codes | `3fa6de8` |
+| `CFG-8` | Reproduced, **fixed** | Two schemas for one stream refused; declared and bound reconciled in the log | `1b64c4a` |
+| `CFG-10` | (a) reproduced, **partly closable**; (b) already fixed | `id` required removes the reason to write `{}`; the empty mapping itself is undetectable | `97c0281` |
+| `CFG-11` | Reproduced, **fixed** | `pravaha.security.tokens.<token>.id` is required | `97c0281` |
+| `CFG-15` | Reproduced, **fixed** | A bare number on a duration is refused; the interval in force is logged | `1b64c4a`, `0cc54c8` |
+| `CFG-16` | Reproduced, **fixed** | `keep` bounded at startup | `3fa6de8` |
+| `CFG-17` | **Stale case file. No code defect** | Case corrected; the three facts pinned by a test | `3fa6de8`, `264a1e6` |
+| `CFG-18` | **Stale cell, plus one real defect** | Case corrected; a mechanism is matched the way a mode is | `fbe5a6b`, `264a1e6` |
+| `CFG-19` | Reproduced, **fixed** | `application` and `node` tags on every metric; `/actuator/info` identifies the node | `d9f1f09` |
+| `CFG-20` | Reproduced, **fixed** | One error shape out of every path; `ApiError` published with its fields | `d9f1f09` |
+| `CFG-21` | Reproduced, **fixed** | The security names refuse while the properties bean is built | `97c0281` |
+| `CFG-22` | Reproduced, **fixed** | An implementation that does not exist is refused; the choice is logged | `e915436`, `0cc54c8` |
 
-Test counts, per module, before → after: `pravaha-common` 240 → 246, `pravaha-cluster` 59 → 63,
-`pravaha-bindings` 63 → 64, `pravaha-server` 145 → 184, `pravaha-it` 807 (three inverted, none
-added). `./mvnw -o -pl pravaha-server,pravaha-it -am verify`: **BUILD SUCCESS**, 29 modules.
-Console `test_help.py`: 33 passed.
+**The gate, after the rebase onto `1c7ebed`.** `./mvnw -o verify` at the root: **BUILD SUCCESS**,
+37 modules, **3,819 tests run, 0 failures, 0 errors, 184 skipped** (3,635 executed) — against
+develop's 3,769 at the same command. Console `test_help.py`: **33 passed**.
+
+Per module, this batch's own contribution: `pravaha-common` 240 → 246, `pravaha-cluster` 59 → 63,
+`pravaha-bindings` 63 → 64, `pravaha-server` 145 → 193 (184 before the rebase; the debugger's own
+server tests are in the rest), `pravaha-it` 827 — three tests inverted, none added.
+
+`SharedLaneIngestPropertyTest` **passed** in this run, in 18.17 s. That is not evidence about
+`LANE-6`: the finding is that it fails intermittently, and a green run is what an intermittent
+failure looks like most of the time. Recorded, not closed.
 
 **Three gate tests in `pravaha-it` asserted two of these defects as facts**, and are inverted with
 the reason in place. `StateClusterTest` state104 arm 4 and state105 both pinned "mechanism names
@@ -64,10 +79,13 @@ whole job happens in its `@PostConstruct` and nothing references it, so it is in
 `REACHABLE_OTHERWISE` with the mechanism named.
 
 Three error codes are new — `PRV-1027 CONFIG_KEY_UNREACHABLE`, `PRV-1052 API_UNHANDLED_REQUEST`,
-`PRV-4091 STATE_CHECKPOINT_DIRECTORY_UNUSABLE` — all three in `docs/TROUBLESHOOTING.md`'s table and
-in the console's error topics. `PRV-1027` is 1027 and not 1030 because the Java SDK already holds
-1030 for `CLIENT_MALFORMED_ENDPOINT`; `ErrorCodeUniquenessTest` caught that, which is what it is
-for.
+`PRV-4093 STATE_CHECKPOINT_DIRECTORY_UNUSABLE` — all three in `docs/TROUBLESHOOTING.md`'s table and
+in the console's error topics. **Both of them moved once, for the same reason and caught the same
+way.** `PRV-1027` is not 1030 because the Java SDK already holds 1030 for
+`CLIENT_MALFORMED_ENDPOINT`; `PRV-4093` is not 4091 because the dead-letter batch took 4091 and
+4092 while this branch was held un-rebased. `ErrorCodeUniquenessTest` caught the first before the
+rebase and would have caught the second, which is what it is for — a code is what goes in a
+runbook, so it moves before it ships and never after.
 
 ---
 
@@ -95,7 +113,7 @@ not carry the id.
 `CoordinatorFactoryTest` 1/15 fails, on `theStartupLineNamesTheMemberThisNodeJoinedAs_CFG1` and
 nothing else. Restored.
 
-**Commit** `68bab30`.
+**Commit** `fbe5a6b`.
 
 ---
 
@@ -141,7 +159,7 @@ fail-at-end so every module reports: `EndpointTest` 1/4 fails
 the host refusal, the ephemeral port), and `ApiIntegrationTest` the served address. The V-controls
 — every host an operator legitimately writes, and a node with Flight off — stay green. Restored.
 
-**Commits** `68bab30` (Endpoint, Member), `b000c94` (the node and the status surface).
+**Commits** `fbe5a6b` (Endpoint, Member), `0cc54c8` (the node and the status surface).
 
 ---
 
@@ -182,7 +200,7 @@ including that re-binding a stream keeps its place.
 V-controls stay green. (b) `bindings()` back to `Map.copyOf`: `PluginSourceFeedsTest` 1/18 fails,
 on the ordering case. Both restored.
 
-**Commits** `cc949e1` (a), `7a209f2` (b).
+**Commits** `1b64c4a` (a), `8e5f327` (b).
 
 ---
 
@@ -218,7 +236,7 @@ extended: the message must still name what *is* there, and must now also say `Se
 **Seed proof.** The appended sentence removed: `PluginSourceFeedsTest` 1/18 fails, on that case
 and nothing else. Restored.
 
-**Commit** `7a209f2`.
+**Commit** `8e5f327`.
 
 ---
 
@@ -241,7 +259,7 @@ and nothing else. Restored.
 
 **Fix.** `PersistenceProperties.validate()`, from `@PostConstruct` and from `PravahaNode.startNow()`
 (a node built through the builder never reaches a `@PostConstruct`, and that covers every test and
-the embedded case). `PRV-4091 STATE_CHECKPOINT_DIRECTORY_UNUSABLE` for the checkpoint root — not a
+the embedded case). `PRV-4093 STATE_CHECKPOINT_DIRECTORY_UNUSABLE` for the checkpoint root — not a
 directory, unwritable, or no parent — and `PRV-8006 REGISTRY_JOURNAL_UNWRITABLE` for the journal
 being a directory, having no directory, or having an unwritable one. Each message says what used to
 happen instead, because an operator meeting the refusal on an upgrade needs to know why a path that
@@ -257,7 +275,7 @@ alone. Plus an assertion that `validate` carries `@PostConstruct`, because the p
 — the checkpoint file, the missing checkpoint parent, the journal-as-directory and the missing
 journal directory — and `thePathsThatAreFineAreLeftAlone_CFG7` stays green. Restored.
 
-**Commit** `70fc9c5`.
+**Commit** `3fa6de8`.
 
 ---
 
@@ -291,7 +309,7 @@ an undeclared stream starting; and a consistent file passing every check.
 fails, on the divergence case only — the two-spellings V-control and the bound-but-undeclared case
 stay green. Restored.
 
-**Commit** `cc949e1`.
+**Commit** `1b64c4a`.
 
 ---
 
@@ -319,7 +337,7 @@ by `ServerSecurityTest.aNodeThatCanVerifyNoCredentialSaysSoAtStartup`. Unchanged
 
 **Test.** Shared with CFG-11 (below).
 
-**Commit** `4f5cb59`.
+**Commit** `97c0281`.
 
 ---
 
@@ -352,7 +370,7 @@ neutered: `ServerSecurityTest` 1/20 fails, on the CFG-11 case;
 `aCredentialWithAnIdIsUnaffected_CFG11` stays green, which is the point — the seed is invisible to
 a correctly-written token table. Restored.
 
-**Commit** `4f5cb59`.
+**Commit** `97c0281`.
 
 ---
 
@@ -388,7 +406,7 @@ and a V-control that `2s`, `PT2S`, `2000ms` and `1m` all stay legal.
 `ConfigurationCheckTest` 1/12 and `PersistencePropertiesTest` 1/10 each fail on their CFG-15 case,
 and `everyUnitedSpellingOfTheSameDurationIsAccepted_CFG15` stays green. Restored.
 
-**Commits** `cc949e1`, `b000c94` (the log line).
+**Commits** `1b64c4a`, `0cc54c8` (the log line).
 
 ---
 
@@ -417,7 +435,7 @@ stored. Not a configuration defect, and not fixed here.
 **Seed proof.** The `keep < 1` guard neutered: `PersistencePropertiesTest` 1/10 fails, on the
 CFG-16 case; the V-control over `keep` 1, 3, 5 and `Integer.MAX_VALUE` stays green. Restored.
 
-**Commit** `70fc9c5`.
+**Commit** `3fa6de8`.
 
 ---
 
@@ -446,7 +464,7 @@ three facts, so the case cannot go stale in the other direction either.
 `checkpointConfiguration()` — which is exactly the state assumed fact 9 describes:
 `PersistencePropertiesTest` 1/10 fails, on the CFG-17 case. Restored.
 
-**Commits** `70fc9c5` (test), `48f4f4e` (case file, documentation).
+**Commits** `3fa6de8` (test), `264a1e6` (case file, documentation).
 
 ---
 
@@ -483,7 +501,7 @@ which is the same answer lower-case `socket` gives) and
 `thePartitionedModeOnSingleStarts_CFG18` stays green, because that half was never a code defect.
 Restored.
 
-**Commits** `68bab30` (code, tests), `48f4f4e` (case file).
+**Commits** `fbe5a6b` (code, tests), `264a1e6` (case file).
 
 ---
 
@@ -512,7 +530,7 @@ for `/actuator/info`.
 **Seed proof.** The common tags emptied and the info contributor made a no-op:
 `ApiIntegrationTest` 2/19 fail, on both CFG-19 cases. Restored.
 
-**Commit** `feee526`.
+**Commit** `d9f1f09`.
 
 ---
 
@@ -564,7 +582,7 @@ removed from the customizer: `ApiErrorShapeTest` 3/4 fail (405, 415, 404) and `O
 1/5. `theShapesThatWereAlreadyCorrectStayCorrect_CFG20` stays green, which is what says the three
 handled shapes were never the problem. Restored.
 
-**Commit** `feee526`.
+**Commit** `d9f1f09`.
 
 ---
 
@@ -601,7 +619,7 @@ fail — `everySecurityNameIsRefusedWhileThePropertiesAreBuilt_CFG21` and the pr
 `anUnknownPolicyNameIsRefusedRatherThanFallingBackToPermissive`, which is honest collateral: the
 older test was always about this guard. Restored.
 
-**Commit** `4f5cb59`.
+**Commit** `97c0281`.
 
 ---
 
@@ -643,13 +661,15 @@ with the operator; it keeps the `ffm` half, which is the half that must stay tru
 `bestFallsBackWhenAnUnavailableImplementationIsRequested` stays green, which is the whole
 distinction the fix turns on. Restored.
 
-**Commits** `a8703a8`, `b000c94` (the log line).
+**Commits** `e915436`, `0cc54c8` (the log line).
 
 ---
 
-## New finding, not yet filed — a gap in the checkpoint id sequence is a failed checkpoint, and nothing says so
+## `CKPT-5` — a gap in the checkpoint id sequence is a failed checkpoint, and nothing says so
 
-**Raised out of CFG-16, for the lead to file. Not fixed here.**
+**Raised out of CFG-16. Filed by the lead as `CKPT-5` (LOW, OPEN) in `84348b5`, independently and
+with the same reading, while this branch was held un-rebased. Kept here because the analysis below
+is what the register's entry is short for. Not fixed.**
 
 **What was seen.** CFG-16 records, as an incidental observation from the 2026-09-14 run: with
 `keep: 5`, the survivors were ids `5,7,8,9,10` — *"not the five newest, so pruning is not strictly
@@ -687,7 +707,7 @@ where the checkpoint's health is reported. The first is a `PeriodicCheckpointer`
 an observability one; both are somebody else's batch, and neither is a configuration defect, which
 is why this is a new finding rather than part of CFG-16.
 
-**Severity, suggested:** LOW. It misleads a diagnosis rather than losing data.
+**Severity:** LOW, as filed. It misleads a diagnosis rather than losing data.
 
 ---
 
@@ -700,8 +720,8 @@ is why this is a new finding rather than part of CFG-16.
 - **CFG-10(a)'s empty mapping.** `x: {}` produces no property, so no code in this process can see
   it. Measured, not assumed. Documented in three places; requiring `id` removes the reason to write
   it.
-- **CFG-16's pruning observation.** Raised as a new finding above rather than chased: pruning is
-  correct, and the gap in the id sequence means something else.
+- **CFG-16's pruning observation.** Raised as a finding rather than chased, and now filed as
+  `CKPT-5`: pruning is correct, and the gap in the id sequence means something else.
 - **CFG-024's rewritten case — deliberately left unexecuted.** Whether the checkpoint timeout is
   *enforced* needs a view whose state is large enough that one checkpoint genuinely exceeds the
   bound; the previous run's twelve-row view checkpointed well inside a millisecond and proved
