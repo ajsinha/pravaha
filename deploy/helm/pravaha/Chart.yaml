@@ -11,7 +11,7 @@ version: 0.1.0
 
 # The engine this chart's default image tag points at. Quoted: -SNAPSHOT is not a number and an
 # unquoted appVersion has been read as one before.
-appVersion: "0.1.0"
+appVersion: "0.1.1-SNAPSHOT"
 
 kubeVersion: ">=1.25.0-0"
 
