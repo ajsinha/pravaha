@@ -86,9 +86,16 @@ class ClosedAggregateTest {
         query.commit();
         assertThat(query.view().size()).isEqualTo(1);
 
+        // The view first, because it is the synchronous half: STRM-8 moved delivery onto the
+        // subscription's own thread, so "the subscriber received nothing" a moment after the close
+        // is also true of a spurious insert still in flight. A test that asserted only that would
+        // pass against the defect it exists to catch.
+        List<ViewChange> before = query.view().committedRows();
+
         List<ViewChange> onTheWayOut = new ArrayList<>();
         try (Subscription subscription = query.subscribe(onTheWayOut::addAll)) {
             query.close();
+            subscription.awaitQuiet(java.time.Duration.ofSeconds(10));
             assertThat(onTheWayOut)
                     .as("[2, 350] was published by the commit above and nothing has happened since, so "
                             + "closing the query has nothing to say; it used to say [2, 350] again, with "
@@ -96,6 +103,9 @@ class ClosedAggregateTest {
                     .isEmpty();
             assertThat(subscription.delivered()).isZero();
         }
+        assertThat(query.view().committedRows())
+                .as("and the view holds what it held: the close doubled its weight before W-2's rule")
+                .isEqualTo(before);
     }
 
     @Test
@@ -111,15 +121,25 @@ class ClosedAggregateTest {
             // because the query is closed first. W-2's rule is what carries it to the view.
             txn(query, "u3", 75);
             query.close();
-
+            // STRM-8 moved delivery onto the subscription's own thread, and close() discards
+            // whatever is still waiting -- the subscription is over and the copy ends with it.
+            // So the subscriber is the wrong witness for this finding now: what CKPT-3 is about
+            // is the view's weights, which the close writes synchronously.
+            assertThat(subscription.awaitQuiet(java.time.Duration.ofSeconds(10)))
+                    .as("a subscription closed with changes still waiting says so, rather than "
+                            + "reporting itself quiet")
+                    .isFalse();
             assertThat(onTheWayOut)
-                    .as("the answer really did change, so the close retracts the published one and "
-                            + "inserts the new one -- the silence above must be silence about an "
-                            + "unchanged answer, not a finisher that stopped emitting")
-                    .containsExactly(
-                            new ViewChange(new Object[] {2L, 350L}, -1L), new ViewChange(new Object[] {3L, 425L}, 1L));
-            assertThat(subscription.delivered()).isEqualTo(2);
+                    .as("nothing spurious reached the subscriber: it either received the real "
+                            + "change or received nothing, never an unretracted repeat")
+                    .doesNotContain(new ViewChange(new Object[] {2L, 350L}, 1L));
         }
+
+        assertThat(query.view().committedRows())
+                .as("the answer really did change, so the close retracts the published one and "
+                        + "inserts the new one -- the silence in the test above must be silence "
+                        + "about an unchanged answer, not a finisher that stopped emitting")
+                .containsExactly(new ViewChange(new Object[] {3L, 425L}, 1L));
     }
 
     private void txn(RegisteredQuery query, String user, long amount) {

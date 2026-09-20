@@ -270,6 +270,9 @@ public final class Subscription implements AutoCloseable {
      * Changes waiting for this subscriber: how far behind it is, in the unit {@code bufferRows}
      * bounds.
      */
+    /** Whether {@link #close} threw away changes the subscriber had not received. Guarded by {@code lock}. */
+    private boolean abandoned;
+
     public int pending() {
         lock.lock();
         try {
@@ -285,12 +288,22 @@ public final class Subscription implements AutoCloseable {
      * <p>What a caller that commits by hand uses in place of the delivery that used to finish
      * inside {@code commit}. It is not on the engine's path: no part of the engine calls it.
      *
-     * @return false if the deadline passed with the subscriber still behind
+     * <p>A closed subscription is quiet only if it had nothing left when it closed. {@link #close}
+     * discards whatever was still waiting -- the subscription is over and the copy ends with it --
+     * and answering "quiet" for that would tell a caller its subscriber received changes that were
+     * thrown away. It returns false instead, which is the same answer it gives for a deadline that
+     * passed with the subscriber behind, and means the same thing: not everything got there.
+     *
+     * @return false if the deadline passed with the subscriber still behind, or if the
+     *     subscription closed while changes were still waiting
      */
     public boolean awaitQuiet(java.time.Duration timeout) {
         long deadline = System.nanoTime() + timeout.toNanos();
         lock.lock();
         try {
+            if (closed.get()) {
+                return !abandoned;
+            }
             while (!closed.get() && (delivering || !buffer.isEmpty() || waitingSnapshot != null)) {
                 long left = deadline - System.nanoTime();
                 if (left <= 0) {
@@ -548,7 +561,9 @@ public final class Subscription implements AutoCloseable {
             lock.lock();
             try {
                 // Whatever was waiting is not delivered: this subscription is over, and the
-                // delivery thread's next turn round the loop ends it.
+                // delivery thread's next turn round the loop ends it. Recorded, so that
+                // awaitQuiet can tell "there was nothing left" from "what was left is gone".
+                abandoned = !buffer.isEmpty() || waitingSnapshot != null;
                 buffer.clear();
                 bufferedRows = 0;
                 waitingSnapshot = null;
