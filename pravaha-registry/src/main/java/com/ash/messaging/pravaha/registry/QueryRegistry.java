@@ -1433,9 +1433,7 @@ public final class QueryRegistry implements AutoCloseable {
         // closed computation last committed, for ever, to a caller with no way to know that nothing
         // maintains it.
         views.remove(name);
-        // STRM-14, before removeName forgets the name. RegisteredQuery.endSubscriptionsUnder says why.
-        query.endSubscriptionsUnder(name, SubscriptionEndings.dropped(name));
-        if (query.removeName(name)) {
+        if (query.dropName(name)) {
             byFingerprint.remove(query.fingerprint());
             sharedLaneOf.remove(query.fingerprint());
             query.close();

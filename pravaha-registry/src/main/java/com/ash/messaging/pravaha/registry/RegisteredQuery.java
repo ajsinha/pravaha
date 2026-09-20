@@ -754,6 +754,29 @@ public final class RegisteredQuery implements AutoCloseable {
         names.add(name);
     }
 
+    /**
+     * Drops one of this computation's names: ends what was watching it, then forgets it.
+     *
+     * <p>Both steps, in this order, in one call, because the order is load-bearing and a caller
+     * that got it wrong would fail silently (STRM-14). After {@link #removeName} this name is not
+     * one the computation knows, so the subscriptions opened under it could no longer be found --
+     * and they would go on being streamed rows under a name a read of the view refuses as
+     * nonexistent, with the policy still being asked about a name it can no longer have an opinion
+     * on. `QueryRegistry.drop` used to do the two steps itself with a comment saying which came
+     * first; a comment is not a guarantee.
+     *
+     * <p>Only the subscriptions opened under <em>this</em> name end. A subscriber on a name that
+     * still answers is untouched, which is `STRM-067`'s mirror case and the whole point of two
+     * registrations sharing one computation.
+     *
+     * @return true when no names are left and the computation should be released, exactly as
+     *     {@link #removeName} reports it
+     */
+    synchronized boolean dropName(String name) {
+        endSubscriptionsUnder(name, SubscriptionEndings.dropped(name));
+        return removeName(name);
+    }
+
     /** Removes a name; returns true when none are left and the computation should be released. */
     synchronized boolean removeName(String name) {
         names.remove(name);
