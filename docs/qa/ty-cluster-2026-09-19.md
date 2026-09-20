@@ -357,9 +357,10 @@ precede the parser.
 Calcite with a custom `SqlOperatorTable` and cast checker:
 
 1. A Pravaha operator table composed over `SqlStdOperatorTable`, declaring the functions this engine
-   intends to refuse by name (`LTRIM`, `RTRIM`, `CONCAT`, and the rest of `SQL_SUPPORT.md`'s
-   "refused" rows) so that they validate and are then refused by `ExpressionCompiler` with its own
-   sentence.
+   intends to refuse by name (`LTRIM`, `RTRIM`, `CONCAT`, and the rest of the "refused" rows in
+   `CONTINUOUS_QUERIES.md` §11) so that they validate and are then refused by `ExpressionCompiler`
+   with its own sentence. Note that the finding cites `docs/SQL_SUPPORT.md` for that list; that
+   file no longer exists, and §11 is where the list lives now.
 2. Pravaha's own `ABS`/`ROUND`/`FLOOR`/`CEIL` operators with their own operand checkers, because the
    arity check belongs to the standard operator's `SqlOperandTypeChecker` and cannot be overridden
    without replacing the operator.
