@@ -11,6 +11,7 @@ lets a screenshot of a page be compared with yesterday's.
 from __future__ import annotations
 
 import dataclasses
+import re
 import sys
 import time
 
@@ -147,6 +148,21 @@ class FakeEngine:
         self.replacements_by_name: dict[str, dict] = {}
         #: Every replacement call the console made, as (action, name, argument).
         self.replacement_calls: list[tuple] = []
+        #: B9/ADR-048. The positions each query can still be forked from, newest first.
+        #: Fixed, because a screenshot of the fork form has to be the same one tomorrow.
+        self.checkpoints_by_query: dict[str, list[int]] = {"big_txn": [4471, 4470, 4469],
+                                                           "hot": [4471, 4470]}
+        #: Open debug sessions by id, as the engine's status reports them. Empty by default:
+        #: the screenshots are of a node debugging nothing, and a test that wants a session
+        #: calls :meth:`debug_fork`.
+        self.debug_sessions_by_id: dict[str, dict] = {}
+        #: What each fork is holding, beside the status: the plan's nodes, how far the replay
+        #: has been consumed, and the view it has built.
+        self._debug_forks: dict[str, dict] = {}
+        #: Every debug call the console made, as (verb, subject, argument).
+        self.debug_calls: list[tuple] = []
+        #: ``pravaha.debug.sessions.max``. Past it the engine refuses with PRV-8014.
+        self.debug_sessions_max = 4
         #: Whether the version history reaches the console. It comes from the engine's REST
         #: surface rather than the control wire (``Engine._replacement_history``), so a node
         #: with no ``engine.http_url``, or one whose HTTP surface refuses, has a replacement
@@ -601,6 +617,176 @@ class FakeEngine:
             found["state"] = "CAUGHT_UP"
         return found
 
+    # ------------------------------------------ the time-travel debugger (ADR-048, B9)
+    #
+    # A fork, answered from memory: the same plan's node ids as ``query_plan`` gives, a fixed
+    # replay read round-robin across two partitions in a fixed order, and an aggregate that
+    # holds groups where the plan has one. Fixed, because a screenshot of a stepped session
+    # has to be the same one tomorrow, and because "the same session twice gives the same
+    # answers" is the property ADR-048 3 arranges and a fake that drifted could not show.
+
+    def _session_or_refuse(self, session_id: str) -> dict:
+        found = self.debug_sessions_by_id.get(session_id)
+        if found is None:
+            raise EngineHttpError(
+                400, f"no debug session answers to '{session_id}': it was ended, or nobody "
+                     "touched it for long enough that this node released it", "PRV-8013")
+        return found
+
+    def debug_checkpoints(self, name):
+        self._check()
+        if name in self.administer_refused:
+            raise EngineHttpError(
+                403, f"console may not debug '{name}': {self.administer_refused[name]}",
+                "PRV-7002")
+        return list(self.checkpoints_by_query.get(name, []))
+
+    def debug_fork(self, name, checkpoint_id=None):
+        self._check()
+        if name in self.administer_refused:
+            raise EngineHttpError(
+                403, f"console may not debug '{name}': {self.administer_refused[name]}",
+                "PRV-7002")
+        held = list(self.checkpoints_by_query.get(name, []))
+        if not held:
+            raise EngineHttpError(
+                400, f"there is no checkpoint of '{name}' to fork a debug session from: this "
+                     "query has not taken one yet", "PRV-8011")
+        if checkpoint_id is not None and checkpoint_id not in held:
+            raise EngineHttpError(
+                400, f"checkpoint {checkpoint_id} of '{name}' has been pruned; this node still "
+                     f"holds {', '.join(str(c) for c in held)}", "PRV-8011")
+        if len(self.debug_sessions_by_id) >= self.debug_sessions_max:
+            raise EngineHttpError(
+                400, f"this node already holds {self.debug_sessions_max} debug sessions "
+                     f"({', '.join(self.debug_sessions_by_id)}); end one before forking another",
+                "PRV-8014")
+        query = next((q for q in self._queries if q.name == name), None)
+        if query is None:
+            raise EngineHttpError(404, f"no query is registered as '{name}'", "PRV-8003")
+        forks = sum(1 for call in self.debug_calls if call[0] == "fork")
+        session_id = "dbg-" + DEBUG_SESSION_IDS[forks % len(DEBUG_SESSION_IDS)]
+        self.debug_calls.append(("fork", name, checkpoint_id))
+        nodes = _shaped_plan(query.sql)["nodes"]
+        grouped = any(n["stateful"] for n in nodes)
+        made = {
+            "id": session_id, "query": name, "sql": query.sql,
+            "checkpointId": checkpoint_id if checkpoint_id is not None else held[0],
+            "owner": "console", "startedAt": "2026-09-19T09:00:00Z",
+            "lastUsedAt": "2026-09-19T09:00:00Z", "steps": 0, "rowsConsumed": 0,
+            "viewSize": 2, "watermarkNanos": None, "sinksDisabled": True, "streams": ["txn"],
+        }
+        self.debug_sessions_by_id[session_id] = made
+        # Everything the fork is holding, kept beside the status the console reads.
+        self._debug_forks[session_id] = {
+            "nodes": nodes, "grouped": grouped, "consumed": 0,
+            "groups": {"u1": 1, "u2": 1} if grouped else {},
+            "rows": [["1", "u1", "150"], ["2", "u2", "900"]] if not grouped else [],
+        }
+        return dict(made)
+
+    def debug_sessions(self):
+        self._check()
+        return [dict(s) for s in self.debug_sessions_by_id.values()
+                if s["query"] not in self.administer_refused]
+
+    def debug_session(self, session_id):
+        self._check()
+        found = self.debug_sessions_by_id.get(session_id)
+        return dict(found) if found is not None else None
+
+    def debug_step(self, session_id, step):
+        self._check()
+        session = self._session_or_refuse(session_id)
+        fork = self._debug_forks[session_id]
+        kind, count, watermark = _debug_request(step)
+        self.debug_calls.append(("step", session_id, step))
+        rows_in, changes = [], []
+        for _ in range(count):
+            if fork["consumed"] >= len(DEBUG_REPLAY):
+                break
+            stream, partition, offset, weight, at, values = DEBUG_REPLAY[fork["consumed"]]
+            fork["consumed"] += 1
+            rows_in.append({"stream": stream, "partition": partition, "offset": offset,
+                            "weight": weight, "eventTimeNanos": at, "values": list(values)})
+            changes.extend(_debug_apply(fork, values))
+        if watermark is not None:
+            session["watermarkNanos"] = watermark
+        session["steps"] += 1
+        session["rowsConsumed"] += len(rows_in)
+        session["viewSize"] = (len(fork["groups"]) if fork["grouped"] else len(fork["rows"]))
+        exhausted = fork["consumed"] >= len(DEBUG_REPLAY)
+        return {
+            "session": session_id, "sequence": session["steps"], "kind": kind,
+            "rowsIn": rows_in,
+            "operators": _debug_operator_flow(fork["nodes"], rows_in, len(changes)),
+            "viewChanges": changes,
+            "watermarkNanos": session["watermarkNanos"],
+            "rowsConsumed": session["rowsConsumed"], "viewSize": session["viewSize"],
+            "exhausted": exhausted,
+            "stopped": "the replay has no more rows" if exhausted else _DEBUG_STOPPED[kind],
+        }
+
+    def debug_state(self, session_id):
+        self._check()
+        self._session_or_refuse(session_id)
+        fork = self._debug_forks[session_id]
+        if not fork["grouped"]:
+            return []
+        return [{"id": "aggregate#0", "kind": "aggregate", "label": "groups",
+                 "entries": len(fork["groups"])}]
+
+    def debug_inspect(self, session_id, operator, key=None, offset=0, limit=50):
+        self._check()
+        self._session_or_refuse(session_id)
+        fork = self._debug_forks[session_id]
+        if not fork["grouped"] or operator != "aggregate#0":
+            raise EngineHttpError(
+                400, f"this fork holds no operator state called '{operator}'", "PRV-8015")
+        if limit < 1 or limit > 500:
+            raise EngineHttpError(
+                400, f"a page of {limit} entries is outside 1..500; an unbounded page of a "
+                     "join holding ten million rows takes the node down", "PRV-8015")
+        held = sorted(fork["groups"].items())
+        if key:
+            held = [pair for pair in held if pair[0] == key]
+        window = held[offset:offset + limit]
+        return {"id": operator, "kind": "aggregate", "key": key, "offset": offset,
+                "limit": limit, "total": len(held),
+                "hasMore": offset + len(window) < len(held),
+                "entries": [{"key": group, "values": {"n": str(count)}}
+                            for group, count in window]}
+
+    def debug_view(self, session_id):
+        self._check()
+        self._session_or_refuse(session_id)
+        fork = self._debug_forks[session_id]
+        if fork["grouped"]:
+            return [{"weight": 1, "values": [group, str(count)]}
+                    for group, count in sorted(fork["groups"].items())]
+        return [{"weight": 1, "values": list(row[:2])} for row in fork["rows"]]
+
+    def debug_export(self, session_id, name):
+        self._check()
+        session = self._session_or_refuse(session_id)
+        if not str(name).strip():
+            raise EngineHttpError(
+                400, "an exported fixture needs a name", "PRV-8015")
+        class_name = "".join(part[:1].upper() + part[1:]
+                             for part in re.findall(r"[A-Za-z0-9]+", name)) + "FixtureTest"
+        path = ("pravaha-it/src/test/java/com/ash/messaging/pravaha/it/fixtures/"
+                + class_name + ".java")
+        self.debug_calls.append(("fixture", session_id, name))
+        return {"className": class_name, "path": path, "source": FIXTURE_SOURCE.format(
+            class_name=class_name, sql=session["sql"], rows=session["rowsConsumed"])}
+
+    def debug_end(self, session_id):
+        self._check()
+        self._session_or_refuse(session_id)
+        self.debug_calls.append(("end", session_id, None))
+        self.debug_sessions_by_id.pop(session_id, None)
+        self._debug_forks.pop(session_id, None)
+
     def describe_view(self, name):
         self._check()
         detail = self.describe_query(name)
@@ -708,6 +894,117 @@ NOTE_OPERATORS_OFF = (
     "Per-operator numbers are not published on this node: pravaha.metrics.operators is off, so "
     "the counters were never built into this query's stages. Set it and re-register the query. "
     "The query's own totals are under 'query'.")
+
+
+#: B9/ADR-048. Session ids, handed out in order: a screenshot of a session has its id in it,
+#: and a random one would make every screenshot differ from yesterday's.
+DEBUG_SESSION_IDS = ["7f3a2b91c604", "5c1d8e40ab73", "2e90f5c1d884", "9b47ac02e15f"]
+
+#: What a fork replays, as (stream, partition, offset, weight, event time, values). Two
+#: partitions read round-robin in a fixed order, which is what the engine's replay does and
+#: what buys a session the property that stepping it twice gives the same answers.
+DEBUG_REPLAY = [
+    ("txn", 0, "8841", 1, 1740000000000000000, ["3", "u2", "900"]),
+    ("txn", 1, "8842", 1, 1740000001000000000, ["4", "u2", "40"]),
+    ("txn", 0, "8843", 1, 1740000002000000000, ["5", "u1", "260"]),
+    ("txn", 1, "8844", 1, 1740000003000000000, ["6", "u3", "1500"]),
+    ("txn", 0, "8845", 1, 1740000004000000000, ["7", "u1", "75"]),
+    ("txn", 1, "8846", 1, 1740000005000000000, ["8", "u3", "620"]),
+]
+
+#: Why each kind of step stopped, when it was not the replay running out.
+_DEBUG_STOPPED = {
+    "ROW": "one row, as asked",
+    "ROWS": "the count was reached",
+    "COMMIT": "the view changed",
+    "WATERMARK": "event time was advanced; no row was read",
+    "UNTIL": "the view satisfies the comparison",
+}
+
+FIXTURE_SOURCE = """\
+// Generated by the Pravaha time-travel debugger. What this asserts is the answer over the
+// rows below FROM EMPTY, not over the history that preceded the checkpoint the session was
+// forked from -- and it was produced by replaying them through an empty copy of the query.
+package com.ash.messaging.pravaha.it.fixtures;
+
+class {class_name} {{
+    private static final String SQL = "{sql}";
+    // {rows} rows, in the order the session consumed them.
+}}
+"""
+
+
+def _debug_request(step: str) -> tuple[str, int, int | None]:
+    """A step spec as (kind, how many rows to read, the watermark to set).
+
+    Refused by name, never guessed at: an unreadable step is PRV-8015, as the engine's own
+    parser answers it, rather than quietly meaning "one row".
+    """
+    asked = str(step or "").strip()
+    if asked == "row":
+        return "ROW", 1, None
+    if asked == "commit":
+        return "COMMIT", 1, None
+    if asked.startswith("rows:"):
+        count = asked[5:]
+        if not count.isdigit() or int(count) < 1:
+            raise EngineHttpError(400, f"'{asked}' asks for no rows", "PRV-8015")
+        return "ROWS", int(count), None
+    if asked.startswith("watermark:"):
+        nanos = asked[10:]
+        if not nanos.isdigit():
+            raise EngineHttpError(
+                400, f"'{asked}' is not a watermark; a watermark is nanoseconds since the "
+                     "epoch and it does not go backwards", "PRV-8015")
+        return "WATERMARK", 0, int(nanos)
+    if asked.startswith("until:"):
+        parts = asked.split(":")
+        if len(parts) != 4 or parts[2] not in ("=", "!=", "<", "<=", ">", ">="):
+            raise EngineHttpError(
+                400, f"'{asked}' is not a comparison; it is until:<column>:<op>:<value> with "
+                     "one of = != < <= > >=", "PRV-8015")
+        return "UNTIL", 3, None
+    raise EngineHttpError(
+        400, f"'{asked}' is not a step; it is row, rows:N, commit, watermark:<nanos> or "
+             "until:<column>:<op>:<value>", "PRV-8015")
+
+
+def _debug_apply(fork: dict, values: list) -> list[dict]:
+    """One replayed row through the fork's view, as the changes it made with their weights."""
+    if fork["grouped"]:
+        group = values[1]
+        before = fork["groups"].get(group)
+        after = (before or 0) + 1
+        fork["groups"][group] = after
+        changes = [] if before is None else [{"weight": -1, "values": [group, str(before)]}]
+        return changes + [{"weight": 1, "values": [group, str(after)]}]
+    # The stateless plan is Scan -> Filter(amount > 100) -> Project: a row the filter rejects
+    # reaches the view as nothing at all, which is exactly the case a view alone cannot
+    # explain and the operator lines can.
+    if int(values[2]) <= 100:
+        return []
+    fork["rows"].append(list(values))
+    return [{"weight": 1, "values": list(values[:2])}]
+
+
+def _debug_operator_flow(nodes: list[dict], rows_in: list[dict], changes: int) -> list[dict]:
+    """Rows in and out per plan node, root first, keyed by the plan's own node ids.
+
+    The same ids ``query_plan`` publishes its per-operator numbers under (ADR-048 4a), so a
+    step and the plan graph cannot show an operator two answers. The numbers are the whole
+    point of the panel: a filter that rejected the row reads ``in=1 out=0`` and an aggregate
+    that restated a group reads ``in=1 out=2``, and from the view alone they look the same.
+    """
+    read = len(rows_in)
+    kept = sum(1 for row in rows_in if int(row["values"][2]) > 100)
+    flow, carried = [], read
+    for node in reversed(nodes):  # leaf first: the scan is what sees them all
+        rows_out = {"Filter": kept, "Aggregate": changes}.get(node["operator"], carried)
+        flow.append({"id": node["id"], "kind": node["operator"].lower(),
+                     "label": node["detail"], "rowsIn": carried, "rowsOut": rows_out})
+        carried = rows_out
+    # Reported root first, as the plan lists its nodes and as the CLI prints them.
+    return list(reversed(flow))
 
 
 PLAN_GRAPH = {

@@ -652,6 +652,31 @@
       "history_reading": "still reading",
       "paused": "paused",
       "running": "reading"
+    },
+    "debug": {
+      "stepping": "Stepping…",
+      "step": "step {n} · {kind}",
+      "rows_in": "Rows in ({n})",
+      "no_rows": "No row entered: this step moved event time rather than the input.",
+      "operators": "Operator by operator",
+      "node": "Node",
+      "operator": "Operator",
+      "in": "In",
+      "out": "Out",
+      "changes": "Changes to the view ({n})",
+      "no_changes": "The view did not change.",
+      "weight": "Weight",
+      "stream": "Stream",
+      "position": "Position",
+      "event_time": "Event time",
+      "values": "Values",
+      "no_watermark": "none",
+      "tail": "{rows} rows consumed in all · the view holds {view} rows · watermark {watermark}",
+      "steps": "steps {n}",
+      "rows": "rows consumed {n}",
+      "view_size": "view size {n}",
+      "watermark": "watermark {n}",
+      "reread": "The operator state and the fork's view below are as they were when this page loaded. Reload to read them at the position you have stepped to."
     }
   },
   "admin": {
@@ -1000,7 +1025,8 @@
     "tail_empty": "No change has been committed since this page opened. Each one the view commits appears here, newest last.",
     "detail_missing": "The engine's description of this query did not load ({error}), so its keys, retention, sink and the streams it reads are not shown.",
     "dead_letters": "Dead letters",
-    "replacement": "Replacement"
+    "replacement": "Replacement",
+    "debug": "Debug"
   },
   "refused": {
     "title": "Refused",
@@ -1742,7 +1768,8 @@
       "drop": "asks for the name",
       "stream": "stream · {n} columns",
       "dead_letters": "records it could not decode",
-      "replacement": "Backfill, cutover and rollback"
+      "replacement": "Backfill, cutover and rollback",
+      "debug": "fork it from a checkpoint and step it"
     },
     "action": {
       "new_query": "New query in the workbench",
@@ -1758,7 +1785,8 @@
     },
     "query": {
       "dead_letters": "Dead letters of {name}",
-      "replacement": "{name} — replacement"
+      "replacement": "{name} — replacement",
+      "debug": "{name} — debug"
     }
   },
   "api": {
@@ -1945,6 +1973,148 @@
       "rate": "Rate ceiling",
       "rate_help": "Records a second. Blank for none. It can be lowered later and never raised above this.",
       "button": "Start the replacement"
+    }
+  },
+  "debug": {
+    "title": "Debugging {name}",
+    "back": "back to {name}",
+    "kicker": "Time-travel debugger",
+    "heading": "Debugging {name}",
+    "refused_title": "This identity may not debug this query",
+    "refused_body": "A fork shows the query's SQL, the rows going into it and what every operator is holding, which is more than reading its view shows and more than reading its plan shows. So it takes the same permission dropping the query takes, and the engine says: {reason}",
+    "refused_access": "What this console is allowed to do",
+    "none": {
+      "title": "{name} is not being debugged",
+      "body": "A debug session runs this query a second time under inspection. It starts from one of the checkpoints this node still retains, so it begins with the state the query actually had, and it reads the same sources from the positions that checkpoint recorded — the same rows, in order, from that moment on. You drive it: one row, ten rows, on to the next commit, on to a watermark, or on until a column of the view crosses a value."
+    },
+    "absence": {
+      "sink": "No sink is attached. A sink is opened for a registration, and a fork is not one, so there is nothing to switch off and nothing to leave on.",
+      "view": "Nothing can read the fork's view. It is named for the session and never put in the catalogue, so no name resolves to it and no subscription reaches it.",
+      "lanes": "Its lanes are its own. A fork never joins a shared lane, even where the live query is on one — so the query it forked from goes on as it was."
+    },
+    "checkpoints": {
+      "heading": "Where a fork can start",
+      "none_title": "There is no checkpoint of {name} to fork from",
+      "none_body": "Three different things read the same from here — this node does not checkpoint at all, this query has not taken one yet, and every one it took has been pruned — so nothing here guesses between them. Ask for a fork and the engine tells them apart by name (PRV-8011).",
+      "none_help": "How checkpointing is configured"
+    },
+    "fork": {
+      "button": "Fork it",
+      "note": "Positions this node still retains: {n}. A fork is a whole second copy of the query — its lanes, its arena, its operator state and a reader per partition — so a node holds only a few at once and releases one nobody has touched.",
+      "checkpoint": "Start from",
+      "newest": "the newest this node still retains",
+      "checkpoint_help": "Leaving this alone asks the engine for the newest one at the moment you press the button, which is not necessarily the newest one on this list: a node prunes while a page is open."
+    },
+    "open": {
+      "heading": "Sessions already open on this query",
+      "note": "Each is a second copy of the query, held until somebody ends it or the node's own timeout releases it.",
+      "entry": "from checkpoint {checkpoint} · steps {steps} · rows consumed {rows} · last touched {at}"
+    },
+    "gone": {
+      "title": "That session is over",
+      "body": "The engine knows no session {id}. It was ended, or nobody touched it for long enough that the node released it — a session holds a whole second copy of the query, so it is not kept indefinitely.",
+      "start": "Fork another one"
+    },
+    "banner": {
+      "badge": "DEBUG",
+      "body": "Sinks are disabled, and not by a setting: this fork never opened one. Nothing outside it can read its view, and the query it forked from is running untouched — if that query looks wrong, this session is not why."
+    },
+    "chip": {
+      "id_title": "The session's id. It is in this page's address, so a link to it reaches the same session.",
+      "checkpoint": "checkpoint {id}",
+      "steps": "steps {n}",
+      "rows": "rows consumed {n}",
+      "view_size": "view size {n}",
+      "watermark": "watermark {n}",
+      "no_watermark": "no watermark yet",
+      "owner": "forked by {who}",
+      "last_used": "last touched {at}"
+    },
+    "query": {
+      "heading": "What the fork is running",
+      "streams": "Reading: {streams}"
+    },
+    "step": {
+      "heading": "Step",
+      "row": "One row",
+      "ten": "Ten rows",
+      "commit": "To the next commit",
+      "spec": "Or say how far",
+      "go": "Step",
+      "spec_help": "row · rows:N · commit · watermark:<nanos> · until:<column>:<op>:<value>. A breakpoint is one column of the view against one value, with = != < <= > >=, and nothing more: a second expression language that is nearly SQL's would disagree with SQL somewhere, in the one tool you opened because you already had a wrong answer."
+    },
+    "report": {
+      "heading": "What each step did",
+      "nothing_yet": "Nothing has been stepped yet. Each step answers four questions at once: what came in, what every operator did with it, what the view did, and where event time now stands.",
+      "step": "step {n} · {kind}",
+      "rows_in": "Rows in ({n})",
+      "no_rows": "No row entered: this step moved event time rather than the input.",
+      "operators": "Operator by operator",
+      "node": "Node",
+      "operator": "Operator",
+      "in": "In",
+      "out": "Out",
+      "changes": "Changes to the view ({n})",
+      "no_changes": "The view did not change.",
+      "weight": "Weight",
+      "stream": "Stream",
+      "position": "Position",
+      "event_time": "Event time",
+      "values": "Values",
+      "no_watermark": "none",
+      "tail": "{rows} rows consumed in all · the view holds {view} rows · watermark {watermark}"
+    },
+    "state": {
+      "heading": "What the operators are holding",
+      "operator": "Operator",
+      "kind": "Kind",
+      "what": "What",
+      "entries": "Entries",
+      "read": "Read it",
+      "note": "Reading changes nothing: a join's index is walked without evicting from it, an aggregate is read without emitting it, and the read happens on the lane that owns the memory rather than beside it.",
+      "none_title": "This fork holds no operator state",
+      "none_body": "A plan of scans, filters and projections keeps nothing between rows. State appears here when the plan has an aggregate, a join or a window."
+    },
+    "page": {
+      "heading": "Inside {operator}",
+      "key": "One key",
+      "go": "Show",
+      "key_help": "Leave it empty for the page as the walk finds it. A page is bounded on the way in as well as out, because an unbounded page of a join holding ten million rows takes the node down.",
+      "key_column": "Key",
+      "held": "Held",
+      "count": "{shown} of {total}",
+      "more": "The next page",
+      "first": "Back to the first page",
+      "no_key": "This operator is holding nothing under {value}.",
+      "empty_title": "{operator} is holding nothing",
+      "empty_body": "It has state to hold and has not been given anything to hold yet.",
+      "windows": "A windowed aggregate shows the windows it has fired and is still retaining, not the ones still filling. The only way to read an open window's answer is to fire it, and a debugger that published a window early would have changed the query it was asked about."
+    },
+    "view": {
+      "heading": "The fork's view",
+      "note": "Its weights are Z-set weights: an update is the old row withdrawn at −1 and the new one inserted at +1, which is why one arriving row makes two changes.",
+      "none_title": "The fork's view is empty",
+      "none_body": "The checkpoint this session started from held no rows for this view, and nothing stepped so far has added one."
+    },
+    "fixture": {
+      "heading": "Export it as a test",
+      "note": "The session becomes a JUnit fixture: the schema of every stream the query reads, its SQL and key columns, the rows this session consumed in order with their weights and event times, the watermarks it pushed, and the view to expect. It needs nothing from this node and goes on working when the state format changes.",
+      "name": "Name it after what it reproduces",
+      "name_help": "It becomes the test class's name, so “user 42 goes negative” becomes User42GoesNegativeFixtureTest.",
+      "button": "Export",
+      "expectation": "What it asserts is the answer over those rows from empty, not over the history before the checkpoint — and the number in it was produced at export time by running the script through an empty copy of the query, rather than copied from this fork and hoped for. Copy the file into the repository at the path above; nothing was written to disk here."
+    },
+    "end": {
+      "heading": "End the session",
+      "button": "End this session",
+      "note": "Releases the second copy of the query. Nothing read it and nothing wrote, so there is nothing to undo."
+    },
+    "done": {
+      "fork": "Forked. Session {id} is yours to step.",
+      "end": "Session {id} is over and its copy of the query is released."
+    },
+    "error": {
+      "checkpoint": "“{checkpoint}” is not a checkpoint id; a checkpoint id is a whole number, and leaving it alone asks for the newest one this node still retains."
     }
   }
 }

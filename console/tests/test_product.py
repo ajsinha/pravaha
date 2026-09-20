@@ -1318,6 +1318,244 @@ def test_an_engine_that_does_not_answer_is_the_screens_error_state(signed_in, en
     assert "correlation" in page.text
 
 
+# ============================================================ the time-travel debugger (23.9)
+
+
+def _forked(signed_in, name: str = "big_txn", checkpoint: str = "4471") -> str:
+    """Forks ``name`` the way the screen does, and returns the session id from the redirect."""
+    answer = signed_in.post(f"/queries/{name}/debug/fork", data={"checkpoint": checkpoint},
+                            follow_redirects=False)
+    assert answer.status_code == 303, answer.text[:400]
+    return answer.headers["location"].split("session=")[1].split("&")[0]
+
+
+def test_a_query_nothing_is_debugging_says_what_a_fork_is_and_what_it_cannot_touch(signed_in):
+    """Never had data (23.12). The three absences are the feature, so they are on the screen
+    rather than in the documentation: no sink, no reader, no shared lane."""
+    page = signed_in.get("/queries/big_txn/debug")
+    assert page.status_code == 200
+    assert 'id="dbg-none"' in page.text
+    for absence in ("No sink is attached", "Nothing can read the fork",
+                    "Its lanes are its own"):
+        assert absence in page.text, absence
+    # And the positions it could start from, newest first, as the engine listed them.
+    assert 'id="dbg-fork-form"' in page.text
+    assert page.text.index("4471") < page.text.index("4469")
+
+
+def test_a_node_with_no_checkpoint_of_this_query_does_not_guess_which_reason(signed_in, engine):
+    """Three different things read the same from the list -- this node does not checkpoint,
+    this query has not taken one, every one has been pruned -- and the screen says so rather
+    than picking one. The engine tells them apart when a fork is asked for (PRV-8011)."""
+    engine.checkpoints_by_query.pop("big_txn")
+    page = signed_in.get("/queries/big_txn/debug").text
+    assert 'id="dbg-no-checkpoints"' in page
+    assert 'id="dbg-fork-form"' not in page
+    refused = signed_in.post("/queries/big_txn/debug/fork", data={"checkpoint": ""},
+                             follow_redirects=False)
+    assert "PRV-8011" in refused.headers["location"]
+
+
+def test_forking_redirects_so_a_refresh_does_not_fork_twice(signed_in, engine):
+    """A fork is a whole second copy of the query, so repeating one is not free -- unlike a
+    step, which nothing outside the fork can feel."""
+    session = _forked(signed_in)
+    assert ("fork", "big_txn", 4471) in engine.debug_calls
+    page = signed_in.get(f"/queries/big_txn/debug?session={session}").text
+    assert 'id="dbg-app"' in page
+    assert session in page
+    # Said permanently, and from the engine's own answer rather than from the template.
+    assert 'id="dbg-banner"' in page and "Sinks are disabled" in page
+
+
+def test_a_checkpoint_id_that_is_not_a_number_is_refused_by_name(signed_in, engine):
+    refused = signed_in.post("/queries/big_txn/debug/fork", data={"checkpoint": "newest"},
+                             follow_redirects=False)
+    assert "action_error" in refused.headers["location"]
+    assert "not+a+checkpoint+id" in refused.headers["location"].replace("%20", "+")
+    assert not engine.debug_calls
+
+
+def test_a_step_answers_with_its_report_rather_than_redirecting(signed_in):
+    """The one POST on this console that does not redirect: the report is the answer, and the
+    engine has no call that hands back a step it has already taken. Repeating it is the
+    cheapest mistake on the screen -- nothing outside the fork can be reached by it."""
+    session = _forked(signed_in)
+    page = signed_in.post("/queries/big_txn/debug/step",
+                          data={"session": session, "step": "row"})
+    assert page.status_code == 200
+    assert 'id="dbg-report"' in page.text
+    # Four answers at once: what came in, what each operator did, what the view did, the time.
+    assert "8841" in page.text and "u2" in page.text
+    assert "Filter(amount &gt; 100)" in page.text
+    assert "rows consumed in all" in page.text
+
+
+def test_the_operator_lines_tell_apart_a_rejected_row_and_a_row_that_passed(signed_in):
+    """The part a view alone cannot give. The second replayed row is 40, which the filter
+    rejects: the view does not move, and only the operator numbers say why."""
+    session = _forked(signed_in)
+    signed_in.post("/queries/big_txn/debug/step", data={"session": session, "step": "row"})
+    page = signed_in.post("/queries/big_txn/debug/step",
+                          data={"session": session, "step": "row"}).text
+    operators = page.split('class="table table-sm small mb-3 dbg-operators"', 1)[1].split("</table>", 1)[0]
+    assert ">n2<" in operators and ">n1<" in operators and ">n0<" in operators
+    # Scan 1 in / 1 out, Filter 1 in / 0 out, Project 0 in / 0 out.
+    assert operators.count(">0<") == 3, operators
+    assert "The view did not change." in page
+
+
+def test_a_step_the_engine_cannot_read_is_refused_by_name_with_its_code(signed_in):
+    """No second parser in the console: the spec is sent as typed, and PRV-8015 comes back."""
+    session = _forked(signed_in)
+    page = signed_in.post("/queries/big_txn/debug/step",
+                          data={"session": session, "step": "until:total"})
+    assert 'id="dbg-action-error"' in page.text
+    assert "PRV-8015" in page.text
+    assert '/help/codes/PRV-8015' in page.text
+
+
+def test_an_empty_step_is_refused_before_the_engine_is_asked(signed_in, engine):
+    """The console's own refusal, because an empty box would otherwise mean "one row" by
+    accident -- which is a step somebody did not ask for."""
+    session = _forked(signed_in)
+    before = list(engine.debug_calls)
+    page = signed_in.post("/queries/big_txn/debug/step", data={"session": session, "step": ""})
+    assert "a step has to say how far" in page.text
+    assert engine.debug_calls == before
+
+
+def test_the_operator_state_is_paged_and_a_key_narrows_it(signed_in):
+    """Bounded on the way in as well as out. 'hot' is the GROUP BY, so it is the fork with
+    state: a plan of scans, filters and projections keeps nothing between rows."""
+    session = _forked(signed_in, "hot", "4471")
+    page = signed_in.get(f"/queries/hot/debug?session={session}").text
+    assert "aggregate#0" in page and 'id="dbg-slots"' in page
+    page = signed_in.get(f"/queries/hot/debug?session={session}&operator=aggregate%230").text
+    assert 'id="dbg-state-page"' in page and "u1" in page and "u2" in page
+    page = signed_in.get(
+        f"/queries/hot/debug?session={session}&operator=aggregate%230&key=u2").text
+    assert "u1" not in page.split('id="dbg-state-page"', 1)[1].split("</table>", 1)[0]
+    page = signed_in.get(
+        f"/queries/hot/debug?session={session}&operator=aggregate%230&key=nobody").text
+    assert 'id="dbg-page-filtered"' in page
+
+
+def test_a_stateless_plan_says_it_holds_nothing_rather_than_drawing_an_empty_table(signed_in):
+    session = _forked(signed_in)
+    page = signed_in.get(f"/queries/big_txn/debug?session={session}").text
+    assert 'id="dbg-no-slots"' in page
+    assert "keeps nothing between rows" in page
+
+
+def test_the_fixture_is_shown_rather_than_written_anywhere(signed_in, engine):
+    """The generated file belongs in the repository this engine is built from, not on the
+    machine the browser happens to be on, so the console writes nothing and shows the source
+    with the path it belongs at."""
+    session = _forked(signed_in)
+    signed_in.post("/queries/big_txn/debug/step", data={"session": session, "step": "rows:3"})
+    page = signed_in.post("/queries/big_txn/debug/fixture",
+                          data={"session": session, "fixture": "user 42 goes negative"}).text
+    assert "User42GoesNegativeFixtureTest" in page
+    assert "pravaha-it/src/test/java/com/ash/messaging/pravaha/it/fixtures/" in page
+    # And what it asserts is said on the screen, not left to be discovered in the file.
+    assert "the answer over those rows from empty" in page
+    assert ("fixture", session, "user 42 goes negative") in engine.debug_calls
+
+
+def test_a_fixture_with_no_name_is_refused_before_the_engine_is_asked(signed_in):
+    session = _forked(signed_in)
+    page = signed_in.post("/queries/big_txn/debug/fixture",
+                          data={"session": session, "fixture": "  "}).text
+    assert "an exported fixture needs a name" in page
+
+
+def test_ending_a_session_releases_it_and_the_screen_says_the_session_is_over(signed_in, engine):
+    session = _forked(signed_in)
+    ended = signed_in.post("/queries/big_txn/debug/end", data={"session": session},
+                           follow_redirects=False)
+    assert ended.status_code == 303
+    assert ("end", session, None) in engine.debug_calls
+    page = signed_in.get(f"/queries/big_txn/debug?session={session}").text
+    assert 'id="dbg-gone"' in page
+    assert 'id="dbg-app"' not in page
+
+
+def test_a_node_holding_as_many_sessions_as_it_allows_refuses_the_next(signed_in, engine):
+    engine.debug_sessions_max = 1
+    _forked(signed_in)
+    refused = signed_in.post("/queries/hot/debug/fork", data={"checkpoint": ""},
+                             follow_redirects=False)
+    assert "PRV-8014" in refused.headers["location"]
+
+
+def test_a_reader_sees_the_debugger_with_its_control_disabled_and_the_reason(signed_in, engine):
+    """Unauthorized (23.12, 23.16). A fork shows the SQL, the input rows and the operator
+    state, so reading a session takes the administer permission too -- and a refused identity
+    is not even shown the checkpoint list, because the engine would refuse that as well."""
+    engine.administer_refused["big_txn"] = "administering 'big_txn' needs one of the roles [ops]"
+    page = signed_in.get("/queries/big_txn/debug")
+    assert page.status_code == 200
+    assert 'id="dbg-refused"' in page.text
+    assert "needs one of the roles [ops]" in page.text
+    button = page.text.split('id="dbg-fork"', 1)[1].split(">", 1)[0]
+    assert "disabled" in button and 'aria-describedby="dbg-refused"' in button
+    assert "4471" not in page.text
+
+
+def test_the_palette_does_not_offer_a_debugger_the_policy_would_refuse(signed_in, engine):
+    engine.administer_refused["hot"] = "administering 'hot' needs one of the roles [ops]"
+    items = signed_in.get("/api/v1/palette").json()["items"]
+    titles = [i["title"] for i in items]
+    assert "big_txn — debug" in titles
+    assert "hot — debug" not in titles
+
+
+def test_an_engine_that_does_not_answer_the_checkpoints_is_the_screens_error_state(signed_in, engine):
+    engine.fail("debug_checkpoints")
+    page = signed_in.get("/queries/big_txn/debug")
+    assert page.status_code == 200 and 'id="dbg-checkpoints-error"' in page.text
+    assert "correlation" in page.text
+
+
+def test_the_debug_json_api_mirrors_the_engines_own_paths(signed_in, engine):
+    """The console is a client of the published API (ADR-033), and a second spelling of the
+    same call is a second thing to keep in step."""
+    assert signed_in.get("/api/v1/queries/big_txn/debug/checkpoints").json() == {
+        "query": "big_txn", "checkpoints": [4471, 4470, 4469]}
+    session = signed_in.post("/api/v1/queries/big_txn/debug", json={"checkpointId": 4470}).json()
+    assert session["checkpointId"] == 4470 and session["sinksDisabled"] is True
+    assert session["streams"] == ["txn"]
+    sid = session["id"]
+    assert [s["id"] for s in signed_in.get("/api/v1/debug/sessions").json()["items"]] == [sid]
+    assert signed_in.get(f"/api/v1/debug/sessions/{sid}").json()["session"]["id"] == sid
+    step = signed_in.post(f"/api/v1/debug/sessions/{sid}/step", json={"step": "row"}).json()
+    assert step["sequence"] == 1 and step["kind"] == "ROW"
+    assert [op["id"] for op in step["operators"]] == ["n0", "n1", "n2"]
+    assert signed_in.get(f"/api/v1/debug/sessions/{sid}/state").json() == {"slots": []}
+    assert signed_in.get(f"/api/v1/debug/sessions/{sid}/view").json()["changes"][0]["weight"] == 1
+    made = signed_in.post(f"/api/v1/debug/sessions/{sid}/fixture", json={"name": "a wrong row"}).json()
+    assert made["className"] == "AWrongRowFixtureTest"
+    assert signed_in.delete(f"/api/v1/debug/sessions/{sid}").json()["ended"] is True
+    assert signed_in.get(f"/api/v1/debug/sessions/{sid}").json() == {"session": None}
+
+
+def test_the_state_page_keeps_the_key_beside_the_columns_rather_than_merged_into_them(signed_in):
+    """The engine's REST answer merges the entry's key into the columns under "key", so an
+    operator holding a column of its own by that name loses one of the two. A state page is
+    read literally, so the console keeps them apart."""
+    session = signed_in.post("/api/v1/queries/hot/debug", json={}).json()["id"]
+    page = signed_in.get(
+        f"/api/v1/debug/sessions/{session}/state/aggregate%230").json()
+    assert page["entries"][0] == {"key": "u1", "values": {"n": "1"}}
+    assert page["hasMore"] is False and page["total"] == 2
+
+
+def test_the_debug_api_is_gated_like_the_screens(anonymous):
+    for path in ("/api/v1/queries/big_txn/debug/checkpoints", "/api/v1/debug/sessions"):
+        assert anonymous.get(path).status_code == 401, path
+
+
 # ============================================================ backpressure and operators (B6)
 
 def test_the_dashboard_draws_the_lane_backpressure_the_engine_now_publishes(signed_in):

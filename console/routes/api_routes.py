@@ -20,6 +20,7 @@ import anyio
 from fastapi import Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from core.services import ServiceError
 from routes.auth_routes import current_user
 from routes.base import Routes, sign_in_first
 
@@ -27,6 +28,25 @@ logger = logging.getLogger(__name__)
 
 def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
+
+
+async def _json_body(request: Request) -> dict:
+    """The request's JSON object, or an empty one: a body that is not an object carries no
+    fields, and reading a field off it is the caller's mistake, reported where it is made."""
+    try:
+        body = await request.json()
+    except (ValueError, UnicodeDecodeError):
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+def _refuse_checkpoint(asked: object):
+    """A checkpoint id the console cannot even send: refused by name, never rounded."""
+    def refuse():
+        raise ServiceError(
+            f"'{asked}' is not a checkpoint id; a checkpoint id is a whole number, and "
+            "leaving it out asks for the newest one this node still retains", status=400)
+    return refuse
 
 
 class ApiRoutes(Routes):
@@ -124,6 +144,114 @@ class ApiRoutes(Routes):
             return StreamingResponse(events(), media_type="text/event-stream",
                                      headers={"Cache-Control": "no-cache",
                                               "X-Accel-Buffering": "no"})
+
+        # -------------------------------------- the time-travel debugger (ADR-048, 23.9)
+        #
+        # The engine's own paths, one for one, because the console is a client of the
+        # published API and a second spelling of the same call is a second thing to keep in
+        # step. Request/response throughout: design 23.11 reserves a WebSocket for the
+        # debugger and ADR-048 did not build it, because a step is asked for and answered
+        # and nothing arrives that was not asked for.
+
+        @self.app.get(f"{api}/queries/{{name}}/debug/checkpoints", tags=["api"])
+        def debug_checkpoints(request: Request, name: str):
+            """The positions a fork of this query could still start from, newest first."""
+            if (refusal := _signed_in(request)) is not None:
+                return refusal
+            return self.json_guard(
+                lambda: {"query": name, "checkpoints": services.debug.checkpoints(name)},
+                request=request)
+
+        @self.app.post(f"{api}/queries/{{name}}/debug", tags=["api"])
+        async def debug_fork(request: Request, name: str):
+            """Forks the query into a second computation nothing can read.
+
+            No ``checkpointId`` means the newest retained one, and that choice is the
+            engine's: a node prunes between the list being drawn and the button being
+            pressed, so a console that pinned the id it happened to show would be asking
+            for a position that has gone.
+            """
+            if (refusal := _signed_in(request)) is not None:
+                return refusal
+            body = await _json_body(request)
+            asked = body.get("checkpointId")
+            try:
+                checkpoint = None if asked in (None, "") else int(asked)
+            except (TypeError, ValueError):
+                return self.json_guard(_refuse_checkpoint(asked), request=request)
+            logger.info("%s forked '%s' into a debug session", current_user(request), name)
+            return self.json_guard(lambda: services.debug.fork(name, checkpoint),
+                                   request=request)
+
+        @self.app.get(f"{api}/debug/sessions", tags=["api"])
+        def debug_sessions(request: Request):
+            if (refusal := _signed_in(request)) is not None:
+                return refusal
+            return self.json_guard(lambda: {"items": services.debug.sessions()},
+                                   request=request)
+
+        @self.app.get(f"{api}/debug/sessions/{{session_id}}", tags=["api"])
+        def debug_session(request: Request, session_id: str):
+            """One session, or ``{"session": null}`` -- ended or expired is a fact, not a 404."""
+            if (refusal := _signed_in(request)) is not None:
+                return refusal
+            return self.json_guard(lambda: {"session": services.debug.session(session_id)},
+                                   request=request)
+
+        @self.app.post(f"{api}/debug/sessions/{{session_id}}/step", tags=["api"])
+        async def debug_step(request: Request, session_id: str):
+            """One step, and everything it did: rows in, every operator, the view, the time."""
+            if (refusal := _signed_in(request)) is not None:
+                return refusal
+            body = await _json_body(request)
+            return self.json_guard(
+                lambda: services.debug.step(session_id, str(body.get("step") or "")),
+                request=request)
+
+        @self.app.get(f"{api}/debug/sessions/{{session_id}}/state", tags=["api"])
+        def debug_state(request: Request, session_id: str):
+            if (refusal := _signed_in(request)) is not None:
+                return refusal
+            return self.json_guard(lambda: {"slots": services.debug.state(session_id)},
+                                   request=request)
+
+        @self.app.get(f"{api}/debug/sessions/{{session_id}}/state/{{operator}}", tags=["api"])
+        def debug_inspect(request: Request, session_id: str, operator: str,
+                          key: str = "", offset: int = 0, limit: int = 50):
+            """A page of one operator's state. The engine refuses a page above its ceiling."""
+            if (refusal := _signed_in(request)) is not None:
+                return refusal
+            return self.json_guard(
+                lambda: services.debug.inspect(session_id, operator, key=key or None,
+                                               offset=offset, limit=limit),
+                request=request)
+
+        @self.app.get(f"{api}/debug/sessions/{{session_id}}/view", tags=["api"])
+        def debug_view(request: Request, session_id: str):
+            if (refusal := _signed_in(request)) is not None:
+                return refusal
+            return self.json_guard(lambda: {"changes": services.debug.view(session_id)},
+                                   request=request)
+
+        @self.app.post(f"{api}/debug/sessions/{{session_id}}/fixture", tags=["api"])
+        async def debug_fixture(request: Request, session_id: str):
+            """The session as a JUnit fixture: class name, where it belongs, and its source."""
+            if (refusal := _signed_in(request)) is not None:
+                return refusal
+            body = await _json_body(request)
+            return self.json_guard(
+                lambda: services.debug.export(session_id, str(body.get("name") or "")),
+                request=request)
+
+        @self.app.delete(f"{api}/debug/sessions/{{session_id}}", tags=["api"])
+        def debug_end(request: Request, session_id: str):
+            if (refusal := _signed_in(request)) is not None:
+                return refusal
+
+            def release():
+                services.debug.end(session_id)
+                return {"session": session_id, "ended": True}
+            return self.json_guard(release, request=request)
 
         @self.app.post(f"{api}/queries", tags=["api"], status_code=201)
         async def register(request: Request):

@@ -1353,6 +1353,128 @@ class ReplacementService:
             raise _refusal(exc) from exc
 
 
+class DebugService:
+    """The time-travel debugger (ADR-048, design 23.9).
+
+    Thin, and thinner than most, because a debug session is the one place where a console
+    that helped would be dangerous. The engine decides what a step means, what a predicate
+    may compare, how big a page may be and how many rows a session may consume; every one of
+    those has a refusal with a code (PRV-8011 to PRV-8016), and every one of them is
+    forwarded here as the engine worded it. A console that pre-parsed ``until:total:<:0``
+    would be a second parser of a syntax that has one, and the place it disagreed would be
+    the one tool somebody opened because they already had a wrong answer.
+
+    What this does do is refuse the two things the *console* got wrong before the engine ever
+    sees them: an empty step, which would otherwise mean "row" by accident, and a fixture
+    with no name, which the engine refuses too but not before a round trip.
+
+    Nothing is cached and no session is held here. The session id is in the URL, the engine
+    owns the session, and a console that kept a copy would be a second answer to "what has
+    this fork consumed" that could disagree with the first.
+    """
+
+    #: What the engine's ``StatePage`` will build. Sent as it is typed; the engine refuses a
+    #: page above its own ceiling with PRV-8015, and the console does not clamp it quietly.
+    DEFAULT_PAGE = 50
+
+    def __init__(self, engine: Engine) -> None:
+        self._engine = engine
+
+    def checkpoints(self, name: str) -> list[int]:
+        """The positions a fork of ``name`` could start from, newest first."""
+        try:
+            return list(self._engine.debug_checkpoints(name))
+        except Exception as exc:
+            raise _refusal(exc, 503) from exc
+
+    def fork(self, name: str, checkpoint_id: int | None = None) -> dict:
+        """Starts a session: a second computation of ``name``, on lanes of its own."""
+        try:
+            return self._engine.debug_fork(name, checkpoint_id)
+        except Exception as exc:
+            raise _refusal(exc) from exc
+
+    def sessions(self) -> list[dict]:
+        try:
+            return list(self._engine.debug_sessions())
+        except Exception as exc:
+            raise _refusal(exc, 503) from exc
+
+    #: What the engine answers when a session has ended or its TTL has released it.
+    NO_SUCH_SESSION = "PRV-8013"
+
+    def session(self, session_id: str) -> dict | None:
+        """One session, or ``None`` when the engine knows no such id.
+
+        The engine says "no such session" two ways depending on which surface answered --
+        an empty answer, or PRV-8013 -- and both mean the same thing: it was ended, or
+        nobody touched it for long enough that the node released it. Translated by the
+        code, never by guessing at a status: every other refusal is raised as it arrived,
+        and the screen shows it with its code.
+        """
+        try:
+            return self._engine.debug_session(session_id)
+        except Exception as exc:
+            refusal = _refusal(exc)
+            if refusal.code == self.NO_SUCH_SESSION:
+                return None
+            raise refusal from exc
+
+    def step(self, session_id: str, step: str) -> dict:
+        """Advances the fork. ``step`` is the engine's own spelling, sent unparsed."""
+        asked = str(step or "").strip()
+        if not asked:
+            raise ServiceError(
+                "a step has to say how far: row, rows:N, commit, watermark:<nanos> or "
+                "until:<column>:<op>:<value>", status=400)
+        try:
+            return self._engine.debug_step(session_id, asked)
+        except Exception as exc:
+            raise _refusal(exc) from exc
+
+    def state(self, session_id: str) -> list[dict]:
+        try:
+            return list(self._engine.debug_state(session_id))
+        except Exception as exc:
+            raise _refusal(exc) from exc
+
+    def inspect(self, session_id: str, operator: str, *, key: str | None = None,
+                offset: int = 0, limit: int = DEFAULT_PAGE) -> dict:
+        """One page of one operator's state, read on the lane that owns it."""
+        if not str(operator or "").strip():
+            raise ServiceError("inspecting state needs the operator to inspect", status=400)
+        try:
+            return self._engine.debug_inspect(
+                session_id, operator.strip(), key=(key or None), offset=offset, limit=limit)
+        except Exception as exc:
+            raise _refusal(exc) from exc
+
+    def view(self, session_id: str) -> list[dict]:
+        """The fork's view as changes with their weights."""
+        try:
+            return list(self._engine.debug_view(session_id))
+        except Exception as exc:
+            raise _refusal(exc) from exc
+
+    def export(self, session_id: str, name: str) -> dict:
+        """The session as a JUnit fixture. The name becomes the test class's name."""
+        wanted = str(name or "").strip()
+        if not wanted:
+            raise ServiceError(
+                "an exported fixture needs a name: name it after the thing it reproduces, "
+                "and it becomes the test class's name", status=400)
+        try:
+            return self._engine.debug_export(session_id, wanted)
+        except Exception as exc:
+            raise _refusal(exc) from exc
+
+    def end(self, session_id: str) -> None:
+        try:
+            self._engine.debug_end(session_id)
+        except Exception as exc:
+            raise _refusal(exc) from exc
+
+
 class Services:
     """Everything the API layer needs, constructed once."""
 
@@ -1363,6 +1485,7 @@ class Services:
         self.queries = QueryService(engine)
         self.dead_letters = DeadLetterService(engine)
         self.replacements = ReplacementService(engine)
+        self.debug = DebugService(engine)
         self.adhoc = AdHocService(engine)
         self.feeds = Broadcaster(engine, snapshot_rows=row_limit)
         self.catalog = CatalogService(engine)

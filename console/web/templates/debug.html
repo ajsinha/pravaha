@@ -1,0 +1,338 @@
+{% extends "base.html" %}
+{% from "_helpcards.html" import screenhelp, helplink %}
+{% import "_states.html" as states %}
+{% block title %}{{ t('debug.title', name=query.name) }} — {{ app_name }}{% endblock %}
+{% block content %}
+{#- Design 23.9, ADR-048. A debug session is a second computation of the same plan, on lanes
+    of its own, restored from a retained checkpoint and driven one step at a time. Nothing
+    outside it can reach it, so every control here is safe to press twice -- which is why the
+    step form answers with the report instead of redirecting, and why the only confirmation on
+    the page is the one the engine's own permission check makes.
+
+    Request/response throughout. Design 23.11 reserves a WebSocket for the debugger and
+    ADR-048 did not build one, because a step is asked for and answered: nothing arrives that
+    was not asked for, so there is nothing for a socket to push and nothing here to poll. -#}
+<p class="text-muted small"><a href="/queries/{{ query.name }}">&larr; {{ t('debug.back', name=query.name) }}</a></p>
+<div class="accent"></div>
+<p class="kicker mt-2 mb-1">{{ t('debug.kicker') }}</p>
+<div class="page-head">
+  <h1>{{ t('debug.heading', name=query.name) }}{{ helplink('debug') }}</h1>
+</div>
+<div class="rule"></div>
+
+{% if acted %}<div class="alert alert-success py-2 small" id="dbg-acted" role="status">{{ acted }}</div>{% endif %}
+{% if action_error %}<div class="alert alert-danger py-2 small" id="dbg-action-error" role="alert">
+  {% if action_code %}<a href="/help/codes/{{ action_code }}">{{ action_code }}</a> {% endif %}{{ action_error }}</div>{% endif %}
+
+{% if refused %}
+{# Unauthorized (23.12, 23.16). A fork exposes the query's SQL, its input rows and its operator
+   state -- more than reading its view exposes and more than reading its plan exposes -- so it
+   takes the administer permission, reading a session's status included (ADR-048 7). The screen
+   is shown with the reason on it, never a control that fails when pressed. #}
+<div class="d-flex flex-wrap gap-2" id="dbg-refused-buttons">
+  <button class="btn btn-sm btn-primary" id="dbg-fork" type="button" disabled aria-describedby="dbg-refused">{{ t('debug.fork.button') }}</button>
+</div>
+<div class="alert alert-info py-2 small mt-3 mb-0" id="dbg-refused" role="note">
+  <div class="fw-semibold">{{ t('debug.refused_title') }}</div>
+  {{ t('debug.refused_body', reason=refused) }}
+  <a href="/admin/access">{{ t('debug.refused_access') }}</a></div>
+
+{% elif session_error %}
+  {{ states.error(session_error, retry_href='/queries/' ~ query.name ~ '/debug?session=' ~ session_id, id='dbg-error') }}
+
+{% elif session_id and not session %}
+{# The engine knows no such session: it was ended, or it expired after the node's TTL. Said as
+   the fact it is, with the way back to a new one, rather than as a failure of this page. #}
+  {{ states.empty(title=t('debug.gone.title'), body=t('debug.gone.body', id=session_id),
+                  id='dbg-gone', action_href='/queries/' ~ query.name ~ '/debug',
+                  action_label=t('debug.gone.start')) }}
+
+{% elif not session %}
+{# Never had data (23.12): what a fork is and what it cannot touch, and the control that makes
+   the first one. Not an empty stepping panel, which would read as a session that has stalled. #}
+<div id="dbg-none">
+  {{ states.empty(title=t('debug.none.title', name=query.name), body=t('debug.none.body'), heading='h2') }}
+  <ul class="small text-muted" id="dbg-absences">
+    <li>{{ t('debug.absence.sink') }}</li>
+    <li>{{ t('debug.absence.view') }}</li>
+    <li>{{ t('debug.absence.lanes') }}</li>
+  </ul>
+</div>
+
+<h2>{{ t('debug.checkpoints.heading') }}</h2>
+{% if checkpoints_error %}
+  {{ states.error(checkpoints_error, retry_href='/queries/' ~ query.name ~ '/debug', id='dbg-checkpoints-error') }}
+{% elif not checkpoints %}
+{# Three different things read the same from here -- this node does not checkpoint, this query
+   has not taken one yet, and every one it took has been pruned -- and the console does not
+   guess between them. The engine tells them apart when a fork is attempted (PRV-8011). #}
+  {{ states.empty(title=t('debug.checkpoints.none_title', name=query.name),
+                  body=t('debug.checkpoints.none_body'), id='dbg-no-checkpoints', heading='h3',
+                  action_href='/help/topics/checkpoints-recovery',
+                  action_label=t('debug.checkpoints.none_help')) }}
+{% else %}
+<form method="post" action="/queries/{{ query.name }}/debug/fork" class="card" id="dbg-fork-form">
+  <div class="card-body">
+    <p class="small text-muted mb-3" id="dbg-fork-note">{{ t('debug.fork.note', n=checkpoints|length) }}</p>
+    <div class="row g-3 align-items-end">
+      <div class="col-sm-6">
+        <label class="form-label small" for="dbg-checkpoint">{{ t('debug.fork.checkpoint') }}</label>
+        <select class="form-select form-select-sm mono" id="dbg-checkpoint" name="checkpoint"
+                aria-describedby="dbg-checkpoint-help">
+          {# The default is no id at all, not the newest one on this list: a node prunes
+             between the list being drawn and the button being pressed, and an id this page
+             pinned would then be a position that has gone. #}
+          <option value="">{{ t('debug.fork.newest') }}</option>
+          {% for id in checkpoints %}<option value="{{ id }}">{{ id }}</option>{% endfor %}
+        </select>
+        <div class="form-text" id="dbg-checkpoint-help">{{ t('debug.fork.checkpoint_help') }}</div>
+      </div>
+      <div class="col-sm-6">
+        <button class="btn btn-sm btn-primary" id="dbg-fork" type="submit">{{ t('debug.fork.button') }}</button>
+      </div>
+    </div>
+  </div>
+</form>
+{% endif %}
+
+{% if open_sessions %}
+<h2>{{ t('debug.open.heading') }}</h2>
+<p class="small text-muted" id="dbg-open-note">{{ t('debug.open.note') }}</p>
+<ul class="small" id="dbg-open">{% for s in open_sessions %}
+  <li><a class="mono" href="/queries/{{ query.name }}/debug?session={{ s.id }}">{{ s.id }}</a>
+      — {{ t('debug.open.entry', checkpoint=s.checkpointId, steps=s.steps, rows=s.rowsConsumed, at=s.lastUsedAt) }}</li>
+{% endfor %}</ul>
+{% endif %}
+
+{% else %}
+{# ------------------------------------------------------------------ a session, open #}
+<div id="dbg-app" data-session="{{ session.id }}" data-query="{{ query.name }}">
+
+{# Said permanently, on every surface, and read from the engine's own answer rather than
+   written into this template: a fork has no sink attached because a sink is opened for a
+   registration and a fork is not one (ADR-048 1). #}
+{% if session.sinksDisabled %}
+<div class="alert alert-warning py-2 small" id="dbg-banner" role="note">
+  <span class="chip warn">{{ t('debug.banner.badge') }}</span> {{ t('debug.banner.body') }}</div>
+{% endif %}
+
+<div class="d-flex flex-wrap gap-2 mb-3" id="dbg-summary">
+  <span class="chip info mono" id="dbg-id" title="{{ t('debug.chip.id_title') }}">{{ session.id }}</span>
+  <span class="chip mute">{{ t('debug.chip.checkpoint', id=session.checkpointId) }}</span>
+  <span class="chip mute" data-field="steps">{{ t('debug.chip.steps', n=session.steps) }}</span>
+  <span class="chip mute" data-field="rowsConsumed">{{ t('debug.chip.rows', n="{:,}".format(session.rowsConsumed)) }}</span>
+  <span class="chip mute" data-field="viewSize">{{ t('debug.chip.view_size', n="{:,}".format(session.viewSize)) }}</span>
+  <span class="chip mute" data-field="watermarkNanos">{% if session.watermarkNanos is none %}{{ t('debug.chip.no_watermark') }}{% else %}{{ t('debug.chip.watermark', n=session.watermarkNanos) }}{% endif %}</span>
+  {% if session.owner %}<span class="chip mute">{{ t('debug.chip.owner', who=session.owner) }}</span>{% endif %}
+  <span class="chip mute">{{ t('debug.chip.last_used', at=session.lastUsedAt) }}</span>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="card h-100">
+      <div class="card-header">{{ t('debug.query.heading') }}</div>
+      <div class="card-body">
+        <pre class="mb-2" id="dbg-sql">{{ session.sql }}</pre>
+        <p class="small text-muted mb-0" id="dbg-streams">{{ t('debug.query.streams', streams=session.streams|join(', ') or '—') }}</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card h-100">
+      <div class="card-header">{{ t('debug.step.heading') }}</div>
+      <div class="card-body">
+        {# Every control is an ordinary form post that works with no script at all. The island
+           swaps each for a fetch that appends to the log below, so a reader who steps fifty
+           times does not navigate fifty times. #}
+        <form method="post" action="/queries/{{ query.name }}/debug/step" class="d-flex flex-wrap gap-2 mb-3" id="dbg-step-quick">
+          <input type="hidden" name="session" value="{{ session.id }}">
+          <button class="btn btn-sm btn-primary" id="dbg-step-row" type="submit" name="step" value="row">{{ t('debug.step.row') }}</button>
+          <button class="btn btn-sm btn-outline-secondary" id="dbg-step-ten" type="submit" name="step" value="rows:10">{{ t('debug.step.ten') }}</button>
+          <button class="btn btn-sm btn-outline-secondary" id="dbg-step-commit" type="submit" name="step" value="commit">{{ t('debug.step.commit') }}</button>
+        </form>
+        <form method="post" action="/queries/{{ query.name }}/debug/step" class="mb-0" id="dbg-step-form">
+          <input type="hidden" name="session" value="{{ session.id }}">
+          <label class="form-label small" for="dbg-step">{{ t('debug.step.spec') }}</label>
+          <div class="d-flex gap-2">
+            <input class="form-control form-control-sm mono" id="dbg-step" name="step" value="row"
+                   aria-describedby="dbg-step-help" autocomplete="off">
+            <button class="btn btn-sm btn-outline-secondary" id="dbg-step-go" type="submit">{{ t('debug.step.go') }}</button>
+          </div>
+          <div class="form-text" id="dbg-step-help">{{ t('debug.step.spec_help') }}</div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>{{ t('debug.report.heading') }}</h2>
+{# The island prepends each step's report here; the server put the last one in when the page
+   was answered by a step post. Empty until something has been stepped, and it says so rather
+   than showing an empty table that reads as a step that did nothing. #}
+<div id="dbg-log">
+{% if step %}
+<article class="card mb-3 dbg-report" id="dbg-report">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>{{ t('debug.report.step', n=step.sequence, kind=step.kind) }}</span>
+    <span class="chip {{ 'warn' if step.exhausted else 'mute' }}">{{ step.stopped }}</span>
+  </div>
+  <div class="card-body">
+    <h3 class="section-label mt-0">{{ t('debug.report.rows_in', n=step.rowsIn|length) }}</h3>
+    {% if not step.rowsIn %}<p class="small text-muted mb-3" data-empty="rows">{{ t('debug.report.no_rows') }}</p>
+    {% else %}
+    <div class="table-responsive"><table class="table table-sm small mono mb-3"><thead><tr>
+      <th scope="col" class="num">{{ t('debug.report.weight') }}</th><th scope="col">{{ t('debug.report.stream') }}</th>
+      <th scope="col">{{ t('debug.report.position') }}</th><th scope="col">{{ t('debug.report.event_time') }}</th>
+      <th scope="col">{{ t('debug.report.values') }}</th></tr></thead><tbody>
+      {% for row in step.rowsIn %}<tr>
+        <td class="num">{% if row.weight < 0 %}−{{ -row.weight }}{% else %}+{{ row.weight }}{% endif %}</td>
+        <td>{{ row.stream }}</td><td>{{ row.partition }}#{{ row.offset }}</td>
+        <td class="num">{{ row.eventTimeNanos }}</td><td>{{ row['values']|join(', ') }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% endif %}
+
+    {# The part a view alone cannot give: a filter that rejected the row and an aggregate that
+       produced a zero delta look identical from outside, and here one reads in=1 out=0 and the
+       other in=1 out=2. The node ids are the plan's own (ADR-048 4a), so a step and the plan
+       graph are counted once and cannot show two answers. #}
+    <h3 class="section-label">{{ t('debug.report.operators') }}</h3>
+    <div class="table-responsive"><table class="table table-sm small mb-3 dbg-operators"><thead><tr>
+      <th scope="col">{{ t('debug.report.node') }}</th><th scope="col">{{ t('debug.report.operator') }}</th>
+      <th scope="col" class="num">{{ t('debug.report.in') }}</th><th scope="col" class="num">{{ t('debug.report.out') }}</th></tr></thead><tbody>
+      {% for op in step.operators %}<tr>
+        <td class="mono">{{ op.id }}</td><td>{{ op.label }}</td>
+        <td class="num mono">{{ op.rowsIn }}</td><td class="num mono">{{ op.rowsOut }}</td></tr>{% endfor %}
+    </tbody></table></div>
+
+    <h3 class="section-label">{{ t('debug.report.changes', n=step.viewChanges|length) }}</h3>
+    {% if not step.viewChanges %}<p class="small text-muted mb-3" data-empty="changes">{{ t('debug.report.no_changes') }}</p>
+    {% else %}
+    <div class="table-responsive"><table class="table table-sm small mono mb-3"><thead><tr>
+      <th scope="col" class="num">{{ t('debug.report.weight') }}</th><th scope="col">{{ t('debug.report.values') }}</th></tr></thead><tbody>
+      {% for change in step.viewChanges %}<tr>
+        <td class="num">{% if change.weight < 0 %}−{{ -change.weight }}{% else %}+{{ change.weight }}{% endif %}</td>
+        <td>{{ change['values']|join(', ') }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% endif %}
+
+    <p class="small text-muted mb-0" id="dbg-report-tail">{{ t('debug.report.tail',
+        rows="{:,}".format(step.rowsConsumed), view="{:,}".format(step.viewSize),
+        watermark=step.watermarkNanos if step.watermarkNanos is not none else t('debug.report.no_watermark')) }}</p>
+  </div>
+</article>
+{% endif %}
+</div>
+{% if not step %}<p class="small text-muted" id="dbg-log-empty">{{ t('debug.report.nothing_yet') }}</p>{% endif %}
+
+<h2>{{ t('debug.state.heading') }}</h2>
+{% if slots_error %}
+  {{ states.error(slots_error, retry_href='/queries/' ~ query.name ~ '/debug?session=' ~ session.id, id='dbg-slots-error') }}
+{% elif slots is not none and not slots %}
+  {{ states.empty(title=t('debug.state.none_title'), body=t('debug.state.none_body'),
+                  id='dbg-no-slots', heading='h3') }}
+{% elif slots %}
+<div class="table-responsive"><table class="table table-sm small" id="dbg-slots"><thead><tr>
+  <th scope="col">{{ t('debug.state.operator') }}</th><th scope="col">{{ t('debug.state.kind') }}</th>
+  <th scope="col">{{ t('debug.state.what') }}</th><th scope="col" class="num">{{ t('debug.state.entries') }}</th>
+  <th scope="col"><span class="visually-hidden">{{ t('debug.state.read') }}</span></th></tr></thead><tbody>
+  {% for slot in slots %}<tr>
+    <td class="mono">{{ slot.id }}</td><td>{{ slot.kind }}</td><td>{{ slot.label }}</td>
+    <td class="num mono">{{ "{:,}".format(slot.entries) }}</td>
+    <td><a class="btn btn-sm btn-outline-secondary" href="/queries/{{ query.name }}/debug?session={{ session.id }}&amp;operator={{ slot.id|urlencode }}">{{ t('debug.state.read') }}</a></td>
+  </tr>{% endfor %}
+</tbody></table></div>
+<p class="small text-muted" id="dbg-state-note">{{ t('debug.state.note') }}</p>
+{% endif %}
+
+{% if operator %}
+<h3>{{ t('debug.page.heading', operator=operator) }}</h3>
+{% if page_error %}
+  {{ states.error(page_error, retry_href='/queries/' ~ query.name ~ '/debug?session=' ~ session.id, id='dbg-page-error') }}
+{% elif page %}
+<form class="d-flex flex-wrap gap-2 align-items-end mb-3" method="get" action="/queries/{{ query.name }}/debug" id="dbg-page-form">
+  <input type="hidden" name="session" value="{{ session.id }}">
+  <input type="hidden" name="operator" value="{{ operator }}">
+  <div>
+    <label class="form-label small mb-1" for="dbg-key">{{ t('debug.page.key') }}</label>
+    <input class="form-control form-control-sm mono" style="width:14rem" id="dbg-key" name="key" value="{{ key }}"
+           aria-describedby="dbg-key-help" autocomplete="off">
+  </div>
+  <button class="btn btn-sm btn-outline-secondary" type="submit" id="dbg-page-go">{{ t('debug.page.go') }}</button>
+  <div class="form-text w-100" id="dbg-key-help">{{ t('debug.page.key_help') }}</div>
+</form>
+{% if not page.entries %}
+  {% if key %}
+    {{ states.filtered(clear_href='/queries/' ~ query.name ~ '/debug?session=' ~ session.id ~ '&operator=' ~ operator,
+                       body=t('debug.page.no_key', value=key), id='dbg-page-filtered', heading='h4') }}
+  {% else %}
+    {{ states.empty(title=t('debug.page.empty_title', operator=operator),
+                    body=t('debug.page.empty_body'), id='dbg-page-empty', heading='h4') }}
+  {% endif %}
+{% else %}
+<div class="table-responsive"><table class="table table-sm small mono" id="dbg-state-page"><thead><tr>
+  <th scope="col">{{ t('debug.page.key_column') }}</th><th scope="col">{{ t('debug.page.held') }}</th></tr></thead><tbody>
+  {% for entry in page.entries %}<tr><td>{{ entry.key }}</td>
+    <td>{% for column, value in entry['values'].items() %}{{ column }}={{ value }}{% if not loop.last %} {% endif %}{% endfor %}</td></tr>{% endfor %}
+</tbody></table></div>
+<p class="small text-muted" id="dbg-page-count">{{ t('debug.page.count', shown=page.entries|length, total="{:,}".format(page.total)) }}
+  {% if page.hasMore %}<a href="/queries/{{ query.name }}/debug?session={{ session.id }}&amp;operator={{ operator|urlencode }}{% if key %}&amp;key={{ key|urlencode }}{% endif %}&amp;offset={{ page.offset + page.entries|length }}">{{ t('debug.page.more') }}</a>{% endif %}
+  {% if page.offset %}<a href="/queries/{{ query.name }}/debug?session={{ session.id }}&amp;operator={{ operator|urlencode }}{% if key %}&amp;key={{ key|urlencode }}{% endif %}">{{ t('debug.page.first') }}</a>{% endif %}</p>
+{% endif %}
+{# A windowed aggregate shows what it has fired and is still retaining, not what is still
+   filling: the only way to read an open slice is to fire it, and a debugger that published a
+   window early would have changed the query it was asked about (ADR-048 5). #}
+<p class="small text-muted mb-0" id="dbg-window-note">{{ t('debug.page.windows') }}</p>
+{% endif %}
+{% endif %}
+
+<h2>{{ t('debug.view.heading') }}</h2>
+{% if changes_error %}
+  {{ states.error(changes_error, retry_href='/queries/' ~ query.name ~ '/debug?session=' ~ session.id, id='dbg-view-error') }}
+{% elif changes is not none and not changes %}
+  {{ states.empty(title=t('debug.view.none_title'), body=t('debug.view.none_body'),
+                  id='dbg-no-view', heading='h3') }}
+{% elif changes %}
+<div class="table-responsive"><table class="table table-sm small mono" id="dbg-view"><thead><tr>
+  <th scope="col" class="num">{{ t('debug.report.weight') }}</th><th scope="col">{{ t('debug.report.values') }}</th></tr></thead><tbody>
+  {% for change in changes %}<tr>
+    <td class="num">{% if change.weight < 0 %}−{{ -change.weight }}{% else %}+{{ change.weight }}{% endif %}</td>
+    <td>{{ change['values']|join(', ') }}</td></tr>{% endfor %}
+</tbody></table></div>
+<p class="small text-muted" id="dbg-view-note">{{ t('debug.view.note') }}</p>
+{% endif %}
+
+<h2>{{ t('debug.fixture.heading') }}</h2>
+<form method="post" action="/queries/{{ query.name }}/debug/fixture" class="card mb-3" id="dbg-fixture-form">
+  <div class="card-body">
+    <input type="hidden" name="session" value="{{ session.id }}">
+    <p class="small text-muted" id="dbg-fixture-note">{{ t('debug.fixture.note') }}</p>
+    <label class="form-label small" for="dbg-fixture-name">{{ t('debug.fixture.name') }}</label>
+    <div class="d-flex gap-2">
+      <input class="form-control form-control-sm" id="dbg-fixture-name" name="fixture"
+             aria-describedby="dbg-fixture-help" autocomplete="off">
+      <button class="btn btn-sm btn-outline-secondary" id="dbg-fixture-go" type="submit">{{ t('debug.fixture.button') }}</button>
+    </div>
+    <div class="form-text" id="dbg-fixture-help">{{ t('debug.fixture.name_help') }}</div>
+  </div>
+</form>
+{% if fixture %}
+{# The console writes nothing to disk: the file belongs in the repository this engine is built
+   from, not on whichever machine the browser happens to be running on. #}
+<div class="card mb-3" id="dbg-fixture">
+  <div class="card-header mono">{{ fixture.path }}</div>
+  <div class="card-body"><pre class="mb-0" id="dbg-fixture-source">{{ fixture.source }}</pre></div>
+</div>
+<p class="small text-muted" id="dbg-fixture-expectation">{{ t('debug.fixture.expectation') }}</p>
+{% endif %}
+
+<h2>{{ t('debug.end.heading') }}</h2>
+<form method="post" action="/queries/{{ query.name }}/debug/end" class="d-flex gap-2 align-items-center" id="dbg-end-form">
+  <input type="hidden" name="session" value="{{ session.id }}">
+  <button class="btn btn-sm btn-outline-danger" id="dbg-end" type="submit">{{ t('debug.end.button') }}</button>
+  <span class="small text-muted" id="dbg-end-note">{{ t('debug.end.note') }}</span>
+</form>
+</div>
+{% endif %}
+{{ screenhelp('debug') }}
+{% endblock %}
+{% block scripts %}<script src="/static/js/debug.js"></script>{% endblock %}

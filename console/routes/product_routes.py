@@ -481,6 +481,12 @@ class ProductRoutes(Routes):
                 items.append({"kind": "query", "title": t("palette.query.replacement", name=q.name),
                               "href": f"/queries/{q.name}/replacement",
                               "hint": t("palette.hint.replacement")})
+                # B9. The debugger takes the administer permission for reading too, because a
+                # fork exposes the SQL, the input rows and the operator state (ADR-048 7), so
+                # it sits inside the same gate as the replacement screen.
+                items.append({"kind": "query", "title": t("palette.query.debug", name=q.name),
+                              "href": f"/queries/{q.name}/debug",
+                              "hint": t("palette.hint.debug")})
                 if q.state == "RUNNING":
                     items.append({"kind": "lifecycle", "title": t("palette.action.pause", name=q.name),
                                   "query": q.name, "action": "pause", "hint": t("palette.hint.pause")})

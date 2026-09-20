@@ -187,6 +187,10 @@ SCREEN_HELP: dict[str, list[str]] = {
     # B9. The blue/green screen (design 23.10): what the backfill reads and why there is no
     # ETA on it, what a cutover moves, and how long a rollback stays open.
     "replacement": ["backfill-cutover", "query-lifecycle", "compare-versions"],
+    # B9. The debugger (design 23.9, ADR-048): what a fork starts from, what the weights on
+    # its view changes mean, and the six refusals it can answer with.
+    "debug": ["time-travel-debugger", "checkpoints-recovery", "zset-weights",
+              "errors-registry"],
     "dead-letters": ["dead-letters", "source-filesystem", "metrics-alerts"],
     "plugins": ["sources-overview", "sinks-overview", "connector-security"],
     "admin": ["authorization", "audit", "authentication"],

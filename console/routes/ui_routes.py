@@ -25,7 +25,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from core.services import ServiceError
 from routes.auth_routes import current_user, login_required
-from routes.base import Routes, failure
+from routes.base import Routes, failure, status_for
 
 logger = logging.getLogger(__name__)
 
@@ -363,6 +363,176 @@ class UIRoutes(Routes):
             done = {"cutover": "cutover", "rollback": "rollback", "finish": "finish",
                     "abandon": "abandon", "pause": "pause", "resume": "resume"}[action]
             return _replacement_redirect(name, message=self.t(f"cutover.done.{done}", name=name))
+
+        # ------------------------------ the time-travel debugger (design 23.9, ADR-048)
+
+        def _debug_page(request: Request, name: str, session_id: str, *,
+                        operator: str = "", key: str = "", offset: int = 0,
+                        step: dict | None = None, fixture: dict | None = None,
+                        acted: str = "", action_error: str = "", action_code: str = "",
+                        http_status: int = 200):
+            """Screen 10, built from whatever of the session the engine answered.
+
+            One page, several calls, and that is not the compromise it is on the replacement
+            screen: a session does not move unless somebody steps it, so the status, the
+            operator state and the view are the same moment however many calls read them.
+            Nothing here is polled for the same reason -- there is nothing to poll.
+            """
+            try:
+                query = services.queries.get(name)
+            except ServiceError as exc:
+                return self.page(request, "not_found.html", http_status=404,
+                                 current="/queries", what=self.t("not_found.what.query"),
+                                 identifier=name, back_href="/queries",
+                                 back_label=self.t("not_found.back.queries"), detail=str(exc))
+            refused = services.admin.affordances().administer_refused(name)
+            # Everything on this screen takes the administer permission, reading included:
+            # a fork exposes the query's SQL, its input rows and its operator state (ADR-048
+            # 7). So a refused identity is shown the screen and its reason, and the console
+            # does not ask the engine for a checkpoint list it would refuse anyway.
+            session = slots = changes = page = None
+            session_error = slots_error = changes_error = page_error = None
+            if session_id and not refused:
+                session, session_error = _attempt(
+                    lambda: services.debug.session(session_id), None, "this debug session")
+            # Only asked for when there is no session on screen: a reader looking at one does
+            # not need a list of the others, and a fork is expensive enough that the engine
+            # should not be asked twice for a page that will not draw it.
+            ask_around = not refused and session is None and session_error is None
+            checkpoints, checkpoints_error = _attempt(
+                lambda: services.debug.checkpoints(name), [], "this query's checkpoints"
+            ) if ask_around else ([], None)
+            open_sessions, _ = _attempt(
+                lambda: [s for s in services.debug.sessions() if s.get("query") == name], []
+            ) if ask_around else ([], None)
+            if session is not None:
+                slots, slots_error = _attempt(
+                    lambda: services.debug.state(session_id), None, "the operator state")
+                changes, changes_error = _attempt(
+                    lambda: services.debug.view(session_id), None, "the fork's view")
+                if operator:
+                    page, page_error = _attempt(
+                        lambda: services.debug.inspect(session_id, operator, key=key or None,
+                                                       offset=offset),
+                        None, f"the state of {operator}")
+            return self.page(request, "debug.html", current="/queries", query=query,
+                             http_status=http_status, refused=refused,
+                             checkpoints=checkpoints, checkpoints_error=checkpoints_error,
+                             open_sessions=open_sessions, session=session,
+                             session_id=session_id, session_error=session_error,
+                             slots=slots, slots_error=slots_error,
+                             changes=changes, changes_error=changes_error,
+                             operator=operator, key=key, offset=offset,
+                             page=page, page_error=page_error, step=step, fixture=fixture,
+                             acted=acted, action_error=action_error, action_code=action_code)
+
+        @self.app.get("/queries/{name}/debug", response_class=HTMLResponse, tags=["ui"])
+        def debugger(request: Request, name: str, session: str = "", operator: str = "",
+                     key: str = "", offset: int = 0, acted: str = "",
+                     action_error: str = "", action_code: str = ""):
+            """The debugger for one query: fork it from a checkpoint and step the fork.
+
+            The session id is in the URL and nowhere else. The engine owns the session, so a
+            reload, a second tab and a link pasted into a ticket all reach the same one, and
+            a browser closed without ending it leaves the console nothing to tidy -- the
+            node's own TTL releases it (``pravaha.debug.session.ttl``).
+            """
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            return _debug_page(request, name, session, operator=operator, key=key,
+                               offset=offset, acted=acted, action_error=action_error,
+                               action_code=action_code)
+
+        def _debug_redirect(name: str, session_id: str = "", message: str = "",
+                            refusal: ServiceError | None = None) -> RedirectResponse:
+            parts = []
+            if session_id:
+                parts.append("session=" + quote(session_id))
+            if refusal is not None:
+                parts.append("action_error=" + quote(str(refusal)))
+                if refusal.code:
+                    parts.append("action_code=" + quote(refusal.code))
+            elif message:
+                parts.append("acted=" + quote(message))
+            tail = ("?" + "&".join(parts)) if parts else ""
+            return RedirectResponse(f"/queries/{name}/debug{tail}", status_code=303)
+
+        @self.app.post("/queries/{name}/debug/fork", tags=["ui"])
+        def fork_for_debugging(request: Request, name: str, checkpoint: str = Form("")):
+            """Starts a session. Redirect-after-POST, so a refresh does not fork twice --
+            and forking twice is not harmless: each session is a whole second copy of the
+            query, and four of them is the default ceiling."""
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            logger.info("%s forked '%s' for debugging", current_user(request), name)
+            asked = str(checkpoint).strip()
+            if asked and not asked.lstrip("-").isdigit():
+                return _debug_redirect(name, refusal=ServiceError(
+                    self.t("debug.error.checkpoint", checkpoint=asked), 400))
+            try:
+                session = services.debug.fork(name, int(asked) if asked else None)
+            except ServiceError as exc:
+                return _debug_redirect(name, refusal=exc)
+            return _debug_redirect(name, session_id=str(session.get("id") or ""),
+                                   message=self.t("debug.done.fork", id=session.get("id")))
+
+        @self.app.post("/queries/{name}/debug/step", tags=["ui"])
+        def step_the_fork(request: Request, name: str, session: str = Form(...),
+                          step: str = Form("")):
+            """Advances the fork, and answers with the page carrying the step's report.
+
+            The one place on this console that does not redirect after a POST, because the
+            report *is* the answer: rows in, what every operator did, what the view did and
+            where event time stands. A redirect would throw it away, and the engine has no
+            call that hands back the step it has already taken.
+
+            What a redirect buys elsewhere is that a refresh does not repeat the action. A
+            repeated step is the cheapest mistake on this screen: nothing outside the fork
+            can be reached by it (ADR-048 1), so it costs one row of the session's budget
+            and the reader steps again on purpose. The island below makes the question moot
+            for anyone whose browser runs it -- it steps without navigating at all.
+            """
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            logger.info("%s stepped debug session %s (%s)", current_user(request), session, step)
+            try:
+                report = services.debug.step(session, step)
+            except ServiceError as exc:
+                return _debug_page(request, name, session, action_error=str(exc),
+                                   action_code=exc.code or "", http_status=status_for(exc))
+            return _debug_page(request, name, session, step=report)
+
+        @self.app.post("/queries/{name}/debug/fixture", tags=["ui"])
+        def export_the_fixture(request: Request, name: str, session: str = Form(...),
+                               fixture: str = Form("")):
+            """Exports the session as a JUnit fixture and shows the source it generated.
+
+            Rendered rather than redirected for the same reason a step is: the generated
+            file is the answer, and the console writes nothing to disk -- the file belongs
+            in the repository this engine is built from, not on the machine the browser
+            happens to be on.
+            """
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            logger.info("%s exported a fixture from debug session %s", current_user(request), session)
+            try:
+                made = services.debug.export(session, fixture)
+            except ServiceError as exc:
+                return _debug_page(request, name, session, action_error=str(exc),
+                                   action_code=exc.code or "", http_status=status_for(exc))
+            return _debug_page(request, name, session, fixture=made)
+
+        @self.app.post("/queries/{name}/debug/end", tags=["ui"])
+        def end_the_session(request: Request, name: str, session: str = Form(...)):
+            """Releases the second copy of the query. Nothing read it and nothing wrote."""
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            logger.info("%s ended debug session %s", current_user(request), session)
+            try:
+                services.debug.end(session)
+            except ServiceError as exc:
+                return _debug_redirect(name, session_id=session, refusal=exc)
+            return _debug_redirect(name, message=self.t("debug.done.end", id=session))
 
         # The lifecycle actions as ordinary form posts. The module intercepts
         # them so the page does not reload, but they work without it: a control

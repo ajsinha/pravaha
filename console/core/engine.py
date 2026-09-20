@@ -132,6 +132,81 @@ def _replacement(status, history: list[str] | None = None) -> dict:
     }
 
 
+def _debug_session(session) -> dict:
+    """An SDK :class:`pravaha.debug.DebugSession` as the shape the engine's REST API uses.
+
+    ``sinksDisabled`` is carried even though it is always true (ADR-048: the isolation is three
+    absences, not a flag), because the screen has to be able to say so from the answer rather
+    than from a sentence somebody wrote into the template.
+    """
+    return {
+        "id": getattr(session, "id", ""),
+        "query": getattr(session, "query", ""),
+        "sql": getattr(session, "sql", ""),
+        "checkpointId": int(getattr(session, "checkpoint_id", 0) or 0),
+        "owner": getattr(session, "owner", "") or "",
+        "startedAt": getattr(session, "started_at", "") or "",
+        "lastUsedAt": getattr(session, "last_used_at", "") or "",
+        "steps": int(getattr(session, "steps", 0) or 0),
+        "rowsConsumed": int(getattr(session, "rows_consumed", 0) or 0),
+        "viewSize": int(getattr(session, "view_size", 0) or 0),
+        "watermarkNanos": getattr(session, "watermark_nanos", None),
+        "sinksDisabled": bool(getattr(session, "sinks_disabled", True)),
+        "streams": list(getattr(session, "streams", ()) or ()),
+    }
+
+
+def _debug_step(step) -> dict:
+    """An SDK :class:`pravaha.debug.DebugStep` as the shape the engine's REST API uses.
+
+    Four answers at once, which is what makes a wrong row explainable (ADR-048 4a): what came
+    in, what every operator did with it, what the view did, and where event time stands.
+    """
+    return {
+        "session": getattr(step, "session", ""),
+        "sequence": int(getattr(step, "sequence", 0) or 0),
+        "kind": getattr(step, "kind", "") or "",
+        "rowsIn": [{"stream": row.stream, "partition": int(row.partition),
+                    "offset": str(row.offset), "weight": int(row.weight),
+                    "eventTimeNanos": int(row.event_time_nanos),
+                    "values": list(row.values)}
+                   for row in getattr(step, "rows_in", ()) or ()],
+        "operators": [{"id": op.id, "kind": op.kind, "label": op.label,
+                       "rowsIn": int(op.rows_in), "rowsOut": int(op.rows_out)}
+                      for op in getattr(step, "operators", ()) or ()],
+        "viewChanges": [{"weight": int(change.weight), "values": list(change.values)}
+                        for change in getattr(step, "view_changes", ()) or ()],
+        "watermarkNanos": getattr(step, "watermark_nanos", None),
+        "rowsConsumed": int(getattr(step, "rows_consumed", 0) or 0),
+        "viewSize": int(getattr(step, "view_size", 0) or 0),
+        "exhausted": bool(getattr(step, "exhausted", False)),
+        "stopped": getattr(step, "stopped", "") or "",
+    }
+
+
+def _debug_page(page) -> dict:
+    """An SDK :class:`pravaha.debug.StatePage` as the console's shape.
+
+    One departure from the engine's REST answer, and it is deliberate. Over REST a page's
+    entries are flat maps with the entry's key merged in under ``"key"``, so an operator
+    holding a column of its own called ``key`` has two things under one name and the column
+    wins. The console keeps the key beside the columns instead, because a state page exists
+    to be read literally and a silently overwritten column is exactly the kind of wrong
+    answer somebody opens a debugger to chase.
+    """
+    return {
+        "id": getattr(page, "id", ""),
+        "kind": getattr(page, "kind", "") or "",
+        "key": getattr(page, "key", None),
+        "offset": int(getattr(page, "offset", 0) or 0),
+        "limit": int(getattr(page, "limit", 0) or 0),
+        "total": int(getattr(page, "total", 0) or 0),
+        "hasMore": bool(getattr(page, "has_more", False)),
+        "entries": [{"key": entry.key, "values": dict(entry.values or {})}
+                    for entry in getattr(page, "entries", ()) or ()],
+    }
+
+
 class EngineHttpError(Exception):
     """The engine's HTTP API refused (``status`` is its HTTP status), or did not answer (0).
 
@@ -455,6 +530,70 @@ class Engine:
 
     def resume_backfill(self, name: str) -> dict:
         return _replacement(self._flight(lambda c: c.resume_backfill(name)))
+
+    # --------------------------------------------- the time-travel debugger (ADR-048)
+    #
+    # Nine Flight actions, all of them request/response: a step is asked for and answered,
+    # which is why design 23.11's WebSocket for the debugger is reserved and not built. The
+    # console holds no session state of its own -- the id is in the URL and the engine owns
+    # everything behind it -- so a reload, a second tab and a pasted link all show the same
+    # session, and closing the browser leaves nothing for the console to clean up.
+
+    def debug_checkpoints(self, name: str) -> list[int]:
+        """The checkpoints of ``name`` a session could still fork from, newest first."""
+        return [int(c) for c in self._flight(lambda c: c.debug_checkpoints(name)) or []]
+
+    def debug_fork(self, name: str, checkpoint_id: int | None = None) -> dict:
+        """Forks ``name`` into a second computation nothing can read, at a checkpoint.
+
+        No checkpoint means the newest retained one, which is the engine's choice and not
+        the console's: a node prunes between the list being drawn and the button being
+        pressed, and a console that pinned the id it happened to show would fork from a
+        position that no longer exists.
+        """
+        return _debug_session(
+            self._flight(lambda c: c.debug_fork(name, checkpoint_id=checkpoint_id)))
+
+    def debug_sessions(self) -> list[dict]:
+        """Every debug session on this node that this identity may administer."""
+        return [_debug_session(s) for s in self._flight(lambda c: c.debug_sessions()) or []]
+
+    def debug_session(self, session_id: str) -> dict | None:
+        """One session's status, or ``None`` when the engine knows no such session."""
+        found = self._flight(lambda c: c.debug_session(session_id))
+        return _debug_session(found) if found is not None else None
+
+    def debug_step(self, session_id: str, step: str) -> dict:
+        """Advances the fork by one step and reports everything it did."""
+        return _debug_step(self._flight(lambda c: c.debug_step(session_id, step)))
+
+    def debug_state(self, session_id: str) -> list[dict]:
+        """Every piece of operator state the fork holds, with how many entries each has."""
+        return [{"id": slot.id, "kind": slot.kind, "label": slot.label,
+                 "entries": int(slot.entries)}
+                for slot in self._flight(lambda c: c.debug_state(session_id)) or []]
+
+    def debug_inspect(self, session_id: str, operator: str, *, key: str | None = None,
+                      offset: int = 0, limit: int = 50) -> dict:
+        """One page of one operator's state. Bounded on the way in as well as out."""
+        return _debug_page(self._flight(lambda c: c.debug_inspect(
+            session_id, operator, key=key, offset=offset, limit=limit)))
+
+    def debug_view(self, session_id: str) -> list[dict]:
+        """The fork's whole view, as changes with their weights."""
+        return [{"weight": int(change.weight), "values": list(change.values)}
+                for change in self._flight(lambda c: c.debug_view(session_id)) or []]
+
+    def debug_export(self, session_id: str, name: str) -> dict:
+        """The session as a JUnit fixture: the class name, where it belongs, and its source."""
+        fixture = self._flight(lambda c: c.debug_export(session_id, name))
+        return {"className": getattr(fixture, "class_name", ""),
+                "path": getattr(fixture, "path", ""),
+                "source": getattr(fixture, "source", "")}
+
+    def debug_end(self, session_id: str) -> None:
+        """Releases the session's second copy of the query."""
+        self._flight(lambda c: c.debug_end(session_id))
 
     def _flight(self, call):
         """``call(client)`` over Flight, with the SDK's refusal translated like a REST one."""
