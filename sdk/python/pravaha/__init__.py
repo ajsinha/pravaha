@@ -11,6 +11,17 @@ environment should not drag pyarrow in unless it is going to talk to a server.
 """
 
 from pravaha.consistency import Consistency
+from pravaha.debug import (
+    DebugSession,
+    DebugStep,
+    Fixture,
+    InputRow,
+    OperatorFlow,
+    StateEntry,
+    StatePage,
+    StateSlot,
+    ViewDelta,
+)
 from pravaha.endpoint import Endpoint, HostPort
 from pravaha.errors import (
     PravahaError,
@@ -41,7 +52,16 @@ __all__ = [
     "ClientOptions",
     "connect",
     "Consistency",
+    "DebugSession",
+    "DebugStep",
     "Endpoint",
+    "Fixture",
+    "InputRow",
+    "OperatorFlow",
+    "StateEntry",
+    "StatePage",
+    "StateSlot",
+    "ViewDelta",
     "HostPort",
     "InvalidOptionsError",
     "InvalidTlsOptionsError",
