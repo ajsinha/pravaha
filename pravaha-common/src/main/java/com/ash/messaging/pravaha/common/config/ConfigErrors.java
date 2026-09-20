@@ -35,6 +35,8 @@ public final class ConfigErrors {
      * a cycle is broken, a chain is flattened.
      */
     public static final ErrorCode REFERENCE_TOO_DEEP = new ErrorCode(1012, "CONFIG_REFERENCE_TOO_DEEP");
+
+    /**
      * Two keys that have to agree, and do not.
      *
      * <p>DOCX-19. Each value is well-formed on its own, so no single-key check sees anything wrong;
