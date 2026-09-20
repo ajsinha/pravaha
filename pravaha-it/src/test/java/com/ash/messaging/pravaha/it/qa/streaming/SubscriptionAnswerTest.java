@@ -119,6 +119,28 @@ class SubscriptionAnswerTest {
         }
     }
 
+    /**
+     * Waits for a subscription that is ending itself, rather than for one that is catching up.
+     *
+     * <p>{@code settle} asks whether the subscriber was handed everything, and for an overflow
+     * that closed the subscription the honest answer is no -- that is the case's whole point.
+     */
+    private static void awaitClosed(Subscription subscription) {
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+        while (System.nanoTime() < deadline) {
+            if (subscription.isClosed()) {
+                return;
+            }
+            try {
+                Thread.sleep(5);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError("interrupted waiting for the subscription to close", e);
+            }
+        }
+        throw new AssertionError("the subscription did not close within 10s");
+    }
+
     // ================================================== A. change kinds delivered
 
     @Test
@@ -1004,7 +1026,10 @@ class SubscriptionAnswerTest {
                 // others were reading. What STRM-084 is actually about -- an actionable message on
                 // the subscriber's own channel -- is unchanged and asserted below.
                 q.commit();
-                settle(subscription);
+                // Not settle(): this subscription overflowed and closed itself, so it did NOT get
+                // everything, and awaitQuiet says so by answering false. Waiting for it to finish
+                // closing is a different question from waiting for it to catch up.
+                awaitClosed(subscription);
                 assertThat(subscription.isClosed()).isTrue();
                 assertThat(subscription.failure()).isPresent();
                 assertThat(subscription.failure().orElseThrow().getMessage())
