@@ -131,13 +131,34 @@ class SubscriptionEndingTest {
         return false;
     }
 
+    /**
+     * Waits until the subscription is really open on the engine's side.
+     *
+     * <p>Sleeping and then asserting that nothing has *ended* does not say the subscription
+     * started: under load the client's `subscribe` can still be in `require(viewName)` when the
+     * drop lands, and then it ends with `PRV-8002` -- the name is gone -- rather than with the
+     * drop's own refusal. The test then reads as a defect in the ending path, which is the one
+     * thing it is not. `subscriberCount()` is the engine's own answer to "is anybody watching",
+     * and it is what the drop path itself consults.
+     */
+    private void awaitSubscriber(String name) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        while (System.nanoTime() < deadline) {
+            if (registry.find(name).map(q -> q.subscriberCount() > 0).orElse(false)) {
+                return;
+            }
+            Thread.sleep(20);
+        }
+        throw new AssertionError("no subscriber reached '" + name + "' within 30s");
+    }
+
     @Test
     void strm12ADropReachesTheClientAsADropRatherThanAsACleanCompletion() throws Exception {
         start();
         registry.register("q65", "SELECT user_id, total FROM user_volume", List.of(0), DANA);
 
         AtomicReference<String> ended = subscribeUntilItEnds("q65");
-        Thread.sleep(500);
+        awaitSubscriber("q65");
         assertThat(ended.get()).as("it is running before the drop").isNull();
 
         registry.drop("q65");
@@ -157,7 +178,7 @@ class SubscriptionEndingTest {
         registry.register("q72", "SELECT user_id, total FROM user_volume", List.of(0), DANA);
 
         AtomicReference<String> ended = subscribeUntilItEnds("q72");
-        Thread.sleep(500);
+        awaitSubscriber("q72");
         assertThat(ended.get()).isNull();
 
         // What a graceful shutdown does: the registry lets go of its queries while Flight drains
@@ -183,7 +204,8 @@ class SubscriptionEndingTest {
 
         AtomicReference<String> onDropped = subscribeUntilItEnds("q68");
         AtomicReference<String> onSurviving = subscribeUntilItEnds("q68b");
-        Thread.sleep(500);
+        awaitSubscriber("q68");
+        awaitSubscriber("q68b");
         assertThat(onDropped.get()).isNull();
         assertThat(onSurviving.get()).isNull();
 
