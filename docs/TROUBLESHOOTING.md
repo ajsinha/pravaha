@@ -362,6 +362,38 @@ creates it), or the credentials or ACLs refused; `PRV-5103` is the staging topic
 creatable, or — at a restart after a long outage — already past the staged changes a checkpoint
 recorded, which are then lost to the topic: raise `staging.retention.ms` and re-register.
 
+**A `delta-sink` was refused, or detached.** The code says which:
+
+- `PRV-5056` — the binding cannot be honoured as written: a `mode` that is neither `upsert` nor
+  `changelog`, a missing `key.columns` in upsert mode or a pointless one in changelog mode, a key
+  column that is floating point, nullable or not in the schema, a `transaction.id` that cannot also
+  be a directory name, or a changelog schema that already declares `_op` or `_weight`.
+- `PRV-5051` — a column of a type Delta has no equivalent for. `TIME` is the one: Delta has `DATE`
+  and `TIMESTAMP` and nothing for a time of day, and writing nanoseconds into a `BIGINT` that no
+  Delta reader reads as a time is not a substitute. Project the column away or convert it.
+- `PRV-5057` — the table at `path` is not the one the binding describes: a column missing, renamed,
+  retyped or in another position (named in the message), a `NOT NULL` table column under a nullable
+  declaration, a **partitioned** table, or `create: false` with no table there. The sink never
+  alters a table's schema; change the binding, evolve the table with the engine that owns it, or
+  point the sink at a new path.
+- `PRV-5058` — staging, reading back or committing failed. Two cases are the sink refusing rather
+  than the filesystem failing: a **null key column**, and a `TIMESTAMP` that is not a whole number
+  of microseconds — Delta stores microseconds, the engine nanoseconds, and a rounded timestamp is a
+  value nobody can tell from a true one.
+- `PRV-5059` — **another writer committed to the table while this commit was being built.** The
+  sink does not retry: its commit removes the data files it read, and replaying those removals over
+  the other writer's version would undo their change. It is detached with `PRV-8009` and the
+  checkpoint's changes are left staged under `staging.dir`. A Delta table maintained by a
+  continuous query must have no other writer; stop the other one, then drop and re-register the
+  query.
+
+**A `delta-sink` table is full of small files.** Expected, and not something the sink fixes. Each
+checkpoint is one Delta commit writing at least one Parquet file, plus one for every file an upsert
+had to rewrite. Run Delta's `OPTIMIZE`, and `VACUUM` for the files the rewrites superseded, from an
+engine that has them (Spark, `delta-rs`). Delta Kernel exposes no compaction API, so the plugin has
+none. Lengthening `pravaha.checkpoint.interval` makes fewer, larger commits; `mode: changelog`
+writes one file per commit and rewrites none.
+
 **A `kafka` source stopped, or its registration was refused.** The code says which:
 
 - `PRV-5101` — at registration: the brokers did not answer within `start.timeout`, the topic does not
@@ -734,6 +766,10 @@ client models the error rather than an empty object.
 | `PRV-5053` | DELTA_FILE_VACUUMED | plugins |
 | `PRV-5054` | DELTA_READ_FAILED | plugins |
 | `PRV-5055` | DELTA_UNSUPPORTED_FEATURE | plugins |
+| `PRV-5056` | DELTA_SINK_BAD_CONFIGURATION | plugins |
+| `PRV-5057` | DELTA_SINK_TABLE_MISMATCH | plugins |
+| `PRV-5058` | DELTA_SINK_WRITE_FAILED | plugins |
+| `PRV-5059` | DELTA_SINK_COMMIT_CONFLICT | plugins |
 | `PRV-5060` | FEEDFILE_DIRECTORY_UNREADABLE | plugins |
 | `PRV-5061` | FEEDFILE_BAD_SCHEMA | plugins |
 | `PRV-5062` | FEEDFILE_DECODE_FAILED | plugins |

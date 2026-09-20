@@ -47,7 +47,7 @@ Three kinds, and a connector may be more than one:
 | Interface | What it does | Shipped examples |
 |---|---|---|
 | `StreamSourcePlugin` | Rows in. The thing a `FROM` clause reads | filesystem, feedfile, aerospike, delta, jdbc, cassandra, `postgres-cdc` (a changelog: deletes and before-images), `kafka` (a topic, one reader per partition, exactly once from the checkpoint's offsets) |
-| `StreamSinkPlugin` | Rows out — every commit of a query that names the sink at registration ([ADR-043](adr/043-how-a-continuous-query-names-its-sink.md)). A sink with a configured schema or key reports it through `schema()` and `keyColumns()`, and a registration that does not match is refused | filesystem (append-only), `aerospike-sink` (upsert and delete by key, composite keys), `jdbc-sink` (upsert and delete by key or append, into a table you create; transactional through a staging table, so exactly once on a checkpointed node), `kafka-sink` (keyed JSON upserts with a tombstone for a retraction, or an explicit changelog, to a topic you create; transactional through a staging topic, so exactly once to a `read_committed` consumer on a checkpointed node) |
+| `StreamSinkPlugin` | Rows out — every commit of a query that names the sink at registration ([ADR-043](adr/043-how-a-continuous-query-names-its-sink.md)). A sink with a configured schema or key reports it through `schema()` and `keyColumns()`, and a registration that does not match is refused | filesystem (append-only), `aerospike-sink` (upsert and delete by key, composite keys), `jdbc-sink` (upsert and delete by key or append, into a table you create; transactional through a staging table, so exactly once on a checkpointed node), `kafka-sink` (keyed JSON upserts with a tombstone for a retraction, or an explicit changelog, to a topic you create; transactional through a staging topic, so exactly once to a `read_committed` consumer on a checkpointed node), `delta-sink` (a Delta Lake table kept equal to the view by key, or a changelog of every change; one Delta commit per checkpoint, so exactly once on a checkpointed node) |
 | `LookupSourcePlugin` | Point lookups for a temporal join's right side | aerospike, jdbc |
 
 ---
@@ -874,7 +874,7 @@ plugins' container ITs against Postgres, Aerospike and Cassandra).
 | **MySQL / Postgres** | table or CDC | direct; CDC is the better form. Postgres CDC is built (`postgres-cdc`); MySQL's binlog is not |
 | **RabbitMQ / ActiveMQ / SQS / NATS** | queue | **at-least-once only** — acknowledgement is not an offset, so there is nothing to rewind to |
 | **Pulsar / Kinesis / Redpanda** | streaming | as Kafka |
-| **Iceberg / Hudi** | table format | as Delta, which already exists |
+| **Iceberg / Hudi** | table format | as Delta, which already exists **both ways** — the source `delta` and the sink `delta-sink`, `plugins/pravaha-plugin-delta` |
 
 The queue connectors are architecturally different and it is worth saying so before one is written: a
 queue gives you *acknowledgement*, not a position you can return to. They cannot be `EXACTLY_ONCE`,
@@ -1009,6 +1009,49 @@ every change is written twice. `KafkaSinkPlugin`'s class comment has the argumen
 `KafkaSinkBrokerTest` the crashes — between prepare and commit, and inside a commit — proved against
 a broker.
 
+### A transactional sink on a format with no delete: Delta
+
+`delta-sink` maintains a continuous query's answer in a Delta Lake table, on Delta Kernel and not
+Spark, and it runs into two properties of the format that are worth stating because they shape what
+it can promise.
+
+**Delta has no prepare.** A Delta commit is visible the instant its log entry lands; there is no
+durable-but-invisible state a new process could pick up, which is what the SPI's `prepare` means. So
+this sink does what `jdbc-sink` and `kafka-sink` do — it stages. Writes go to
+`<path>/_pravaha_sink/<transaction.id>/<label>/` as files (a directory Delta's own `VACUUM` skips,
+by the rule that keeps `_delta_log` safe), `prepare` names the label, and `commit` applies the whole
+label as **one** Delta commit. A reader therefore sees all of a checkpoint's changes or none of
+them. Every commit carries a Delta `txn` action naming `transaction.id` and the label, and *that* is
+what makes a repeated commit a no-op — the table's own record, not a note the process kept, so it
+survives the process that wrote it.
+
+**Delta has no delete.** Without deletion vectors, removing a row means rewriting the file that
+holds it. So upsert mode is a copy-on-write merge: the changes are collapsed by key, the table's data
+files are read *through their key columns alone* to find the ones holding an affected key, and each
+of those is rewritten without those rows while the commit removes the old file. Files holding no
+affected key are not read past their key column and not rewritten. **The cost of a commit is
+therefore proportional to the table, not to the number of changes** — which is the price of exact
+upsert semantics on a format whose files are immutable, and is why `mode: changelog`, which only
+appends, is what a high-volume query should be bound to.
+
+**Concurrent writers, exactly.** A writer that finishes before this sink's commit begins is simply
+the snapshot the commit merges onto, and where it wrote a key the sink also holds, the sink's value
+wins — that key is the query's answer. A writer that commits *inside* the commit's window, after the
+snapshot it read and before its log entry, makes the commit fail with `PRV-5059`. The transaction is
+built with `withMaxRetries(0)` on purpose: Kernel's own retry is safe for a blind append and not for
+a merge whose removals name files the other writer has just rewritten. The sink is detached
+(`PRV-8009`) with the checkpoint's changes still staged, and it never retries. Both cases say the
+same thing about deployment: a Delta table maintained by a continuous query should have no other
+writer.
+
+**What it costs in files.** One commit per checkpoint, each writing at least one Parquet file plus
+one for every file it had to rewrite. The table accumulates small files and needs compaction —
+which is Delta's `OPTIMIZE`, run by an engine that has one (Spark, `delta-rs`), not this sink's:
+Kernel has no compaction API and the plugin does not pretend to one. Nor does it `VACUUM` the files
+its rewrites leave behind. `DeltaSinkPluginTest` holds the behaviour against real tables on the
+local filesystem, and `DeltaSinkRegistrationTest` holds a registered query's table equal to its view
+across a crash.
+
 ### The remote connector — the source that inverts this table
 
 Every row above is a connector Pravaha writes in order to reach a system. The **remote connector** is
@@ -1029,7 +1072,7 @@ Stated so nobody discovers it mid-build:
 
 | | |
 |---|---|
-| A sink TCK and a lookup TCK | Only sources have one. The transactional sink protocol is tested per sink — `TransactionalSinkDeliveryTest` against a model, `JdbcSinkPluginTest` and `JdbcSinkRegistrationTest` against H2, `KafkaSinkBrokerTest` and `KafkaSinkRegistrationTest` against a real broker — not by a kit a new sink can run |
+| A sink TCK and a lookup TCK | Only sources have one. The transactional sink protocol is tested per sink — `TransactionalSinkDeliveryTest` against a model, `JdbcSinkPluginTest` and `JdbcSinkRegistrationTest` against H2, `KafkaSinkBrokerTest` and `KafkaSinkRegistrationTest` against a real broker, `DeltaSinkPluginTest` and `DeltaSinkRegistrationTest` against Delta tables on the local filesystem — not by a kit a new sink can run |
 | Capability verification in the TCK | Replay and exactly-once are tested; ordering, deletes and pushdown claims are believed, not tested |
 | An SPI stability statement | `Version` exists; nothing says what change breaks a plugin |
 | Plugin isolation | A connector shares the engine's classpath; a dependency clash is yours to resolve |

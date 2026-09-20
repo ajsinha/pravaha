@@ -422,7 +422,7 @@ PLUGINS = {
     "feedfile": "plugins/pravaha-plugin-feedfile",
     "jdbc": "plugins/pravaha-plugin-jdbc", "jdbc-lookup": "plugins/pravaha-plugin-jdbc",
     "jdbc-sink": "plugins/pravaha-plugin-jdbc",
-    "delta": "plugins/pravaha-plugin-delta",
+    "delta": "plugins/pravaha-plugin-delta", "delta-sink": "plugins/pravaha-plugin-delta",
     "aerospike": "plugins/pravaha-plugin-aerospike", "aerospike-lookup": "plugins/pravaha-plugin-aerospike",
     "aerospike-sink": "plugins/pravaha-plugin-aerospike",
     "cassandra": "plugins/pravaha-plugin-cassandra",

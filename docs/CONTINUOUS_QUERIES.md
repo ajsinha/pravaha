@@ -1065,7 +1065,10 @@ does, retractions included as rows with a negative weight. Three things to know
   up to a checkpoint interval. So is `kafka-sink`, which writes the changes to a Kafka topic — keyed
   JSON upserts with a tombstone for each retraction, or an explicit changelog of every change and
   its weight — exactly once to a consumer reading with `isolation.level=read_committed`
-  ([`OPERATIONS.md`](OPERATIONS.md) has the binding). `aerospike-sink` is effectively once and
+  ([`OPERATIONS.md`](OPERATIONS.md) has the binding). `delta-sink` is transactional too: it maintains
+  the answer in a Delta Lake table by key, or appends a changelog of every change and its weight, as
+  one Delta commit per checkpoint — exactly once on a node that checkpoints, with the table trailing
+  the view by up to a checkpoint interval. `aerospike-sink` is effectively once and
   `filesystem` at least once.
 - **A sink that refuses a batch is detached** (`PRV-8009`) rather than written past, and the query
   carries on serving its view. Drop and re-register to start the sink again from the view's

@@ -967,7 +967,7 @@ pravaha:
         schema: "id:INT64,user:STRING,amount:INT64"
 ```
 
-Three plugins ship. `filesystem` appends delimited rows to a file and cannot take a retraction.
+Five plugins ship. `filesystem` appends delimited rows to a file and cannot take a retraction.
 It keeps what the file already holds when it opens, a restart included, because the restored view
 does not send again what it wrote before the checkpoint; `append: false` empties the file on every
 open instead, and so throws that output away at each restart (HLP-2).
@@ -1104,6 +1104,59 @@ pravaha:
   and not shipped; asking for one is refused with `PRV-5100` unless its library is on the plugin's
   classpath.
 
+`delta-sink` maintains the query's answer in a **Delta Lake table**, on Delta Kernel and not Spark,
+and is transactional as the two above are:
+
+```yaml
+pravaha:
+  sinks:
+    spend_lake:
+      plugin: delta-sink
+      options:
+        path: /warehouse/spend_by_user     # the table root; created with this schema if it is not there
+        schema: "user_id:STRING,window_end:TIMESTAMP,total:INT64"
+        key.columns: user_id,window_end    # must be the registration's --keys; refused in changelog mode
+        mode: upsert                       # default; `changelog` appends every change with _op and _weight
+        transactional: true                # default; false commits each batch on its own
+        # transaction.id: spend_lake       # default: this binding's name; one writer per id
+        # staging.dir: /warehouse/spend_by_user/_pravaha_sink   # default; inside the table, so it travels with it
+        # create: "false"                  # refuse to write unless the table already exists
+```
+
+- **Upsert** keeps the table equal to the view: a row is written or replaced by `key.columns`, and a
+  retraction removes the record its key names. A Delta table has no delete, so removing a row means
+  **rewriting the file that holds it** — the sink reads the data files through their key columns
+  alone to find the ones holding an affected key, rewrites those without the rows, and removes the
+  old files in the same commit. Files holding no affected key are untouched. **A commit therefore
+  costs in proportion to the table, not to the number of changes.** For a high-volume query bind
+  `mode: changelog`, which only appends: every change as a row plus `_op` (`insert` or `delete`) and
+  `_weight`, for a reader that folds them itself.
+- **Exactly once, through a staging directory.** A Delta commit is visible the instant its log entry
+  lands, so there is no prepared state to hold a checkpoint's changes in. They are written instead as
+  files under `staging.dir/<transaction.id>/<label>/` — invisible to every reader of the table — and
+  the commit applies the whole label as **one Delta commit** once the checkpoint recording it is
+  durable. Each commit carries a Delta `txn` action (`transaction.id`, the label), which is what
+  makes a commit repeated after a crash a no-op: the table itself records that the label is done.
+  The staging directory begins with an underscore, which is what Delta's `VACUUM` skips.
+- **Small files are the cost, and compaction is Delta's.** One commit per checkpoint, each writing at
+  least one Parquet file plus one for every file it rewrote. Run Delta's `OPTIMIZE` (and `VACUUM`
+  for the files the rewrites leave behind) from an engine that has them — Spark or `delta-rs`. This
+  sink has neither: Delta Kernel exposes no compaction API, and a sink that pretended to one would
+  be doing a table maintenance job without the table's owner asking. Plan for it the way you plan it
+  for any streaming writer into a lakehouse.
+- **What the guarantee assumes: no other writer of the table at all.** A writer that finishes before
+  a commit begins is merged onto, and where it wrote a key this sink holds, this sink wins. A writer
+  that commits *while* a commit is being built makes it fail with `PRV-5059` — deliberately not
+  retried, because replaying this commit's file removals over the other writer's version would undo
+  their change. The sink is then detached (`PRV-8009`) with the checkpoint's changes still staged.
+- **Checked before a row moves:** a partitioned table, a table whose columns are not the binding's
+  (by position, name and type), and `create: false` with no table are each refused with `PRV-5057`,
+  naming the column. A `TIME` column is refused with `PRV-5051`, because Delta has no time-of-day
+  type. At write time, a null key column and a `TIMESTAMP` that is not a whole number of
+  microseconds are refused with `PRV-5058` — Delta stores microseconds and the engine nanoseconds,
+  and rounding would put a value in the table that reads as true and is not. `PRV-5056` is a binding
+  that cannot be honoured as written.
+
 A registration names the sink, not the configuration: `pravaha register --name big_txn --sql-file
 q.sql --sink audit_trail`, or the `sink` argument of either SDK's `register`. The query's view is
 maintained exactly as before, and every commit of it is also written to the sink.
@@ -1130,8 +1183,8 @@ What an operator should know about that delivery:
 
   | Sink declares | Guarantee | Why |
   |---|---|---|
-  | `transactional` (`jdbc-sink`, `kafka-sink`), and `pravaha.checkpoint.directory` is set | **exactly once** (for `kafka-sink`, to a `read_committed` consumer) | Writes between checkpoints go into a transaction, prepared at each checkpoint's cut and recorded in the checkpoint, committed once the checkpoint is durable. A restore commits what the checkpoint recorded and has the sink abandon the rest, which the replay writes again |
-  | `transactional`, no checkpoint directory | at least once; effectively once when it also upserts (`jdbc-sink` and `kafka-sink` in their default `upsert` mode) | Nothing to tie a transaction to, so each commit is its own, and a restart repeats it; an upsert repeated rewrites the values already there |
+  | `transactional` (`jdbc-sink`, `kafka-sink`, `delta-sink`), and `pravaha.checkpoint.directory` is set | **exactly once** (for `kafka-sink`, to a `read_committed` consumer) | Writes between checkpoints go into a transaction, prepared at each checkpoint's cut and recorded in the checkpoint, committed once the checkpoint is durable. A restore commits what the checkpoint recorded and has the sink abandon the rest, which the replay writes again |
+  | `transactional`, no checkpoint directory | at least once; effectively once when it also upserts (`jdbc-sink`, `kafka-sink` and `delta-sink` in their default `upsert` mode) | Nothing to tie a transaction to, so each commit is its own, and a restart repeats it; an upsert repeated rewrites the values already there |
   | `idempotentUpsert` (`aerospike-sink`) | effectively once | The replay rewrites records with the values they already hold |
   | neither (`filesystem`) | at least once | Expect duplicates in the file after a restart: the rows written after the last checkpoint are written again below them. A view commit carries no sequence a replay would repeat, so there is nothing to deduplicate on |
 
@@ -1139,8 +1192,8 @@ What an operator should know about that delivery:
   `EFFECTIVELY_ONCE` or `AT_LEAST_ONCE` for this node; until HLP-4 it showed the plugin's own
   claim, which calls an idempotent upsert exactly once and cannot know whether the node checkpoints,
   so `aerospike-sink` and an uncheckpointed `jdbc-sink` were both listed `EXACTLY_ONCE`.
-  `jdbc-sink` and `kafka-sink` are transactional by default (`transactional: false` makes them
-  idempotent upsert, or a plain append or changelog); `aerospike-sink` and `filesystem` are not. The source caps it too: one that cannot
+  `jdbc-sink`, `kafka-sink` and `delta-sink` are transactional by default (`transactional: false`
+  makes them idempotent upsert, or a plain append or changelog); `aerospike-sink` and `filesystem` are not. The source caps it too: one that cannot
   rewind to a checkpoint's offsets is at least once end to end.
 - **A sink added to a running computation** (a second name for the same query) is first sent the
   view's whole contents — at the query's next change or checkpoint, not at once — inside its first

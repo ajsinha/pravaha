@@ -32,7 +32,8 @@ a support conversation should have to start with.
 |---|---|
 | PRV-5001, PRV-5010 – PRV-5013, PRV-5030 | Loading and naming plugins |
 | PRV-5040 | `filesystem` |
-| PRV-5050 – PRV-5055 | `delta` |
+| PRV-5050 – PRV-5055 | `delta` (source) |
+| PRV-5056 – PRV-5059 | `delta-sink` |
 | PRV-5060 – PRV-5065 | `feedfile` |
 | PRV-5070 – PRV-5076 | `jdbc`, `jdbc-lookup`, `jdbc-sink` |
 | PRV-5080 – PRV-5084 | `aerospike`, `aerospike-lookup`, `aerospike-sink` |
@@ -153,6 +154,42 @@ A table feature whose semantics this plugin cannot honour — **deletion vectors
 derived by diffing each version's file list, and a deletion vector deletes rows *without rewriting
 the file*, so the deleted rows would keep being served as live, silently. Set
 `delta.enableDeletionVectors=false` on the table.
+
+## delta-sink
+
+### PRV-5056 — Delta sink bad configuration
+
+The binding cannot be honoured as written: a `mode` that is neither `upsert` nor `changelog`; no
+`key.columns` in upsert mode, where a retraction would then name no record to remove; `key.columns`
+in changelog mode, which appends everything and removes nothing; a key column that is
+floating-point, nullable or not in the declared schema; a `transaction.id` that cannot also be a
+directory name; or a changelog schema that already declares `_op` or `_weight`, the two columns that
+mode adds. See [the Delta sink](/help/topics/sink-delta).
+
+### PRV-5057 — Delta sink table mismatch
+
+The table at `path` is not the one the binding describes, checked when the sink opens and before a
+row moves. The message names what differs: a column missing, renamed, retyped or in another
+position; a `NOT NULL` table column under a nullable declaration; a **partitioned** table, which
+this sink does not write; or `create: false` with no table there. The sink never alters a table's
+schema — evolve the table with the engine that owns it, change the binding, or point the sink at a
+new path.
+
+### PRV-5058 — Delta sink write failed
+
+Staging a batch, reading it back or committing it failed; the message carries the reason. Two of its
+cases are the sink refusing rather than the filesystem failing: a **null key column** (a record
+cannot be keyed by nothing), and a **`TIMESTAMP` that is not a whole number of microseconds** —
+Delta stores microseconds and the engine nanoseconds, and a rounded timestamp reads as true and is
+not.
+
+### PRV-5059 — Delta sink commit conflict
+
+Another writer committed to the table while this commit was being built. The sink does **not** retry:
+its commit removes the data files it read, and replaying those removals over the other writer's
+version would undo their change. It is detached with PRV-8009, and the checkpoint's changes stay
+staged under `staging.dir`. A Delta table maintained by a continuous query must have no other
+writer — stop the other one, then drop and re-register the query.
 
 ## feedfile
 
