@@ -83,8 +83,8 @@ part under load, several are too noisy to state as a figure, and the harness say
 The register is [`qa/FINDINGS.md`](qa/FINDINGS.md), and it is the honest list: every defect found,
 what happened to it, and what is still true of the build.
 
-At this cut: **356 findings — 291 fixed, 52 open, 0 GA-BLOCKER, 0 GA-REQUIRED**, 45 of the open ones
-triaged POST-GA and 7 recorded as notes rather than defects. The header's counts are enforced by
+At this cut: **356 findings — 331 fixed, 12 open, 0 GA-BLOCKER, 0 GA-REQUIRED**, 10 of the open ones
+triaged POST-GA and 2 recorded as notes rather than defects. The header's counts are enforced by
 `FindingsRegisterTest`, so this page and the register cannot drift apart silently.
 
 Three worth a QA reader's attention before they start:
@@ -94,9 +94,9 @@ Three worth a QA reader's attention before they start:
 - **PF-12** — a benchmark harness reported 131 % of linear scaling on a loaded machine and *passed*.
   Fixed, and recorded because it is the first defect here that produced a pass rather than a
   failure. If a number looks too good on a busy machine, distrust it.
-- **LANE-6** — a shared lane's queries intermittently read past the equivalence model in a property
-  test. Under investigation; the direction of the discrepancy is recorded rather than explained
-  away.
+- **SRC-7** — an Aerospike `lut-scan` buffers a whole scan on the heap, and `maxRecords` bounds
+  only what it hands on. Size the heap for the scan, or use `deletes: detect` with a narrower
+  range.
 
 ### Running it
 

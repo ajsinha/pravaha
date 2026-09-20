@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **356 findings carrying a
-status — 291 FIXED, 52 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 52 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 45 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+status — 331 FIXED, 12 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 12 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 10 POST-GA and 2 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -464,7 +464,7 @@ through `lane.submitControlTask`; this does not. The same class of defect as the
 one tier down, and not yet observed only because the window under contention is narrow.
 
 ## T-5 — per-plugin event time, measured
-> **Status:** OPEN — `FeedFilePartitionReader`/`DeltaPartitionReader` still call `.eventTimestampNanos(0L)` unconditionally and `JdbcPartitionReader.emit` still passes a raw JDBC long with no unit conversion; only the Aerospike row (`LutScanReader`, commit `7402a5b`) is now fixed
+> **Status:** FIXED — `3bceef2e`, and three of its five rows were already stale. feedfile and delta were fixed by HLP-6 and aerospike by `7402a5b`; jdbc reproduced. A `watermark.unit` says what the column holds (`none` by default, so nothing changes for a deployment that was reading a timestamp), and a value that overflows the unit is refused rather than wrapped. Seed-proven 3 of 3.
 > **Disposition:** NOTE — not a defect -- a reconfirmation, correction or coverage observation
 
 
@@ -477,7 +477,7 @@ one tier down, and not yet observed only because the window under contention is 
 | aerospike | Stamps every row of a scan with the scan's start time |
 
 ## T-6 — the two out-of-orderness keys, separated by one number
-> **Status:** OPEN — `pravaha.watermark.out-of-orderness` is still read by nothing (only mentioned in a javadoc); `PravahaNode.withEventTime` still discards the declared `outOfOrderness` whenever `event-time` is null/blank
+> **Status:** FIXED — the second half was one missing condition on an early return, and a third clause closes it. Declaring `out-of-orderness` on a stream with no `event-time` is now refused at startup (`PRV-1013`), because lateness has to be late about something.
 > **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
 
 
@@ -658,7 +658,7 @@ Five runs of an identical command over the same 20,000-row file returned **17,66
 fill a 4,096-cell inbox.** Some of round 1's evidence is in that category and needs re-running.
 
 ## C-5 — the codegen safety net does not cover the defect in the tree
-> **Status:** OPEN — `FilterProjectGenerator.emitProjection` still never copies a column's null bit (unlike `InterpretedPipeline.copyField`); reproduced live, a NULL projected through a generated fused stage came back `isNull=false, value=0`; the differential test now genuinely compiles generated code but its own projection never includes a nullable column, so it still doesn't catch this
+> **Status:** FIXED — `c1275423`. A generated projection did not copy the null bit for a nullable input column, so a null arrived as a zero. The differential property is widened with a nullable projected column, which is what should have caught it; seed-proven against both the new case and the property.
 > **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
 
 
@@ -677,7 +677,7 @@ returned 5 rows where an unshared `--keys 0` returns 3, with a control case in t
 on a three-column output was accepted silently.
 
 ## C-7 — built and unreachable
-> **Status:** OPEN — `OrphanedClassTest`'s own `KNOWN` debt list still carries `Lift`/`Frontier`/`IncrementalJoin`/`Differentiate` and `StageUpgradeService` as unreachable from any `src/main`; `PravahaEngine` (pravaha-embedded) still exposes only nine lifecycle methods, none for registering or reading a query
+> **Status:** OPEN — narrowed by measurement rather than left as written: `PravahaEngine` does register, read, subscribe and push, so the entry's blanket claim is half stale. `pravaha-algebra` and five classes remain reachable from no production caller. What it needs is a decision — wire them or delete them — not another investigation.
 > **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
 
 
@@ -739,7 +739,7 @@ always calls `pumpInto(0, …)`, so `refuseUnpartitionedJoin` can never fire on 
 `pravaha run` cannot run a join at all, taking one `--stream`.
 
 ## W-5 — corrections to earlier entries in this file
-> **Status:** OPEN — both corrections verified accurate against current code (`WindowSpec.slicesPerWindow()` = `sizeNanos/gcd(size,slide)`; `RowInbox`/`SpscRowRing` throw above 2 GB with `ArenaHandle` using a per-slab 32-bit offset, not a wrapped global counter), and the four silent-stop mechanisms this corrected account describes still surface with no PRV code beyond a thread-dump
+> **Status:** FIXED — both of its corrections are accurate and are applied; its third claim is stale, since `PRV-3001`, `PRV-3002` and `PRV-3022` exist and B6 publishes the metrics it says are missing.
 > **Disposition:** NOTE — not a defect -- a reconfirmation, correction or coverage observation
 
 
@@ -756,7 +756,7 @@ inheriting them:
   4. Slices per window is `S/gcd(S,D)`, not `S/D` — which understates a 10s/9.999s hop by 10,000×.
 
 ## W-6 — also pinned, from reading the source
-> **Status:** OPEN — still true: `CUMULATE` has no case and falls to a `default` refusal with no PRV code, and `WindowSpec` still throws a raw uncoded `IllegalArgumentException` for `slide > size`. Partially stale: windowed `MIN`/`MAX` over NULL and windowed `COUNT`/`COUNT(DISTINCT)` over NULL are now fixed (commits `4bc0a36`, `189890b`) — several sub-defects remain, several don't
+> **Status:** FIXED — half of it reproduced. `CUMULATE` does carry a code but never reaches the plan builder — Calcite answers first with a `$SCALAR_QUERY` complaint — so it is refused by name before validation. `slide > size` reproduced exactly, as a raw `IllegalArgumentException`; `WindowSpec`'s invariants are now wrapped as `PRV-2020`. Seed-proven, one failure each.
 > **Disposition:** NOTE — not a defect -- a reconfirmation, correction or coverage observation
 
 
@@ -826,7 +826,7 @@ The agent did the floating-point arithmetic rather than asserting:
 these.
 
 ## Y-5 — two refusal messages of mine that give advice the engine rejects
-> **Status:** OPEN — reproduced both halves: `ExpressionCompiler.cast()` still unconditionally refuses any cast to/from text while `Concat`'s mismatch message still recommends exactly that CAST; `amount * 2.5` (BIGINT) still throws `PRV-2021` while `price * 2.5` (DOUBLE) still plans cleanly
+> **Status:** FIXED — one half was stale (TY-23 had fixed `Concat`'s advice, which was unreachable), and the decimal asymmetry reproduced. Both messages now name a rewrite that works, and both rewrites are asserted to plan rather than merely suggested.
 > **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
 
 
@@ -839,7 +839,7 @@ Verified the other way, and worth recording: the float-aggregate refusal's advic
 `SUM(CAST(price AS BIGINT))` — **does** work, at a cost of 27 versus 27.7 on the fixture.
 
 ## Y-6 — `LIKE` and `SUBSTRING` disagree about the length of a string
-> **Status:** OPEN — `SUBSTRING` still uses `codePointCount` (code-point-correct) while `Predicate`'s `LIKE`-to-regex translator still maps `_` to a bare regex `.` iterating by Java `char`, so the two still disagree over a surrogate-pair character
+> **Status:** FIXED — pinned as a test, because **the premise is wrong**: Java's regex engine advances by code point, so `LIKE '_'` and `SUBSTRING` agree on an astral character. Pinned rather than closed silently — a character-based `SUBSTRING` fails the new test, which is what the entry feared.
 > **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
 
 
@@ -856,7 +856,7 @@ kills a Flight worker thread, so anything scheduled after it on that node is inv
 present as unrelated failures.
 
 ## Y-8 — the honest coverage gap, named by the author
-> **Status:** OPEN — corroborated rather than resolved by API-F2, a later finding: `pravaha explain --level codegen` still only emits generated Java for numeric-only projections and falls back (`PRV-3101`) for a STRING projection, so the interpreter/codegen divergence this finding warns about remains untested
+> **Status:** OPEN — accurate and corroborated, and C-5 closed its null half. What remains is the coverage gap its author named, and it needs a batch rather than a line.
 > **Disposition:** NOTE — not a defect -- a reconfirmation, correction or coverage observation
 
 
@@ -1102,7 +1102,7 @@ of the three clients**, and both the CLI and the console set `allowInsecureToken
 unconditionally.
 
 ## S-5 — my idle-CPU fix was partial, measured properly
-> **Status:** OPEN — `QueryExecution` still runs a per-query `ScheduledExecutorService` (`watermarkClock`, daemon thread `pravaha-watermark`) on a fixed-delay schedule regardless of idle state, unchanged from the finding's description
+> **Status:** FIXED — by SRC-6, and the mechanism in this entry is stale: there is no per-query scheduler — it is `SharedClock` (W9-3) — and the dominant term was the idle nap SRC-6 measured and fixed.
 > **Disposition:** NOTE — not a defect -- a reconfirmation, correction or coverage observation
 
 
@@ -1202,8 +1202,7 @@ case document itself is what is out of date, and is the same kind of rot `docs/H
 doc-rot build check exist to catch.
 
 ### L-3 (MEDIUM) — a read racing a drop-then-re-register can report the wrong error code
-> **Status:** OPEN — reproduced live: 3 of 71,823 reader iterations racing 20 drop/re-register cycles (`LifeReRegisterTest#life081`'s disabled body, run from a throwaway scratch copy) returned `PRV-2002` instead of the expected `PRV-4023`; `ViewQuery`'s re-plan-on-cache-miss path is unchanged
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — and wider than the race the entry describes: the code a read answered with depended on whether *some unrelated view* existed. `relFor` answers `PRV-4023` for a name this node does not serve, and an unknown *column* stays `PRV-2002`; SQLSTATE follows to `42P01`. `life081` is un-disabled and re-bounded. This closes API-F6 with it.
 
 
 `LifeReRegisterTest.life081` (`@Disabled` with this note) runs a reader in a loop against `v1` while
@@ -1275,7 +1274,7 @@ this file should confirm and mark them fixed, or explain the discrepancy. Full r
 `docs/qa/logs/SQLX.md` under SQLX-038/039/040/107/108.
 
 ## X-3 — `SqlSupportMatrixTest`'s corruption path, reconfirmed with the exact byte mechanism
-> **Status:** OPEN — `QueryRunner.run` builds its `Collector`/`BinaryRowWriter` from the real `plan.outputSchema()` but configures `FilesystemSinkPlugin`/`DelimitedCodec` from the separate, unchecked `--out-schema` string, and `BinaryRowView.getInt`/`getLong` perform no type check — the byte-overlap corruption mechanism is still present, uncross-checked anywhere in `RunCommand`/`QueryRunner`.
+> **Status:** FIXED — reproduced exactly (`1,1` becoming `4294967297`). `--out-schema` is cross-checked against the plan and the refusal prints the spec that would work. Seed-proven 2 of 2.
 > **Disposition:** NOTE — not a defect -- a reconfirmation, correction or coverage observation
 
 
@@ -1316,7 +1315,7 @@ malformed line the code comment beside the catch block promises — and that it 
 `DECODE_FAILED` (also reproduces on a wrong-field-count line), not specific to the NULL/NOT-NULL case.
 
 ## X-6 — a third, worse refusal wins `ORDER BY ?`, outside the two ADR-032 names
-> **Status:** OPEN — reproduced directly: `SqlPlanner.plan("SELECT amount FROM txn ORDER BY ?")` still throws `PRV-2010  class org.apache.calcite.sql.SqlDynamicParam: ?`, while `LIMIT ?` still correctly hits `PRV-2063` — exactly as ADR-032 predicts and this finding describes.
+> **Status:** FIXED — and it did not reproduce as written: `ORDER BY ?` is `PRV-2020` with the full sentence. Reproducing it found a worse neighbour: `LIMIT 5` was refused as `'ORDER BY '`, naming a clause the statement does not contain. `LIMIT` and `OFFSET` are refused as themselves.
 > **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
 
 
@@ -1330,7 +1329,7 @@ parameters are the obstacle, and rewrites the query with a literal `LIMIT` or `O
 `SQLX-121` shows is refused anyway, for a reason with nothing to do with parameters. (SQLX-126)
 
 ## X-7 — the lookup-join refusal is unreachable from any correlated subquery a user would write
-> **Status:** OPEN — reproduced directly: a correlated `EXISTS` still throws `PRV-2021` from `PredicateCompiler`'s default branch, and a correlated scalar subquery still throws `PRV-2021` from `ExpressionCompiler`'s generic `$SCALAR_QUERY` branch, both before `PhysicalPlanBuilder.buildLookupJoin`'s Correlate message is ever reached.
+> **Status:** FIXED — both generic arms of `CorrelatedSubqueries` reached the lookup-join sentence, which is about something else; the code moves from `PRV-2021` to `PRV-2020` with it.
 > **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
 
 
@@ -1461,7 +1460,7 @@ first three all say only `PRV-1041`; only the last (no `--params` at all, a diff
 happened to them. (SQLX-158, SQLX-159)
 
 ## X-9 — `PRV-2063` only fires for a parameter embedded in a typeable expression, not for a bare one
-> **Status:** OPEN — reproduced directly: `SELECT ?` and `GROUP BY ?` still throw `PRV-2002  Illegal use of dynamic parameter` from Calcite's own validator, while `SELECT amount * ?` plans and only throws `PRV-2063` when `ParameterMetadata.of(plan)` is separately invoked — two different codes for what ADR-032's table presents as one rule.
+> **Status:** FIXED — three codes, not the two this entry counted (`PRV-2002`, `PRV-2021`, `PRV-2063`). One rule on the parse tree, one code.
 > **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
 
 
@@ -1521,8 +1520,7 @@ exists so "the server's own diagnosis, PRV code and all" survives — and finds 
 because there was no server response to carry one.
 
 ### E-8 (MEDIUM) — a genuine 34-deep, non-circular configuration reference chain is refused as circular
-> **Status:** OPEN — `ConfigResolver.MAX_DEPTH = 32` is unchanged since its original commit `0103e81`; the depth guard still fires on raw nesting alone, independent of the real cycle detector, so a 34-deep acyclic chain is still refused as `CONFIG_CIRCULAR_REFERENCE`
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the singleton batch's `PRV-1012 CONFIG_REFERENCE_TOO_DEEP`, with the API batch reaching the same answer independently. A genuine 34-deep acyclic chain was refused as circular because the depth guard fired on raw nesting and borrowed the cycle detector's code. The guard is a backstop against the stack, says so, names its limit, and says which code reports a real cycle; the limit is raised to a number nothing a person writes can reach. `ErrcConfigParsingTest`'s own 100-deep vacuity control passes for the first time.
 
 
 `ConfigResolver.MAX_DEPTH = 32` (`ConfigResolver.java:40`) is a second guard, independent of the real
@@ -1640,8 +1638,7 @@ because there the state asked for is unreachable. Documented in the user guide a
 `RegisteredQuery`, and pinned by a test so it cannot drift into a refusal by accident.
 
 ### E-15 (MEDIUM) — `PRV-6101`'s case citation names the wrong throw sites
-> **Status:** OPEN — `PravahaFlightSqlProducer` still overrides no Flight SQL metadata method (falls through to `BasicFlightSqlProducer`'s `UNIMPLEMENTED`); the two throw sites the case cites are a custom-action dispatch default and a "no registry hosted" guard, neither a Flight SQL metadata call
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the case citation was correct and the product half was stale: P-6 had already implemented every metadata call the entry lists. What was left is the transaction family, which now answers `PRV-6101` from four overrides rather than falling through. `ERRC-090` rewritten to what happens.
 
 
 `PravahaFlightSqlProducer.java:423,618` are not Flight SQL metadata calls (`getSqlInfo`,
@@ -1708,8 +1705,7 @@ recording anyway, because two of the case file's own quoted claims did not hold 
 and one confirmed defect is real even though it was anticipated rather than discovered.
 
 ### J-1 (LOW-MEDIUM, confirmed rather than discovered) — a null-keyed left row is never emitted null-padded from a `LEFT` join
-> **Status:** OPEN — `JoinSide.add` still guards with `JoinKeys.isMatchable(row, keyOrdinals)` and returns early for a null-keyed row, so it's never stored and never reaches the outer-join eviction callback; `SymmetricHashJoinBehaviorTest#aNullKeyedLeftRowIsNeverEmittedNullPadded` passes, asserting the row is silently dropped
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — a null-keyed left row is kept on the left of a LEFT join, where the outer join's definition says it belongs, rather than dropped with the rows that have no match. Two tests, one of them inverted; seed-proven 2 of 30.
 
 
 `JoinSide.add` drops a null-keyed row entirely (`isMatchable` returns early), so it is never in state
@@ -1939,8 +1935,7 @@ applicable** (case-text correction, no code change).
 
 ### API-F2 (LOW) — the codegen "happy path" case cannot be demonstrated with the shared `FILTERSQL` constant
 
-> **Status:** OPEN — a case-file defect, not a product one: `API.md`'s shared `FILTERSQL` constant cannot demonstrate the codegen happy path. The harness needs a second constant.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — as a case-file defect rather than a product one. `FilterProjectGenerator.emitProjection` has an arm for every fixed-width type and none for a variable-width one — copying a `STRING` between rows means copying bytes into the output row's variable-width region and rewriting its pointer, which the generator does not emit — so any projection carrying one falls back with `PRV-3101`. `FILTERSQL` projects `user_id`, a STRING, so API-037 was running API-038's case and could never demonstrate the happy path it was written to pin. A second, numeric-only constant fixes it; the two cases now differ by the one thing they are about. The happy path itself is pinned in the build by `PravahaCliTest.explainCodegenShowsTheJavaTheEngineWillRun`.
 
 `API.md`'s own `FILTERSQL` harness constant (`SELECT user_id, amount FROM txn WHERE status =
 'COMPLETED' AND amount > 100`) projects `user_id`, a `STRING`. `pravaha explain --level codegen`
@@ -2002,8 +1997,7 @@ looking for a `DoPut`-based ingestion path that is not there.
 
 ### API-F6 (LOW) — `API-062` and `API-152` disagree about which PRV code an unknown view produces, and the executed evidence sides with `API-152`
 
-> **Status:** OPEN — `API-062` and `API-152` disagree on the PRV code for an unknown view; executed evidence sides with `API-152`, so `API-062` is the case to correct.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — by L-3's fix: there is one code for an unknown view now (`PRV-4023`), and it is the one `API-062` originally expected. `API-062` and `API-152` are rewritten to agree.
 
 `pravaha query --sql "SELECT * FROM nope"` against `H-SRV` with one view (`by_user`) registered
 returns `PRV-2002  Object 'nope' not found. Known streams: [by_user]`, not the `PRV-4023`/
@@ -2017,8 +2011,7 @@ expected code/message should change to `PRV-2002`).
 
 ### API-F7 (MEDIUM) — a dead-server refusal on the CLI never names the address, and `subscribe` prints its success banner before the connection is known to have failed
 
-> **Status:** OPEN — a dead-server refusal on the CLI still never names the address, and `subscribe` still prints its success banner before the connection is known to have failed.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — `9ccb76e7` and the singleton batch's own half, which reached six commands through `ServerFailures`. `subscribe` was the one path left: `Subscription` never went through the SDK's failure mapper, so it rethrew Arrow's exception raw as a bare `io exception` naming no address. The banner was the second half — a Flight stream is lazy, so "subscribed to x" was printed before anything had been sent, and against a dead node it went to stdout while the failure went to stderr a moment later, giving a pipeline a confirmation from a command that exited 1. `Subscription.awaitOpen()` waits for the server's schema, which it sends once it has authorized the reader and resolved the view, and the banner is printed after that and on stderr, because it is a note to a person and stdout carries the rows.
 
 Every one of the seven `H-CLI`-against-nothing-listening commands (`queries`, `query`, `register`,
 `drop`, `pause`, `resume`, `subscribe`) fails with the bare stderr text `PRV-1041  io exception` —
@@ -2034,8 +2027,7 @@ session's mandate (rule 5). **Status: OPEN.**
 
 ### API-F8 (LOW) — `explain`'s `?level=` (empty string) is treated as absent, not as an invalid value
 
-> **Status:** OPEN — `explain`'s `?level=` is still treated as absent rather than as an invalid value.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — `a6a95df2`. Spring's `defaultValue` substitutes for an **empty** value as well as an absent one, so `?level=` answered 200 with the physical plan while `?level=PHYSICAL` answered 400. Absent still takes the default; present and not a level is a refusal, and the commonest way to send an empty one is a shell variable that did not expand. The refusal also named two of its three levels, so a caller who mistyped `codegen` was told it is not a level. Worth recording for the next person: the first version of the fix left one comparison reading the raw parameter, so a request that sent no `format` fell past the text arm into the graph one and planned twice — and the control passed, because it asserted the level, which the graph arm also returns. What catches that is asserting what the absent default *means*.
 
 `POST /api/v1/queries/explain?level=` (the query parameter present but empty) returns `200` with
 `level:"physical"` — the same result as omitting the parameter entirely. `API-083` expects it to be
@@ -2069,8 +2061,7 @@ under. **Status: OPEN.**
 
 ### API-F10 (LOW) — a lone unpaired UTF-16 surrogate in a JSON string is accepted by the deserializer, not rejected
 
-> **Status:** OPEN — a lone unpaired UTF-16 surrogate is still accepted by the deserializer; the executed `500` also contradicts the `400` the case names.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — and it was not low: `4f1e0f34`. Followed where it goes rather than argued about the status code: `POST /api/v1/streams` with a lone surrogate in `name` answered **201** and the stream was in the listing afterwards. That name is a key nothing can address again — no UTF-8 encoding for a lone surrogate in a URL, SQL will not quote it, and protobuf's Java encoder substitutes `?` rather than failing, so the same object has two identities on two surfaces — and past the catalogue it becomes a state-directory and checkpoint path element. Refused in the deserializer (`PRV-1053`), which is the earliest point and the only one that sees every string in every body. Surrogate **pairs** have their own control test. Two batches fixed this independently and the earlier refusal won; the other's test follows it.
 
 `API-098`(d) expects `{"sql":"\ud800"}` (a lone high surrogate) to fail JSON deserialization with
 `400`. Actual: `200`, `valid:false`, `PRV-2001` (a SQL lexical error, `Encountered: <EOF>`) —
@@ -2554,8 +2545,7 @@ functions... ❌ PRV-2021" row implies.
 matching `explain` plans. See docs/qa/logs/TYPE.md §16-19 (TYPE-139).
 
 ## TY-24 (LOW) — several refusals are intercepted by Calcite's own validator before reaching Pravaha's coded message
-> **Status:** OPEN — reproduced live for all five sub-cases (ABS/ROUND arity, FLOOR parse, LTRIM/RTRIM unknown-function, CAST-to-INTEGER, CAST-to-BOOLEAN) — each still short-circuits through Calcite's own validator before Pravaha's coded message.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — `62a0b531`. The deployment the entry names was already repaired; what remained was the shape that caused it. **Open is right**: the three disclose no stream, query, row or token, and a person who cannot open the page cannot read the API they may call. They disagreed because the open set was a constant transcribing what `application.yaml` configures, and springdoc serves the page's own resources under the configured path's *parent*, which nobody had transcribed. The filter is handed `springdoc.api-docs.path` and `springdoc.swagger-ui.path` and derives the third the way springdoc does, so moving either document moves the opening with it; `springdoc.*.enabled=false` closes them. Also fixed a bare `startsWith`, under which `/api/docs` opened `/api/docsomething`.
 
 
 A consistent, low-severity pattern across four independent cases: a construct that *should* reach
@@ -2774,7 +2764,7 @@ probing what exists) are invisible to the audit trail entirely.
 docs/qa/logs/SECX.md (SECX-089 row 10, SECX-090).
 
 ## SX-9 (LOW-MEDIUM) — `AuditSink.InMemory`'s overflow eviction measurably degrades under load
-> **Status:** OPEN — `AuditSink.InMemory.record` is unchanged: `events.remove(0)` on a `CopyOnWriteArrayList` still runs on every append past the limit, an O(n) shift.
+> **Status:** FIXED — reproduced and understated: the `add` was O(n) as well as the eviction. An `ArrayDeque` under a monitor, and a limit below 1 refused rather than accepted. **Measured 7,460 ms to 22 ms.**
 > **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
 
 
@@ -2917,8 +2907,7 @@ all, which pushes an operator toward `allow-anonymous=true` — a strictly more 
 to work around a false refusal. See docs/qa/logs/SECX.md (SECX-001).
 
 ## SX-13 (MEDIUM) — reading a view by an alias name sharing another principal's fingerprint, combined with a row filter, throws instead of returning the filtered rows
-> **Status:** OPEN — reproduced live: two principals sharing a fingerprint via identical row filters, reading the shared view under the second principal's own alias, throws `PRV-7003` wrapping `PRV-2002 Object 'bob2_sales' not found`; `ViewQuery.withRowFilter` re-plans using `view.schema()` (the primary registration name) instead of the alias actually being read.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — verified against the code rather than re-fixed: `PravahaCliTest.anOfflineRefusalNamesTheStreamTheCallerGaveIt` passes including its half asserting the catalogue's blanket sentence is *not* used.
 
 
 Two filtered principals (`bob`, `bob2`) with byte-identical row filters registering byte-identical
@@ -2932,7 +2921,7 @@ guarantee `docs/SECURITY.md` describes for the fingerprint mechanism.
 **Status: OPEN.** Not seed-proven (out of required scope). See docs/qa/logs/SECX.md (SECX-013).
 
 ## SX-14 (LOW) — two token-configuration edge cases in YAML/Spring binding
-> **Status:** OPEN — (low priority) `SecurityProperties` still uses `tokens.entrySet()`/`entry.getKey()` directly with no key trimming or duplicate-normalization validation; both edge cases remain unaddressed.
+> **Status:** FIXED — as far as it can be: only the single-key YAML case is catchable, a duplicate key failing the file load before anything sees it. Boolean-ish, whitespace and empty keys are refused `PRV-7004`.
 > **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
 
 
@@ -2992,7 +2981,7 @@ the way a deployment serves different tenants from one shared computation. `docs
 corrected below. See docs/qa/logs/SECX.md (SECX-069).
 
 ## SX-16 (MEDIUM) — a Flight node's own reported address is wrong in two ways: an ephemeral port reports as `0`, and a TLS node reports a plaintext URL
-> **Status:** OPEN — reproduced live: an ephemeral-port node's `getFlightInfo` still reports port `0` (`PravahaFlightServer` builds the producer's `Location` from the pre-bind `port`, not `started.getPort()`); a TLS node's `uri()` still reports `grpc+tcp://` unconditionally, no TLS branch.
+> **Status:** FIXED — the `Location` is built from `started.getPort()` and the real scheme, and the producer is told after the bind. Worth recording how it was caught: the first seed did **not** fail, which exposed a weak test comparing the server's own `uri()` rather than the endpoint a client is handed; with the client-side test added, it failed.
 > **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
 
 
@@ -3008,7 +2997,7 @@ built with `encryptedWith(...)` — so a **TLS** node's own reported address is 
 **Status: OPEN.** Not seed-proven (out of required scope). See docs/qa/logs/SECX.md (SECX-061).
 
 ## SX-17 (MEDIUM) — several TLS certificate/key misconfigurations either throw uncoded exceptions or leave the node bound to a transport nobody can use
-> **Status:** OPEN — reproduced live: a certificate configured with no key throws a raw `NullPointerException`; swapped cert/key files throw a raw `IllegalArgumentException` uncaught by `start()`'s IOException-only catch; a mismatched-but-individually-valid cert/key pair still starts successfully, surfacing only at the first client handshake.
+> **Status:** FIXED — 2 of its 3 halves; the NPE half is stale (CFG-6). The `FlightTlsPair` signature is round-tripped before the bind, and `start()` catches `RuntimeException` so a misconfiguration is a refusal rather than a stack trace.
 > **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
 
 
@@ -3035,8 +3024,7 @@ reproduced is worse than no baseline, because it reads as evidence.
 
 ### PF-2 (MEDIUM) — the build claims a CI benchmark regression gate that does not exist
 
-> **Status:** OPEN — reproduced: `grep -rn "benchmarks.skip" --include=pom.xml` returns exactly three lines (the declaration at `pom.xml:126` and two profile overrides at `:583`/`:607`), none of them a plugin `skip` parameter, and no workflow in `.github/workflows/` invokes JMH or compares a baseline. `package` with and without `-Pbench` produces byte-identical artefacts (sha256 `3584d287401e19fb…` both ways). See `docs/qa/logs/PERF.md` PERF-002.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — by correction, which is the honest half: the gate does not exist and building it is not this batch's work. `pravaha-benchmarks/pom.xml` and `benchmarks/README.md` both claimed CI fails the build on a regression greater than 10 %: no plugin reads the `benchmarks.skip` property the profiles set, no workflow runs JMH, and `package` produces a byte-identical artefact either way. Both now say what is true, name this finding, and point at `docs/gates/`, which is run. A claim about a gate is worse than no claim, because it stops the next person building the gate.
 
 `pravaha-benchmarks/pom.xml:11` says "Baselines are committed; CI fails on a >10% regression" and
 `benchmarks/README.md:5`–`:7` says CI "fails the build on a regression greater than 10 %". No plugin
@@ -3177,8 +3165,7 @@ An operator told there is no metrics endpoint does not go looking for one.
 
 ### DOCX-6 (MEDIUM) — `pravaha.watermark.out-of-orderness` is shipped, documented three ways, and read by nothing
 
-> **Status:** OPEN — proved by experiment, not by grep. Four nodes over the same out-of-order fixture: the global key at `0s` and at `10m` produce an identical view; the stream-level key at `0s` and at `10m` differ. No documentation fix is right here — the key either needs a reader or needs removing from `application.yaml`, which is a code decision.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the key got a reader. `pravaha.watermark.out-of-orderness` is now the node-wide default a stream's own `out-of-orderness` overrides, and its default is the 10 s a schema already took, so nothing moves for a deployment that had not set it.
 
 The fixture appends a late row one watermark tick after the row that should have closed its window,
 so lateness is the only variable:
@@ -3388,8 +3375,7 @@ a javadoc before it existed.
 
 ### DOCX-19 (MEDIUM) — `PRV-7002` has four unrelated meanings and `PRV-2002` wears an SQL code for configuration refusals
 
-> **Status:** OPEN — a code fix (give configuration refusals a 1xxx code), not a documentation one. A runbook entry listing four causes under one code moves the ambiguity rather than removing it.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — for `PRV-2002`; the `PRV-7002` half was already stale. `b803a460`: `PRV-2002` had **ten** throw sites, not the five this entry counted, and seven were configuration — a node that will not boot over a YAML mistake was answering in the range the ranges table reserves for SQL. Four took existing codes (`PRV-1020` twice for missing keys, `PRV-1026` twice for durations out of bounds) and three took new ones: `PRV-1015` a contradiction between two keys, `PRV-1013` a stream event time that cannot be used, `PRV-1014` a schema version already in use. Nothing changes on the wire — CONFIGURATION and PLANNING map to the same HTTP 400, the same `INVALID_ARGUMENT` and the same SQLSTATE `42000`, pinned by a test — and in practice none of the seven can reach a client at all, because a node raising one does not finish starting. What breaks is a log filter matching four digits, and it breaks towards a number naming the right subsystem. Every `SecurityErrors.FORBIDDEN` site left is an authorization denial, which is what `PRV-7002` is for.
 
 `PRV-7002` has 18 throw sites across four modules: 12 authorization denials, 1 startup refusal of an
 open server, 1 policy/authentication contradiction, 1 split-policy refusal, and **3 bad configuration
@@ -3405,8 +3391,7 @@ not run", so an operator whose node refuses to boot on a YAML typo is pointed at
 
 ### DOCX-20 (MEDIUM) — documented remedies the engine then refuses, and eight messages naming keys that do not exist
 
-> **Status:** OPEN — code fixes. Recorded rather than repaired because the honest correction is to make the advice work, not to delete it from the document.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — of its three claims, one was fixed under Y-5, one was already stale (PF-3 had fixed all eight messages naming keys that did not exist), and the third is fixed here: the LEFT-join advice names both steps rather than the first.
 
 Following the advice verbatim:
 
@@ -3428,8 +3413,7 @@ refusal.
 
 ### DOCX-21 (MEDIUM) — `docs.pravaha.io` is NXDOMAIN, three tests assert on it, and no document warns
 
-> **Status:** OPEN — registering the domain or removing the URL is a decision for the owner, not a documentation edit this round can make.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — `895ef0a5`..`3724c5ff`, to the owner's decision of 2026-09-20: the help link points at the deployment's own console help, and there is **no default**. `pravaha.docs.base-url` on the server, the same key in an embedded engine's configuration, `PRAVAHA_DOCS_BASE_URL` for the CLI and SDKs; `helpUrl` stays in the REST and Flight contracts and is empty when unset, and every printed line then says to look the code up in the console's help or `TROUBLESHOOTING.md` instead. A base that is not an absolute http/https URL is refused at startup by name (`PRV-1029`), and a refused value leaves the previous one alone. `BearerTokenFilter`'s private second copy of the dead constant is gone; `DtoMapper` was also publishing the code lower-cased on one surface only. ERRC-116's DNS probe -- which could only ever report the machine running it -- is replaced by the property that made the dead link possible: with no base every code's URL is empty, and with one, every code is that base plus that code and nothing else.
 
 ```
 $ host docs.pravaha.io
@@ -3580,8 +3564,7 @@ diff of two nodes' startup logs is not usable. See `docs/qa/logs/CFG.md` (CFG-09
 
 ### CFG-4 (MEDIUM) — `PRV-5090`'s "Available:" list names one plugin, and the case file, the docs and `SourceBinding` all name four
 
-> **Status:** OPEN — reproduced live: `pravaha.sources.txn.plugin: kafka` on a real node yields `PRV-5090 no source plugin named 'kafka' is on the classpath, so stream 'txn' cannot be fed. Available: [filesystem]`.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — `f8b9f2ae`. The source half was already repaired; its lookup twin was not, and on a shipped node that list is *empty*, because the server jar carries no lookup plugin. Reproducing it turned up a documentation defect producing the same refusal from a correct-looking page: `docs/CONNECTORS.md` listed the lookup plugins as "aerospike, jdbc" where they report `aerospike-lookup` and `jdbc-lookup`, so an operator copying the table got `PRV-5090`. Both fixed; seed-proven, and the old assertion still passed against the seed, which is why the test now names what "available" means.
 
 The message is well-formed and does what an operator needs — except that the list it offers as the
 remedy has one entry. `feedfile`, `jdbc` and `delta` are not on the shipped `-app.jar`'s classpath
@@ -3709,8 +3692,7 @@ See `docs/qa/logs/CFG.md` (CFG-059, CFG-060, CFG-065, CFG-066).
 
 ### CFG-10 (MEDIUM) — a token declared with an empty spec is silently dropped, and an empty token table is discoverable only at the first 401
 
-> **Status:** OPEN — reproduced live: in one table, `q: {id: q1}` authenticates on both transports and `x: {}` does not; and on a node with `authentication: token` and `tokens: {}`, `grep -ciE 'no tokens|tokens are configured|rejectAll'` over the whole startup log returns **0**.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — as far as the configuration system allows, and the limit is measured rather than asserted. `4fd5da80`: (b) is closed, and (a) cannot be closed from inside Spring — measured through its own loader, `x: {}` contributes **no property at all**, absent from the `Environment` as well as from the bound map, so no object in the JVM knows the key was written; `y:` already fails the bind naming the key, and `z: {id: ""}` is already `PRV-7004`. There is no refusal to write. So the node states, once at startup, how many credentials it will verify, naming the empty-mapping trap in the same line — a count an operator can compare against what they wrote. Credentials are never printed, the map key being the bearer token. A test pins the measurement, so a Spring upgrade that changes it breaks a test rather than quietly reopening the possibility.
 
 Two ways a token table can be wrong without anybody being told. **(a)** `pravaha.security.tokens.x: {}`
 — a credential with no `id`, `tenant` or `roles`, which `SecurityProperties.java:153` documents as
@@ -4443,8 +4425,7 @@ banner says so.
 
 ### STRM-4 (MEDIUM) — subscription encoding is per subscriber, ADR-026 says it is not, and one stalled subscriber costs 69 % of ingest throughput
 
-> **Status:** OPEN — structural half in `PravahaFlightSqlProducer.streamSubscription` (`:548`, `:604`); measured half in `SrvC.s087` against the node on 19800.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — `baf6cfa7`, by correcting ADR-026 and measuring what it was wrong about. Sharing a serialised batch between sockets is not available: a batch reaches a client through its own `ServerStreamListener`, and Flight has no call that hands an already-serialised record batch to a second one, so it would take our own transport. Measured here at load 10.36: over Flight, 0/1/5/20 connected subscribers give 536,768 / 361,671 / 225,963 / 130,656 rows/s; in process they give 680,474 / 706,444 / 759,380 / 663,204 — **flat**. Everything differing between the two ladders is the carrier, so the encoding is the cost and the changelog a commit stages for its audience is not. That retires one of STRM-087's two candidate causes and confirms the other. The test asserts only the half the engine owns and deliberately pins nothing about the Flight ladder, which is a bound rather than a promise.
 
 ADR-026's rationale is explicit: "**Encode once, write N times** makes the expensive work scale with
 *query* count and the cheap work scale with *subscriber* count", and it names "Encoding per
@@ -4548,8 +4529,7 @@ no counter and no way to tell that outcome from a quiet feed.
 
 ### STRM-8 (MEDIUM) — a slow in-process subscriber blocks the engine, and the bounded buffer bounds a commit rather than a slow subscriber
 
-> **Status:** OPEN — the block reproduced in `SectionD.s047`, the inverted buffer semantics in `SectionF.s077`.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — `bb849b4d`: a subscriber's consumer runs on the subscription's own thread (one virtual thread, a lock and a condition rather than a monitor, which in 21 would pin the carrier), so a slow subscriber can no longer hold the thread that committed the view — which in a configured node drives every query on its feed. The buffer became a queue of commits, so a subscriber four commits behind gets four batches rather than one merged one, with `bufferRows` bounding changes across all of them. Dropping and disconnecting still happen, by the subscriber's own overflow policy rather than by the engine running out of patience. Seed-proven — making `onCommit` wait for its own delivery fails exactly the two new cases. The register's own follow-on: `close()` discards what is still waiting, and `awaitQuiet` now says so instead of reporting quiet.
 
 `SubscriptionOptions`' javadoc, `CONCEPTS.md` §8 and `USER_GUIDE.md` all state the same model:
 "Blocking is not on the list: a subscriber that blocks the engine applies backpressure to the
@@ -4884,8 +4864,7 @@ read paths; the 12 types that are reachable agree exactly, `TIMESTAMP` at nanose
 
 ### PF-11 (LOW) — the actionable "this node has [...]" hint is gone from three refusals, and nothing replaced it in the CLI
 
-> **Status:** OPEN — a deliberate consequence of fixing STRM-9, recorded so the usability cost is visible rather than discovered later.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the refusal names `pravaha queries` rather than the listing it used to quote, which is the actionable form of the same hint.
 
 `QueryRegistry.require`'s refusal used to end with every registered name, which is genuinely what a
 user wants after a typo — `ERRC-098` asserted it on purpose, calling it "the same actionable content
@@ -6039,8 +6018,7 @@ making the sentence say what happened.
 
 ### SRC-6 (MEDIUM) — a followed file costs about 13 ms of CPU per second while completely idle
 
-> **Status:** OPEN — measured: `SourceScaleTest`. 100 followed files with nothing being written to them: 1782 ms of process CPU per second of wall clock against an unbound baseline of 504 ms, i.e. **12.8 ms/s per source**. At 50 sources, 16.9 ms/s per source — roughly flat, so it is a per-source constant and not a constant of the node. Both figures need the test run on its own: process CPU counts the whole JVM, and inside a full `mvn verify` the same test reported minus 25.8 ms/s per source. The test reports this number and ratchets only the counts.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — an idle followed file napped at a fixed interval whatever it found. The nap now doubles up to the publish interval and resets the moment a row arrives. **Measured in the same `SourceScaleTest` run, baseline-subtracted: 12.8 → 2.0 ms/s per source at n=100, and 16.9 → 3.4 at n=50.**
 
 `PumpingFeed` naps `IDLE_NAP_NANOS` (1 ms) after a poll that moved nothing, so every bound source is
 polled a thousand times a second whether or not anything has happened. In follow mode each of those
@@ -6734,8 +6712,7 @@ runs is how a default becomes folklore, and this project has already found two o
 
 ### CKPT-5 (LOW) — a checkpoint that failed leaves a hole in the id sequence, and nothing reads it
 
-> **Status:** OPEN — `PeriodicCheckpointer.checkpointNow` takes the id first (`nextId.getAndIncrement()`) and only then cuts and stores, so a checkpoint that throws has spent its id and written nothing. `FileCheckpointStore.prune` is strictly newest-K-by-id, so a directory ends up holding `5,7,8,9,10`: the newest five that exist, over a sequence where 6 was attempted and lost. Recovery restores the newest readable one and is correct either way, which is why the hole stays invisible — a directory with a gap and one without look identical to `ls`, and no surface reports the difference. The fleet-level signals exist (`pravaha_query_checkpoint_failures_total`, the age of the last success); what is missing is the answer to "is this directory healthy?" asked of the directory itself.
-> **Disposition:** POST-GA — it misleads a diagnosis rather than losing data; the fix is either to take the id after the store succeeds, which makes a gap impossible (and then `nextId`'s seeding from `availableIds().max() + 1` needs checking against a restart), or to keep the gap and surface it: logged when it happens, and reported wherever checkpoint health is. Found by the CFG cluster's agent, correcting CFG-16's own inference that pruning was not newest-K — it is.
+> **Status:** FIXED — `PeriodicCheckpointer` gives the id back when the store fails (compare-and-set), so a failed checkpoint no longer spends a number and leaves a hole; `missingIds()` and a log line report a directory that already has one. Seed-proven both ways.
 
 ### PF-12 (HIGH) — a scaling harness with a fixed arm order reported 131 % of linear, which is a gate passing on nothing
 
@@ -6794,8 +6771,7 @@ runs is how a default becomes folklore, and this project has already found two o
 
 ### LANE-6 (MEDIUM) — a shared lane's queries can read past the model in the equivalence property, intermittently
 
-> **Status:** OPEN — `SharedLaneIngestPropertyTest.queriesSharingALanesIngestAnswerExactlyAsOnLanesOfTheirOwn` fails intermittently with the shared side **ahead** of the answer `LaneEquivalence.expected` computes from `CountingScanPlugin.STORE`, e.g. `[74, 13750]` where `[49, 9325]` was expected, after `awaitAnswer` has waited its full 30 seconds. Ahead, not behind, is the interesting direction: the query has counted rows the model excludes, and the model excludes rows by `pausedAt`, so the suspect is the boundary at which a paused query on a *shared* lane stops receiving — LANE-2's routes and its pause-at-an-exact-row task — rather than the test's timing.
-> **Disposition:** POST-GA — it is a property test over lane sharing, which is off by default; no shipped path is known to be wrong, and the same seeds pass on other runs. It must not be closed by re-running it or by widening a timeout: either the pause boundary is exact and the model is wrong, or the boundary is not exact and LANE-2 is incomplete, and the answer decides whether anything ships broken.
+> **Status:** FIXED — `b6526f76`: the property failure was a shape of script, not an interleaving — reproduced deterministically, and 460 sweeps under load found no other. With every member of a shared reader paused, the reader stops and the source moves on; a resuming member was then given a catch-up **from its own recorded row to the end of the source**, so the reader covered the same rows again the moment that member made the group live, and a fresh registration was handed its whole history twice. The class's own contract is that the handover overlap is empty when the source is still, and across this resume it was 25 rows. The engine was wrong and the model was right. `resume` and `join` now move the reader to the row the resuming query wants and start no catch-up when nobody is live. Seed-proven — `anyoneLive()` forced true fails exactly the two new cases.
 > **Evidence, both directions:** the debugger batch's agent saw it fail three times in its worktree at load 1.9–2.8, including against `84348b5` with none of its own code; the lead ran it three times at the same commit and load and saw it pass three times. A test that reports a mismatch when `awaitAnswer` gives up — comparing two sides at different positions — also cannot tell "not yet" from "wrong", and that is worth fixing whichever way the engine question lands.
 
 ### FLIGHT-1 (MEDIUM) — a saturated node's debug refusal looked like a malformed query
