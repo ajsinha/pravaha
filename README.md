@@ -203,17 +203,16 @@ corrected by late data arrives as a retraction of the old answer followed by the
   (`PRV-4018`): a backfill reads each partition once, from the beginning, at the rate an operator
   sets, and nothing probes the store's own latency to adapt to.
 - **The console has its persona surfaces but not the §23.20 release gate** — workbench, catalog,
-  views, live results, operations, a plugins screen built on the engine's manifest listing, and
-  admin screens for access and the audit trail are built, and a headless-Chrome suite holds zero axe
-  violations, visual baselines in light and dark at both densities, the measurable §23.15 budgets,
-  and all eight journeys — three end to end, five as far as the engine goes, each stopping where an
-  engine feature is missing. A component gallery the console renders itself stands in for
-  Storybook, which is not adopted (it needs Node). Not done: the manual WCAG 2.2 AA audit, the
-  eight-states audit screen by screen, and the screens for engine work that has since landed:
-  backfill and cutover (journey 5), the backpressure dashboard (journey 3) and the
-  time-travel debugger (journey 7, §23.9), whose engine halves are all built and whose
-  screens are not. The dead-letter screen journey 4 waits on is built. Plus cluster screens,
-  tenants and quotas, and editing grants (the engine is not where grants live).
+  views, live results, operations with lane backpressure and per-operator numbers on the plan, a
+  dead-letter screen, a backfill and cutover screen, a plugins screen built on the engine's
+  manifest listing, and admin screens for access and the audit trail are built, and a
+  headless-Chrome suite holds zero axe violations, visual baselines in light and dark at both
+  densities, the measurable §23.15 budgets, the eight states of §23.12 screen by screen, and all
+  eight journeys — seven end to end, one as far as the engine goes. A component gallery the
+  console renders itself stands in for Storybook, which is not adopted (it needs Node). Not done:
+  the manual WCAG 2.2 AA audit, and the screen for the time-travel debugger, whose engine is
+  built and whose journey therefore stops at the console rather than at the engine, plus cluster screens, tenants and quotas, and editing grants (the engine
+  is not where grants live).
 
 ## Performance: what is measured, and what cannot be here
 
@@ -286,9 +285,13 @@ probes needs a session. An administrator gets **Admin**: what the engine's polic
 identity do, and the **audit trail** — filterable, paged, every filter in the URL — which the engine
 serves only to a principal its policy lets read it (`SecurityPolicy.mayReadAudit`), recording every
 attempt. Where a screen needs an API the engine does not have yet, it says which.
-All eight §23.18 journeys run in headless Chrome, six of them as far as the engine goes; light, dark
-and compact density are photographed and audited by axe. The screens for backfill and cutover, for
-the backpressure dashboard and for the time-travel debugger are not built — all three engines are —
+An operator also gets **backfill and cutover** ([ADR-046](docs/adr/046-a-replacement-meets-the-running-version-at-a-position.md)):
+a new version started beside the running one, what its backfill has read — and no ETA and no
+percentage, because a source does not say how much history it holds — a throttle that may only be
+lowered, and a cutover and a rollback each confirmed by the typed name, with the rollback window
+shown as a time and said to have closed when it has.
+All eight §23.18 journeys run in headless Chrome, seven of them end to end; light, dark and compact
+density are photographed and audited by axe. The time-travel debugger's screen is not built, though its engine is,
 and neither is the manual WCAG 2.2 AA audit. [How it is built →](console/README.md)
 
 ## Documentation
