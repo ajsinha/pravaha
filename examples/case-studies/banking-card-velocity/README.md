@@ -133,13 +133,8 @@ pravaha queries --url grpc://localhost:9090     # expect: no continuous queries 
 The Aerospike connector is not in the server jar and has to be built into it — see
 [`../SETUP.md`](../SETUP.md), which also explains the `dev` profile.
 
-Three lines of that file decide whether this study works at all:
-
-```yaml
-      event-time: auth_time
-      out-of-orderness: 10s
-        deletes: detect
-```
+Three settings in that file decide whether this study works at all — `event-time` and
+`out-of-orderness` on the stream, `deletes` on the source binding:
 
 - **`event-time: auth_time`** tells the catalogue which column carries an authorisation's own time,
   and the node passes the same column to the Aerospike binding so every record read is stamped with

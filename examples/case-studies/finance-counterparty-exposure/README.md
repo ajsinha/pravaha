@@ -145,14 +145,9 @@ pravaha queries --url grpc://localhost:9090     # expect: no continuous queries 
 The JDBC connector and the PostgreSQL driver are not in the server jar and have to be built into it
 — see [`../SETUP.md`](../SETUP.md), which also explains the `dev` profile.
 
-Four keys in that file are the whole of how this study keeps time:
-
-```yaml
-      event-time: value_time
-      out-of-orderness: 1m
-        watermark.column: value_ns
-        watermark.moves.on.update: "false"
-```
+Four settings in that file are the whole of how this study keeps time — `event-time` and
+`out-of-orderness` on the stream, `watermark.column` and `watermark.moves.on.update` on the source
+binding:
 
 - **`event-time: value_time`** tells the catalogue which column an hour is measured in. Without it
   no watermark advances over `settlement`, so no hour could ever close and the exposure view would
