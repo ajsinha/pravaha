@@ -20,9 +20,16 @@
 #   7. check the checkpoint directory, the registry journal and the query's own checkpoint
 #      directory are on the mounted volume, after the container is gone
 #   8. restart a NEW container on the same volume and check the registration came back
+#   9. SEED: a node with PRAVAHA_FLIGHT_ENABLED=false must answer liveness 200 and readiness 503.
+#      If that ever passes readiness, the engine indicator has left the readiness group and the
+#      chart's readinessProbe is decoration
+#  10. SEED: the node must come ready and serve under `docker run --read-only`, which is the
+#      constraint deploy/helm/pravaha sets with readOnlyRootFilesystem and which there is no
+#      cluster on this machine to prove any other way
 #
 # Each step prints "ok:" or fails the script naming what it expected. Every artefact it creates is
-# removed on exit -- the container, the network name and the work directory -- and it never
+# removed on exit -- the containers, by the names it chose, and the work directory, whose contents
+# it removes through a throwaway root container because the node wrote them as uid 10001. It never
 # touches an image or container it did not create.
 #
 # On a machine where the daemon is reached through a group:
@@ -45,7 +52,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --image|-i) image="$2"; shift 2 ;;
     --keep)     keep=1; shift ;;
-    -h|--help)  sed -n '5,30p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help)  sed -n '6,38p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "smoke.sh: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -148,10 +155,8 @@ status() { curl -sf "http://127.0.0.1:$http_port/actuator/health/$1" 2>/dev/null
 
 # ---------------------------------------------------------------- 2. the probes
 
-# Readiness must not be green before the engine can serve. Sampled from the first moment the
-# process answers anything at all: if readiness were UP while Flight was not listening, a
-# Kubernetes Service would send a client to a node that cannot answer it.
-ready_before_serving=0
+# Liveness first: the JVM is up. It says nothing about whether a client could be served, which is
+# the whole point of keeping the two apart -- step 9 is where that separation is proved.
 for _ in $(seq 1 120); do
   if [[ "$(probe liveness)" == "200" ]]; then break; fi
   sleep 1
@@ -162,9 +167,10 @@ done
 }
 ok "liveness 200"
 
+# Then readiness, which is the one a Service follows. Two minutes: a node restoring a large
+# checkpoint is not a node that has failed.
 for _ in $(seq 1 120); do
   if [[ "$(probe readiness)" == "200" ]]; then break; fi
-  # While readiness is not 200, Flight must not be usable either -- that is the invariant.
   sleep 1
 done
 [[ "$(probe readiness)" == "200" ]] || {

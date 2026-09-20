@@ -20,7 +20,7 @@ otherwise have to rediscover the hard way.
 | Java tests | **3,651** tests, 0 failures, 184 skipped (the Kafka broker and PostgreSQL CDC tests among them, which run under Docker), across 37 reactor projects — `tools/verify-clean.sh` over the whole reactor on 2026-09-19, offline, the skips being the Docker, Cassandra, Aerospike and `psql` tests this machine cannot run. **Say which command a count came from**: `-Pit` adds the Docker integration tests against real Aerospike and PostgreSQL, and a bare number from one profile quoted against another is how this row reached 1101 and stayed there. Count the **per-module summary lines only** — summing those and the per-class `-- in Class` lines together is how a report came to quote 4,408 for a run of 2,207 (DOCR-22) |
 | Python tests | **121** collected in `sdk/python` (2026-09-19, one skipped without the `tls-keystore` extra), including the client driving a real Java Flight SQL server, plus **709** for the console — its product tests against a faked engine, its tests against a real server built from the Maven tree, and the headless-Chrome journeys, axe audit, visual baselines and performance budgets, which skip by name without Chrome |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
-| ADRs | **46** |
+| ADRs | **47** |
 
 **Where it stands, 2026-09-19.** **No GA-BLOCKER is open.** `SUB-1` (a subscribe-and-read gap) and
 `SCAN-1` (aggregates over scans that repeat rows), both found this day, are fixed. No GA-REQUIRED finding is open: `FEED-1`

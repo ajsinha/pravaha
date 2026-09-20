@@ -1526,7 +1526,13 @@ No consensus, no membership protocol, no Ratis (ADR-035, ADR-034). Two processes
 |---|---|---|
 | Embedded | `pravaha-embedded` | Inside a Java application. A lifecycle seam only: it starts, stops and reports state, and cannot register or read a query. The CLI does **not** use it |
 | Server | `pravaha-server` + `pravaha-flight` | Standard deployment |
+| Container | `deploy/docker/` | The same server, packaged: a non-root image on a JDK 21 Alpine base, built from artefacts the reactor already produced ([ADR-047](adr/047-the-image-is-a-dockerfile-over-built-artefacts.md)) |
+| Kubernetes | `deploy/helm/pravaha/` | **One** node as a StatefulSet, because of the state claim below. More replicas are refused at render time |
 | Console | `console/`, separate process | Operator UI, talks only to the public API |
+
+> **Getting a node running somewhere — the image, the chart, the volumes, the ports, the
+> environment, upgrading a node, the release procedure — is
+> [`DEPLOYMENT.md`](DEPLOYMENT.md).** This page is what happens once it is running.
 
 The **Spring Boot starter** (ADR-020) is built: `pravaha-spring-boot-starter` gives an application
 `@PravahaListener`, `PravahaTemplate`, a `@PravahaTest` slice, an optional actuator endpoint and
@@ -1578,7 +1584,9 @@ Blue/green is supported for a *query*: `ShadowDeployment` cuts over at a **front
 so every input record is reflected in exactly one version's output. Rollback is the same swap
 reversed.
 
-Node upgrades are a stop and start — there is no clustering to roll through.
+Node upgrades are a stop and start — there is no clustering to roll through. What that costs in
+Kubernetes, step by step, and why `terminationGracePeriodSeconds` is 60 rather than the default 30,
+is in [`DEPLOYMENT.md`](DEPLOYMENT.md), "Upgrading a node".
 
 **A checkpoint written by an older engine may be refused.** Formats inside a checkpoint carry a
 version and a different one is refused with `PRV-4002`, never guessed at. The served view's snapshot

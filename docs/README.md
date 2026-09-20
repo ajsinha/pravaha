@@ -18,6 +18,7 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 |---|---|
 | [Troubleshooting](TROUBLESHOOTING.md) | Every `PRV-` code, and the five you will actually meet |
 | [Operations](OPERATIONS.md) | Memory, disk, admission, what to watch, what is not solved |
+| [Deployment](DEPLOYMENT.md) | The container image, the Helm chart, the volumes, the ports, the environment, upgrading a node, the release procedure, and what the chart deliberately does not do |
 | [Security](SECURITY.md) | Authentication, authorization, row filters, audit |
 
 ## How it works
