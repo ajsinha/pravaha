@@ -193,7 +193,7 @@ curl -s https://pravaha.internal:8080/api/v1/queries
 ```
 
 ```json
-{"code":"PRV-7001","message":"this server requires a credential; send it as 'Authorization: Bearer <token>'","helpUrl":"https://docs.pravaha.io/errors/PRV-7001","timestamp":"2026-09-19T09:30:00Z","path":"/api/v1/queries"}
+{"code":"PRV-7001","message":"this server requires a credential; send it as 'Authorization: Bearer <token>'","helpUrl":"","timestamp":"2026-09-19T09:30:00Z","path":"/api/v1/queries"}
 ```
 
 (The `helpUrl` host does not resolve; this help's own page for the code is the one to read.)

@@ -71,7 +71,7 @@ curl -s -X POST http://engine:8080/api/v1/queries/validate \
   "diagnostics": [
     {"code": "PRV-2050",
      "message": "PRV-2050  GROUP BY user_id has no bound on its key space, ...",
-     "helpUrl": "https://docs.pravaha.io/errors/PRV-2050",
+     "helpUrl": "",
      "severity": "error",
      "range": null}
   ],
@@ -242,7 +242,7 @@ Every failure has one shape:
 {
   "code": "PRV-7002",
   "message": "PRV-7002  ann may not read payroll_view",
-  "helpUrl": "https://docs.pravaha.io/errors/PRV-7002",
+  "helpUrl": "",
   "timestamp": "2026-09-19T09:30:00Z",
   "path": "/api/v1/queries/payroll_view"
 }

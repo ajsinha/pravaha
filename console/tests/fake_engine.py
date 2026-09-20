@@ -302,7 +302,9 @@ class FakeEngine:
             if word in sql:
                 return {"valid": False, "diagnostics": [{"code": code, "severity": "error",
                         "message": f"'{word}' is not known here",
-                        "helpUrl": f"https://docs.pravaha.io/errors/{code}",
+                        # A node with no pravaha.docs.base-url set, which is the default: the field stays
+                        # in the body and is empty (DOCX-21).
+                        "helpUrl": "",
                         "range": _range_of(sql, word)}],
                         "outputFields": [], "elapsedMicros": 900}
         if "PLANONLY" in sql:
@@ -357,7 +359,7 @@ class FakeEngine:
         """``GET /api/v1/queries/{name}``'s ``feed``, as the engine sends it."""
         stop = self.feed_stops.get(q.fingerprint)
         failure = ({"code": stop["code"], "message": stop["message"],
-                    "helpUrl": f"https://docs.pravaha.io/errors/{stop['code']}"} if stop else None)
+                    "helpUrl": ""} if stop else None)
         return {"state": "STOPPED" if stop else "RUNNING", "description": "reading txn (1 partition)",
                 "sources": [{"stream": "txn", "partition": 0, "state": "STOPPED" if stop else "RUNNING",
                              "shared": False, "origin": bool(stop), "failure": failure,

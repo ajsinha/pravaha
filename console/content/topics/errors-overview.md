@@ -7,7 +7,7 @@ icon: exclamation-octagon
 summary: "Every failure Pravaha raises carries a stable PRV-nnnn code: what the nine ranges mean, how a message is built, which link in it does not work, and how to take a code from a log to a fix."
 badge: START HERE
 audience: Everyone
-keywords: [error, code, prv, range, helpUrl, docs.pravaha.io, sqlstate, grpc status, http status, exit code, support]
+keywords: [error, code, prv, range, helpUrl, pravaha.docs.base-url, sqlstate, grpc status, http status, exit code, support]
 guide: troubleshooting#the-ranges
 related: [errors-sql, errors-state, errors-security, errors-registry, sql-refusals]
 ---
@@ -66,12 +66,16 @@ Three rules hold for every message, and knowing them saves time:
    was not accepted — "expired" versus "unknown" versus "bad signature" is three bits of an oracle
    for whoever is guessing.
 
-!!! warning "The URL at the end of a message does not resolve"
+!!! note "Where the link at the end of a message points, and who decides"
     The engine's `helpUrl()` — shown by the CLI under the message, and returned as `helpUrl` in the
-    REST API's error body — points at `https://docs.pravaha.io/errors/PRV-nnnn`. That host is not
-    registered, so the link fails to *connect* rather than 404ing, which reads like a network
-    problem at exactly the wrong moment. Use this console instead: every code has a page at
-    `/help/codes/PRV-nnnn`, and every code the console shows you is already a link to it.
+    REST API's error body — is **whatever the deployment set `pravaha.docs.base-url` to**, with the
+    code on the end. It has no default: unset, the engine prints no link at all and says where to
+    look instead, because a link that does not resolve reads like a network problem at exactly the
+    wrong moment (that is what it used to do — it pointed at a host nobody had registered, finding
+    DOCX-21).
+
+    Point it at this console. Every code has a page here, and every code the console shows you is
+    already a link to it.
 
 ## Where codes appear, and what each surface adds
 
@@ -149,7 +153,7 @@ pravaha query --sql "SELECT user_id, SUM(amount) FROM txn GROUP BY user_id"
 
 ```text
 PRV-2050  GROUP BY user_id has no bound on its key space, so its state grows with the number of ...
-  https://docs.pravaha.io/errors/PRV-2050
+  look PRV-2050 up in the console's help under Errors, or in docs/TROUBLESHOOTING.md
 ```
 
 ```bash
@@ -160,7 +164,7 @@ curl -s -X POST http://localhost:8080/api/v1/queries/validate \
 
 ```text
 {"valid":false,"diagnostics":[{"code":"PRV-2050","message":"PRV-2050  GROUP BY user_id has no
-bound on its key space, ...","helpUrl":"https://docs.pravaha.io/errors/PRV-2050","severity":"error",
+bound on its key space, ...","helpUrl":"","severity":"error",
 "range":null}],"outputFields":[],"elapsedMicros":1840}
 ```
 

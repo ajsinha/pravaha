@@ -4,7 +4,7 @@ slug: errors-config
 category: errors
 order: 20
 icon: sliders
-summary: "PRV-1001 to PRV-1052: a configuration value that cannot be read, a key that reached nothing, a request the REST API cannot accept, and every refusal the Java and Python SDKs raise before or while talking to a node."
+summary: "PRV-1001 to PRV-1053: a configuration value that cannot be read, a key that reached nothing, a request the REST API cannot accept, and every refusal the Java and Python SDKs raise before or while talking to a node."
 badge: PRV-1XXX
 audience: Operators, developers
 keywords: [configuration, duration, data size, enum, reference, placeholder, endpoint, client options, tls options, connect failed, missing field, invalid parameter, sdk]
@@ -23,7 +23,7 @@ They are grouped here by who raises them:
 |---|---|---|
 | PRV-1001 – PRV-1028 | The engine's configuration library (`pravaha-common`), which the embedded engine and plugin options are read through | When a configuration is built — at start, not at first use |
 | PRV-1030 – PRV-1044 | The Java and Python SDKs | Constructing a client, or talking to the node |
-| PRV-1050 – PRV-1052 | The REST API itself | A request whose body or parameters cannot be read, or that reached no endpoint at all |
+| PRV-1050 – PRV-1053 | The REST API itself | A request whose body or parameters cannot be read, that carries text no encoder can carry, or that reached no endpoint at all |
 
 !!! note "A server's application.yaml is bound by Spring Boot"
     The server reads `application.yaml` through Spring Boot's binder, which reports a value it cannot
@@ -94,6 +94,55 @@ one (finding E-8). The two are separate now because the fixes are: a cycle is br
 flattened.
 
 **Do:** flatten the chain, or resolve it where it is generated.
+
+### PRV-1015 — CONFIG_CONTRADICTION
+
+Two keys that each read perfectly well and cannot both be obeyed. The first of them is one stream
+with two schemas: `pravaha.streams.<name>.schema` is what a query is planned against, and
+`pravaha.sources.<name>.options.schema` is what the plugin decodes rows with, so a divergence plans
+one shape and reads another. No single-key check can see it, because neither key is wrong.
+
+**Do:** write the schema once, under `pravaha.streams`, and leave the binding's option out.
+
+### PRV-1013 — CONFIG_STREAM_EVENT_TIME_INVALID
+
+A stream's event time, or the lateness that depends on it, cannot be used as written: a column that
+is not in the schema, a column that is not a time, or an `out-of-orderness` on a stream that
+declares no `event-time` at all — lateness has to be late *about* something.
+
+**Do:** name a timestamp column the stream's schema has, and declare `event-time` before declaring
+anything that qualifies it.
+
+### PRV-1014 — CONFIG_STREAM_VERSION_IN_USE
+
+A schema version this node already holds, redeclared with different contents. A version is how a
+reader of stored rows knows what shape they are; letting one mean two things makes every stored row
+ambiguous.
+
+**Do:** bump the version rather than editing the one in use.
+
+### PRV-1029 — CONFIG_DOCS_BASE_URL_INVALID
+
+`pravaha.docs.base-url` is not an absolute `http://` or `https://` URL. It is where a failure's
+help link points — the console's own help under `/help/topics/errors-*`, for most deployments — so
+a value that is not a URL would put a broken link on every refusal the node ever raises.
+
+Unset is a legitimate setting and is the default: the node then prints no link at all and says where
+to look instead. A refused value leaves the previous one in place rather than half-applying.
+
+**Do:** write the scheme and host in full, or leave the key out.
+
+### PRV-1053 — API_MALFORMED_TEXT
+
+A string in a request body that is not well-formed text — today an unpaired UTF-16 surrogate, half
+of a character. No UTF-8 encoder can carry one: every one substitutes `U+FFFD`, so the name or the
+SQL the node would store, log and quote back is not the one that was sent. Refused in the
+deserializer, before the body becomes an argument, because a stream registered under such a name is
+a key no later request can address — not by URL, not in SQL, and over Flight only as `?`.
+
+A surrogate **pair** is an ordinary character and is untouched.
+
+**Do:** send the text as UTF-8. If it came from a file, check what read it.
 
 ## Values that are not what the key needs
 
@@ -279,7 +328,7 @@ curl -s -X POST http://localhost:8080/api/v1/queries/validate \
 ```text
 HTTP/1.1 400
 {"code":"PRV-1050","message":"PRV-1050  this request has no 'sql': send a JSON body of the form
-{\"sql\": \"SELECT ...\"}","helpUrl":"https://docs.pravaha.io/errors/PRV-1050",...}
+{\"sql\": \"SELECT ...\"}","helpUrl":"",...}
 ```
 
 An *empty* `sql` is not this: the console sends one between keystrokes, and the SQL lexer refuses it

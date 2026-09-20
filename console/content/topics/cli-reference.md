@@ -90,7 +90,7 @@ SELECT user_id, COUNT(*) FROM txn GROUP BY user_id
 ```text
 PRV-2050  GROUP BY user_id has no bound on its key space, so its state grows with the
 number of distinct keys and never shrinks. … Bound it with a window …
-  https://docs.pravaha.io/errors/PRV-2050
+  look PRV-2050 up in the console's help under Errors, or in docs/TROUBLESHOOTING.md
 ```
 
 `validate`, `explain` and `run` plan against **one** stream (the `--schema` you give). A join between two
@@ -289,7 +289,7 @@ the table says why — without being asked:
 NAME	STATE	FINGERPRINT	ROWS IN	SINK
 w10	RUNNING (source stopped)	954ae0e3ea2c	120	-
 w10: source stopped with PRV-5040 reading ev#0 at 2026-09-19T08:00:00Z: PRV-5040  line 121 ...
-a stopped source is not retried: the view keeps answering at the frontier it reached. Fix the cause, then drop the query and register it again, or restart the node. Each code has a help page: https://docs.pravaha.io/errors/<code>
+a stopped source is not retried: the view keeps answering at the frontier it reached. Fix the cause, then drop the query and register it again, or restart the node. Look each code up in the console's help under Errors, or in docs/TROUBLESHOOTING.md.
 ```
 
 `SINK` is the binding the query's changes are also written to, or `-` when it writes only to its
