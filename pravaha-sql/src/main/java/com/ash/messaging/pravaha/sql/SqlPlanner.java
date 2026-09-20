@@ -438,10 +438,9 @@ public final class SqlPlanner {
             return functions;
         }
         if (message.contains("Cast function cannot convert value of type")) {
-            return " Pravaha evaluates conversions between numbers and nothing else: there is no cast to or "
-                    + "from text, and none to or from BOOLEAN. Write CASE WHEN <condition> THEN 1 ELSE 0 END "
-                    + "for a boolean read as a number, and assemble text where the text is assembled. See "
-                    + "docs/CONTINUOUS_QUERIES.md.";
+            return " Pravaha evaluates conversions between numbers; a boolean is not a number here and text "
+                    + "is not either. Write CASE WHEN <condition> THEN 1 ELSE 0 END for a boolean read as a "
+                    + "number, and assemble text where the text is assembled. See docs/CONTINUOUS_QUERIES.md.";
         }
         return "";
     }

@@ -494,10 +494,15 @@ final class ExpressionCompiler {
             // Calcite inserts a cast of a VARCHAR onto itself to settle a charset or a nullability
             // difference -- `CAST($4):VARCHAR CHARACTER SET "UTF-8"` over a VARCHAR column. It
             // converts nothing, and refusing it as "converts between STRING and STRING" refused
-            // ordinary queries (a text CASE, TY-5) for a wrapper the user never wrote. Identity is
-            // decided on Calcite's types, not Pravaha's, so `CAST(s AS VARCHAR(3))` -- which has to
-            // truncate and this engine does not -- stays refused rather than passed through
-            // unchanged, which would be a silently wrong answer.
+            // ordinary queries (a text CASE, TY-5) for a wrapper the user never wrote.
+            //
+            // Two guards keep this from widening into a wrong answer. Identity is decided on
+            // Calcite's types, not Pravaha's, so `CAST(s AS VARCHAR(3))` -- which has to truncate,
+            // and this engine does not -- is not identity and stays refused rather than passing
+            // through unchanged. And the type still has to be one the expression tree can carry:
+            // a DECIMAL cast onto itself converts nothing either, but letting it through would put
+            // a 128-bit decimal behind an expression that reads it as a long.
+            typeOf(call.getType().getSqlTypeName(), call.toString());
             return compile(call.getOperands().get(0));
         }
         Expression source = compile(call.getOperands().get(0));
