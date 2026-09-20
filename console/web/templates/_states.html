@@ -27,6 +27,20 @@
 </div>
 {%- endmacro %}
 
+{# Never had any: what this is, and the action that makes the first one. The same markup as
+   states.js's emptyNever, with the title written by the screen because "no dead letter" and
+   "nothing is being replaced" explain themselves differently and both explain themselves
+   better than one generic sentence would.
+
+   It was missing, and `dead_letters.html` called it: an empty dead-letter queue and a node
+   with no pravaha.dlq.directory both rendered a 500 instead of the state B5 wrote for them.
+   No test opened either, which is why nothing said so -- one does now. #}
+{% macro empty(title, body=none, id=none, action_href=none, action_label=none, heading='h2') -%}
+<div class="state"{% if id %} id="{{ id }}"{% endif %}><{{ heading }}>{{ title }}</{{ heading }}>
+  {% if body %}<p>{{ body }}</p>{% endif %}
+  {% if action_href %}<a class="btn btn-sm btn-primary" href="{{ action_href }}">{{ action_label }}</a>{% endif %}</div>
+{%- endmacro %}
+
 {# Filtered to nothing: distinct from never having had any, and the way out of the filter. #}
 {% macro filtered(clear_href, body=none, id=none, heading='h2') -%}
 <div class="state"{% if id %} id="{{ id }}"{% endif %}><{{ heading }}>{{ t('js.states.filtered_title') }}</{{ heading }}>

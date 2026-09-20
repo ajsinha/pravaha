@@ -164,6 +164,25 @@ def test_every_new_page_renders_with_the_engine_down(engine_down, path):
     assert "engine unreachable" in page.text
 
 
+def test_a_query_with_no_dead_letters_says_so_rather_than_failing(signed_in, engine):
+    """B5 wrote two empty states for the dead-letter screen and nothing ever opened either.
+
+    The shared ``_states.html`` had no ``empty`` macro, so both the empty queue and the node
+    with no ``pravaha.dlq.directory`` -- the commonest way the screen is seen, because most
+    queues are empty most of the time -- rendered a 500 rather than the state written for
+    them. Two lines of a test, and it would never have shipped.
+    """
+    empty = signed_in.get("/queries/big_txn/dead-letters")
+    assert empty.status_code == 200
+    assert 'id="dlq-empty"' in empty.text and "big_txn" in empty.text
+
+    engine.dlq_configured = False
+    unconfigured = signed_in.get("/queries/big_txn/dead-letters")
+    assert unconfigured.status_code == 200
+    assert 'id="dlq-unconfigured"' in unconfigured.text
+    assert "pravaha.dlq.directory" in unconfigured.text
+
+
 def test_pages_render_their_data_before_any_script_runs(signed_in):
     assert "txn_id" in signed_in.get("/catalog").text
     assert "big_txn" in signed_in.get("/views").text
