@@ -100,6 +100,13 @@ what changed and why. docs/qa/FINDINGS.md status lines come next. This file and 
 4. HOUSE RULES
 ====================================================================
 
+  * NO LENIENCY (owner, 2026-09-19). Where the engine could accept
+    something doubtful or refuse it, it refuses -- by name, with a code
+    and the way to say it properly. Silent coercions, guessed units and
+    papering defaults are the bugs nobody finds. If one half of a
+    behaviour is accepted and the other refused, the refusing half is
+    right. A query that plans today may stop planning; say so in the
+    commit and the documents.
   * Ashutosh Sinha is the sole author of every commit, and a commit
     message ends with its own text: no trailers of any kind. Absolute.
   * git add with EXPLICIT PATHS. Never git add -A.
