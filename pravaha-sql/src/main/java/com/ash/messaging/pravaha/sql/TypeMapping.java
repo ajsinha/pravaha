@@ -82,11 +82,29 @@ public final class TypeMapping {
 
     /** Calcite type back to a Pravaha type. */
     public static PravahaType fromCalcite(RelDataType type) {
-        PravahaType base = baseFromCalcite(type);
+        return fromCalcite(type, null);
+    }
+
+    /**
+     * Calcite type back to a Pravaha type, naming the column in a refusal.
+     *
+     * <p>Finding TY-10. Projecting an {@code ARRAY}/{@code MAP}/{@code ROW} column was refused with
+     * "no Pravaha type for SQL type ANY" and nothing else -- so an operator with a wide schema was
+     * told a type they had not written (Calcite's {@code ANY}, not their {@code ARRAY}) about a
+     * column they were not told the name of. Every caller here is walking a row type field by
+     * field and holds the name; passing it costs one argument and turns the refusal into
+     * something that can be acted on, matching what {@code ArrowSchemas} already does for the
+     * equivalent wire refusal.
+     *
+     * @param columnName the column being converted, or null where there is genuinely no name
+     */
+    public static PravahaType fromCalcite(RelDataType type, String columnName) {
+        PravahaType base = baseFromCalcite(type, columnName);
         return type.isNullable() ? base.withNullable(true) : base;
     }
 
-    private static PravahaType baseFromCalcite(RelDataType type) {
+    private static PravahaType baseFromCalcite(RelDataType type, String columnName) {
+        String where = columnName == null ? "" : "column '" + columnName + "': ";
         return switch (type.getSqlTypeName()) {
             case BOOLEAN -> Types.bool();
             case TINYINT -> Types.int8();
@@ -108,15 +126,21 @@ public final class TypeMapping {
             case NULL ->
                 throw new com.ash.messaging.pravaha.api.PravahaException(
                         com.ash.messaging.pravaha.sql.SqlErrors.UNSUPPORTED_EXPRESSION,
-                        "a bare NULL has no type, so there is no column this could be. Say which kind of "
-                                + "nothing you mean -- CAST(NULL AS BIGINT), CAST(NULL AS VARCHAR) -- and the "
-                                + "column gets a type a reader can decode.");
+                        where + "a bare NULL has no type, so there is no column this could be. Say which kind "
+                                + "of nothing you mean -- CAST(NULL AS BIGINT), CAST(NULL AS VARCHAR) -- and "
+                                + "the column gets a type a reader can decode.");
             default ->
                 // Coded, because CONTINUOUS_QUERIES.md promises every refusal carries one and an
-                // IllegalArgumentException reaching a client through Flight carries none.
+                // IllegalArgumentException reaching a client through Flight carries none. The
+                // parenthesis names the Pravaha types that arrive here as ANY, because ANY is
+                // Calcite's word for them and is not a word the person wrote (TY-10).
                 throw new com.ash.messaging.pravaha.api.PravahaException(
                         com.ash.messaging.pravaha.sql.SqlErrors.UNSUPPORTED_EXPRESSION,
-                        "no Pravaha type for SQL type " + type.getSqlTypeName()
+                        where + "no Pravaha type for SQL type " + type.getSqlTypeName()
+                                + (type.getSqlTypeName() == SqlTypeName.ANY
+                                        ? " (which is how an ARRAY, MAP or ROW column reaches the planner; "
+                                                + "one can be declared and null-checked, never selected)"
+                                        : "")
                                 + "; the supported set is in TypeMapping");
         };
     }

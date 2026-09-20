@@ -31,6 +31,7 @@ import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlKind;
+import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.util.ImmutableBitSet;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -822,6 +823,7 @@ public final class PhysicalPlanBuilder {
     }
 
     private PhysicalOperator buildAggregate(Aggregate aggregate) {
+        refuseNonNumericAggregate(aggregate);
         PhysicalOperator input = build(aggregate.getInput());
         ImmutableBitSet groupSet = aggregate.getGroupSet();
         if (aggregate.getGroupSets().size() > 1) {
@@ -1124,6 +1126,65 @@ public final class PhysicalPlanBuilder {
                 + "-- SUM(CAST(price AS BIGINT)) -- or aggregate it outside the engine.");
     }
 
+    /**
+     * Refuses {@code SUM}/{@code AVG} over an operand that is not a number, naming the column.
+     *
+     * <p>Finding TY-16. Calcite does not reject a text operand to {@code SUM}: it inserts an
+     * implicit {@code CAST(s AS DECIMAL(38,19))} underneath and leaves the refusal to whoever
+     * meets the cast. That was the DECIMAL-arithmetic guard, so {@code SUM(user_id)} over a STRING
+     * column was answered with a paragraph about 128-bit decimals and rounding errors in ledgers,
+     * naming a cast the person never wrote and not the column or the type that is actually wrong.
+     *
+     * <p>Checked here, before the input is built, because the input <em>is</em> the cast: building
+     * it is what raises the wrong message, so a check that runs afterwards never runs at all.
+     * Refused with {@code PRV-2020}, the same code {@link #refuseFloatingPointAggregate} uses, for
+     * the same class of reason -- this engine's accumulators take a number and this operand is not
+     * one -- rather than a second way of saying it.
+     */
+    private static void refuseNonNumericAggregate(Aggregate aggregate) {
+        for (AggregateCall call : aggregate.getAggCallList()) {
+            AggregateOperator.AggregateCall.Kind kind = kindOf(call);
+            if (kind != AggregateOperator.AggregateCall.Kind.SUM && kind != AggregateOperator.AggregateCall.Kind.AVG) {
+                continue;
+            }
+            if (call.getArgList().size() != 1) {
+                continue;
+            }
+            Operand operand = operandOf(aggregate.getInput(), call.getArgList().get(0));
+            if (operand == null || SqlTypeName.NUMERIC_TYPES.contains(operand.type())) {
+                continue;
+            }
+            throw unsupported(kind + "(" + operand.name() + ") is over a " + operand.type()
+                    + " column, and SUM and AVG add numbers up. SQL will quietly cast the operand to a "
+                    + "number for you and then fail somewhere else; this engine refuses the operand "
+                    + "instead, because the failure it produces otherwise is about a conversion nobody "
+                    + "wrote.");
+        }
+    }
+
+    /** What an aggregate's argument ordinal really reads, seen through the casts Calcite inserts. */
+    private record Operand(String name, SqlTypeName type) {}
+
+    private static Operand operandOf(RelNode input, int ordinal) {
+        if (ordinal < 0 || ordinal >= input.getRowType().getFieldCount()) {
+            return null;
+        }
+        String name = input.getRowType().getFieldNames().get(ordinal);
+        SqlTypeName type =
+                input.getRowType().getFieldList().get(ordinal).getType().getSqlTypeName();
+        if (!(input instanceof Project project)) {
+            return new Operand(name, type);
+        }
+        RexNode expression = project.getProjects().get(ordinal);
+        while (expression.getKind() == SqlKind.CAST && expression instanceof RexCall cast) {
+            expression = cast.getOperands().get(0);
+        }
+        if (expression instanceof RexInputRef ref) {
+            name = project.getInput().getRowType().getFieldNames().get(ref.getIndex());
+        }
+        return new Operand(name, expression.getType().getSqlTypeName());
+    }
+
     private static AggregateOperator.AggregateCall.Kind kindOf(AggregateCall call) {
         String name = call.getAggregation().getName().toUpperCase(java.util.Locale.ROOT);
         return switch (name) {
@@ -1150,7 +1211,8 @@ public final class PhysicalPlanBuilder {
         StreamSchema.Builder builder = StreamSchema.builder(name);
         rel.getRowType()
                 .getFieldList()
-                .forEach(field -> builder.field(field.getName(), TypeMapping.fromCalcite(field.getType())));
+                .forEach(field ->
+                        builder.field(field.getName(), TypeMapping.fromCalcite(field.getType(), field.getName())));
         return builder.build();
     }
 
@@ -1177,7 +1239,7 @@ public final class PhysicalPlanBuilder {
         boolean survives = false;
         for (org.apache.calcite.rel.type.RelDataTypeField field :
                 rel.getRowType().getFieldList()) {
-            builder.field(field.getName(), TypeMapping.fromCalcite(field.getType()));
+            builder.field(field.getName(), TypeMapping.fromCalcite(field.getType(), field.getName()));
             survives |= field.getName().equals(eventTimeColumn);
         }
         if (survives) {
