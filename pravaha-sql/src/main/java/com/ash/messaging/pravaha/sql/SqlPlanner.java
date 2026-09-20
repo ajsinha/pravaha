@@ -202,7 +202,7 @@ public final class SqlPlanner {
      * to the same sink; deriving the key from the {@code SELECT} list means guessing, and a view
      * keyed on a guess conflates rows that were never the same row. The alternative spelling is
      * three words longer and says both, so the refusal names it rather than inventing them
-     * (ADR-043, ADR-047).
+     * (ADR-043, ADR-049).
      *
      * <p>Before validation deliberately. Calcite validates the target table first, so {@code INSERT
      * INTO user_volume_agg SELECT ...} over a sink -- which is not in the catalogue, because a sink

@@ -183,10 +183,10 @@ corrected by late data arrives as a retraction of the old answer followed by the
   design §17.2's other row — a predicate on a column outside the key, which is still a scan and a
   filter, as that row itself says it is. `RANGE` over a column this engine has no total order for
   (text, `FLOAT`, `DECIMAL`, `BYTES`, `BOOLEAN`) is refused at registration by name (`PRV-2073`),
-  as is a `WITH` option that does not exist (`PRV-8011`), `EMIT CHANGES WITH (...)` (`PRV-2072`),
+  as is a `WITH` option that does not exist (`PRV-8017`), `EMIT CHANGES WITH (...)` (`PRV-2072`),
   and `INSERT INTO <sink> SELECT` (`PRV-2020`) — which carries neither the query's name nor its
   key, so the refusal names `WRITING TO`, `WITH (sink = ...)` and `--sink` instead
-  ([ADR-047](docs/adr/047-an-ordered-index-over-the-keys-last-column.md)).
+  ([ADR-049](docs/adr/049-an-ordered-index-over-the-keys-last-column.md)).
 - **The Spring Boot starter on Boot versions other than 3.5.** The starter (ADR-020) has its
   `@PravahaTest` slice, a read-only `pravaha` actuator endpoint and health contribution, and a
   listener error handler. Its Boot matrix is Maven profiles (`-Pboot-3.2` to `-Pboot-3.5`) with a

@@ -1,4 +1,4 @@
-# ADR-047: an ordered index over the key's last column, and nothing over anything else
+# ADR-049: an ordered index over the key's last column, and nothing over anything else
 
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 Proprietary and confidential; see `../../LICENSE`.

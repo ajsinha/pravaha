@@ -38,7 +38,7 @@ import com.ash.messaging.pravaha.serving.Retention;
  * unknown words go unnoticed, which is why {@code PRV-2072} refused the whole list until B8: an
  * ignored {@code 'retention' = '24h'} is a view kept for ever that somebody asked to keep for a
  * day. Accepting the list does not change that judgement, it moves it -- every option is either
- * built or refused by name with {@code PRV-8011} and the list of the ones that exist. The design's
+ * built or refused by name with {@code PRV-8017} and the list of the ones that exist. The design's
  * own examples name two that are not built, {@code consistency.default} (section 17.2) and {@code
  * parallelism} (section 11.2), and both are refused rather than accepted and dropped.
  *
@@ -80,7 +80,7 @@ public record RegistrationOptions(Optional<Retention> retention, Optional<String
     /**
      * One option by the name the {@code WITH (...)} list uses.
      *
-     * @throws PravahaException {@code PRV-8011} for an option this engine does not build, named
+     * @throws PravahaException {@code PRV-8017} for an option this engine does not build, named
      *     rather than ignored
      */
     public static RegistrationOptions with(RegistrationOptions options, String key, String value) {

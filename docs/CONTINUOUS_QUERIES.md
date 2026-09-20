@@ -970,7 +970,7 @@ The filter runs either way, so which path a read takes changes what it costs and
 `RANGE (column)` at registration is what tells you, *then*, that the column can be ordered at all
 (`PRV-2073`); the index itself is available on any view whose key ends in an orderable column, and
 is built the first time a range read needs one — see
-[ADR-047](adr/047-an-ordered-index-over-the-keys-last-column.md) for why the declaration is a check
+[ADR-049](adr/049-an-ordered-index-over-the-keys-last-column.md) for why the declaration is a check
 rather than an allocation. The ordered index holds one entry per row — a reference, not a copy — so the view's key ceiling
 bounds it too; it is built the first time a range read needs it, maintained by every commit
 afterwards, and dropped and rebuilt on a restore. A row whose ordered column is `NULL` is in no
@@ -1419,7 +1419,7 @@ SHOW   CONTINUOUS QUERIES
 
   On `CREATE OR REPLACE` it takes a replacement's instead — `backfill`, `backfill.rate.limit`,
   `cutover`, `rollback.retention` (§8.1). Either way an option the engine does not build is refused
-  by name with the list of the ones that do — `PRV-8011` on a registration, `PRV-4018` on a
+  by name with the list of the ones that do — `PRV-8017` on a registration, `PRV-4018` on a
   replacement — and so is the same setting said twice (`RETAIN FOR` and `retention`, or two
   different sinks). An option's name may be bare, or quoted
   as the design writes it: `WITH ('retention' = '24h')`. The short duration form is quoted, because
@@ -1450,7 +1450,7 @@ a `SERVE AS VIEW` naming something other than the query, because here a query an
 name. `CREATE OR REPLACE` was on that list until ADR-046, and `INDEXED BY ... RANGE` and a
 `WITH (...)` list on a plain `CREATE` until B8 — what replaced them is not a looser refusal but a
 narrower one, with its own code and its own sentence
-([ADR-047](adr/047-an-ordered-index-over-the-keys-last-column.md)).
+([ADR-049](adr/049-an-ordered-index-over-the-keys-last-column.md)).
 
 **Why this grammar.** `KEYED BY` says what the clause does — a second row with the same key replaces
 the first — where `INDEXED BY` reads as an index beside the view, which is not what it is: it names
@@ -1784,7 +1784,7 @@ projections correctly; what is not built is arithmetic over it. Recorded as TY-7
 | `PRV-2071` | `KEYED BY` names a column the query does not produce, or one twice — §10.1 |
 | `PRV-2072` | A clause of the design's `CREATE CONTINUOUS QUERY` that is not built: `EMIT CHANGES WITH (...)`, a `SERVE AS VIEW` naming another view — §10.1 |
 | `PRV-2073` | `RANGE (column)` over a column this engine has no total order for: text, `FLOAT`, `DECIMAL`, `BYTES`, `BOOLEAN` — §10.1 |
-| `PRV-8011` | A `WITH (...)` option this engine does not build, or one said twice — §10.1 |
+| `PRV-8017` | A `WITH (...)` option this engine does not build, or one said twice — §10.1 |
 | `PRV-4013` | A backfill reached the end of the history without reaching its seam — §8.1 |
 | `PRV-4014` | A cutover before the new version had caught up, or at a position the two do not share — §8.1 |
 | `PRV-4016` | No replacement of that name is in flight — §8.1 |

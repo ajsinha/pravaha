@@ -7,7 +7,7 @@ icon: plus-square
 summary: "Registering a query in SQL: KEYED BY, WRITING TO, RETAIN FOR — and DROP, PAUSE, RESUME and SHOW. The full grammar, what each statement answers, and every way one is refused."
 badge: STATEMENTS
 audience: Analysts and developers
-keywords: [create continuous query, keyed by, range, writing to, retain for, retain forever, with, options, drop, pause, resume, show continuous queries, indexed by, into, emit changes, insert into, PRV-2070, PRV-2071, PRV-2072, PRV-2073, PRV-8011, PRV-6211]
+keywords: [create continuous query, keyed by, range, writing to, retain for, retain forever, with, options, drop, pause, resume, show continuous queries, indexed by, into, emit changes, insert into, PRV-2070, PRV-2071, PRV-2072, PRV-2073, PRV-8017, PRV-6211]
 guide: continuous-queries#101-the-statements-that-register-and-manage-queries
 related: [query-lifecycle, views-and-keys, sinks-overview, sql-parameters, sharing]
 ---
@@ -326,17 +326,17 @@ AS SELECT merchant, amount FROM txn
 | `sink` | The binding the changelog is written to | `WRITING TO <sink>` |
 | `keys` | The key columns, comma-separated | `KEYED BY (...)` |
 
-An option this engine does not build is refused by name with PRV-8011 and the list of the ones that
+An option this engine does not build is refused by name with PRV-8017 and the list of the ones that
 do — an ignored option is a setting you believe is in force:
 
-<!-- sql: refused PRV-8011 -->
+<!-- sql: refused PRV-8017 -->
 ```sql
 CREATE CONTINUOUS QUERY tuned KEYED BY (txn_id) WITH ('consistency.default' = 'consistent') AS SELECT txn_id FROM txn
 ```
 
 Saying the same thing twice is refused rather than decided by which came first:
 
-<!-- sql: refused PRV-8011 -->
+<!-- sql: refused PRV-8017 -->
 ```sql
 CREATE CONTINUOUS QUERY twice KEYED BY (txn_id) RETAIN FOR PT1H WITH (retention = '24h') AS SELECT txn_id FROM txn
 ```
@@ -367,7 +367,7 @@ INSERT INTO audit_trail SELECT txn_id, amount FROM txn
 | Refused | Code | Say instead |
 |---|---|---|
 | `RANGE` over text, `FLOAT`, `DECIMAL`, `BYTES` or `BOOLEAN` | PRV-2073 | Drop the `RANGE` — the key still works as a key — or range-scan a whole-number or temporal column |
-| A `WITH` option that does not exist, or one said twice | PRV-8011 (PRV-4018 on a replacement) | `retention`, `sink`, `keys` on a `CREATE`; `backfill`, `backfill.rate.limit`, `cutover`, `rollback.retention` on a `CREATE OR REPLACE` |
+| A `WITH` option that does not exist, or one said twice | PRV-8017 (PRV-4018 on a replacement) | `retention`, `sink`, `keys` on a `CREATE`; `backfill`, `backfill.rate.limit`, `cutover`, `rollback.retention` on a `CREATE OR REPLACE` |
 | `EMIT CHANGES WITH (...)` | PRV-2072 | `EMIT CHANGES` alone, or nothing |
 | `SERVE AS VIEW other` | PRV-2072 | A query and its view are one name — the one clients put in `FROM` |
 | `INSERT INTO <sink> SELECT` | PRV-2020 | `WRITING TO <sink>`, `WITH (sink = '<sink>')`, or `pravaha register --sink` |

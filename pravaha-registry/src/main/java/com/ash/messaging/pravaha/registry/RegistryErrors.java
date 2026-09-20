@@ -101,7 +101,7 @@ public final class RegistryErrors {
      * replacement's are {@link ReplacementOptions} and are refused here by name too, with the
      * statement that does take them.
      */
-    public static final ErrorCode OPTION_UNKNOWN = new ErrorCode(8011, "REGISTRY_OPTION_UNKNOWN");
+    public static final ErrorCode OPTION_UNKNOWN = new ErrorCode(8017, "REGISTRY_OPTION_UNKNOWN");
 
     private RegistryErrors() {}
 }

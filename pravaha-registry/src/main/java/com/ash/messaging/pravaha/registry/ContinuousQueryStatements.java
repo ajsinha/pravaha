@@ -170,7 +170,7 @@ public final class ContinuousQueryStatements {
         List<Integer> keys = statement.keyOrdinals(output);
         // RANGE (column): checked here, against the columns the view will actually have, so a
         // column this engine cannot order is refused at registration rather than at the first read
-        // that wanted the index (PRV-2073, ADR-047).
+        // that wanted the index (PRV-2073, ADR-049).
         statement.rangeOrdinal(output);
         if (statement.orReplace() && registry.find(statement.name()).isPresent()) {
             return replace(statement, keys, principal);

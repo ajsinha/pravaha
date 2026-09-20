@@ -101,7 +101,7 @@ public final class SqlErrors {
      * <p>{@code OR REPLACE} was on this list until ADR-046, {@code INDEXED BY ... RANGE} and a
      * {@code WITH (...)} list on a plain {@code CREATE} until B8. What replaced them is not a
      * looser refusal: a {@code RANGE} this engine cannot order is {@link #RANGE_NOT_ORDERED}, and
-     * an option that does not exist is {@code PRV-8011}, each by name.
+     * an option that does not exist is {@code PRV-8017}, each by name.
      */
     public static final ErrorCode CLAUSE_NOT_BUILT = new ErrorCode(2072, "SQL_CLAUSE_NOT_BUILT");
 

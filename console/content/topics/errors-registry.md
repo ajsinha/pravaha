@@ -29,7 +29,7 @@ inside an application's own process and adds the ways an application can push ro
 | PRV-8008 | REGISTRY_NAME_UNUSABLE | The name cannot be a view name at all |
 | PRV-8009 | REGISTRY_SINK_WRITE_FAILED | A sink refused a batch and was detached |
 | PRV-8010 | REGISTRY_SINK_SHAPE_MISMATCH | The query's output or key does not fit the sink |
-| PRV-8011 | REGISTRY_OPTION_UNKNOWN | A `WITH (...)` option this engine does not build, or one said twice |
+| PRV-8017 | REGISTRY_OPTION_UNKNOWN | A `WITH (...)` option this engine does not build, or one said twice |
 | PRV-8101 | EMBEDDED_UNKNOWN_STREAM | A row pushed to an undeclared stream |
 | PRV-8102 | EMBEDDED_ROW_REJECTED | A pushed row does not fit its stream |
 | PRV-8103 | EMBEDDED_BACKPRESSURE | A push waited too long for room |
@@ -225,7 +225,7 @@ the query consumes: slow the producer, or size the lane larger.
 The engine's configuration says something it cannot do — a stream declared twice, an
 `out-of-orderness` that is not a duration — found **at start** rather than at first use.
 
-### PRV-8011 — unknown option
+### PRV-8017 — unknown option
 
 A `WITH (...)` option this engine does not build, or a value that is not what the option names.
 Which options exist depends on the statement: a plain `CREATE CONTINUOUS QUERY` takes `retention`,
@@ -235,7 +235,7 @@ name, with the statement that takes it — a replacement's refusal carries PRV-4
 code, since it is the backfill that reads the list.
 
 ```text
-PRV-8011  'consistency.default' is not an option a registration takes, and it is refused rather
+PRV-8017  'consistency.default' is not an option a registration takes, and it is refused rather
 than ignored -- an ignored option is a setting somebody believes is in force. ...
 ```
 

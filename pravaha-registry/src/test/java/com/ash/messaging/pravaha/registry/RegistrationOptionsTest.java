@@ -174,7 +174,7 @@ class RegistrationOptionsTest {
 
         assertThat(refused.errorCode()).isEqualTo(RegistryErrors.OPTION_UNKNOWN);
         assertThat(refused.getMessage())
-                .contains("PRV-8011")
+                .contains("PRV-8017")
                 .contains("'consistency.default'")
                 .contains("refused rather than ignored")
                 .contains("[retention, sink, keys]");
@@ -229,7 +229,7 @@ class RegistrationOptionsTest {
         assertThat(refusalOf(() -> run("CREATE CONTINUOUS QUERY v KEYED BY (user_id) "
                                 + "WITH (retention = 'a while') AS SELECT user_id, amount FROM txn"))
                         .getMessage())
-                .contains("PRV-8011")
+                .contains("PRV-8017")
                 .contains("not a length of event time")
                 .contains("24h");
         assertThat(refusalOf(() -> run("CREATE CONTINUOUS QUERY v KEYED BY (user_id) "
@@ -271,7 +271,7 @@ class RegistrationOptionsTest {
         assertThat(RegistrationOptions.of(Map.of("key", "a")).keyColumns()).containsExactly("a");
         assertThatThrownBy(() -> RegistrationOptions.of(Map.of("keys", " , ")))
                 .isInstanceOf(PravahaException.class)
-                .hasMessageContaining("PRV-8011");
+                .hasMessageContaining("PRV-8017");
         assertThatThrownBy(() -> RegistrationOptions.of(Map.of("sink", "  ")))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("cannot be empty");

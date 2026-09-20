@@ -442,7 +442,7 @@ public final class ServedView {
     //  * The whole key, by equality: one hash probe into `visible`. It needs no index and no
     //    declaration, because the view already IS a hash map keyed by exactly that.
     //  * The key's leading columns by equality and its LAST column between bounds: the ordered
-    //    index below. `RANGE (column)` in the statement declares it -- see ADR-047 for why that
+    //    index below. `RANGE (column)` in the statement declares it -- see ADR-049 for why that
     //    declaration is a check rather than an allocation.
     //  * A predicate on a column that is not in the key stays a scan and a filter, which is what
     //    design section 17.2 says it is ("Secondary predicate | Best effort"). An index over a

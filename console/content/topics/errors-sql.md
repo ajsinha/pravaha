@@ -494,7 +494,7 @@ AS SELECT txn_id, amount FROM txn
 
 or `WITH (sink = 'audit_trail')`, or `pravaha register --sink audit_trail`.
 
-An unknown `WITH (...)` option is the registry's PRV-8011, not a PRV-2xxx — see
+An unknown `WITH (...)` option is the registry's PRV-8017, not a PRV-2xxx — see
 [Registry codes](/help/topics/errors-registry).
 
 A reserved word as the query's name is refused by the registry's name rule, PRV-8008, however the
