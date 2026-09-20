@@ -15,7 +15,10 @@ without the live part.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import logging
+from urllib.parse import quote
 
 from fastapi import Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -43,6 +46,37 @@ def _typed(value: str):
     if digits.replace(".", "", 1).isdigit():
         return float(text)
     return value
+
+
+#: How much of a dead letter's record a row of the table shows. A record is arbitrary bytes and
+#: can be a whole JSON document; the row shows enough to recognise it and the rest is a fetch of
+#: that one entry away, which is also the call the audit trail records separately.
+_RECORD_PREVIEW = 160
+
+
+def _readable(page: dict) -> dict:
+    """The API's page with each entry's record decoded for a template.
+
+    The wire carries the record as Base64 because it is arbitrary bytes. A screen has to show
+    *something*, so it is decoded as UTF-8 with the undecodable bytes replaced -- which is
+    honest for the common case (a CSV line with a letter where a number should be) and visibly
+    mangled for the uncommon one (a binary record), rather than a wall of Base64 that nobody
+    can read either way. ``withheld`` entries carry no record at all and are left alone.
+    """
+    entries = []
+    for entry in page.get("entries") or []:
+        shown = dict(entry)
+        encoded = entry.get("raw")
+        if encoded:
+            try:
+                text = base64.b64decode(encoded, validate=True).decode("utf-8", "replace")
+            except (binascii.Error, ValueError):
+                text = ""
+            shown["text"] = text[:_RECORD_PREVIEW] + ("…" if len(text) > _RECORD_PREVIEW else "")
+        else:
+            shown["text"] = ""
+        entries.append(shown)
+    return {**page, "entries": entries}
 
 
 class UIRoutes(Routes):
@@ -136,6 +170,57 @@ class UIRoutes(Routes):
             return self.page(request, "query_detail.html", current="/queries",
                              query=query, siblings=siblings, detail=detail, detail_error=detail_error,
                              refused=refused)
+
+        # ------------------------------------------------ dead letters (B5)
+        @self.app.get("/queries/{name}/dead-letters", response_class=HTMLResponse, tags=["ui"])
+        def dead_letters(request: Request, name: str, offset: int = 0,
+                         replayed: str = "", replay_error: str = ""):
+            """Screen 8: the records this query's feed could not decode.
+
+            Gated like the query's own page, and for a stronger reason: a dead letter's
+            bytes are a row of the source, un-decoded. The engine decides who may see them
+            -- a caller who reads the view through a row filter is shown the counts, the
+            codes and the offsets and not the records -- and this screen renders that
+            refusal rather than an empty cell, so nobody reads "withheld" as "empty".
+
+            ``replayed`` and ``replay_error`` come back from the redirect after a replay:
+            redirect-after-POST, so a refresh does not put the record in a second time.
+            """
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            page, page_error = _attempt(
+                lambda: _readable(services.dead_letters.page(name, offset)), None,
+                "the query's dead letters")
+            # Replay changes the view every other reader sees, so the engine authorizes it as
+            # it does drop, pause and resume. Disabled with the policy's own reason rather
+            # than left to fail on click (design 23.16).
+            refused = services.admin.affordances().administer_refused(name)
+            return self.page(request, "dead_letters.html", current="/queries",
+                             name=name, page=page or {"entries": [], "configured": True},
+                             page_error=page_error, refused=refused,
+                             replayed=replayed, replay_error=replay_error)
+
+        @self.app.post("/queries/{name}/dead-letters/replay", tags=["ui"])
+        def replay_dead_letters(request: Request, name: str, ids: list[str] = Form(default=[])):
+            """Feeds the chosen records back through the query.
+
+            A new row at the query's current frontier, not a rewind, and a record that fails
+            to decode again goes back on the queue rather than being retried. Named at INFO
+            for the same reason a drop is: "who put that row in" is asked afterwards.
+            """
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            logger.info("%s replayed %d dead letters on '%s'", current_user(request), len(ids), name)
+            try:
+                result = services.dead_letters.replay(name, list(ids))
+            except ServiceError as exc:
+                return RedirectResponse(
+                    f"/queries/{name}/dead-letters?replay_error={quote(str(exc))}", status_code=303)
+            done = int(result.get("replayed") or 0)
+            again = int(result.get("failedAgain") or 0)
+            return RedirectResponse(
+                f"/queries/{name}/dead-letters?replayed={quote(self.t('dlq.replay_done', done=done, again=again))}",
+                status_code=303)
 
         # The lifecycle actions as ordinary form posts. The module intercepts
         # them so the page does not reload, but they work without it: a control

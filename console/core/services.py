@@ -1135,6 +1135,46 @@ class PluginService:
         }
 
 
+class DeadLetterService:
+    """The records a query's feed could not decode, and putting them back (B5).
+
+    Thin on purpose. Every decision worth making -- whether this identity may know the queue
+    exists, whether they may see a record's bytes, whether they may replay -- is the engine's,
+    made by the view's own rules, and the console asks rather than repeats. What is here is
+    the two things a screen needs that an API does not give it: a page size it can defend, and
+    a refusal turned into something a template can render.
+    """
+
+    #: Rows a page shows. Fifty is what the API defaults to, and a screen of failures is read
+    #: from the top: an operator looking at a queue wants the newest, not all of it.
+    PAGE = 50
+
+    def __init__(self, engine: Engine) -> None:
+        self._engine = engine
+
+    def page(self, name: str, offset: int = 0, limit: int = PAGE) -> dict:
+        """One page, newest first, with the queue's totals beside it."""
+        try:
+            return self._engine.dead_letters(name, offset=max(0, offset), limit=limit)
+        except Exception as exc:
+            raise _refusal(exc, 503) from exc
+
+    def replay(self, name: str, ids: list[str]) -> dict:
+        """Feeds chosen entries back through the query.
+
+        Refused rather than guessed when nothing is chosen: replaying a whole queue is not
+        offered by the engine either, because a queue is usually a mix of causes and most of
+        it is still malformed.
+        """
+        chosen = [i.strip() for i in ids if i and i.strip()]
+        if not chosen:
+            raise ServiceError(ui_text("dlq.error.none_chosen"), status=400)
+        try:
+            return self._engine.replay_dead_letters(name, chosen)
+        except Exception as exc:
+            raise _refusal(exc, 503) from exc
+
+
 class Services:
     """Everything the API layer needs, constructed once."""
 
@@ -1143,6 +1183,7 @@ class Services:
         self.engine = engine
         self.health = HealthService(engine)
         self.queries = QueryService(engine)
+        self.dead_letters = DeadLetterService(engine)
         self.adhoc = AdHocService(engine)
         self.feeds = Broadcaster(engine, snapshot_rows=row_limit)
         self.catalog = CatalogService(engine)

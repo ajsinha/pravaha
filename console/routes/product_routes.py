@@ -460,6 +460,12 @@ class ProductRoutes(Routes):
                               "href": f"/views/{q.name}/live", "hint": t("palette.hint.live")})
                 items.append({"kind": "action", "title": t("palette.action.open", name=q.name),
                               "href": f"/workbench?query={q.name}", "hint": t("palette.hint.open")})
+                # B5. A read, so every identity that may see the query gets it: the engine
+                # decides what of each record it may then see, and replay is authorized
+                # separately on the screen itself.
+                items.append({"kind": "query", "title": t("palette.query.dead_letters", name=q.name),
+                              "href": f"/queries/{q.name}/dead-letters",
+                              "hint": t("palette.hint.dead_letters")})
                 if may.administer_refused(q.name) is not None:
                     continue
                 if q.state == "RUNNING":

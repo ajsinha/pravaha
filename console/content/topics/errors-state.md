@@ -4,10 +4,10 @@ slug: errors-state
 category: errors
 order: 50
 icon: exclamation-triangle
-summary: "PRV-4001 to PRV-4090: state past its ceiling, spill quota and disk, unreadable checkpoints, directories another node owns, the dead-letter queue, backfill, and every way a view read is refused."
+summary: "PRV-4001 to PRV-4092: state past its ceiling, spill quota and disk, unreadable checkpoints, directories another node owns, the dead-letter queue and its replays, backfill, and every way a view read is refused."
 badge: PRV-4XXX
 audience: Operators, developers
-keywords: [state too large, ceiling, spill, quota, disk full, checkpoint, snapshot, ownership, owner, allow-shared, dlq, dead letter, backfill, view too large, no such view, admission, tenant, deadline, consistency, frontier]
+keywords: [state too large, ceiling, spill, quota, disk full, checkpoint, snapshot, ownership, owner, allow-shared, dlq, dead letter, replay, retention, evicted, backfill, view too large, no such view, admission, tenant, deadline, consistency, frontier]
 guide: troubleshooting#it-ran-out-of-memory-the-disk-filled
 related: [state-spill, checkpoints-recovery, point-reads, consistency, errors-overview]
 ---
@@ -18,7 +18,7 @@ served view *is* state, so its read failures live here too.
 
 The codes split into two families that call for different people:
 
-- **4001–4090: the node's state** — an operator's problem, fixed with settings, disk or retention.
+- **4001–4092: the node's state** — an operator's problem, fixed with settings, disk or retention.
 - **4020–4029: reading a view** — a client's problem, fixed with a different read or a retry.
 
 | Code | Name | In one line |
@@ -50,6 +50,8 @@ The codes split into two families that call for different people:
 | PRV-4028 | SERVING_TENANT_QUOTA_EXCEEDED | This tenant is using its whole share |
 | PRV-4029 | SERVING_READ_DEADLINE_EXCEEDED | A read ran past its deadline mid-scan |
 | PRV-4090 | STATE_DLQ_UNUSABLE | The configured dead-letter directory cannot be written |
+| PRV-4091 | STATE_DLQ_NO_SUCH_LETTER | No dead letter with that id is in the query's queue |
+| PRV-4092 | STATE_DLQ_REPLAY_REFUSED | Replaying that dead letter could not be correct |
 
 ## The node's state
 
@@ -157,6 +159,41 @@ avoid — one bad field ending the poll and taking the rest of the file with it 
 
 **Do:** fix the path and its permissions, or unset the key to go back to failing loudly on a bad
 record. See [Dead letters](/help/topics/dead-letters).
+
+### PRV-4091 — no such dead letter
+
+The id named is not in that query's queue. Three ordinary causes, and they want different actions:
+
+- the id is mistyped;
+- the page it came from is stale — the entry has since been replayed;
+- **retention evicted it.** The queue's `evicted` count says whether that is plausible, and it is on
+  every surface that shows the queue: the listing, `pravaha dlq list`, and the console's screen.
+
+**Do:** list the queue again and take the id from the current page.
+
+### PRV-4092 — replay refused
+
+The engine will not put that record back through the query, because doing so could not be correct.
+The message says which of four reasons applies:
+
+- **The stream's schema has changed** since the record was rejected. Each entry records the schema it
+  was rejected against; the same bytes would now decode into a different row, which is a row that
+  never existed in the source.
+- **The source promises `EXACTLY_ONCE` and has not read past the record's offset.** It is going to
+  deliver that record again itself, and feeding it in now would count it twice. Wait for the source
+  to reach it.
+- **The source cannot decode a record outside its own read** — its decode depends on the block, the
+  transaction or the schema message the record arrived with — so the bytes cannot be put back through
+  it at all.
+- **The query is gone, or reads a different stream now.** A dead letter belongs to the computation
+  that rejected it; there is no decoder left that would decode it as it was decoded then.
+
+**Do:** correct the record at the source and let the source deliver it. A replay is for a record the
+source will never send again.
+
+Replaying is also refused with `PRV-7002` for a caller who may read the view but not administer it:
+a replay puts a row into a view other people read, so it is authorized like `DROP`, `PAUSE` and
+`RESUME` rather than like a read.
 
 ## Backfill and blue/green replacement
 

@@ -488,6 +488,80 @@ correlation id, source offset, reason, and the original bytes in Base64 — mean
 the queue itself could not write, that count goes to stderr: a run that reports `ok` while having
 quietly discarded input is the thing the queue exists to prevent, not something it may cause.
 
+**The queue is bounded, and it evicts rather than refuses.** `pravaha.dlq.max-bytes` defaults to
+256 MiB a query, with `pravaha.dlq.max-entries` and `pravaha.dlq.max-age` off unless set. Past a
+bound the *oldest* entries go: refusing the newest would hand the writer a queue that has stopped
+accepting, whose only remaining moves are to fail the poll — stopping the source, which is what the
+queue exists to prevent — or to drop the record, which is the silent loss it exists to prevent. The
+loss is recorded three ways so it is never silent: a line in `<query>.dlq.evicted` that outlives the
+process, a `WARNING` in the log naming the bound, and an `evicted` count on every surface that shows
+the queue. A depth without that count cannot be read: a queue steady at two thousand is either one
+bad afternoon or a bound throwing two thousand a minute away.
+
+### Running with a dead-letter queue
+
+The file is no longer the only way in. A containerised operator has a browser and a token, not a
+shell on the pod, and the same entries are on every surface, each deciding by the **view's own**
+authorization rules:
+
+| Where | What it offers |
+|---|---|
+| `GET /api/v1/queries/{name}/dead-letters` | A page, newest first, with the queue's totals and its retention bound |
+| `GET /api/v1/queries/{name}/dead-letters/count` | The depth, the bytes and what retention took — the call a dashboard polls, with none of the records in it |
+| `GET /api/v1/queries/{name}/dead-letters/{id}` | One entry whole: its bytes, its reason with the `PRV-` code, its stream and offset, and when |
+| `POST /api/v1/queries/{name}/dead-letters/replay` | `{"ids": [...]}` — feeds chosen records back through the query |
+| `pravaha dlq list \| show \| replay` | The same three over Flight, through the published SDK |
+| Both SDKs | `deadLetters` / `deadLetter` / `replayDeadLetters` (Java), `dead_letters` / `dead_letter` / `replay_dead_letters` (Python) |
+| `/actuator/pravaha` | Per query, `deadLetters`: whether a directory is configured at all, how many are waiting, the bytes, what was evicted, and the bound. Counts, never records |
+| The console | **Dead letters** on the query's page: the queue newest first, each code linked to its help, the record legible, and a checkbox per entry to replay it |
+
+**Who may see a record.** A dead letter's bytes are a row of the source, and a record that failed to
+decode has *no row* for a row filter to be evaluated against — so the choice is all or nothing. A
+caller whose read of the view is row-filtered (the same flag SX-18 withholds a view's counts on) is
+shown the count, the id, the stream, the offset, the code, the size and when, and **not** the record
+or the decoder's sentence, which quotes the value it choked on. The refusal is stated in the answer
+rather than left as an empty field, so nobody reads "withheld" as "empty".
+
+**Who may replay.** A replay puts a row into a view other people read, so it is authorized as `DROP`,
+`PAUSE` and `RESUME` are — `mayAdminister`, which already refuses a row-filtered principal by name.
+Reading a dead letter and replaying it are two different rights, and a deployment that separates
+operators from readers gets to separate them here. Every decision is audited: `dlq.list`,
+`dlq.show`, `dlq.count`, `dlq.replay`.
+
+**What a replay is.** A **new row at the query's current frontier, not a rewind.** The recorded bytes
+go back through the same decoder that refused them, and the row is applied to the state the query has
+now: nothing is re-read, no source offset moves, and no earlier answer is recomputed — a query that
+has already emitted a window the record belongs to will not emit it again, and the record lands as
+late data. A record that fails to decode again **returns to the queue** as a fresh entry naming the
+id it was a replay of, rather than being retried, so a client walks forwards through the queue
+instead of round one entry. It is not idempotent, and there is no "replay everything": a queue is
+usually a mix of causes and most of it is still malformed.
+
+A replay is refused with `PRV-4092` where it could not be correct, and the message says which: the
+stream's schema has changed since the record was rejected (each entry records the schema it was
+rejected against); the source promises `EXACTLY_ONCE` and has **not** read past the record's offset,
+so it is going to deliver the record again itself and feeding it in now would count it twice; the
+source cannot decode a record outside its own read; or the query is gone or reads a different stream
+now. Where the source *will* send the record again, correcting it at the source is better, because
+it then arrives in order.
+
+**What to watch.**
+
+| Meter | Is |
+|---|---|
+| `pravaha_query_dead_letters{query=}` | How many are waiting now — the one to alert on. The running total keeps rising for a queue somebody is on top of; the depth does not |
+| `pravaha_query_dead_letters_bytes{query=}` | How large the file is, against `max-bytes` |
+| `pravaha_query_dead_letters_evicted_total{query=}` | What retention has thrown away and will not give back |
+| `pravaha_query_dead_letters_write_failures_total{query=}` | Records the queue itself could not write. Non-zero means the queue needs attention *before* the records in it do: those records are gone and nothing else says so |
+| `pravaha_query_dead_letters_fraction{query=}` | The share rejected in the current window |
+| `pravaha_query_dead_letters_degraded{query=}` | 1 once that share passes the threshold |
+
+The last two are the rate, and the rate is what matters: every real feed produces some rejects, so a
+queue that alerts on the first one is a queue whose alerts get muted in week two. Past the threshold
+the node's health indicator reports `DEGRADED` (design 15.6) rather than stopping the query —
+stopping would discard the records that *are* valid, which is the bigger loss. `/actuator/health`
+also carries `deadLetters` (how many are waiting across the node) and `deepestDeadLetterQueue`.
+
 Two of the three previously carried a comment telling the operator to permission them like data.
 An instruction to somebody who may never read it is not a control.
 
@@ -1317,7 +1391,8 @@ A binding's option values are struck out of the message before it is recorded, a
 To recover: fix the cause, then drop the query and register it again, or restart the node — either
 opens a new feed, which resumes from the last checkpoint if the query checkpoints. For a source whose
 records sometimes cannot be decoded, set `pravaha.dlq.directory` and the bad records go there while
-the rest keep flowing.
+the rest keep flowing — and can then be read and replayed (*Running with a dead-letter queue*,
+above).
 
 ## Replacing a running query: the operator's side
 

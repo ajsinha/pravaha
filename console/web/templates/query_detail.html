@@ -13,6 +13,9 @@
     <a class="btn btn-sm btn-outline-secondary" href="/views/{{ query.name }}">{{ t('query.browse') }}</a>
     <a class="btn btn-sm btn-outline-secondary" href="/workbench?query={{ query.name }}&amp;panel=explain">{{ t('query.plan') }}</a>
     <a class="btn btn-sm btn-outline-secondary" href="/workbench?query={{ query.name }}">{{ t('query.edit_copy') }}</a>
+    {# B5. Reachable from the query, because a dead letter belongs to one: this query's feed
+       rejected the record, and this query is what it would be replayed into. #}
+    <a class="btn btn-sm btn-outline-secondary" href="/queries/{{ query.name }}/dead-letters" id="dead-letters-link">{{ t('query.dead_letters') }}</a>
   </div>
 </div>
 <div class="rule"></div>

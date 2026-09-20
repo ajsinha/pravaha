@@ -153,11 +153,44 @@ groups:
           description: "At the quota the next query to need a slab stops with PRV-4005. Replace 20e9 with your pravaha.state.spill.max-bytes."
 ```
 
+```yaml
+- alert: PravahaDeadLettersArriving
+  expr: increase(pravaha_query_dead_letters[15m]) > 0
+  for: 5m
+  labels: {severity: warning}
+  annotations:
+    summary: "{{ $labels.query }} is rejecting records it cannot decode"
+    description: "Its view is missing them. `pravaha dlq list --name {{ $labels.query }}`, or the query's Dead letters screen."
+
+- alert: PravahaRejectingTooMuch
+  expr: pravaha_query_dead_letters_degraded == 1
+  for: 2m
+  labels: {severity: critical}
+  annotations:
+    summary: "{{ $labels.query }} is past its dead-letter rate threshold"
+    description: "A schema change nobody announced, not a bad partner file. The view is answering, and incompletely."
+
+- alert: PravahaDeadLettersLost
+  expr: increase(pravaha_query_dead_letters_write_failures_total[15m]) > 0
+  labels: {severity: critical}
+  annotations:
+    summary: "{{ $labels.query }} could not write a rejected record to its dead-letter file"
+    description: "Those records are gone and nothing else records them. Check the disk and the permissions on pravaha.dlq.directory (PRV-4090)."
+```
+
+Alert on the **rate**, not on the queue being non-empty: every real feed produces some rejects, and
+an alert that fires on the first one is an alert that gets muted in week two. And on
+`increase(...)`, not on the depth: a query holding a steady hundred rejects from last Tuesday needs
+nobody at three in the morning, and one that gained a hundred in fifteen minutes does. See
+[Dead letters](/help/topics/dead-letters).
+
 Two more worth having, depending on the deployment:
 
 - **`pravaha_query_rows_in` flat** (`rate(...[15m]) == 0`) on a query fed by a source that should
   never be quiet. A source that *failed* is `pravaha_query_feed_stopped` above; this catches one
   that is merely silent (see [Dead letters](/help/topics/dead-letters)).
+- **`increase(pravaha_query_dead_letters_evicted_total[1h]) > 0`**: retention is throwing the oldest
+  entries away, so the queue's history is incomplete. Raise `pravaha.dlq.max-bytes`, or drain it.
 - **`pravaha_query_subscribers == 0`** on a query somebody expects to be watched.
 
 ## Health probes

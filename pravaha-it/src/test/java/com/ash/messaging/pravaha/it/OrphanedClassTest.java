@@ -89,6 +89,7 @@ class OrphanedClassTest {
             Map.entry("PermissionsController", "Spring @RestController"),
             Map.entry("ReplacementController", "Spring @RestController"),
             Map.entry("StatusController", "Spring @RestController"),
+            Map.entry("DeadLetterController", "Spring @RestController"),
             Map.entry("PravahaMetrics", "Spring @Component"),
             Map.entry("EngineHealthIndicator", "Spring @Component, contributed to /actuator/health"),
             Map.entry("ApiExceptionHandler", "Spring @RestControllerAdvice"),

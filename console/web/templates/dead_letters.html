@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% from "_helpcards.html" import screenhelp, helplink %}
+{% import "_states.html" as states %}
+{% block title %}{{ t('dlq.title', name=name) }} — {{ app_name }}{% endblock %}
+{% block content %}
+<p class="text-muted small"><a href="/queries/{{ name }}">&larr; {{ t('dlq.back', name=name) }}</a></p>
+<div class="accent"></div>
+<p class="kicker mt-2 mb-1">{{ t('dlq.kicker') }}</p>
+<div class="page-head">
+  <h1>{{ t('dlq.heading') }}{{ helplink('dead-letters') }}</h1>
+  <div class="d-flex gap-2 flex-wrap">
+    <a class="btn btn-sm btn-outline-secondary" href="/queries/{{ name }}">{{ t('dlq.the_query') }}</a>
+  </div>
+</div>
+<div class="rule"></div>
+
+{% if page_error %}
+  {{ states.error(body=page_error, id='dlq-error') }}
+{% elif not page.configured %}
+  {# Not the same as an empty queue, and the difference is the whole setting: with no
+     directory a record that cannot be decoded stops the source instead of being kept. #}
+  {{ states.empty(title=t('dlq.unconfigured.title'), body=t('dlq.unconfigured.body'), id='dlq-unconfigured') }}
+{% elif not page.entries %}
+  {{ states.empty(title=t('dlq.none.title', name=name), body=t('dlq.none.body'), id='dlq-empty') }}
+{% else %}
+
+{% if replayed %}
+<div class="alert alert-success py-2 small" id="dlq-replayed" role="status">{{ replayed }}</div>
+{% endif %}
+{% if replay_error %}
+<div class="alert alert-danger py-2 small" id="dlq-replay-error" role="alert">{{ replay_error }}</div>
+{% endif %}
+
+<div class="d-flex flex-wrap gap-2 mb-3" id="dlq-summary">
+  <span class="chip bad">{{ t('dlq.count', n="{:,}".format(page.total)) }}</span>
+  <span class="chip mute">{{ t('dlq.bytes', n="{:,}".format(page.bytes or 0)) }}</span>
+  {% if page.replayed %}<span class="chip ok">{{ t('dlq.replayed_count', n=page.replayed) }}</span>{% endif %}
+  {% if page.failedAgain %}<span class="chip bad">{{ t('dlq.failed_again_count', n=page.failedAgain) }}</span>{% endif %}
+  <span class="chip info" title="{{ t('dlq.retention_title') }}">{{ t('dlq.retention', bound=page.retention) }}</span>
+</div>
+
+{% if page.evicted %}
+{# Never a silent loss: the bound threw these away and the screen says how many. #}
+<div class="alert alert-warning py-2 small" id="dlq-evicted" role="status">{{ t('dlq.evicted', n="{:,}".format(page.evicted), bytes="{:,}".format(page.evictedBytes or 0), bound=page.retention) }}</div>
+{% endif %}
+
+<form method="post" action="/queries/{{ name }}/dead-letters/replay" id="dlq-form">
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>{{ t('dlq.table_header') }}</span>
+    <button class="btn btn-sm btn-primary" type="submit" id="dlq-replay"{{ ' disabled' if refused }}
+            {% if refused %}title="{{ refused }}"{% endif %}>{{ t('dlq.replay_selected') }}</button>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm mb-0" id="dlq-table">
+      <thead><tr>
+        <th scope="col"><span class="visually-hidden">{{ t('dlq.column.choose') }}</span></th>
+        <th scope="col">{{ t('dlq.column.when') }}</th>
+        <th scope="col">{{ t('dlq.column.code') }}</th>
+        <th scope="col">{{ t('dlq.column.where') }}</th>
+        <th scope="col">{{ t('dlq.column.reason') }}</th>
+        <th scope="col">{{ t('dlq.column.record') }}</th>
+        <th scope="col">{{ t('dlq.column.state') }}</th>
+      </tr></thead>
+      <tbody>
+        {% for entry in page.entries %}
+        <tr>
+          <td><input class="form-check-input" type="checkbox" name="ids" value="{{ entry.id }}"
+                     id="pick-{{ loop.index }}"{{ ' disabled' if refused }}
+                     aria-label="{{ t('dlq.choose_one', id=entry.id) }}"></td>
+          <td class="mono small">{{ entry.at or '—' }}</td>
+          <td>{% if entry.code %}<a href="/help/codes/{{ entry.code }}">{{ entry.code }}</a>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="mono small">{{ entry.stream or '—' }} {{ entry.offset or '' }}</td>
+          <td class="small">{% if entry.withheld %}<span class="text-muted" title="{{ entry.withheld }}">{{ t('dlq.withheld') }}</span>{% else %}{{ entry.reason or '—' }}{% endif %}</td>
+          <td class="mono small">{% if entry.withheld %}<span class="text-muted">{{ t('dlq.bytes_only', n=entry.size) }}</span>{% else %}{{ entry.text }}{% endif %}</td>
+          <td><span class="chip {{ 'ok' if entry.replay == 'REPLAYED' else 'bad' if entry.replay == 'FAILED_AGAIN' else 'mute' }}">{{ t('dlq.state.' ~ entry.replay|lower) }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer small text-muted">{{ t('dlq.semantics') }}</div>
+</div>
+</form>
+
+{% if page.more %}
+<nav class="mt-3" aria-label="{{ t('dlq.older_label') }}">
+  <a class="btn btn-sm btn-outline-secondary" href="/queries/{{ name }}/dead-letters?offset={{ page.offset + page.entries|length }}">{{ t('dlq.older') }}</a>
+</nav>
+{% endif %}
+{% endif %}
+
+{{ screenhelp('dead-letters') }}
+{% endblock %}

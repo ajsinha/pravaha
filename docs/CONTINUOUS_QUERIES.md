@@ -747,6 +747,10 @@ ISO-8601 instant or epoch milliseconds. A member the schema does not name is ign
 column is null, and refused if it is not nullable. The record's key is not read — `kafka-sink` puts
 every column in the value. A record that does not fit is a dead letter (`pravaha.dlq.directory`)
 named `topic/partition@offset`, or, with no dead-letter queue, stops the source with `PRV-5105`.
+A dead letter can be listed, fetched whole and replayed — `pravaha dlq`, `GET
+/api/v1/queries/{name}/dead-letters`, or the query's page in the console; replaying it is a new row
+at the query's current frontier, not a rewind, and is refused for an exactly-once source that has
+not yet read past the record.
 
 **Deletes only in `format: changelog`.** A tombstone in an upsert topic deletes a key without saying
 what row it held, so there is nothing to retract; to feed retractions from one query to another,

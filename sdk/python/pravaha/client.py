@@ -910,6 +910,43 @@ class Client:
         ``GET /api/v1/queries/{name}``."""
         return dict(self._http().get("/api/v1/queries/" + _segment(name)) or {})
 
+    def dead_letters_http(self, name: str, *, offset: int = 0, limit: int = 50) -> dict:
+        """A page of a query's dead letters over HTTP, newest first, with the queue's totals.
+
+        The same answer :meth:`dead_letters` gives over Flight, in the API's JSON shape: an
+        ``entries`` list, and ``total``, ``evicted``, ``retention`` and ``configured`` beside
+        it. An entry's ``raw`` is ``null`` with ``withheld`` saying why when this caller reads
+        the view through a row filter. ``GET /api/v1/queries/{name}/dead-letters``.
+        """
+        return dict(
+            self._http().get(
+                "/api/v1/queries/" + _segment(name) + "/dead-letters",
+                {"offset": offset, "limit": limit},
+            )
+            or {}
+        )
+
+    def dead_letter_count(self, name: str) -> dict:
+        """How deep a query's queue is, and what retention has taken, without any of the
+        records. The call a dashboard polls, because fetching a page of records with their
+        bytes to learn a number would be reading production data to draw a line.
+        ``GET /api/v1/queries/{name}/dead-letters/count``."""
+        return dict(self._http().get("/api/v1/queries/" + _segment(name) + "/dead-letters/count") or {})
+
+    def replay_dead_letters_http(self, name: str, ids: Sequence[str]) -> dict:
+        """Feeds chosen dead letters back through the query, over HTTP.
+
+        A new row at the query's current frontier, not a rewind. Not idempotent.
+        ``POST /api/v1/queries/{name}/dead-letters/replay``.
+        """
+        return dict(
+            self._http().post(
+                "/api/v1/queries/" + _segment(name) + "/dead-letters/replay",
+                {"ids": list(ids)},
+            )
+            or {}
+        )
+
     def query_plan(self, name: str) -> dict:
         """The plan a registered query is running, as ``nodes`` and ``edges``, with the
         query-level numbers the engine measures under ``query`` -- including how long its

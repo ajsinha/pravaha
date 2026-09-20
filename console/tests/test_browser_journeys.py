@@ -500,16 +500,15 @@ def test_journey_diagnose_a_struggling_query_from_the_dashboard(page):
 
 
 def test_journey_find_a_querys_dead_letters(page, console):
-    """Design 23.18 journey 4, "inspect and act on a DLQ record": the operator looks for where a
-    query's undecodable records went, from the console, and finds the setting, the file, how to
-    read one, and how to put a corrected one back.
+    """Design 23.18 journey 4, "inspect and act on a DLQ record", end to end: the operator
+    looks for where a query's undecodable records went, finds the help, reaches the records
+    themselves from the query's page, reads one, and puts a corrected one back.
 
-    Waits on the engine for inspecting and acting in the console. The dead-letter queue is a file
-    per query under ``pravaha.dlq.directory``, written by the node and read by nothing: no API
-    lists a query's dead letters or returns one, nothing replays one, and no ``pravaha_*`` meter
-    counts them for the dashboard to find (``DeadLetterRate`` is in the runtime, wired to
-    nothing). So there is no screen 8 (Query - Errors / DLQ), and the journey asserts no page and
-    no palette entry pretends there is.
+    It used to stop at the help topic and assert that the console offered nothing, because
+    the dead-letter queue was a file nothing read. B5 made it a product: an API lists a
+    query's dead letters and returns one, a replay feeds a chosen record back through the
+    query, and ``pravaha_query_dead_letters`` counts them for the dashboard. So the journey
+    now walks screen 8 (Query - Errors / DLQ) rather than asserting it is absent.
     """
     sign_in(page, console)
     page.goto(console.url("/help"))
@@ -524,16 +523,53 @@ def test_journey_find_a_querys_dead_letters(page, console):
     topic = page.text("main")
     assert "pravaha.dlq.directory" in topic and "<query>.dlq" in topic
     assert "correlationId" in topic and "jq -r .raw" in topic, "how to read one, and its original bytes"
+    assert "pravaha dlq list" in topic, "and how to read one without a shell on the node"
 
     # The code an unwritable queue raises opens its own page.
     page.wait_for_navigation(lambda: page.click(".doc a.prv[href='/help/codes/PRV-4090']"))
     assert "PRV-4090" in page.text("h1")
 
-    # Nowhere in the console is a dead letter offered, so nothing fails on click.
+    # Two records the feed could not decode. One is a genuine mistake somebody has since
+    # corrected at the source; the other is still malformed.
+    corrected = console.engine.reject("big_txn", offset="line 812", raw="812,u-1042,acme,12.50")
+    console.engine.reject("big_txn", offset="line 900", raw="900,,,")
+    console.engine.replay_succeeds.add(corrected)
+
+    # Reached from the query, because a dead letter belongs to one.
     page.goto(console.url("/queries/big_txn"))
     settled(page)
-    assert "dead letter" not in page.text("main").lower()
-    assert not [t for t in _palette_titles(page, "dead") if "dead" in t.lower()]
+    assert "dead letter" in page.text("main").lower()
+    page.wait_for_navigation(lambda: page.click("#dead-letters-link"))
+    assert "/queries/big_txn/dead-letters" in page.url()
+
+    # Newest first, with the code linked to its page and the record legible rather than Base64.
+    rows = page.eval("[...document.querySelectorAll('#dlq-table tbody tr')].map(r => r.textContent)")
+    assert len(rows) == 2, rows
+    assert "line 900" in rows[0], "newest first: a queue is read because something just failed"
+    assert "line 812" in rows[1]
+    assert "PRV-5040" in rows[1] and "12.50" in rows[1]
+    assert "2 in the queue" in page.text("#dlq-summary")
+
+    # Replay the corrected one. It becomes a row at the query's current frontier.
+    page.click(f"#dlq-table input[value='{corrected}']")
+    page.wait_for_navigation(lambda: page.click("#dlq-replay"))
+    assert console.engine.replays == [("big_txn", [corrected])], console.engine.replays
+    assert "1 replayed" in page.text("#dlq-replayed")
+    assert "frontier" in page.text("#dlq-replayed"), "the semantics, said where it is acted on"
+    states = page.eval("[...document.querySelectorAll('#dlq-table tbody tr')].map(r => r.textContent)")
+    assert any("Replayed" in r for r in states), states
+
+    # The one that is still malformed fails again and returns to the queue rather than looping.
+    still_bad = [e["id"] for e in console.engine.dead_letter_queues["big_txn"]
+                 if e["replay"] == "NEW"][0]
+    page.click(f"#dlq-table input[value='{still_bad}']")
+    page.wait_for_navigation(lambda: page.click("#dlq-replay"))
+    assert "1 failed to decode again" in page.text("#dlq-replayed")
+    assert len(console.engine.dead_letter_queues["big_txn"]) == 3, "back on the queue as a new entry"
+
+    # And it is in the palette, so it is reachable without knowing the URL.
+    assert [t for t in _palette_titles(page, "dead") if "dead" in t.lower()]
+    assert page.exceptions == [], page.exceptions
 
 
 def test_journey_prepare_a_backfill(page, console):

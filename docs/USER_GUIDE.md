@@ -382,6 +382,39 @@ client.query_plan("card_velocity"); client.describe_view("card_velocity"); clien
 They answer by the listing's rules: a name your policy denies is refused whether or not it exists, and
 a query reading a stream you may not read answers exactly as a name that was never registered.
 
+### The records a query could not decode
+
+With `pravaha.dlq.directory` set, a record a source cannot decode is kept rather than stopping the
+source. Those records are readable, and one can be put back:
+
+```bash
+pravaha dlq list   --name card_velocity              # newest first, with the queue's totals
+pravaha dlq show   --name card_velocity --id <id>    # one whole, with its original bytes
+pravaha dlq replay --name card_velocity --id <id>    # feed it back through the query
+```
+```java
+client.deadLetters("card_velocity");            // a page, newest first
+client.deadLetter("card_velocity", id);         // one whole
+client.replayDeadLetter("card_velocity", id);
+```
+```python
+client.dead_letters("card_velocity")
+client.dead_letter("card_velocity", letter_id)
+client.replay_dead_letter("card_velocity", letter_id)
+```
+
+**A replay is a new row at the query's current frontier, not a rewind.** The recorded bytes go back
+through the same decoder that refused them and the row is applied to the state the query has now;
+nothing is re-read and no earlier answer is recomputed. A record that fails to decode again returns
+to the queue as a new entry rather than being retried, and a replay that could not be correct is
+refused with `PRV-4092` saying why. Where the source will send the record again, correcting it at
+the source is better: it then arrives in order.
+
+The bytes are a row of the source, so they are authorized like one: a caller reading the view through
+a row filter is given the count, the code and the offset and not the record, and replaying needs the
+same permission as `DROP`. See [Dead letters](../console/content/topics/dead-letters.md) and
+[OPERATIONS](OPERATIONS.md#running-with-a-dead-letter-queue).
+
 The [console](../console/) shows all of this in a browser, including which computations are shared.
 
 ### Changing a running query: replace, cut over, roll back

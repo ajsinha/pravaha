@@ -333,7 +333,7 @@
       "open": "Open",
       "queries": "queries",
       "register_one": "Register one",
-            "showing": "Showing {n} of {total}",
+      "showing": "Showing {n} of {total}",
       "source_stopped": "source stopped",
       "source_stopped_title": "A source failed mid-read and is not retried; the view answers at the frontier it reached"
     },
@@ -929,7 +929,8 @@
     "feed_source": "{where}, stopped {at}",
     "source_stopped": "source stopped",
     "tail_empty": "No change has been committed since this page opened. Each one the view commits appears here, newest last.",
-    "detail_missing": "The engine's description of this query did not load ({error}), so its keys, retention, sink and the streams it reads are not shown."
+    "detail_missing": "The engine's description of this query did not load ({error}), so its keys, retention, sink and the streams it reads are not shown.",
+    "dead_letters": "Dead letters"
   },
   "refused": {
     "title": "Refused",
@@ -1669,7 +1670,8 @@
       "pause": "keeps the state",
       "resume": "from its frontier",
       "drop": "asks for the name",
-      "stream": "stream · {n} columns"
+      "stream": "stream · {n} columns",
+      "dead_letters": "records it could not decode"
     },
     "action": {
       "new_query": "New query in the workbench",
@@ -1682,10 +1684,61 @@
     "view": {
       "browse": "{name} — browse view",
       "live": "{name} — watch live"
+    },
+    "query": {
+      "dead_letters": "Dead letters of {name}"
     }
   },
   "api": {
     "sign_in_first": "sign in to the console first",
     "filters_object": "filters must be an object of column: value"
+  },
+  "dlq": {
+    "title": "Dead letters — {name}",
+    "kicker": "DEAD LETTERS",
+    "heading": "Records this query could not decode",
+    "back": "{name}",
+    "the_query": "The query",
+    "count": "{n} in the queue",
+    "bytes": "{n} bytes",
+    "replayed_count": "{n} replayed",
+    "failed_again_count": "{n} failed again",
+    "retention": "keeps {bound}",
+    "retention_title": "pravaha.dlq.max-bytes, .max-entries and .max-age. Past the bound the oldest are evicted and counted, never dropped quietly.",
+    "evicted": "{n} older entries ({bytes} bytes) have been evicted by retention and are gone. The bound is {bound}: raise pravaha.dlq.max-bytes, or drain the queue more often.",
+    "table_header": "Newest first",
+    "replay_selected": "Replay chosen",
+    "replay_done": "{done} replayed as new rows at the query's current frontier; {again} failed to decode again and went back on the queue.",
+    "semantics": "A replayed record is a new row at the query's current frontier, not a rewind: nothing is re-read and no earlier answer is recomputed. A record that fails to decode again goes back on the queue as a new entry rather than being retried.",
+    "older": "Older entries",
+    "older_label": "More dead letters",
+    "withheld": "withheld",
+    "bytes_only": "{n} bytes, withheld",
+    "choose_one": "Choose the dead letter {id} to replay",
+    "column": {
+      "choose": "Choose",
+      "when": "When",
+      "code": "Code",
+      "where": "Where",
+      "reason": "Reason",
+      "record": "Record",
+      "state": "State"
+    },
+    "state": {
+      "new": "New",
+      "replayed": "Replayed",
+      "failed_again": "Failed again"
+    },
+    "none": {
+      "title": "{name} has no dead letters",
+      "body": "Every record its sources have sent has decoded. A record that cannot be decoded is written here with its bytes and its reason, and the source reads on."
+    },
+    "unconfigured": {
+      "title": "This node keeps no dead letters",
+      "body": "pravaha.dlq.directory is not set, so a record a source cannot decode stops that source rather than being kept. That is not an empty queue: it is the queue being switched off, and a bad record ends the poll and takes the rest of the feed with it."
+    },
+    "error": {
+      "none_chosen": "Choose which dead letters to replay. Replaying a whole queue is not offered: a queue is usually a mix of causes, and most of it is still malformed."
+    }
   }
 }

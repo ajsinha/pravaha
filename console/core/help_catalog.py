@@ -183,6 +183,7 @@ SCREEN_HELP: dict[str, list[str]] = {
     "operations": ["metrics-alerts", "sizing-lanes", "checkpoints-recovery"],
     "queries": ["query-lifecycle", "sharing", "create-continuous-query"],
     "query": ["query-lifecycle", "sinks-overview", "sharing"],
+    "dead-letters": ["dead-letters", "source-filesystem", "metrics-alerts"],
     "plugins": ["sources-overview", "sinks-overview", "connector-security"],
     "admin": ["authorization", "audit", "authentication"],
 }

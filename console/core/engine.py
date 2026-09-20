@@ -306,6 +306,17 @@ class Engine:
         """One registered query: keys, retention, sink state, shared names, counts."""
         return dict(self._rest(lambda c: c.describe_query(name)) or {})
 
+    def dead_letters(self, name: str, offset: int = 0, limit: int = 50) -> dict:
+        """A page of the records a query's feed could not decode, newest first, with the
+        queue's totals. An entry whose ``raw`` is null carries ``withheld`` saying why: the
+        engine decides, by the view's own rules, whether this identity may see the record."""
+        return dict(self._rest(lambda c: c.dead_letters_http(name, offset=offset, limit=limit)) or {})
+
+    def replay_dead_letters(self, name: str, ids: list[str]) -> dict:
+        """Feeds chosen dead letters back through the query. A new row at its current
+        frontier, not a rewind; a record that fails again goes back on the queue."""
+        return dict(self._rest(lambda c: c.replay_dead_letters_http(name, ids)) or {})
+
     def query_plan(self, name: str) -> dict:
         """The plan a registered query is running, with the totals the engine measures."""
         return dict(self._rest(lambda c: c.query_plan(name)) or {})

@@ -4,9 +4,9 @@ slug: dead-letters
 category: operating
 order: 100
 icon: envelope-exclamation
-summary: "pravaha.dlq.directory: where records a source cannot decode are written, one JSON line each, so one bad field does not stop a feed. What goes there, which sources use it, reading it during an incident, and PRV-4090."
+summary: "pravaha.dlq.directory: where a record a source cannot decode is kept, one JSON line each, so one bad field does not stop a feed. What goes there, how much is kept, and reading and replaying them from the console, the CLI or the API."
 audience: Operators
-keywords: [dlq, dead letter queue, undecodable, malformed record, decode failure, PRV-4090, PRV-5040, PRV-5105, kafka, tombstone, jq, base64, pravaha run --dlq]
+keywords: [dlq, dead letter queue, undecodable, malformed record, decode failure, replay, retention, evicted, max-bytes, PRV-4090, PRV-4091, PRV-4092, PRV-5040, PRV-5105, kafka, tombstone, jq, base64, pravaha run --dlq, pravaha dlq list]
 guide: operations#files-that-hold-data
 related: [source-filesystem, source-kafka, metrics-alerts, checkpoints-recovery, configuration]
 ---
@@ -28,12 +28,19 @@ pravaha:
 | Key | Default | What it decides |
 |---|---|---|
 | `pravaha.dlq.directory` | empty | Where undecodable records go, **one file per query**, named `<query>.dlq`. Empty: no queue, and a decode failure stops that query's source |
+| `pravaha.dlq.max-bytes` | `268435456` (256 MiB) | The largest one query's file may grow. Past it the **oldest entries are evicted** and the loss is recorded. `0` for no byte bound |
+| `pravaha.dlq.max-entries` | `0` (off) | The most entries one query's file may hold |
+| `pravaha.dlq.max-age` | `0` (off) | How long an entry is kept, as a duration (`30d`, `PT72H`) |
 
-The node logs it at startup:
+The node logs it at startup, with the bound:
 
 ```text
-dead-lettering undecodable records to /var/lib/pravaha/dlq (pravaha.dlq.directory)
+dead-lettering undecodable records to /var/lib/pravaha/dlq (pravaha.dlq.directory), keeping 268435456 bytes
 ```
+
+The byte bound is **on by default**, and deliberately: a bound that defaults to off is not a bound,
+and the failure it exists to stop is one renamed column in a busy feed filling the disk the node's
+checkpoints are on. See [how much is kept](#how-much-is-kept).
 
 ## Without it, and with it
 
@@ -72,13 +79,24 @@ queue that loses its last few in a buffer loses exactly those:
 | Field | Holds |
 |---|---|
 | `timestamp` | When it was rejected: a monotonic nanosecond reading, for ordering entries — not a wall-clock time |
+| `wall` | The same moment on the wall clock, in milliseconds. `timestamp` orders entries and cannot be shown to a person: it is the JVM's uptime, and rendering it as a date gives 1970 |
 | `query` | The registered query whose feed rejected it |
-| `correlationId` | A fresh id per rejection, to quote in a ticket or a log search |
+| `correlationId` | A fresh id per rejection. It is what a ticket quotes, what a log search finds — and what the API, the CLI and the console **address this entry by** |
+| `stream` | Which of the query's streams it arrived on. A query reading two gave no way to tell them apart |
 | `offset` | Where in the source: for a file, `line N`; for a Kafka record, `topic/partition@offset` (`orders/3@1041`) |
+| `code` | The `PRV-` code of the decode failure, so a thousand rejections can be grouped by what went wrong and each one links to its page |
 | `reason` | Why it could not be decoded, as the source's decoder said it |
+| `schema` | The stream's schema as it was at the moment of rejection. It is what makes "the schema has changed since" a refusal a replay can check rather than a caveat |
 | `raw` | The **original bytes**, Base64 — exactly what arrived, for replay or forensics. For a Kafka record, its value (a tombstone's key, having no value) |
 
-(The reason text above is illustrative; it is whatever the decoder reported.)
+(The reason text above is illustrative; it is whatever the decoder reported. Every field but
+`timestamp`, `query`, `offset`, `reason` and `raw` was added later, and an entry written before
+them simply has none: it still lists, shows and — where the refusals allow — replays.)
+
+Two sibling files sit beside `<query>.dlq` and are **not** part of it: `<query>.dlq.replays`, which
+records what has been replayed, and `<query>.dlq.evicted`, which records what retention took. The
+`.dlq` file stays exactly one JSON object per rejected record, because every `jq` recipe below
+depends on that being true.
 
 ## Reading it during an incident
 
@@ -104,8 +122,123 @@ jq -r .raw /var/lib/pravaha/dlq/big_card_txn.dlq | while read -r b; do echo "$b"
 812,u-1042,acme,12.50,EUR,,2026-09-19T09:12:00Z
 ```
 
-To put corrected records back, fix them and append them to the source (for a followed file, to the
-file itself); the dead-letter file is a record, not an input.
+## Reading them without a shell on the node
+
+A containerised operator has a browser and an API token, not a shell on the pod. The same entries
+are on three surfaces, all deciding by the view's own authorization rules.
+
+**The console.** A query's page has **Dead letters**: the queue newest first, each entry's code
+linked to its page, the record legible rather than Base64, and a checkbox per entry to replay it.
+
+**The CLI.**
+
+```bash
+pravaha dlq list --name big_card_txn
+pravaha dlq show --name big_card_txn --id 6f1c2b0e-5d7a-4e8f-9a41-0c3b2d9e7f15
+```
+
+```text
+ID                                    WHEN                  CODE      STREAM  OFFSET    BYTES  STATE  REASON
+6f1c2b0e-5d7a-4e8f-9a41-0c3b2d9e7f15  2026-09-19T09:12:00Z  PRV-5040  txn     line 812  51     NEW    column 'amount' (INT64): cannot read '12.50' as a number
+
+1 dead letter (51 bytes); retention 268435456 bytes
+```
+
+**The API.**
+
+| Call | Answers |
+|---|---|
+| `GET /api/v1/queries/{name}/dead-letters?offset=&limit=` | A page, newest first, with the queue's totals |
+| `GET /api/v1/queries/{name}/dead-letters/count` | How deep it is, and what retention took — the call a dashboard polls |
+| `GET /api/v1/queries/{name}/dead-letters/{id}` | One entry whole |
+| `POST /api/v1/queries/{name}/dead-letters/replay` | `{"ids": ["..."]}` |
+
+Both SDKs have the same four (`dead_letters`, `dead_letter`, `replay_dead_letters` in Python;
+`deadLetters`, `deadLetter`, `replayDeadLetters` in Java), and the Flight actions behind them are
+`pravaha.dlq.list`, `pravaha.dlq.show` and `pravaha.dlq.replay`.
+
+!!! warning "Who may see a record, and who may put one back"
+    A dead letter's bytes are **a row of the source**, and a record that failed to decode has no row
+    for a row filter to be applied to — so the choice is all or nothing. A caller whose read of the
+    view is row-filtered is shown the count, the id, the offset, the code, the size and when, and
+    **not** the record or the decoder's sentence (which quotes the value it choked on). The refusal
+    is said in the answer rather than left as an empty field.
+
+    Replaying is a separate right. It puts a row into a view other people read, so it is authorized
+    like `DROP`, `PAUSE` and `RESUME` — `mayAdminister`, which already refuses a row-filtered
+    principal by name.
+
+## Putting one back
+
+```bash
+pravaha dlq replay --name big_card_txn --id 6f1c2b0e-5d7a-4e8f-9a41-0c3b2d9e7f15
+```
+
+The semantics, stated plainly because they are not what "replay" suggests:
+
+- **A new row at the query's current frontier, not a rewind.** The bytes go back through the same
+  decoder that refused them and the row is applied to the state the query has *now*. Nothing is
+  re-read, no source offset moves, and no earlier answer is recomputed — a query that has already
+  emitted a window the record belongs to will not emit it again, and the record lands as late data.
+- **A record that fails again returns to the queue.** It is written back as a *new* entry naming the
+  id it was a replay of, and the original is marked `FAILED_AGAIN` rather than removed. Nothing
+  loops: a client retrying blindly walks forwards through ids instead of round the same one.
+- **It is not idempotent.** Replaying the same id twice puts the row in twice, which for a query
+  counting things is two.
+- **There is no "replay everything".** A queue is usually a mix of causes and most of it is still
+  malformed; replaying all of it would mostly rewrite the queue with a copy of itself.
+
+A replay is for a record the source will never send again. Where the source *will* — a followed file
+you can correct, a topic you can republish to — correcting it at the source is better, because the
+record then arrives in order and the offsets still mean what they say.
+
+Four things make a replay refused with [PRV-4092](/help/codes/PRV-4092): the stream's schema has
+changed since the record was rejected, the source promises `EXACTLY_ONCE` and has not read past the
+record's offset (so it is going to deliver it again itself), the source cannot decode a record
+outside its own read, or the query is gone or reads a different stream now.
+
+## How much is kept
+
+Unbounded, this file is a way for one renamed column to fill the disk the node's checkpoints are on.
+The bound is `pravaha.dlq.max-bytes` (256 MiB by default), `pravaha.dlq.max-entries` and
+`pravaha.dlq.max-age`, and it is enforced by **evicting the oldest**, not by refusing the newest.
+
+That way round on purpose. Refusing hands the writer a queue that has stopped accepting, and the
+writer has exactly two moves left: fail the poll, which stops the source and is the one outcome the
+queue exists to prevent, or drop the record, which is the silent loss it exists to prevent. And it
+would refuse the *newest* entry — the one somebody is looking at during an incident — to keep ten
+thousand copies of last month's schema change.
+
+**The loss is never silent.** Every eviction is recorded three ways:
+
+- a line in `<query>.dlq.evicted`, which outlives the process that caused it, so "how much of this
+  queue's history is missing" is answerable a week later;
+- a `WARNING` in the node's log naming the file, the bound and how much went;
+- an `evicted` count on every surface that shows the queue — the API, `pravaha dlq list`, the
+  console's screen, and `pravaha_query_dead_letters_evicted_total`.
+
+A depth without that count cannot be read: a queue steady at two thousand is either one bad
+afternoon or a bound throwing two thousand a minute away, and those need opposite responses.
+
+## Watching them
+
+| Meter | Is |
+|---|---|
+| `pravaha_query_dead_letters` | How many are waiting now — **the one to alert on**. The running total keeps rising for a queue somebody is on top of; the depth does not |
+| `pravaha_query_dead_letters_bytes` | How large the file is, against `max-bytes` |
+| `pravaha_query_dead_letters_evicted_total` | What retention has thrown away and will not give back |
+| `pravaha_query_dead_letters_write_failures_total` | Records the queue itself could not write. Non-zero means the DLQ needs attention **before** the records in it do: those records are gone and nothing else says so |
+| `pravaha_query_dead_letters_fraction` | The share of records rejected in the current window |
+| `pravaha_query_dead_letters_degraded` | 1 once that share passes the threshold |
+
+The last two are the rate, and the rate is what matters: every real feed produces some rejects, so a
+DLQ that alerts on the first one is a DLQ whose alerts get muted in week two. A steady trickle from
+one partner is Tuesday; the same feed suddenly rejecting a third of its records is a schema change
+nobody announced, and the node reports itself `DEGRADED` for it (design 15.6) rather than stopping —
+stopping would discard the records that *are* valid, which is the bigger loss.
+
+**Operations** turns these into findings: a queue that grew since the last look is a warning naming
+the query, a query past the rate threshold is critical, and an eviction is its own warning.
 
 ## Which sources use it
 
@@ -158,15 +291,19 @@ a run that reports `ok` while having discarded input is what the queue exists to
     owner-only (`rw-------`), like the journal and the checkpoints; nothing is encrypted at rest.
 
 !!! warning "Pitfall: a quiet queue is not a healthy feed"
-    Nothing publishes a dead-letter count to Prometheus today. Watch the directory's size, or alert on
-    a query's `pravaha_query_rows_in` falling behind what its source should deliver.
+    A queue that is not growing is not the same as a feed that is healthy. Alert on
+    `pravaha_query_dead_letters` rising, not on it being non-zero, and on
+    `pravaha_query_dead_letters_write_failures_total` at all: those records are gone.
 
-!!! note "Older wording"
-    The long-form Operations guide still says a server "has no `pravaha.dlq.*` key yet". It has:
-    `pravaha.dlq.directory` is read by the node, as above.
+!!! warning "Pitfall: replaying is not re-reading"
+    A replayed record is a new row now, at the frontier the query has reached. If what you wanted was
+    the record *in its original order* — and for a windowed query that is usually what you wanted —
+    correct it at the source and let the source deliver it, or re-register the query from an offset
+    before it.
 
 ## Where next
 
+- [State and serving codes](/help/topics/errors-state) — PRV-4090, PRV-4091, PRV-4092
 - [The filesystem source](/help/topics/source-filesystem)
 - [The Kafka source](/help/topics/source-kafka) — its dead letters are named `topic/partition@offset`
 - [Metrics and alerts](/help/topics/metrics-alerts)

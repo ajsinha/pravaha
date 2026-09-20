@@ -96,6 +96,14 @@ QUERY_METERS = {
     "pravaha_query_running": "running",
     "pravaha_query_feed_stopped": "feed_stopped",
     "pravaha_query_feed_failures_total": "feed_failures",
+    # B5. The dead-letter queue: how many are waiting, how large the file is, what retention
+    # has already thrown away, and the rejection rate the engine judges DEGRADED on.
+    "pravaha_query_dead_letters": "dead_letters",
+    "pravaha_query_dead_letters_bytes": "dead_letter_bytes",
+    "pravaha_query_dead_letters_evicted_total": "dead_letters_evicted",
+    "pravaha_query_dead_letters_write_failures_total": "dead_letter_write_failures",
+    "pravaha_query_dead_letters_fraction": "dead_letter_fraction",
+    "pravaha_query_dead_letters_degraded": "dead_letters_degraded",
     "pravaha_query_subscribers": "subscribers",
     "pravaha_query_checkpoint_last_success_timestamp_seconds": "checkpoint_last_success",
     "pravaha_query_checkpoint_duration_seconds": "checkpoint_duration_seconds",
@@ -106,7 +114,7 @@ QUERY_METERS = {
 
 #: Derived per query from two scrapes, not published by the engine as such.
 DERIVED_METERS = ("rows_in_rate", "commit_latency_mean_seconds", "checkpoint_age_seconds",
-                  "checkpoint_failures_new")
+                  "checkpoint_failures_new", "dead_letters_new", "dead_letters_evicted_new")
 
 #: Node-level meters worth a tile, when the engine exposes them (Spring Boot's defaults).
 NODE_METERS = {
@@ -177,6 +185,9 @@ SEVERITY_ORDER = {"critical": 0, "warn": 1, "info": 2}
 #: The title of the finding for a query whose source has stopped (FEED-1).
 SOURCE_STOPPED = "Source stopped"
 
+#: The title of the finding for a query whose dead-letter queue is growing (B5).
+DEAD_LETTERS_GROWING = "Dead letters arriving"
+
 
 def source_stopped(name: str, stop: dict | None = None) -> Finding:
     """A query that says RUNNING and whose view has stopped moving, because a source failed.
@@ -233,6 +244,51 @@ def findings(queries: dict[str, dict[str, Any]], *, state_warn: float = 0.75,
             out.append(Finding("warn", name, "Event time is behind",
                                f"{name}'s watermark is {_duration(lag)} behind the wall clock: the "
                                "data is late, or its source has stopped."))
+        # B5. Dead letters. Three separate things, because they want three separate responses.
+        #
+        # A queue that is growing: records are being rejected now, so the view is incomplete
+        # now. Warn rather than critical, because the query is running and most of its input
+        # is arriving -- which is what the dead-letter queue exists to preserve.
+        arriving = q.get("dead_letters_new")
+        waiting = q.get("dead_letters")
+        if arriving:
+            out.append(Finding("warn", name, DEAD_LETTERS_GROWING,
+                               f"{name} rejected {int(arriving)} more record"
+                               f"{'s' if arriving != 1 else ''} since the last look "
+                               f"({int(waiting or 0)} waiting). Its view is missing them. Open its "
+                               "dead letters to see what they are; a record that was only ever "
+                               "malformed has to be corrected at the source.", "PRV-5040"))
+        elif waiting:
+            out.append(Finding("info", name, "Dead letters waiting",
+                               f"{name} has {int(waiting)} record"
+                               f"{'s' if waiting != 1 else ''} its feed could not decode, and "
+                               "nothing has been rejected since the last look. Its view is missing "
+                               "them until they are corrected or replayed."))
+        # Past the rate threshold the engine calls the query degraded (design 15.6): the
+        # answer is incomplete by enough that somebody deciding whether to trust it needs to
+        # know before they do.
+        if q.get("dead_letters_degraded") == 1:
+            share = q.get("dead_letter_fraction") or 0
+            out.append(Finding("critical", name, "Rejecting too much of its input",
+                               f"{name} is rejecting {share:.0%} of the records reaching it, past "
+                               "the threshold that makes a query DEGRADED. That is a schema change "
+                               "nobody announced, not a bad partner file. Its view is answering, "
+                               "and incompletely."))
+        # Retention throwing entries away. Never silent, and never only in a log line: the
+        # evidence somebody would go looking for is the evidence that is gone.
+        evicted = q.get("dead_letters_evicted_new")
+        if evicted:
+            out.append(Finding("warn", name, "Dead letters evicted",
+                               f"{int(evicted)} of {name}'s oldest dead letters were evicted by "
+                               "retention since the last look and are gone. Raise "
+                               "pravaha.dlq.max-bytes, or drain the queue more often."))
+        failures = q.get("dead_letter_write_failures")
+        if failures:
+            out.append(Finding("critical", name, "The dead-letter queue cannot be written",
+                               f"{name} could not write {int(failures)} rejected record"
+                               f"{'s' if failures != 1 else ''} to its dead-letter file. Those "
+                               "records are gone and nothing else records them. Check the disk and "
+                               "the permissions on pravaha.dlq.directory.", "PRV-4090"))
         # Checkpoint health: only for a query that is checkpointing at all, which the engine
         # says by publishing a last-success time (NaN, so None here, while it has none).
         new_failures = q.get("checkpoint_failures_new")
@@ -335,6 +391,12 @@ class MetricsHistory:
                     last = q.get("checkpoint_last_success")
                     q["checkpoint_age_seconds"] = max(0.0, now - last) if last else None
                     q["checkpoint_failures_new"] = _increase(before, q, "checkpoint_failures")
+                    # B5. A queue's depth is a number; a queue that grew between two scrapes
+                    # is an event. The finding is about the second, because a query holding a
+                    # steady hundred rejects from last Tuesday needs nobody at three in the
+                    # morning and one that gained a hundred in fifteen seconds does.
+                    q["dead_letters_new"] = _increase(before, q, "dead_letters")
+                    q["dead_letters_evicted_new"] = _increase(before, q, "dead_letters_evicted")
                 self._points.append({"at": now, "queries": {
                     n: {k: v for k, v in q.items() if k != "name"} for n, q in summary["queries"].items()}})
             self._last = {"at": now, "reachable": reachable, "error": error, **summary}

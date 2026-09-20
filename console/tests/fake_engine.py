@@ -87,6 +87,18 @@ class FakeEngine:
         #: every name on it reports the stop. Empty by default: the screenshots are of a healthy
         #: engine, and a test that wants a stopped source calls :meth:`stop_source`.
         self.feed_stops: dict[str, dict] = {}
+        #: The dead letters each query holds (B5), by query name, newest last -- the store's own
+        #: order, so the fake reverses it exactly as the engine does. Empty by default: the
+        #: screenshots are of a healthy engine, and a test that wants one calls :meth:`reject`.
+        self.dead_letter_queues: dict[str, list[dict]] = {}
+        #: What retention has evicted from each queue, by query name.
+        self.dead_letters_evicted: dict[str, int] = {}
+        #: Whether this node has a pravaha.dlq.directory at all. False is a different state
+        #: from an empty queue and the screen says so differently.
+        self.dlq_configured = True
+        #: Ids whose replay decodes this time; anything else fails again and returns to the queue.
+        self.replay_succeeds: set[str] = set()
+        self.replays: list[tuple[str, list[str]]] = []
         #: Whether the engine's policy lets the console's identity read the audit trail, and
         #: the decisions it has to show (empty: a node that has recorded nothing yet).
         self.audit_allowed = True
@@ -295,6 +307,97 @@ class FakeEngine:
                              "shared": False, "origin": bool(stop), "failure": failure,
                              "stoppedAt": stop["at"] if stop else None}],
                 "stoppedSources": 1 if stop else 0, "failure": failure}
+
+    # ------------------------------------------------------------------ dead letters (B5)
+
+    def reject(self, query: str, *, reason: str = "column 'amount' (INT64): cannot read '12.50' as a number",
+               code: str = "PRV-5040", offset: str = "line 812", raw: str = "812,u-1042,acme,12.50",
+               at: str = "2026-09-19T09:12:00Z", withheld: bool = False,
+               letter_id: str | None = None) -> str:
+        """Records one dead letter, as a feed that could not decode a record would.
+
+        ``withheld`` is what the engine sends a caller whose read of the view is row-filtered:
+        the record and the decoder's sentence are absent and a sentence says why, while the
+        count, the offset and the code are not.
+        """
+        import base64
+        import uuid
+
+        made = letter_id or str(uuid.uuid4())
+        queue = self.dead_letter_queues.setdefault(query, [])
+        queue.append({
+            "id": made,
+            "sequence": len(queue) + 1,
+            "query": query,
+            "stream": "txn",
+            "offset": offset,
+            "code": code,
+            "reason": "" if withheld else reason,
+            "at": at,
+            "size": len(raw.encode()),
+            "raw": None if withheld else base64.b64encode(raw.encode()).decode(),
+            "withheld": ("the record is withheld: your access to this view is row-filtered, and a "
+                         "record that failed to decode has no row for that filter to be applied to. "
+                         "The count, the offset and the code are not withheld.") if withheld else None,
+            "replay": "NEW",
+            "replayedAt": None,
+        })
+        return made
+
+    def dead_letters(self, name, offset=0, limit=50):
+        self._check()
+        self.describe_query(name)
+        queue = list(reversed(self.dead_letter_queues.get(name, [])))
+        window = queue[offset:offset + limit]
+        evicted = self.dead_letters_evicted.get(name, 0)
+        return {
+            "query": name,
+            "entries": window,
+            "offset": offset,
+            "limit": limit,
+            "total": len(queue),
+            "more": offset + len(window) < len(queue),
+            "bytes": sum(e["size"] for e in queue),
+            "evicted": evicted,
+            "evictedBytes": evicted * 24,
+            "replayed": sum(1 for e in queue if e["replay"] == "REPLAYED"),
+            "failedAgain": sum(1 for e in queue if e["replay"] == "FAILED_AGAIN"),
+            "oldest": queue[-1]["at"] if queue else None,
+            "newest": queue[0]["at"] if queue else None,
+            "retention": "268435456 bytes",
+            "configured": self.dlq_configured,
+        }
+
+    def replay_dead_letters(self, name, ids):
+        self._check()
+        self.describe_query(name)
+        if name in self.administer_refused:
+            raise EngineHttpError(
+                403, f"console may not dlq.replay '{name}': {self.administer_refused[name]}", "PRV-7002")
+        self.replays.append((name, list(ids)))
+        queue = self.dead_letter_queues.setdefault(name, [])
+        results, done, again = [], 0, 0
+        for wanted in ids:
+            entry = next((e for e in queue if e["id"] == wanted), None)
+            if entry is None:
+                raise EngineHttpError(
+                    404, f"'{name}' has no dead letter with the id '{wanted}'", "PRV-4091")
+            if wanted in self.replay_succeeds:
+                entry["replay"] = "REPLAYED"
+                done += 1
+                results.append({"id": wanted, "outcome": "REPLAYED", "newId": "",
+                                "detail": "the record decoded and is a row of '" + name + "' now, applied at "
+                                          "the frontier the query has reached -- not at the offset it "
+                                          "originally came from."})
+            else:
+                entry["replay"] = "FAILED_AGAIN"
+                again += 1
+                # Back on the queue as a new entry, which is what a client would replay next.
+                fresh = self.reject(name, reason="replay of " + wanted + " failed again: still not a number")
+                results.append({"id": wanted, "outcome": "FAILED_AGAIN", "newId": fresh,
+                                "detail": "the record failed to decode again and has gone back on the "
+                                          "queue as a new entry. It is not retried."})
+        return {"query": name, "results": results, "replayed": done, "failedAgain": again}
 
     def query_plan(self, name):
         self._check()

@@ -198,13 +198,12 @@ corrected by late data arrives as a retraction of the old answer followed by the
   views, live results, operations, a plugins screen built on the engine's manifest listing, and
   admin screens for access and the audit trail are built, and a headless-Chrome suite holds zero axe
   violations, visual baselines in light and dark at both densities, the measurable §23.15 budgets,
-  and all eight journeys — two end to end, six as far as the engine goes, each stopping where an
+  and all eight journeys — three end to end, five as far as the engine goes, each stopping where an
   engine feature is missing. A component gallery the console renders itself stands in for
   Storybook, which is not adopted (it needs Node). Not done: the manual WCAG 2.2 AA audit, the
-  eight-states audit screen by screen, and the engine features the six journeys wait on — the
-  time-travel debugger and a readable DLQ — the backfill and cutover its journey waits on are
-  built now and its screens are not, and so is the backpressure journey 3's dashboard waits on —
-  plus
+  eight-states audit screen by screen, and the engine features the remaining five wait on — the
+  time-travel debugger — the backfill and cutover journey 5 waits on are built now and its screens
+  are not, and so is the backpressure journey 3's dashboard waits on — plus
   cluster screens, tenants and quotas, and editing grants (the engine is not where grants live).
 
 ## Performance: what is measured, and what cannot be here
