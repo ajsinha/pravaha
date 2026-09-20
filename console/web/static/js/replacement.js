@@ -58,6 +58,9 @@
     set("paused", bf.paused
       ? chip("mute", api.t("cutover.paused")) : chip("ok", api.t("cutover.running")));
 
+    /* The version history is not redrawn here, and does not need to be: an entry is added
+       when a cutover moves the name, which is a state change, which is the reload below. */
+
     /* The state decides which controls exist at all, and those are the server's to draw --
        one place that decides what may be pressed, not two that can disagree. So a state
        that has moved on is a reload, once, rather than a set of buttons rebuilt here. */

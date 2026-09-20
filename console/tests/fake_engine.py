@@ -147,6 +147,12 @@ class FakeEngine:
         self.replacements_by_name: dict[str, dict] = {}
         #: Every replacement call the console made, as (action, name, argument).
         self.replacement_calls: list[tuple] = []
+        #: Whether the version history reaches the console. It comes from the engine's REST
+        #: surface rather than the control wire (``Engine._replacement_history``), so a node
+        #: with no ``engine.http_url``, or one whose HTTP surface refuses, has a replacement
+        #: and no history -- which the screen draws as its partial state. True here, because
+        #: a console configured the way its README configures it reads one.
+        self.history_carried = True
         self.plugins_list = [
             {"name": "filesystem", "version": "0.1.0", "requiredApiVersion": "0.1.0", "compatible": True,
              "loaded": True, "kinds": ["sink", "source"],
@@ -488,16 +494,20 @@ class FakeEngine:
                               f"rollback.retention={rollback_retention}" if rollback_retention else "")
             if part)
         self.replacement_calls.append(("start", name, sql))
+        replacing = next((q.fingerprint for q in self._queries if q.name == name), None)
         made = {
             "name": name, "state": "BACKFILLING", "sql": sql, "candidate": "newfp",
-            "replacing": next((q.fingerprint for q in self._queries if q.name == name), None),
+            "replacing": replacing,
             "sink": None, "options": options, "owner": "console",
             "startedAt": "2026-09-19T09:00:00Z", "cutOverAt": None, "rollbackUntil": None,
             "rollbackAvailable": False,
             "backfill": {"historyRows": 0, "liveRows": 0, "rowsPerSecond": 0.0, "partitions": 4,
                          "partitionsLive": 0, "historyComplete": False,
                          "rateLimit": int(rate_limit or 0), "paused": False, "lagSeconds": None},
-            "history": None, "failure": None,
+            # Oldest first, and a seam per entry: the running version has served the name
+            # from the beginning, and a cutover adds the frontier the next one took over at.
+            "history": [f"from the beginning: {replacing}"] if self.history_carried else None,
+            "failure": None,
         }
         self.replacements_by_name[name] = made
         return dict(made)
@@ -525,6 +535,9 @@ class FakeEngine:
         self.replacement_calls.append(("cutover", name, None))
         found.update(state="CUT_OVER", cutOverAt="2026-09-19T09:30:00Z",
                      rollbackUntil="2026-09-19T15:30:00Z", rollbackAvailable=True)
+        if found["history"] is not None:
+            found["history"] = [*found["history"],
+                                f"from {found['backfill']['historyRows']}: {found['candidate']}"]
         return dict(found)
 
     def roll_back(self, name):

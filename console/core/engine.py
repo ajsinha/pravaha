@@ -20,6 +20,7 @@ stopped being the one place that spoke HTTP to the engine.
 from __future__ import annotations
 
 import dataclasses
+import logging
 import threading
 from collections.abc import Iterator, Sequence
 
@@ -30,6 +31,8 @@ try:  # the SDK's REST error; absent only from an SDK older than this console
     from pravaha import ApiError
 except ImportError:  # pragma: no cover
     ApiError = None  # type: ignore[assignment,misc]
+
+logger = logging.getLogger(__name__)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -87,14 +90,14 @@ def _feed_of(query) -> dict:
     }
 
 
-def _replacement(status) -> dict:
+def _replacement(status, history: list[str] | None = None) -> dict:
     """An SDK :class:`pravaha.client.Replacement` as the shape the engine's REST API uses.
 
     One shape above this module whichever transport answered, and the names the API
     documents (``rollbackUntil``, ``backfill.historyRows``) rather than two spellings of
-    each. ``history`` is ``None`` -- not ``[]`` -- because the status the SDK returns does
-    not carry it: "not known" and "nobody has served this name before" are different
-    answers and the screen shows them differently.
+    each. ``history`` stays ``None`` -- not ``[]`` -- when the caller did not read one:
+    "not known" and "nobody has served this name before" are different answers and the
+    screen shows them differently.
     """
     lag_nanos = getattr(status, "lag_nanos", None)
     return {
@@ -121,7 +124,7 @@ def _replacement(status) -> dict:
             "paused": bool(getattr(status, "paused", False)),
             "lagSeconds": None if lag_nanos is None else float(lag_nanos) / 1e9,
         },
-        "history": None,
+        "history": None if history is None else list(history),
         "failure": ({"code": getattr(status, "failure_code", None) or None,
                      "message": getattr(status, "failure", None) or ""}
                     if getattr(status, "failure", None) or getattr(status, "failure_code", None)
@@ -372,20 +375,51 @@ class Engine:
 
     # ------------------------------------------------- blue/green replacement (ADR-046)
     #
-    # Through the SDK's published actions, like everything else here. The engine also serves
-    # these over REST (``/api/v1/replacements``, ``/api/v1/queries/{name}/replacement``), and
-    # that answer carries one field these do not -- ``history``, who served the name from
-    # which seam. The SDK has no call for it, so the console does not have it either and the
-    # screen says so rather than drawing a version history it guessed.
+    # The numbers come through the SDK's published Flight actions, like everything else here.
+    # One field is not on that wire: ``history``, the versions that have served this name and
+    # the frontier each took over at. A control-wire row is a flat list of strings and a list
+    # of sentences does not fit in one, so the engine answers it over REST and the SDK reads
+    # it with ``replacement_http``.
 
     def replacements(self) -> list[dict]:
-        """Every replacement this engine knows about, in flight or finished."""
+        """Every replacement this engine knows about, in flight or finished.
+
+        Without each one's ``history``: this is the list, and nothing renders a version
+        history from a list. The screen that shows one asks for one name.
+        """
         return [_replacement(r) for r in self._flight(lambda c: c.replacements()) or []]
 
     def replacement(self, name: str) -> dict | None:
-        """How the replacement of ``name`` is getting on, or ``None`` when there is not one."""
+        """How the replacement of ``name`` is getting on, or ``None`` when there is not one.
+
+        Two calls, and the second one's failure is not the first one's. The Flight action
+        answers the state and the backfill's numbers; the REST call answers the version
+        history. They are two moments, which ADR-046 refuses for the numbers -- a screen that
+        asked three times would show three moments of a job that moves every second -- and
+        which costs nothing here, because the history is append-only: an answer a second old
+        is a prefix of the current one, never a different one.
+
+        A history the engine will not or cannot give stays ``None`` and the screen draws its
+        partial state. That is the honest answer and not a fallback: the console does not
+        invent a list, and it does not fail a screen whose subject -- a backfill in flight --
+        it has in hand.
+        """
         found = self._flight(lambda c: c.replacement(name))
-        return _replacement(found) if found is not None else None
+        if found is None:
+            return None
+        return _replacement(found, self._replacement_history(name))
+
+    def _replacement_history(self, name: str) -> list[str] | None:
+        """The versions that have served ``name``, oldest first, or ``None`` if unread."""
+        if not self._http:
+            return None
+        try:
+            answer = self._rest(lambda c: c.replacement_http(name))
+        except Exception as exc:  # noqa: BLE001 -- reported as "not carried", never as a screen
+            logger.info("the version history of '%s' was not answered: %s", name, exc)
+            return None
+        carried = answer.get("history")
+        return None if carried is None else [str(entry) for entry in carried]
 
     def start_replacement(self, name: str, sql: str, keys: Sequence[int], *,
                           backfill: str | None = None, rate_limit: int | None = None,

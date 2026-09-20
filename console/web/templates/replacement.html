@@ -244,8 +244,10 @@
 
 <h2>{{ t('cutover.history.heading') }}</h2>
 {% if replacement.history is none %}
-  {# Partial (23.12). The engine records who served this name from which seam; the status the
-     console can read does not carry it, and an empty list here would read as "nobody has". #}
+  {# Partial (23.12). The trail is read from the engine's HTTP surface, separately from the
+     status above, because a control-wire row is a flat list of strings and a list of
+     sentences does not fit in one. That call can fail on its own, and an empty list here
+     would read as "nobody has" rather than "nobody answered". #}
   {{ states.partial(body=t('cutover.history.not_carried'), id='rep-history-partial') }}
 {% elif not replacement.history %}
   {{ states.empty(title=t('cutover.history.none_title'), body=t('cutover.history.none_body'),

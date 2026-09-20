@@ -236,9 +236,25 @@ def test_a_replacement_in_flight_draws_what_is_measured_and_nothing_else(tab, st
         states_console.engine.replacements_by_name.clear()
 
 
-def test_the_version_history_the_status_does_not_carry_is_the_partial_state(tab, states_console):
-    """Partial: the engine records who served this name from which seam and the status the
-    console can read does not carry it. An empty list would read as "nobody has"."""
+def test_the_version_history_lists_who_has_served_this_name(tab, states_console):
+    """The trail the screen exists to be able to show: each version that has answered this
+    name, and the frontier it took over at, oldest first."""
+    states_console.engine.start_replacement("big_txn", "SELECT 1", [0])
+    try:
+        shows(tab, states_console, "/queries/big_txn/replacement", "#rep-history",
+              "replacement · history")
+        assert "from the beginning" in tab.text("#rep-history")
+        assert not tab.exists("#rep-history-partial")
+    finally:
+        leave_replacement(tab, states_console)
+        states_console.engine.replacements_by_name.clear()
+
+
+def test_a_version_history_the_console_could_not_read_is_the_partial_state(tab, states_console):
+    """Partial: the history comes from the engine's REST surface, not the control wire, so a
+    node without one has the replacement and no trail. An empty list would read as "nobody
+    has served this name", which is never true of a query that runs."""
+    states_console.engine.history_carried = False
     states_console.engine.start_replacement("big_txn", "SELECT 1", [0])
     try:
         shows(tab, states_console, "/queries/big_txn/replacement", "#rep-history-partial",
@@ -247,6 +263,7 @@ def test_the_version_history_the_status_does_not_carry_is_the_partial_state(tab,
     finally:
         leave_replacement(tab, states_console)
         states_console.engine.replacements_by_name.clear()
+        states_console.engine.history_carried = True
 
 
 def test_the_replacement_screen_dims_when_its_stream_drops(tab, states_console):

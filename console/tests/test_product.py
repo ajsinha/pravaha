@@ -1273,13 +1273,31 @@ def test_a_reader_sees_the_whole_screen_with_every_control_disabled(signed_in, e
     assert 'id="rep-numbers"' in page.text
 
 
-def test_the_replacement_screen_says_it_cannot_read_the_version_history(signed_in, engine):
-    """Partial (23.12). The engine records who served this name from which seam; the status
-    the SDK returns does not carry it, and an empty list would read as "nobody has"."""
+def test_the_replacement_screen_lists_who_has_served_this_name(signed_in, engine):
+    """The versions that have served the name and the frontier each took over at, oldest
+    first. It reaches the console over the engine's REST surface, because a control-wire row
+    is a flat list of strings and a list of sentences does not fit in one."""
+    _replacing(engine)
+    page = signed_in.get("/queries/big_txn/replacement").text
+    assert 'id="rep-history"' in page
+    assert "from the beginning: abc123def456" in page
+    assert 'id="rep-history-partial"' not in page
+
+    engine.backfill_progress("big_txn", historyRows=412_000, historyComplete=True)
+    engine.cut_over("big_txn")
+    page = signed_in.get("/queries/big_txn/replacement").text
+    assert "from 412000: newfp" in page
+
+
+def test_the_replacement_screen_says_when_it_could_not_read_the_version_history(signed_in, engine):
+    """Partial (23.12). The history comes from a second call to a second surface, and a node
+    with no HTTP URL configured has the replacement and not the trail. An empty list there
+    would read as "nobody has served this name", which is never true of a query that runs."""
+    engine.history_carried = False
     _replacing(engine)
     page = signed_in.get("/queries/big_txn/replacement").text
     assert 'id="rep-history-partial"' in page
-    assert "does not carry it" in page
+    assert 'id="rep-history"' not in page
 
 
 def test_the_replacement_json_answers_null_rather_than_404_for_a_query_without_one(signed_in, engine):
@@ -1289,7 +1307,7 @@ def test_the_replacement_json_answers_null_rather_than_404_for_a_query_without_o
     body = signed_in.get("/api/v1/queries/big_txn/replacement").json()
     assert body["replacement"]["state"] == "BACKFILLING"
     assert body["replacement"]["backfill"]["partitions"] == 4
-    assert body["replacement"]["history"] is None
+    assert body["replacement"]["history"] == ["from the beginning: abc123def456"]
     assert signed_in.get("/api/v1/replacements").json()["items"][0]["name"] == "big_txn"
 
 
