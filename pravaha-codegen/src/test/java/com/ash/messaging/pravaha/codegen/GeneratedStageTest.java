@@ -69,6 +69,11 @@ class GeneratedStageTest {
                 .field("active", Types.bool())
                 .field("status", Types.string())
                 .field("note", Types.string().withNullable(true))
+                // C-5. A nullable column of a type the generator actually projects. `note` is
+                // nullable and is a STRING, which the generator refuses, so until this column
+                // existed no projection the differential property could build carried a null --
+                // and the generated projection dropped every null bit it was given.
+                .field("bonus", Types.int64().withNullable(true))
                 .build();
     }
 
@@ -79,13 +84,26 @@ class GeneratedStageTest {
                 .build();
     }
 
+    /** The projection the differential property uses: two NOT NULL columns and one nullable one. */
+    private static StreamSchema outputSchemaWithANullableColumn() {
+        return StreamSchema.builder("out")
+                .field("id", Types.int64())
+                .field("amount", Types.int64())
+                .field("bonus", Types.int64().withNullable(true))
+                .build();
+    }
+
+    private static final List<Integer> DIFFERENTIAL_PROJECTION = List.of(0, 1, 7);
+
     // ------------------------------------------------------------------ the differential property
 
     @Property(tries = 300)
     void generatedCodeAgreesWithTheInterpreter(@ForAll("predicates") Predicate predicate, @ForAll("seeds") long seed) {
 
         PhysicalOperator plan = new ProjectOperator(
-                new FilterOperator(ScanOperator.of("txn", inputSchema()), predicate), outputSchema(), List.of(0, 1));
+                new FilterOperator(ScanOperator.of("txn", inputSchema()), predicate),
+                outputSchemaWithANullableColumn(),
+                DIFFERENTIAL_PROJECTION);
 
         List<String> interpreted = runInterpreted(plan, predicate, seed);
         List<String> generated = runGenerated(plan, seed);
@@ -102,7 +120,9 @@ class GeneratedStageTest {
         // asserts the comparison notices.
         Predicate predicate = new Predicate.CompareLong(1, "amount", Predicate.Op.GT, 500);
         PhysicalOperator plan = new ProjectOperator(
-                new FilterOperator(ScanOperator.of("txn", inputSchema()), predicate), outputSchema(), List.of(0, 1));
+                new FilterOperator(ScanOperator.of("txn", inputSchema()), predicate),
+                outputSchemaWithANullableColumn(),
+                DIFFERENTIAL_PROJECTION);
 
         List<String> interpreted = runInterpreted(plan, predicate, 1L);
 
@@ -123,6 +143,36 @@ class GeneratedStageTest {
                 .as("a generated stage with an inverted comparison must disagree with the interpreter; "
                         + "if it does not, the differential property certifies whatever it is given")
                 .isNotEqualTo(interpreted);
+    }
+
+    /**
+     * C-5, directly: a NULL projected through a generated fused stage comes out NULL.
+     *
+     * <p>The property above would catch this too, now that its projection carries a nullable
+     * column -- but only as "these two lists differ", and the finding is worth one test that says
+     * what went wrong in its own name. The generated projection copied the value and never the
+     * null bit, and the output row's bitmap is zeroed once per row, so every null arrived as
+     * {@code isNull=false, value=0}: a zero standing where an absence was, silently, on the path
+     * that only runs once a query is hot.
+     */
+    @Test
+    void c5_aNullProjectedThroughAGeneratedStageIsStillNull() {
+        PhysicalOperator plan = new ProjectOperator(
+                new FilterOperator(
+                        ScanOperator.of("txn", inputSchema()),
+                        new Predicate.CompareLong(1, "amount", Predicate.Op.GE, Long.MIN_VALUE)),
+                outputSchemaWithANullableColumn(),
+                DIFFERENTIAL_PROJECTION);
+
+        List<String> generated = runGenerated(plan, 7L);
+        List<String> interpreted = runInterpreted(plan, new Predicate.True(), 7L);
+
+        assertThat(generated)
+                .as("every row survives this filter, so the two projections must agree row for row")
+                .isEqualTo(interpreted);
+        assertThat(generated)
+                .as("the fixture has to contain a null, or this test proves nothing")
+                .anyMatch(row -> row.endsWith("|null"));
     }
 
     // ------------------------------------------------------------------ generation mechanics
@@ -285,7 +335,13 @@ class GeneratedStageTest {
                     // Every projected column, not just the id. Comparing column 0 alone certifies a
                     // generator that filters correctly and projects the wrong value into column 1 --
                     // and the projection is half of what this generator does.
-                    surviving.add(row.getLong(0) + "|" + row.getLong(1));
+                    //
+                    // The third column is nullable, and its null state is part of the comparison
+                    // (C-5): a generated projection that dropped the null bit produced the right
+                    // *value* -- zero, which is what the bytes under a null read as -- and the
+                    // wrong answer, and a comparison of values alone could not see it.
+                    surviving.add(row.getLong(0) + "|" + row.getLong(1) + "|"
+                            + (row.isNull(7) ? "null" : Long.toString(row.getLong(7))));
                 }
             }
         }
@@ -303,7 +359,7 @@ class GeneratedStageTest {
     private static List<String> runFused(FusedStage generated, long seed) {
 
         RowLayout inputLayout = RowLayout.of(inputSchema());
-        RowLayout outputLayout = RowLayout.of(outputSchema());
+        RowLayout outputLayout = RowLayout.of(outputSchemaWithANullableColumn());
         List<String> surviving = new ArrayList<>();
 
         try (MemoryRegion in = MemoryAccess.best().allocate(1 << 18);
@@ -329,7 +385,8 @@ class GeneratedStageTest {
             BinaryRowView outView = new BinaryRowView(outputLayout);
             for (int i = 0; i < emitted; i++) {
                 RowView emittedRow = outView.wrap(out, (int) outOffsets[i]);
-                surviving.add(emittedRow.getLong(0) + "|" + emittedRow.getLong(1));
+                surviving.add(emittedRow.getLong(0) + "|" + emittedRow.getLong(1) + "|"
+                        + (emittedRow.isNull(2) ? "null" : Long.toString(emittedRow.getLong(2))));
             }
         }
         return surviving;
@@ -347,6 +404,13 @@ class GeneratedStageTest {
             writer.setNull(6);
         } else {
             writer.setString(6, NOTES[random.nextInt(NOTES.length)]);
+        }
+        // Roughly a third null, and never the value a dropped null bit would read back as (zero),
+        // so "the null bit was lost" and "the value was right" cannot be confused (C-5).
+        if (random.nextInt(3) == 0) {
+            writer.setNull(7);
+        } else {
+            writer.setLong(7, 1 + random.nextInt(1000));
         }
         writer.weight(1L).eventTimestampNanos(1_700_000_000_000_000_000L + i).sequence(i);
     }

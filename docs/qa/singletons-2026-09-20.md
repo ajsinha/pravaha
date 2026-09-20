@@ -250,3 +250,77 @@ an edit that walked the *subject* by `char` would break this and nothing else in
 the other side that was wrong.
 
 **Commit.** Same commit as W-6.
+
+---
+
+## C-5 — the generated projection dropped every null bit
+
+**Verdict: reproduced.** `FilterProjectGenerator.emitProjection` emitted the value of each selected
+column and nothing else. The output row's null bitmap is zeroed once per row (the `setMemory` at
+the top of the loop), so **every column a generated stage produced read back as NOT NULL**, and a
+NULL arrived at the reader as the zero bytes underneath it: `isNull=false, value=0`.
+`InterpretedPipeline.copyField` has always preserved the bit, so the two paths disagreed — on the
+path that only runs once a query is hot.
+
+**And the differential property could not see it**, for the reason the status line gives: its
+projection was `List.of(0, 1)` over two NOT NULL columns. The one nullable column in the fixture,
+`note`, is a `STRING`, which the generator refuses outright — so no projection the property could
+build carried a null at all.
+
+**Fix.** The generator copies the null bit beside the value, for a column the **input** schema
+declares nullable and only for one: that is the rule the predicate side already follows, so a NOT
+NULL column still costs one load and the generated source for one still contains no bit test
+(`aNullableColumnGetsANullCheckAndANotNullColumnDoesNot` asserts exactly that and is unchanged).
+The value is copied whether or not the column is null — the bytes come from a real input row, every
+reader consults `isNull` first, and a branch to skip the copy would cost more than the copy.
+
+**And the property is widened so it could have caught this.** The input schema gains `bonus
+BIGINT NULL`; the differential projection is `(id, amount, bonus)` into an output schema whose
+third column is nullable; the comparison string carries each row's null state; and `populate` makes
+roughly a third of them null, never writing zero as a value, so "the bit was lost" and "the value
+was right" cannot be confused.
+
+**Test.** `GeneratedStageTest#c5_aNullProjectedThroughAGeneratedStageIsStillNull`, plus
+`#generatedCodeAgreesWithTheInterpreter` (300 tries) which now exercises a nullable projected
+column, and `#theDifferentialTestCatchesAGeneratedBug` on the same projection.
+
+**Seed-proof.** Disabling the null-bit emission fails
+`c5_aNullProjectedThroughAGeneratedStageIsStillNull` **and**
+`generatedCodeAgreesWithTheInterpreter` (10 tests, 2 failures); restored, all 10 pass. The property
+failing as well is the point: before this change it could not.
+
+**Commit.** `A generated projection keeps its nulls, and a null-keyed left row keeps its place`.
+
+---
+
+## J-1 — a null-keyed left row was never emitted null-padded
+
+**Verdict: reproduced, as the entry's own status line says, and fixed.** `JoinSide.add` returned
+early for any row whose key contains a null, so the row was never stored, was not in state when
+eviction ran the outer-join callback, and left no trace anywhere — the only visible consequence was
+`rowsHeldLeft()` being one lower than the number of rows fed.
+`SymmetricHashJoinBehaviorTest#aNullKeyedLeftRowIsNeverEmittedNullPadded` asserted the drop.
+
+**Cause.** The guard is right for every side whose unmatched rows are never read: a null-keyed row
+can never match, so holding one is a leak. It is wrong for the left side of a `LEFT` join, where
+SQL says that row must appear, null-padded, precisely *because* it matched nothing.
+
+**Fix.** `JoinSide.keepNullKeyedRows(boolean)`, off by default and switched on by
+`SymmetricHashJoin` for the left side of a `LEFT` join and nowhere else. Nothing else had to
+change, and that is worth saying: `JoinKeys.hash` already hashes a null to a stable constant,
+`JoinKeys.equal` already returns false when either side is null, and `forEachMatch` already refuses
+a null-keyed probe — so a stored null-keyed row is unreachable as a match from either direction,
+and `evictOlderThan`'s unmatched callback picks it up like any other.
+
+**Test.** `SymmetricHashJoinBehaviorTest#j1_aNullKeyedLeftRowIsEmittedNullPaddedLikeAnyOther
+UnmatchedLeftRow` (the renamed and inverted assertion) and
+`#j1_aNullKeyedRowStillJoinsWithNothingIncludingAnotherNullKey`, which holds the other half: NULL
+is still not equal to NULL, and the right side still keeps none of them.
+
+**Seed-proof.** Passing `false` instead of `plan.leftOuter()` fails both (30 tests, 2 failures);
+restored, all 30 pass.
+
+**Docs.** `docs/CONTINUOUS_QUERIES.md`'s `LEFT` join section and the console's `joins.md` both say
+what happens to a null-keyed left row, which neither did.
+
+**Commit.** Same commit as C-5.

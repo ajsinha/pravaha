@@ -196,14 +196,32 @@ final class JoinSide implements AutoCloseable {
     }
 
     /**
+     * Whether a row whose key contains a null is stored anyway (J-1).
+     *
+     * <p>Off by default, and switched on by {@link SymmetricHashJoin} for the left side of a
+     * {@code LEFT} join and nowhere else. A null-keyed row can never match -- {@link
+     * JoinKeys#equal} says NULL is not equal to NULL, and {@link #forEachMatch} refuses a
+     * null-keyed probe outright -- so on any side whose unmatched rows are never emitted, holding
+     * one is a leak with no possible benefit. On the left of an outer join it is the opposite: SQL
+     * says that row must appear, null-padded on the right, and a row that was never stored never
+     * reaches the eviction callback that emits it.
+     */
+    private boolean keepNullKeyedRows;
+
+    /** See {@link #keepNullKeyedRows}. */
+    void keepNullKeyedRows(boolean keep) {
+        this.keepNullKeyedRows = keep;
+    }
+
+    /**
      * Adds {@code weight} of a row to this side.
      *
      * <p>Returns without storing anything when the weight cancels to zero, and releases the block
-     * when an existing entry cancels. Rows whose key contains a null are not stored at all: they can
-     * never match, so holding them is a leak with no possible benefit.
+     * when an existing entry cancels. A row whose key contains a null is stored only when {@link
+     * #keepNullKeyedRows} is on; see there for why the two answers are both right.
      */
     long add(RowView row, long weight) {
-        if (weight == 0 || !JoinKeys.isMatchable(row, keyOrdinals)) {
+        if (weight == 0 || (!keepNullKeyedRows && !JoinKeys.isMatchable(row, keyOrdinals))) {
             return ArenaHandle.NULL;
         }
         long hash = JoinKeys.hash(row, keyOrdinals, schema);

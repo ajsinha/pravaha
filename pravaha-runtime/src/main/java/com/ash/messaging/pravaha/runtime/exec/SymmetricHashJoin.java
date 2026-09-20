@@ -122,6 +122,12 @@ final class SymmetricHashJoin implements AutoCloseable {
                 new JoinSide(store, access, leftSchema, leftKeys, maxStateSlabs, overflowAccess, maxOverflowSlabs);
         this.rightState =
                 new JoinSide(store, access, rightSchema, rightKeys, maxStateSlabs, overflowAccess, maxOverflowSlabs);
+        // J-1. A left row whose key is null matches nothing, and SQL says a LEFT join must still
+        // emit it, null-padded on the right. It was dropped on arrival, so it was never in state
+        // when eviction ran the outer-join callback: the row left no trace at all, and nothing
+        // counted it as anything but one fewer row held. Only the left side of a LEFT join keeps
+        // them -- anywhere else they are a leak, because nothing would ever read them.
+        this.leftState.keepNullKeyedRows(plan.leftOuter());
         this.outputLayout = RowLayout.of(plan.outputSchema());
         this.writer = new BinaryRowWriter(outputLayout);
         this.view = new BinaryRowView(outputLayout);

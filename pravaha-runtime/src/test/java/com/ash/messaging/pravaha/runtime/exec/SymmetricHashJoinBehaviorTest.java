@@ -872,8 +872,17 @@ class SymmetricHashJoinBehaviorTest {
         }
     }
 
+    /**
+     * J-1. A left row whose key is NULL matches nothing and, SQL says, must still appear —
+     * null-padded on the right.
+     *
+     * <p>It did not. {@code JoinSide.add} dropped it on arrival because it could never match, so it
+     * was not in state when eviction ran the outer-join callback: the row left no trace anywhere,
+     * and the only visible consequence was {@code rowsHeldLeft()} being one lower than the number
+     * of rows fed. This test asserted the drop. It now asserts the emission.
+     */
     @Test
-    void aNullKeyedLeftRowIsNeverEmittedNullPadded() {
+    void j1_aNullKeyedLeftRowIsEmittedNullPaddedLikeAnyOtherUnmatchedLeftRow() {
         StreamSchema s = StreamSchema.builder("s")
                 .field("k", Types.string().withNullable(true))
                 .build();
@@ -894,14 +903,46 @@ class SymmetricHashJoinBehaviorTest {
             feed(join.leftInput(), s, 1, 600 * SECOND, (Object) null);
 
             assertThat(join.rowsHeldLeft())
-                    .as(
-                            "the null-keyed row was never stored -- SQL says it should be emitted null-padded, this build drops it")
-                    .isEqualTo(1);
+                    .as("both left rows are held, the null-keyed one included")
+                    .isEqualTo(2);
 
             join.advanceWatermark(1000 * SECOND);
             assertThat(join.unmatchedEmitted())
-                    .as("only the non-null unmatched key would be counted here, and there is none")
+                    .as("the null-keyed left row is the one unmatched left row, and it is emitted")
+                    .isEqualTo(1);
+        }
+    }
+
+    /** J-1's other half: a null key still matches nothing, including another null key. */
+    @Test
+    void j1_aNullKeyedRowStillJoinsWithNothingIncludingAnotherNullKey() {
+        StreamSchema s = StreamSchema.builder("s")
+                .field("k", Types.string().withNullable(true))
+                .build();
+        long fiveMin = 300 * SECOND;
+        JoinOperator plan = JoinOperator.withinRange(
+                        ScanOperator.of("l", s),
+                        ScanOperator.of("r", s),
+                        List.of(0),
+                        List.of(0),
+                        merged(s, s),
+                        1_000,
+                        -fiveMin,
+                        0)
+                .asLeftOuter();
+        try (SymmetricHashJoin join = new SymmetricHashJoin(plan, arena, collector(), 64)) {
+            feed(join.rightInput(), s, 1, 600 * SECOND, (Object) null);
+            feed(join.leftInput(), s, 1, 600 * SECOND, (Object) null);
+
+            assertThat(out)
+                    .as("NULL is not equal to NULL in a join; two null keys are not a pair")
+                    .isEmpty();
+            assertThat(join.rowsHeldRight())
+                    .as("the right side keeps nothing null-keyed: nothing would ever read it")
                     .isZero();
+
+            join.advanceWatermark(1000 * SECOND);
+            assertThat(join.unmatchedEmitted()).isEqualTo(1);
         }
     }
 }

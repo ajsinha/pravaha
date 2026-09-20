@@ -167,6 +167,10 @@ The null-padded row for an order is emitted **when the watermark passes the end 
 two days after the order, in event time — **once, and never retracted**. Before then the engine
 cannot know the shipment will not come; after then it can, because the bound says so.
 
+An order whose own `order_id` is NULL is one of these. NULL is not equal to NULL in a join, so it
+matches nothing — not even another NULL — and a `LEFT JOIN` therefore emits it null-padded like any
+other unmatched left row.
+
 With the rows above, once the watermark passes 09:10 two days later, only order 103 is left: order
 101 shipped after four hours, and order 102's shipment (24 h 55 m after the order) is inside a two-day
 bound, so both matched.

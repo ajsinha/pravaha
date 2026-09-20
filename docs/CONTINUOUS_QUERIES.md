@@ -1187,6 +1187,13 @@ A `LEFT` join is supported **with a time bound**: the null-padded row is emitted
 passes the window, once, and never retracted — because without a bound there is no moment at which a
 row can be declared unmatched.
 
+A left row whose **join key is NULL** is one of those rows. `NULL` is not equal to `NULL` in a join,
+so it matches nothing — including another `NULL` — and a `LEFT` join therefore emits it null-padded
+like any other unmatched left row. It used to be dropped on arrival, because a row that can never
+match looked like a row not worth holding (finding J-1); it was then not in state when the watermark
+passed, so it left no trace at all. The right side still drops its own null-keyed rows: nothing
+would ever read them.
+
 **The two sides may come from entirely different connectors.** A join across a `filesystem` source
 and a `feedfile` source — two independently discovered plugins with different decoders — is
 demonstrated end to end by `CrossConnectorJoinTest`, which feeds an unmatched row to each side so
