@@ -181,13 +181,23 @@ final class ProfileAGateIT {
         Map<Integer, double[]> byLaneCount = new LinkedHashMap<>();
         try (ProfileARows rows = ProfileARows.encode(access)) {
             for (int lanes : LANE_COUNTS) {
-                double[] samples = new double[SCALING_PASSES];
+                byLaneCount.put(lanes, new double[SCALING_PASSES]);
                 // One warm-up pass per lane count, discarded.
                 scalingPass(rows, access, lanes);
-                for (int pass = 0; pass < SCALING_PASSES; pass++) {
-                    samples[pass] = scalingPass(rows, access, lanes);
+            }
+            // Passes on the outside and lane counts on the inside, which is the arrangement
+            // OperatorMetricsOverheadIT arrived at for the same reason. Running every pass of one
+            // lane count before starting the next makes a load spike a *fixed bias* rather than
+            // noise: whichever lane count happened to run while the machine was busy loses, and
+            // the ratio between them is then a ratio between two different machines. This harness
+            // reported 131 % efficiency at eight lanes on a box at load 110 -- a number produced
+            // entirely by a depressed one-lane baseline -- before the loops were turned inside
+            // out. Interleaving cannot make a scaling figure trustworthy on a shared machine, and
+            // nothing can; it removes the one bias that was systematic.
+            for (int pass = 0; pass < SCALING_PASSES; pass++) {
+                for (int lanes : LANE_COUNTS) {
+                    byLaneCount.get(lanes)[pass] = scalingPass(rows, access, lanes);
                 }
-                byLaneCount.put(lanes, samples);
             }
         }
 
@@ -226,6 +236,16 @@ final class ProfileAGateIT {
                 + "              measured here is a statement about the power envelope at least as%n"
                 + "              much as about lane contention, and gate P2 says so. The number%n"
                 + "              above is recorded, not defended.%n");
+        if (state.loaded()) {
+            System.out.printf(
+                    "    WITHHELD: the machine was at load %.1f on %d processors while this ran. A ratio%n"
+                            + "              between two arms measured on a machine that busy is not a scaling%n"
+                            + "              figure in either direction -- a depressed one-lane baseline can push%n"
+                            + "              it above 100 %% as easily as contention can push it below. The%n"
+                            + "              verdict printed above must not be read, in either direction, and the%n"
+                            + "              run should be repeated on a quiet machine before anything is recorded.%n",
+                    state.loadAverage(), state.logicalProcessors());
+        }
 
         assertThat(oneLane)
                 .as("the one-lane arm must have moved rows for any ratio to mean anything")

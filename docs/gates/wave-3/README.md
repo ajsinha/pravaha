@@ -27,7 +27,7 @@ thing a gate must never be.
 > hardware and the owner's instruction on 2026-09-19 was to measure here and name the machine. The
 > throughput criterion is **reached** — the end-to-end Profile A pipeline on one lane sustains tens
 > of millions of rows a second, and its worst pass under heavy load is still at the 1.2 M target.
-> The scaling criterion is **not reached**: 28–40 % of linear at eight lanes against a target of
+> The scaling criterion is **not reached**: 28–42 % of linear at eight lanes against a target of
 > 90 %. Neither figure is reference-hardware evidence and the confounds below are all still present.
 > Numbers, conditions and loads: [`../measured-2026-09-20/README.md`](../measured-2026-09-20/README.md).
 

@@ -229,7 +229,7 @@ lane to eight — are kept, unchanged, as the gate criteria.
 
 **On 2026-09-20 they were measured on the development machine**, because there is no reference
 hardware and there is not going to be any. Profile A's per-lane throughput and Profile B's are both
-**reached**, with room; the scaling criterion is **not reached** — 28–40 % of linear at eight lanes
+**reached**, with room; the scaling criterion is **not reached** — 28–42 % of linear at eight lanes
 against a target of 90 %, recorded as measured rather than restated. The machine is a 12-core
 heterogeneous laptop part with SMT2 and one shared frequency envelope, it was running other work
 throughout, and the load average is printed beside every figure. **None of those numbers is
