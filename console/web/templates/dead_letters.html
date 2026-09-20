@@ -15,7 +15,9 @@
 <div class="rule"></div>
 
 {% if page_error %}
-  {{ states.error(body=page_error, id='dlq-error') }}
+  {#- `body=` was not a parameter this macro has, so the error state raised instead of
+      drawing: an engine that did not answer turned the screen into a 500. -#}
+  {{ states.error(page_error, retry_href='/queries/' ~ name ~ '/dead-letters', id='dlq-error') }}
 {% elif not page.configured %}
   {# Not the same as an empty queue, and the difference is the whole setting: with no
      directory a record that cannot be decoded stops the source instead of being kept. #}
