@@ -1433,17 +1433,8 @@ public final class QueryRegistry implements AutoCloseable {
         // closed computation last committed, for ever, to a caller with no way to know that nothing
         // maintains it.
         views.remove(name);
-        // STRM-14. Before removeName, because after it this name is no longer one the computation
-        // knows and the subscriptions opened under it could not be found. A subscriber that asked
-        // for this name has nothing left to watch -- the view is out of the catalogue one line
-        // above -- whether or not another name keeps the computation alive; one that asked for a
-        // surviving name is untouched, which is why this is by name and not wholesale.
-        query.endSubscriptionsUnder(
-                name,
-                new PravahaException(
-                        RegistryErrors.QUERY_DROPPED,
-                        "'" + name + "' has been dropped, so there are no more changes to it. What you "
-                                + "received up to here is complete."));
+        // STRM-14, before removeName forgets the name. RegisteredQuery.endSubscriptionsUnder says why.
+        query.endSubscriptionsUnder(name, SubscriptionEndings.dropped(name));
         if (query.removeName(name)) {
             byFingerprint.remove(query.fingerprint());
             sharedLaneOf.remove(query.fingerprint());
@@ -1487,21 +1478,7 @@ public final class QueryRegistry implements AutoCloseable {
         deliveries.clear();
         byName.clear();
         byFingerprint.clear();
-        // STRM-12. Before close(), so its reason is the one the subscriber is given: a node going
-        // down is not the same event as a query being dropped, and only the first of the two is
-        // worth reconnecting after. A graceful shutdown drains in-flight Flight calls, so the
-        // stream used to end with listener.completed() -- the signal for "this stream is
-        // finished" -- for a query that is journalled, comes back RUNNING and moves on without the
-        // client that stopped. endBecause is a no-op once a subscription has ended, so whichever
-        // of the two gets there first is the one reported.
-        for (RegisteredQuery query : all) {
-            query.endSubscriptions(new PravahaException(
-                    RegistryErrors.NODE_STOPPING,
-                    "this node is shutting down, so '" + query.name() + "' stops sending here. The query "
-                            + "itself is journalled and comes back when the node does; subscribe again "
-                            + "then, and read the view to catch up on what happened in between."));
-        }
-        all.forEach(RegisteredQuery::close);
+        all.forEach(RegisteredQuery::closeForShutdown);
         // After the queries, not before: a hosted lane's final step is what releases its arena and
         // inbox, and only its runner may take that step. Closing the runner first would leave every
         // lane unable to finish, and each close would time out blaming a stall that never happened.

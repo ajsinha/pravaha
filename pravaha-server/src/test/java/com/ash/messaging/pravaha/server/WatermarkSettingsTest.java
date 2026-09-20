@@ -18,7 +18,6 @@ package com.ash.messaging.pravaha.server;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,7 +29,6 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
-import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.server.catalog.StreamCatalog;
 import com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties;
 import com.ash.messaging.pravaha.server.security.SecurityProperties;
@@ -163,43 +161,6 @@ class WatermarkSettingsTest {
                     .isInstanceOf(PravahaException.class)
                     .hasMessageContaining("PRV-2002")
                     .hasMessageContaining("pravaha.watermark.tick");
-        }
-    }
-
-    @Test
-    void time6AWindowedQueryOverAStreamWithNoDeclaredEventTimeIsRefusedAtRegistration() {
-        // TIME-6. Four causes each produced state=RUNNING, a climbing ROWS IN, an empty view, a NaN
-        // lag gauge and not one log line; two of them are this one -- no event-time declaration,
-        // and a blank one. The planner holds the StreamSchema and eventTimeOrdinal() is one call
-        // away, so the query that can never emit is decidable before it is accepted.
-        PravahaNode started = node(declared(Map.of("pravaha.streams.txn.schema", SCHEMA)))
-                .withNodeId("no-event-time")
-                .build();
-        started.start();
-        try {
-            Principal dana = new Principal("dana", "acme", Set.of("analyst"), Map.of());
-            assertThatThrownBy(() -> started.registry().orElseThrow().register("counts", WINDOWED, List.of(0), dana))
-                    .isInstanceOf(PravahaException.class)
-                    .hasMessageContaining("PRV-2002")
-                    .hasMessageContaining("declares no event-time column")
-                    .hasMessageContaining("pravaha.streams.txn.event-time");
-        } finally {
-            started.stop();
-        }
-
-        // A blank declaration is the same mistake spelled differently, and reaches the same answer.
-        PravahaNode blank = node(declared(
-                        Map.of("pravaha.streams.txn.schema", SCHEMA, "pravaha.streams.txn.event-time", "")))
-                .withNodeId("blank-event-time")
-                .build();
-        blank.start();
-        try {
-            Principal dana = new Principal("dana", "acme", Set.of("analyst"), Map.of());
-            assertThatThrownBy(() -> blank.registry().orElseThrow().register("counts", WINDOWED, List.of(0), dana))
-                    .isInstanceOf(PravahaException.class)
-                    .hasMessageContaining("declares no event-time column");
-        } finally {
-            blank.stop();
         }
     }
 

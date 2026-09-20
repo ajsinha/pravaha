@@ -65,8 +65,9 @@ class ExpressionMatrixTest {
             .field("flagged", Types.bool())
             .field("event_time", Types.timestamp())
             // Declared, not merely present. A stream whose event time is not declared has no
-            // watermark, so no window over it can close and the planner now refuses one (TIME-6);
-            // a fixture that windows has to be a stream a node could really window.
+            // watermark, so no window over it can ever close (TIME-6) -- a fixture that windows
+            // has to be a stream a node could really window, or the matrix records the refusals of
+            // a configuration nobody should be running.
             .eventTime("event_time")
             .build();
 
@@ -75,8 +76,9 @@ class ExpressionMatrixTest {
             .field("region", Types.string())
             .field("event_time", Types.timestamp())
             // Declared, not merely present. A stream whose event time is not declared has no
-            // watermark, so no window over it can close and the planner now refuses one (TIME-6);
-            // a fixture that windows has to be a stream a node could really window.
+            // watermark, so no window over it can ever close (TIME-6) -- a fixture that windows
+            // has to be a stream a node could really window, or the matrix records the refusals of
+            // a configuration nobody should be running.
             .eventTime("event_time")
             .build();
 

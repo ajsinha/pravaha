@@ -31,12 +31,12 @@ One section per finding: verdict, cause, fix, test, seed-proof, commit.
 | `STRM-18` | Confirmed (the case file is wrong, not the code), **fixed in the case file** | `d6fd7b7` |
 | `TIME-3` | Reproduced, **fixed** — a unitless lateness is seconds, both keys | `a0a2d9a` |
 | `TIME-5` | Reproduced, **fixed** — one bad value is one startup failure | `0da7e8a`, `a0a2d9a` |
-| `TIME-6` | Reproduced, **fixed** — refused where it can be, stated where it cannot | `a0a2d9a` |
+| `TIME-6` | Reproduced, **fixed** as far as this batch may take it: the node states the lateness in force per stream, which covers all four causes. The plan-time refusal was written, costs 54 `pravaha-it` tests and two documented case outcomes, and is **backed out for the lead** | `a0a2d9a` |
 | `TIME-8` | First clause reproduces and is **fixed**; the other two claims are already false and the entry should be narrowed | `51ba5c1` |
 | `TIME-9` | Reproduced, **fixed** — one shape for every event-time refusal | `a0a2d9a` |
 | `TIME-11` | Reproduced (the clamp had moved to `SharedClock.every`), **fixed** — refused, not clamped | `0da7e8a`, `a0a2d9a` |
 
-**Fourteen closed, two left open**, each with what it needs written down below. Three findings
+**Thirteen closed, two left open and one half-closed**, each with what it needs written down below. Three findings
 carried claims that are no longer true and should be narrowed rather than closed whole: `TIME-8`'s
 second clause and its `registeredQueries` observation, and `STRM-4`'s measurement.
 
@@ -45,7 +45,7 @@ the two spellings of a window: Calcite lowers `GROUP BY TUMBLE(...)` through `bu
 which had no check at all, so `GROUP BY TUMBLE(other_time, ...)` over a stream declaring
 `event_time` cut its windows from a column no watermark tracks. That is `TIME-2`'s
 wrong-rather-than-late answer, reachable through the spelling most queries use. Fixed in
-`a0a2d9a`; see `TIME-6` below.
+`a0a2d9a`; see `TIME-6` below, which also says why that finding's plan-time refusal is the lead's call.
 
 ---
 
@@ -173,47 +173,69 @@ Restored, 6 run, 0 failures.
 
 ## `TIME-6` — a windowed query that can never emit is indistinguishable from one that is working
 
-**Verdict: REPRODUCED, FIXED — by the two remedies the finding itself names.**
+**Verdict: REPRODUCED. FIXED as far as this batch may take it — the diagnosability half, which is
+the finding's headline and covers all four causes. The plan-time refusal was written, measured and
+BACKED OUT: it reverses a recorded decision and changes documented case outcomes, so it is the
+lead's.**
 
 **Cause.** Four configurations each produced `state=RUNNING`, a climbing `ROWS IN`, an empty view, a
-`NaN` lag gauge and not one log line. Two are a stream with no usable event-time declaration; two
-are a lateness larger than the data's span, which is a legitimate setting that happens to empty the
-view. Nothing on any surface mentioned out-of-orderness at all.
+`NaN` lag gauge and not one log line, and nothing on any surface told them apart from a query that
+was working. Two are a stream with no usable event-time declaration; two are a lateness larger than
+the data's span.
 
-**Fix, half one — refuse what can be decided.** `PhysicalPlanBuilder.requireDeclaredEventTime` used
-to return early when the stream declared no event time, on the reasoning that TIME-002 owned that
-case. It now refuses, with `PRV-2002` and the configuration key to set — **for an unbounded input
-only**, because over a bounded read `finish()` fires the windows at the end of the scan and the
-same plan does answer.
+**Fixed: the node states what is in force.** `PravahaNode.registerDeclaredStreams` logs one line
+per stream — `stream txn: event-time=event_time, out-of-orderness=PT10M, allowed-lateness=PT30S`,
+and `event-time=none -- no window over this stream can ever close` for a stream with none — read
+from the schema the node built rather than from the file, so a default shows as the default. This
+is the remedy the finding names first and it covers **all four** causes, where a refusal covers
+two: an out-of-orderness larger than the data's span is a legitimate setting that simply empties
+the view, and nothing can refuse it. Before this, `grep -icE "out-of-orderness"` over a whole
+startup log was 0 on every configuration tried.
 
-**Two things fell out of doing it.** The check ran *before* the `switch` that refuses `SESSION`, so
-a SESSION query whose second `DESCRIPTOR` names the partitioning column was refused for its event
-time and never reached the sentence saying SESSION is not wired to SQL; it now runs after. And
-**TIME-2's guard was only ever on one of the two spellings**: Calcite lowers `GROUP BY TUMBLE(...)`
-through `buildGroupedWindow`, which had no check at all, so `GROUP BY TUMBLE(other_time, ...)` over
-a stream declaring `event_time` cut its windows from a column no watermark tracks — the
-wrong-rather-than-late answer TIME-2 is about, reachable through the spelling most queries use.
-Both spellings now answer the same. **Worth a line in TIME-2's entry.**
+**Written, measured and backed out: the plan-time refusal.** The finding's second remedy is one
+line — `PhysicalPlanBuilder.requireDeclaredEventTime` returning early when the stream declares no
+event time, made to refuse with `PRV-2002` for an unbounded input. It works, and it is right on the
+merits: no watermark advances over such a stream, so no window the query opens can ever close.
 
-**Fix, half two — state what cannot be decided.** `PravahaNode.registerDeclaredStreams` logs one
-line per stream: `stream txn: event-time=event_time, out-of-orderness=PT10M,
-allowed-lateness=PT30S`, from the built schema rather than the declaration, so a default shows as
-the default. A stream with no event time says so in words: `event-time=none -- no window over this
-stream can ever close`.
+It also **fails 54 tests in `pravaha-it`**. Most are fixtures carrying a timestamp column without
+declaring it, which is a day's mechanical work. Several are **case studies whose SQL would
+therefore never emit on a real node** — a genuine find, and one worth filing. And two assert the
+current behaviour *by name*:
 
-**Test.** `WindowedPlanTest.time6AWindowOverAStreamWithNoDeclaredEventTimeIsRefusedInBothSpellings`
-(both spellings refused, and a bounded read still plans),
-`WindowedPlanTest.theGroupByFormOfTheWrongTimestampColumnIsRefusedToo`,
-`WatermarkSettingsTest.time6AWindowedQueryOverAStreamWithNoDeclaredEventTimeIsRefusedAtRegistration`
-(missing and blank), `WatermarkSettingsTest.time6TheLatenessInForceIsStatedPerStreamAtStartup`.
+* `WindowAnswerTest.win005_tumbleOverAStreamWithNoDeclaredEventTimeNeverFiresRatherThanRefusing`
+* `EventTimeTest.time002And009_aStreamWithNoDeclaredEventTimeIngestsEverythingAndServesNothing`
 
-**Seed-proof.** The `declared.isEmpty()` arm restored to `return` **and** the startup line deleted,
-together: **3 failures** — `WindowedPlanTest` 11 run, 1 failure
-(`time6AWindowOverAStreamWithNoDeclaredEventTimeIsRefusedInBothSpellings`); `WatermarkSettingsTest`
-6 run, 2 failures (the registration refusal and the startup line). Restored, all green.
+Those are QA cases with outcomes recorded against them, and `requireDeclaredEventTime`'s own
+javadoc said the case was left alone on purpose, owned by `TIME-002`/`TIME-003`. Reversing a
+recorded decision and rewriting two documented case outcomes is not something to do inside a
+findings batch. **What it needs:** the lead's decision, then one batch — the refusal, the fixture
+sweep, the case-study SQL, and new outcomes for `win005` and `TIME-002`/`009`. The javadoc now
+records all of that where the next person will look, so it is a decision rather than an oversight.
 
+**Kept, and found on the way.** Three things came out of writing the refusal, and all three are
+unambiguous improvements that cost nothing:
 
-**Commit.** `a0a2d9a`.
+* **`TIME-2`'s guard was only ever on one of the two spellings.** Calcite lowers
+  `GROUP BY TUMBLE(...)` through `buildGroupedWindow`, which had no check at all, so
+  `GROUP BY TUMBLE(other_time, ...)` over a stream declaring `event_time` cut its windows from a
+  column no watermark tracks — `TIME-2`'s wrong-rather-than-late answer, through the spelling most
+  queries use. Both spellings now answer the same. **Worth a line in `TIME-2`'s entry.**
+* The check ran *before* the `switch` that refuses `SESSION`, so a SESSION query whose second
+  `DESCRIPTOR` names the partitioning column was refused for its event time and never reached the
+  sentence saying SESSION is not wired to SQL. It now runs after.
+* And the refusal names the **source stream** rather than the derived schema, so a message telling
+  an operator to set `pravaha.streams.ev_projected.event-time` — a stream that does not exist —
+  cannot happen.
+
+**Test.** `WatermarkSettingsTest.time6TheLatenessInForceIsStatedPerStreamAtStartup` (the startup
+line, through a real node, captured) and
+`WindowedPlanTest.theGroupByFormOfTheWrongTimestampColumnIsRefusedToo`.
+
+**Seed-proof.** The startup line deleted: `WatermarkSettingsTest` 5 run, **1 failure**. The
+grouped-window guard removed: `WindowedPlanTest` 1 failure. Restored, green.
+
+**Commit.** `a0a2d9a`, with the backing-out in the commit that follows it.
+
 ---
 
 ## `TIME-8` — nothing reports a partition's idle state, its exclusions or its regressions
@@ -412,8 +434,9 @@ an ordinary commit is admitted, that 64 commits of the *measured* size still fit
 not cost a subscriber that is merely slow), and that 64 commits of 50 000 rows — the 1.7 GB — do
 not. Deterministic: it is the admission decision, not a stalled reader and a stopwatch.
 
-**Seed-proof.** The row bound removed from the offer path and `handoverHasRoomFor` made
-`return true`: 1 failure. Restored, green.
+**Seed-proof.** `SubscriptionHandover.hasRoomFor` made `return true`, seeded together with
+`STRM-10`'s and `STRM-16`'s: `SubscriptionOverflowTest` 4 run, **3 failures**, one per finding, and
+`strm15TheHandoverIsBoundedInRowsAndNotOnlyInBatches` is this one. Restored, 4 run, 0 failures.
 
 **Not re-measured.** The 1.7 GB number was not reproduced on this machine; it is another session's
 measurement and the fix is a bound, not a measurement. What a re-measurement would show is left for
@@ -455,10 +478,10 @@ Gets` — a buffer of one row and a commit of three, so `FAIL` has to decide —
 `.strm16TheSameOverflowUnderTheDefaultPolicyKeepsTheSubscriptionRunning` as the control, which is
 what stops the first from passing on a server that failed every subscriber.
 
-**Seed-proof.** `optionsOf` made to return `SubscriptionOptions.DEFAULT` unconditionally: the
-Flight case fails (the stream stays up where it should have ended). The parity branch removed from
-the producer: the preference is read as a filter column and the subscription is refused. Restored,
-green.
+**Seed-proof.** `optionsOf` pinned to `SubscriptionOptions.DEFAULT`, seeded together with
+`STRM-10`'s and `STRM-15`'s: `SubscriptionOverflowTest` 4 run, **3 failures**, and this one is
+`strm16TheOverflowPolicyOnTheTicketIsTheOneTheSubscriptionGets` — the stream stays up where `FAIL`
+should have ended it. Restored, 4 run, 0 failures.
 
 
 **Commit.** `a9f5c20`.
@@ -496,9 +519,10 @@ does not read while the server pushes hundreds of thousands of rows, which is a 
 as an assertion on a busy machine. The two things that can be wrong — the count not being carried,
 and the mark being misparsed — are both decidable without one.
 
-**Seed-proof.** The plain path's mark set back to `null`: the Flight case fails with "a plain batch
-now carries a mark, which it never did". The decoder returned to `lastIndexOf(':')`: the
-three-component case decodes `commit:42` as the kind and fails. Restored, green.
+**Seed-proof.** The plain path's mark set back to `null`, seeded together with `STRM-15`'s and
+`STRM-16`'s: `SubscriptionOverflowTest` 4 run, **3 failures**, and this one is
+`strm10APlainSubscriptionsBatchesSayWhatItHasLost` — "a plain batch now carries a mark, which it
+never did". Restored, 4 run, 0 failures.
 
 
 **Commit.** `a9f5c20`.

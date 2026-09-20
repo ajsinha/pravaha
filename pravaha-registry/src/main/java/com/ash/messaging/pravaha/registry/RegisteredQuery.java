@@ -480,6 +480,24 @@ public final class RegisteredQuery implements AutoCloseable {
      * subscriber on a surviving name is correctly untouched -- which is the mirror case STRM-067
      * confirmed was already right, and the reason this is by name rather than wholesale.
      */
+    /**
+     * Closes this computation because the node is going down, not because anybody dropped it
+     * (STRM-12).
+     *
+     * <p>One method rather than two calls at the caller, because the order is the point and the
+     * reason is the whole fix. A node going down and a query being dropped are different events,
+     * and only the first is worth reconnecting after: a graceful shutdown drains in-flight Flight
+     * calls, so the stream used to end with {@code listener.completed()} -- "this stream is
+     * finished" -- for a query that is journalled, comes back {@code RUNNING} and moves on without
+     * the client that stopped. Said first, because {@link #close()} would otherwise say the query
+     * was dropped and {@code endBecause} is a no-op once a subscription has ended: the first
+     * reason there is the one reported, which is why this one has to be.
+     */
+    void closeForShutdown() {
+        endSubscriptions(SubscriptionEndings.nodeStopping(anyName()));
+        close();
+    }
+
     void endSubscriptionsUnder(String name, PravahaException why) {
         for (Subscription subscription : subscriptions) {
             if (name.equals(subscription.queryName())) {
@@ -875,10 +893,7 @@ public final class RegisteredQuery implements AutoCloseable {
             // endBecause is a no-op on a subscription that has already ended, so a shutdown's
             // NODE_STOPPING (set by QueryRegistry before it closes anything) wins over this, and a
             // cutover's VIEW_REPLACED wins over both. The first reason is the true one.
-            endSubscriptions(new PravahaException(
-                    RegistryErrors.QUERY_DROPPED,
-                    "'" + anyName() + "' has been dropped and no longer exists on this node, so there are no "
-                            + "more changes to it. What you received up to here is complete."));
+            endSubscriptions(SubscriptionEndings.dropped(anyName()));
         }
     }
 

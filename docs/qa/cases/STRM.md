@@ -103,10 +103,10 @@ the node by being written to the source's directory. Note `PumpingFeed.PUBLISH_I
 >   put the producer implements and it carries prepared-statement parameters. A node is fed
 >   through `pravaha.sources.*`; every case that says "DoPut N rows" means "write N rows where
 >   the bound source reads them".
-> * **`event-time: ""` is not a way to say "no event time".** It is refused where it matters
->   (`TIME-6`): a windowed query over a stream with no declared event time is refused at
->   registration, because no watermark advances over it and no window it opens can ever close.
->   The stream declares a real column.
+> * **`event-time: ""` is not a way to say "no event time" that anything can act on.** A stream
+>   with no declared event time has no watermark, so no window over it can ever close -- a
+>   windowed query registers, reports `RUNNING`, ingests every row and emits nothing (`TIME-6`).
+>   The stream declares a real column, because `H-EA` windows.
 > * **`pravaha.security.policy` has no `tenant` value.** It is `permissive` or `authenticated`,
 >   and no configured policy can produce an `AccessDecision` carrying a row filter — so section
 >   G's cases cannot be run against a configured node at all. They were run against an in-process

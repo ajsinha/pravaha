@@ -88,10 +88,6 @@ pravaha:
     a stream with none. Read it when a windowed query is `RUNNING` with a climbing `ROWS IN` and an
     empty view: it is the one place the effective lateness is stated.
 
-A **windowed query over a stream with no `event-time`** is refused at registration rather than
-accepted and left unable to emit: `PRV-2002 ... declares no event-time column`, naming the key to
-set. A bounded read is still allowed, because there the end of the scan fires the windows.
-
 A source must also **stamp** each row with that column: on the `filesystem` and `aerospike`
 sources that is the `event.time` option. Without it every row carries the time it was *read*, the
 watermark runs at wall-clock, and every row lands behind it — an empty view under a query reporting

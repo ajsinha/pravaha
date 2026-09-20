@@ -89,9 +89,13 @@ class LifeDropTest extends LifecycleTestSupport {
     }
 
     @Test
-    void life066_droppingAQueryWithALiveSubscriberEndsTheStreamWithoutAnError() {
-        // Cross-references CQ-050: a subscriber attached in-process is not told the query was
-        // dropped. Verified again here from the lifecycle side.
+    void life066_droppingAQueryWithALiveSubscriberEndsTheStreamAndSaysWhy() {
+        // Cross-references CQ-050, and reversed by STRM-12. This case recorded that a subscriber
+        // attached in-process was *not* told the query had been dropped: it stayed open with an
+        // empty failure(), in the sink's listener list, waiting for changes that would never come,
+        // and subscriberCount() -- which OPERATIONS.md offers as the operator's signal that nobody
+        // is watching a query -- never returned to zero. Going quiet and being over are different
+        // things, and only one of them is worth acting on.
         registry.register("v1", S1, List.of(0), Principal.ANONYMOUS);
         List<Object> received = new java.util.ArrayList<>();
         var subscription = registry.require("v1").subscribe(received::addAll);
@@ -99,9 +103,11 @@ class LifeDropTest extends LifecycleTestSupport {
         registry.drop("v1");
 
         assertThat(subscription.isClosed())
-                .as("CQ-050: dropping the query does not close an in-process subscriber -- it just goes quiet")
-                .isFalse();
-        assertThat(subscription.failure()).isEmpty();
+                .as("STRM-12: the administrative destruction of the thing it asked to watch")
+                .isTrue();
+        assertThat(subscription.failure().orElseThrow().getMessage())
+                .contains("PRV-8011")
+                .contains("has been dropped");
         subscription.close();
     }
 

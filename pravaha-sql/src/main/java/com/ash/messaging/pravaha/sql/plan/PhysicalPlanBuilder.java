@@ -790,18 +790,24 @@ public final class PhysicalPlanBuilder {
      * the column the stream declared. A window grid keyed to any other column is not a slower answer
      * to the same question; it is an answer to a question the engine cannot bound.
      *
-     * <p><strong>A stream that declares no event time at all is refused too, when the input is a
-     * stream</strong> (TIME-6). It used to be left alone, with the reasoning that TIME-002 owned
-     * that case; what TIME-6 measured is what being left alone costs. Four separate
-     * misconfigurations -- no {@code event-time} key, a blank one, and an out-of-orderness larger
-     * than the data's span twice over -- each produced a query reporting {@code RUNNING} with a
-     * climbing {@code ROWS IN}, an empty view, a {@code NaN} lag gauge and not one log line, and
-     * nothing on any surface told them apart from a query that was working. Two of the four are
-     * this one, and they are decidable here, where the schema is in hand.
+     * <p><strong>A stream that declares no event time at all is left alone, and TIME-6 is why that
+     * is now a decision rather than an oversight.</strong> Refusing it here is one line and it was
+     * written and measured: it closes two of TIME-6's four ways to reach "RUNNING, ingesting,
+     * serving nothing", and it is correct -- no watermark advances over such a stream, so no window
+     * this query opens can ever close. It also fails 54 tests in {@code pravaha-it}, most of them
+     * fixtures that carry a timestamp column without declaring it, several case studies whose SQL
+     * would therefore never emit on a real node, and -- the reason it is the lead's call and not
+     * this batch's -- two cases that assert the current behaviour <em>by name</em>:
+     * {@code WindowAnswerTest.win005_tumbleOverAStreamWithNoDeclaredEventTimeNeverFiresRatherThan
+     * Refusing} and {@code EventTimeTest.time002And009_...IngestsEverythingAndServesNothing}.
+     * Reversing a recorded decision changes those documented case outcomes.
      *
-     * <p>Only for an unbounded input. Over a bounded read the windows are fired by {@code finish()}
-     * at the end of the scan rather than by a watermark, so the same plan does terminate and does
-     * answer, and refusing it would take away a query that works.
+     * <p>What TIME-6 got instead is the other half it asked for: {@code PravahaNode} now states the
+     * event time, out-of-orderness and allowed lateness in force for every declared stream at
+     * startup, including {@code event-time=none -- no window over this stream can ever close}. That
+     * covers all four causes rather than two, because a lateness larger than the data's span is a
+     * legitimate setting no refusal could catch.
+     *
      */
     private void requireDeclaredEventTime(String function, int descriptorOrdinal, PhysicalOperator input) {
         StreamSchema schema = input.outputSchema();
@@ -811,20 +817,7 @@ public final class PhysicalPlanBuilder {
         String stream = streamNameOf(input);
         java.util.OptionalInt declared = schema.eventTimeOrdinal();
         if (declared.isEmpty()) {
-            if (boundedInput) {
-                return;
-            }
-            throw new PravahaException(
-                    SqlErrors.VALIDATION_FAILED,
-                    function + " is given DESCRIPTOR("
-                            + schema.field(descriptorOrdinal).name() + "), but '"
-                            + stream + "' declares no event-time column -- so no watermark advances "
-                            + "over it and no window this query opens can ever close. It would register, "
-                            + "report RUNNING, ingest every row and emit nothing, for ever.\n"
-                            + "  Declare the column: pravaha.streams." + stream + ".event-time: "
-                            + schema.field(descriptorOrdinal).name() + ", or 'eventTime' on "
-                            + "POST /api/v1/streams. The column must be a TIMESTAMP.\n"
-                            + "Refused at registration rather than discovered from an empty view later.");
+            return;
         }
         if (declared.getAsInt() == descriptorOrdinal) {
             return;

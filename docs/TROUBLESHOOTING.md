@@ -137,8 +137,8 @@ Read those before anything else when a windowed query is `RUNNING` with a climbi
 empty view. An out-of-orderness larger than the span of the data on hand holds every window open
 for ever, and it is a legitimate setting, so nothing refuses it — it is only visible here.
 **A unitless number is seconds**: `out-of-orderness: 60` is a minute, not sixty milliseconds
-(TIME-3). A windowed query over a stream with **no** event-time column is refused outright now,
-with `PRV-2002` naming the key to set, rather than accepted and left unable to emit.
+(TIME-3). A stream with **no** event-time column says so in words, and a windowed query over it can
+never close a window -- which is the one line to look for before anything else.
 
 **Is the subscription attached?** A plain subscription starts from *now*, not from the beginning of
 time: a change committed before the subscriber attached was published to nobody. Worse, reading the

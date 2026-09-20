@@ -299,21 +299,21 @@ class SubscriptionOverflowTest {
         // the server's RSS from 1577 MB to 3262 MB, and ten would not have fit on the machine that
         // measured one. The constant was the only thing between a stalled client and the heap, and
         // it was denominated in the wrong unit.
-        assertThat(PravahaFlightSqlProducer.handoverHasRoomFor(0, 2830))
+        assertThat(SubscriptionHandover.hasRoomFor(0, 2830))
                 .as("an ordinary commit is admitted to an empty handover")
                 .isTrue();
 
         // The measured commit size, 64 deep: what the batch bound alone allowed.
         long sixtyFourRealCommits = 64L * 2830L;
-        assertThat(PravahaFlightSqlProducer.handoverHasRoomFor(sixtyFourRealCommits - 2830, 2830))
+        assertThat(SubscriptionHandover.hasRoomFor(sixtyFourRealCommits - 2830, 2830))
                 .as("181 120 rows still fits, so the bound does not cost a subscriber that is merely slow")
                 .isTrue();
 
         // And a wider query, where the same 64 batches is a quantity of memory nobody chose.
-        assertThat(PravahaFlightSqlProducer.handoverHasRoomFor(63L * 50_000L, 50_000))
+        assertThat(SubscriptionHandover.hasRoomFor(63L * 50_000L, 50_000))
                 .as("64 batches of 50 000 rows is 3.2 million rows, which is the 1.7 GB")
                 .isFalse();
-        assertThat(PravahaFlightSqlProducer.handoverHasRoomFor(250_000L, 1))
+        assertThat(SubscriptionHandover.hasRoomFor(250_000L, 1))
                 .as("the bound is a bound")
                 .isFalse();
     }

@@ -111,34 +111,6 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
      */
     private static final java.time.Duration REAUTHORIZE_EVERY = java.time.Duration.ofSeconds(2);
 
-    /**
-     * Committed batches that may wait for a subscriber's socket.
-     *
-     * <p>Small on purpose. This queue exists to decouple the engine's thread from the network, not
-     * to be a buffer -- {@link SubscriptionOptions} already decides how far behind a subscriber may
-     * fall, with a policy the subscriber chose. A deep queue here would silently override that
-     * choice with a different one.
-     */
-    private static final int SUBSCRIPTION_HANDOVER_BATCHES = 64;
-
-    /**
-     * And how many rows those batches may hold between them (STRM-15).
-     *
-     * <p>The batch bound above is not a bound on memory, and it was the only thing between a
-     * stalled client and the node's heap. A batch is one commit, and a commit under a real feed was
-     * measured at up to 2830 rows, so 64 of them is 64 &times; whatever a commit happens to be --
-     * in {@code ViewChange} objects, their {@code Object[]} payloads and the strings inside those.
-     * One stalled subscriber took the server's RSS from 1577 MB to 3262 MB; ten would not have fit
-     * on the machine that measured one.
-     *
-     * <p>250 000 rows is a bound somebody can reason about: at a hundred bytes a row it is tens of
-     * megabytes per stalled subscriber rather than gigabytes, and it is far above anything a
-     * subscriber that is keeping up will ever have queued. Whichever bound is reached first drops
-     * the batch, and the drop is now reported to the subscriber rather than only to an audit sink
-     * (STRM-10).
-     */
-    private static final long SUBSCRIPTION_HANDOVER_ROWS = 250_000;
-
     private final ViewCatalog catalog;
     private final ViewQuery queries;
     private final SecurityPolicy policy;
@@ -1046,7 +1018,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
             SubscriptionFilter filter = equals.isEmpty()
                     ? SubscriptionFilter.none()
                     : SubscriptionFilter.matching(query.outputSchema(), equals);
-            SubscriptionOptions options = optionsOf(preference);
+            SubscriptionOptions options = SubscriptionHandover.optionsOf(preference);
 
             StreamSchema schema = query.outputSchema();
             Schema arrow = ArrowSchemas.subscriptionSchema(schema);
@@ -1059,7 +1031,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
             // network part of the query's critical path: one subscriber on a slow link would slow
             // the computation for everybody, which is exactly what Subscription's bounded buffer
             // exists to prevent. The handover must not block, so it does not.
-            BlockingQueue<Handed> handover = new LinkedBlockingQueue<>(SUBSCRIPTION_HANDOVER_BATCHES);
+            BlockingQueue<Handed> handover = new LinkedBlockingQueue<>(SubscriptionHandover.BATCHES);
             // Rows waiting, not only batches (STRM-15).
             AtomicLong queuedRows = new AtomicLong();
             AtomicLong droppedBatches = new AtomicLong();
@@ -1079,10 +1051,10 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                             // the query, and the answer is to lose its batches rather than the
                             // engine's pace.
                             //
-                            // Full by either measure: SUBSCRIPTION_HANDOVER_BATCHES commits, or
-                            // SUBSCRIPTION_HANDOVER_ROWS rows across them (STRM-15). A bound in
+                            // Full by either measure: SubscriptionHandover.BATCHES commits, or
+                            // SubscriptionHandover.ROWS rows across them (STRM-15). A bound in
                             // batches is not a bound on memory, and memory is what it was for.
-                            if (!handoverHasRoomFor(queuedRows.get(), changes.size())
+                            if (!SubscriptionHandover.hasRoomFor(queuedRows.get(), changes.size())
                                     || !handover.offer(new Handed(changes, null))) {
                                 droppedBatches.incrementAndGet();
                             } else {
@@ -1103,11 +1075,11 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                                     "subscribe.behind",
                                     viewName,
                                     decision,
-                                    "more than " + SUBSCRIPTION_HANDOVER_BATCHES
+                                    "more than " + SubscriptionHandover.BATCHES
                                             + " commits waiting for a snapshot subscriber"));
                             listener.error(FlightErrors.failureOf(new PravahaException(
                                             FlightErrors.SUBSCRIBER_BEHIND,
-                                            "this subscriber fell more than " + SUBSCRIPTION_HANDOVER_BATCHES
+                                            "this subscriber fell more than " + SubscriptionHandover.BATCHES
                                                     + " commits behind '" + viewName + "', and a snapshot "
                                                     + "subscription does not skip one; subscribe again to "
                                                     + "start from a fresh snapshot"))
@@ -1233,60 +1205,11 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
     private record Handed(List<com.ash.messaging.pravaha.serving.ViewChange> changes, ControlWire.BatchMark mark) {}
 
     /**
-     * Whether a commit of {@code batchRows} rows may join a handover already holding
-     * {@code queuedRows} (STRM-15).
-     *
-     * <p>Separate from the queue's own capacity, and the point of the finding: the queue counts
-     * <em>batches</em>, and 64 batches is not a quantity of memory. A commit under a real feed was
-     * measured at up to 2830 rows, so the same 64 could be 181 120 rows or, on a wider or busier
-     * query, several million -- and one stalled subscriber was measured taking 1.7 GB. Both bounds
-     * apply and the first one reached drops the batch.
-     */
-    static boolean handoverHasRoomFor(long queuedRows, int batchRows) {
-        return queuedRows + batchRows <= SUBSCRIPTION_HANDOVER_ROWS;
-    }
-
-    /**
-     * The server-side buffer a remote subscriber asked for, or this node's default (STRM-16).
-     *
-     * <p>Every remote subscriber used to be {@code SubscriptionOptions.DEFAULT} --
-     * {@code (10 000, CONFLATE)} -- whatever it asked for, because the ticket carried nothing and
-     * {@code ClientOptions.subscriberBufferRows} and {@code conflateOnOverflow} had no reader
-     * anywhere. {@code CONFLATE} is the default and, by its own javadoc, "wrong for anything
-     * maintaining its own aggregate from the weights": fed {@code +1 10, -1 10, +1 30, -1 30,
-     * +1 60} on one key under a buffer of two it delivers a weighted sum of 50 where the
-     * un-conflated truth is 60, and until STRM-10 that was silent from the client's side as well.
-     *
-     * <p>An overflow this server does not know is a refusal, not a default. A client that asked
-     * for {@code FAIL} and was quietly given {@code CONFLATE} is exactly the corruption above.
-     */
-    private static SubscriptionOptions optionsOf(ControlWire.SubscriberPreference preference) {
-        if (preference == null) {
-            return SubscriptionOptions.DEFAULT;
-        }
-        try {
-            return SubscriptionOptions.of(
-                    preference.bufferRows(),
-                    preference.overflow().isEmpty()
-                            ? SubscriptionOptions.Overflow.CONFLATE
-                            : SubscriptionOptions.Overflow.valueOf(preference.overflow()));
-        } catch (IllegalArgumentException e) {
-            throw new PravahaException(
-                    FlightErrors.BAD_HANDLE,
-                    "'" + preference.overflow() + "' is not an overflow policy this server knows. It is "
-                            + "CONFLATE (the latest value per key wins), DROP_OLDEST or FAIL (end this "
-                            + "subscription rather than lose a change). Refused rather than defaulted: a "
-                            + "subscriber that asked to be failed and was quietly conflated instead is the "
-                            + "corrupted total this setting exists to avoid.");
-        }
-    }
-
-    /**
      * Opens a snapshot subscription feeding {@code handover} (SUB-1).
      *
      * <p>Neither conflated nor dropped within a commit -- the buffer is unbounded and FAIL -- because
      * the client is keeping a copy, and a conflated retraction is a copy gone wrong. What is bounded is
-     * the handover: a subscriber that falls {@link #SUBSCRIPTION_HANDOVER_BATCHES} commits behind is
+     * the handover: a subscriber that falls {@link SubscriptionHandover#BATCHES} commits behind is
      * marked, is offered nothing further (a commit after a gap would be worse than none), and its
      * stream ends with {@link FlightErrors#SUBSCRIBER_BEHIND}. The snapshot is the first thing queued,
      * into an empty queue, so it is never the one refused.

@@ -62,9 +62,9 @@ class ErrcRegistryTest extends ErrcServerSupport {
             .field("usr", Types.string())
             .field("amount", Types.int64())
             .field("event_time", Types.timestamp())
-            // Declared, not merely present: a windowed query over a stream with no declared event
-            // time is refused at registration (TIME-6), because no watermark advances over it and
-            // no window it opens can ever close.
+            // Declared, not merely present: without it no watermark advances over this stream and
+            // no window a query opens over it can ever close (TIME-6), so a fixture whose cases
+            // window would be describing the refusals of a node nobody should be running.
             .eventTime("event_time")
             .build();
 
