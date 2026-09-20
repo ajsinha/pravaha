@@ -348,6 +348,9 @@ PAGES: list[tuple[str, str, bool, str]] = [
     # B9's blue/green screen as an engine with nothing being replaced shows it: the state
     # every query is in most of the time, and the form that starts the first one.
     ("replacement", "/queries/big_txn/replacement", True, "document.querySelector('#rep-none')"),
+    # B9's debugger (23.9) as a node debugging nothing shows it: what a fork is, what it
+    # cannot touch, and the positions this node could still start one from.
+    ("debug", "/queries/big_txn/debug", True, "document.querySelector('#dbg-fork-form')"),
     ("overview", "/overview", True, "true"),
     ("plugins", "/plugins", True, "true"),
     ("admin-access", "/admin/access", True, "true"),

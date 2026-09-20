@@ -3,14 +3,11 @@
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 Proprietary and confidential. See LICENSE at the repository root.
 
-Design 23.18 names eight critical journeys, and all eight are here. Seven walk end to end.
-One stops where an engine feature that does not exist would take over -- the time-travel
-debugger (23.9) -- and that stop is asserted (the console offers nothing rather than a
-control that fails), never simulated; its docstring names what it waits on, and the README's
-23.20 table lists it. The other seven walked as far as the engine went until B5, B6 and
-ADR-046 landed: a readable dead-letter queue, backpressure and per-operator sampling, and
-blue/green replacement with a cutover and a rollback window. Each of those turned an
-assertion that the console offered nothing into a screen this file now drives.
+Design 23.18 names eight critical journeys, and all eight walk end to end. Four of them
+once stopped at an assertion that the console offered nothing, because the engine offered
+nothing: B5 gave them a readable dead-letter queue, B6 backpressure and per-operator
+sampling, ADR-046 blue/green cutover with a rollback window, and ADR-048 a debug fork that
+can be stepped and exported. Each landing turned an assertion into a screen this file drives.
 
 Journey 8's grant is not a console step and cannot be one -- grants live in the deployment's
 identity system behind ``SecurityPolicy``, and no API changes one -- so it ends where the
@@ -431,10 +428,8 @@ def test_a_screen_s_question_mark_opens_its_help(page, console):
 
 # ============================================================ the other six journeys of design 23.18
 #
-# Five of these now walk end to end. The sixth -- debugging a wrong result -- stops where the
-# time-travel debugger would take over, and the stop is asserted, not assumed: the console
-# must offer nothing rather than draw a control that fails. What it waits on is in its
-# docstring and in the README's 23.20 table.
+# All six walk end to end. Debugging a wrong result is in two parts, because its second half
+# forks the query and a fork is a second copy of it that no other test's screen should meet.
 
 def _palette_titles(page, text: str) -> list[str]:
     """The palette's options after typing ``text``; the palette is closed again after."""
@@ -911,16 +906,15 @@ def test_journey_blue_green_update_and_roll_back(page):
 
 
 def test_journey_trace_a_wrong_looking_row(page, console):
-    """Design 23.18 journey 7, "debug a wrong result and export the fixture", up to where the
-    debugger would take over: a developer point-queries the row that looks wrong, filters the
-    live view to that key, watches a correction arrive as a -1 and a +1, sees the current row as
-    the running sum of the weights, and opens the plan that produced it.
+    """Design 23.18 journey 7, "debug a wrong result and export the fixture", end to end: a
+    developer point-queries the row that looks wrong, filters the live view to that key,
+    watches a correction arrive as a -1 and a +1, sees the current row as the running sum of
+    the weights, opens the plan that produced it, then forks the query from a retained
+    checkpoint and steps the fork until the operator lines say which operator did it.
 
-    Waits on the engine for the debugging. The time-travel debugger (23.9, screen 10) needs a
-    retained checkpoint forked into an isolated instance with sinks disabled, a step protocol
-    (by record, batch and watermark, with breakpoints on state), each step's operator state and
-    generated source line, and an export of the step as a JUnit fixture. None of it exists, so
-    the console offers no debugger and no fixture export, and the journey asserts it does not.
+    The second half of this journey was an assertion that the console offered nothing until
+    ADR-048 built the engine side. It walks now, in ``_debug_the_wrong_row`` below, because
+    the stop was the debugger and there is one.
     """
     sign_in(page, console, role="developer")
     page.goto(console.url("/views/big_txn?key=user_id&value=u2"))
@@ -961,10 +955,93 @@ def test_journey_trace_a_wrong_looking_row(page, console):
     page.wait_for_navigation(lambda: page.click("a[href='/workbench?query=big_txn&panel=explain']"))
     page.wait_for("document.querySelectorAll('svg g.plan-node').length === 3", timeout=20)
 
-    # And no debugger: nothing offers one, so nothing fails when pressed.
-    assert not [t for t in _palette_titles(page, "debug") if "debug" in t.lower()]
-    assert not page.exists("a[href*='/debug']")
+    # And the debugger is one click from the query, and one from the palette.
+    page.goto(console.url("/queries/big_txn"))
+    settled(page)
+    assert "big_txn — debug" in _palette_titles(page, "debug")
+    assert page.exists("a[href='/queries/big_txn/debug']")
     assert page.exceptions == [], page.exceptions
+
+
+def test_journey_debug_a_wrong_row_and_export_the_fixture(page):
+    """The second half of design 23.18 journey 7, on a console of its own because it forks
+    the query and a fork is a second copy nobody else's screen should meet.
+
+    The developer has a row that looks wrong and the log says nothing, because nothing went
+    wrong -- the engine did exactly what the query asked. So: fork it from a checkpoint, step
+    one row, and read what every operator did with that row. The step where the filter reads
+    ``in=1 out=0`` is the answer a view alone cannot give, because a filter that rejected the
+    row and an aggregate that produced a zero delta look identical from outside.
+
+    Then the incident becomes a test: the export names the class, says where the file belongs
+    and shows the source, and the console writes nothing -- the file belongs in the repository
+    this engine is built from, not on the machine the browser is on.
+    """
+    with own_console(default_role="developer") as dbg:
+        sign_in(page, dbg, role="developer")
+        page.goto(dbg.url("/queries/big_txn"))
+        settled(page)
+
+        # Into the debugger, from the query whose row looked wrong.
+        page.wait_for_navigation(lambda: page.click("#debug-link"))
+        assert page.url().endswith("/queries/big_txn/debug")
+        assert "4471" in page.text("#dbg-fork-form"), "the positions a fork can start from"
+
+        # Fork it from the newest position this node still retains.
+        page.wait_for_navigation(lambda: page.click("#dbg-fork"))
+        page.wait_for("document.getElementById('dbg-app')")
+        session = page.eval("document.getElementById('dbg-app').dataset.session")
+        assert ("fork", "big_txn", None) in dbg.engine.debug_calls
+        # It says so permanently, and the live query is untouched.
+        assert "DEBUG" in page.text("#dbg-banner")
+        assert "session=" in page.url(), "the session is in the URL, so the link reaches it"
+
+        # One row. The island steps without navigating, and the report lands at the top.
+        page.click("#dbg-step-row")
+        page.wait_for("document.querySelectorAll('#dbg-log .dbg-report').length === 1")
+        first = page.text("#dbg-log .dbg-report")
+        assert "8841" in first and "u2" in first, first
+        assert "+1" in first, "the row arrives with its weight"
+
+        # The second row is 40, which the filter rejects. The view does not move -- and only
+        # the operator lines say why, which is the whole reason the panel is there.
+        page.click("#dbg-step-row")
+        page.wait_for("document.querySelectorAll('#dbg-log .dbg-report').length === 2")
+        latest = page.eval("document.querySelector('#dbg-log .dbg-report').textContent")
+        assert "The view did not change." in latest, latest
+        flows = page.eval("""[...document.querySelectorAll('#dbg-log .dbg-report')[0]
+            .querySelectorAll('.dbg-operators tbody tr')]
+            .map(r => [...r.querySelectorAll('td')].map(c => c.textContent.trim()))""")
+        assert ["n1", "Filter(amount > 100)", "1", "0"] in flows, flows
+        assert ["n2", "Scan(txn)", "1", "1"] in flows, flows
+        # The counters moved with it, without a reload.
+        assert "2 rows consumed" in page.text("#dbg-summary")
+
+        # A step the engine cannot read is refused by name, and the session survives it.
+        page.eval("document.getElementById('dbg-step').value = 'until:total'")
+        page.click("#dbg-step-go")
+        page.wait_for("document.getElementById('dbg-step-error')")
+        assert "PRV-8015" in page.text("#dbg-step-error")
+
+        # The incident becomes a test in the repository.
+        page.focus("#dbg-fixture-name")
+        page.type("the row u2 should not have")
+        page.wait_for_navigation(lambda: page.click("#dbg-fixture-go"))
+        assert "TheRowU2ShouldNotHaveFixtureTest" in page.text("#dbg-fixture")
+        assert "pravaha-it/src/test/java/" in page.text("#dbg-fixture")
+        assert "the answer over those rows from empty" in page.text("#dbg-fixture-expectation")
+
+        # And the fork is released: nothing read it and nothing wrote.
+        page.wait_for_navigation(lambda: page.click("#dbg-end"))
+        assert ("end", session, None) in dbg.engine.debug_calls
+        assert not dbg.engine.debug_sessions_by_id
+        assert page.exists("#dbg-none"), "back to the screen for a query nothing is debugging"
+
+        # The live query ran throughout: it was never paused, never dropped, and answers.
+        assert not [call for call in dbg.engine.lifecycle_calls if call[-1] == "big_txn"]
+        page.goto(dbg.url("/views/big_txn?key=user_id&value=u2"))
+        assert "900" in page.text("#lookup-result")
+        assert page.exceptions == [], page.exceptions
 
 
 def test_journey_a_grant_makes_the_affordance_appear(page):

@@ -245,6 +245,28 @@ def test_a_replacement_that_has_cut_over_matches_its_baseline(shooters, comparer
 @pytest.mark.parametrize("density", DENSITIES)
 @pytest.mark.parametrize("viewport", list(VIEWPORTS))
 @pytest.mark.parametrize("theme", THEMES)
+def test_a_debug_session_stepped_once_matches_its_baseline(shooters, comparer, console, baseline_chrome,
+                                                           theme, viewport, density):
+    """The screen design 23.9 is about: a fork open, the DEBUG banner that never comes off,
+    the session's counters, the step controls, and one step's report. Photographed whole,
+    like the Compare panel: the report is the point and it is below the first screen."""
+    session = console.engine.debug_fork("hot", 4471)["id"]
+    console.engine.debug_step(session, "row")
+    FULL_PAGE.add("debug-session")
+    try:
+        test_every_page_matches_its_baseline(
+            shooters, comparer, console, baseline_chrome, "debug-session",
+            f"/queries/hot/debug?session={session}", "document.querySelector('#dbg-summary')",
+            theme, viewport, density)
+    finally:
+        console.engine.debug_sessions_by_id.clear()
+        console.engine._debug_forks.clear()
+        console.engine.debug_calls.clear()
+
+
+@pytest.mark.parametrize("density", DENSITIES)
+@pytest.mark.parametrize("viewport", list(VIEWPORTS))
+@pytest.mark.parametrize("theme", THEMES)
 def test_a_plan_with_its_operator_numbers_matches_its_baseline(shooters, comparer, console, baseline_chrome,
                                                                theme, viewport, density):
     """B6's numbers drawn on the operators, with the bottleneck marked. Photographed whole,

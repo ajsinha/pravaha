@@ -322,6 +322,119 @@ def test_a_cutover_the_engine_would_refuse_is_not_offered_and_says_why(tab, stat
         states_console.engine.replacements_by_name.clear()
 
 
+# ============================= the time-travel debugger (23.9), state by state
+
+
+def _clear_sessions(console: Console) -> None:
+    console.engine.debug_sessions_by_id.clear()
+    console.engine._debug_forks.clear()
+    console.engine.debug_calls.clear()
+
+
+def test_a_query_nothing_is_debugging_is_the_never_state(tab, states_console):
+    """Never had data: what a fork is, the three things it cannot touch, and the control
+    that makes the first one. Not an empty stepping panel, which reads as a stalled session."""
+    shows(tab, states_console, "/queries/big_txn/debug", "#dbg-none", "debug · never")
+    assert tab.exists("#dbg-fork-form button[type=submit]"), "no way to make the first one"
+    # The three absences are the feature, so they are on the screen and not in a footnote.
+    assert tab.eval("document.querySelectorAll('#dbg-absences li').length") == 3
+
+
+def test_a_node_with_no_checkpoint_of_this_query_is_the_never_state(tab, states_console):
+    """Never had data, one level down: there is no position to fork from, and the screen
+    does not guess which of the three reasons it is."""
+    held = states_console.engine.checkpoints_by_query.pop("big_txn")
+    try:
+        shows(tab, states_console, "/queries/big_txn/debug", "#dbg-no-checkpoints",
+              "debug · no checkpoint")
+        assert not tab.exists("#dbg-fork-form")
+    finally:
+        states_console.engine.checkpoints_by_query["big_txn"] = held
+
+
+def test_a_session_that_has_ended_is_its_own_state_and_not_an_error(tab, states_console):
+    """Ended, or released by the node's TTL. A fact with the way back to a new session,
+    rather than a screen reporting that something went wrong."""
+    shows(tab, states_console, "/queries/big_txn/debug?session=dbg-nosuchsession", "#dbg-gone",
+          "debug · session over")
+    assert tab.exists("#dbg-gone a")
+
+
+def test_a_fork_says_permanently_that_its_sinks_are_disabled(tab, states_console):
+    """ADR-048's first absence, on the surface that shows it: it is not a mode that can be
+    left on by mistake, and the banner is read from the engine's answer."""
+    session = states_console.engine.debug_fork("big_txn", 4471)["id"]
+    try:
+        shows(tab, states_console, f"/queries/big_txn/debug?session={session}", "#dbg-banner",
+              "debug · session open")
+        assert "DEBUG" in tab.text("#dbg-banner")
+        assert session in tab.text("#dbg-summary")
+    finally:
+        _clear_sessions(states_console)
+
+
+def test_a_step_the_engine_refuses_keeps_the_session_and_shows_the_refusal(tab, states_console):
+    """Error, in the island: the spec is sent as typed and PRV-8015 comes back. The session
+    is untouched, so the next thing to do is fix the spec and step again."""
+    session = states_console.engine.debug_fork("big_txn", 4471)["id"]
+    try:
+        open_page(tab, states_console, f"/queries/big_txn/debug?session={session}",
+                  "document.getElementById('dbg-step')")
+        tab.eval("document.getElementById('dbg-step').value = 'until:total'")
+        tab.click("#dbg-step-go")
+        tab.wait_for("document.getElementById('dbg-step-error')")
+        assert "PRV-8015" in tab.text("#dbg-step-error")
+        assert tab.exists("#dbg-app"), "the session is still open"
+        clean(tab, "debug · step refused")
+    finally:
+        _clear_sessions(states_console)
+
+
+def test_a_stateless_fork_says_it_holds_nothing_rather_than_drawing_an_empty_table(tab, states_console):
+    """Never had data, on the operator-state panel: a plan of scans, filters and projections
+    keeps nothing between rows, and that is an answer rather than a gap."""
+    session = states_console.engine.debug_fork("big_txn", 4471)["id"]
+    try:
+        shows(tab, states_console, f"/queries/big_txn/debug?session={session}", "#dbg-no-slots",
+              "debug · no operator state")
+    finally:
+        _clear_sessions(states_console)
+
+
+def test_paging_an_operators_state_to_a_key_it_does_not_hold_is_the_filtered_state(tab, states_console):
+    """Filtered, not empty: the operator holds groups, and none of them is this one."""
+    session = states_console.engine.debug_fork("hot", 4471)["id"]
+    try:
+        shows(tab, states_console,
+              f"/queries/hot/debug?session={session}&operator=aggregate%230&key=nobody",
+              "#dbg-page-filtered", "debug · state filtered")
+        assert tab.exists("#dbg-page-filtered a"), "no way out of the filter"
+    finally:
+        _clear_sessions(states_console)
+
+
+def test_the_policy_refusing_the_debugger_disables_its_control_with_the_reason(tab, states_console):
+    """Unauthorized: a fork shows the SQL, the input rows and the operator state, so reading
+    takes the administer permission too -- and the checkpoint list is not even asked for."""
+    states_console.engine.administer_refused["big_txn"] = (
+        "administering 'big_txn' needs one of the roles [ops]")
+    try:
+        shows(tab, states_console, "/queries/big_txn/debug", "#dbg-refused", "debug · refused")
+        assert tab.eval("document.getElementById('dbg-fork').disabled")
+        assert tab.eval("document.getElementById('dbg-fork')"
+                        ".getAttribute('aria-describedby')") == "dbg-refused"
+        assert "needs one of the roles [ops]" in tab.text("#dbg-refused")
+    finally:
+        states_console.engine.administer_refused.clear()
+
+
+def test_the_checkpoint_list_failing_is_the_screens_error_state(tab, states_console):
+    with failing(states_console, "debug_checkpoints"):
+        shows(tab, states_console, "/queries/big_txn/debug", "#dbg-checkpoints-error",
+              "debug · error")
+        assert "correlation" in tab.text("#dbg-checkpoints-error")
+
+
 # =========================== the plan's per-operator numbers (B6), state by state
 
 def test_a_node_with_the_operator_counters_off_says_so_on_the_plan(tab, states_console):
