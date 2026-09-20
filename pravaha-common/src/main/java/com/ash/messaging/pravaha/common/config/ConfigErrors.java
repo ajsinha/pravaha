@@ -24,6 +24,18 @@ public final class ConfigErrors {
     public static final ErrorCode FILE_MALFORMED = new ErrorCode(1002, "CONFIG_FILE_MALFORMED");
     public static final ErrorCode UNRESOLVED_REFERENCE = new ErrorCode(1010, "CONFIG_UNRESOLVED_REFERENCE");
     public static final ErrorCode CIRCULAR_REFERENCE = new ErrorCode(1011, "CONFIG_CIRCULAR_REFERENCE");
+
+    /**
+     * References nested deeper than this resolver will walk (E-8).
+     *
+     * <p>Split from {@link #CIRCULAR_REFERENCE}, which it used to share. The depth guard fires on
+     * raw nesting, independently of the real cycle detector, so a long <em>acyclic</em> chain was
+     * refused with a message naming a circular reference that did not exist -- and an operator
+     * reading it went looking for a loop. Two different problems with two different fixes:
+     * a cycle is broken, a chain is flattened.
+     */
+    public static final ErrorCode REFERENCE_TOO_DEEP = new ErrorCode(1012, "CONFIG_REFERENCE_TOO_DEEP");
+
     public static final ErrorCode MISSING_REQUIRED = new ErrorCode(1020, "CONFIG_MISSING_REQUIRED");
     public static final ErrorCode NOT_A_NUMBER = new ErrorCode(1021, "CONFIG_NOT_A_NUMBER");
     public static final ErrorCode NOT_A_BOOLEAN = new ErrorCode(1022, "CONFIG_NOT_A_BOOLEAN");

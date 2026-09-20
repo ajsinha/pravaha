@@ -80,4 +80,27 @@ final class QueryNames {
                             + ". The usual cause is that the name is a reserved word in SQL.");
         }
     }
+
+    /**
+     * The refusal for a name this registry does not hold.
+     *
+     * <p><strong>PF-11.</strong> This used to end with every registered name, which is what a
+     * person wants after a typo -- and is the node's whole inventory handed to a caller who may
+     * read none of it. STRM-9 measured the cost: one principal, denied read on every view, learned
+     * the catalogue by misspelling a single name. The registry sits below the policy and holds no
+     * principal, so it cannot decide whose names a caller may be told.
+     *
+     * <p>So it names where the answer <em>is</em> instead. That is not the list coming back in
+     * another form: {@code pravaha queries} and the Flight LIST action both run under the caller's
+     * own principal and return what that principal may read, which is exactly the question this
+     * layer cannot ask.
+     */
+    static PravahaException noSuchQuery(String name) {
+        return new PravahaException(
+                RegistryErrors.NO_SUCH_QUERY,
+                "no query named '" + name + "' is registered. The registered names are not listed here: "
+                        + "this layer holds no principal, so it cannot tell whose names a caller may be "
+                        + "told. Run `pravaha queries` (or the Flight LIST action), which answers as you "
+                        + "and lists what you may read.");
+    }
 }

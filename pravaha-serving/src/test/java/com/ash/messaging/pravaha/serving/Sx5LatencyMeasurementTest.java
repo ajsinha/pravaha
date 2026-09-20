@@ -174,7 +174,10 @@ class Sx5LatencyMeasurementTest {
                 new AuditSink.InMemory(20_000));
 
         assertThat(codeOf(queries, REAL_SQL)).isEqualTo("PRV-7002");
-        assertThat(codeOf(queries, ABSENT_SQL)).isEqualTo("PRV-2002");
+        // L-3: the absent name is now the serving layer's own PRV-4023 rather than the planner's
+        // PRV-2002. The measurement below is unaffected -- the absent name still reaches a full
+        // parse and validate before failing, and the code is only rewritten afterwards.
+        assertThat(codeOf(queries, ABSENT_SQL)).isEqualTo("PRV-4023");
 
         for (int i = 0; i < WARMUP; i++) {
             refuse(queries, REAL_SQL);
@@ -192,10 +195,10 @@ class Sx5LatencyMeasurementTest {
         double absentMedianMs = medianMs(absentNanos);
 
         System.out.println("SX-5 exploratory check -- named denial (PRV-7002, short-circuits before "
-                + "planning) versus a default-allowed absent name (PRV-2002, reaches full "
+                + "planning) versus a default-allowed absent name (PRV-4023, reaches full "
                 + "parse+validate before failing), " + TIMED + " interleaved iterations each:");
         System.out.printf("  denied (payroll, restricted by name): median %.3f ms%n", deniedMedianMs);
-        System.out.printf("  absent (default-allowed, then PRV-2002): median %.3f ms%n", absentMedianMs);
+        System.out.printf("  absent (default-allowed, then PRV-4023): median %.3f ms%n", absentMedianMs);
         System.out.printf("  gap: %.3f ms (median)%n", absentMedianMs - deniedMedianMs);
 
         assertThat(deniedMedianMs).isPositive();

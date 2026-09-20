@@ -453,6 +453,49 @@ class ServerSecurityTest {
         assertThatThrownBy(() -> security.principalFor("s3cr3t-value")).isInstanceOf(PravahaException.class);
     }
 
+    /**
+     * SX-14. Two token-table keys YAML hands over as something other than what was typed.
+     *
+     * <p>A bare {@code yes:} or {@code on:} is a YAML 1.1 boolean, so the key binds as the word
+     * {@code true} and the credential the operator believes they configured is not one any client
+     * can present — a node that starts, reports that it authenticates, and authenticates nobody.
+     * Whitespace around a key does not survive Spring's binding, so {@code " tok "} and
+     * {@code "tok"} are one entry and one of the two configured credentials is simply gone.
+     *
+     * <p>Both are refused rather than repaired: trimming a credential silently changes who can
+     * authenticate, and inventing one for a boolean key is worse.
+     */
+    @Test
+    void sx14_aTokenKeyYamlDidNotHandOverVerbatimIsRefused() {
+        for (String key : java.util.List.of("true", "false", " tok ", "tok\t", "   ")) {
+            SecurityProperties security = new SecurityProperties();
+            security.setAuthentication("token");
+            SecurityProperties.TokenSpec ann = new SecurityProperties.TokenSpec();
+            ann.setId("ann");
+            security.setTokens(Map.of(key, ann));
+
+            assertThatThrownBy(security::validate)
+                    .as("key '%s'", key)
+                    .isInstanceOf(PravahaException.class)
+                    .hasMessageContaining("PRV-7004")
+                    .hasMessageContaining("pravaha.security.tokens")
+                    // The key is the bearer credential; a refusal about it must not print it.
+                    .hasMessageNotContaining("tok ");
+        }
+    }
+
+    /** SX-14's control: an ordinary credential is untouched, whitespace inside it included. */
+    @Test
+    void sx14_anOrdinaryCredentialIsUnaffected() {
+        SecurityProperties security = new SecurityProperties();
+        security.setAuthentication("token");
+        SecurityProperties.TokenSpec ann = new SecurityProperties.TokenSpec();
+        ann.setId("ann");
+        security.setTokens(Map.of("a token with spaces inside it", ann));
+
+        assertThatCode(security::validate).doesNotThrowAnyException();
+    }
+
     @Test
     void aCredentialWithAnIdIsUnaffected_CFG11() {
         // V-control: the spelling the documentation now requires has to keep working end to end,

@@ -136,9 +136,16 @@ public final class PhysicalPlanBuilder {
         org.apache.calcite.rel.core.JoinRelType joinType = join.getJoinType();
         if (joinType != org.apache.calcite.rel.core.JoinRelType.INNER
                 && joinType != org.apache.calcite.rel.core.JoinRelType.LEFT) {
-            throw unsupported("a " + joinType + " join between streams is not supported. A LEFT join is, when the "
-                    + "condition states a time bound; RIGHT and FULL would need the same treatment on "
-                    + "the other side and are not built. Swap the inputs and use LEFT.");
+            // DOCX-20. The advice used to end at "Swap the inputs and use LEFT", and doing that
+            // produced a second, different refusal -- the one below, about a LEFT join with no
+            // time bound. Two attempts where one message would have done, so the message says
+            // both steps.
+            throw unsupported("a " + joinType + " join between streams is not supported; RIGHT and FULL would "
+                    + "need the same treatment on the other side and are not built. Swap the inputs and "
+                    + "use LEFT, and give the ON condition a time bound in the same edit -- a LEFT join "
+                    + "without one is refused in turn, because there is no moment at which an unmatched "
+                    + "row can be declared unmatched. For example: LEFT JOIN b ON a.k = b.k AND "
+                    + "b.event_time BETWEEN a.event_time AND a.event_time + INTERVAL '1' HOUR.");
         }
 
         PhysicalOperator left = build(join.getLeft());

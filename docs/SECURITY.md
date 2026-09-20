@@ -85,6 +85,22 @@ correct for an engine embedded in a process that has already authenticated its c
 anything on a network somebody else can reach. Two explicit states, not a default that quietly
 downgrades.
 
+### Two token-table keys YAML will not hand over as you typed them
+
+The key under `pravaha.security.tokens` **is the bearer credential**, so anything that happens to it
+between the file and the map changes who can authenticate. Two shapes are refused at startup
+(`PRV-7004`) rather than repaired, because repairing either one silently changes that (SX-14):
+
+- **A bare `yes:`, `on:`, `y:` or their negatives.** YAML 1.1 reads them as booleans, so the key
+  binds as the word `true` or `false` and no client can present it — a node that starts, reports
+  that it authenticates, and authenticates nobody. Quote the key to bind it verbatim:
+  `"[yes]": {id: ...}`. **Two of them in one table** — `yes:` and `on:` — collapse to one key and
+  fail the whole file's load with a duplicate-key error naming neither line; nothing in Pravaha can
+  catch that, because the file never loads. Quote them.
+- **Leading or trailing whitespace.** Spring discards it while binding, so `" tok "` and `"tok"`
+  are one entry and one of the two credentials you configured is gone. Whitespace *inside* a
+  credential is fine and is left alone.
+
 ## Registering is authorized separately from reading
 
 Different risks. A read costs a scan and ends; a registration commits the node to memory and a share
@@ -380,6 +396,13 @@ register could name a stream they had no access to, give the view a name of thei
 read it back: the read check is against the *view's* name, and the policy was never told what the
 view derives from. A careful policy author could not have refused it, because the engine gave them
 nothing to refuse on.
+
+**A filtered read under a shared view's alias.** Two principals whose row filters are byte-identical
+share one computation, and the shared view carries the first registration's name; the second
+principal reads it under an alias of their own. A filtered read under that alias used to throw
+`PRV-7003` while the identical entitlement under the primary name returned its rows (SX-13). It
+failed closed, so nobody saw data they should not have — what it broke is the promise this document
+makes that sharing is invisible to the reader. Fixed.
 
 **Row filters are part of the fingerprint.** Sharing is by canonical fingerprint (ADR-025), and the
 fingerprint now folds in the principal's row filters, sorted. Two principals with the same

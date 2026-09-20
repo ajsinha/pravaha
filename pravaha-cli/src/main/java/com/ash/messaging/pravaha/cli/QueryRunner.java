@@ -162,6 +162,8 @@ public final class QueryRunner {
                 .build(SqlPlanner.withStreams(sourceSchema).plan(sql));
         long planMicros = (System.nanoTime() - planStart) / 1_000L;
 
+        requireTheDeclaredOutputSchemaMatchesThePlan(plan.outputSchema(), outputSchemaSpec);
+
         long executeStart = System.nanoTime();
         long rowsRead = 0;
         long rowsWritten;
@@ -377,5 +379,69 @@ public final class QueryRunner {
         public void close() {
             arena.close();
         }
+    }
+
+    /** The options this command was given are not usable together. */
+    private static final com.ash.messaging.pravaha.api.ErrorCode INVALID_OPTIONS =
+            new com.ash.messaging.pravaha.api.ErrorCode(1031, "CLIENT_INVALID_OPTIONS");
+
+    /**
+     * Refuses an {@code --out-schema} that is not the shape the plan produces (X-3, round 1's Q-10).
+     *
+     * <p>This run has <strong>two</strong> descriptions of its output: the plan's real
+     * {@code outputSchema()}, which the {@code Collector} and its {@code BinaryRowWriter} are built
+     * from, and the {@code --out-schema} string, which configures the sink and its decoder. Nothing
+     * compared them, and the row is read back at the declared widths -- so declaring two adjacent
+     * {@code INT32} columns as one {@code INT64} read eight bytes across both of them. Traced
+     * exactly: row {@code 1,1} came back as {@code 4294967297}, and row {@code -2,-2} as
+     * {@code -4294967298} in the first column and {@code 4294967294} in the second, the second read
+     * running past the row into unrelated bytes. No exception, no warning, a full CSV of numbers.
+     *
+     * <p>{@code RowLayout.checkType} exists and is the <em>writer's</em> guard, not the reader's:
+     * the writer is built from the true schema, so it has nothing to complain about. The comparison
+     * has to happen here, where both descriptions are in scope, which is the only place they ever
+     * are.
+     *
+     * <p>Count and type only, never names: somebody naming an output column {@code total} where the
+     * plan calls it {@code EXPR$1} has said something about the CSV header and nothing about the
+     * bytes.
+     */
+    private static void requireTheDeclaredOutputSchemaMatchesThePlan(StreamSchema planned, String declaredSpec) {
+        StreamSchema declared = FilesystemSourcePlugin.parseSchema("out", declaredSpec);
+        if (declared.fieldCount() != planned.fieldCount()) {
+            throw new com.ash.messaging.pravaha.api.PravahaException(
+                    INVALID_OPTIONS,
+                    "--out-schema declares " + declared.fieldCount() + " column(s) and this query produces "
+                            + planned.fieldCount() + ". The declared schema decodes the rows the engine wrote, "
+                            + "so a mismatch reads the wrong bytes rather than failing. Declare: "
+                            + asSpec(planned));
+        }
+        for (int i = 0; i < declared.fieldCount(); i++) {
+            if (declared.field(i).type().typeName() != planned.field(i).type().typeName()) {
+                throw new com.ash.messaging.pravaha.api.PravahaException(
+                        INVALID_OPTIONS,
+                        "--out-schema declares column " + (i + 1) + " ('"
+                                + declared.field(i).name() + "') as "
+                                + declared.field(i).type().typeName() + " and this query produces "
+                                + planned.field(i).type().typeName() + " there. The declared schema decodes the "
+                                + "bytes the engine wrote, at the widths it declares, so a wrong width reads "
+                                + "across the next column and prints a plausible number. Declare: "
+                                + asSpec(planned));
+            }
+        }
+    }
+
+    /** The plan's output as an {@code --out-schema} string, so the refusal names the fix. */
+    private static String asSpec(StreamSchema schema) {
+        StringBuilder spec = new StringBuilder();
+        for (int i = 0; i < schema.fieldCount(); i++) {
+            if (i > 0) {
+                spec.append(',');
+            }
+            spec.append(schema.field(i).name())
+                    .append(':')
+                    .append(schema.field(i).type().typeName());
+        }
+        return spec.toString();
     }
 }

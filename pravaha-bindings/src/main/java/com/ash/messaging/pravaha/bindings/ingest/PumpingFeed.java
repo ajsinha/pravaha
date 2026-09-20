@@ -51,14 +51,43 @@ final class PumpingFeed implements SourceFeed {
     private static final int BATCH = 1024;
 
     /**
-     * How long to wait after a poll that moved nothing.
+     * How long to wait after the <em>first</em> poll that moves nothing.
      *
      * <p>Long enough not to burn a core spinning on an idle topic, short enough that it does not
      * become the dominant term in end-to-end latency for a stream that is merely slow rather than
-     * empty. A source with nothing to say costs one wake-up per millisecond; a busy one never
-     * reaches here at all, because a poll that moved rows loops straight round.
+     * empty. A busy source never reaches here at all, because a poll that moved rows loops
+     * straight round.
      */
     private static final long IDLE_NAP_NANOS = 1_000_000L;
+
+    /**
+     * The longest this feed naps, reached by doubling while a source stays quiet (SRC-6).
+     *
+     * <p><strong>The nap was a flat millisecond.</strong> So every bound source was polled a
+     * thousand times a second whether or not anything had happened, and in follow mode each of
+     * those polls is a {@code stat} plus a {@code read}: measured at <strong>12.8 ms of process
+     * CPU per second per source</strong> over 100 followed files with nothing being written to
+     * them -- 1,782 ms/s against an unbound baseline of 504 -- and 16.9 ms/s per source at 50, so
+     * a per-source constant rather than a constant of the node. A hundred idle followed files is
+     * 1.8 cores, and nothing was reading any rows.
+     *
+     * <p>Doubling from a millisecond, reset to a millisecond by any poll that moves a row. A
+     * stream that is merely slow pays a millisecond as it always did; one that has been quiet for
+     * a while costs fifty wake-ups a second instead of a thousand.
+     *
+     * <p><strong>The ceiling is the publish interval</strong>, deliberately and not by
+     * coincidence: this feed already publishes its applied frontier only every
+     * {@link #PUBLISH_INTERVAL_NANOS}, so a row's visibility latency is already that. A nap that
+     * cannot exceed it cannot become the dominant term in anything -- which is the property the
+     * flat millisecond was chosen for, kept, and now paid for once rather than a thousand times a
+     * second.
+     */
+    private static final long MAX_IDLE_NAP_NANOS = 20_000_000L;
+
+    /** The next nap after another poll that moved nothing. See {@link #MAX_IDLE_NAP_NANOS}. */
+    static long nextIdleNap(long currentNanos) {
+        return Math.min(currentNanos * 2, MAX_IDLE_NAP_NANOS);
+    }
 
     /** How often the applied frontier is published, and so the visibility latency of a new row. */
     private static final long PUBLISH_INTERVAL_NANOS = 20_000_000L;
@@ -137,9 +166,14 @@ final class PumpingFeed implements SourceFeed {
     }
 
     private void run() {
+        // SRC-6. Grows while nothing arrives and resets the moment something does, so an idle
+        // source costs fifty wake-ups a second rather than a thousand and a busy one pays nothing
+        // at all. Loop-local: one feed's quiet says nothing about another's.
+        long nap = IDLE_NAP_NANOS;
         while (!closed) {
             if (paused) {
-                LockSupport.parkNanos(IDLE_NAP_NANOS);
+                // A paused feed is not waiting for anything, so it waits the longest it ever does.
+                LockSupport.parkNanos(MAX_IDLE_NAP_NANOS);
                 continue;
             }
             int moved = 0;
@@ -151,8 +185,10 @@ final class PumpingFeed implements SourceFeed {
                 polling = -1;
                 if (moved > 0) {
                     rowsFed.addAndGet(moved);
+                    nap = IDLE_NAP_NANOS;
                 } else {
-                    LockSupport.parkNanos(IDLE_NAP_NANOS);
+                    LockSupport.parkNanos(nap);
+                    nap = nextIdleNap(nap);
                 }
                 // Inside the try, and that is the whole point of this arrangement. Publishing used
                 // to sit below the catch, so a throw from commit killed this thread without even

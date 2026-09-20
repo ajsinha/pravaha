@@ -276,7 +276,7 @@ Binary parameter or result formats are refused with PRV-6209; the gateway speaks
 | `COPY`, `DECLARE`/`FETCH` cursors | Refused by name as unsupported (PRV-6201) | `0A000` |
 | A `SET` outside the accepted list | PRV-6204 | `0A000` |
 | A catalogue query shape the shim does not recognise | PRV-6205 | `0A000` |
-| A view that does not exist | PRV-2002 from the planner (PRV-4023 only on paths that resolve through the catalogue directly) | `42000` (`42P01` for PRV-4023) |
+| A view that does not exist | PRV-4023, the serving layer's own code | `42P01` undefined_table. It was PRV-2002 and the generic `42000` until finding L-3: the serving layer answered PRV-4023 only over an empty catalogue and let the planner's SQL-validation failure through otherwise. An unknown **column** of a view that does exist is still PRV-2002 and `42000`, deliberately — a confident "no such table" would send you looking in the wrong place |
 | A read joining two views | PRV-4025 | `0A000` |
 | A view you may not read | PRV-7002 | `42501` insufficient_privilege |
 | A wrong password | — | `28P01` invalid_password |

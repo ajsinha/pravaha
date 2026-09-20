@@ -1043,14 +1043,25 @@ cluster problem. It does not reach HTTP today; record the latent mapping. E4: do
 `gateway`.
 
 ## ERRC-090 — PRV-6101 FLIGHT_UNSUPPORTED_REQUEST
-**Reached through:** `PravahaFlightSqlProducer.java:423,618`.
-**Falsifier:** an unimplemented Flight SQL metadata call returns an empty result rather than refusing.
-**Setup:** Flight SQL verbs this producer does not implement — `getSqlInfo` variants,
-`getCrossReference`, `getExportedKeys`, `getImportedKeys`, `getPrimaryKeys`, `beginTransaction`.
-**Expected:** `PRV-6101` for each, E3 naming the request and, ideally, what the server does support.
-`API` owns the five implemented verbs; this case owns that the unimplemented ones refuse legibly
-rather than returning empty. **An empty result for an unimplemented metadata call is the finding to
-watch for** — a driver reads it as "no primary keys" rather than "not supported". E4: documented.
+**Reached through:** an unrecognised custom Pravaha action (the `default` arm of `doAction`'s
+dispatch) and `requireRegistry()`, the guard for a server hosting views and no registry.
+**Falsifier:** a request this server does not answer coming back as the framework's own
+`UNIMPLEMENTED "Not implemented."`, with no `PRV-` code — which a client cannot attribute to
+Pravaha at all, in either direction.
+**Setup:** an `Action` whose type is not one this server knows; a `register` against a server built
+with no `QueryRegistry`; and the Flight SQL transaction verbs — `beginTransaction`,
+`endTransaction`, `beginSavepoint`, `endSavepoint`.
+**Expected:** `PRV-6101` for each, E3 naming the request and what the server does support. E4:
+documented.
+
+**Corrected — finding E-15, in both directions.** The two line numbers this case used to cite were
+never Flight SQL metadata calls: they are the custom-action dispatch default and the no-registry
+guard, which is what the entry now names. And the six verbs it listed as unimplemented are not: P-6
+implemented every metadata call, including `getPrimaryKeys`, `getCrossReference` and the `getSqlInfo`
+variants, which `FlightSqlMetadataTest` drives over a real client. What was left was
+`beginTransaction` and its three neighbours, falling through to Arrow's own default; those now
+refuse with this code (`FlightSqlMetadataTest.e15_…`). The "empty result" the case named as the
+finding to watch for never happened — the risk was the opposite, a refusal carrying nothing.
 
 ## ERRC-091 — PRV-6102 FLIGHT_BAD_HANDLE
 **Reached through:** `ControlWire.java:110,115,120,126,136` and, through the alias,

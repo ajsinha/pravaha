@@ -638,11 +638,14 @@ Set it **per stream** -- lateness is a property of the source, and a query readi
 should get three tolerances rather than the worst of them. Configuration does that with
 `pravaha.streams.<name>.out-of-orderness`; an embedder does it with `StreamSchema.outOfOrderness`.
 
-> **`pravaha.watermark.out-of-orderness` is not that key.** It is present in the shipped
-> `application.yaml` and described there as the engine-wide default, and **nothing reads it**
-> (DOCX-6). Setting it changes no answer. The per-stream key above is the only one that does. This
-> is recorded as an open defect rather than repaired here, because the fix is to give the key a
-> reader or to remove it, and both are code decisions.
+> **`pravaha.watermark.out-of-orderness` is the node's default for the same thing**, applied to a
+> stream that declares an event time and no lateness of its own. It was read by nothing until
+> 2026-09-20 (DOCX-6) -- present in the shipped `application.yaml`, described there and in two
+> documents as the engine-wide default, and setting it changed no answer. It has a reader now, and
+> because its default is the 10 seconds a stream already took, a deployment that had not set it
+> sees no change. It does **not** apply to a stream with no declared event time: there is nothing
+> for the lateness to be about, and such a stream declaring `out-of-orderness` is now refused at
+> startup rather than having it silently dropped (T-6).
 
 *Event time* is `pravaha.streams.<name>.event-time`, naming the column that carries each row's own
 time. Without it no watermark advances over the stream at all, so a windowed query over one is

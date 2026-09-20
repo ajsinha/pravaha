@@ -51,6 +51,7 @@ import com.ash.messaging.pravaha.serving.ServedView;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * The calls a SQL client makes before it will show you a table (P-6).
@@ -136,6 +137,24 @@ class FlightSqlMetadataTest {
                 .isNotNull();
         assertThat(rows(client.getXdbcTypeInfo())).isNotNull();
         assertThat(rows(client.getSqlInfo())).isNotNull();
+    }
+
+    /**
+     * E-15. The verbs this server does <em>not</em> answer refuse in its own vocabulary.
+     *
+     * <p>Every metadata call is implemented (above, P-6). The transaction verbs are not, and are
+     * not going to be — a continuous query is not a transaction. Left to the framework's default
+     * they answered Arrow's own {@code UNIMPLEMENTED "Not implemented."}: no {@code PRV-} code, no
+     * help URL, and nothing saying whose server it came from, so a client could not tell a Pravaha
+     * refusal from a proxy's. The status stays {@code UNIMPLEMENTED}, which is the right one; the
+     * description is now the engine's.
+     */
+    @Test
+    void e15_theTransactionVerbsRefuseWithACodeRatherThanTheFrameworksDefault() {
+        assertThatThrownBy(() -> client.beginTransaction())
+                .hasMessageContaining("PRV-6101")
+                .hasMessageContaining("not a transaction")
+                .hasMessageNotContaining("Not implemented.");
     }
 
     // ------------------------------------------------------------------------------------------

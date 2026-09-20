@@ -145,6 +145,25 @@ public class PravahaNode implements SmartLifecycle {
      */
     private final boolean measureOperators;
 
+    /**
+     * {@code pravaha.watermark.out-of-orderness}: the lateness a stream takes when it declares
+     * none of its own (T-6, DOCX-6).
+     *
+     * <p>The key shipped in {@code application.yaml} with a default of 10s, was documented in
+     * {@code CONCEPTS.md} and {@code OPERATIONS.md}, and was named in {@code StreamSchema}'s
+     * javadoc as the way a deployment moves this -- and <strong>nothing read it</strong>. Proved by
+     * experiment rather than by grep: four nodes over the same out-of-order fixture, and the
+     * global key at 0s and at 10m produced an identical view while the stream-level key at 0s and
+     * 10m differed.
+     *
+     * <p>Given a reader rather than deleted. The default here is
+     * {@link com.ash.messaging.pravaha.api.data.StreamSchema#DEFAULT_OUT_OF_ORDERNESS}, which is
+     * the 10s the file already shows and the 10s a schema already took, so a deployment that
+     * leaves it alone sees no change at all -- and one that sets it now gets what three documents
+     * have been promising.
+     */
+    private final Duration defaultOutOfOrderness;
+
     private volatile com.ash.messaging.pravaha.bindings.egress.PluginSinks pluginSinks;
 
     private PluginLookupSources lookupSources;
@@ -325,6 +344,17 @@ public class PravahaNode implements SmartLifecycle {
             return this;
         }
 
+        private Duration defaultOutOfOrderness =
+                com.ash.messaging.pravaha.api.data.StreamSchema.DEFAULT_OUT_OF_ORDERNESS;
+
+        /** {@code pravaha.watermark.out-of-orderness}: the node's default lateness (T-6, DOCX-6). */
+        public Builder defaultOutOfOrderness(Duration lateness) {
+            this.defaultOutOfOrderness = lateness == null
+                    ? com.ash.messaging.pravaha.api.data.StreamSchema.DEFAULT_OUT_OF_ORDERNESS
+                    : lateness;
+            return this;
+        }
+
         public PravahaNode build() {
             return new PravahaNode(
                     streams,
@@ -352,7 +382,8 @@ public class PravahaNode implements SmartLifecycle {
                     pgwirePort,
                     pgwireTlsCertificate,
                     pgwireTlsKey,
-                    measureOperators);
+                    measureOperators,
+                    defaultOutOfOrderness);
         }
     }
 
@@ -387,7 +418,8 @@ public class PravahaNode implements SmartLifecycle {
             @Value("${pravaha.pgwire.port:5432}") int pgwirePort,
             @Value("${pravaha.pgwire.tls.certificate:}") String pgwireTlsCertificate,
             @Value("${pravaha.pgwire.tls.key:}") String pgwireTlsKey,
-            @Value("${pravaha.metrics.operators:false}") boolean measureOperators) {
+            @Value("${pravaha.metrics.operators:false}") boolean measureOperators,
+            @Value("${pravaha.watermark.out-of-orderness:10s}") Duration defaultOutOfOrderness) {
         this.streams = streams;
         this.sources = sources;
         // Defaults to empty if no bean is supplied, so the existing test call sites that construct
@@ -429,6 +461,9 @@ public class PravahaNode implements SmartLifecycle {
                 .set("pravaha.cluster.mechanism", clusterMechanism)
                 .build();
         this.measureOperators = measureOperators;
+        this.defaultOutOfOrderness = defaultOutOfOrderness == null
+                ? com.ash.messaging.pravaha.api.data.StreamSchema.DEFAULT_OUT_OF_ORDERNESS
+                : defaultOutOfOrderness;
     }
 
     /**
@@ -582,17 +617,31 @@ public class PravahaNode implements SmartLifecycle {
      * version it was planned against, which is what stops a re-declaration changing the meaning of a
      * query already in flight.
      */
-    private static StreamSchema withEventTime(
+    private StreamSchema withEventTime(
             String name, StreamSchema parsed, StreamDeclarationProperties.Declaration declaration) {
-        if ((declaration.getEventTime() == null || declaration.getEventTime().isBlank())
-                && declaration.getAllowedLateness() == null) {
+        boolean namesAnEventTime = declaration.getEventTime() != null
+                && !declaration.getEventTime().isBlank();
+        // T-6. `getOutOfOrderness() != null` is the new clause, and it is the whole of the second
+        // half of that finding. StreamCatalog.withEventTime already refuses an out-of-orderness
+        // declared without an event-time column -- correctly, because lateness needs an event time
+        // to be about -- and this early return meant such a declaration never reached it. It was
+        // read from the file, dropped on the floor, and nothing said so: eleven windows fired
+        // versus six, decided by a key one level up in the same tree.
+        if (!namesAnEventTime && declaration.getAllowedLateness() == null && declaration.getOutOfOrderness() == null) {
             return parsed;
         }
+        // DOCX-6. The node-level default applies to a stream that declares an event time and no
+        // lateness of its own. Not to one that declares no event time: there is nothing for the
+        // lateness to be about, and quietly attaching one would put an out-of-orderness on a
+        // schema whose watermark never moves.
+        java.time.Duration lateness = declaration.getOutOfOrderness() != null
+                ? declaration.getOutOfOrderness()
+                : (namesAnEventTime ? defaultOutOfOrderness : null);
         // One implementation, shared with POST /api/v1/streams, so a stream declared by file and one
         // declared over HTTP cannot disagree about what an event-time declaration means. An allowed
         // lateness with no event time reaches it, and is refused there by name.
         return com.ash.messaging.pravaha.server.catalog.StreamCatalog.withEventTime(
-                parsed, declaration.getEventTime(), declaration.getOutOfOrderness(), declaration.getAllowedLateness());
+                parsed, declaration.getEventTime(), lateness, declaration.getAllowedLateness());
     }
 
     /**

@@ -15,9 +15,9 @@
  */
 package com.ash.messaging.pravaha.security;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Where audit records go.
@@ -40,7 +40,22 @@ public interface AuditSink {
     /** Keeps events in memory. For tests, and for a single-node deployment with nowhere else yet. */
     final class InMemory implements AuditSink {
 
-        private final List<AuditEvent> events = new CopyOnWriteArrayList<>();
+        /**
+         * A ring in all but name, under a monitor (SX-9).
+         *
+         * <p>This was a {@code CopyOnWriteArrayList} with {@code events.remove(0)} past the limit,
+         * and both halves of that are O(n) per append: the copy-on-write array is copied whole on
+         * every {@code add}, and {@code remove(0)} shifts it again. Measured at a 10,000-event
+         * limit, the first 10,000 records took 144 ms and the next 10,000 took 498 ms -- 3.5x
+         * slower for the same volume, arriving exactly when a node is under the load that
+         * generates the most events to audit.
+         *
+         * <p>A deque under a lock is not obviously the faster choice and is: the reads here are a
+         * snapshot copy taken by an investigator, not a hot path, while {@code record} is called
+         * on every authorization decision. Copy-on-write optimises the wrong one of the two.
+         */
+        private final ArrayDeque<AuditEvent> events;
+
         private final int limit;
 
         public InMemory() {
@@ -53,30 +68,39 @@ public interface AuditSink {
          *     own record-keeping
          */
         public InMemory(int limit) {
+            if (limit < 1) {
+                throw new IllegalArgumentException("an in-memory audit sink must keep at least one event, got " + limit
+                        + ": a limit of zero records nothing while reporting that it audits");
+            }
             this.limit = limit;
+            this.events = new ArrayDeque<>(Math.min(limit, 1024));
         }
 
         @Override
         public void record(AuditEvent event) {
-            events.add(event);
-            while (events.size() > limit) {
-                events.remove(0);
+            synchronized (events) {
+                events.addLast(event);
+                while (events.size() > limit) {
+                    events.removeFirst();
+                }
             }
         }
 
         public List<AuditEvent> events() {
-            return new ArrayList<>(events);
+            synchronized (events) {
+                return new ArrayList<>(events);
+            }
         }
 
         /** Events for one principal, which is the question an investigation starts with. */
         public List<AuditEvent> forPrincipal(String principalId) {
-            return events.stream()
+            return events().stream()
                     .filter(event -> event.principal().id().equals(principalId))
                     .toList();
         }
 
         public List<AuditEvent> denials() {
-            return events.stream().filter(event -> !event.allowed()).toList();
+            return events().stream().filter(event -> !event.allowed()).toList();
         }
     }
 }

@@ -7,7 +7,7 @@ icon: table
 summary: "Polls any relational table — or any SELECT — on a monotonic column, pushing your WHERE, the columns you read and a running COUNT/SUM into the database. What polling can and cannot see, said plainly."
 badge: SOURCE
 audience: Operators
-keywords: [jdbc, PRV-2042, repeats rows, watermark.moves.on.update, postgres, postgresql, mysql, oracle, sql server, h2, polling, watermark.column, key.column, page.clause, fetch.size, keyset, pushdown, projection, partial aggregate, pushdown.partial.aggregate, collation.binary]
+keywords: [jdbc, PRV-2042, repeats rows, watermark.moves.on.update, watermark.unit, event time, postgres, postgresql, mysql, oracle, sql server, h2, polling, watermark.column, key.column, page.clause, fetch.size, keyset, pushdown, projection, partial aggregate, pushdown.partial.aggregate, collation.binary]
 guide: continuous-queries#21-every-source-type-configured
 related: [sources-overview, source-postgres-cdc, lookups, connector-security, sink-jdbc, delivery-guarantees]
 ---
@@ -56,6 +56,7 @@ polls is seen once.
 | `pushdown.partial.aggregate` | no | `true` | Whether a continuous `COUNT`/`SUM` may be taken by the database. Has effect only with `key.column`; `false` always reads rows |
 | `collation.binary` | no | `false` | Set it only when the database compares and groups text **byte for byte, case-sensitively**, as the engine does. It is what lets a partial aggregate filter or group on a text column |
 | `watermark.moves.on.update` | no | `true` | Whether an update can move the watermark column, so that a poll reads the row again. Set `false` only when the column is written once, on insert — a sequence, a `created_at` — and never by an update. With `key.column` the source then declares that it never repeats a row, and an aggregate or a join over it can be registered; otherwise they are refused with PRV-2042. Anything but `true` or `false` is PRV-5074 |
+| `watermark.unit` | no | `none` | What the watermark column's numbers mean, so a row's event time can be built from them: `none`, `nanos`, `micros`, `millis` or `seconds`. **`none` says the column is a cursor and not a time**, and rows then carry no event time at all — so no window over this stream can close. This defaulted to nothing and the column was stamped raw, so an `updated_at BIGINT` of epoch milliseconds gave an event time out by a factor of a million: a watermark stuck in 1970, windows that never closed, and nothing said (T-5). A value that overflows its declared unit is refused rather than wrapped — reading epoch milliseconds as `seconds` does exactly that |
 | `share.reader` | no | `true` | Read by the binding layer; this source is not shared (it is ordered within its partition), so it has no effect |
 | `tls.*` | — | — | **Refused** with PRV-5074, except `tls.enabled: false`. A driver takes TLS in the URL, and accepting `tls.*` would leave a plaintext connection behind a configuration that looks encrypted |
 

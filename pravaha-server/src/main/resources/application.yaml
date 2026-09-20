@@ -177,7 +177,9 @@ pravaha:
 #     # this is the only way to say it from configuration.
 #     event-time: event_time
 #     # How late THIS stream's rows may be. Lateness belongs to the source, so it is set per
-#     # stream. This is the key that is read; pravaha.watermark.out-of-orderness below is not.
+#     # stream, overriding pravaha.watermark.out-of-orderness, which is the node's default.
+#     # Declaring it without event-time is refused at startup: lateness needs an event time to be
+#     # about, and it used to be read from the file and silently dropped (T-6).
 #     out-of-orderness: 10s
 
   # Who may connect, and what they may see.
@@ -540,20 +542,23 @@ pravaha:
   # watermark passes its end. A watermark that does not advance is not a quiet query, it is
   # unbounded state.
   watermark:
-    # NOT READ BY ANYTHING (DOCX-6). This key was meant to be the engine-wide default for how late
-    # a row may be before the engine stops waiting for it, and no code binds it: proved by
-    # experiment, not by grep -- four nodes over the same out-of-order fixture give an identical
-    # view at 0s and at 10m here, and different views at 0s and 10m under
-    # pravaha.streams.<name>.out-of-orderness, which IS read.
+    # The node's default for how late a row may be before the engine stops waiting for it. A
+    # stream that declares pravaha.streams.<name>.out-of-orderness uses its own; one that declares
+    # an event time and no lateness uses this.
     #
-    # Set it per stream instead. It is left here rather than deleted because removing a shipped key
-    # and giving it a reader are both decisions with consequences beyond this comment, and a key
-    # that silently does nothing is worse documented as absent than as broken.
+    # It did nothing at all until 2026-09-20 (DOCX-6, T-6) -- proved by experiment, not by grep:
+    # four nodes over the same out-of-order fixture gave an identical view at 0s and at 10m here,
+    # while the per-stream key at 0s and 10m differed. It has a reader now, and 10s is what
+    # StreamSchema.DEFAULT_OUT_OF_ORDERNESS already was, so a deployment that leaves this alone
+    # sees exactly what it saw before.
     #
-    # The 10s default itself is real and lives in StreamSchema.DEFAULT_OUT_OF_ORDERNESS: generous
-    # for a well-behaved source and mean for a bad one, which is the right way round -- too small
-    # silently drops rows as late, too large only costs memory, and the second failure is visible
-    # while the first is not.
+    # 10s is generous for a well-behaved source and mean for a bad one, which is the right way
+    # round: too small silently drops rows as late, too large only costs memory, and the second
+    # failure is visible while the first is not.
+    #
+    # It does NOT apply to a stream with no declared event time. There is nothing for the lateness
+    # to be about, and a stream that declares out-of-orderness without event-time is refused at
+    # startup rather than having it dropped on the floor (T-6).
     out-of-orderness: 10s
     # How long a partition may produce nothing before it stops holding the watermark back. Too
     # long and one quiet partition freezes every window in the query, which presents as a hang

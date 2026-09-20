@@ -88,6 +88,110 @@ class StateFailureReportingTest extends StateTestSupport {
         }
     }
 
+    /** An in-memory store that refuses the {@code n}th store call and keeps the rest (CKPT-5). */
+    private static final class FailsOnceStore implements CheckpointStore {
+        private final int failOn;
+        private int calls;
+        private final java.util.Map<Long, Checkpoint> stored = new java.util.LinkedHashMap<>();
+
+        FailsOnceStore(int failOn) {
+            this.failOn = failOn;
+        }
+
+        @Override
+        public void store(Checkpoint checkpoint) {
+            if (++calls == failOn) {
+                throw new java.io.UncheckedIOException("disk full", new IOException("ENOSPC"));
+            }
+            stored.put(checkpoint.id(), checkpoint);
+        }
+
+        @Override
+        public Optional<Checkpoint> latest() {
+            return stored.values().stream().reduce((first, second) -> second);
+        }
+
+        @Override
+        public List<Long> availableIds() {
+            return List.copyOf(stored.keySet());
+        }
+
+        @Override
+        public Optional<Checkpoint> load(long id) {
+            return Optional.ofNullable(stored.get(id));
+        }
+
+        @Override
+        public int prune(int keep) {
+            return 0;
+        }
+    }
+
+    /**
+     * CKPT-5. A checkpoint that fails must not spend its id.
+     *
+     * <p>{@code checkpointNow} took the id first and only then cut and stored, so an attempt that
+     * threw had spent its number and written nothing. {@code prune} is strictly newest-K-by-id, so
+     * a directory ended up holding {@code 5,7,8,9,10}: the newest five that exist, over a sequence
+     * where 6 was attempted and lost. Recovery restores the newest readable one and is correct
+     * either way, which is why the hole stayed invisible — a directory with a gap and one without
+     * look identical to {@code ls}, and no surface reported the difference.
+     */
+    @Test
+    void ckpt5_aFailedCheckpointDoesNotSpendItsIdAndLeavesNoHole() {
+        FailsOnceStore store = new FailsOnceStore(2);
+        try (RawExecution win = rawWindowed();
+                PeriodicCheckpointer checkpointer = new PeriodicCheckpointer(
+                        win.execution, store, Duration.ofHours(1), 10, Duration.ofSeconds(5), line -> {})) {
+
+            checkpointer.checkpointNow();
+            assertThat(store.availableIds()).containsExactly(1L);
+
+            org.assertj.core.api.Assertions.assertThatThrownBy(checkpointer::checkpointNow)
+                    .as("the second attempt fails in the store")
+                    .isInstanceOf(java.io.UncheckedIOException.class);
+            assertThat(checkpointer.nextId())
+                    .as("the id it reserved named nothing, so the next attempt has it back")
+                    .isEqualTo(2L);
+
+            checkpointer.checkpointNow();
+            checkpointer.checkpointNow();
+
+            assertThat(store.availableIds())
+                    .as("1,2,3 -- no hole. Before this, the failure spent 2 and the directory held 1,3,4")
+                    .containsExactly(1L, 2L, 3L);
+            assertThat(checkpointer.missingIds()).isEmpty();
+        }
+    }
+
+    /** CKPT-5's other half: a directory that already has a hole says so rather than looking healthy. */
+    @Test
+    void ckpt5_aDirectoryWithAHoleReportsIt() {
+        FailsOnceStore store = new FailsOnceStore(0);
+        try (RawExecution win = rawWindowed();
+                PeriodicCheckpointer checkpointer = new PeriodicCheckpointer(
+                        win.execution, store, Duration.ofHours(1), 10, Duration.ofSeconds(5), line -> {})) {
+            checkpointer.checkpointNow();
+            checkpointer.checkpointNow();
+            checkpointer.checkpointNow();
+            store.stored.remove(2L);
+
+            assertThat(checkpointer.missingIds())
+                    .as("`ls` cannot tell 1,3 from 1,2,3; this can")
+                    .containsExactly(2L);
+        }
+
+        List<String> log = new java.util.concurrent.CopyOnWriteArrayList<>();
+        try (RawExecution win = rawWindowed();
+                PeriodicCheckpointer reopened = new PeriodicCheckpointer(
+                        win.execution, store, Duration.ofHours(1), 10, Duration.ofSeconds(5), log::add)) {
+            assertThat(reopened.missingIds()).containsExactly(2L);
+        }
+        assertThat(log)
+                .as("and says so once, at the moment somebody is reading the log anyway")
+                .anyMatch(line -> line.contains("missing id(s) [2]"));
+    }
+
     @Test
     void state043_aStoreFailureDoesNotStopTheScheduleAndIsCountedEveryTime() {
         // Copy-on-write, not a synchronized list: a synchronized list guards each call and not an

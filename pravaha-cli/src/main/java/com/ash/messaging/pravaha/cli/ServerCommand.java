@@ -439,9 +439,6 @@ final class ServerCommand {
         boolean fromSnapshot = args.has("snapshot");
 
         try (PravahaFlightClient client = connect(args)) {
-            out.println(Ansi.dim("subscribed to " + view + (filters.isEmpty() ? "" : " " + filters)
-                    + (fromSnapshot ? "; the view's rows print first, then" : ";")
-                    + " changes print as they are committed. Ctrl-C to stop."));
             boolean[] header = {false};
             java.util.function.Consumer<com.ash.messaging.pravaha.sdk.flight.ChangeBatch> print = batch -> {
                 for (Row row : batch) {
@@ -462,6 +459,19 @@ final class ServerCommand {
             Subscription subscription = fromSnapshot
                     ? client.subscribeFromSnapshot(view, filters, print)
                     : client.subscribe(view, filters, print);
+            // API-F7. This banner used to go to STDOUT, and to go there before the connection had
+            // been opened at all -- so `pravaha subscribe --view x` against a dead server wrote
+            // "subscribed to x" to stdout and then failed on stderr, and anything reading stdout
+            // alone had an apparent success confirmation from a command that exited 1.
+            //
+            // Moved twice: to stderr, because it is a note to a person and stdout carries the
+            // rows; and to after the subscription object exists, so the call that opens it has at
+            // least returned. It is still not a promise that the stream is live -- `run()` below
+            // is where a broken connection surfaces -- and that is the other reason it is not on
+            // stdout.
+            err.println(Ansi.dim("subscribed to " + view + (filters.isEmpty() ? "" : " " + filters)
+                    + (fromSnapshot ? "; the view's rows print first, then" : ";")
+                    + " changes print as they are committed. Ctrl-C to stop."));
             Runtime.getRuntime().addShutdownHook(new Thread(subscription::close));
             if (limit > 0) {
                 Thread watcher = Thread.ofVirtual().start(() -> {
@@ -486,8 +496,19 @@ final class ServerCommand {
         }
     }
 
+    /**
+     * The address the last {@link #connect} was pointed at, so a refusal can name it (API-F7).
+     *
+     * <p>Every one of the seven commands against nothing listening failed with the bare stderr
+     * text {@code PRV-1041  io exception}: no host, no port, no scheme. An operator debugging "why
+     * did my script print `io exception` and exit 1" had nothing to go on -- not even whether the
+     * default endpoint had been used because {@code --url} went into a different flag.
+     */
+    private String endpoint;
+
     private PravahaFlightClient connect(Args args) {
         String url = args.get("url", "grpc://localhost:9090");
+        this.endpoint = url;
         ClientOptions.Builder options = ClientOptions.builder(url);
         // P-3. This was `.allowInsecureToken(true)` unconditionally, on every command, on every
         // invocation carrying --token, with no flag to opt out -- so the CLI answered the safety
@@ -554,7 +575,18 @@ final class ServerCommand {
     private int fail(RuntimeException e) {
         // The server's own message, PRV code and all. A CLI that replaced it with "query failed"
         // would be throwing away the part that says what to do.
-        err.println(Ansi.bad(String.valueOf(e.getMessage())));
+        //
+        // API-F7: with the address appended when the message does not already carry it. The
+        // transport's own text for nothing listening is "io exception", which is true of any
+        // socket anywhere; the one thing this process knows and that message does not is where it
+        // was pointed.
+        String message = String.valueOf(e.getMessage());
+        if (endpoint != null && !message.contains(endpoint)) {
+            message = message + " (talking to " + endpoint
+                    + " -- pass --url if that is not the node you meant; it is the default when "
+                    + "--url is not given)";
+        }
+        err.println(Ansi.bad(message));
         if (System.getenv("PRAVAHA_CLI_TRACE") != null) {
             e.printStackTrace(err);
         }

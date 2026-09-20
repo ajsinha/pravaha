@@ -1344,12 +1344,11 @@ public final class QueryRegistry implements AutoCloseable {
      * convenience is not worth a tenant list.
      *
      * <p>A caller entitled to know what exists has {@code names()} and the LIST action, both of
-     * which are the right place for that question because both can be authorized.
+     * which are the right place for that question because both can be authorized. The sentence
+     * itself lives in {@link QueryNames#noSuchQuery}, with PF-11's reasoning beside it.
      */
     public synchronized RegisteredQuery require(String name) {
-        return find(name)
-                .orElseThrow(() -> new PravahaException(
-                        RegistryErrors.NO_SUCH_QUERY, "no query named '" + name + "' is registered"));
+        return find(name).orElseThrow(() -> QueryNames.noSuchQuery(name));
     }
 
     /** Every name registered, in registration order. */

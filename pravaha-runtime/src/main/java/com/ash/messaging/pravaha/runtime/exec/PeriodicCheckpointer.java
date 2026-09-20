@@ -116,6 +116,15 @@ public final class PeriodicCheckpointer implements AutoCloseable {
         // Resume numbering above whatever is already stored, so ids stay monotonic across restarts
         // and "checkpoint 4" means one thing for the life of the directory.
         store.availableIds().stream().max(Long::compare).ifPresent(highest -> nextId.set(highest + 1));
+        // CKPT-5. Said once, at the moment somebody is reading the log anyway, because a hole in
+        // this directory is otherwise invisible: `ls` cannot tell 5,7,8,9,10 from 6,7,8,9,10, and
+        // recovery is correct over both.
+        java.util.List<Long> missing = missingIds();
+        if (!missing.isEmpty()) {
+            this.log.accept("this checkpoint directory is missing id(s) " + missing + " from the run it holds: "
+                    + "each was attempted and not stored. Recovery still restores the newest readable "
+                    + "checkpoint and is correct, and the gaps say a checkpoint has been failing");
+        }
     }
 
     /** Reads interval, keep and timeout from {@code pravaha.checkpoint.*}. */
@@ -200,8 +209,26 @@ public final class PeriodicCheckpointer implements AutoCloseable {
     public Checkpoint checkpointNow() {
         long id = nextId.getAndIncrement();
         long started = System.nanoTime();
-        Checkpoint checkpoint = execution.checkpoint(id, timeout);
-        store.store(checkpoint);
+        Checkpoint checkpoint;
+        try {
+            checkpoint = execution.checkpoint(id, timeout);
+            store.store(checkpoint);
+        } catch (RuntimeException failed) {
+            // CKPT-5. The id was reserved before anything was cut or written, so a checkpoint that
+            // threw had spent its number and left nothing behind it. `prune` is strictly
+            // newest-K-by-id, so a directory ended up holding 5,7,8,9,10 -- the newest five that
+            // exist, over a sequence where 6 was attempted and lost. Recovery restores the newest
+            // readable one and is correct either way, which is precisely why the hole stayed
+            // invisible: a directory with a gap and one without look identical to `ls`.
+            //
+            // Given back rather than reported, because an id that names nothing is not a fact
+            // about the query, and the next attempt can have it. The compare-and-set only gives it
+            // back when nothing else has reserved one since -- concurrent checkpointing is not
+            // expected here, and silently rewinding past somebody else's reservation would be
+            // worse than the gap.
+            nextId.compareAndSet(id + 1, id);
+            throw failed;
+        }
         // Recorded once it is stored, and not before: a checkpoint that was taken and could not be
         // written is not one recovery can use, so it is not a success an operator should be shown.
         lastSuccessDurationNanos = System.nanoTime() - started;
@@ -263,6 +290,32 @@ public final class PeriodicCheckpointer implements AutoCloseable {
         } finally {
             checkpointing.set(false);
         }
+    }
+
+    /**
+     * The ids missing from the run this directory holds (CKPT-5).
+     *
+     * <p>Empty for a healthy directory, including a pruned one: {@code prune} keeps the newest K
+     * by id, so what it leaves is contiguous. An id inside the range and absent from it is a
+     * checkpoint that was attempted and lost, and this is the only surface that can say so. The
+     * fleet-level signals -- {@code pravaha_query_checkpoint_failures_total}, the age of the last
+     * success -- answer "is this node checkpointing?"; this answers "is this directory healthy?",
+     * asked of the directory, which is the question a person restoring from it has.
+     *
+     * <p>Reads the store, so it is a diagnostic call and not something to poll.
+     */
+    public java.util.List<Long> missingIds() {
+        java.util.List<Long> present = store.availableIds().stream().sorted().toList();
+        if (present.size() < 2) {
+            return java.util.List.of();
+        }
+        java.util.List<Long> missing = new java.util.ArrayList<>();
+        for (long id = present.get(0) + 1; id < present.get(present.size() - 1); id++) {
+            if (!present.contains(id)) {
+                missing.add(id);
+            }
+        }
+        return java.util.List.copyOf(missing);
     }
 
     /** How many checkpoints have been taken, failed and deleted. For an operator asking if this is working. */

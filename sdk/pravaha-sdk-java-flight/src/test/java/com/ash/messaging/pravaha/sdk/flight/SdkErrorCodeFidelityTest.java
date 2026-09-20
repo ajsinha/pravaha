@@ -85,22 +85,27 @@ class SdkErrorCodeFidelityTest {
 
     @Test
     void aServersRefusalReachesTheCallerUnderTheServersOwnCode() {
-        // PRV-2002 SQL_VALIDATION_FAILED: a name the planner cannot resolve is refused during
-        // validation, before the serving layer is ever asked. Before this fix the caller got
-        // PRV-1041 and had to search the message for "PRV-" to learn which of the hundred-odd
-        // refusals had happened.
+        // PRV-4023 SERVING_NO_SUCH_VIEW: a name this server does not serve, refused by the serving
+        // layer. Before this fix the caller got PRV-1041 and had to search the message for "PRV-"
+        // to learn which of the hundred-odd refusals had happened.
+        //
+        // The code was PRV-2002 when this test was written, because ViewQuery answered PRV-4023
+        // only over an EMPTY catalogue and otherwise let the planner's SQL-validation failure
+        // through. L-3 made it one code either way; what this test is about -- the server's own
+        // code and its name reaching the caller intact, rather than being rewrapped -- is
+        // unchanged.
         assertThatThrownBy(() -> client.query("SELECT user_id FROM nowhere"))
                 .isInstanceOfSatisfying(PravahaClientException.class, e -> {
-                    assertThat(e.errorCode().code()).isEqualTo("PRV-2002");
+                    assertThat(e.errorCode().code()).isEqualTo("PRV-4023");
                     assertThat(e.errorCode().name())
                             .as("the code's name travels in a trailer, not in the message")
-                            .isEqualTo("SQL_VALIDATION_FAILED");
+                            .isEqualTo("SERVING_NO_SUCH_VIEW");
                     assertThat(e.retryable())
-                            .as("a table that does not exist will not exist on a retry")
+                            .as("a view that does not exist will not exist on a retry")
                             .isFalse();
                     // The diagnosis is unchanged, and rendered once rather than under a second code:
-                    // "PRV-1041  PRV-2002  ..." was what a user used to read.
-                    assertThat(e.getMessage()).startsWith("PRV-2002  ").contains("nowhere");
+                    // "PRV-1041  PRV-4023  ..." was what a user used to read.
+                    assertThat(e.getMessage()).startsWith("PRV-4023  ").contains("nowhere");
                     assertThat(e.getMessage()).doesNotContain("PRV-1041");
                 });
     }

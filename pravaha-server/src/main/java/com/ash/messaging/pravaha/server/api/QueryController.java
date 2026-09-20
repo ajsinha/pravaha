@@ -145,7 +145,49 @@ public class QueryController {
                     ApiErrors.MISSING_FIELD,
                     "this request has no 'sql': send a JSON body of the form {\"sql\": \"SELECT ...\"}");
         }
+        refuseAnUnpairedSurrogate(request.sql());
         return request.sql();
+    }
+
+    /**
+     * Refuses a JSON string carrying half of a surrogate pair (API-F10).
+     *
+     * <p>{@code {"sql": "\ud800"}} is well-formed JSON and is not text: {@code \ud800} is the high
+     * half of a surrogate pair with no low half after it, so it encodes no character. Jackson
+     * decodes it rather than refusing the body, and what reaches the engine is a {@code char} that
+     * cannot be written back out as UTF-8 -- every encoder replaces it with U+FFFD, so the SQL the
+     * server logs, audits and returns in a diagnostic is not the SQL that was sent.
+     *
+     * <p>It used to reach the SQL lexer, which failed cleanly on it ({@code PRV-2001},
+     * "Encountered: &lt;EOF&gt;") -- an answer about the query, for a request that never carried
+     * one. Refused as a bad request instead, which is the layer it is wrong at.
+     *
+     * <p><strong>Scoped to this field on purpose.</strong> The honest wider fix is a Jackson
+     * deserializer that refuses an unpaired surrogate in any string of any request body, and that
+     * is a change to every endpoint at once; this is the field the finding exercised and the one
+     * whose text is echoed back. The rest is recorded in the verdict rather than half-built.
+     */
+    private static void refuseAnUnpairedSurrogate(String sql) {
+        for (int i = 0; i < sql.length(); i++) {
+            char c = sql.charAt(i);
+            if (!Character.isSurrogate(c)) {
+                continue;
+            }
+            boolean paired =
+                    Character.isHighSurrogate(c) && i + 1 < sql.length() && Character.isLowSurrogate(sql.charAt(i + 1));
+            if (paired) {
+                i++;
+                continue;
+            }
+            throw new PravahaException(
+                    ApiErrors.INVALID_PARAMETER,
+                    "'sql' carries an unpaired UTF-16 surrogate at index " + i + " (U+"
+                            + Integer.toHexString(c).toUpperCase(java.util.Locale.ROOT)
+                            + "). That is half of a character and encodes none: every UTF-8 encoder "
+                            + "replaces it with U+FFFD, so the statement this server would log, audit "
+                            + "and quote back is not the one you sent. Send the whole character, or "
+                            + "escape it as a complete surrogate pair.");
+        }
     }
 
     @PostMapping("/validate")
@@ -193,16 +235,25 @@ public class QueryController {
     @Operation(summary = "Show the plan for a query; format=graph adds it as nodes and edges")
     public ApiDtos.ExplainResult explain(
             @RequestBody ValidateRequest request,
-            @RequestParam(defaultValue = "physical") String level,
-            @RequestParam(defaultValue = "text") String format,
+            @RequestParam(required = false) String level,
+            @RequestParam(required = false) String format,
             HttpServletRequest http) {
 
         requireSql(request);
         requireReadable(http, request.sql());
-        if (!"text".equals(format) && !"graph".equals(format)) {
-            throw new IllegalArgumentException("format must be 'text' or 'graph', got '" + format + "'");
+        // API-F8. `defaultValue` is not the same rule as "absent": Spring substitutes it for an
+        // EMPTY value too, so `?level=` -- a parameter the caller wrote, with nothing after it --
+        // answered 200 with level:"physical", the same as omitting it, while `?level=PHYSICAL`
+        // was refused. Absent means take the default; present and not one of the names is a
+        // refusal, whether what was written is "PHYSICAL" or nothing at all.
+        String chosenLevel = level == null ? "physical" : level;
+        String chosenFormat = format == null ? "text" : format;
+        if (!"text".equals(chosenFormat) && !"graph".equals(chosenFormat)) {
+            throw new IllegalArgumentException(
+                    "format must be 'text' or 'graph', got '" + chosenFormat + "'. An empty ?format= is "
+                            + "this, not an absent one: write the value or leave the parameter out.");
         }
-        ApiDtos.ExplainResult text = explainText(request, level);
+        ApiDtos.ExplainResult text = explainText(request, chosenLevel);
         if ("text".equals(format)) {
             return text;
         }
@@ -226,7 +277,11 @@ public class QueryController {
                 yield new ApiDtos.ExplainResult(
                         "physical", PhysicalPlanBuilder.explain(plan), mapper.toFields(plan.outputSchema()));
             }
-            default -> throw new IllegalArgumentException("level must be 'logical' or 'physical', got '" + level + "'");
+            default ->
+                throw new IllegalArgumentException(
+                        "level must be 'logical', 'physical' or 'codegen', got '" + level + "'. An empty "
+                                + "?level= is this, not an absent one: write the value or leave the "
+                                + "parameter out.");
         };
     }
 

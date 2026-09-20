@@ -148,6 +148,39 @@ class ViewQueryTest {
                 .hasMessageContaining("nowhere");
     }
 
+    /**
+     * L-3. A name this server does not serve is the serving layer's refusal, whether or not other
+     * views exist.
+     *
+     * <p>It was {@code PRV-4023} only when the catalogue was <em>empty</em>, and the planner's
+     * {@code PRV-2002} otherwise — so the code a caller got for one missing view depended on
+     * whether some unrelated view happened to be registered. That is what a read racing a
+     * {@code drop} then {@code register} of the same name hit: the view is momentarily in neither
+     * catalogue, the catalogue is not empty, and the answer came back as an SQL validation
+     * failure. Measured at 3 of 71,823 iterations against 20 drop/re-register cycles.
+     */
+    @Test
+    void l3_aNameThisServerDoesNotServeIsPrv4023WhetherOrNotOtherViewsExist() {
+        assertThatThrownBy(() -> new ViewQuery(catalog).execute("SELECT * FROM v1_gone"))
+                .as("the catalogue holds other views, which used to change the code to PRV-2002")
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-4023")
+                .hasMessageContaining("v1_gone");
+
+        assertThatThrownBy(() -> new ViewQuery(new ViewCatalog()).execute("SELECT * FROM v1_gone"))
+                .as("and the empty catalogue answers with the same code, as it always did")
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-4023");
+    }
+
+    /** L-3's other half: an unknown <em>column</em> of a real view keeps the planner's code. */
+    @Test
+    void l3_anUnknownColumnOfARealViewIsStillAnSqlValidationFailure() {
+        assertThatThrownBy(() -> new ViewQuery(catalog).execute("SELECT no_such_column FROM user_volume"))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-2002");
+    }
+
     @Test
     void queryingWithNoViewsRegisteredExplainsWhereViewsComeFrom() {
         assertThatThrownBy(() -> new ViewQuery(new ViewCatalog()).execute("SELECT * FROM anything"))

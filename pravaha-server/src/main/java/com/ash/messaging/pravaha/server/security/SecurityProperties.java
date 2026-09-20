@@ -233,6 +233,61 @@ public class SecurityProperties {
         trimmedPolicy();
         trimmedAudit();
         tokens.forEach((credential, spec) -> principalIdOf(credential, spec));
+        tokens.keySet().forEach(SecurityProperties::refuseAnUnusableCredentialKey);
+    }
+
+    /**
+     * Refuses a token-table key that will not be the credential the operator wrote (SX-14).
+     *
+     * <p>Two shapes, both from YAML rather than from anything Pravaha does, and both silent.
+     *
+     * <ul>
+     *   <li><strong>A bare {@code yes:}, {@code on:}, {@code y:} or {@code off:}.</strong> YAML 1.1
+     *       reads these as booleans, so the key binds as {@code "true"} or {@code "false"} and the
+     *       credential an operator believes they configured is not one any client can present. Two
+     *       of them in one table -- {@code yes:} and {@code on:} -- collapse to the same key and
+     *       fail the whole file's load with a duplicate-key error that names neither line. This
+     *       cannot catch that case, because the file never loads; it catches the single-key case,
+     *       which is the one that starts a node that quietly authenticates nobody.
+     *   <li><strong>Leading or trailing whitespace.</strong> Spring discards it while binding, so
+     *       {@code " tok "} and {@code "tok"} are one entry and one of the two the operator wrote
+     *       is gone. Where the whitespace does survive -- a quoted key, a programmatic map -- the
+     *       credential contains a character no HTTP header will carry intact.
+     * </ul>
+     *
+     * <p>Refused rather than trimmed. Trimming is the papering default the standing rule is about:
+     * the operator either meant the whitespace, in which case silently removing it changes who can
+     * authenticate, or did not, in which case saying so costs one restart and guessing costs an
+     * afternoon.
+     */
+    private static void refuseAnUnusableCredentialKey(String credential) {
+        if (credential == null || credential.isBlank()) {
+            throw new com.ash.messaging.pravaha.api.PravahaException(
+                    com.ash.messaging.pravaha.security.SecurityErrors.MISCONFIGURED,
+                    "a key under pravaha.security.tokens is empty or all whitespace. The key is the bearer "
+                            + "credential itself, and no client can present an empty one, so this entry "
+                            + "authenticates nobody while making the table look populated.");
+        }
+        if ("true".equals(credential) || "false".equals(credential)) {
+            throw new com.ash.messaging.pravaha.api.PravahaException(
+                    com.ash.messaging.pravaha.security.SecurityErrors.MISCONFIGURED,
+                    "pravaha.security.tokens has a key of '" + credential + "'. If you wrote 'yes:', 'on:', "
+                            + "'y:' or their negatives, YAML 1.1 reads them as booleans and the credential "
+                            + "bound here is the word '" + credential + "' -- not what you typed, and not "
+                            + "something a client will send. Quote the key to bind it verbatim: "
+                            + "\"[yes]\": {id: ...}. Two such keys in one table collapse into one and fail "
+                            + "the file's load outright, naming neither line.");
+        }
+        if (!credential.equals(credential.strip())) {
+            throw new com.ash.messaging.pravaha.api.PravahaException(
+                    com.ash.messaging.pravaha.security.SecurityErrors.MISCONFIGURED,
+                    "a key under pravaha.security.tokens begins or ends with whitespace. The key is the "
+                            + "bearer credential, and whitespace around it does not survive an HTTP header or "
+                            + "Spring's own property binding intact -- so the credential this node verifies "
+                            + "would not be the one configured. Refused rather than trimmed: trimming it "
+                            + "silently changes who can authenticate. The credential is "
+                            + credential.length() + " characters long and is deliberately not printed here.");
+        }
     }
 
     /** Whether callers must present a credential. */

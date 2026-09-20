@@ -70,6 +70,43 @@ final class JdbcPartitionReader implements PartitionReader {
     private boolean paused;
     private long sequence;
 
+    /**
+     * Nanoseconds per unit of the watermark column, or {@code 0} for "this is a cursor, not a
+     * time" (T-5). Set from {@code watermark.unit}; see the emission site below.
+     */
+    private long watermarkUnitNanos;
+
+    /** See {@link #watermarkUnitNanos}. */
+    JdbcPartitionReader readingWatermarkAs(long nanosPerUnit) {
+        this.watermarkUnitNanos = nanosPerUnit;
+        return this;
+    }
+
+    /**
+     * The watermark value as nanoseconds since the epoch, or zero when it is only a cursor.
+     *
+     * <p>An overflow here is the wrong unit declared, not a row from the year 2262: a column of
+     * epoch <em>milliseconds</em> read as {@code seconds} multiplies by a billion and leaves the
+     * range of a long. Refused by name, because the alternative is a wrapped negative event time
+     * that puts the watermark before the epoch and closes every window at once.
+     */
+    private long eventTimeNanos(long watermark) {
+        if (watermarkUnitNanos == 0L) {
+            return 0L;
+        }
+        try {
+            return Math.multiplyExact(watermark, watermarkUnitNanos);
+        } catch (ArithmeticException overflow) {
+            throw new PravahaException(
+                    JdbcErrors.BAD_CONFIGURATION,
+                    "the watermark column '" + watermarkColumn + "' holds " + watermark
+                            + ", which is past the year 2262 in the unit watermark.unit declares ("
+                            + watermarkUnitNanos + " nanoseconds each) and does not fit an event time. "
+                            + "This is almost always the wrong unit: a column of epoch milliseconds read "
+                            + "as seconds overflows exactly like this.");
+        }
+    }
+
     JdbcPartitionReader(
             Connection connection,
             String firstQuery,
@@ -207,10 +244,16 @@ final class JdbcPartitionReader implements PartitionReader {
                 }
             }
             writer.weight(1L)
-                    // The watermark column is the closest thing this source has to an event time,
-                    // and it is what the query already orders by, so using it is a statement of
-                    // fact rather than a guess.
-                    .eventTimestampNanos(watermark)
+                    // T-5. This used to be `.eventTimestampNanos(watermark)` -- the watermark
+                    // column's value, raw. That column is a monotone cursor and need not be a
+                    // time at all; where it is one, it is whatever unit the table keeps, and the
+                    // engine counts nanoseconds (ADR-012). So an `updated_at BIGINT` holding epoch
+                    // MILLISECONDS produced an event time out by a factor of a million -- a
+                    // watermark stuck in 1970, windows that never close, and nothing said.
+                    //
+                    // `watermark.unit` is how a deployment says which it is, and it defaults to
+                    // `none`: a cursor, carrying no event time. Guessing was the defect.
+                    .eventTimestampNanos(eventTimeNanos(watermark))
                     .sequence(sequence++)
                     .commit();
             offset = offset.advanced(watermark, key);

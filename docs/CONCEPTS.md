@@ -77,9 +77,10 @@ this one idea.
 > Lateness belongs to the **source**, not the engine: a topic fed by mobile clients over a flaky
 > network and a scan of data already at rest have nothing in common, and one engine-wide number has
 > to be wrong for one of them. A stream that says nothing gets **10 seconds**, which a server
-> deployment moves per stream with `pravaha.streams.<name>.out-of-orderness`. (The engine-wide
-> `pravaha.watermark.out-of-orderness` key is in the shipped `application.yaml` and is read by
-> nothing — DOCX-6.)
+> deployment moves per stream with `pravaha.streams.<name>.out-of-orderness`, or for every stream
+> at once with `pravaha.watermark.out-of-orderness`, which the per-stream key overrides. That
+> engine-wide key was read by nothing until 2026-09-20 (DOCX-6); its default is the same 10 seconds
+> a stream already took, so giving it a reader changed no deployment that had not set it.
 >
 > Note what this is *not*. It decides how long the engine waits before calling a window complete.
 > **It is not allowed lateness**, which is what decides whether a row arriving after that is still

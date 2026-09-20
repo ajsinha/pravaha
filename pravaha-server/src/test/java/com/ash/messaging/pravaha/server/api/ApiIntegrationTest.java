@@ -268,6 +268,73 @@ class ApiIntegrationTest {
                 .andExpect(jsonPath("$.plan").value(org.hamcrest.Matchers.containsString("Logical")));
     }
 
+    /**
+     * API-F8. {@code ?level=} — the parameter present, with nothing after it — answered 200 with
+     * {@code level:"physical"}, the same as omitting it, while {@code ?level=PHYSICAL} was
+     * refused.
+     *
+     * <p>Spring's {@code defaultValue} is not the same rule as "absent": it substitutes the
+     * default for an <em>empty</em> value too. So the endpoint could not tell a caller who said
+     * nothing from one who said nothing usable, and only one of those is a caller to answer.
+     */
+    @Test
+    void apiF8_anEmptyLevelIsARefusalRatherThanAnAbsentOne() throws Exception {
+        mvc.perform(post("/api/v1/queries/explain?level=")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(
+                                new QueryController.ValidateRequest("SELECT user_id FROM txn"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PRV-0400"));
+
+        mvc.perform(post("/api/v1/queries/explain?format=")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(
+                                new QueryController.ValidateRequest("SELECT user_id FROM txn"))))
+                .andExpect(status().isBadRequest());
+
+        // The control, and the reason this is a behaviour change worth pinning: omitting the
+        // parameter still takes the default.
+        mvc.perform(post("/api/v1/queries/explain")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(
+                                new QueryController.ValidateRequest("SELECT user_id FROM txn"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.level").value("physical"));
+    }
+
+    /**
+     * API-F10. A lone high surrogate is well-formed JSON and is not text: half of a surrogate pair
+     * with no other half after it encodes no character.
+     *
+     * <p>Jackson decoded it rather than refusing the body, and the lone {@code char} reached the
+     * SQL lexer, which failed cleanly on it with {@code PRV-2001} — an answer about the query, for
+     * a request that never carried one. Every UTF-8 encoder replaces it with U+FFFD, so the SQL
+     * this server would log, audit and quote back is not the SQL that was sent.
+     */
+    @Test
+    void apiF10_anUnpairedSurrogateInTheSqlIsRefusedAsABadRequest() throws Exception {
+        String loneHighSurrogate = "{\"sql\":\"\\ud800\"}";
+
+        mvc.perform(post("/api/v1/queries/validate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loneHighSurrogate))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PRV-1051"));
+
+        mvc.perform(post("/api/v1/queries/explain")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loneHighSurrogate))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PRV-1051"));
+
+        // A complete pair is a character and is left alone: this refuses half of one, not
+        // everything outside the basic plane.
+        mvc.perform(post("/api/v1/queries/validate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sql\":\"SELECT user_id FROM txn WHERE user_id = '\\ud83d\\ude00'\"}"))
+                .andExpect(status().isOk());
+    }
+
     @Test
     void anUnboundedGroupByIsRefusedWithAnActionableMessage() throws Exception {
         mvc.perform(post("/api/v1/queries/validate")

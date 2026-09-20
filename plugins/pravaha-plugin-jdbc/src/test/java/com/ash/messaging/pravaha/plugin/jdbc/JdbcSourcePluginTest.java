@@ -128,6 +128,72 @@ class JdbcSourcePluginTest {
         assertThat(plugin.schema().field(1).type().nullable()).isTrue();
     }
 
+    /**
+     * T-5. The watermark column was stamped on every row as its event time, raw.
+     *
+     * <p>That column is a monotone cursor and need not be a time at all; where it is one, it is in
+     * whatever unit the table keeps, and the engine counts nanoseconds (ADR-012). So an
+     * {@code updated_at BIGINT} of epoch milliseconds gave an event time out by a factor of a
+     * million — a watermark stuck in 1970, windows that never close, and nothing anywhere saying
+     * so. {@code watermark.unit} is how a deployment says which it is.
+     */
+    @Test
+    void t5_theWatermarkColumnIsAnEventTimeOnlyWhenItsUnitIsDeclared() throws SQLException {
+        insert(1, "ann", 10.5, 1_700_000_000_000L);
+
+        JdbcSourcePlugin millis = open(Map.of("watermark.unit", "millis"));
+        try (JdbcCollector collector = new JdbcCollector(millis.schema());
+                PartitionReader reader =
+                        millis.createReader(millis.partitions("orders").get(0), SourceOffset.BEGINNING)) {
+            assertThat(drain(reader, collector).get(0).eventTimestampNanos())
+                    .as("epoch millis, converted once, here")
+                    .isEqualTo(1_700_000_000_000L * 1_000_000L);
+        }
+        millis.close();
+
+        JdbcSourcePlugin nanos = open(Map.of("watermark.unit", "nanos"));
+        try (JdbcCollector collector = new JdbcCollector(nanos.schema());
+                PartitionReader reader =
+                        nanos.createReader(nanos.partitions("orders").get(0), SourceOffset.BEGINNING)) {
+            assertThat(drain(reader, collector).get(0).eventTimestampNanos())
+                    .as("the one unit that needs no conversion, and what the code used to assume")
+                    .isEqualTo(1_700_000_000_000L);
+        }
+        nanos.close();
+    }
+
+    /**
+     * T-5, the other way the unit can be wrong: declared too coarse, so the value overflows.
+     *
+     * <p>A column of epoch milliseconds read as {@code seconds} multiplies by a billion and leaves
+     * the range of a long. Wrapping it would put the watermark before the epoch and close every
+     * window at once, which is the silent failure this whole finding is about.
+     */
+    @Test
+    void t5_aWatermarkThatOverflowsItsDeclaredUnitIsRefusedRatherThanWrapped() throws SQLException {
+        insert(1, "ann", 10.5, 1_700_000_000_000L);
+
+        JdbcSourcePlugin seconds = open(Map.of("watermark.unit", "seconds"));
+        try (JdbcCollector collector = new JdbcCollector(seconds.schema());
+                PartitionReader reader =
+                        seconds.createReader(seconds.partitions("orders").get(0), SourceOffset.BEGINNING)) {
+            assertThatThrownBy(() -> drain(reader, collector))
+                    .isInstanceOf(com.ash.messaging.pravaha.api.PravahaException.class)
+                    .hasMessageContaining("watermark.unit")
+                    .hasMessageContaining("epoch milliseconds read");
+        }
+        seconds.close();
+    }
+
+    /** T-5's refusal: a unit this plugin does not know is named rather than guessed at. */
+    @Test
+    void t5_anUnknownWatermarkUnitIsRefusedByName() {
+        assertThatThrownBy(() -> open(Map.of("watermark.unit", "milliseconds-ish")))
+                .isInstanceOf(com.ash.messaging.pravaha.api.ConfigurationException.class)
+                .hasMessageContaining("watermark.unit")
+                .hasMessageContaining("none, nanos, micros, millis, seconds");
+    }
+
     @Test
     void readsRowsInWatermarkOrderAndPreservesNulls() throws SQLException {
         insert(3, "cat", 30.0, 300);
@@ -146,8 +212,10 @@ class JdbcSourcePluginTest {
                     .as("a SQL NULL is a null, not a zero")
                     .isTrue();
             assertThat(rows.get(0).eventTimestampNanos())
-                    .as("the watermark column is the event time; it is the column the query orders by")
-                    .isEqualTo(100L);
+                    .as("T-5: the watermark column is a cursor, not a time, until `watermark.unit` "
+                            + "says what its numbers mean. It used to be stamped raw, so an epoch-millis "
+                            + "column produced an event time out by a factor of a million")
+                    .isZero();
         }
     }
 

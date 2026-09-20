@@ -283,15 +283,21 @@ public final class PravahaFlightServer implements AutoCloseable {
         // authentication tests skipped every run reporting "the Pravaha server did not start; is
         // the module built?" -- an environmental-sounding message for a configuration refusal.
         requireOnePolicy();
+        if (certificateChain != null) {
+            // SX-17. Before anything is built, and before the startup summary can say
+            // `transport=TLS`: a certificate and a key that are each valid and are not a pair used
+            // to start a healthy-looking node that every client then failed to reach. See
+            // FlightTlsPair.
+            FlightTlsPair.requireMatching(certificateChain, privateKey);
+        }
         Location requested =
                 certificateChain == null ? Location.forGrpcInsecure(host, port) : Location.forGrpcTls(host, port);
+        PravahaFlightSqlProducer producer = new PravahaFlightSqlProducer(
+                        catalog, allocator, requested, policy, audit, admission, readDeadline)
+                .withRegistry(registry)
+                .withDeadLetters(deadLetters);
         try {
-            FlightServer.Builder builder = FlightServer.builder(
-                    allocator,
-                    requested,
-                    new PravahaFlightSqlProducer(catalog, allocator, requested, policy, audit, admission, readDeadline)
-                            .withRegistry(registry)
-                            .withDeadLetters(deadLetters));
+            FlightServer.Builder builder = FlightServer.builder(allocator, requested, producer);
             if (verifier != null) {
                 builder.middleware(PrincipalMiddleware.KEY, new PrincipalMiddleware.Factory(verifier));
             }
@@ -301,13 +307,41 @@ public final class PravahaFlightServer implements AutoCloseable {
             builder.executor(callThreads);
             FlightServer started = builder.build().start();
             server.set(started);
-            this.location = Location.forGrpcInsecure(host, started.getPort());
+            // SX-16, both halves.
+            //
+            // The scheme was `forGrpcInsecure` unconditionally, so a node genuinely serving TLS
+            // reported its own address as `grpc+tcp://` -- a client following it dials plaintext at
+            // a port that speaks TLS. And the producer was built from `requested`, whose port is
+            // the one that was *asked for*: with `--pravaha.flight.port=0`, meaning "ask the OS",
+            // `getFlightInfo` handed clients an endpoint at port 0. Both are the same mistake --
+            // describing the server by what was requested rather than by what happened -- so both
+            // are fixed in the one place that knows the difference.
+            this.location = certificateChain == null
+                    ? Location.forGrpcInsecure(host, started.getPort())
+                    : Location.forGrpcTls(host, started.getPort());
+            producer.servedFrom(this.location);
             return this;
         } catch (IOException e) {
             throw new PravahaException(
                     RuntimeErrors.LANE_FAILED,
                     "cannot start the Flight SQL server on " + host + ":" + port + ": " + e.getMessage(),
                     e);
+        } catch (PravahaException alreadyDiagnosed) {
+            throw alreadyDiagnosed;
+        } catch (RuntimeException uncoded) {
+            // SX-17's other half. The catch above was IOException-only, and the transport builder
+            // throws IllegalArgumentException for a certificate/key file it cannot parse -- swapped
+            // files, most often -- so that reached the operator as a raw Java exception with no
+            // PRV code and no help URL. A TLS node says so in its own vocabulary.
+            throw new PravahaException(
+                    certificateChain == null ? RuntimeErrors.LANE_FAILED : FlightErrors.TLS_UNREADABLE,
+                    "cannot start the Flight SQL server on " + host + ":" + port
+                            + (certificateChain == null
+                                    ? ""
+                                    : " with the certificate " + certificateChain.getAbsolutePath() + " and the key "
+                                            + privateKey.getAbsolutePath())
+                            + ": " + uncoded.getMessage(),
+                    uncoded);
         }
     }
 

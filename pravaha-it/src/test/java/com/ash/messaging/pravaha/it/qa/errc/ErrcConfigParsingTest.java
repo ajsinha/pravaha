@@ -161,23 +161,24 @@ class ErrcConfigParsingTest extends ErrcTestSupport {
         // E3: the cycle's members in order, not just "circular reference".
         assertThat(e.getMessage()).contains("a").contains("b");
 
-        // Vacuity, as the case specifies: a genuinely deep-but-terminating chain must NOT be refused,
-        // or a depth limit is being mistaken for a cycle detector. A 33-deep chain (MAX_DEPTH,
-        // ConfigResolver.java:40) resolves; the case's own suggested 100-deep chain does NOT --
-        // ERRC-004 FAILS its own vacuity control. This is the false positive the case was written to
-        // catch, not a hang or an overflow (the Falsifier's other two candidates), but the same
-        // failure mode: a genuine, non-circular chain refused as CONFIG_CIRCULAR_REFERENCE. Real
-        // cycle detection already exists independently (the `visiting` set, exercised by the two-key
-        // case above) -- MAX_DEPTH is a second, blunter guard that fires on depth alone and cannot
-        // tell a long chain from a cycle. Recorded in FINDINGS.md rather than fixed (rule 4): raising
-        // or removing MAX_DEPTH is a real behavioural change to a shared recursion guard, not a
-        // one-line, obviously-safe fix.
-        assertThat(probeDepth(33))
-                .as("33 is at MAX_DEPTH and must still resolve")
-                .startsWith("OK");
+        // Vacuity, as the case specifies: a genuinely deep-but-terminating chain must NOT be
+        // refused, or a depth limit is being mistaken for a cycle detector.
+        //
+        // ERRC-004 used to FAIL its own vacuity control. MAX_DEPTH was 32 and shared
+        // CONFIG_CIRCULAR_REFERENCE with the real detector (the `visiting` set, exercised by the
+        // two-key case above), so the case's own suggested 100-deep chain came back naming a
+        // circular reference that does not exist -- the false positive the control was written to
+        // catch. Finding E-8: the guard is a backstop against the stack, not a cycle detector, and
+        // it is 256 now and refuses under PRV-1012 CONFIG_REFERENCE_TOO_DEEP. Both of these lines
+        // are the assertion the case always intended; only the second one has changed.
+        assertThat(probeDepth(33)).as("33 resolves, as it always did").startsWith("OK");
         assertThat(probeDepth(100))
-                .as("ERRC-004's own vacuity control: a terminating 100-deep chain, misreported as circular")
-                .startsWith("FAIL PRV-1011");
+                .as("ERRC-004's own vacuity control, which now passes: a terminating 100-deep chain "
+                        + "is not a cycle and is not refused as one")
+                .startsWith("OK");
+        assertThat(probeDepth(400))
+                .as("and past the stack backstop it says depth, under a code of its own")
+                .startsWith("FAIL PRV-1012");
     }
 
     private String probeDepth(int n) {

@@ -70,12 +70,13 @@ public final class StreamSchema {
      * data as late, too large only costs memory, and the second failure is visible while the first
      * is not.
      *
-     * <p>A server deployment moves this <em>per stream</em>, with
-     * {@code pravaha.streams.<name>.out-of-orderness}; a stream that knows its own source overrides
-     * both with {@link Builder#outOfOrderness}. This javadoc used to name
-     * {@code pravaha.watermark.out-of-orderness}, which is present in the shipped
-     * {@code application.yaml} and is read by nothing (DOCX-6) -- so the sentence sent an operator
-     * to a key that changes no answer.
+     * <p>A server deployment moves this for every stream with
+     * {@code pravaha.watermark.out-of-orderness}, and <em>per stream</em> with
+     * {@code pravaha.streams.<name>.out-of-orderness}, which overrides it; a stream that knows its
+     * own source overrides both with {@link Builder#outOfOrderness}. The engine-wide key was read
+     * by nothing until 2026-09-20 (DOCX-6) -- so this javadoc, which named it, sent an operator to
+     * a key that changed no answer. It has a reader now, and its default is this constant, so
+     * nothing moved for a deployment that had not set it.
      */
     public static final Duration DEFAULT_OUT_OF_ORDERNESS = Duration.ofSeconds(10);
 

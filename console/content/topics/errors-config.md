@@ -78,10 +78,22 @@ set anywhere and has no default. Set it, or write ${STATE_DIR:some-default}.
 
 ### PRV-1011 — CONFIG_CIRCULAR_REFERENCE
 
-Two or more values refer to each other (`a -> b -> a`), or references nest deeper than the resolver
-allows. The message prints the chain it followed.
+Two or more values refer to each other (`a -> b -> a`). The message prints the chain it followed.
 
 **Do:** break the loop — one of the keys has to hold a literal value.
+
+### PRV-1012 — CONFIG_REFERENCE_TOO_DEEP
+
+References nest deeper than the resolver will walk. The limit is 256 and it is a backstop against
+the stack, not a statement about configuration: nothing a person writes gets near it, and a chain
+that does is almost always generated with a loop in the generator.
+
+**This used to be PRV-1011**, and it fired at 32 — so a genuine 34-deep chain with no loop in it
+was refused as a "circular reference" that did not exist, and whoever read that went looking for
+one (finding E-8). The two are separate now because the fixes are: a cycle is broken, a chain is
+flattened.
+
+**Do:** flatten the chain, or resolve it where it is generated.
 
 ## Values that are not what the key needs
 

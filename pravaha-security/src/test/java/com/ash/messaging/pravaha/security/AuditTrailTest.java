@@ -186,6 +186,81 @@ class AuditTrailTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    /**
+     * SX-9. Appending past the limit was O(n) per event, and so was appending below it.
+     *
+     * <p>{@code InMemory} held a {@code CopyOnWriteArrayList} and called {@code events.remove(0)}
+     * once the limit was reached: the copy-on-write array is copied whole on every {@code add},
+     * and {@code remove(0)} shifts it again. Measured at a 10,000-event limit, the first 10,000
+     * records took 144 ms and the next 10,000 took 498 ms — 3.5x slower for equal volume, arriving
+     * exactly when a node is under the load that generates the most events to audit.
+     *
+     * <p><strong>A budget, not a ratio.</strong> A ratio between two short measurements on a
+     * machine running several agents measures the machine. The numbers behind the budget were
+     * taken directly, both implementations, same JVM, 200,000 appends: at a 1,000-event limit
+     * copy-on-write took 268 ms and a deque 5 ms; at 10,000 it was 986 ms against 1 ms. So the
+     * cost is linear in the limit for one and flat for the other, and 2,000,000 appends at the
+     * default 10,000-event limit is about ten seconds against about thirty milliseconds. Three
+     * seconds sits between them with two orders of magnitude of headroom on the side that passes
+     * and a factor of three on the side that must fail, so load does not decide it.
+     *
+     * <p>One event instance, recorded many times, because allocating two million of them would
+     * measure the allocator. Eviction order is asserted by the test below, with distinct events.
+     */
+    @Test
+    void sx9_appendingFarPastTheLimitStaysCheap() {
+        AuditSink.InMemory sink = new AuditSink.InMemory(10_000);
+        AuditEvent one = at(1, DANA, "query", "orders", true);
+        int appends = 2_000_000;
+
+        long startNanos = System.nanoTime();
+        for (int i = 0; i < appends; i++) {
+            sink.record(one);
+        }
+        long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
+        System.out.println("SX-9: " + appends + " appends past a 10,000-event limit in " + elapsedMillis + " ms");
+
+        assertThat(elapsedMillis)
+                .as(
+                        "%d appends took %d ms; measured directly, the copy-on-write implementation this "
+                                + "replaced needs about ten seconds for the same volume and this one about "
+                                + "thirty milliseconds",
+                        appends, elapsedMillis)
+                .isLessThan(3_000L);
+        assertThat(sink.events()).as("the limit is a limit").hasSize(10_000);
+    }
+
+    /** SX-9's correctness half: oldest-first eviction, in order, with the limit respected. */
+    @Test
+    void sx9_evictionDropsTheOldestAndKeepsTheRestInOrder() {
+        AuditSink.InMemory sink = new AuditSink.InMemory(1_000);
+        for (int i = 0; i < 20_000; i++) {
+            sink.record(at(i, DANA, "query", "orders", true));
+        }
+
+        List<AuditEvent> kept = sink.events();
+        assertThat(kept).hasSize(1_000);
+        assertThat(kept.get(0).at())
+                .as("the oldest kept event is the 19,000th recorded")
+                .isEqualTo(Instant.ofEpochSecond(19_000));
+        assertThat(kept.get(kept.size() - 1).at())
+                .as("and the newest is the last recorded")
+                .isEqualTo(Instant.ofEpochSecond(19_999));
+        for (int i = 1; i < kept.size(); i++) {
+            assertThat(kept.get(i).at())
+                    .as("kept in the order they were recorded")
+                    .isAfter(kept.get(i - 1).at());
+        }
+    }
+
+    /** A sink that keeps nothing while reporting that it audits is refused by name. */
+    @Test
+    void sx9_aLimitOfZeroIsRefusedRatherThanSilentlyRecordingNothing() {
+        assertThatThrownBy(() -> new AuditSink.InMemory(0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("at least one event");
+    }
+
     @Test
     void readingTheAuditTrailIsItsOwnPermissionAndClosedByDefault() {
         // Everything readable is not the same as the trail being readable: a policy that lets a

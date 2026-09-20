@@ -54,11 +54,11 @@ property of the **source** — a feed of mobile clients over a bad network and a
 have nothing in common — and a query over three streams gets three tolerances rather than the worst
 of them.
 
-!!! warning "pravaha.watermark.out-of-orderness is not read"
-    The shipped `application.yaml` carries `pravaha.watermark.out-of-orderness`, described as an
-    engine-wide default. **Nothing reads it** (DOCX-6): setting it changes no answer. The per-stream
-    `out-of-orderness` above is the only key that does. The 10-second default is real; it lives in
-    the engine's code.
+!!! note "pravaha.watermark.out-of-orderness is the node's default"
+    The per-stream `out-of-orderness` above overrides it, and a stream that declares an event time
+    and no lateness of its own takes it. **It was read by nothing until 2026-09-20** (DOCX-6) —
+    setting it changed no answer at all. Its default is the same 10 seconds a stream already took,
+    so nothing moved for a deployment that had not set it.
 
 ## The schema grammar
 

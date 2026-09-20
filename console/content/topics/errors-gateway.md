@@ -76,10 +76,19 @@ table — rather than as parameters, or narrow the statement.
 
 ### PRV-6104 — Flight TLS unreadable
 
-`pravaha.flight.tls.certificate` or `pravaha.flight.tls.key` is set and cannot be read, or only one of
-the pair is set. **The node refuses to start** rather than warning and serving plaintext: falling back
-to plaintext because a certificate was missing is how a deployment believes it is encrypted for months
-(CFG-6). Both are PEM files; see [TLS everywhere](/help/topics/tls).
+`pravaha.flight.tls.certificate` or `pravaha.flight.tls.key` is set and cannot be read, only one of
+the pair is set, or **the two are not a pair**. **The node refuses to start** rather than warning
+and serving plaintext: falling back to plaintext because a certificate was missing is how a
+deployment believes it is encrypted for months (CFG-6). Both are PEM files, and the key is
+unencrypted PKCS#8 (`-----BEGIN PRIVATE KEY-----`); see [TLS everywhere](/help/topics/tls).
+
+**The pair is checked at startup** (SX-17). A certificate and a key that are each individually
+valid and do not belong together used to start a healthy-looking node — the startup summary said
+`transport=TLS` — and every client then failed its handshake with `tlsv1 alert internal error`, on
+the client, with nothing in the server's log. The check signs a nonce with the key and verifies it
+with the certificate's public key, which is the same question TLS itself asks a moment later. A pair
+given the wrong way round — the certificate in `key` and the key in `certificate` — used to escape
+as a raw Java exception with no code at all, and now arrives here.
 
 ```yaml
 pravaha:

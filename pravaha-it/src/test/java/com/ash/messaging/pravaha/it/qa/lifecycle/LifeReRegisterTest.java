@@ -101,14 +101,23 @@ class LifeReRegisterTest extends LifecycleTestSupport {
                 .hasSize(3);
     }
 
+    /**
+     * LIFE-081, and finding L-3, which it recorded. Enabled: the defect is fixed.
+     *
+     * <p>A read racing the gap between a {@code drop} and its {@code re-register} used to surface
+     * {@code PRV-2002 Object 'v1' not found} instead of the serving layer's {@code PRV-4023}.
+     * {@code ViewQuery} re-plans on a cache miss, and while {@code v1} is momentarily in neither
+     * catalogue the SQL planner treats the name as an unrecognised identifier — an SQL code for a
+     * question about a view, and not the one a retry loop can act on. Measured at 3 of 71,823
+     * reader iterations against 20 cycles, which is the frequency that makes it expensive: too
+     * rare to reproduce on demand, common enough to happen in production.
+     *
+     * <p>The loop below runs cycles until the reader has made enough calls for the count assertion
+     * to mean something, rather than for a fixed number of cycles and a fixed wait — a sleep long
+     * enough on an idle machine is not long enough on a loaded one, and this machine runs several
+     * agents.
+     */
     @Test
-    @org.junit.jupiter.api.Disabled(
-            "LIFE-081 defect (FINDINGS: Lifecycle L-3): a read racing the gap between a drop and its "
-                    + "re-register can surface PRV-2002 ('Object 'v1' not found. Known streams: []') instead "
-                    + "of the serving layer's PRV-4023 (SERVING_NO_SUCH_VIEW). ViewQuery re-plans on a cache "
-                    + "miss, and while v1 is momentarily in neither the stream nor the view catalogue, the SQL "
-                    + "planner treats it as an unrecognised identifier and reports zero known streams -- which "
-                    + "is also misleading in its own right, since txn is bound the whole time.")
     void life081_aDropAndReRegisterUnderLoadNeverServesStaleRowsOrAnUnexpectedError() throws Exception {
         registry.register("v1", S1, List.of(0), Principal.ANONYMOUS);
         push("v1", 1, "ann", 100, 1);
@@ -134,9 +143,14 @@ class LifeReRegisterTest extends LifecycleTestSupport {
             }
         });
         reader.start();
-        for (int i = 0; i < 20; i++) {
+        int cycles = 0;
+        // At least 20 cycles, and enough of them that the reader has raced them a few hundred
+        // times. The bound is a count rather than a duration so a loaded machine runs it longer
+        // instead of running it thinner.
+        while (cycles < 20 || (reads.get() < 500 && cycles < 20_000)) {
             registry.drop("v1");
             registry.register("v1", S1, List.of(0), Principal.ANONYMOUS);
+            cycles++;
         }
         running.set(false);
         reader.join(java.time.Duration.ofSeconds(5).toMillis());

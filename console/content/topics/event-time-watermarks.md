@@ -93,9 +93,10 @@ sources that is the `event.time` option. Without it every row carries the time i
 watermark runs at wall-clock, and every row lands behind it — an empty view under a query reporting
 `RUNNING`.
 
-!!! warning "pravaha.watermark.out-of-orderness is not read"
-    It is in the shipped `application.yaml` and **nothing reads it** (DOCX-6). Set lateness per
-    stream with `pravaha.streams.<name>.out-of-orderness`.
+!!! note "pravaha.watermark.out-of-orderness is the node's default"
+    A stream that declares an event time and no lateness of its own takes it;
+    `pravaha.streams.<name>.out-of-orderness` overrides it. **It was read by nothing until
+    2026-09-20** (DOCX-6), and its default is the same 10 seconds a stream already took.
 
 ### Choosing out-of-orderness
 

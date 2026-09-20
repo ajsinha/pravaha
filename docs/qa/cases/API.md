@@ -49,7 +49,15 @@ SCHEMA4    = 'txn_id:INT64,user_id:STRING,amount:INT64,status:STRING'
 OUTSCHEMA  = 'user_id:STRING,amount:INT64'
 IN         = examples/01-filter-and-project/transactions.csv
 FILTERSQL  = "SELECT user_id, amount FROM txn WHERE status = 'COMPLETED' AND amount > 100"
+NUMERICSQL = "SELECT txn_id, amount FROM txn WHERE amount > 100"
 ```
+
+`NUMERICSQL` exists for one case, API-037, and finding **API-F2** is why. `FILTERSQL` projects
+`user_id`, a `STRING`, and the code generator refuses a STRING projection
+(`PRV-3101  cannot generate a projection of STRING yet`), so `explain --level codegen` over it
+exercises the *fallback* — which is API-038's case — and can never demonstrate the happy path
+API-037 is written to pin. A second constant is the whole fix: the two cases then differ by the
+one thing they are about.
 
 `IN` holds exactly six rows:
 
@@ -523,7 +531,7 @@ text between the headers is byte-identical to API-035's body.
 numbers are part of the contract (`String.format("%4d  %s%n", …)`).
 **Falsifier:** unnumbered source, or numbering starting at 0.
 **Setup:** `H-CLI`.
-**Steps:** `pravaha explain --sql FILTERSQL --schema SCHEMA4 --level codegen >out.txt; echo $?`
+**Steps:** `pravaha explain --sql NUMERICSQL --schema SCHEMA4 --level codegen >out.txt; echo $?`
 **Expected:** exit `0`; line 1 is `Generated source`; line 2 begins with `   1  ` (three spaces, `1`,
 two spaces) and the numbers increase by one per line with no gaps; the body contains a Java class
 declaration named `ExplainStage`.
@@ -826,18 +834,25 @@ then repeat with `--params "u1,2e2"` and with `--params "u1,007"`.
 space after the comma) also works, because `coerce` is given `value.strip()`. Record whether a
 parameter intended as the string `"007"` can be sent at all — it cannot, and that is the finding.
 
-## API-062 — `query` against a view that does not exist exits 1 and lists every view
-**Intent:** two things at once: the exit code for an engine refusal, and the disclosure in
-`PRV-4023`'s message, which names every view this server serves regardless of who is asking.
+## API-062 — `query` against a view that does not exist exits 1 with `PRV-4023` and names nothing else
+**Intent:** two things at once: the exit code for an engine refusal, and that the refusal for a name
+this server does not serve is the **serving** layer's, whatever else is registered.
 **Falsifier:** exit 0 (the defect the brief names — a query that threw once printed `ok` and exited
-0), or a message that does not carry the PRV code.
+0); a message that does not carry the PRV code; `PRV-2002`, which is the SQL planner answering a
+question about a view; or a message that lists the views this server serves.
 **Setup:** `H-SRV` with `by_user` and `by_user_2` registered.
 **Steps:** `pravaha query --sql "SELECT * FROM nope" >out.txt 2>err.txt; echo $?`
 **Expected:** exit `1`; `out.txt` empty — in particular it contains no `0 rows` line, because the
-failure happens before iteration; `err.txt` carries
-`PRV-4023 … 'nope' is not a registered view; this server serves [by_user, by_user_2]`. Record the
-bracketed list: on `H-SRVA` the same message is served to any authenticated caller, which is the
-REST/Flight disclosure tracked at API-116 and API-180.
+failure happens before iteration; `err.txt` carries `PRV-4023` and the name `nope`, and **does not**
+contain `by_user`.
+
+**Corrected twice, and both corrections are findings.** The case originally expected the message to
+list every view this server serves; SX-5 removed that list, because it is the node's whole inventory
+handed to whoever mistypes a name. And it originally disagreed with API-152 about the code — API-152
+recorded that `PRV-4023` fired only over an empty catalogue and the planner's `PRV-2002` otherwise,
+which is what executing it showed and what finding **API-F6** recorded. L-3 then fixed the engine,
+not the case: the code no longer depends on whether some unrelated view happens to exist, and
+API-062's original `PRV-4023` is what a caller now gets.
 
 ## API-063 — `drop`, `pause` and `resume` print `dropped`, `pauseped` and `resumeped`
 **Intent:** `lifecycle` prints `Ansi.good(action + "ped ") + name`. `"drop" + "ped"` is correct by
@@ -2202,20 +2217,23 @@ six.
 batch would fail the batch-count column while a build that dropped the tail would fail the total —
 neither can pass by accident.
 
-## API-152 — an unknown view gives two different errors depending on whether anything is registered
-**Intent:** `ViewQuery.relFor` short-circuits to `PRV-4023` when the catalog is **empty**, and
-otherwise hands the SQL to the planner, which fails with `PRV-2002` and appends
-`. Known streams: [every view]`. Same mistake by the user, two codes, two Flight statuses, and one
-of them enumerates the catalogue.
-**Falsifier:** both cases producing the same code — which would be an improvement, and would retire
-half of this case.
+## API-152 — an unknown view gives one error whether or not anything else is registered
+**Intent:** a client branching on the Flight status must not see a different answer to the same
+mistake in two deployments.
+**Falsifier:** the two cases producing different codes or different statuses.
 **Setup:** (a) `H-FL` with its one view; (b) the same server built on an **empty** `ViewCatalog`.
 **Steps:** `client.execute("SELECT * FROM nope")` on each, and iterate the stream.
-**Expected:** (a) `CallStatus.INVALID_ARGUMENT`, description carrying `PRV-2002` and ending
-`. Known streams: [user_volume]`. (b) `CallStatus.NOT_FOUND` (PRV-4023), description
-`no views are registered, so there is nothing to query. A view is created by registering a
-continuous query that serves one.` Record both — a client branching on status alone sees a
-retryable-looking `NOT_FOUND` in one deployment and a terminal `INVALID_ARGUMENT` in the other.
+**Expected:** both `CallStatus.NOT_FOUND`, both carrying `PRV-4023`. (a) names `nope` and does not
+name `user_volume`; (b) says `no views are registered, so there is nothing to query. A view is
+created by registering a continuous query that serves one.`
+
+**This case's own falsifier came true, and it is the reason to keep it.** As written it recorded
+`ViewQuery.relFor` short-circuiting to `PRV-4023` only over an **empty** catalogue and handing the
+SQL to the planner otherwise, which answered `PRV-2002 … Known streams: [every view]` — same mistake
+by the user, two codes, two statuses, and one of them enumerating the catalogue. SX-5 removed the
+enumeration; finding **L-3** removed the divergence, after measuring the same split reached from the
+other side: a read racing a `drop` then `re-register` of one name got the planner's `PRV-2002`,
+3 times in 71,823 iterations, where a retry loop needed `PRV-4023`.
 
 ## API-153 — the statement path under authentication and authorization
 **Intent:** the same three principals against the read path, including the one whose access is

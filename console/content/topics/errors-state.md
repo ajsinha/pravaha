@@ -299,12 +299,18 @@ or the client is pointed at a different server than you think:
 pravaha queries --url grpc://localhost:9090
 ```
 
-In SQL, an unknown name in `FROM` is usually reported by the validator first as PRV-2002; this code is
-what the serving layer says on the paths that look a view up directly — `GET /api/v1/views/{name}`, a
-subscription, a point read. It is `NOT_FOUND` over Flight, `42P01` over the PostgreSQL gateway, and
-`404` over REST. A name you may not see answers exactly as a name that does not exist.
+A name this server does not serve, on every path that asks for one — a read, `GET
+/api/v1/views/{name}`, a subscription, a point read. It is `NOT_FOUND` over Flight, `42P01`
+undefined_table over the PostgreSQL gateway, and `404` over REST. A name you may not see answers
+exactly as a name that does not exist.
 
-<!-- sql: read-refused PRV-2002 -->
+It used to be this code only when the catalogue was **empty**, and the SQL validator's PRV-2002
+otherwise — so the code you got for one missing view depended on whether some unrelated view
+happened to be registered, and a read racing a `drop` and its `re-register` got an SQL-validation
+failure where a retry loop needed this (finding L-3). An unknown **column** of a view that does
+exist is still PRV-2002, which is the right code for it.
+
+<!-- sql: read-refused PRV-4023 -->
 ```sql
 SELECT * FROM hourly_spends
 ```

@@ -50,8 +50,18 @@ defensible on a loopback socket and nowhere else, because **authentication over 
 channel hands the bearer token to anyone on the path**. Setting one of the two without the other is
 refused, naming the missing half.
 
+**The pair is checked at startup, not at the first handshake.** A certificate and a key that are
+each individually valid and do not belong together used to start the node, which then reported
+`flight transport=TLS` while every client failed with `tlsv1 alert internal error` — on the client,
+with nothing in the server's log (SX-17). It is now `PRV-6104`, before anything binds, naming both
+paths. Giving the two files the wrong way round is the same refusal; it used to be a raw Java
+exception with no code.
+
 The node reports its transport at startup (`flight transport=TLS`), and advertises a `grpc+tls`
-location to clients when a certificate is configured.
+location to clients when a certificate is configured. **The address it advertises is the one it
+actually bound**: with `port: 0` — ask the operating system for a free port — it used to hand
+clients an endpoint at port `0`, and a TLS node used to advertise `grpc+tcp://` whatever it was
+serving (SX-16).
 
 ## The node: the PostgreSQL gateway
 

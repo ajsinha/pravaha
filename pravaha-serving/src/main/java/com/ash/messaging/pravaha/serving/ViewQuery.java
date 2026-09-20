@@ -47,6 +47,7 @@ import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityErrors;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
+import com.ash.messaging.pravaha.sql.SqlErrors;
 import com.ash.messaging.pravaha.sql.SqlPlanner;
 import com.ash.messaging.pravaha.sql.plan.BoundParameters;
 import com.ash.messaging.pravaha.sql.plan.ParameterMetadata;
@@ -207,7 +208,7 @@ public final class ViewQuery {
         // and the read was refused anyway.
         try {
             if (decision.rowFilter().isPresent()) {
-                plan = withRowFilter(plan, view, decision.rowFilter().get(), source);
+                plan = withRowFilter(plan, view, decision.rowFilter().get());
             }
             plan = authorizeProvenance(plan, view, principal, "query", sql);
         } catch (PravahaException refused) {
@@ -365,7 +366,48 @@ public final class ViewQuery {
                             + "registering a continuous query that serves one.");
         }
         StreamSchema[] schemas = catalog.schemas().values().toArray(new StreamSchema[0]);
-        return SqlPlanner.withStreams(schemas).plan(sql);
+        try {
+            return SqlPlanner.withStreams(schemas).plan(sql);
+        } catch (PravahaException e) {
+            throw aNameThisServerDoesNotServe(sql, e);
+        }
+    }
+
+    /**
+     * Turns the planner's "Object 'v1' not found" into this layer's own refusal (L-3).
+     *
+     * <p>The planner resolves names against a snapshot of the catalogue taken a moment earlier, so
+     * a read racing a {@code drop} then {@code register} of the same name can land in the gap: the
+     * view is momentarily in neither catalogue, and Calcite answers {@code PRV-2002 Object 'v1' not
+     * found} -- an <em>SQL</em> code, sending the reader to the SQL documentation -- where the
+     * serving layer's own {@code PRV-4023} is what the caller contracted for and the only answer a
+     * retry loop can act on. Measured at 3 of 71,823 reader iterations against 20 drop/re-register
+     * cycles, which is exactly the frequency that makes it expensive: too rare to reproduce on
+     * demand, common enough to happen in production.
+     *
+     * <p>Decided <em>after</em> the failure rather than by checking the catalogue before planning,
+     * because a check before planning has the same race one step earlier. Asked here, the question
+     * is "is this name a view <em>now</em>", and whatever the interleaving, the answer this returns
+     * is true when it is given.
+     *
+     * <p>Narrow on purpose. Only a validation failure is reconsidered, and only when the statement
+     * names a table this server does not currently serve -- so an unknown <em>column</em> of a real
+     * view keeps its `PRV-2002`, which is the right code for it.
+     */
+    private PravahaException aNameThisServerDoesNotServe(String sql, PravahaException failure) {
+        if (failure.errorCode().number() != SqlErrors.VALIDATION_FAILED.number()) {
+            return failure;
+        }
+        java.util.Optional<String> named;
+        try {
+            named = plannerForParsing().referencedTable(sql);
+        } catch (RuntimeException unparseable) {
+            return failure;
+        }
+        if (named.isEmpty() || catalog.find(named.get()).isPresent()) {
+            return failure;
+        }
+        return unknownView(named.get());
     }
 
     private static PhysicalOperator physicalOf(RelNode rel, BoundParameters parameters) {
@@ -460,7 +502,7 @@ public final class ViewQuery {
                                 + "follows the data a view reads, not the name it was registered under.");
             }
             if (decision.rowFilter().isPresent()) {
-                plan = withRowFilter(plan, view, decision.rowFilter().get(), view.name());
+                plan = withRowFilter(plan, view, decision.rowFilter().get());
             }
         }
         return plan;
@@ -596,7 +638,7 @@ public final class ViewQuery {
 
         PhysicalOperator plan = physicalOf(prepared.rel(), parameters);
         if (decision.rowFilter().isPresent()) {
-            plan = withRowFilter(plan, view, decision.rowFilter().get(), prepared.view());
+            plan = withRowFilter(plan, view, decision.rowFilter().get());
         }
         plan = authorizeProvenance(plan, view, principal, "query", prepared.sql());
         try (ReadAdmission.Lease lease = admission.acquire(principal)) {
@@ -667,13 +709,29 @@ public final class ViewQuery {
      * with the filter already applied, which is a different query with its own state (ADR-025's
      * fingerprint makes them different queries by construction).
      */
-    private PhysicalOperator withRowFilter(PhysicalOperator plan, ServedView view, String filterSql, String source) {
+    private PhysicalOperator withRowFilter(PhysicalOperator plan, ServedView view, String filterSql) {
         StreamSchema schema = view.schema();
         Predicate predicate;
         try {
             // Parsed against the view's own schema, so a filter naming a column the view does not
             // have fails here rather than being silently dropped.
-            RelNode filterPlan = SqlPlanner.withStreams(schema).plan("SELECT * FROM " + source + " WHERE " + filterSql);
+            //
+            // SX-13. The FROM clause names `schema.name()` and not `source`. They are the same
+            // string for a view read under the name it was registered with, and they differ when
+            // two principals' registrations share one computation by fingerprint (ADR-025): the
+            // shared view carries the *first* registration's name, and the second principal reads
+            // it under an alias of their own. Naming `source` here built a throwaway statement
+            // selecting from a table this one-entry catalogue does not contain, so a filtered read
+            // under the alias threw PRV-7003 wrapping "Object 'bob2_sales' not found" -- while the
+            // identical entitlement under the primary name returned its rows. It failed closed, so
+            // nobody saw data they should not have; what it broke is the promise SECURITY.md makes
+            // that sharing is invisible to the reader.
+            //
+            // The table name in this statement is scaffolding: the predicate that comes out of it
+            // is ordinals and values, and carries no name at all. Using the schema's own name
+            // makes the two halves agree by construction rather than by coincidence.
+            RelNode filterPlan =
+                    SqlPlanner.withStreams(schema).plan("SELECT * FROM " + schema.name() + " WHERE " + filterSql);
             predicate = predicateOf(new PhysicalPlanBuilder().build(filterPlan));
         } catch (PravahaException e) {
             throw new PravahaException(

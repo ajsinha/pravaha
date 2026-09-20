@@ -259,19 +259,22 @@ class PgWireSessionTest {
             Map<Character, String> fields =
                     PgTestClient.errorFields(PgTestClient.ofType(reply, 'E').get(0));
 
-            // PRV-2002, not PRV-4023, and that is the engine's answer rather than this gateway's:
-            // since SX-5 the validator refuses an unresolvable name before the serving layer is
-            // reached. The SQLSTATE is 42000 -- the class that covers "syntax error or access rule
-            // violation" -- and deliberately not 42P01 undefined_table, because PRV-2002 is also
-            // what an unknown *column* throws, and a confident "no such table" would send the user
-            // looking in the wrong place.
-            assertThat(fields).containsEntry('C', "42000");
+            // PRV-4023, the serving layer's own code, and so 42P01 undefined_table -- the
+            // SQLSTATE a psql user and every driver already know.
+            //
+            // This asserted PRV-2002 and the generic 42000 until finding L-3, because ViewQuery
+            // answered PRV-4023 only over an EMPTY catalogue and let the planner's SQL-validation
+            // failure through otherwise. The mapping in PgWireErrors was already right and was
+            // simply not being reached. Its reasoning still holds and is why the change is safe:
+            // PRV-2002 deliberately does NOT map to 42P01, because an unknown *column* throws it
+            // too and a confident "no such table" would send the user looking in the wrong place.
+            assertThat(fields).containsEntry('C', "42P01");
             assertThat(fields).containsEntry('S', "ERROR");
-            assertThat(fields.get('M')).startsWith("PRV-2002");
+            assertThat(fields.get('M')).startsWith("PRV-4023");
             assertThat(fields.get('M')).contains("no_such_view");
             // The code's name in the detail field, so a client that shows only the primary message
             // still lets a person copy something searchable out of the second line.
-            assertThat(fields).containsEntry('D', "SQL_VALIDATION_FAILED");
+            assertThat(fields).containsEntry('D', "SERVING_NO_SUCH_VIEW");
         }
     }
 

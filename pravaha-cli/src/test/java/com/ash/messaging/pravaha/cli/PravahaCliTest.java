@@ -257,6 +257,133 @@ class PravahaCliTest {
         assertThat(stdout()).contains("3 in, 1 out").contains("plan").contains("execute");
     }
 
+    /**
+     * API-F7. Against nothing listening, every one of the seven server commands failed with the
+     * bare stderr text {@code PRV-1041  io exception} — no host, no port, no scheme.
+     *
+     * <p>An operator debugging "why did my script print `io exception` and exit 1" had nothing to
+     * go on, not even whether the default endpoint had been used because {@code --url} went into a
+     * different flag. The transport's own text is true of any socket anywhere; the one thing this
+     * process knows and that message does not is where it was pointed.
+     */
+    @Test
+    void apiF7_aDeadServerRefusalNamesTheAddressItWasTalkingTo() {
+        int code = run("queries", "--url", "grpc://localhost:1");
+
+        assertThat(code).isNotZero();
+        assertThat(stderr()).contains("grpc://localhost:1").contains("--url");
+    }
+
+    /**
+     * API-F7's other half. {@code subscribe} wrote its success banner to <strong>stdout</strong>
+     * before the connection was known to have failed, so a caller reading stdout alone — or a
+     * pipeline consuming it — saw an apparent confirmation from a command that exited 1.
+     */
+    @Test
+    void apiF7_subscribeWritesNoSuccessBannerToStdoutWhenItCannotConnect() {
+        int code = run("subscribe", "--view", "anything", "--url", "grpc://localhost:1");
+
+        assertThat(code).isNotZero();
+        assertThat(stdout())
+                .as("stdout carries the rows; a note to a person belongs on stderr, and a note "
+                        + "about a connection that failed belongs nowhere")
+                .doesNotContain("subscribed to");
+    }
+
+    /**
+     * X-3 (round 1's Q-10). {@code --out-schema} is a second description of the output, and
+     * nothing compared it with the plan's real one.
+     *
+     * <p>The sink's decoder reads the engine's rows at the widths this string declares, so
+     * declaring two adjacent {@code INT32} columns as one {@code INT64} read eight bytes across
+     * both of them. Traced exactly: {@code 1,1} came back as {@code 4294967297}, and {@code -2,-2}
+     * as {@code -4294967298} in the first column and {@code 4294967294} in the second, the second
+     * read running past the row into unrelated bytes. No exception, no warning, exit 0, a full CSV
+     * of plausible numbers.
+     */
+    @Test
+    void x3_anOutSchemaThatIsNotThePlansOutputIsRefusedRatherThanReadingTheWrongBytes(@TempDir Path dir)
+            throws IOException {
+        Path input = dir.resolve("txn.csv");
+        Files.writeString(input, "1,alice,1,COMPLETED\n2,bob,-2,COMPLETED\n");
+        Path output = dir.resolve("out.csv");
+
+        // MOD over an INT64 column produces INT32 in this planner, so the true output is
+        // INT32,INT32 -- and declaring one INT64 used to read straight across the pair.
+        int code = run(
+                "run",
+                "--sql",
+                "SELECT MOD(amount, 3), MOD(amount, 3) FROM txn",
+                "--schema",
+                SCHEMA,
+                "--in",
+                input.toString(),
+                "--out",
+                output.toString(),
+                "--out-schema",
+                "a:INT64");
+
+        assertThat(code).isNotZero();
+        assertThat(stderr())
+                .contains("--out-schema declares 1 column(s) and this query produces 2")
+                .contains("Declare:");
+        assertThat(output)
+                .as("nothing is written for a run that cannot describe its own output")
+                .doesNotExist();
+    }
+
+    /** X-3's narrower half: the right number of columns at the wrong widths. */
+    @Test
+    void x3_anOutSchemaWithTheRightCountAndTheWrongWidthIsRefused(@TempDir Path dir) throws IOException {
+        Path input = dir.resolve("txn.csv");
+        Files.writeString(input, "1,alice,1,COMPLETED\n");
+        Path output = dir.resolve("out.csv");
+
+        int code = run(
+                "run",
+                "--sql",
+                "SELECT MOD(amount, 3), MOD(amount, 3) FROM txn",
+                "--schema",
+                SCHEMA,
+                "--in",
+                input.toString(),
+                "--out",
+                output.toString(),
+                "--out-schema",
+                "a:INT64,b:INT64");
+
+        assertThat(code).isNotZero();
+        assertThat(stderr())
+                .contains("--out-schema declares column 1")
+                .contains("INT64")
+                .contains("INT32")
+                .contains("reads across the next column");
+    }
+
+    /** X-3's control: the plan's own types are what the refusal names, and they run. */
+    @Test
+    void x3_theShapeTheRefusalNamesIsAcceptedAndCorrect(@TempDir Path dir) throws IOException {
+        Path input = dir.resolve("txn.csv");
+        Files.writeString(input, "1,alice,1,COMPLETED\n2,bob,-2,COMPLETED\n");
+        Path output = dir.resolve("out.csv");
+
+        int code = run(
+                "run",
+                "--sql",
+                "SELECT MOD(amount, 3), MOD(amount, 3) FROM txn",
+                "--schema",
+                SCHEMA,
+                "--in",
+                input.toString(),
+                "--out",
+                output.toString(),
+                "--out-schema",
+                "a:INT32,b:INT32");
+
+        assertThat(code).isZero();
+        assertThat(Files.readAllLines(output)).containsExactly("1,1", "-2,-2");
+    }
+
     @Test
     void aSecondRunReplacesTheOutputRatherThanAddingToIt(@TempDir Path dir) throws IOException {
         // The filesystem sink appends by default so a server restart keeps its output (HLP-2); a

@@ -122,6 +122,48 @@ class ConfigResolverTest {
                 .hasMessageContaining("PRV-1011");
     }
 
+    /**
+     * E-8. A long chain with no loop in it is not a circular reference, and must not be refused as
+     * one.
+     *
+     * <p>{@code MAX_DEPTH} was 32 and shared {@code PRV-1011} with the real cycle detector, so a
+     * genuine 34-deep acyclic chain came back naming a circular reference that did not exist —
+     * measured exactly at the time: 33 resolved, 34 did not — and the operator went looking for a
+     * loop. ERRC-004's own vacuity control, a 100-deep terminating chain written to prove the
+     * cycle check was not firing on everything, tripped it.
+     */
+    @Test
+    void e8_aLongAcyclicChainResolvesRatherThanBeingCalledCircular() {
+        assertThat(chainOf(34).requireString("k34"))
+                .as("34 deep: the depth this used to refuse")
+                .isEqualTo("bottom");
+        assertThat(chainOf(100).requireString("k100"))
+                .as("and ERRC-004's own 100-deep control")
+                .isEqualTo("bottom");
+    }
+
+    /** E-8's other half: past the backstop it refuses as depth, under a code of its own. */
+    @Test
+    void e8_pastTheBackstopItSaysDepthRatherThanCycle() {
+        assertThatThrownBy(() -> chainOf(400).requireString("k400"))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("PRV-1012")
+                .hasMessageContaining("This is depth, not a cycle")
+                .hasMessageNotContaining("circular reference:");
+    }
+
+    /** A chain {@code k0=bottom}, {@code k1=${k0}}, … {@code kN=${k(N-1)}} — long, and acyclic. */
+    private static Configuration chainOf(int depth) {
+        String[] pairs = new String[(depth + 1) * 2];
+        pairs[0] = "k0";
+        pairs[1] = "bottom";
+        for (int i = 1; i <= depth; i++) {
+            pairs[i * 2] = "k" + i;
+            pairs[i * 2 + 1] = "${k" + (i - 1) + "}";
+        }
+        return of(pairs);
+    }
+
     @Test
     void anUnclosedBraceIsMalformedRatherThanIgnored() {
         assertThatThrownBy(() -> of("a", "${unclosed"))

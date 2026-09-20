@@ -122,7 +122,15 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
             com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore.NONE;
 
     private final BufferAllocator allocator;
-    private final Location location;
+
+    /**
+     * The address handed to clients in every {@link FlightEndpoint} (SX-16). Not final: set again
+     * by {@link PravahaFlightServer} once the transport is up, because what is built here is the
+     * location the server was <em>asked</em> to bind -- and with {@code pravaha.flight.port: 0}
+     * that port is literally {@code 0}, so a client following the endpoint dialled a dead port.
+     */
+    private volatile Location location;
+
     private final FlightSqlMetadata metadata;
 
     public PravahaFlightSqlProducer(ViewCatalog catalog, BufferAllocator allocator, Location location) {
@@ -151,6 +159,17 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
         this.allocator = allocator;
         this.location = location;
         this.metadata = new FlightSqlMetadata(catalog, policy, allocator);
+    }
+
+    /**
+     * The address this producer hands to clients, once the transport has actually bound one.
+     *
+     * <p>SX-16. Called by {@link PravahaFlightServer} after {@code start()}, which is the first
+     * moment the real port and the real scheme are both known.
+     */
+    PravahaFlightSqlProducer servedFrom(Location bound) {
+        this.location = bound;
+        return this;
     }
 
     @Override
@@ -1467,6 +1486,35 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
     public void getStreamSqlInfo(
             FlightSql.CommandGetSqlInfo command, CallContext context, ServerStreamListener listener) {
         metadata.sqlInfo(command, listener);
+    }
+
+    /** The transaction verbs. See {@link FlightTransactions} for why they refuse (E-15). */
+    @Override
+    public void beginTransaction(
+            FlightSql.ActionBeginTransactionRequest request,
+            CallContext context,
+            StreamListener<FlightSql.ActionBeginTransactionResult> listener) {
+        listener.onError(FlightTransactions.notATransaction("beginTransaction"));
+    }
+
+    @Override
+    public void endTransaction(
+            FlightSql.ActionEndTransactionRequest request, CallContext context, StreamListener<Result> listener) {
+        listener.onError(FlightTransactions.notATransaction("endTransaction"));
+    }
+
+    @Override
+    public void beginSavepoint(
+            FlightSql.ActionBeginSavepointRequest request,
+            CallContext context,
+            StreamListener<FlightSql.ActionBeginSavepointResult> listener) {
+        listener.onError(FlightTransactions.notATransaction("beginSavepoint"));
+    }
+
+    @Override
+    public void endSavepoint(
+            FlightSql.ActionEndSavepointRequest request, CallContext context, StreamListener<Result> listener) {
+        listener.onError(FlightTransactions.notATransaction("endSavepoint"));
     }
 
     /** The views this server serves, for a client browsing the catalogue. */

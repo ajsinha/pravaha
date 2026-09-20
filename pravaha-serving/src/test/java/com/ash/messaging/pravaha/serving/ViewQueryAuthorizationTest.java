@@ -95,6 +95,39 @@ class ViewQueryAuthorizationTest {
                 .containsExactly("u1", "u4");
     }
 
+    /**
+     * SX-13. Two principals whose row filters are byte-identical share one computation by
+     * fingerprint (ADR-025), so the shared view carries the <em>first</em> registration's name and
+     * the second principal reads it under an alias registered for them.
+     *
+     * <p>A filtered read under that alias threw {@code PRV-7003} wrapping {@code PRV-2002 Object
+     * 'bob2_sales' not found}, while the identical entitlement under the primary name returned its
+     * rows. {@code withRowFilter} planned a throwaway {@code SELECT * FROM <alias> WHERE <filter>}
+     * against a one-entry catalogue holding the view's own schema, which is named after the
+     * primary registration — so the alias was a table that statement's catalogue did not contain.
+     * It failed closed, which is why this is not a disclosure; what it broke is the promise
+     * {@code docs/SECURITY.md} makes that sharing is invisible to the reader.
+     */
+    @Test
+    void sx13_aFilteredReadUnderAnAliasOfASharedViewReturnsTheSameRowsAsUnderItsPrimaryName() {
+        catalog.registerAs("bob2_sales", catalog.find("user_volume").orElseThrow());
+        ViewQuery queries = queryWith((principal, view) -> AccessDecision.allowWithRowFilter("tier = 'gold'"));
+
+        ViewQuery.Result underThePrimaryName = queries.execute("SELECT user_id FROM user_volume", ANALYST);
+        ViewQuery.Result underTheAlias = queries.execute("SELECT user_id FROM bob2_sales", ANALYST);
+
+        assertThat(underTheAlias.rows().stream()
+                        .map(row -> (String) row[0])
+                        .sorted()
+                        .toList())
+                .as("the alias answers what the primary name answers, filtered the same way")
+                .containsExactly("u1", "u4")
+                .isEqualTo(underThePrimaryName.rows().stream()
+                        .map(row -> (String) row[0])
+                        .sorted()
+                        .toList());
+    }
+
     @Test
     void aRowFilterCannotBeUndoneByTheCallersOwnWhereClause() {
         ViewQuery queries = queryWith((principal, view) -> AccessDecision.allowWithRowFilter("tier = 'gold'"));
@@ -259,7 +292,12 @@ class ViewQueryAuthorizationTest {
         assertThatThrownBy(() -> queries.execute("SELECT user_id FROM user_volumme", ANALYST))
                 .as("a typo by someone entitled to the data should say the object was not found")
                 .isInstanceOf(PravahaException.class)
-                .hasMessageContaining("PRV-2002");
+                // L-3: the serving layer's own code, not the planner's. It used to be PRV-2002,
+                // which sends a reader asking for a view to the SQL documentation -- and is the
+                // code a read racing a drop/re-register got, where PRV-4023 is the one a retry
+                // loop can act on.
+                .hasMessageContaining("PRV-4023")
+                .hasMessageContaining("user_volumme");
     }
 
     /** The {@code PRV-} code a refusal carries -- the part a caller can branch on. */

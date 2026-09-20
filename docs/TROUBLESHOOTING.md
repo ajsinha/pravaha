@@ -82,12 +82,21 @@ by a test, so it is true rather than aspirational.
 
 ### `PRV-4023` — "is not a registered view"
 
-The message names the views the server does serve. Usually one of: the registration was dropped, the
-name is misspelled, or you are pointed at a different server than you think.
+Usually one of: the registration was dropped, the name is misspelled, or you are pointed at a
+different server than you think. The message does **not** list the views the server does serve —
+that would hand the node's inventory to whoever mistypes a name (SX-5). Ask for the list the way it
+can be authorized:
 
 ```bash
 pravaha queries --url grpc://localhost:9090
 ```
+
+**This is the code whether or not other views exist.** It used to be `PRV-4023` only over an
+*empty* catalogue and the planner's `PRV-2002 Object '...' not found` otherwise, so the code you got
+for one missing view depended on whether some unrelated view happened to be registered. A read
+racing a `drop` and its `re-register` hit exactly that — the view is momentarily in neither
+catalogue — and came back with an SQL validation failure where a retry loop needed this (L-3). An
+unknown **column** of a view that does exist is still `PRV-2002`, which is the right code for it.
 
 ### `PRV-7001` vs `PRV-7002` — told apart deliberately
 
@@ -540,6 +549,7 @@ which is what these now are.
 | | |
 |---|---|
 | `PRV-1027` a key reached nothing | A key under `pravaha.streams`, `pravaha.sources`, `pravaha.lookups` or `pravaha.sinks` is in the file and is not in the map the server bound. Spring canonicalises a map key before binding it and **discards one it cannot** — a trailing space, a non-ASCII letter — with no message at any level, so the stream was in the file, absent from the catalog, and the first query against it said "Object not found. Known streams: [...]". Quote the key in brackets to bind it verbatim: `"[txnü]": {schema: "..."}`. Or rename it to letters, digits and hyphens (CFG-3) |
+| `PRV-1012` a reference chain too deep to walk | `${a}` referring to `${b}` referring to `${c}`, nested past 256 levels. A backstop against the stack, not a statement about configuration. **It used to be `PRV-1011` at 32 levels**, so a genuine 34-deep chain with no loop in it was refused as a circular reference that did not exist and the operator went looking for one (E-8). A cycle is still `PRV-1011` and still names the keys in it |
 | `PRV-1023` a duration with no unit | Spring reads a bare number on a duration key as **milliseconds**. `pravaha.checkpoint.interval: 2`, written meaning two seconds, produced 6,409 checkpoints in twenty seconds with nothing in the log naming the interval in force. Write the unit — `2s`, `500ms`, `1m` — or ISO-8601, `PT2S`. The engine's own duration parser has always refused a bare number for this reason; this is the same rule on the Spring side (CFG-15) |
 | `PRV-1026` a bound this value is outside | `pravaha.checkpoint.keep` below 1, or a non-positive `interval` or `timeout`. `keep: 0` used to start a healthy node that then refused **every** registration with "at least one checkpoint must be kept" — once per client, because the bound lived in the checkpointer's constructor and that runs per registration (CFG-16) |
 | `PRV-4093` the checkpoint directory is unusable | `pravaha.checkpoint.directory` names something that exists and is not a directory, a directory this process cannot write to, or a path whose parent does not exist. Pointing it at a CSV file used to log `checkpointing registered queries under .../txnA.csv` and then fail every registration (CFG-7) |
@@ -698,6 +708,7 @@ client models the error rather than an empty object.
 | `PRV-1002` | CONFIG_FILE_MALFORMED | config |
 | `PRV-1010` | CONFIG_UNRESOLVED_REFERENCE | config |
 | `PRV-1011` | CONFIG_CIRCULAR_REFERENCE | config |
+| `PRV-1012` | CONFIG_REFERENCE_TOO_DEEP | config |
 | `PRV-1020` | CONFIG_MISSING_REQUIRED | config |
 | `PRV-1021` | CONFIG_NOT_A_NUMBER | config |
 | `PRV-1022` | CONFIG_NOT_A_BOOLEAN | config |

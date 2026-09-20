@@ -99,6 +99,21 @@ property at all, so Spring's binder never sees the key. The credential is in the
 the verifier chain, and there is nothing in the process that can notice it is missing — the node
 does not warn, because it has never been told (CFG-10).
 
+### Two keys YAML will not hand over as you typed them
+
+The key **is the bearer credential**, so anything that happens to it between the file and the map
+changes who can authenticate. Both of these are refused at startup with `PRV-7004` rather than
+quietly repaired (SX-14):
+
+- **A bare `yes:`, `on:`, `y:` or their negatives.** YAML 1.1 reads them as booleans, so the key
+  binds as the word `true` and no client can present it — a node that starts, reports that it
+  authenticates, and authenticates nobody. Quote it: `"[yes]": {id: ...}`. Two of them in one table
+  collapse into one key and fail the whole file's load with a duplicate-key error naming neither
+  line; nothing here can catch that, because the file never loads.
+- **Leading or trailing whitespace.** Spring discards it while binding, so `" tok "` and `"tok"`
+  are one entry and one of the two credentials you wrote is gone. Whitespace *inside* a credential
+  is fine.
+
 A node with `authentication: token` and **no** entries does say so, at startup:
 
 ```text

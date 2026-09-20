@@ -83,13 +83,13 @@ unknown. See [Streams](/help/topics/streams), [Sources](/help/topics/sources-ove
 |---|---|---|
 | `pravaha.streams.<name>.schema` | — | The stream's columns, `name:TYPE,name:TYPE` (`?` after a type for nullable). It must match a source binding's own `schema` option for the same stream, and a disagreement is refused at startup: one is what queries are planned against and the other is what the plugin decodes with |
 | `pravaha.streams.<name>.event-time` | *none* | The column carrying each row's own time. **Without it no watermark advances, and a windowed query over the stream is refused with `PRV-2002`** |
-| `pravaha.streams.<name>.out-of-orderness` | `10s` | How late *this* stream's rows may be. The key that is actually read — see `pravaha.watermark.out-of-orderness` below |
+| `pravaha.streams.<name>.out-of-orderness` | `10s` | How late *this* stream's rows may be. Overrides `pravaha.watermark.out-of-orderness`. Needs `event-time`: declaring it without one is refused at startup, because lateness needs an event time to be about (T-6) |
 | `pravaha.streams.<name>.allowed-lateness` | `0s` | How long after a window closes a late row may still correct it (a `−1` and a `+1`). Needs `event-time`; non-zero makes windowed queries over the stream revise, so they need a sink that takes retractions (PRV-2041). See [late data](/help/topics/late-data) |
 | `pravaha.sources.<stream>.plugin` | — | The source plugin feeding the stream: `filesystem`, `feedfile`, `jdbc`, `delta`, `aerospike`, `cassandra`, `postgres-cdc`, `kafka` |
 | `pravaha.sources.<stream>.options.*` | — | That plugin's own options, passed to it untouched. **Note the `options:` nesting** — a key one level too high is not read |
 | `pravaha.lookups.<table>.plugin` | — | A dimension table for temporal joins: `jdbc-lookup` or `aerospike-lookup` |
 | `pravaha.lookups.<table>.options.*` | — | Its options |
-| `pravaha.sinks.<sink>.plugin` | — | A sink a query may write to by name: `filesystem`, `jdbc-sink`, `aerospike-sink`, `kafka-sink` |
+| `pravaha.sinks.<sink>.plugin` | — | A sink a query may write to by name: `filesystem`, `jdbc-sink`, `aerospike-sink`, `kafka-sink`, `delta-sink` |
 | `pravaha.sinks.<sink>.options.*` | — | Its options, including the `schema` the query's output must match (PRV-8010) |
 
 Each connector's options are on its own page: [filesystem](/help/topics/source-filesystem),
@@ -179,7 +179,7 @@ See [Cluster mode](/help/topics/cluster-mode).
 |---|---|---|
 | `pravaha.watermark.idle-after` | `30s` | How long a partition may produce nothing before it stops holding the watermark back. Too long freezes every window behind one quiet partition; too short closes windows early on a slow one |
 | `pravaha.watermark.tick` | `1s` | How often event time advances — also what makes idleness detectable at all |
-| `pravaha.watermark.out-of-orderness` | `10s` | **Not read by anything** (DOCX-6). Set lateness per stream with `pravaha.streams.<name>.out-of-orderness` instead. Kept in the file, marked, rather than silently removed |
+| `pravaha.watermark.out-of-orderness` | `10s` | The node's default lateness, applied to a stream that declares an event time and no `out-of-orderness` of its own. **Read by nothing until 2026-09-20** (DOCX-6); its default is the 10s a stream already took, so giving it a reader moved nothing that had not been set |
 
 See [Event time and watermarks](/help/topics/event-time-watermarks).
 

@@ -222,13 +222,15 @@ All of it is in [Checkpoints and recovery](/help/topics/checkpoints-recovery),
 |---|---|---|
 | `pravaha.watermark.idle-after` | `30s` | How long a partition may say nothing before it stops holding the watermark back. Refused outside 1s to 10m |
 | `pravaha.watermark.tick` | `1s` | How often event time advances — keep it finer than `idle-after` |
-| `pravaha.watermark.out-of-orderness` | `10s` | **Read by nothing.** The per-stream key is the one that works |
+| `pravaha.watermark.out-of-orderness` | `10s` | The node's default lateness; the per-stream key overrides it. Read by nothing until 2026-09-20 (DOCX-6) |
 
-!!! danger "Pitfall: `pravaha.watermark.out-of-orderness` changes no answer"
-    It ships in `application.yaml` and reads like the engine-wide lateness default. Nothing binds
-    it: four nodes over the same out-of-order data give identical views at `0s` and at `10m`
-    here, and different views under `pravaha.streams.<name>.out-of-orderness`. Set lateness per
-    stream — it is a property of the source. See [Event time and watermarks](/help/topics/event-time-watermarks).
+!!! note "`pravaha.watermark.out-of-orderness` used to change no answer"
+    It shipped in `application.yaml` reading like the engine-wide lateness default and nothing
+    bound it: four nodes over the same out-of-order data gave identical views at `0s` and at
+    `10m`, and different views under `pravaha.streams.<name>.out-of-orderness` (DOCX-6). It is
+    bound now. Prefer the per-stream key anyway where the streams differ — lateness is a property
+    of the source, and one number for three sources has to be wrong for two of them. See
+    [Event time and watermarks](/help/topics/event-time-watermarks).
 
 ### Clustering
 

@@ -264,6 +264,12 @@ pravaha:
         url: "jdbc:postgresql://db-1:5432/crm"
         table: public.customers
         watermark.column: updated_at
+        # What updated_at's numbers mean, so a row's event time can be built from them:
+        # none (the default), nanos, micros, millis, seconds. `none` says the column is a
+        # cursor and not a time, and rows then carry no event time -- so no window over this
+        # stream can close. The column used to be stamped raw, which made an epoch-millis
+        # column an event time out by a factor of a million, silently (T-5).
+        watermark.unit: millis
     prices:                              # an Aerospike set
       plugin: aerospike
       options:

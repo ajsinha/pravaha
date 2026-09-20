@@ -101,6 +101,47 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
      */
     private boolean watermarkMovesOnUpdate;
 
+    /**
+     * Nanoseconds per unit of the watermark column, or {@code 0} for "this column is a cursor and
+     * carries no event time" (finding T-5).
+     *
+     * <p>The reader used to stamp every row's event time with the watermark column's value, raw.
+     * That column is a monotone cursor and need not be a time at all; where it <em>is</em> one, it
+     * is in whatever unit the table keeps, while the engine counts nanoseconds (ADR-012). An
+     * {@code updated_at BIGINT} of epoch milliseconds therefore produced an event time out by a
+     * factor of a million -- a watermark stuck in 1970, windows that never close, and nothing
+     * anywhere saying so.
+     *
+     * <p><strong>Defaults to {@code none}, which is a behaviour change.</strong> A deployment
+     * whose watermark column really did hold epoch nanoseconds now has to say
+     * {@code watermark.unit: nanos}, and gets exactly what it had. Every other deployment was
+     * getting an event time that was wrong by a factor of 1,000 or 1,000,000, or was not a time at
+     * all, and now gets none -- which is what {@code feedfile} and {@code delta} already do for a
+     * stream that declares no event-time column (HLP-6). There is no unit this plugin can infer,
+     * and every guess is wrong for somebody.
+     */
+    private long watermarkUnitNanos;
+
+    /** Parses {@code watermark.unit}: nanos, micros, millis, seconds, or none. */
+    private static long watermarkUnitNanos(String instanceName, String configured) {
+        return switch (configured.strip().toLowerCase(java.util.Locale.ROOT)) {
+            case "none" -> 0L;
+            case "nanos", "nanoseconds" -> 1L;
+            case "micros", "microseconds" -> 1_000L;
+            case "millis", "milliseconds" -> 1_000_000L;
+            case "seconds" -> 1_000_000_000L;
+            default ->
+                throw new ConfigurationException(
+                        JdbcErrors.BAD_CONFIGURATION,
+                        "plugin '" + instanceName + "' watermark.unit is '" + configured
+                                + "'; it is one of none, nanos, micros, millis, seconds. It says what the "
+                                + "watermark column's numbers mean, so that a row's event time can be built "
+                                + "from them. 'none' -- the default -- says the column is a cursor and not a "
+                                + "time, and rows then carry no event time at all, so no window over this "
+                                + "stream can close.");
+        };
+    }
+
     private Connection connection;
     private StreamSchema schema;
 
@@ -137,6 +178,7 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
                             + "inserted (a sequence, a created_at), and never by an update.");
         }
         this.watermarkMovesOnUpdate = moves.equals("true");
+        this.watermarkUnitNanos = watermarkUnitNanos(instanceName, context.get("watermark.unit", "none"));
 
         String table = context.get("table", "");
         String query = context.get("query", "");
@@ -376,16 +418,17 @@ public final class JdbcSourcePlugin implements StreamSourcePlugin {
         List<String> selected = selectedColumns(request);
         String select = selected == null ? "*" : String.join(", ", selected);
         return new JdbcPartitionReader(
-                connection,
-                firstQueryWith(pushed, select),
-                resumeQueryWith(pushed, select),
-                schema,
-                watermarkColumn,
-                keyColumn,
-                fetchSize,
-                resumeFrom,
-                pushed.values(),
-                selected);
+                        connection,
+                        firstQueryWith(pushed, select),
+                        resumeQueryWith(pushed, select),
+                        schema,
+                        watermarkColumn,
+                        keyColumn,
+                        fetchSize,
+                        resumeFrom,
+                        pushed.values(),
+                        selected)
+                .readingWatermarkAs(watermarkUnitNanos);
     }
 
     /**

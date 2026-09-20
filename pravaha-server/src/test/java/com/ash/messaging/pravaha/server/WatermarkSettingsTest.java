@@ -222,4 +222,94 @@ class WatermarkSettingsTest {
                 .as("the good case is untouched")
                 .doesNotThrowAnyException();
     }
+
+    /**
+     * T-6, second half. {@code out-of-orderness} declared without {@code event-time} was read from
+     * the file and dropped on the floor.
+     *
+     * <p>{@code StreamCatalog.withEventTime} has always refused that combination by name — lateness
+     * needs an event time to be about — and {@code PravahaNode.withEventTime} returned early
+     * before reaching it, because its guard asked only about {@code event-time} and
+     * {@code allowed-lateness}. So the operator wrote a number, the node started, and nothing said
+     * the number had been discarded.
+     */
+    @Test
+    void t6_anOutOfOrdernessWithNoEventTimeIsRefusedRatherThanDropped() {
+        PravahaNode node = node(declared(
+                        Map.of("pravaha.streams.txn.schema", SCHEMA, "pravaha.streams.txn.out-of-orderness", "30s")))
+                .withNodeId("t6-no-event-time")
+                .build();
+
+        assertThatThrownBy(node::start)
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("stream 'txn'")
+                .hasMessageContaining("out-of-orderness")
+                .hasMessageContaining("no event-time column");
+    }
+
+    /**
+     * DOCX-6 / T-6, first half. {@code pravaha.watermark.out-of-orderness} is the node's default.
+     *
+     * <p>It shipped in {@code application.yaml} with a default of 10s, was documented in
+     * {@code CONCEPTS.md} and {@code OPERATIONS.md} and named in {@code StreamSchema}'s javadoc as
+     * the way a deployment moves this — and nothing read it. Proved by experiment rather than by
+     * grep: four nodes over one out-of-order fixture gave an identical view at {@code 0s} and at
+     * {@code 10m} here, while the per-stream key at {@code 0s} and {@code 10m} differed.
+     *
+     * <p>Its default is {@link StreamSchema#DEFAULT_OUT_OF_ORDERNESS}, the same 10s a schema
+     * already took, so giving it a reader changes nothing for a deployment that has not set it.
+     */
+    @Test
+    void docx6_theNodeWideOutOfOrdernessReachesAStreamThatDeclaresNoneOfItsOwn() {
+        StreamCatalog catalog = new StreamCatalog();
+        PravahaNode node = node(declared(
+                        Map.of("pravaha.streams.txn.schema", SCHEMA, "pravaha.streams.txn.event-time", "event_time")))
+                .withCatalog(catalog)
+                .defaultOutOfOrderness(Duration.ofMinutes(10))
+                .withNodeId("docx6-node-default")
+                .build();
+        node.start();
+        try {
+            assertThat(catalog.require("txn").outOfOrderness())
+                    .as("the key three documents describe now decides the answer")
+                    .isEqualTo(Duration.ofMinutes(10));
+        } finally {
+            node.stop();
+        }
+    }
+
+    /** DOCX-6's other half: the stream's own key still wins, and a node that sets nothing is 10s. */
+    @Test
+    void docx6_aStreamsOwnOutOfOrdernessOverridesTheNodeDefault() {
+        StreamCatalog overriddenCatalog = new StreamCatalog();
+        PravahaNode overridden = node(declared(Map.of(
+                        "pravaha.streams.txn.schema", SCHEMA,
+                        "pravaha.streams.txn.event-time", "event_time",
+                        "pravaha.streams.txn.out-of-orderness", "45s")))
+                .withCatalog(overriddenCatalog)
+                .defaultOutOfOrderness(Duration.ofMinutes(10))
+                .withNodeId("docx6-stream-wins")
+                .build();
+        overridden.start();
+        try {
+            assertThat(overriddenCatalog.require("txn").outOfOrderness()).isEqualTo(Duration.ofSeconds(45));
+        } finally {
+            overridden.stop();
+        }
+
+        StreamCatalog untouchedCatalog = new StreamCatalog();
+        PravahaNode untouched = node(declared(
+                        Map.of("pravaha.streams.txn.schema", SCHEMA, "pravaha.streams.txn.event-time", "event_time")))
+                .withCatalog(untouchedCatalog)
+                .withNodeId("docx6-untouched")
+                .build();
+        untouched.start();
+        try {
+            assertThat(untouchedCatalog.require("txn").outOfOrderness())
+                    .as("a deployment that sets neither sees what it always saw")
+                    .isEqualTo(StreamSchema.DEFAULT_OUT_OF_ORDERNESS);
+        } finally {
+            untouched.stop();
+        }
+    }
 }
