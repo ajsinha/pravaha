@@ -46,7 +46,7 @@ so probes and API browsers work without a credential. Everything else — includ
 | Setting | Default | Values and meaning |
 |---|---|---|
 | `pravaha.security.authentication` | `none` | `none`: every caller is the anonymous principal. `token`: every call must carry a token the node can verify. Anything else is refused at startup — a misspelling here would otherwise mean `none` |
-| `pravaha.security.tokens.*` | empty | The static token table: each key is a token, each value the identity it stands for (`id`, `tenant` — default `public` — and `roles`) |
+| `pravaha.security.tokens.*` | empty | The static token table: each key is a token, each value the identity it stands for (`id` — **required** — `tenant`, default `public`, and `roles`) |
 | `pravaha.security.policy` | `permissive` | What a principal may do — see [authorization](/help/topics/authorization) |
 | `pravaha.security.allow-anonymous` | `false` | The written acknowledgement that this node serves everything to unauthenticated callers. Required to start a node with `authentication: none` and `policy: permissive` |
 
@@ -74,6 +74,37 @@ PRV-7004  this node is configured to accept unauthenticated callers and serve th
 already admits everyone start. And the opposite contradiction is refused too: `policy: authenticated`
 with `authentication: none` is a node nobody can use (the policy serves only verified callers and
 nothing can verify one), so it stops with PRV-7004 as well.
+
+## Every token needs an `id`
+
+The map key under `pravaha.security.tokens` **is the bearer credential**. The `id` beside it used to
+be optional and to default to that key — so a node written as
+
+```yaml
+pravaha:
+  security:
+    tokens:
+      "s3cr3t-value": {}          # refused: no id
+```
+
+put the secret in two durable places nobody chose: the audit trail, and the registry journal at
+`pravaha.registry.journal`, as the owner of every query that principal registered, where it
+survives restarts and backups. The credential is correctly kept out of the startup log and out of
+`/actuator/env`, which made the journal the only leak and an easy one to miss. An entry without an
+`id` is now refused at startup with PRV-7004, and the refusal does not print the credential
+(CFG-11).
+
+Give every entry at least that one property for a second reason: `x: {}` in YAML flattens to no
+property at all, so Spring's binder never sees the key. The credential is in the file, absent from
+the verifier chain, and there is nothing in the process that can notice it is missing — the node
+does not warn, because it has never been told (CFG-10).
+
+A node with `authentication: token` and **no** entries does say so, at startup:
+
+```text
+pravaha.security.authentication=token with no entries under pravaha.security.tokens: this node can
+verify no credential and refuses every call with PRV-7001.
+```
 
 ## Worked example: a token-authenticated node
 

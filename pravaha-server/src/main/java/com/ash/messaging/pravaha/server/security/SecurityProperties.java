@@ -56,7 +56,11 @@ public class SecurityProperties {
     /** {@code none} or {@code token}. */
     private String authentication = "none";
 
-    /** {@code permissive} (everyone sees everything) or {@code authenticated} (only verified callers see anything). Anything else is refused at startup with PRV-7002. */
+    /**
+     * {@code permissive} (everyone sees everything) or {@code authenticated} (only verified callers
+     * see anything). Anything else is refused at startup with PRV-7004 -- {@link #validate()}, not
+     * {@code PRV-7002}, which this said and which is {@code SECURITY_FORBIDDEN}.
+     */
     private String policy = "permissive";
 
     /**
@@ -187,6 +191,19 @@ public class SecurityProperties {
         this.allowAnonymous = allowAnonymous;
     }
 
+    /**
+     * The credentials this node accepts, keyed by the bearer token itself.
+     *
+     * <p>Every entry needs an {@code id} (CFG-11): the key is the secret, and the id is what is
+     * written to the audit trail and durably to the registry journal.
+     *
+     * <p><strong>An entry must carry at least one property.</strong> {@code x: {}} in YAML flattens
+     * to no property at all, so Spring's binder never sees the key and this map never contains it
+     * -- the credential is in the file, absent from the verifier chain, and there is nothing any
+     * code in this process can look at to notice (CFG-10(a)). Requiring {@code id} is what removes
+     * the reason to write one: the entry that used to mean "use the map key as the id" is now the
+     * one entry that cannot be expressed, and the spelling that works is the spelling that is safe.
+     */
     public Map<String, TokenSpec> getTokens() {
         return tokens;
     }
@@ -195,9 +212,97 @@ public class SecurityProperties {
         this.tokens = tokens == null ? new LinkedHashMap<>() : tokens;
     }
 
+    /**
+     * Refuses an unusable value before anything is built on it.
+     *
+     * <p>CFG-21. Every one of these was already validated, and every refusal arrived from inside a
+     * bean the servlet container was building: {@code verifier()} is first reached from the
+     * {@code pravahaAuthentication} {@code FilterRegistrationBean}, and {@code policy} and
+     * {@code audit} from the node's own start, so an operator who wrote {@code authentication:
+     * tokens} read three lines about Tomcat failing to start and found the actual sentence -- which
+     * is a good one -- four {@code Caused by:} levels down. Nothing was wrong with the diagnosis;
+     * it was in the wrong place.
+     *
+     * <p>Here it fires while this properties object is being initialised, before any bean that
+     * depends on it exists, so the failure names {@code SecurityProperties} and the message is the
+     * first thing under it.
+     */
+    @jakarta.annotation.PostConstruct
+    public void validate() {
+        trimmedAuthentication();
+        trimmedPolicy();
+        trimmedAudit();
+        tokens.forEach((credential, spec) -> principalIdOf(credential, spec));
+    }
+
     /** Whether callers must present a credential. */
     public boolean authenticates() {
         return "token".equalsIgnoreCase(trimmedAuthentication());
+    }
+
+    /**
+     * The policy name, validated and lower-cased.
+     *
+     * <p>The refusal lives here rather than in the node so that {@link #validate()} can reach it:
+     * the node resolves the policy during {@code start()}, which is after the web server is up.
+     */
+    public String trimmedPolicy() {
+        String configured = policy == null ? "permissive" : policy.trim();
+        String canonical = configured.toLowerCase(java.util.Locale.ROOT);
+        if (!canonical.equals("permissive")
+                && !canonical.equals("authenticated")
+                && !canonical.equals("authenticated-only")) {
+            throw new com.ash.messaging.pravaha.api.PravahaException(
+                    com.ash.messaging.pravaha.security.SecurityErrors.MISCONFIGURED,
+                    "pravaha.security.policy is '" + configured + "', which is not a policy this node "
+                            + "knows. Use 'permissive' or 'authenticated', or implement SecurityPolicy "
+                            + "for rules of your own.");
+        }
+        return canonical;
+    }
+
+    /** The audit sink's name, validated and lower-cased. See {@link #trimmedPolicy()} for why here. */
+    public String trimmedAudit() {
+        String configured = audit == null ? "none" : audit.trim();
+        String canonical = configured.toLowerCase(java.util.Locale.ROOT);
+        if (!canonical.equals("none") && !canonical.equals("memory") && !canonical.equals("file")) {
+            throw new com.ash.messaging.pravaha.api.PravahaException(
+                    com.ash.messaging.pravaha.security.SecurityErrors.MISCONFIGURED,
+                    "pravaha.security.audit is '" + configured + "'; use 'none', 'memory' or 'file'. "
+                            + "'file' writes JSON Lines to pravaha.security.audit-file and is the only "
+                            + "one of the three that leaves a record anybody can read.");
+        }
+        return canonical;
+    }
+
+    /**
+     * The principal id for one entry of the token table, refusing an entry that has none.
+     *
+     * <p>CFG-11. This used to be {@code spec.getId() == null ? entry.getKey() : spec.getId()}, and
+     * the map key <em>is the bearer credential</em>. A deployment that wrote
+     * {@code pravaha.security.tokens.s3cr3t-value: {}} and registered a query put the secret in two
+     * durable places it did not choose: the audit trail, and the registry journal at
+     * {@code pravaha.registry.journal}, where it survives restarts and backups. The credential is
+     * correctly kept out of the startup log and out of {@code /actuator/env}, which made the
+     * journal the only leak and an easy one to miss.
+     *
+     * <p>Required rather than derived, because there is no id this class can invent that is not
+     * either the credential or a lie. It also removes the reason an operator would write an empty
+     * mapping under a token key -- see {@link #getTokens()}.
+     */
+    private static String principalIdOf(String credential, TokenSpec spec) {
+        String id = spec == null || spec.getId() == null ? "" : spec.getId().trim();
+        if (id.isEmpty()) {
+            throw new com.ash.messaging.pravaha.api.PravahaException(
+                    com.ash.messaging.pravaha.security.SecurityErrors.MISCONFIGURED,
+                    "a credential under pravaha.security.tokens has no id. The id names the principal in "
+                            + "the audit trail and, durably, in the registry journal as a query's owner -- and "
+                            + "the map key it would otherwise fall back to is the bearer token itself, so the "
+                            + "credential would be written to disk. Give every entry under "
+                            + "pravaha.security.tokens an id of its own; the credential this is about is "
+                            + credential.length() + " characters long and is deliberately not printed here.");
+        }
+        return id;
     }
 
     /**
@@ -208,7 +313,7 @@ public class SecurityProperties {
      * switched authentication on had switched nothing on. The neighbouring `policy` key trims and
      * refuses; this one did neither.
      */
-    private String trimmedAuthentication() {
+    public String trimmedAuthentication() {
         String value = authentication == null ? "none" : authentication.trim();
         if (!value.equalsIgnoreCase("none") && !value.equalsIgnoreCase("token")) {
             throw new IllegalArgumentException("pravaha.security.authentication is '" + authentication
@@ -262,8 +367,10 @@ public class SecurityProperties {
         StaticTokenVerifier verifier = null;
         for (Map.Entry<String, TokenSpec> entry : tokens.entrySet()) {
             TokenSpec spec = entry.getValue();
+            // CFG-11. Not `spec.getId() == null ? entry.getKey() : spec.getId()`: the map key is
+            // the bearer credential, and this id is written to the registry journal.
             Principal principal = new Principal(
-                    spec.getId() == null ? entry.getKey() : spec.getId(),
+                    principalIdOf(entry.getKey(), spec),
                     spec.getTenant(),
                     new LinkedHashSet<>(spec.getRoles()),
                     Map.of());
@@ -293,7 +400,7 @@ public class SecurityProperties {
         }
         for (Map.Entry<String, TokenSpec> entry : tokens.entrySet()) {
             TokenSpec spec = entry.getValue();
-            String configured = spec.getId() == null ? entry.getKey() : spec.getId();
+            String configured = principalIdOf(entry.getKey(), spec);
             if (id.equals(configured)) {
                 return java.util.Optional.of(
                         new Principal(configured, spec.getTenant(), new LinkedHashSet<>(spec.getRoles()), Map.of()));
@@ -305,7 +412,15 @@ public class SecurityProperties {
     /** One credential and the identity it stands for. */
     public static class TokenSpec {
 
+        /**
+         * Who this credential is, and required (CFG-11).
+         *
+         * <p>It used to default to the map key, which is the credential -- so a query registered
+         * with it wrote the secret into the registry journal as its owner, where it survives
+         * restarts and backups.
+         */
         private String id;
+
         private String tenant = "public";
         private Set<String> roles = new LinkedHashSet<>();
 

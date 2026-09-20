@@ -362,4 +362,113 @@ class ServerSecurityTest {
 
         assertThatThrownBy(() -> nodeWithFlight(security).start()).hasMessageContaining("authentication=none");
     }
+
+    @Test
+    void everySecurityNameIsRefusedWhileThePropertiesAreBuilt_CFG21() {
+        // CFG-21. All three of these were already validated, and every refusal arrived from inside
+        // a bean the servlet container was building: verifier() is first reached from the
+        // pravahaAuthentication FilterRegistrationBean, and policy and audit from the node's own
+        // start. An operator who wrote `authentication: tokens` read three lines about Tomcat
+        // failing to start, and the actual sentence -- an excellent one -- was four `Caused by:`
+        // levels down. Nothing was wrong with the diagnosis; it was in the wrong place. validate()
+        // is what Spring calls as this object is initialised, ahead of every bean that uses it.
+        // The placement IS the fix, so it is asserted rather than described: Spring runs this while
+        // the properties bean is being initialised, before any bean that depends on it is built.
+        assertThatCode(() -> assertThat(SecurityProperties.class
+                                .getMethod("validate")
+                                .isAnnotationPresent(jakarta.annotation.PostConstruct.class))
+                        .as("SecurityProperties.validate must run at bean initialisation")
+                        .isTrue())
+                .doesNotThrowAnyException();
+
+        SecurityProperties misspeltAuthentication = new SecurityProperties();
+        misspeltAuthentication.setAuthentication("tokens");
+        assertThatThrownBy(misspeltAuthentication::validate)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("pravaha.security.authentication")
+                .hasMessageContaining("'none' and 'token'");
+
+        SecurityProperties misspeltPolicy = new SecurityProperties();
+        misspeltPolicy.setPolicy("authenticated-onlyy");
+        assertThatThrownBy(misspeltPolicy::validate)
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-7004")
+                .hasMessageContaining("pravaha.security.policy");
+
+        SecurityProperties misspeltAudit = new SecurityProperties();
+        misspeltAudit.setAudit("files");
+        assertThatThrownBy(misspeltAudit::validate)
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-7004")
+                .hasMessageContaining("pravaha.security.audit");
+    }
+
+    @Test
+    void theSpellingsThatAreMeantToWorkStillValidate_CFG21() {
+        // V-control, including the trimmed forms: `"token "` is trimmed and genuinely MEANS token,
+        // and `authenticated-only` is a documented spelling of `authenticated`.
+        for (String[] pair : new String[][] {
+            {"none", "permissive", "none"},
+            {"token", "authenticated", "memory"},
+            {"  token  ", "authenticated-only", "file"},
+            {"TOKEN", "PERMISSIVE", "FILE"}
+        }) {
+            SecurityProperties security = new SecurityProperties();
+            security.setAuthentication(pair[0]);
+            security.setPolicy(pair[1]);
+            security.setAudit(pair[2]);
+            SecurityProperties.TokenSpec ann = new SecurityProperties.TokenSpec();
+            ann.setId("ann");
+            security.setTokens(Map.of("a-token", ann));
+            assertThatCode(security::validate)
+                    .as("authentication=%s policy=%s audit=%s", pair[0], pair[1], pair[2])
+                    .doesNotThrowAnyException();
+        }
+    }
+
+    @Test
+    void aCredentialWithNoIdIsRefusedRatherThanBecomingItsOwnPrincipalId_CFG11() {
+        // CFG-11. `spec.getId() == null ? entry.getKey() : spec.getId()` resolved the principal id,
+        // and the map key IS the bearer credential. A deployment that wrote
+        // pravaha.security.tokens.s3cr3t-value: {} and registered a query put the secret in two
+        // durable places it did not choose: the audit trail, and the registry journal file at
+        // pravaha.registry.journal, where it survives restarts and backups. The credential is
+        // correctly kept out of the startup log and out of /actuator/env, which made the journal
+        // the only leak and an easy one to miss.
+        SecurityProperties security = new SecurityProperties();
+        security.setAuthentication("token");
+        security.setTokens(Map.of("s3cr3t-value", new SecurityProperties.TokenSpec()));
+
+        assertThatThrownBy(security::validate)
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-7004")
+                .hasMessageContaining("pravaha.security.tokens")
+                .hasMessageContaining("registry journal")
+                // And the refusal must not print the credential it is about.
+                .hasMessageNotContaining("s3cr3t-value");
+
+        // Not only at validate(): the two paths that used to apply the fallback are the ones that
+        // wrote it to disk, so each refuses on its own.
+        assertThatThrownBy(security::verifier).isInstanceOf(PravahaException.class);
+        assertThatThrownBy(() -> security.principalFor("s3cr3t-value")).isInstanceOf(PravahaException.class);
+    }
+
+    @Test
+    void aCredentialWithAnIdIsUnaffected_CFG11() {
+        // V-control: the spelling the documentation now requires has to keep working end to end,
+        // including the recovery lookup that resolves a journalled owner back to a principal.
+        SecurityProperties security = new SecurityProperties();
+        security.setAuthentication("token");
+        SecurityProperties.TokenSpec ann = new SecurityProperties.TokenSpec();
+        ann.setId("ann");
+        ann.setTenant("acme");
+        security.setTokens(Map.of("s3cr3t-value", ann));
+
+        assertThatCode(security::validate).doesNotThrowAnyException();
+        assertThat(security.verifier().verify("s3cr3t-value").id()).isEqualTo("ann");
+        assertThat(security.principalFor("ann")).isPresent();
+        assertThat(security.principalFor("s3cr3t-value"))
+                .as("the credential is not an identity, and must not resolve as one")
+                .isEmpty();
+    }
 }
