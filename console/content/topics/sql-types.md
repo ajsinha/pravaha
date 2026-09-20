@@ -266,7 +266,7 @@ SELECT txn_id, CAST(amount AS DECIMAL(12, 2)) / 100 AS amount_major FROM txn
 before any type was read (TY-7). A declared decimal is carried through scans, filters and
 projections correctly; what is not built is arithmetic over it.
 
-A schema string that will not parse answers **`PRV-1027`**, a configuration code, and names both
+A schema string that will not parse answers **`PRV-1028`**, a configuration code, and names both
 places: `stream 'd', column 'amt': unknown type 'DECIMAL'`. It used to answer `PRV-5040` — the
 filesystem plugin's decode code — which made `POST /api/v1/streams` return `500` for a typo in the
 caller's own request (TY-8), and it named neither the stream nor the column (TY-9).

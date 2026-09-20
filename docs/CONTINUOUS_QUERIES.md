@@ -1734,7 +1734,7 @@ refusal went on listing `DECIMAL(p,s)` as supported. The split is paren-aware no
 is carried through scans, filters and projections correctly; what is still not built is arithmetic
 over it.
 
-**A schema string that will not parse is `PRV-1027`, and it names the stream and the column.** It
+**A schema string that will not parse is `PRV-1028`, and it names the stream and the column.** It
 was `PRV-5040`, the filesystem plugin's decode code, because that is where the parser lives — which
 put a caller's typo in the plugin series and made `POST /api/v1/streams` answer `500 the server is
 broken` to a request the caller could fix themselves (TY-8). It is a configuration code now, so the
@@ -1794,7 +1794,7 @@ as a JUnit test that compiles and passes.
 
 | Code | Means |
 |---|---|
-| `PRV-1027` | A `name:TYPE,name:TYPE` schema string that will not parse — an entry with no colon, or a type nothing knows. Names the stream and the column — §16 |
+| `PRV-1028` | A `name:TYPE,name:TYPE` schema string that will not parse — an entry with no colon, or a type nothing knows. Names the stream and the column — §16 |
 | `PRV-2001` | Syntax error, with Calcite's line and column preserved |
 | `PRV-2002` | Validation failed — an unknown column, a type mismatch |
 | `PRV-2003` | The query names a stream that is not registered |

@@ -763,7 +763,7 @@ class FilesystemPluginTest {
                 .isInstanceOf(ConfigurationException.class)
                 .satisfies(e -> {
                     ErrorCode code = ((ConfigurationException) e).errorCode();
-                    assertThat(code.code()).isEqualTo("PRV-1027");
+                    assertThat(code.code()).isEqualTo("PRV-1028");
                     assertThat(code.category()).isEqualTo(ErrorCode.Category.CONFIGURATION);
                 });
     }

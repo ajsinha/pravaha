@@ -53,7 +53,7 @@ final class DelimitedCodec {
      * because a plugin depends on {@code pravaha-api} and nothing else. The number is reserved
      * there in a comment so it cannot be handed out twice.
      */
-    static final ErrorCode SCHEMA_MALFORMED = new ErrorCode(1027, "CONFIG_SCHEMA_MALFORMED");
+    static final ErrorCode SCHEMA_MALFORMED = new ErrorCode(1028, "CONFIG_SCHEMA_MALFORMED");
 
     private final StreamSchema schema;
     private final char delimiter;

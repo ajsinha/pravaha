@@ -21,7 +21,7 @@ They are grouped here by who raises them:
 
 | Codes | Raised by | When |
 |---|---|---|
-| PRV-1001 – PRV-1027 | The engine's configuration library (`pravaha-common`), which the embedded engine and plugin options are read through | When a configuration is built — at start, not at first use |
+| PRV-1001 – PRV-1028 | The engine's configuration library (`pravaha-common`), which the embedded engine and plugin options are read through | When a configuration is built — at start, not at first use |
 | PRV-1030 – PRV-1044 | The Java and Python SDKs | Constructing a client, or talking to the node |
 | PRV-1050 – PRV-1052 | The REST API itself | A request whose body or parameters cannot be read, or that reached no endpoint at all |
 
@@ -150,7 +150,7 @@ pravaha:
 or rename it to letters, digits and hyphens. The same rule covers `pravaha.sources`,
 `pravaha.lookups` and `pravaha.sinks`.
 
-### PRV-1027 — CONFIG_SCHEMA_MALFORMED
+### PRV-1028 — CONFIG_SCHEMA_MALFORMED
 
 A `name:TYPE,name:TYPE` schema string that will not parse: an entry with no colon, or a type nothing
 knows. One grammar serves every surface that declares a stream's shape — `--schema`, `--out-schema`,
@@ -158,7 +158,7 @@ knows. One grammar serves every surface that declares a stream's shape — `--sc
 option — so this is the code for all of them.
 
 ```text
-PRV-1027  stream 'd', column 'amt': unknown type 'DECIMAL'. Supported: BOOLEAN, INT8, ...
+PRV-1028  stream 'd', column 'amt': unknown type 'DECIMAL'. Supported: BOOLEAN, INT8, ...
 ```
 
 The message names the **stream** and the **column**, which it did not before: an operator whose node

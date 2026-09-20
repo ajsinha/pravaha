@@ -196,7 +196,7 @@ class ContinuousQueriesClaimsTest {
         // TY-8 and TY-9: the code is a configuration one and the message names both places.
         assertThatThrownBy(() -> com.ash.messaging.pravaha.plugin.filesystem.FilesystemSourcePlugin.parseSchema(
                         "d", "id:INT64,amt:DECIMAL"))
-                .hasMessageContaining("PRV-1027")
+                .hasMessageContaining("PRV-1028")
                 .hasMessageContaining("stream 'd'")
                 .hasMessageContaining("column 'amt'");
         // TY-7's fix, which §16 used to describe as still broken.
@@ -207,8 +207,8 @@ class ContinuousQueriesClaimsTest {
 
         assertThat(continuousQueries())
                 .contains("**`DECIMAL(p,s)` can be declared through the schema string**")
-                .contains("**A schema string that will not parse is `PRV-1027`")
-                .contains("| `PRV-1027` |");
+                .contains("**A schema string that will not parse is `PRV-1028`")
+                .contains("| `PRV-1028` |");
     }
 
     @Test

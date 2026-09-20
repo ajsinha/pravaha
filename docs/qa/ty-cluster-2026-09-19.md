@@ -16,7 +16,7 @@ and unusable, which is a different problem and a smaller one.
 |---|---|---|
 | TY-4 | Reproduced, fixed (both halves) | `ExpressionCompiler.literal`, `ExpressionCompiler.caseWhen` |
 | TY-5 | Reproduced, fixed | `PredicateCompiler.nullCheck`, `Predicate.IsNullExpression` |
-| TY-8 | Reproduced, fixed | `DelimitedCodec.SCHEMA_MALFORMED` (`PRV-1027`) |
+| TY-8 | Reproduced, fixed | `DelimitedCodec.SCHEMA_MALFORMED` (`PRV-1028`) |
 | TY-9 | Reproduced, fixed | `FilesystemSourcePlugin.parseSchema` |
 | TY-10 | Reproduced, fixed | `TypeMapping.fromCalcite(type, columnName)` |
 | TY-14 | Reproduced, fixed | `PredicateCompiler.refuseIncomparableColumn` |
@@ -120,15 +120,17 @@ Restored, green.
 `PRV-5040 FILESYSTEM_DECODE_FAILED`. The handler derives its status from the code's *category*,
 which is the right design and is not what was wrong; the code was in the wrong series.
 
-**Fix.** `PRV-1027 CONFIG_SCHEMA_MALFORMED`. A schema string is configuration on every surface that
+**Fix.** `PRV-1028 CONFIG_SCHEMA_MALFORMED`. A schema string is configuration on every surface that
 writes one — `pravaha.streams.*.schema`, `--schema`, `--out-schema`, a plugin's `schema` option,
 the REST body — so it belongs in the 1xxx series and answers `400`. `PRV-5040` still means a line
 of data a file could not decode, and every site that raises it for that reason is untouched.
 
 The constant is declared in `DelimitedCodec` rather than `ConfigErrors`, with the number reserved
 in a comment there: a plugin depends on `pravaha-api` and nothing else, so it cannot see
-`pravaha-common`'s registry. 1027 rather than 1030 because 1030 is already
-`CLIENT_MALFORMED_ENDPOINT` in the Java SDK.
+`pravaha-common`'s registry. 1028 and not 1030, which is `CLIENT_MALFORMED_ENDPOINT` in the Java
+SDK; and not 1027 either, which the CFG cluster is taking for `CONFIG_KEY_UNREACHABLE` in the batch
+merging just ahead of this one. Renumbered on the lead's instruction before either landed, so
+neither has to move afterwards.
 
 **Test.** `FilesystemPluginTest.ty8_anUnparseableSchemaIsAConfigurationCodeAndNotAPluginOne` (the
 code and its category, at the parser every surface shares) and
@@ -372,6 +374,11 @@ That is a batch: it changes what the validator accepts, which is the widest blas
 layer, and every one of TY-24's sub-cases is already a clean coded refusal at exit 1. Half-building
 it — a custom table for two functions — would leave the operator table inconsistent with itself,
 which is worse than the message quality it would buy.
+
+**TY-24 therefore stays open in the register**, with the three prerequisites above as its scope.
+Endorsed by the lead on 2026-09-19. What is closed is the part that can be closed without the
+batch: the validator's own refusal now carries this engine's sentence, pinned by a test. What
+remains open is which refusal arrives first, and that cannot be settled one function at a time.
 
 **Test.** `TypeClusterTest.ty24_aRefusalCalciteMakesFirstStillSaysWhatThisEngineEvaluates`.
 

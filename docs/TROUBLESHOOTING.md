@@ -277,19 +277,19 @@ format.
 | Too many open files | One bound source costs about one descriptor. The node logs its descriptor ceiling at startup, and a source that fails to open near that ceiling gets a sentence naming `ulimit -n` and `LimitNOFILE`. Two codes still name the wrong thing when descriptors are the real cause: `PRV-5040 FILESYSTEM_DECODE_FAILED` (a decode code for a resource exhaustion) and `PRV-5080 AEROSPIKE_CONNECT_FAILED`, whose every suggested remedy is wrong in that case — the Aerospike client's exception carries no cause, so it cannot be told apart by catching it (SRC-4) |
 | Disk growing | **Not checkpoints, unless you configured it that way.** `PeriodicCheckpointer` prunes after every checkpoint, keeping the newest `pravaha.checkpoint.keep` (default 3) per query; this row used to say nothing called `prune`, and something does. Check `pravaha.checkpoint.keep`, and then the registry journal, which grows until it is compacted. See [`OPERATIONS.md`](OPERATIONS.md) |
 
-## `PRV-1027` — a schema string that will not parse
+## `PRV-1028` — a schema string that will not parse
 
 **The code moved, and the message grew two names (TY-8, TY-9).** A `name:TYPE,name:TYPE` schema
 string that will not parse used to answer `PRV-5040`, the filesystem plugin's decode code, because
 the parser for that grammar lives in that plugin. Two things were wrong with that. The HTTP API
 derives its status from the code's *category*, so `POST /api/v1/streams` with a misspelled type
-answered `500 Internal Server Error` for a mistake in the caller's own request body; `PRV-1027` is
+answered `500 Internal Server Error` for a mistake in the caller's own request body; `PRV-1028` is
 a configuration code, so the same request now answers `400`. And the message named neither the
 stream nor the column, so an operator whose node refused to start over `pravaha.streams.*.schema`
 had one sentence and every declared stream to check it against. It now reads:
 
 ```text
-PRV-1027  stream 'd', column 'amt': unknown type 'DECIMAL'. Supported: BOOLEAN, INT8, ...
+PRV-1028  stream 'd', column 'amt': unknown type 'DECIMAL'. Supported: BOOLEAN, INT8, ...
 ```
 
 **`DECIMAL(10,2)` is declarable** (TY-7, fixed). The grammar is split at commas at paren depth

@@ -105,7 +105,7 @@ column's type, the wrong number of fields — or the schema itself cannot be dec
 worth knowing because the message alone will not tell you:
 
 - **A schema string that will not parse is no longer this code.** It is
-  [`PRV-1027`](/help/topics/errors-config), a configuration code, so the REST API answers `400`
+  [`PRV-1028`](/help/topics/errors-config), a configuration code, so the REST API answers `400`
   rather than `500` to a caller who misspelled a type in their own request body (TY-8), and the
   message names the stream and the column (TY-9). `DECIMAL(10,2)` parses now, at every surface
   (TY-7).
