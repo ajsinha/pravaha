@@ -2413,16 +2413,32 @@ The architecture's job is to keep the second from ever touching the first.
 dispatch threads fan out. Lane cost is **O(1) in subscriber count** — one thousand subscribers cost
 a lane exactly what one does, and if that ever stops being true the whole design is compromised.
 
-**2. Encode once, write N times.** This is the decisive one. A batch is serialised to Arrow **once
-per query per tick**, and the same buffer is written to every subscriber's socket.
+**2. Stage once per query; serialise per socket.** This is the decisive one. A commit assembles
+its change log **once per query per tick**, whatever its audience, and every subscriber holds
+references into that one log rather than a copy of it. What a commit does per subscriber is filter
+those references into that subscriber's own bounded buffer and wake its delivery thread.
 
 ```
-   cost  =  O(queries × ticks)     encoding
-          + O(subscribers × ticks) socket writes   ← a memcpy, not a serialisation
+   cost  =  O(queries × ticks)     staging the change log, on the committing thread
+          + O(subscribers × ticks) a filter into a buffer, and a serialisation on the
+                                   subscriber's own thread for whatever it keeps up with
 ```
 
-Encoding per subscriber is the mistake that turns a thousand clients into an outage: a thousand
-subscribers at 20 Hz would be 20 000 serialisations a second instead of 20.
+Staging per subscriber is the mistake that would turn a thousand clients into an outage: a
+thousand change logs assembled from one commit, on the thread that committed it.
+
+The Arrow serialisation is **not** shared between sockets, and on the Flight carrier it cannot be:
+a batch reaches a client through its own `ServerStreamListener`, and Flight's server API has no
+call that hands an already-serialised record batch to a second one. An earlier revision of this
+section said "encode once, write N times" and no carrier has ever done that; a reader planned
+capacity from a sentence about a transport we would have had to write ourselves (STRM-4).
+
+What the measurement says, one query and 100 000 keys per run (`SubscriptionIngestCostTest`): with
+**in-process** subscribers the rate is flat from none to twenty — 680 474, 706 444, 759 380 and
+663 204 rows/s — so the engine's half of the rule holds. Over **Flight** the same ladder is
+536 768, 361 671, 225 963 and 130 656 rows/s. Everything that differs between them is the carrier.
+So a node's subscriber capacity is bounded by Arrow serialisation, and that bound is linear in
+subscriber count; the answer past it is rule 4 and hierarchical fan-out, not a larger node.
 
 **3. Event-loop I/O, never thread-per-connection.** Netty carries thousands of connections on a
 handful of threads. The control plane — validate, explain, register — runs on virtual threads
@@ -3976,7 +3992,7 @@ Condensed ADRs; each will be expanded in `docs/adr/` with full context and conse
 | **019** | Engine core is Spring-free; Spring Boot is a bootstrap layer above a plain-Java `PravahaEngine` seam | Spring throughout; no Spring anywhere; Quarkus/Micronaut | Keeps embeddability intact (a host on Boot 3.2 cannot be forced to 3.5), keeps `pravaha dev` under 1 s, and keeps proxies off the hot path — while the server still inherits Boot's config, actuator, security and packaging for free (§22.1) |
 | **020** | Ship a `pravaha-spring-boot-starter` with `@PravahaListener` and `PravahaTemplate` | Documentation only; a bare `PravahaEngine` bean | Lets a team add continuous SQL to a service they already run, in the idiom they already use. Modelled on `@KafkaListener` so the mental model transfers (§22.4) |
 | **022** | The console is a flagship product surface with its own design system, built as a continuous workstream from Phase 3 | A late control-plane admin UI; CLI-only; a thin metrics page | For most users the console *is* the product, and W10 (the time-travel debugger) exists nowhere else. A polished UI cannot be produced in one late phase, so it is resourced with a dedicated frontend engineer and shipped alongside each engine capability (§23.1) |
-| **026** | One subscription model behind three carriers: gRPC, WebSocket and SSE; encode once, write N times | gRPC only with a grpc-web proxy; per-carrier subscription semantics; JSON rows per message | A browser cannot speak gRPC natively and the console is a browser application; WebSocket over 443 also crosses corporate networks that block gRPC. Defining semantics once and letting carriers move bytes avoids three subtly different behaviours. Encoding per subscriber rather than per query is what turns a thousand clients into an outage (§20.3a, §20.3b) |
+| **026** | One subscription model behind three carriers: gRPC, WebSocket and SSE; stage once per query, serialise per socket | gRPC only with a grpc-web proxy; per-carrier subscription semantics; JSON rows per message; sharing the serialised batch between sockets | A browser cannot speak gRPC natively and the console is a browser application; WebSocket over 443 also crosses corporate networks that block gRPC. Defining semantics once and letting carriers move bytes avoids three subtly different behaviours. Staging per subscriber rather than per query is what would turn a thousand clients into an outage (§20.3a, §20.3b); sharing the serialised batch is not on offer, because Flight's server API cannot hand one to a second listener (STRM-4) |
 | **025** | Registration and subscription are separate objects; sharing is by canonical fingerprint, never by SQL text | Connection-scoped queries like a SQL cursor; text-hash deduplication; no sharing at all | A continuous query outlives the connection that created it, so binding the two would stop a production query when a laptop closed. Text-hash sharing leaks data across security contexts: identical SQL under different row-level filters is not the same query. The fingerprint includes the effective security predicates for exactly that reason (§11.7, §11.8) |
 | **024** | The console is a separate Python FastAPI process, built on the published Python SDK | A Java/Spring console in the same artefact; a React SPA served by the engine | A different runtime makes the API boundary unviolable rather than test-enforced, and building the console on the published SDK turns the integration story from an assertion into a continuously-exercised proof. Costs two runtimes and the one-jar onboarding path, both stated in §23.2a |
 | **023** | The console uses only the public API — no privileged endpoints | A privileged internal API for the console | For a proprietary engine the API *is* the product surface, so a console-first API produces a second-class integration story. Superseded on packaging by ADR-024, which makes the separation physical rather than test-enforced (§23.2a) |

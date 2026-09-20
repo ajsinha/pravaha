@@ -181,13 +181,20 @@ for work that blocks; a lane never does. True core affinity needs a native call 
 expose, so it is left to `taskset`, `numactl` or an affinity library in the host — the lane exposes
 its thread so a deployment can apply one. Claiming the JVM pins threads would not be true.
 
-**A thousand subscribers is a serialisation problem, not a thread problem.** The load-bearing rule
-is *encode once, write N times* (design §20.3b): a batch is encoded to Arrow once per query per
-tick, and the same buffer is written to every subscriber socket. Twenty queries and a thousand
-subscribers cost 20 serialisations a second and a thousand buffer copies — not a thousand
-serialisations. And a lane never sees a subscriber: it writes to a conflating, drop-oldest tap ring
-and returns, so **lane cost is O(1) in subscriber count**. A slow browser can never backpressure a
-production query; it conflates and reports `dropped_count`, or it is disconnected.
+**A thousand subscribers is a serialisation problem, not a thread problem — and the serialisation
+is the bound.** The rule is *stage once, serialise per socket*
+([ADR-026](adr/026-one-subscription-model-three-carriers.md), design §20.3b): a commit assembles
+its change log **once per query**, whatever its audience, and every subscriber holds references
+into that one log. Measured, twenty in-process subscribers cost a query's ingest nothing measurable
+against none; twenty over Flight cost it about four fifths, and every difference between the two is
+the carrier — a `VectorSchemaRoot` per subscription and a serialisation of every batch on its own
+call thread (`SubscriptionIngestCostTest`). Flight's server API offers no way to hand an
+already-serialised record batch to a second listener, so **a node's subscriber capacity is bounded
+by Arrow serialisation and the bound is linear in subscriber count**; past it the answer is
+hierarchical fan-out, not a larger node. A lane, meanwhile, never sees a subscriber: it writes to a
+conflating, drop-oldest tap ring and returns, so **lane cost is O(1) in subscriber count**. A slow
+browser can never backpressure a production query; it falls behind in its own buffer and conflates,
+reports `dropped_count`, or is disconnected (STRM-4, STRM-8).
 
 ## Ten thousand queries on one node
 

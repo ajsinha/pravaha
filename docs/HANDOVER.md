@@ -664,8 +664,9 @@ Made late in the session, so they may not be reflected everywhere yet:
 - **ADR-025:** registration and subscription are separate objects; sharing is by canonical
   fingerprint including *security predicates*, never by SQL text — text-hash sharing leaks data
   across security contexts.
-- **ADR-026:** one subscription model behind three carriers (gRPC, WebSocket, SSE); **encode once,
-  write N times**.
+- **ADR-026:** one subscription model behind three carriers (gRPC, WebSocket, SSE); **stage once
+  per query, serialise per socket**. It read "encode once, write N times" until STRM-4: no carrier
+  has ever shared a serialised batch between sockets, and the Flight server API offers no way to.
 - **Licensing is proprietary**, wholly owned. Not Apache 2.0 — an earlier revision proposed that and
   design §30.4 was rewritten rather than word-swapped.
 
