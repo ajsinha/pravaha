@@ -165,6 +165,13 @@ public class PravahaNode implements SmartLifecycle {
     /** The debugger's bounds, pravaha.debug.* (ADR-048). */
     private final Configuration debugConfiguration;
 
+    /**
+     * Kept whole, not only unpacked, so {@link PersistenceProperties#validate()} can be run from
+     * {@link #startNow()} as well as by Spring (CFG-7, CFG-16). A node built through
+     * {@link Builder} -- every test, and the embedded case -- never reaches a {@code @PostConstruct}.
+     */
+    private final PersistenceProperties persistence;
+
     private volatile ClusterCoordinator coordinator;
     private volatile boolean running;
 
@@ -410,6 +417,7 @@ public class PravahaNode implements SmartLifecycle {
         this.flightEnabled = flightEnabled;
         this.flightHost = flightHost;
         this.flightPort = flightPort;
+        this.persistence = persistence;
         this.journalPath = persistence.journalPath();
         this.dlqPath = persistence.dlqPath();
         this.dlqRetention = persistence.dlqRetention();
@@ -490,6 +498,41 @@ public class PravahaNode implements SmartLifecycle {
     }
 
     /**
+     * Refuses a Flight host or port that cannot mean what it says.
+     *
+     * <p>CFG-2. Two shapes, both of which used to arrive somewhere other than where an operator
+     * would look. {@code pravaha.flight.port: 70000} failed inside gRPC's own argument check, so
+     * the one bind failure that is purely a configuration mistake was the one with no {@code PRV-}
+     * code and no key in it, while every other bind failure on the same key carries {@code
+     * PRV-3010}. {@code pravaha.flight.host: 127} is accepted by {@code InetAddress} as 0.0.0.127
+     * and fails with "Cannot assign requested address", saying nothing about the reinterpretation
+     * -- and if the machine happened to hold that address it would have bound it silently.
+     *
+     * <p>Port zero is deliberately allowed: it is what a test wants, {@link #flightPort()} exists
+     * for it, and {@code GET /api/v1/status} now serves the port that was bound.
+     */
+    private void refuseUnusableFlightEndpoint() {
+        if (!flightEnabled) {
+            return;
+        }
+        if (flightPort < 0 || flightPort > 65535) {
+            throw new PravahaException(
+                    com.ash.messaging.pravaha.runtime.RuntimeErrors.LANE_FAILED,
+                    "pravaha.flight.port is " + flightPort + ", and a TCP port is 0 to 65535. Set "
+                            + "pravaha.flight.port to a free port, or to 0 to let the operating system choose "
+                            + "one -- which GET /api/v1/status then reports as 'flight'.");
+        }
+        if (com.ash.messaging.pravaha.common.net.Endpoint.isAbbreviatedIpv4(flightHost)) {
+            throw new PravahaException(
+                    com.ash.messaging.pravaha.runtime.RuntimeErrors.LANE_FAILED,
+                    "pravaha.flight.host is '" + flightHost + "', which is read as "
+                            + com.ash.messaging.pravaha.common.net.Endpoint.expandedIpv4(flightHost)
+                            + " and is almost certainly not the address you meant. Write the address in "
+                            + "full (127.0.0.1), or 0.0.0.0 for every interface, or a hostname.");
+        }
+    }
+
+    /**
      * Puts configured stream schemas in the catalog, before the registry is built from it.
      *
      * <p>The registry takes a snapshot of the catalog's schemas when it is constructed, so a stream
@@ -560,18 +603,11 @@ public class PravahaNode implements SmartLifecycle {
     }
 
     private SecurityPolicy securityPolicy() {
-        String configured = security.getPolicy() == null
-                ? "permissive"
-                : security.getPolicy().trim();
-        return switch (configured.toLowerCase(java.util.Locale.ROOT)) {
+        // CFG-21. The name is validated by SecurityProperties, which is where the refusal has to
+        // live for an operator to meet it before Tomcat's own startup failure buries it.
+        return switch (security.trimmedPolicy()) {
             case "permissive" -> SecurityPolicy.PERMISSIVE;
-            case "authenticated", "authenticated-only" -> new AuthenticatedOnlyPolicy(security.getAuditReaders());
-            default ->
-                throw new PravahaException(
-                        SecurityErrors.MISCONFIGURED,
-                        "pravaha.security.policy is '" + configured + "', which is not a policy this node "
-                                + "knows. Use 'permissive' or 'authenticated', or implement SecurityPolicy "
-                                + "for rules of your own.");
+            default -> new AuthenticatedOnlyPolicy(security.getAuditReaders());
         };
     }
 
@@ -595,22 +631,16 @@ public class PravahaNode implements SmartLifecycle {
      * fix; the cache below is what makes sharing safe to ask for before {@link #start()}.
      */
     AuditSink auditSink() {
-        String configured =
-                security.getAudit() == null ? "none" : security.getAudit().trim();
-        return switch (configured.toLowerCase(java.util.Locale.ROOT)) {
-            case "none" -> AuditSink.NONE;
+        // CFG-21. Validated by SecurityProperties, so an unknown name is refused while the
+        // properties bean is initialising rather than four Caused-by levels under Tomcat.
+        return switch (security.trimmedAudit()) {
             case "memory" -> audit == null ? (audit = readable(memorySink(), "memory")) : audit;
             // CFG-23. The setting that produces a trail an operator can read after the fact, and
             // the reason it is a file: an endpoint listing who-read-what is a disclosure surface
             // needing an authorization this codebase's policy SPI cannot express, while a file's
             // readers are already decided by the operating system. See FileAuditSink.
             case "file" -> audit == null ? (audit = readable(fileSink(), "file")) : audit;
-            default ->
-                throw new PravahaException(
-                        SecurityErrors.MISCONFIGURED,
-                        "pravaha.security.audit is '" + configured + "'; use 'none', 'memory' or 'file'. "
-                                + "'file' writes JSON Lines to pravaha.security.audit-file and is the only "
-                                + "one of the three that leaves a record anybody can read.");
+            default -> AuditSink.NONE;
         };
     }
 
@@ -753,6 +783,14 @@ public class PravahaNode implements SmartLifecycle {
         if (running) {
             return;
         }
+        // CFG-2(a)/(d). Before the coordinator, because the member this node advertises carries the
+        // Flight host and port, and a cluster that forms around an address nobody can reach is
+        // worse than a node that refused to start.
+        refuseUnusableFlightEndpoint();
+        // CFG-7/CFG-16. Spring runs this as this properties bean is initialised; a node built
+        // through the builder never reaches that, and an unusable checkpoint path or `keep: 0`
+        // would come back as every registration failing on a node reporting itself healthy.
+        persistence.validate();
         coordinator = CoordinatorFactory.create(clusterConfiguration);
         // S-3. After the factory, so PARTITIONED on a mechanism that cannot exclude split-brain keeps
         // its more specific diagnosis; before start, so a refused node never joins the cluster.
@@ -760,8 +798,12 @@ public class PravahaNode implements SmartLifecycle {
         // Advertised on the Flight port: that is the address other nodes would have to reach this
         // one on, and advertising an address nobody can connect to is a cluster that forms and
         // cannot work.
-        coordinator.start(new com.ash.messaging.pravaha.cluster.Member(nodeId, flightHost, flightPort));
-        log.info("{}", CoordinatorFactory.describe(clusterConfiguration, coordinator));
+        com.ash.messaging.pravaha.cluster.Member self =
+                new com.ash.messaging.pravaha.cluster.Member(nodeId, flightHost, flightPort);
+        coordinator.start(self);
+        // CFG-1: naming the member, because pravaha.node.id decides which state this node may claim
+        // and which id it advertises, and until now it reached one served field and no log line.
+        log.info("{}", CoordinatorFactory.describe(clusterConfiguration, coordinator, self));
 
         refuseAccidentalOpenServer();
         registerDeclaredStreams();
@@ -773,7 +815,20 @@ public class PravahaNode implements SmartLifecycle {
         // The knobs eleven error messages have been telling operators to turn (PF-3). Nothing on this
         // path ever called executingWith, so every query on every node ran with the library's sizes
         // -- chosen for one high-throughput query, and paid for by each of a thousand small ones.
-        registry.executingWith(lanes.toLaneConfig(), com.ash.messaging.pravaha.common.memory.MemoryAccess.best());
+        com.ash.messaging.pravaha.common.memory.MemoryAccess memory =
+                com.ash.messaging.pravaha.common.memory.MemoryAccess.best();
+        registry.executingWith(lanes.toLaneConfig(), memory);
+        // CFG-22. -Dpravaha.memory and -Dpravaha.ffm were the two settings that chose an
+        // implementation and recorded the choice nowhere: a deployment setting -Dpravaha.ffm=true
+        // in its launcher, or upgrading a JDK expecting the switch to take effect, had no way to
+        // find out what it was running. All four selections give byte-identical results, so this
+        // line is about knowing, not about correctness.
+        log.info(
+                "off-heap access: {} (-D{}, -D{}={})",
+                memory.name(),
+                com.ash.messaging.pravaha.common.memory.MemoryAccess.IMPL_PROPERTY,
+                com.ash.messaging.pravaha.common.memory.MemoryAccess.FFM_PROPERTY,
+                Boolean.getBoolean(com.ash.messaging.pravaha.common.memory.MemoryAccess.FFM_PROPERTY));
         // W9-8. The registry could host queries on shared lanes and no node ever asked it to.
         registry.multiplexingLanes(
                 lanes.getMultiplex().effectiveLanes(), lanes.getMultiplex().getMaxQueriesPerLane());
@@ -823,7 +878,19 @@ public class PravahaNode implements SmartLifecycle {
                 path -> {
                     claimState(path, "checkpoint directory");
                     registry.checkpointingTo(path, checkpointConfiguration);
-                    log.info("checkpointing registered queries under {}", path);
+                    // CFG-15. The interval in force, said once, at startup. PeriodicCheckpointer's
+                    // own "checkpointing every {}ms" line did not appear in any of six measured
+                    // runs, so a node checkpointing every two MILLISECONDS -- which is what a bare
+                    // `interval: 2` binds to -- looked exactly like one checkpointing every two
+                    // seconds until somebody counted files. Rendered as a Duration, not as a
+                    // number, because the number is the thing that was ambiguous.
+                    log.info(
+                            "checkpointing registered queries under {} every {}, keeping the newest {}, "
+                                    + "timing out at {}",
+                            path,
+                            persistence.getCheckpoint().getInterval(),
+                            persistence.getCheckpoint().getKeep(),
+                            persistence.getCheckpoint().getTimeout());
                 },
                 () -> log.warn("pravaha.checkpoint.directory is not set, so registered queries keep no "
                         + "checkpoints: a restart recovers their definitions from the journal and none of "
@@ -998,7 +1065,13 @@ public class PravahaNode implements SmartLifecycle {
                 server.encryptedWith(tlsCertificate, tlsKey);
             }
             flight = server.start(flightHost, flightPort);
-            log.info("Flight SQL listening on {}:{}", flightHost, flight.port());
+            // CFG-2(b)/(c). The bound port, not the configured one -- with `port: 0` those differ
+            // and the second is the only one a client can use -- and the address bracketed, so an
+            // IPv6 node does not log `::1:9090`, which nothing can parse back into a host and a
+            // port. The same string is served at GET /api/v1/status.
+            log.info(
+                    "Flight SQL listening on {} (pravaha.flight.host, pravaha.flight.port)",
+                    com.ash.messaging.pravaha.common.net.Endpoint.address(flightHost, flight.port()));
         } else {
             log.info("Flight SQL disabled (pravaha.flight.enabled=false); this node serves HTTP only");
         }
@@ -1113,6 +1186,21 @@ public class PravahaNode implements SmartLifecycle {
         return flight == null ? Optional.empty() : Optional.of(flight.port());
     }
 
+    /**
+     * The address a client connects Flight on, bracketed for IPv6; empty when Flight is disabled.
+     *
+     * <p>CFG-2(b). {@code pravaha.flight.port: 0} binds an ephemeral port correctly and <em>no
+     * served surface reported it</em>: {@code GET /api/v1/status} had no port field, and
+     * {@code /actuator/health}'s components are suppressed by the shipped {@code show-details:
+     * when-authorized} on a node with {@code authentication: none}. A client told to connect had
+     * nowhere to look.
+     */
+    public Optional<String> flightAddress() {
+        return flight == null
+                ? Optional.empty()
+                : Optional.of(com.ash.messaging.pravaha.common.net.Endpoint.address(flightHost, flight.port()));
+    }
+
     /** The port the PostgreSQL wire gateway is listening on; empty when it is not enabled. */
     public Optional<Integer> pgwirePort() {
         return pgwire == null ? Optional.empty() : Optional.of(pgwire.port());
@@ -1187,7 +1275,7 @@ public class PravahaNode implements SmartLifecycle {
                         + (coordinator == null
                                 ? "not started"
                                 : coordinator.guarantees().name()),
-                "flight: " + (flight == null ? "disabled" : flightHost + ":" + flight.port()),
+                "flight: " + flightAddress().orElse("disabled"),
                 "registry: " + (registry == null ? "not started" : registry.size() + " queries"),
                 laneSharing(),
                 "journal: " + journalPath.map(Path::toString).orElse("none (queries are lost on restart)"));

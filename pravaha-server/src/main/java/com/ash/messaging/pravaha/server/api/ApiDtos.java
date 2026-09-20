@@ -396,6 +396,10 @@ public final class ApiDtos {
      * @param stoppedFeeds how many registered names have a source that stopped mid-read and is not
      *     retried (FEED-1). A count and not names: this endpoint answers anyone who can reach the
      *     port, and which queries exist is the listing's to decide
+     * @param flight where Flight SQL is listening, {@code host:port} with an IPv6 host bracketed,
+     *     or {@code "disabled"}. CFG-2(b): {@code pravaha.flight.port: 0} binds an ephemeral port
+     *     and nothing served it, so a client told to connect had nowhere to look -- the log line on
+     *     the node is not reachable from the client that needs the number
      */
     public record NodeStatus(
             String instanceId,
@@ -405,10 +409,41 @@ public final class ApiDtos {
             int registeredQueries,
             List<PluginStatus> plugins,
             int streams,
-            int stoppedFeeds) {}
+            int stoppedFeeds,
+            String flight) {}
 
     public record PluginStatus(String name, String version, String health, String detail) {}
 
-    /** The standard error body. Every non-2xx response is one of these and nothing else. */
-    public record ApiError(String code, String message, String helpUrl, Instant timestamp, String path) {}
+    /**
+     * The standard error body. Every non-2xx response is one of these and nothing else.
+     *
+     * <p>CFG-20. The published document described {@code components.schemas.ApiError} with
+     * <strong>zero properties</strong>, so a generated client modelled every error as an empty
+     * object and none of the five fields was discoverable -- on the one schema a client is
+     * guaranteed to meet. Each component is described here rather than in prose somewhere else,
+     * because the document is what an integrator reads.
+     */
+    @io.swagger.v3.oas.annotations.media.Schema(
+            name = "ApiError",
+            description = "The one error shape this API returns. Every non-2xx response is one of these.")
+    public record ApiError(
+            @io.swagger.v3.oas.annotations.media.Schema(
+                    description = "The stable PRV- code. Look it up in docs/TROUBLESHOOTING.md.",
+                    example = "PRV-2003")
+            String code,
+
+            @io.swagger.v3.oas.annotations.media.Schema(description = "What went wrong, and what to do about it.")
+            String message,
+
+            @io.swagger.v3.oas.annotations.media.Schema(
+                    description = "Documentation for this code, or empty when there is none.")
+            String helpUrl,
+
+            @io.swagger.v3.oas.annotations.media.Schema(description = "When the node produced this answer.")
+            Instant timestamp,
+
+            @io.swagger.v3.oas.annotations.media.Schema(
+                    description = "The request path this is about.",
+                    example = "/api/v1/streams")
+            String path) {}
 }

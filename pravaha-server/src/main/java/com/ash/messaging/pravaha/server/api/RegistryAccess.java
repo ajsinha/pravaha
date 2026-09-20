@@ -50,9 +50,16 @@ public class RegistryAccess {
     private final Supplier<Optional<PluginSourceFeeds>> sources;
     private final AuditSink audit;
 
+    /**
+     * Where Flight is listening, as a client would write it; empty when Flight is off or the node
+     * has not started. CFG-2(b): with {@code pravaha.flight.port: 0} the bound port is the only one
+     * that can be connected to, and no served surface carried it.
+     */
+    private final Supplier<Optional<String>> flightAddress;
+
     @Autowired
     public RegistryAccess(PravahaNode node, AuditSink audit) {
-        this(node::registry, node::sinks, node::sources, audit);
+        this(node::registry, node::sinks, node::sources, node::flightAddress, audit);
     }
 
     /** For a test, or anything else holding a registry directly. */
@@ -66,6 +73,7 @@ public class RegistryAccess {
                 () -> Optional.ofNullable(registry),
                 () -> Optional.ofNullable(sinks),
                 () -> Optional.ofNullable(sources),
+                Optional::empty,
                 audit);
     }
 
@@ -73,11 +81,18 @@ public class RegistryAccess {
             Supplier<Optional<QueryRegistry>> registry,
             Supplier<Optional<PluginSinks>> sinks,
             Supplier<Optional<PluginSourceFeeds>> sources,
+            Supplier<Optional<String>> flightAddress,
             AuditSink audit) {
         this.registry = registry;
         this.sinks = sinks;
         this.sources = sources;
+        this.flightAddress = flightAddress;
         this.audit = audit == null ? AuditSink.NONE : audit;
+    }
+
+    /** Where Flight is listening; empty when it is disabled or the node has not started. */
+    public Optional<String> flightAddress() {
+        return flightAddress.get();
     }
 
     public Optional<QueryRegistry> registry() {

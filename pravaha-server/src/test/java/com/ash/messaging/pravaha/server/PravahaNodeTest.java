@@ -205,6 +205,73 @@ class PravahaNodeTest {
         }
     }
 
+    /** A node whose Flight endpoint is exactly what the caller asked for, however wrong. */
+    private static PravahaNode nodeOn(String host, int port) {
+        return PravahaNode.builder()
+                .withCatalog(catalog())
+                .withSecurity(openServer())
+                .withWatermark(java.time.Duration.ofSeconds(30), java.time.Duration.ofSeconds(1))
+                .withFlight(true, host, port)
+                .withPersistence(persistence(""))
+                .withNodeId("endpoint-node")
+                .build();
+    }
+
+    @Test
+    void aFlightPortOutsideTheRangeIsRefusedByNameWithACode_CFG2() {
+        // CFG-2(a). `port: 70000` failed inside gRPC's own argument check -- `IllegalArgumentException:
+        // port out of range:70000`, no PRV code, no key -- so the one bind failure that is purely a
+        // configuration mistake was the only one on this key without PRV-3010 in it.
+        assertThatThrownBy(() -> nodeOn("127.0.0.1", 70000).start())
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-3010")
+                .hasMessageContaining("pravaha.flight.port")
+                .hasMessageContaining("70000");
+    }
+
+    @Test
+    void aFlightHostThatWillBeReadAsAnotherAddressIsRefused_CFG2() {
+        // CFG-2(d). `host: 127` is legal input to InetAddress and means 0.0.0.127. The bind then
+        // fails with "Cannot assign requested address", which is true and tells the operator
+        // nothing about the value having been reinterpreted.
+        assertThatThrownBy(() -> nodeOn("127", 0).start())
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-3010")
+                .hasMessageContaining("pravaha.flight.host")
+                .hasMessageContaining("0.0.0.127")
+                .hasMessageContaining("127.0.0.1");
+    }
+
+    @Test
+    void anEphemeralFlightPortIsReadableFromTheNode_CFG2() {
+        // CFG-2(b). `port: 0` binds correctly and NO served surface reported the port: status had
+        // no field for it and /actuator/health's components are suppressed by the shipped
+        // show-details: when-authorized. A client told to connect had nowhere to look.
+        PravahaNode node = nodeOn("127.0.0.1", 0);
+        try {
+            node.start();
+
+            assertThat(node.flightPort()).isPresent();
+            assertThat(node.flightAddress())
+                    .contains("127.0.0.1:" + node.flightPort().orElseThrow());
+            assertThat(node.describe()).anyMatch(line -> line.startsWith("flight: 127.0.0.1:"));
+        } finally {
+            node.stop();
+        }
+    }
+
+    @Test
+    void aNodeWithFlightOffReportsNoAddressRatherThanAMisleadingOne_CFG2() {
+        PravahaNode node = nodeWithoutFlight();
+        try {
+            node.start();
+
+            assertThat(node.flightAddress()).isEmpty();
+        } finally {
+            node.stop();
+        }
+    }
+
     @Test
     void stoppingTwiceIsHarmless(@TempDir Path directory) throws Exception {
         Path journal = directory.resolve("registry.journal");

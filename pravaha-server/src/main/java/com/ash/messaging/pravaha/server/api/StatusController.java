@@ -78,7 +78,12 @@ public class StatusController {
                 registry.registry().map(r -> r.names().size()).orElse(0),
                 plugins,
                 catalog.size(),
-                registry.registry().map(StatusController::stoppedFeeds).orElse(0));
+                registry.registry().map(StatusController::stoppedFeeds).orElse(0),
+                // CFG-2(b). The port that was BOUND, which with pravaha.flight.port: 0 is the only
+                // one a client can use and was reported on no served surface: this endpoint had no
+                // port field and /actuator/health's components are suppressed by the shipped
+                // show-details: when-authorized on a node with authentication: none.
+                registry.flightAddress().orElse("disabled"));
     }
 
     /**
@@ -147,6 +152,8 @@ public class StatusController {
                                 + "GET /api/v1/queries names them, with the code.",
                 status.stoppedFeeds() == 0 ? "ok" : "bad");
         row(html, "Streams", String.valueOf(status.streams()), "");
+        // The address a client connects on, on the page somebody reads when nothing else works.
+        row(html, "Flight SQL", status.flight(), status.flight().equals("disabled") ? "warn" : "ok");
 
         html.append("</table>");
         if (status.plugins().isEmpty()) {
