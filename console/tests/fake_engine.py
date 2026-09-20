@@ -43,6 +43,25 @@ pravaha_query_running{query="hot"} 1.0
 pravaha_query_subscribers{query="big_txn"} 3.0
 pravaha_query_checkpoint_last_success_timestamp_seconds{query="big_txn"} NaN
 pravaha_query_checkpoint_failures_total{query="big_txn"} 0.0
+pravaha_query_backpressure_waits_total{query="big_txn"} 0.0
+pravaha_query_backpressure_wait_seconds_total{query="big_txn"} 0.0
+pravaha_query_backpressure_blocked_fraction{query="big_txn"} 0.01
+pravaha_query_inbox_depth{query="big_txn"} 12.0
+pravaha_query_inbox_cells{query="big_txn"} 2048.0
+pravaha_query_backpressure_waits_total{query="hot"} 41.0
+pravaha_query_backpressure_wait_seconds_total{query="hot"} 312.5
+pravaha_query_backpressure_blocked_fraction{query="hot"} 0.92
+pravaha_query_inbox_depth{query="hot"} 2040.0
+pravaha_query_inbox_cells{query="hot"} 2048.0
+pravaha_lane_blocked_fraction{lane="0"} 0.92
+pravaha_lane_inbox_depth{lane="0"} 2040.0
+pravaha_lane_shared_queries{lane="0"} 2.0
+pravaha_lane_blocked_fraction{lane="1"} 0.03
+pravaha_lane_inbox_depth{lane="1"} 4.0
+pravaha_lane_shared_queries{lane="1"} 1.0
+pravaha_lane_own_queries 1.0
+pravaha_lane_shared_bytes 2097152.0
+pravaha_metrics_operators_enabled 1.0
 jvm_memory_used_bytes{area="heap",id="G1 Eden Space"} 1048576.0
 jvm_memory_max_bytes{area="heap",id="G1 Old Gen"} 4194304.0
 process_uptime_seconds 42.5
@@ -113,6 +132,21 @@ class FakeEngine:
         self.plans: dict[str, dict] = {}
         #: Registered queries whose running plan the policy will not show, by name, with the reason.
         self.plan_refused: dict[str, str] = {}
+        #: B6. Whether this node was started with pravaha.metrics.operators on. The real default
+        #: is off (it costs about 8 %); the fake's is on, because a screen that draws the numbers
+        #: is the one worth auditing, and a test that wants the other answer sets this to False.
+        self.operator_metrics = True
+        #: Each query's share of the sampled self time, by plan node id. Without an entry the
+        #: share is spread evenly, which is a plan with no operator standing out.
+        self.operator_shares: dict[str, dict[str, float]] = {
+            "hot": {"n0": 0.86, "n1": 0.07, "n2": 0.07},
+        }
+        #: B9/ADR-046. Blue/green replacements by the name being replaced, as the engine's
+        #: status reports them. Empty by default: the screenshots are of an engine with nothing
+        #: being replaced, and a test that wants one calls :meth:`start_replacement`.
+        self.replacements_by_name: dict[str, dict] = {}
+        #: Every replacement call the console made, as (action, name, argument).
+        self.replacement_calls: list[tuple] = []
         self.plugins_list = [
             {"name": "filesystem", "version": "0.1.0", "requiredApiVersion": "0.1.0", "compatible": True,
              "loaded": True, "kinds": ["sink", "source"],
@@ -406,8 +440,153 @@ class FakeEngine:
             raise EngineHttpError(403, f"console may not read the plan of '{name}': {self.plan_refused[name]}",
                                   "PRV-7002")
         sql = next(q.sql for q in self._queries if q.name == name)
-        return dict(self.plan_for(sql), query={"rowsIn": 1200, "stateHeld": 3, "stateCeiling": 100,
-                                               "viewSize": 17, "watermark": None, "subscribers": 2})
+        graph = self.plan_for(sql)
+        # B6. What the engine measures for the query as a whole, backpressure included.
+        telemetry = {"rowsIn": 1200, "stateHeld": 3, "stateCeiling": 100, "viewSize": 17,
+                     "watermark": None, "subscribers": 2,
+                     "backpressureWaits": 41 if name == "hot" else 0,
+                     "backpressureWaitSeconds": 312.5 if name == "hot" else 0.0,
+                     "blockedFraction": 0.92 if name == "hot" else 0.01,
+                     "inboxDepth": 2040 if name == "hot" else 12, "inboxCells": 2048}
+        if not self.operator_metrics:
+            # A node started with pravaha.metrics.operators off: the counters were never built
+            # into the stages, which is a different answer from every one of them reading zero.
+            return dict(graph, operatorMetrics=None, bottleneck=None,
+                        metricsNote=NOTE_OPERATORS_OFF, query=telemetry)
+        measured, bottleneck = _operator_metrics(graph["nodes"], self.operator_shares.get(name))
+        return dict(graph, operatorMetrics=measured, bottleneck=bottleneck,
+                    metricsNote=NOTE_MEASURED, query=telemetry)
+
+    # -------------------------------------------- blue/green replacement (ADR-046, B9)
+
+    def _replacement_or_refuse(self, name: str) -> dict:
+        """The replacement of ``name``, or the engine's refusal -- policy first, then 404.
+
+        The policy is checked before the lookup, as the engine's is: whether this identity
+        may administer the name does not depend on whether a replacement happens to exist.
+        """
+        if name in self.administer_refused:
+            raise EngineHttpError(
+                403, f"console may not administer '{name}': {self.administer_refused[name]}",
+                "PRV-7002")
+        found = self.replacements_by_name.get(name)
+        if found is None:
+            raise EngineHttpError(404, f"'{name}' is not being replaced", "PRV-4017")
+        return found
+
+    def start_replacement(self, name, sql, keys, *, backfill=None, rate_limit=None,
+                          cutover=None, rollback_retention=None):
+        self._check()
+        if name in self.administer_refused:
+            raise EngineHttpError(
+                403, f"console may not administer '{name}': {self.administer_refused[name]}",
+                "PRV-7002")
+        options = ";".join(
+            part for part in (f"backfill={backfill}" if backfill else "",
+                              f"backfill.rate.limit={rate_limit}" if rate_limit else "",
+                              f"cutover={cutover}" if cutover else "",
+                              f"rollback.retention={rollback_retention}" if rollback_retention else "")
+            if part)
+        self.replacement_calls.append(("start", name, sql))
+        made = {
+            "name": name, "state": "BACKFILLING", "sql": sql, "candidate": "newfp",
+            "replacing": next((q.fingerprint for q in self._queries if q.name == name), None),
+            "sink": None, "options": options, "owner": "console",
+            "startedAt": "2026-09-19T09:00:00Z", "cutOverAt": None, "rollbackUntil": None,
+            "rollbackAvailable": False,
+            "backfill": {"historyRows": 0, "liveRows": 0, "rowsPerSecond": 0.0, "partitions": 4,
+                         "partitionsLive": 0, "historyComplete": False,
+                         "rateLimit": int(rate_limit or 0), "paused": False, "lagSeconds": None},
+            "history": None, "failure": None,
+        }
+        self.replacements_by_name[name] = made
+        return dict(made)
+
+    def replacement(self, name):
+        self._check()
+        if name in self.administer_refused and name not in self.replacements_by_name:
+            # A reader still sees the screen; the engine only withholds what it authorizes.
+            return None
+        found = self.replacements_by_name.get(name)
+        return dict(found) if found is not None else None
+
+    def replacements(self):
+        self._check()
+        return [dict(r) for r in self.replacements_by_name.values()]
+
+    def cut_over(self, name):
+        self._check()
+        found = self._replacement_or_refuse(name)
+        if not found["backfill"]["historyComplete"]:
+            raise EngineHttpError(
+                409, f"'{name}' has not caught up: the two versions are not at the same position "
+                     "in their input, and a cutover there would leave records in neither",
+                "PRV-4014")
+        self.replacement_calls.append(("cutover", name, None))
+        found.update(state="CUT_OVER", cutOverAt="2026-09-19T09:30:00Z",
+                     rollbackUntil="2026-09-19T15:30:00Z", rollbackAvailable=True)
+        return dict(found)
+
+    def roll_back(self, name):
+        self._check()
+        found = self._replacement_or_refuse(name)
+        if not found["rollbackAvailable"]:
+            raise EngineHttpError(
+                409, f"the version '{name}' replaced is no longer retained, so there is nothing "
+                     "to roll back to", "PRV-4016")
+        self.replacement_calls.append(("rollback", name, None))
+        found.update(state="ROLLED_BACK", rollbackAvailable=False)
+        return dict(found)
+
+    def finish_replacement(self, name):
+        self._check()
+        found = self._replacement_or_refuse(name)
+        self.replacement_calls.append(("finish", name, None))
+        found.update(state="FINISHED", rollbackAvailable=False, rollbackUntil=None)
+        return dict(found)
+
+    def abandon_replacement(self, name):
+        self._check()
+        found = self._replacement_or_refuse(name)
+        self.replacement_calls.append(("abandon", name, None))
+        found.update(state="ABANDONED")
+        return dict(found)
+
+    def throttle_backfill(self, name, records_per_second):
+        self._check()
+        found = self._replacement_or_refuse(name)
+        # Recorded before the ceiling is checked: what the console *sent* is the thing a test
+        # about "the console does not clamp the number it was given" has to be able to see.
+        self.replacement_calls.append(("throttle", name, records_per_second))
+        ceiling = found["backfill"]["rateLimit"]
+        if ceiling and records_per_second > ceiling:
+            raise EngineHttpError(
+                409, f"the backfill of '{name}' started with a ceiling of {ceiling} records a "
+                     "second and may be slowed, not sped up", "PRV-4018")
+        found["backfill"]["rateLimit"] = records_per_second
+        return dict(found)
+
+    def pause_backfill(self, name):
+        self._check()
+        found = self._replacement_or_refuse(name)
+        self.replacement_calls.append(("pause", name, None))
+        found["backfill"]["paused"] = True
+        return dict(found)
+
+    def resume_backfill(self, name):
+        self._check()
+        found = self._replacement_or_refuse(name)
+        self.replacement_calls.append(("resume", name, None))
+        found["backfill"]["paused"] = False
+        return dict(found)
+
+    def backfill_progress(self, name: str, **numbers) -> dict:
+        """Moves a replacement's backfill on, as the engine reading history would."""
+        found = self.replacements_by_name[name]
+        found["backfill"].update(numbers)
+        if found["backfill"]["historyComplete"]:
+            found["state"] = "CAUGHT_UP"
+        return found
 
     def describe_view(self, name):
         self._check()
@@ -500,6 +679,24 @@ def _audit_events() -> list[dict]:
 AUDIT_EVENTS = _audit_events()
 
 
+#: The three answers ``GET /api/v1/queries/{name}/plan`` gives about per-operator numbers,
+#: word for word as DtoMapper writes them. A console that paraphrased them would be a second
+#: place where "not measured" is worded, and the two would drift.
+NOTE_MEASURED = (
+    "Per-operator rows, rows out, state bytes and watermark are measured. Self time is "
+    "sampled: one row in every 1,024 that enters the pipeline is timed at every operator "
+    "on its path, and 'sampledRows' says how many that was, so a share read off a handful "
+    "of samples can be recognised as one. 'bottleneck' is the node most of the sampled "
+    "time went into.")
+NOTE_NOT_RUNNING = (
+    "Per-operator numbers are not published for a plan that is not running: there is nothing "
+    "to measure. Register the query and read its plan to get them.")
+NOTE_OPERATORS_OFF = (
+    "Per-operator numbers are not published on this node: pravaha.metrics.operators is off, so "
+    "the counters were never built into this query's stages. Set it and re-register the query. "
+    "The query's own totals are under 'query'.")
+
+
 PLAN_GRAPH = {
     "nodes": [
         {"id": "n0", "operator": "Project", "detail": "Project(txn_id, user_id)", "stateful": False,
@@ -511,9 +708,40 @@ PLAN_GRAPH = {
     ],
     "edges": [{"from": "n1", "to": "n0"}, {"from": "n2", "to": "n1"}],
     "operatorMetrics": None,
-    "metricsNote": "Per-operator rows, state and watermarks are not published.",
+    "bottleneck": None,
+    "metricsNote": NOTE_NOT_RUNNING,
     "query": None,
 }
+
+
+def _operator_metrics(nodes: list[dict], shares: dict[str, float] | None) -> tuple[dict, str | None]:
+    """Per-operator telemetry for a plan's nodes, and the node most of the time went into.
+
+    Shaped exactly as ``ApiDtos.OperatorTelemetry``: counts that are exact to the last batch
+    boundary, the query's own watermark repeated on every node, and a self time that is
+    *sampled* -- one row in 1,024 -- with ``sampledRows`` beside it so a share read off four
+    samples can be recognised as one.
+    """
+    even = 1.0 / max(1, len(nodes))
+    shares = shares or {n["id"]: even for n in nodes}
+    total_nanos = 1_150_000
+    measured = {}
+    for node in nodes:
+        share = shares.get(node["id"], 0.0)
+        measured[node["id"]] = {
+            "rowsIn": 4213, "rowsOut": 4213,
+            "stateBytes": 8388608 if node.get("stateful") else None,
+            "watermark": "2026-09-19T09:29:00Z",
+            "selfNanos": int(total_nanos * share), "sampledRows": 4,
+            "selfTimeShare": share,
+        }
+    top = max(measured, key=lambda k: measured[k]["selfTimeShare"], default=None)
+    # No bottleneck where the time is spread evenly: the engine names one only when the
+    # samples put one ahead, and a console that always named the maximum would always
+    # accuse somebody.
+    if top is None or measured[top]["selfTimeShare"] <= even + 1e-9:
+        return measured, None
+    return measured, top
 
 
 def _shaped_plan(sql: str) -> dict:

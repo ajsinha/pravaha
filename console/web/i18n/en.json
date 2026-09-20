@@ -147,7 +147,12 @@
         "rate": "rows/s",
         "ceiling": "% of ceiling"
       },
-      "source_stopped": "source stopped"
+      "source_stopped": "source stopped",
+      "blocked_label": "share of time the lane had nowhere to put a row",
+      "inbox_of": "{depth} / {cells}",
+      "bottleneck": "Most of the time goes into {op} — open the plan",
+      "lane_name": "lane {n}",
+      "lane_gauge_label": "share of time this lane had nowhere to put a row"
     },
     "grid": {
       "caption": "Result",
@@ -173,7 +178,12 @@
         "removed": "removed",
         "changed": "changed"
       },
-      "not_loaded": "could not load {src}"
+      "not_loaded": "could not load {src}",
+      "metrics": {
+        "line": "{in} → {out} · {share}% of the time",
+        "said": "{in} rows in, {out} out, {share} per cent of the sampled time",
+        "bottleneck": "the bottleneck"
+      }
     },
     "live": {
       "no_numeric": "no numeric column",
@@ -484,8 +494,6 @@
         "idle_body": "Explain draws the engine's own plan for this query as a graph — operators as nodes, rows flowing left to right.",
         "emits": "Emits:",
         "keeps_state": "keeps state",
-        "per_operator": "Per-operator numbers are not shown: {note}",
-        "per_operator_note": "the engine does not count rows or state per operator.",
         "select": "Select an operator (click, or Tab to it and press Enter) for its detail. Arrow keys move between operators.",
         "measured": "Measured for the registered query as a whole:",
         "totals": "{rows} rows in · state {held} of {ceiling} · view {view} rows · {subscribers} · watermark {watermark}",
@@ -493,7 +501,30 @@
         "subscribers": "{n} subscribers",
         "no_watermark": "none yet",
         "as_text": "The plan as text",
-        "refreshing": "explaining…"
+        "refreshing": "explaining…",
+        "operator_none": "The engine published no numbers for this operator.",
+        "op": {
+          "rows_in": "Rows in",
+          "rows_out": "Rows out",
+          "state_bytes": "State bytes",
+          "no_state_bytes": "keeps none off the heap",
+          "watermark": "Watermark",
+          "self_time": "Share of sampled time",
+          "share": "{n}%",
+          "sampled": "Sampled from {n} rows — one in every 1,024 that entered the pipeline is timed at every operator on its path.",
+          "bottleneck": "most of the sampled time goes here"
+        },
+        "bottleneck_is": "The bottleneck is {op} ({id}).",
+        "no_bottleneck": "No operator stands out yet: nothing has been sampled, or the time is spread evenly.",
+        "how_to_read": "How to read these",
+        "operators_off": "Per-operator numbers are switched off on this node",
+        "operators_off_how": "Turn them on and re-register the query:",
+        "operators_off_cost": "what measuring costs",
+        "not_running": "Per-operator numbers need a registered query",
+        "backpressure": "Backpressure:",
+        "blocked": "lane blocked {n}% of the time",
+        "waits": "{n} episodes, {seconds} s in all",
+        "inbox": "inbox {depth} of {cells}"
       },
       "made": {
         "is": "is {state} — fingerprint",
@@ -610,6 +641,17 @@
     },
     "components": {
       "block": "Not a table"
+    },
+    "cutover": {
+      "rows_per_second": "{n} rows/s",
+      "of": "{live} of {total}",
+      "seconds": "{n} s",
+      "lag_unknown": "not known yet",
+      "no_limit": "none set",
+      "history_complete": "all of it read",
+      "history_reading": "still reading",
+      "paused": "paused",
+      "running": "reading"
     }
   },
   "admin": {
@@ -766,7 +808,11 @@
       "commit_title": "Mean time from applying a commit to the last subscriber and sink having it, between two scrapes",
       "commit": "Commit (mean)",
       "checkpoint_title": "Age of the last stored checkpoint, and failures",
-      "checkpoint": "Checkpoint"
+      "checkpoint": "Checkpoint",
+      "blocked": "Blocked",
+      "blocked_title": "The share of wall clock a writer into this query's lanes spent with nowhere to put a row. On a shared lane it counts every writer into that lane, the neighbours' included.",
+      "inbox": "Inbox",
+      "inbox_title": "Rows queued into the lane and not yet taken, out of what the inbox holds. An instantaneous gauge: a burst between two scrapes is invisible."
     },
     "shared": "shared",
     "unlisted": "unlisted",
@@ -796,7 +842,30 @@
       "lede": "Shown as absent rather than as zero: the engine does not measure these, so there is no honest number to draw.",
       "why": "Not measured: {why}."
     },
-    "source_stopped": "source stopped"
+    "source_stopped": "source stopped",
+    "blocked_label": "share of time the lane had nowhere to put a row",
+    "inbox_of": "{depth} / {cells}",
+    "bottleneck": "Most of the time goes into {op} — open the plan",
+    "lanes": {
+      "heading": "Shared lanes",
+      "lede": "A lane's own backpressure, which is a different question from a query's: every query hosted on a shared lane queues behind one inbox, so a query can read high above because a neighbour's writer is the one waiting.",
+      "name": "lane {n}",
+      "gauge_label": "share of time this lane had nowhere to put a row",
+      "col": {
+        "lane": "Lane",
+        "blocked": "Blocked",
+        "depth": "Inbox depth",
+        "queries": "Queries on it"
+      },
+      "none_title": "No lane is shared",
+      "none_body": "Lane sharing is off (pravaha.lane.multiplex.enabled), so every query holds a lane and an inbox of its own and there is no shared lane to be blocked. That is not a table of idle lanes: there are none."
+    },
+    "operators": {
+      "on": "Per-operator numbers are on for this node, so a query's plan carries rows, state, watermark and a sampled self time for each of its operators. ",
+      "off": "Per-operator numbers are off for this node (pravaha.metrics.operators), so a plan carries none. The counters are built into a query's stages when it is compiled, so turning it on means re-registering the query. ",
+      "unknown": "Whether per-operator numbers are on for this node is not published by it, so a plan carrying none could be either answer. ",
+      "how": "How to read a plan's numbers"
+    }
   },
   "overview": {
     "title": "Overview",
@@ -930,7 +999,8 @@
     "source_stopped": "source stopped",
     "tail_empty": "No change has been committed since this page opened. Each one the view commits appears here, newest last.",
     "detail_missing": "The engine's description of this query did not load ({error}), so its keys, retention, sink and the streams it reads are not shown.",
-    "dead_letters": "Dead letters"
+    "dead_letters": "Dead letters",
+    "replacement": "Replacement"
   },
   "refused": {
     "title": "Refused",
@@ -1671,7 +1741,8 @@
       "resume": "from its frontier",
       "drop": "asks for the name",
       "stream": "stream · {n} columns",
-      "dead_letters": "records it could not decode"
+      "dead_letters": "records it could not decode",
+      "replacement": "Backfill, cutover and rollback"
     },
     "action": {
       "new_query": "New query in the workbench",
@@ -1686,7 +1757,8 @@
       "live": "{name} — watch live"
     },
     "query": {
-      "dead_letters": "Dead letters of {name}"
+      "dead_letters": "Dead letters of {name}",
+      "replacement": "{name} — replacement"
     }
   },
   "api": {
@@ -1739,6 +1811,120 @@
     },
     "error": {
       "none_chosen": "Choose which dead letters to replay. Replaying a whole queue is not offered: a queue is usually a mix of causes, and most of it is still malformed."
+    }
+  },
+  "cutover": {
+    "title": "Replacing {name}",
+    "back": "back to {name}",
+    "kicker": "Backfill and cutover",
+    "heading": "Replacing {name}",
+    "as_of_load": "as of this page load",
+    "no_eta": "There is no estimate and no percentage here, and there will not be one: a source does not say how much history it holds, so there is no total to be a share of. What is below is measured — rows read, the rate, the partitions that have reached the live stream, and how far behind the running version the candidate's event time is.",
+    "candidate": "candidate {id}",
+    "candidate_title": "The fingerprint of the computation being prepared.",
+    "replacing": "replacing {id}",
+    "replacing_title": "The fingerprint of the computation serving this name now.",
+    "owner": "started by {who}",
+    "started": "started {at}",
+    "none": {
+      "title": "{name} is not being replaced",
+      "body": "A blue/green replacement runs a new version of this query beside the running one, reads the history its sources still hold, splices onto the live stream where the running version has reached, and waits for you to move the name across. Until you do, the name answers exactly what it answers now.",
+      "start": "Write the new version",
+      "note": "The console does not start a replacement from a blank form: the new version is SQL, and SQL is written in the workbench, where the planner refuses what it cannot run before anything is registered."
+    },
+    "state": {
+      "backfilling": "Backfilling",
+      "caught_up": "Caught up",
+      "cut_over": "Cut over",
+      "rolled_back": "Rolled back",
+      "abandoned": "Abandoned",
+      "failed": "Failed",
+      "finished": "Finished"
+    },
+    "progress": {
+      "heading": "The backfill",
+      "history_rows": "Records of history read",
+      "live_rows": "Records read from the live stream",
+      "rate": "Reading at",
+      "rows_per_second": "{n} rows/s",
+      "partitions": "Partitions on the live stream",
+      "of": "{live} of {total}",
+      "lag": "Candidate behind the running version",
+      "seconds": "{n} s",
+      "lag_unknown": "not known yet",
+      "rate_limit": "Rate ceiling",
+      "no_limit": "none set",
+      "history": "History",
+      "history_complete": "all of it read",
+      "history_reading": "still reading",
+      "reading": "Reader",
+      "paused": "paused",
+      "running": "reading"
+    },
+    "rollback": {
+      "heading": "The rollback window",
+      "open": "The version this replaced is retained until {until}. Until then, rolling back puts it back.",
+      "open_note": "Rolling back ends every subscription to the name, as the cutover did: a reader subscribes again and starts from a fresh snapshot.",
+      "closed": "closed",
+      "closed_note": "The window ran to {until} and the version this replaced is no longer retained. There is nothing to roll back to; going back now means registering the old SQL again and backfilling it.",
+      "over": "This replacement is {state}, so there is no window to keep open.",
+      "not_yet": "Nothing has been cut over yet, so there is nothing to roll back. A window opens when the name moves to the candidate, and its length is the rollback.retention this replacement was started with."
+    },
+    "controls": {
+      "heading": "Controls",
+      "pause": "Pause the backfill",
+      "resume": "Resume the backfill",
+      "throttle": "Set the ceiling",
+      "rate_label": "Records a second",
+      "cutover": "Cut over",
+      "cutover_title": "Move the name to the candidate, at a position both versions have consumed exactly.",
+      "cutover_early": "The candidate has not read all of the history yet. Cutting over now is refused by the engine, because the two versions would be at different positions in their input.",
+      "rollback": "Roll back",
+      "rollback_title": "Put the replaced version back, while it is still retained.",
+      "rollback_gone": "The version this replaced is no longer retained, so there is nothing to roll back to.",
+      "finish": "Finish",
+      "abandon": "Abandon",
+      "note": "The ceiling may be lowered while the backfill runs and not raised above the one it was started with; the engine refuses a raise rather than the console quietly clamping it. Pause keeps what has been read. Abandon ends a replacement that has not cut over and releases the candidate."
+    },
+    "refused_title": "This console's identity may not act on this replacement",
+    "refused_body": "Starting, throttling, cutting over and rolling back all need the administer permission on this name, and the engine's policy says: {reason}",
+    "refused_access": "What this identity may do",
+    "confirm": {
+      "cutover_title": "Cut over to the new version of “{name}”?",
+      "cutover_body": "Every reader of {name} sees the candidate's answer after this, and every open subscription ends with PRV-4019 and has to subscribe again. The replaced version is kept for the rollback window and no longer.",
+      "cutover_submit": "Cut over",
+      "rollback_title": "Roll “{name}” back to the replaced version?",
+      "rollback_body": "Every reader of {name} sees the old answer again after this, and every open subscription ends and has to subscribe again. The candidate is released.",
+      "rollback_submit": "Roll back",
+      "type_before": "Type",
+      "type_after": " to confirm.",
+      "exact": "Exactly, including case.",
+      "cancel": "Cancel"
+    },
+    "versions": {
+      "heading": "The candidate",
+      "candidate_sql": "SQL",
+      "options": "Options",
+      "sink": "Sink",
+      "cut_over_at": "Cut over at"
+    },
+    "history": {
+      "heading": "Who has served this name",
+      "not_carried": "The engine records who served this name from which seam, and the status this console reads does not carry it. An empty list here would read as “nobody has”, which is a different thing, so nothing is listed.",
+      "none_title": "Nothing has served this name but the version running now",
+      "none_body": "A cutover adds an entry here: the fingerprint that took over, and the position it took over at."
+    },
+    "done": {
+      "cutover": "{name} now answers the new version. The replaced one is kept for the rollback window.",
+      "rollback": "{name} answers the replaced version again.",
+      "finish": "The replacement of {name} is finished and the replaced version has been released. There is no rollback now.",
+      "abandon": "The replacement of {name} has been abandoned and the candidate released. The running version never stopped.",
+      "pause": "The backfill of {name} is paused. What it has read is kept.",
+      "resume": "The backfill of {name} is reading again.",
+      "throttle": "The backfill now reads at most {rate} records a second."
+    },
+    "error": {
+      "rate": "“{rate}” is not a number of records a second."
     }
   }
 }

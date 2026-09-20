@@ -84,6 +84,48 @@ def _feed_of(query) -> dict:
     }
 
 
+def _replacement(status) -> dict:
+    """An SDK :class:`pravaha.client.Replacement` as the shape the engine's REST API uses.
+
+    One shape above this module whichever transport answered, and the names the API
+    documents (``rollbackUntil``, ``backfill.historyRows``) rather than two spellings of
+    each. ``history`` is ``None`` -- not ``[]`` -- because the status the SDK returns does
+    not carry it: "not known" and "nobody has served this name before" are different
+    answers and the screen shows them differently.
+    """
+    lag_nanos = getattr(status, "lag_nanos", None)
+    return {
+        "name": getattr(status, "name", ""),
+        "state": getattr(status, "state", ""),
+        "sql": getattr(status, "sql", ""),
+        "candidate": getattr(status, "candidate", None),
+        "replacing": getattr(status, "replacing", None),
+        "sink": getattr(status, "sink", None),
+        "options": getattr(status, "options", "") or "",
+        "owner": getattr(status, "owner", None),
+        "startedAt": getattr(status, "started_at", None),
+        "cutOverAt": getattr(status, "cut_over_at", None),
+        "rollbackUntil": getattr(status, "rollback_until", None),
+        "rollbackAvailable": bool(getattr(status, "rollback_available", False)),
+        "backfill": {
+            "historyRows": int(getattr(status, "history_rows", 0) or 0),
+            "liveRows": int(getattr(status, "live_rows", 0) or 0),
+            "rowsPerSecond": float(getattr(status, "rows_per_second", 0) or 0),
+            "partitions": int(getattr(status, "partitions", 0) or 0),
+            "partitionsLive": int(getattr(status, "partitions_live", 0) or 0),
+            "historyComplete": bool(getattr(status, "history_complete", False)),
+            "rateLimit": int(getattr(status, "rate_limit", 0) or 0),
+            "paused": bool(getattr(status, "paused", False)),
+            "lagSeconds": None if lag_nanos is None else float(lag_nanos) / 1e9,
+        },
+        "history": None,
+        "failure": ({"code": getattr(status, "failure_code", None) or None,
+                     "message": getattr(status, "failure", None) or ""}
+                    if getattr(status, "failure", None) or getattr(status, "failure_code", None)
+                    else None),
+    }
+
+
 class EngineHttpError(Exception):
     """The engine's HTTP API refused (``status`` is its HTTP status), or did not answer (0).
 
@@ -324,6 +366,69 @@ class Engine:
     def describe_view(self, name: str) -> dict:
         """A view's schema, key, retention, sink and fingerprint, without reading it."""
         return dict(self._rest(lambda c: c.describe_view(name)) or {})
+
+    # ------------------------------------------------- blue/green replacement (ADR-046)
+    #
+    # Through the SDK's published actions, like everything else here. The engine also serves
+    # these over REST (``/api/v1/replacements``, ``/api/v1/queries/{name}/replacement``), and
+    # that answer carries one field these do not -- ``history``, who served the name from
+    # which seam. The SDK has no call for it, so the console does not have it either and the
+    # screen says so rather than drawing a version history it guessed.
+
+    def replacements(self) -> list[dict]:
+        """Every replacement this engine knows about, in flight or finished."""
+        return [_replacement(r) for r in self._flight(lambda c: c.replacements()) or []]
+
+    def replacement(self, name: str) -> dict | None:
+        """How the replacement of ``name`` is getting on, or ``None`` when there is not one."""
+        found = self._flight(lambda c: c.replacement(name))
+        return _replacement(found) if found is not None else None
+
+    def start_replacement(self, name: str, sql: str, keys: Sequence[int], *,
+                          backfill: str | None = None, rate_limit: int | None = None,
+                          cutover: str | None = None,
+                          rollback_retention: str | None = None) -> dict:
+        """Starts a candidate beside the running version. The name still answers the old one."""
+        return _replacement(self._flight(lambda c: c.replace(
+            name, sql, list(keys), backfill=backfill, rate_limit=rate_limit,
+            cutover=cutover, rollback_retention=rollback_retention)))
+
+    def cut_over(self, name: str) -> dict:
+        """Moves the name to the candidate, at a position both have consumed exactly."""
+        return _replacement(self._flight(lambda c: c.cut_over(name)))
+
+    def roll_back(self, name: str) -> dict:
+        """Puts the replaced version back, while it is still retained."""
+        return _replacement(self._flight(lambda c: c.roll_back(name)))
+
+    def finish_replacement(self, name: str) -> dict:
+        """Confirms a cutover: the replaced version is released, and there is no rollback."""
+        return _replacement(self._flight(lambda c: c.finish_replacement(name)))
+
+    def abandon_replacement(self, name: str) -> dict:
+        """Ends a replacement that has not cut over, releasing the candidate."""
+        return _replacement(self._flight(lambda c: c.abandon_replacement(name)))
+
+    def throttle_backfill(self, name: str, records_per_second: int) -> dict:
+        """Lowers how fast the backfill reads history; the ceiling it started with is its top."""
+        return _replacement(self._flight(lambda c: c.throttle_backfill(name, records_per_second)))
+
+    def pause_backfill(self, name: str) -> dict:
+        return _replacement(self._flight(lambda c: c.pause_backfill(name)))
+
+    def resume_backfill(self, name: str) -> dict:
+        return _replacement(self._flight(lambda c: c.resume_backfill(name)))
+
+    def _flight(self, call):
+        """``call(client)`` over Flight, with the SDK's refusal translated like a REST one."""
+        try:
+            with self._client() as client:
+                return call(client)
+        except Exception as exc:
+            translated = _translated(exc)
+            if translated is exc:
+                raise
+            raise translated from exc
 
     def status(self) -> dict:
         """Node, version, engine state, plugin health."""

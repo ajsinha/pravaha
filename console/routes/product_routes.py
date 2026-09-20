@@ -468,6 +468,12 @@ class ProductRoutes(Routes):
                               "hint": t("palette.hint.dead_letters")})
                 if may.administer_refused(q.name) is not None:
                     continue
+                # B9. A read of the replacement screen, but every control on it needs the
+                # administer permission, so an identity the policy refuses is not offered the
+                # way in either -- the palette is no place to discover a refusal.
+                items.append({"kind": "query", "title": t("palette.query.replacement", name=q.name),
+                              "href": f"/queries/{q.name}/replacement",
+                              "hint": t("palette.hint.replacement")})
                 if q.state == "RUNNING":
                     items.append({"kind": "lifecycle", "title": t("palette.action.pause", name=q.name),
                                   "query": q.name, "action": "pause", "hint": t("palette.hint.pause")})

@@ -201,7 +201,11 @@ class UIRoutes(Routes):
                              replayed=replayed, replay_error=replay_error)
 
         @self.app.post("/queries/{name}/dead-letters/replay", tags=["ui"])
-        def replay_dead_letters(request: Request, name: str, ids: list[str] = Form(default=[])):
+        # The default below is suppressed rather than changed: FastAPI reads it from the
+        # signature and never mutates it, and a repeated form field that may be absent
+        # cannot be declared to it any other way.
+        def replay_dead_letters(request: Request, name: str,
+                                ids: list[str] = Form(default=[])):  # noqa: B008
             """Feeds the chosen records back through the query.
 
             A new row at the query's current frontier, not a rewind, and a record that fails
@@ -228,6 +232,100 @@ class UIRoutes(Routes):
             return RedirectResponse(
                 f"/queries/{name}/dead-letters?replayed={quote(self.t('dlq.replay_done', done=done, again=again))}",
                 status_code=303)
+
+        # ------------------------------ backfill and cutover (design 23.10, ADR-046)
+        @self.app.get("/queries/{name}/replacement", response_class=HTMLResponse, tags=["ui"])
+        def replacement(request: Request, name: str, acted: str = "",
+                        action_error: str = "", action_code: str = ""):
+            """Screen 14/15: the blue/green replacement of one query, and its backfill.
+
+            One call renders it (ADR-046): the state, the progress and the rollback window
+            are one answer, because a screen that asked separately would show three moments
+            and let a reader join them up wrongly.
+
+            **There is no ETA and no percentage on this page.** A source does not say how
+            much history it holds, so there is no denominator that is not invented, and a
+            bar drawn from an invented one is a promise the engine never made. What is here
+            is what is measured: rows read, the rate, the partitions that have reached the
+            live stream, and the candidate's lag behind the running version.
+
+            Gated like the query's own page, and every control on it needs the administer
+            permission the engine decides -- a reader sees the screen with the controls
+            disabled and the policy's reason beside them (design 23.16).
+            """
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            try:
+                query = services.queries.get(name)
+            except ServiceError as exc:
+                return self.page(request, "not_found.html", http_status=404,
+                                 current="/queries", what=self.t("not_found.what.query"), identifier=name,
+                                 back_href="/queries", back_label=self.t("not_found.back.queries"),
+                                 detail=str(exc))
+            status, status_error = _attempt(lambda: services.replacements.status(name), None,
+                                            "the query's replacement")
+            refused = services.admin.affordances().administer_refused(name)
+            return self.page(request, "replacement.html", current="/queries", query=query,
+                             replacement=status, replacement_error=status_error, refused=refused,
+                             acted=acted, action_error=action_error, action_code=action_code)
+
+        def _replacement_redirect(name: str, message: str = "",
+                                  refusal: ServiceError | None = None) -> RedirectResponse:
+            """Redirect-after-POST, so a refresh does not cut over a second time.
+
+            A refusal carries its PRV code as well as its sentence, because the code is what
+            the help page is keyed by and "PRV-4014" pasted into a ticket finds the runbook
+            where the sentence alone does not.
+            """
+            if refusal is not None:
+                tail = "?action_error=" + quote(str(refusal))
+                if refusal.code:
+                    tail += "&action_code=" + quote(refusal.code)
+            else:
+                tail = f"?acted={quote(message)}" if message else ""
+            return RedirectResponse(f"/queries/{name}/replacement{tail}", status_code=303)
+
+        @self.app.post("/queries/{name}/replacement/throttle", tags=["ui"])
+        def throttle_backfill(request: Request, name: str, rate: str = Form("")):
+            """Lowers the backfill's ceiling. The engine refuses a raise above the one it was
+            started with, and the console sends what was typed rather than clamping it: a
+            silently altered number is worse than the engine's own refusal."""
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            logger.info("%s throttled the backfill of '%s' to %s", current_user(request), name, rate)
+            try:
+                asked = int(str(rate).strip() or "0")
+            except ValueError:
+                return _replacement_redirect(
+                    name, refusal=ServiceError(self.t("cutover.error.rate", rate=rate), 400))
+            try:
+                services.replacements.throttle(name, asked)
+            except ServiceError as exc:
+                return _replacement_redirect(name, refusal=exc)
+            return _replacement_redirect(name, message=self.t("cutover.done.throttle", rate=asked))
+
+        @self.app.post("/queries/{name}/replacement/{action}", tags=["ui"])
+        def act_on_replacement(request: Request, name: str, action: str):
+            """Cutover, rollback, finish, abandon, pause, resume -- as ordinary form posts.
+
+            Cutover and rollback move what every reader of the name sees, so each is
+            confirmed by the typed name, by the same pair of controls the drop button uses:
+            a plain form that works with no script at all, and a typed-confirmation dialog
+            ``replacement.js`` swaps in once it can run one. The confirmation is the
+            dialog's, as drop's is, because ``confirm()`` is JavaScript too and a form that
+            demanded a token only a script can supply would work for nobody without one.
+            """
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            logger.info("%s requested %s on the replacement of '%s'",
+                        current_user(request), action, name)
+            try:
+                services.replacements.act(name, action)
+            except ServiceError as exc:
+                return _replacement_redirect(name, refusal=exc)
+            done = {"cutover": "cutover", "rollback": "rollback", "finish": "finish",
+                    "abandon": "abandon", "pause": "pause", "resume": "resume"}[action]
+            return _replacement_redirect(name, message=self.t(f"cutover.done.{done}", name=name))
 
         # The lifecycle actions as ordinary form posts. The module intercepts
         # them so the page does not reload, but they work without it: a control

@@ -31,6 +31,9 @@
       {% for f in snapshot.findings %}
       <div class="finding"><span class="sev chip {{ 'bad' if f.severity == 'critical' else 'warn' if f.severity == 'warn' else 'info' }}">{{ f.severity }}</span>
         <div><div class="fw-semibold">{% if f.query %}<a class="mono" href="/queries/{{ f.query }}">{{ f.query }}</a> — {% endif %}{{ f.title }}{% if f.code %} · <a class="mono" href="/help/codes/{{ f.code }}">{{ f.code }}</a>{% endif %}</div>
+          {# B6. The operator the engine measured the time into, when it measured one. Absent
+             rather than guessed when it did not: nothing sampled yet, or the counters off. #}
+          {% if f.operator %}<div class="small"><a href="/workbench?query={{ f.query }}&amp;panel=explain">{{ t('operations.bottleneck', op=f.operator) }}</a></div>{% endif %}
           <div class="small text-muted">{{ f.detail }}</div></div></div>
       {% else %}
       <div class="state py-4"><h2>{{ t('operations.nothing') }}</h2><p>{{ t('operations.nothing_body') }}</p></div>
@@ -71,6 +74,9 @@
   <thead><tr><th>{{ t('operations.col.query') }}</th><th>{{ t('operations.col.state') }}</th><th class="num">{{ t('operations.col.rows_in') }}</th><th class="num">{{ t('operations.col.rate') }}</th><th>{{ t('operations.col.ceiling') }}</th>
     <th class="num">{{ t('operations.col.view_rows') }}</th><th class="num">{{ t('operations.col.lag') }}</th><th class="num">{{ t('operations.col.subscribers') }}</th>
     <th class="num" title="{{ t('operations.col.commit_title') }}">{{ t('operations.col.commit') }}</th>
+    {# B6. The lane's view of backpressure, and how full the inbox is right now. #}
+    <th title="{{ t('operations.col.blocked_title') }}">{{ t('operations.col.blocked') }}</th>
+    <th class="num" title="{{ t('operations.col.inbox_title') }}">{{ t('operations.col.inbox') }}</th>
     <th title="{{ t('operations.col.checkpoint_title') }}">{{ t('operations.col.checkpoint') }}</th></tr></thead>
   <tbody>
   {% for q in snapshot.queries %}
@@ -84,13 +90,44 @@
     <td class="num">{{ lag(q.watermark_lag_seconds) if q.metrics_published else '—' }}</td>
     <td class="num">{{ '{:,.0f}'.format(q.subscribers) if q.subscribers is not none else '—' }}</td>
     <td class="num">{{ t('operations.unit.ms', n='{:,.1f}'.format(q.commit_latency_mean_seconds * 1000)) if q.commit_latency_mean_seconds is not none else '—' }}</td>
+    {% set blocked = q.blocked_fraction %}
+    <td>{% if blocked is not none %}<div class="d-flex align-items-center gap-2"><div class="gauge {{ 'critical' if blocked >= 0.8 else 'warn' if blocked >= 0.2 else '' }}" style="width:5rem" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ (blocked * 100)|round|int }}" aria-label="{{ t('operations.blocked_label') }}"><span style="width:{{ [blocked * 100, 100]|min }}%"></span></div><span class="small">{{ pct(blocked) }}</span></div>{% else %}<span class="text-muted small">{{ t('operations.not_published_yet') if not q.metrics_published else '—' }}</span>{% endif %}</td>
+    <td class="num small">{% if q.inbox_depth is not none and q.inbox_cells %}{{ t('operations.inbox_of', depth='{:,.0f}'.format(q.inbox_depth), cells='{:,.0f}'.format(q.inbox_cells)) }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
     <td class="small">{% if q.checkpoint_age_seconds is not none %}{{ lag(q.checkpoint_age_seconds) }} {{ t('operations.ago') }}{% if q.checkpoint_duration_seconds is not none %} · {{ t('operations.took', n='%.2f'|format(q.checkpoint_duration_seconds)) }}{% endif %}{% else %}<span class="text-muted">{{ t('operations.not_checkpointing') }}</span>{% endif %}{% if q.checkpoint_failures %} · <span class="chip warn">{{ t('operations.failed', n=q.checkpoint_failures|int) }}</span>{% endif %}</td></tr>
   {% else %}
-  <tr><td colspan="10"><div class="state"><h2>{{ t('operations.empty.title') }}</h2><p>{{ t('operations.empty.body') }}</p>
+  <tr><td colspan="12"><div class="state"><h2>{{ t('operations.empty.title') }}</h2><p>{{ t('operations.empty.body') }}</p>
     <a class="btn btn-sm btn-primary" href="/start">{{ t('operations.empty.start') }}</a></div></td></tr>
   {% endfor %}
   </tbody></table></div></div>
 <p class="small text-muted mt-1">{{ t('operations.reconciled') }}</p>
+
+{# B6. The lane's own backpressure, which is a different question from the query's: on a
+   shared lane a query reads high here because a neighbour's writer is waiting, and telling
+   those apart is the whole reason this table is beside the one above. #}
+<h2>{{ t('operations.lanes.heading') }}</h2>
+<p class="small text-muted">{{ t('operations.lanes.lede') }}</p>
+{% if snapshot.lanes %}
+<div class="card"><div class="table-responsive"><table class="table table-sm mb-0" id="ops-lanes">
+  <thead><tr><th>{{ t('operations.lanes.col.lane') }}</th><th>{{ t('operations.lanes.col.blocked') }}</th>
+    <th class="num">{{ t('operations.lanes.col.depth') }}</th><th class="num">{{ t('operations.lanes.col.queries') }}</th></tr></thead>
+  <tbody>
+  {% for lane in snapshot.lanes %}
+  <tr><td class="mono">{{ t('operations.lanes.name', n=lane.lane) }}</td>
+    <td>{% if lane.blocked_fraction is not none %}<div class="d-flex align-items-center gap-2"><div class="gauge {{ 'critical' if lane.blocked_fraction >= 0.8 else 'warn' if lane.blocked_fraction >= 0.2 else '' }}" style="width:5rem" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ (lane.blocked_fraction * 100)|round|int }}" aria-label="{{ t('operations.lanes.gauge_label') }}"><span style="width:{{ [lane.blocked_fraction * 100, 100]|min }}%"></span></div><span class="small">{{ pct(lane.blocked_fraction) }}</span></div>{% else %}<span class="text-muted small">—</span>{% endif %}</td>
+    <td class="num">{{ '{:,.0f}'.format(lane.inbox_depth) if lane.inbox_depth is not none else '—' }}</td>
+    <td class="num">{{ '{:,.0f}'.format(lane.queries) if lane.queries is not none else '—' }}</td></tr>
+  {% endfor %}
+  </tbody></table></div></div>
+{% else %}
+{# Not an empty table: with lane sharing off there are no shared lanes at all, and a table
+   of nothing would read as lanes that are idle. #}
+{{ states.empty(title=t('operations.lanes.none_title'), body=t('operations.lanes.none_body'), id='ops-lanes-none') }}
+{% endif %}
+<p class="small text-muted mt-1" id="ops-operators-enabled">
+  {%- if snapshot.operators_enabled == 1 -%}{{ t('operations.operators.on') }}
+  {%- elif snapshot.operators_enabled == 0 -%}{{ t('operations.operators.off') }}
+  {%- else -%}{{ t('operations.operators.unknown') }}{%- endif %}
+  <a href="/help/topics/reading-a-plan">{{ t('operations.operators.how') }}</a></p>
 
 <div class="row g-3 mt-1">
   <div class="col-xl-6"><div class="card"><div class="card-header">{{ t('operations.chart.rate') }}</div><div class="card-body">

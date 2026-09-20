@@ -390,7 +390,14 @@ function ExplainPanel({ sql, valid, origin }) {
   useEffect(() => { window.__wbExplain = run; }, [run]);
   useEffect(() => {
     if (state.status === "ok" && state.answer.level !== "codegen" && graphRef.current) {
-      renderPlan(graphRef.current, state.answer.graph, { onSelect: setSelected })
+      renderPlan(graphRef.current, state.answer.graph, {
+        onSelect: setSelected,
+        /* B6. The engine's per-operator numbers, keyed by this graph's own node ids, and the
+           node it measured most of the query's time into. Null when nothing measured them,
+           and the panel below says which of the three reasons that is. */
+        metrics: state.answer.operator_metrics || null,
+        bottleneck: state.answer.bottleneck || null,
+      })
         .then((svg) => { svgRef.current = svg; })
         .catch((err) => { graphRef.current.textContent = t("wb.explain.not_drawn", { error: err.message }); });
     }
@@ -425,17 +432,22 @@ function ExplainPanel({ sql, valid, origin }) {
       <div class="row g-3">
         <div class="col-xl-9"><div class="plan-wrap" ref=${graphRef}></div></div>
         <div class="col-xl-3">
-          ${selected ? html`<div class="card"><div class="card-body small">
+          ${selected ? html`<div class="card"><div class="card-body small" id="operator-detail">
               <div class="fw-semibold">${selected.op}</div>
               <pre class="small mt-1" style="white-space:pre-wrap">${selected.label}</pre>
               ${selected.fields && selected.fields.length ? html`<div class="small text-muted">${t("wb.explain.emits")} <span class="mono">${selected.fields.join(", ")}</span></div>` : null}
               ${selected.stateful ? html`<div class="chip warn mt-1">${t("wb.explain.keeps_state")}</div>` : null}
-              <div class="small text-muted mt-2">${t("wb.explain.per_operator", { note: state.answer.metrics_note || t("wb.explain.per_operator_note") })}</div></div></div>`
+              <${OperatorMetrics} telemetry=${(state.answer.operator_metrics || {})[selected.id]}
+                                  bottleneck=${state.answer.bottleneck === selected.id} />
+            </div></div>`
             : html`<p class="small text-muted">${t("wb.explain.select")}</p>`}
         </div>
       </div>
+      <${MetricsNote} state=${state.answer.metrics_state} note=${state.answer.metrics_note}
+                      bottleneck=${state.answer.bottleneck} graph=${state.answer.graph} />
       ${state.answer.query_metrics ? html`<div class="small mt-2" id="query-metrics"><span class="text-muted">${t("wb.explain.measured")}</span>
-        ${" "}${totals(state.answer.query_metrics)}</div>` : null}
+        ${" "}${totals(state.answer.query_metrics)}
+        <${Backpressure} metrics=${state.answer.query_metrics} /></div>` : null}
       <details class="mt-2"><summary class="small">${t("wb.explain.as_text")}</summary><pre class="small mt-1">${state.answer.plan}</pre></details>
     </div>` : null}
     </div>
@@ -531,6 +543,70 @@ function totals(m) {
     subscribers: t(m.subscribers === 1 ? "wb.explain.subscriber" : "wb.explain.subscribers", { n: m.subscribers }),
     watermark: m.watermark || t("wb.explain.no_watermark"),
   });
+}
+
+/* B6. What the engine measured for one operator. Every field it did not publish is said as
+   such and never as a zero: an operator that keeps no state off the heap has no byte count,
+   and printing 0 B would claim it keeps nothing. The self time is sampled, so the number of
+   samples it came from is shown beside it -- a 90 % share off four samples is a different
+   claim from the same share off four thousand, and the reader is the one who can tell. */
+function OperatorMetrics({ telemetry, bottleneck }) {
+  if (!telemetry) {
+    return html`<p class="small text-muted mt-2 mb-0" id="operator-not-measured">${t("wb.explain.operator_none")}</p>`;
+  }
+  const share = telemetry.selfTimeShare === null || telemetry.selfTimeShare === undefined
+    ? null : Math.round(telemetry.selfTimeShare * 100);
+  return html`<dl class="row small mt-2 mb-0" id="operator-metrics">
+    <dt class="col-7">${t("wb.explain.op.rows_in")}</dt><dd class="col-5 num mono">${fmtCount(telemetry.rowsIn)}</dd>
+    <dt class="col-7">${t("wb.explain.op.rows_out")}</dt><dd class="col-5 num mono">${fmtCount(telemetry.rowsOut)}</dd>
+    <dt class="col-7">${t("wb.explain.op.state_bytes")}</dt>
+    <dd class="col-5 num mono">${telemetry.stateBytes === null || telemetry.stateBytes === undefined
+      ? html`<span class="text-muted">${t("wb.explain.op.no_state_bytes")}</span>`
+      : fmtCount(telemetry.stateBytes)}</dd>
+    <dt class="col-7">${t("wb.explain.op.watermark")}</dt>
+    <dd class="col-5 mono">${telemetry.watermark || html`<span class="text-muted">${t("wb.explain.no_watermark")}</span>`}</dd>
+    <dt class="col-7">${t("wb.explain.op.self_time")}</dt>
+    <dd class="col-5 num mono">${share === null ? "?" : t("wb.explain.op.share", { n: share })}</dd>
+    <dd class="col-12 text-muted">${t("wb.explain.op.sampled", { n: fmtCount(telemetry.sampledRows) })}</dd>
+    ${bottleneck ? html`<dd class="col-12 mb-0"><span class="chip warn">${t("wb.explain.op.bottleneck")}</span></dd>` : null}
+  </dl>`;
+}
+
+/* The three answers the engine gives about per-operator numbers, and they are three: SQL that
+   is not registered has nothing running to measure; a node with pravaha.metrics.operators off
+   has counters that were never built; and measured is measured. A panel that showed an empty
+   graph for the middle one would be hiding a setting behind a blank. */
+function MetricsNote({ state, note, bottleneck, graph }) {
+  if (state === "measured") {
+    const node = bottleneck && (graph.nodes || []).find((n) => n.id === bottleneck);
+    return html`<p class="small text-muted mt-2 mb-0" id="metrics-note" data-metrics-state="measured">
+      ${node ? html`<strong>${t("wb.explain.bottleneck_is", { op: node.op, id: node.id })}</strong> ` : null}
+      ${bottleneck ? null : html`${t("wb.explain.no_bottleneck")} `}
+      ${note || ""} <a href="/help/topics/reading-a-plan">${t("wb.explain.how_to_read")}</a></p>`;
+  }
+  const key = state === "operators_off" ? "wb.explain.operators_off" : "wb.explain.not_running";
+  return html`<div class="alert alert-info py-2 small mt-2 mb-0" id="metrics-note"
+                   role="note" data-metrics-state=${state || "not_running"}>
+    <div class="fw-semibold">${t(key)}</div>
+    <div>${note || ""}</div>
+    ${state === "operators_off"
+      ? html`<div class="mt-1">${t("wb.explain.operators_off_how")} <code>pravaha.metrics.operators</code>.
+        ${" "}<a href="/help/topics/reading-a-plan">${t("wb.explain.operators_off_cost")}</a></div>`
+      : null}
+  </div>`;
+}
+
+/* B6. What the query as a whole waited on. blocked_fraction is the lane's view and counts
+   every writer into it, which on a shared lane includes the neighbours' -- so the two are
+   shown side by side rather than one summarised into a verdict the console cannot justify. */
+function Backpressure({ metrics }) {
+  if (metrics.blockedFraction === null || metrics.blockedFraction === undefined) return null;
+  const blocked = Math.round(metrics.blockedFraction * 100);
+  return html`<span id="query-backpressure"> · <span class="text-muted">${t("wb.explain.backpressure")}</span>
+    ${" "}${t("wb.explain.blocked", { n: blocked })}
+    ${" · "}${t("wb.explain.waits", { n: fmtCount(metrics.backpressureWaits),
+                                      seconds: Number(metrics.backpressureWaitSeconds || 0).toFixed(1) })}
+    ${" · "}${t("wb.explain.inbox", { depth: fmtCount(metrics.inboxDepth), cells: fmtCount(metrics.inboxCells) })}</span>`;
 }
 
 function RegisterPanel({ sql, validation, sinkRef, sink, setSink }) {

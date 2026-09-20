@@ -75,6 +75,56 @@ class ApiRoutes(Routes):
                 return payload
             return self.json_guard(build, request=request)
 
+        @self.app.get(f"{api}/replacements", tags=["api"])
+        def list_replacements(request: Request):
+            """Every blue/green replacement the engine knows about (ADR-046)."""
+            if (refusal := _signed_in(request)) is not None:
+                return refusal
+            return self.json_guard(lambda: {"items": services.replacements.all()},
+                                   request=request)
+
+        @self.app.get(f"{api}/queries/{{name}}/replacement", tags=["api"])
+        def get_replacement(request: Request, name: str):
+            """One replacement, whole: state, backfill progress and the rollback window.
+
+            ``{"replacement": null}`` when there is not one -- which is a fact, not a 404:
+            the query exists and is not being replaced, and the screen draws that as its
+            never-had-data state rather than as an error.
+            """
+            if (refusal := _signed_in(request)) is not None:
+                return refusal
+            return self.json_guard(
+                lambda: {"query": name, "replacement": services.replacements.status(name)},
+                request=request)
+
+        @self.app.get(f"{api}/queries/{{name}}/replacement/stream", tags=["api"])
+        def replacement_stream(request: Request, name: str):
+            """The replacement at 1 Hz, as design 23.11's "long jobs" row asks for.
+
+            The engine publishes no stream of its own for a backfill, so the console asks
+            it once a second and fans that out -- the same bargain the dashboard makes.
+            A hidden tab closes the stream, and the browser never polls beside it.
+            """
+            if (refusal := _signed_in(request)) is not None:
+                return refusal
+
+            async def events():
+                while True:
+                    if await request.is_disconnected():
+                        return
+                    try:
+                        status = await anyio.to_thread.run_sync(
+                            services.replacements.status, name)
+                        yield _sse("replacement", {"query": name, "replacement": status})
+                    except Exception as exc:  # noqa: BLE001 -- delivered, as the page's error state
+                        yield _sse("failed", {"query": name, "message": str(exc),
+                                              "code": getattr(exc, "code", None)})
+                    await anyio.sleep(1.0)
+
+            return StreamingResponse(events(), media_type="text/event-stream",
+                                     headers={"Cache-Control": "no-cache",
+                                              "X-Accel-Buffering": "no"})
+
         @self.app.post(f"{api}/queries", tags=["api"], status_code=201)
         async def register(request: Request):
             if (refusal := _signed_in(request)) is not None:

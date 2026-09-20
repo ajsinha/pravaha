@@ -607,6 +607,20 @@ def _refusal(exc: Exception, status: int = 400) -> ServiceError:
     return ServiceError(str(exc), status=status, code=code)
 
 
+def _metrics_state(operator_metrics: Any, query_metrics: Any) -> str:
+    """Which of the three answers the engine gave about per-operator numbers.
+
+    ``measured``, ``operators_off`` (there is something running, and the counters were never
+    built into its stages -- ``pravaha.metrics.operators``), or ``not_running`` (this is SQL
+    nobody registered, so there is nothing to measure). The engine says the same thing in
+    ``metricsNote``, in words; this is the same distinction as a key, so a screen can choose
+    what to draw without reading English.
+    """
+    if operator_metrics:
+        return "measured"
+    return "operators_off" if query_metrics else "not_running"
+
+
 class CatalogService:
     """What exists to be queried: streams and their fields, from the engine's public REST API.
 
@@ -741,6 +755,9 @@ class AuthoringService:
             # rather than drawing zeroes.
             "operator_metrics": engine_graph.get("operatorMetrics"),
             "metrics_note": engine_graph.get("metricsNote"),
+            # Measured, never inferred from row counts; null until something has been sampled.
+            "bottleneck": engine_graph.get("bottleneck"),
+            "metrics_state": _metrics_state(engine_graph.get("operatorMetrics"), None),
             "query_metrics": None,
         }
 
@@ -759,6 +776,8 @@ class AuthoringService:
             "output_fields": [],
             "operator_metrics": raw.get("operatorMetrics"),
             "metrics_note": raw.get("metricsNote"),
+            "bottleneck": raw.get("bottleneck"),
+            "metrics_state": _metrics_state(raw.get("operatorMetrics"), raw.get("query")),
             "query_metrics": raw.get("query"),
         }
 
@@ -798,7 +817,9 @@ class AuthoringService:
         side: dict[str, Any] = {
             "label": str(spec.get("label") or name or "draft"), "query": name or None, "sql": "",
             "graph": None, "plan_error": None, "refused": None, "query_metrics": None,
-            "metrics_note": None, "fingerprint": None, "keys": [], "retention": None,
+            "metrics_note": None, "operator_metrics": None, "bottleneck": None,
+            "metrics_state": None,
+            "fingerprint": None, "keys": [], "retention": None,
             "output_fields": None, "registered_as": None,
         }
 
@@ -819,7 +840,10 @@ class AuthoringService:
                 try:
                     running = self.plan(name)
                     side.update(graph=running["graph"], query_metrics=running["query_metrics"],
-                                metrics_note=running["metrics_note"])
+                                metrics_note=running["metrics_note"],
+                                operator_metrics=running["operator_metrics"],
+                                bottleneck=running["bottleneck"],
+                                metrics_state=running["metrics_state"])
                 except ServiceError as exc:
                     if exc.status == 403:
                         side["refused"] = refusal_of(exc)
@@ -947,6 +971,49 @@ class OpsService:
         self.history = MetricsHistory(engine.prometheus)
         self._status_lock = threading.Lock()
         self._status: tuple[float, dict] | None = None
+        self._authoring: AuthoringService | None = None
+        #: name -> (asked at, the bottleneck node's label or None). Only for a query the
+        #: dashboard has already flagged, and at most every BOTTLENECK_TTL seconds: the
+        #: snapshot is taken once a second, and reading a plan is a call per query.
+        self._bottlenecks: dict[str, tuple[float, str | None]] = {}
+        self._bottleneck_lock = threading.Lock()
+
+    #: How long a bottleneck answer is reused. Which operator the time goes into does not
+    #: move between two seconds, and the plan endpoint is not free.
+    BOTTLENECK_TTL = 15.0
+
+    def with_authoring(self, authoring: AuthoringService) -> OpsService:
+        """The plan reader, so a backpressure finding can name the operator (B6)."""
+        self._authoring = authoring
+        return self
+
+    def _bottleneck(self, name: str) -> str | None:
+        """The operator most of this query's sampled time goes into, or ``None``.
+
+        ``None`` covers three things the caller must not conflate with "no bottleneck": the
+        plan could not be read, nothing has been sampled yet, and the node runs with
+        ``pravaha.metrics.operators`` off. The finding says nothing about an operator in any
+        of them rather than naming one it does not have.
+        """
+        if self._authoring is None:
+            return None
+        with self._bottleneck_lock:
+            cached = self._bottlenecks.get(name)
+            if cached is not None and time.monotonic() - cached[0] < self.BOTTLENECK_TTL:
+                return cached[1]
+        label: str | None = None
+        try:
+            plan = self._authoring.plan(name)
+            node_id = plan.get("bottleneck")
+            if node_id:
+                node = next((n for n in (plan.get("graph") or {}).get("nodes") or []
+                             if n.get("id") == node_id), None)
+                label = f"{node['op']} ({node_id})" if node else str(node_id)
+        except Exception:  # noqa: BLE001 -- a finding is not worth failing the dashboard for
+            label = None
+        with self._bottleneck_lock:
+            self._bottlenecks[name] = (time.monotonic(), label)
+        return label
 
     def _node_status(self) -> dict:
         with self._status_lock:
@@ -1006,15 +1073,28 @@ class OpsService:
         for name, stop in feed_stops.items():
             if not any(f.query == name and f.title == metrics.SOURCE_STOPPED for f in found):
                 found.insert(0, metrics.source_stopped(name, stop))
+        # B6. A backpressure finding names the operator the time goes into, when the engine
+        # measured one. Only for a query already flagged, so a healthy dashboard reads no plans.
+        findings = [f.as_dict() for f in found]
+        for entry in findings:
+            if entry["title"] != metrics.BACKPRESSURED or not entry["query"]:
+                continue
+            entry["operator"] = self._bottleneck(entry["query"])
         return {
             "at": scraped["at"],
             "metrics": {"reachable": scraped["reachable"], "error": scraped["error"]},
             "registry": {"reachable": registry_error is None, "error": registry_error},
             "node": {**scraped["node"], "status": self._node_status()},
             "queries": per_query,
-            "findings": [f.as_dict() for f in found],
+            "lanes": list(scraped.get("lanes") or []),
+            # 1, 0, or None from an engine that predates the gauge -- three answers, and the
+            # panel says which rather than reading a missing gauge as "switched off".
+            "operators_enabled": scraped["node"].get("operators_enabled"),
+            "findings": findings,
             "verdict": metrics.verdict(scraped["reachable"] or registry_error is None, found,
-                                       len(names)),
+                                       len(names), bottlenecks={
+                                           f["query"]: f.get("operator") for f in findings
+                                           if f["title"] == metrics.BACKPRESSURED and f["query"]}),
             "console": {"upstream_subscriptions": self._feeds.live_feeds()},
             "not_exposed": metrics.NOT_EXPOSED,
         }
@@ -1177,6 +1257,88 @@ class DeadLetterService:
             raise _refusal(exc, 503) from exc
 
 
+class ReplacementService:
+    """Blue/green replacement and the backfill behind it (ADR-046, design 23.10).
+
+    Thin, like :class:`DeadLetterService`, and for the same reason: every decision is the
+    engine's. Whether this identity may start, throttle, cut over or roll back is the
+    administer permission on the name; whether the two versions have consumed the same
+    input is the engine's answer to a cutover, not a judgement the console may make.
+
+    **What this refuses to compute.** There is no ETA and no percentage anywhere in here.
+    A source does not say how much history it holds, so a denominator would be invented and
+    a progress bar drawn from it would be a promise the engine never made. What the screen
+    gets is what is measured: rows read, the rate, partitions that have reached the live
+    stream, and how far behind the running version the candidate's event time is.
+    """
+
+    #: The states in which the engine is still doing something, so the screen keeps watching.
+    ACTIVE = ("BACKFILLING", "CAUGHT_UP", "CUT_OVER")
+
+    def __init__(self, engine: Engine) -> None:
+        self._engine = engine
+
+    def all(self) -> list[dict]:
+        """Every replacement the engine knows about, in flight or finished."""
+        try:
+            return list(self._engine.replacements())
+        except Exception as exc:
+            raise _refusal(exc, 503) from exc
+
+    def status(self, name: str) -> dict | None:
+        """The one answer the screen renders, or ``None`` when ``name`` has no replacement."""
+        try:
+            return self._engine.replacement(name)
+        except Exception as exc:
+            raise _refusal(exc, 503) from exc
+
+    def start(self, name: str, sql: str, keys: list[int], *, backfill: str | None = None,
+              rate_limit: int | None = None, cutover: str | None = None,
+              rollback_retention: str | None = None) -> dict:
+        if not sql.strip():
+            raise ServiceError("a replacement needs the SQL of the new version", status=400)
+        if not keys:
+            raise ServiceError("a replacement needs the new version's key columns", status=400)
+        if backfill not in (None, "", "history", "none"):
+            raise ServiceError(f"'{backfill}' is not a backfill mode; it is history or none",
+                               status=400)
+        try:
+            return self._engine.start_replacement(
+                name, sql.strip(), keys, backfill=backfill or None,
+                rate_limit=rate_limit, cutover=cutover or None,
+                rollback_retention=rollback_retention or None)
+        except Exception as exc:
+            raise _refusal(exc) from exc
+
+    def act(self, name: str, action: str) -> dict:
+        """``cutover``, ``rollback``, ``finish``, ``abandon``, ``pause`` or ``resume``."""
+        calls = {
+            "cutover": self._engine.cut_over,
+            "rollback": self._engine.roll_back,
+            "finish": self._engine.finish_replacement,
+            "abandon": self._engine.abandon_replacement,
+            "pause": self._engine.pause_backfill,
+            "resume": self._engine.resume_backfill,
+        }
+        if action not in calls:
+            raise ServiceError(f"'{action}' is not something a replacement can be asked to do",
+                               status=400)
+        try:
+            return calls[action](name)
+        except Exception as exc:
+            raise _refusal(exc) from exc
+
+    def throttle(self, name: str, records_per_second: int) -> dict:
+        """Lowers the backfill's ceiling. The engine refuses a raise above the one it started
+        with, and the console does not pretend otherwise by clamping it here."""
+        if records_per_second < 0:
+            raise ServiceError("a rate limit cannot be negative", status=400)
+        try:
+            return self._engine.throttle_backfill(name, records_per_second)
+        except Exception as exc:
+            raise _refusal(exc) from exc
+
+
 class Services:
     """Everything the API layer needs, constructed once."""
 
@@ -1186,12 +1348,14 @@ class Services:
         self.health = HealthService(engine)
         self.queries = QueryService(engine)
         self.dead_letters = DeadLetterService(engine)
+        self.replacements = ReplacementService(engine)
         self.adhoc = AdHocService(engine)
         self.feeds = Broadcaster(engine, snapshot_rows=row_limit)
         self.catalog = CatalogService(engine)
         self.authoring = AuthoringService(engine, self.catalog)
         self.views = ViewService(engine, self.queries, self.authoring, row_limit)
-        self.ops = OpsService(engine, self.queries, self.feeds, lag_warn_seconds)
+        self.ops = OpsService(engine, self.queries, self.feeds,
+                              lag_warn_seconds).with_authoring(self.authoring)
         self.plugins = PluginService(engine, self.catalog)
         from core.admin import AdminService
 

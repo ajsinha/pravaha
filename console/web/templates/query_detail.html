@@ -16,6 +16,9 @@
     {# B5. Reachable from the query, because a dead letter belongs to one: this query's feed
        rejected the record, and this query is what it would be replayed into. #}
     <a class="btn btn-sm btn-outline-secondary" href="/queries/{{ query.name }}/dead-letters" id="dead-letters-link">{{ t('query.dead_letters') }}</a>
+    {# B9. Reachable from the query, because a replacement is of one: this query's name is what
+       the cutover moves, and this query is what a rollback puts back. #}
+    <a class="btn btn-sm btn-outline-secondary" href="/queries/{{ query.name }}/replacement" id="replacement-link">{{ t('query.replacement') }}</a>
   </div>
 </div>
 <div class="rule"></div>

@@ -113,6 +113,13 @@ kbd{background:var(--stripe);color:var(--slate);border:1px solid var(--rule);bor
 .plan-node .bar{stroke:none;}
 .plan-node text{fill:var(--ink);font-family:var(--sans);font-size:12px;}
 .plan-node text.detail{fill:var(--muted);font-family:var(--code);font-size:10.5px;}
+/* B6's per-operator numbers, drawn inside the operator they belong to. Only on a node the
+   engine measured: an operator with no entry gets no line, never a row of zeros. */
+.plan-node text.measured{fill:var(--muted);font-family:var(--code);font-size:10.5px;}
+/* The bottleneck: an amber border, a glyph, and the words in the node's accessible name --
+   three ways, because colour alone is not one (WCAG 1.4.1). */
+.plan-node.bottleneck rect:first-of-type{stroke:var(--warn);stroke-width:2.5;}
+.plan-node text.mark.hot{fill:var(--warn);font-size:13px;}
 .plan-node:focus{outline:none;}
 .plan-node:focus rect,.plan-node.selected rect{stroke:var(--flow);stroke-width:2;}
 .plan-edge{fill:none;stroke:var(--edge);stroke-width:1.5;}

@@ -11,9 +11,11 @@ not a second engine). Three reasons:
   and a judgement written once is one that two screens cannot disagree about.
 
 Nothing here invents a number the engine does not publish. Where a screen wants one the
-engine does not measure -- per-operator telemetry, lane backpressure, latency percentiles
--- the snapshot says so by name, and the screen says the engine does not measure it rather
-than drawing a zero.
+engine does not measure -- latency percentiles, which are a count and a total and nothing
+more -- the snapshot says so by name (:data:`NOT_EXPOSED`), and the screen says the engine
+does not measure it rather than drawing a zero. Backpressure and per-operator telemetry
+used to be on that list and are not any more: B6 measures both, and the list is shorter
+rather than being kept for the shape of it.
 """
 from __future__ import annotations
 
@@ -104,6 +106,17 @@ QUERY_METERS = {
     "pravaha_query_dead_letters_write_failures_total": "dead_letter_write_failures",
     "pravaha_query_dead_letters_fraction": "dead_letter_fraction",
     "pravaha_query_dead_letters_degraded": "dead_letters_degraded",
+    # B6. Backpressure, measured in episodes: a writer opens one when it finds nowhere to put
+    # a row and closes it when room returns. The counters carry Micrometer's `_total` suffix
+    # on the wire; both spellings are read so a node that publishes either is understood.
+    "pravaha_query_backpressure_waits_total": "backpressure_waits",
+    "pravaha_query_backpressure_waits": "backpressure_waits",
+    "pravaha_query_backpressure_wait_seconds_total": "backpressure_wait_seconds",
+    "pravaha_query_backpressure_wait_seconds": "backpressure_wait_seconds",
+    # The lane's view, counting every writer into it. Near 1 means the lane is the limit.
+    "pravaha_query_backpressure_blocked_fraction": "blocked_fraction",
+    "pravaha_query_inbox_depth": "inbox_depth",
+    "pravaha_query_inbox_cells": "inbox_cells",
     "pravaha_query_subscribers": "subscribers",
     "pravaha_query_checkpoint_last_success_timestamp_seconds": "checkpoint_last_success",
     "pravaha_query_checkpoint_duration_seconds": "checkpoint_duration_seconds",
@@ -114,7 +127,8 @@ QUERY_METERS = {
 
 #: Derived per query from two scrapes, not published by the engine as such.
 DERIVED_METERS = ("rows_in_rate", "commit_latency_mean_seconds", "checkpoint_age_seconds",
-                  "checkpoint_failures_new", "dead_letters_new", "dead_letters_evicted_new")
+                  "checkpoint_failures_new", "dead_letters_new", "dead_letters_evicted_new",
+                  "inbox_fraction")
 
 #: Node-level meters worth a tile, when the engine exposes them (Spring Boot's defaults).
 NODE_METERS = {
@@ -122,6 +136,19 @@ NODE_METERS = {
     "process_cpu_usage": "cpu_usage",
     "system_cpu_usage": "system_cpu_usage",
     "jvm_threads_live_threads": "threads",
+    # B6. 1 when pravaha.metrics.operators is on, so per-operator numbers exist on this node's
+    # plans. Absent from an older engine, which is a third answer and not the same as 0.
+    "pravaha_metrics_operators_enabled": "operators_enabled",
+    "pravaha_lane_own_queries": "lane_own_queries",
+    "pravaha_lane_shared_bytes": "lane_shared_bytes",
+}
+
+#: Per shared lane, by the lane's index. Absent altogether with lane sharing off, which is
+#: why "no lanes" and "lanes at zero" are different things on the dashboard.
+LANE_METERS = {
+    "pravaha_lane_blocked_fraction": "blocked_fraction",
+    "pravaha_lane_inbox_depth": "inbox_depth",
+    "pravaha_lane_shared_queries": "queries",
 }
 
 
@@ -138,6 +165,7 @@ def summarize(samples: list[Sample]) -> dict[str, Any]:
     which would show a query that has never seen a row as perfectly up to date.
     """
     queries: dict[str, dict[str, Any]] = {}
+    lanes: dict[str, dict[str, Any]] = {}
     node: dict[str, float] = {}
     heap_used = 0.0
     heap_max = 0.0
@@ -146,6 +174,11 @@ def summarize(samples: list[Sample]) -> dict[str, Any]:
         if key and "query" in sample.labels:
             entry = queries.setdefault(sample.labels["query"], {"name": sample.labels["query"]})
             entry[key] = _finite(sample.value)
+            continue
+        lane_key = LANE_METERS.get(sample.name)
+        if lane_key and "lane" in sample.labels:
+            lane = lanes.setdefault(sample.labels["lane"], {"lane": sample.labels["lane"]})
+            lane[lane_key] = _finite(sample.value)
             continue
         node_key = NODE_METERS.get(sample.name)
         if node_key:
@@ -162,7 +195,17 @@ def summarize(samples: list[Sample]) -> dict[str, Any]:
         node["heap_used_bytes"] = heap_used
     if heap_max:
         node["heap_max_bytes"] = heap_max
-    return {"queries": queries, "node": node}
+    for entry in queries.values():
+        depth, cells = entry.get("inbox_depth"), entry.get("inbox_cells")
+        # How full the queue is right now. None when either half is unpublished: a depth
+        # without its ceiling is a number nobody can read as a share of anything.
+        entry["inbox_fraction"] = (depth / cells) if depth is not None and cells else None
+    return {"queries": queries, "lanes": [lanes[k] for k in sorted(lanes, key=_lane_order)],
+            "node": node}
+
+
+def _lane_order(label: str) -> tuple:
+    return (0, int(label)) if label.isdigit() else (1, label)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -175,6 +218,10 @@ class Finding:
     detail: str
     #: The engine's ``PRV-nnnn`` behind it, when there is one: the screen links it to its help page.
     code: str | None = None
+    #: The plan node most of the query's sampled time goes into, when one was measured (B6).
+    #: Filled in above this module, from the plan; ``None`` everywhere else and on a node with
+    #: ``pravaha.metrics.operators`` off, where naming one would be a guess.
+    operator: str | None = None
 
     def as_dict(self) -> dict:
         return dataclasses.asdict(self)
@@ -187,6 +234,15 @@ SOURCE_STOPPED = "Source stopped"
 
 #: The title of the finding for a query whose dead-letter queue is growing (B5).
 DEAD_LETTERS_GROWING = "Dead letters arriving"
+
+#: The title of the finding for a query that cannot be fed as fast as rows arrive (B6).
+BACKPRESSURED = "Cannot be fed fast enough"
+
+#: The share of wall clock a lane's writers may spend blocked before the dashboard says so,
+#: and the share past which the lane is the limit rather than a thing to watch. OPERATIONS'
+#: own numbers ("over about 0.2 is worth looking at; near 1 means the lane is the limit").
+BLOCKED_WARN = 0.2
+BLOCKED_CRITICAL = 0.8
 
 
 def source_stopped(name: str, stop: dict | None = None) -> Finding:
@@ -244,6 +300,27 @@ def findings(queries: dict[str, dict[str, Any]], *, state_warn: float = 0.75,
             out.append(Finding("warn", name, "Event time is behind",
                                f"{name}'s watermark is {_duration(lag)} behind the wall clock: the "
                                "data is late, or its source has stopped."))
+        # B6. Backpressure: the third thing a slow query can be, after a stopped source and
+        # late data. blocked_fraction is the lane's view and counts every writer into it, so
+        # on a shared lane it can be high for a query that is not the cause -- which is the
+        # diagnosis, not a flaw, and the finding says which of the two it is by comparing it
+        # with the query's own waiting.
+        blocked = q.get("blocked_fraction")
+        if blocked is not None and blocked >= BLOCKED_WARN:
+            depth, cells = q.get("inbox_depth"), q.get("inbox_cells")
+            queue = (f" Its inbox holds {int(depth)} of {int(cells)} cells."
+                     if depth is not None and cells else "")
+            episodes = q.get("backpressure_waits")
+            waited = q.get("backpressure_wait_seconds")
+            own = (f" Its own writers have waited {int(episodes)} time"
+                   f"{'s' if episodes != 1 else ''} for {_duration(waited)} in all."
+                   if episodes and waited is not None else "")
+            severity = "critical" if blocked >= BLOCKED_CRITICAL else "warn"
+            out.append(Finding(severity, name, BACKPRESSURED,
+                               f"{name}'s lane had nowhere to put a row for {blocked:.0%} of the "
+                               f"time it has been running.{queue}{own} On a shared lane that "
+                               "share counts the neighbours' writers too, so check the lane "
+                               "below before concluding this query is the cause."))
         # B5. Dead letters. Three separate things, because they want three separate responses.
         #
         # A queue that is growing: records are being rejected now, so the view is incomplete
@@ -308,23 +385,37 @@ def findings(queries: dict[str, dict[str, Any]], *, state_warn: float = 0.75,
     return out
 
 
-def verdict(reachable: bool, found: list[Finding], query_count: int) -> dict[str, str]:
-    """The one-line answer to "is everything healthy, and if not, where?"."""
+def verdict(reachable: bool, found: list[Finding], query_count: int,
+            bottlenecks: dict[str, str | None] | None = None) -> dict[str, str]:
+    """The one-line answer to "is everything healthy, and if not, where?".
+
+    ``bottlenecks`` maps a backpressured query to the operator its time goes into, when the
+    engine measured one. Where a query is named and its bottleneck is known, the verdict
+    says both -- "hot → Aggregate (n0)" -- because "where?" on a backpressured query is
+    answered by the operator, not by the query. A query whose bottleneck is not known is
+    named without one rather than with a guess.
+    """
     if not reachable:
         return {"status": "critical", "headline": "The engine's metrics endpoint is not answering",
                 "where": "engine"}
+
+    def where_of(chosen: list[Finding]) -> str:
+        names = []
+        for name in sorted({f.query or "engine" for f in chosen}):
+            operator = (bottlenecks or {}).get(name)
+            names.append(f"{name} → {operator}" if operator else name)
+        return ", ".join(names)
+
     critical = [f for f in found if f.severity == "critical"]
     warn = [f for f in found if f.severity == "warn"]
     if critical:
-        where = ", ".join(sorted({f.query or "engine" for f in critical}))
         return {"status": "critical",
                 "headline": f"{len(critical)} {'problems need' if len(critical) != 1 else 'problem needs'} attention",
-                "where": where}
+                "where": where_of(critical)}
     if warn:
-        where = ", ".join(sorted({f.query or "engine" for f in warn}))
         return {"status": "warn",
                 "headline": f"Healthy, with {len(warn)} thing{'s' if len(warn) != 1 else ''} to watch",
-                "where": where}
+                "where": where_of(warn)}
     if query_count == 0:
         return {"status": "ok", "headline": "The engine is up and nothing is registered yet",
                 "where": ""}
@@ -344,13 +435,9 @@ def _duration(seconds: float) -> str:
 #: What the dashboard would show and the engine does not publish yet. Named precisely so the
 #: screen can say which API is missing, rather than drawing a zero.
 NOT_EXPOSED = [
-    {"metric": "backpressure", "label": "Backpressure",
-     "why": "the engine does not sample lane backpressure, so there is no number to show"},
     {"metric": "latency", "label": "Commit latency percentiles",
      "why": "the engine keeps a count and a total per query, not each commit's duration, so "
             "the mean below is exact and a p99 would be invented"},
-    {"metric": "operators", "label": "Per-operator telemetry",
-     "why": "the runtime counts rows and state per query, not per operator"},
 ]
 
 
@@ -381,7 +468,8 @@ class MetricsHistory:
                 summary = summarize(parse(self._scrape()))
                 reachable, error = True, None
             except Exception as exc:  # noqa: BLE001 -- the dashboard renders this state
-                summary, reachable, error = {"queries": {}, "node": {}}, False, str(exc)
+                summary = {"queries": {}, "lanes": [], "node": {}}
+                reachable, error = False, str(exc)
             previous = self._points[-1] if self._points else None
             if reachable:
                 for name, q in summary["queries"].items():

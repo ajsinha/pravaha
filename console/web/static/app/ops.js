@@ -75,22 +75,41 @@ function start() {
     document.getElementById("findings").innerHTML = s.findings.length ? s.findings.map((f) => `<div class="finding">
       <span class="sev chip ${f.severity === "critical" ? "bad" : f.severity === "warn" ? "warn" : "info"}">${esc(f.severity)}</span>
       <div><div class="fw-semibold">${f.query ? `<a class="mono" href="/queries/${encodeURIComponent(f.query)}">${esc(f.query)}</a> — ` : ""}${esc(f.title)}${f.code ? ` · <a class="mono" href="/help/codes/${encodeURIComponent(f.code)}">${esc(f.code)}</a>` : ""}</div>
+      ${f.operator ? `<div class="small"><a href="/workbench?query=${encodeURIComponent(f.query)}&panel=explain">${esc(t("ops.bottleneck", { op: f.operator }))}</a></div>` : ""}
       <div class="small text-muted">${esc(f.detail)}</div></div></div>`).join("")
       : `<div class="state py-4"><h2>${t("ops.nothing")}</h2><p>${t("ops.nothing_body")}</p></div>`;
 
+    /* A meter, or the reason there is no number: never a bar at zero for a meter the engine
+       did not publish, which is the one mistake a dashboard of gauges invites. */
+    function meter(value, warn, critical, label, width) {
+      if (value === null || value === undefined) return null;
+      const percent = Math.round(value * 100);
+      return `<div class="d-flex align-items-center gap-2"><div class="gauge ${value >= critical ? "critical" : value >= warn ? "warn" : ""}" style="width:${width}" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}" aria-label="${label}"><span style="width:${Math.min(100, value * 100)}%"></span></div><span class="small">${percent}%</span></div>`;
+    }
+
     const body = document.querySelector("#ops-queries tbody");
     body.innerHTML = s.queries.length ? s.queries.map((q) => {
-      const f = q.state_fraction;
-      const gauge = f === null || f === undefined
-        ? `<span class="text-muted small">${q.metrics_published ? "—" : t("ops.not_published_yet")}</span>`
-        : `<div class="d-flex align-items-center gap-2"><div class="gauge ${f >= 0.9 ? "critical" : f >= 0.75 ? "warn" : ""}" style="width:7rem" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(f * 100)}" aria-label="${t("ops.gauge_label")}"><span style="width:${Math.min(100, f * 100)}%"></span></div><span class="small">${Math.round(f * 100)}%</span></div>`;
+      const absent = `<span class="text-muted small">${q.metrics_published ? "—" : t("ops.not_published_yet")}</span>`;
+      const gauge = meter(q.state_fraction, 0.75, 0.9, t("ops.gauge_label"), "7rem") || absent;
+      const blocked = meter(q.blocked_fraction, 0.2, 0.8, t("ops.blocked_label"), "5rem") || absent;
+      const inbox = q.inbox_depth === null || q.inbox_depth === undefined || !q.inbox_cells
+        ? '<span class="text-muted">—</span>'
+        : esc(t("ops.inbox_of", { depth: fmt(q.inbox_depth), cells: fmt(q.inbox_cells) }));
       return `<tr><td><a class="mono" href="/queries/${encodeURIComponent(q.name)}">${esc(q.name)}</a>${q.shared ? ` <span class="chip warn">${t("ops.shared")}</span>` : ""}</td>
         <td>${chip(q.state)}${q.feed === "STOPPED" ? ` <span class="chip bad">${t("ops.source_stopped")}</span>` : ""}</td><td class="num">${fmt(q.rows_in)}</td><td class="num">${fmt(q.rows_in_rate, 1)}</td>
         <td>${gauge}</td><td class="num">${fmt(q.view_size)}</td><td class="num">${q.metrics_published ? lag(q.watermark_lag_seconds) : "—"}</td>
         <td class="num">${fmt(q.subscribers)}</td>
         <td class="num">${q.commit_latency_mean_seconds === null || q.commit_latency_mean_seconds === undefined ? "—" : t("ops.unit.ms", { n: (q.commit_latency_mean_seconds * 1000).toFixed(1) })}</td>
+        <td>${blocked}</td><td class="num small">${inbox}</td>
         <td class="small">${checkpoint(q)}</td></tr>`;
-    }).join("") : `<tr><td colspan="10"><div class="state"><h2>${t("ops.empty.title")}</h2><p>${t("ops.empty.body")}</p><a class="btn btn-sm btn-primary" href="/start">${t("ops.empty.start")}</a></div></td></tr>`;
+    }).join("") : `<tr><td colspan="12"><div class="state"><h2>${t("ops.empty.title")}</h2><p>${t("ops.empty.body")}</p><a class="btn btn-sm btn-primary" href="/start">${t("ops.empty.start")}</a></div></td></tr>`;
+
+    const lanes = document.querySelector("#ops-lanes tbody");
+    if (lanes) {
+      lanes.innerHTML = (s.lanes || []).map((lane) => `<tr><td class="mono">${esc(t("ops.lane_name", { n: lane.lane }))}</td>
+        <td>${meter(lane.blocked_fraction, 0.2, 0.8, t("ops.lane_gauge_label"), "5rem") || '<span class="text-muted small">—</span>'}</td>
+        <td class="num">${fmt(lane.inbox_depth)}</td><td class="num">${fmt(lane.queries)}</td></tr>`).join("");
+    }
   }
 
   function build(table, { yName, fixed100 }) {

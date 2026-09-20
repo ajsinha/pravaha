@@ -54,11 +54,21 @@ def engine():
     return FakeEngine()
 
 
-@pytest.fixture
-def signed_in(engine):
-    client = _app(engine)
+def _signed_in_on(engine: FakeEngine, **overrides):
+    """A signed-in client over this engine.
+
+    A test that changes what the engine answers *before* anybody has asked builds its own
+    client with this: signing in lands on a screen, that screen scrapes, and the scrape is
+    cached for a second -- so a fixture-built client has already read the old answer.
+    """
+    client = _app(engine, **overrides)
     client.post("/login", data={"password": PASSWORD, "next": "/home"})
     return client
+
+
+@pytest.fixture
+def signed_in(engine):
+    return _signed_in_on(engine)
 
 
 @pytest.fixture
@@ -77,6 +87,7 @@ def engine_down():
 NEW_PAGES = ["/home", "/start", "/catalog", "/catalog?tab=queries", "/catalog?tab=sinks",
              "/catalog/streams/txn", "/views", "/views/big_txn", "/views/big_txn?key=user_id&value=u1",
              "/views/big_txn/live", "/operations", "/workbench", "/workbench?query=big_txn",
+             "/queries/big_txn/dead-letters", "/queries/big_txn/replacement",
              "/workbench?template=tumble&stream=txn", "/plugins", "/admin", "/admin/access",
              "/admin/audit", "/admin/audit?principal=ann&decision=deny"]
 
@@ -85,7 +96,8 @@ NEW_JSON_GETS = ["/api/v1/me", "/api/v1/catalog/streams", "/api/v1/catalog/strea
                  "/api/v1/views/big_txn/schema", "/api/v1/views/big_txn/snippets?key=user_id&value=u1",
                  "/api/v1/catalog/sinks", "/api/v1/views/big_txn",
                  "/api/v1/ops/snapshot", "/api/v1/ops/series?metric=rows_in", "/api/v1/ops/stream",
-                 "/api/v1/plugins", "/api/v1/admin/audit", "/api/v1/admin/audit?principal=ann",
+                 "/api/v1/plugins", "/api/v1/replacements", "/api/v1/queries/big_txn/replacement",
+                 "/api/v1/admin/audit", "/api/v1/admin/audit?principal=ann",
                  "/api/v1/admin/permissions"]
 
 NEW_JSON_POSTS = [("/api/v1/sql/validate", {"sql": "SELECT * FROM txn"}),
@@ -209,9 +221,13 @@ def test_the_catalog_shows_which_queries_share_a_computation(signed_in):
 def test_what_the_engine_does_not_measure_is_named_not_faked(signed_in):
     ops = signed_in.get("/operations").text
     assert "Not measured by the engine" in ops
-    assert "Commit latency percentiles" in ops and "Backpressure" in ops
-    # What the engine now publishes is no longer listed as missing.
+    assert "Commit latency percentiles" in ops
+    # What the engine now publishes is no longer listed as missing. B6 measures backpressure
+    # and per-operator telemetry, so the list is one entry shorter rather than being kept for
+    # the shape of it -- and the list must not name something the dashboard is now drawing.
     assert "needs-engine" not in ops and "Checkpoint health" not in ops
+    listed = ops.split("Not measured by the engine", 1)[1]
+    assert "lane backpressure" not in listed and "per operator" not in listed
     for page in ("/catalog", "/catalog?tab=sinks", "/views/big_txn", "/catalog/streams/txn", "/start"):
         assert "needs-engine" not in signed_in.get(page).text, page
 
@@ -1105,6 +1121,273 @@ def test_the_plugins_screen_is_reachable_from_the_account_menu_and_the_palette(s
     assert 'href="/plugins"' in signed_in.get("/catalog").text
     items = signed_in.get("/api/v1/palette").json()["items"]
     assert any(i.get("href") == "/plugins" for i in items)
+
+
+# ============================================================ backfill and cutover (23.10)
+
+def _replacing(engine: FakeEngine, name: str = "big_txn", **options):
+    return engine.start_replacement(
+        name, "SELECT txn_id, user_id, amount FROM txn WHERE amount > 500", [0],
+        backfill="history", rate_limit=5000, **options)
+
+
+def test_a_query_nothing_is_replacing_says_what_a_replacement_is(signed_in):
+    """Never had data (23.12): the screen explains the thing and offers the way to start one,
+    rather than an empty progress panel that reads as a stalled job."""
+    page = signed_in.get("/queries/big_txn/replacement")
+    assert page.status_code == 200
+    assert 'id="rep-none"' in page.text
+    assert "beside the running one" in page.text
+    assert 'href="/workbench?query=big_txn"' in page.text
+    # And nothing that looks like progress: no zeros standing in for a job that does not exist.
+    assert 'id="rep-numbers"' not in page.text
+
+
+def test_the_replacement_screen_shows_what_is_measured_and_no_estimate(signed_in, engine):
+    """Design 23.10 asks for an ETA. There is not one, and this is where that is enforced:
+    a source does not say how much history it holds, so every denominator is invented."""
+    _replacing(engine)
+    engine.backfill_progress("big_txn", historyRows=412_000, liveRows=980, rowsPerSecond=4800.0,
+                             partitionsLive=3, lagSeconds=12.5)
+    page = signed_in.get("/queries/big_txn/replacement")
+    assert page.status_code == 200
+    body = page.text
+    assert "412,000" in body and "980" in body and "4,800 rows/s" in body
+    assert "3 of 4" in body, "partitions live against total is the closest thing to progress"
+    assert "12.5 s" in body
+    assert "There is no estimate and no percentage here" in body
+    # Nothing that draws a share of unknown work.
+    numbers = body.split('id="rep-numbers"', 1)[1].split("</dl>", 1)[0]
+    assert "progress" not in numbers.lower() and 'role="meter"' not in numbers
+    assert "%" not in numbers
+
+
+def test_a_backfill_that_has_read_nothing_says_the_lag_is_not_known(signed_in, engine):
+    """Zero never stands in for "not measured": a 0.0 s lag would say the candidate had
+    caught up exactly, which is the opposite of what it means before the first row."""
+    _replacing(engine)
+    page = signed_in.get("/queries/big_txn/replacement").text
+    lag = page.split("Candidate behind the running version", 1)[1].split("</dd>", 1)[0]
+    assert "not known yet" in lag and "0" not in lag
+
+
+def test_the_cutover_is_refused_until_every_partition_has_reached_the_seam(signed_in, engine):
+    """Offered only when the engine would accept it: a control that fails on click is the
+    thing 23.12's unauthorized state exists to prevent, and the same rule holds for a
+    control the engine's own precondition would refuse."""
+    _replacing(engine)
+    early = signed_in.get("/queries/big_txn/replacement").text
+    button = early.split('id="rep-cutover-plain"', 1)[1].split(">", 1)[0]
+    assert "disabled" in button
+    assert "has not read all of the history yet" in early
+
+    engine.backfill_progress("big_txn", partitionsLive=4, historyComplete=True)
+    ready = signed_in.get("/queries/big_txn/replacement").text
+    assert "disabled" not in ready.split('id="rep-cutover-plain"', 1)[1].split(">", 1)[0]
+
+
+def test_cutting_over_and_rolling_back_reach_the_engine_and_say_what_happened(signed_in, engine):
+    _replacing(engine)
+    engine.backfill_progress("big_txn", partitionsLive=4, historyComplete=True)
+    done = signed_in.post("/queries/big_txn/replacement/cutover", follow_redirects=False)
+    assert done.status_code == 303
+    assert ("cutover", "big_txn", None) in engine.replacement_calls
+    page = signed_in.get(done.headers["location"])
+    assert "now answers the new version" in page.text
+
+    back = signed_in.post("/queries/big_txn/replacement/rollback", follow_redirects=False)
+    assert back.status_code == 303
+    assert ("rollback", "big_txn", None) in engine.replacement_calls
+    assert "answers the replaced version again" in signed_in.get(back.headers["location"]).text
+
+
+def test_the_rollback_window_is_shown_honestly_including_when_it_has_passed(signed_in, engine):
+    """A window that has closed is the fact an operator most needs. A screen that simply
+    stopped offering the button would leave them guessing which of the two it was."""
+    _replacing(engine)
+    engine.backfill_progress("big_txn", partitionsLive=4, historyComplete=True)
+    assert "Nothing has been cut over yet" in signed_in.get("/queries/big_txn/replacement").text
+
+    engine.cut_over("big_txn")
+    open_window = signed_in.get("/queries/big_txn/replacement").text
+    assert "retained until 2026-09-19T15:30:00Z" in open_window
+
+    engine.replacements_by_name["big_txn"]["rollbackAvailable"] = False
+    closed = signed_in.get("/queries/big_txn/replacement").text
+    assert "closed" in closed and "2026-09-19T15:30:00Z" in closed
+    assert "no longer retained" in closed
+    assert "disabled" in closed.split('id="rep-rollback-plain"', 1)[1].split(">", 1)[0]
+
+
+def test_the_engine_refusing_a_cutover_is_shown_with_its_code(signed_in, engine):
+    _replacing(engine)
+    refused = signed_in.post("/queries/big_txn/replacement/cutover", follow_redirects=False)
+    page = signed_in.get(refused.headers["location"]).text
+    assert "PRV-4014" in page and "has not caught up" in page
+    assert ("cutover", "big_txn", None) not in engine.replacement_calls
+
+
+def test_throttling_sends_what_was_typed_rather_than_clamping_it(signed_in, engine):
+    """The engine refuses a raise above the ceiling the replacement started with. The console
+    sends the number typed and shows that refusal: a silently altered number is worse."""
+    _replacing(engine)
+    signed_in.post("/queries/big_txn/replacement/throttle", data={"rate": "2000"},
+                   follow_redirects=False)
+    assert ("throttle", "big_txn", 2000) in engine.replacement_calls
+
+    refused = signed_in.post("/queries/big_txn/replacement/throttle", data={"rate": "99999"},
+                             follow_redirects=False)
+    assert ("throttle", "big_txn", 99999) in engine.replacement_calls, "the console clamped it"
+    page = signed_in.get(refused.headers["location"]).text
+    assert "PRV-4018" in page and "may be slowed, not sped up" in page
+    assert engine.replacements_by_name["big_txn"]["backfill"]["rateLimit"] == 2000
+
+
+def test_pausing_the_backfill_keeps_what_it_has_read(signed_in, engine):
+    _replacing(engine)
+    engine.backfill_progress("big_txn", historyRows=412_000)
+    signed_in.post("/queries/big_txn/replacement/pause", follow_redirects=False)
+    paused = signed_in.get("/queries/big_txn/replacement").text
+    assert "paused" in paused and "412,000" in paused
+    signed_in.post("/queries/big_txn/replacement/resume", follow_redirects=False)
+    assert ("resume", "big_txn", None) in engine.replacement_calls
+
+
+def test_a_reader_sees_the_whole_screen_with_every_control_disabled(signed_in, engine):
+    """Everything here needs the administer permission. The engine's policy decides, and a
+    refusal is a state of the screen with its reason on the page (23.16), not a hidden page."""
+    _replacing(engine)
+    engine.administer_refused["big_txn"] = "administering 'big_txn' needs one of the roles [ops]"
+    page = signed_in.get("/queries/big_txn/replacement")
+    assert page.status_code == 200
+    assert "needs one of the roles [ops]" in page.text
+    assert 'id="rep-refused"' in page.text
+    for control in ("bf-pause", "bf-throttle", "rep-cutover", "rep-rollback-btn", "rep-finish"):
+        button = page.text.split(f'id="{control}"', 1)[1].split(">", 1)[0]
+        assert "disabled" in button, control
+        assert 'aria-describedby="rep-refused"' in button, control
+    # And the numbers are still there: a reader may read.
+    assert 'id="rep-numbers"' in page.text
+
+
+def test_the_replacement_screen_says_it_cannot_read_the_version_history(signed_in, engine):
+    """Partial (23.12). The engine records who served this name from which seam; the status
+    the SDK returns does not carry it, and an empty list would read as "nobody has"."""
+    _replacing(engine)
+    page = signed_in.get("/queries/big_txn/replacement").text
+    assert 'id="rep-history-partial"' in page
+    assert "does not carry it" in page
+
+
+def test_the_replacement_json_answers_null_rather_than_404_for_a_query_without_one(signed_in, engine):
+    body = signed_in.get("/api/v1/queries/big_txn/replacement").json()
+    assert body == {"query": "big_txn", "replacement": None}
+    _replacing(engine)
+    body = signed_in.get("/api/v1/queries/big_txn/replacement").json()
+    assert body["replacement"]["state"] == "BACKFILLING"
+    assert body["replacement"]["backfill"]["partitions"] == 4
+    assert body["replacement"]["history"] is None
+    assert signed_in.get("/api/v1/replacements").json()["items"][0]["name"] == "big_txn"
+
+
+def test_an_engine_that_does_not_answer_is_the_screens_error_state(signed_in, engine):
+    engine.fail("replacement")
+    page = signed_in.get("/queries/big_txn/replacement")
+    assert page.status_code == 200 and 'id="rep-error"' in page.text
+    assert "correlation" in page.text
+
+
+# ============================================================ backpressure and operators (B6)
+
+def test_the_dashboard_draws_the_lane_backpressure_the_engine_now_publishes(signed_in):
+    ops = signed_in.get("/operations").text
+    assert "Shared lanes" in ops and "lane 0" in ops and "lane 1" in ops
+    assert 'id="ops-lanes"' in ops
+    snapshot = signed_in.get("/api/v1/ops/snapshot").json()
+    hot = next(q for q in snapshot["queries"] if q["name"] == "hot")
+    assert hot["blocked_fraction"] == 0.92
+    assert hot["inbox_depth"] == 2040 and hot["inbox_cells"] == 2048
+    assert hot["backpressure_waits"] == 41 and hot["backpressure_wait_seconds"] == 312.5
+    assert snapshot["operators_enabled"] == 1
+
+
+def test_a_node_with_no_shared_lane_says_so_rather_than_drawing_an_empty_table(engine):
+    engine.metrics_text = "\n".join(
+        line for line in engine.metrics_text.splitlines() if not line.startswith("pravaha_lane_"))
+    ops = _signed_in_on(engine).get("/operations").text
+    assert 'id="ops-lanes-none"' in ops and "No lane is shared" in ops
+    assert 'id="ops-lanes"' not in ops
+
+
+def test_the_verdict_names_the_query_and_the_operator_the_time_goes_into(signed_in):
+    """Design 23.20's "is everything healthy, and if not, where?" -- and on a backpressured
+    query, "where" is the operator, not the query."""
+    snapshot = signed_in.get("/api/v1/ops/snapshot").json()
+    assert snapshot["verdict"]["where"] == "hot → Aggregate (n0)"
+    backpressured = next(f for f in snapshot["findings"] if f["title"] == "Cannot be fed fast enough")
+    assert backpressured["query"] == "hot" and backpressured["operator"] == "Aggregate (n0)"
+    assert "92% of the time" in backpressured["detail"]
+    assert "2040 of 2048 cells" in backpressured["detail"]
+    assert "shared lane" in backpressured["detail"], "whose fault it is on a shared lane"
+    assert "Most of the time goes into Aggregate (n0)" in signed_in.get("/operations").text
+
+
+def test_a_query_that_is_not_backpressured_raises_no_finding_about_it(signed_in):
+    snapshot = signed_in.get("/api/v1/ops/snapshot").json()
+    assert not [f for f in snapshot["findings"]
+                if f["query"] == "big_txn" and f["title"] == "Cannot be fed fast enough"]
+
+
+def test_the_plan_of_a_registered_query_carries_its_operators_and_its_bottleneck(signed_in):
+    plan = signed_in.post("/api/v1/sql/explain",
+                          json={"sql": "SELECT user_id, COUNT(*) FROM txn GROUP BY user_id",
+                                "query": "hot"}).json()
+    # Explaining SQL is not running it: the per-operator numbers belong to the running plan.
+    assert plan["metrics_state"] == "not_running"
+    assert plan["operator_metrics"] is None and plan["bottleneck"] is None
+    assert "not running" in plan["metrics_note"]
+
+    running = signed_in.get("/api/v1/queries/hot").json()
+    assert running["name"] == "hot"
+
+
+def test_the_running_plan_is_keyed_by_the_graphs_own_node_ids(signed_in, engine):
+    from core.services import AuthoringService, CatalogService
+
+    authoring_service = AuthoringService(engine, CatalogService(engine))
+    plan = authoring_service.plan("hot")
+    ids = {n["id"] for n in plan["graph"]["nodes"]}
+    assert set(plan["operator_metrics"]) == ids
+    assert plan["bottleneck"] in ids
+    assert plan["metrics_state"] == "measured"
+    assert plan["query_metrics"]["blockedFraction"] == 0.92
+
+
+def test_a_node_with_the_counters_off_says_so_and_names_the_setting(signed_in, engine):
+    """Three answers, not two: not registered, counters off, measured. The middle one must
+    name the setting rather than showing an empty graph."""
+    from core.services import AuthoringService, CatalogService
+
+    engine.operator_metrics = False
+    plan = AuthoringService(engine, CatalogService(engine)).plan("hot")
+    assert plan["metrics_state"] == "operators_off"
+    assert plan["operator_metrics"] is None and plan["bottleneck"] is None
+    assert "pravaha.metrics.operators is off" in plan["metrics_note"]
+    # The query's own totals are still there -- they are measured either way.
+    assert plan["query_metrics"]["inboxDepth"] == 2040
+
+
+def test_the_bottleneck_is_absent_rather_than_guessed_when_the_time_is_even(engine):
+    """Measured, not inferred from row counts. A plan whose samples put nothing ahead names
+    nothing, and a console that always marked the maximum would always accuse somebody."""
+    from core.services import AuthoringService, CatalogService
+
+    engine.operator_shares.pop("hot", None)
+    plan = AuthoringService(engine, CatalogService(engine)).plan("hot")
+    assert plan["metrics_state"] == "measured"
+    assert plan["bottleneck"] is None
+    snapshot = _signed_in_on(engine).get("/api/v1/ops/snapshot").json()
+    assert snapshot["verdict"]["where"] == "hot"
 
 
 # ============================================================ comparing two versions (23.7)

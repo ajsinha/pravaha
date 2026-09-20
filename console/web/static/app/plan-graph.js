@@ -59,12 +59,33 @@ let drawn = 0;
    alone -- a glyph in the node and a word in its accessible name say it too. */
 const MARKS = { added: "+", removed: "\u2212", changed: "~" };
 
+/** A count as a person reads it; "?" for a number the engine did not publish, never 0. */
+function count(value) {
+  return value === null || value === undefined ? "?" : Number(value).toLocaleString();
+}
+
+/** The measured line drawn inside an operator: rows in, rows out, and its share of the time. */
+function measuredLine(telemetry) {
+  const share = telemetry.selfTimeShare === null || telemetry.selfTimeShare === undefined
+    ? null : Math.round(telemetry.selfTimeShare * 100);
+  return t("plan.metrics.line", { in: count(telemetry.rowsIn), out: count(telemetry.rowsOut),
+                                  share: share === null ? "?" : share });
+}
+
 /**
  * Renders `graph` ({nodes, edges} from the console's /sql/explain) into `container`.
  * `onSelect(node)` is called when a node is clicked or chosen with Enter. `marks`, from a plan
  * diff, maps a node id to added / removed / changed / same; `label` names the whole graph.
+ *
+ * `metrics` is the engine's `operatorMetrics`, keyed by the plan graph's own node ids, and
+ * `bottleneck` the id the engine measured most of the query's own time into. Both are drawn
+ * only when the engine gave them: an operator with no entry gets no line rather than a row of
+ * zeros, and no bottleneck is marked when the engine named none (nothing sampled yet, or the
+ * time is spread evenly and nothing stands out).
  */
-export async function renderPlan(container, graph, { onSelect, marks = null, label = null } = {}) {
+export async function renderPlan(container, graph,
+                                 { onSelect, marks = null, label = null,
+                                   metrics = null, bottleneck = null } = {}) {
   container.replaceChildren();
   if (!graph || !graph.nodes || !graph.nodes.length) {
     container.innerHTML = `<div class="state"><h2>${t("plan.empty.title")}</h2><p>${t("plan.empty.body")}</p></div>`;
@@ -84,8 +105,12 @@ export async function renderPlan(container, graph, { onSelect, marks = null, lab
     children: graph.nodes.map((n) => {
       const detail = n.detail.length > 44 ? n.detail.slice(0, 43) + "…" : n.detail;
       const badge = marks && MARKS[marks[n.id]] ? 18 : 0;
-      return { id: n.id, width: Math.max(120, textWidth(n.op, 12) + 34 + badge, textWidth(detail, 10.5) + 26),
-               height: detail ? 48 : 34, _detail: detail };
+      const measured = metrics && metrics[n.id] ? measuredLine(metrics[n.id]) : "";
+      return { id: n.id,
+               width: Math.max(120, textWidth(n.op, 12) + 34 + badge, textWidth(detail, 10.5) + 26,
+                               textWidth(measured, 10.5) + 26),
+               height: (detail ? 48 : 34) + (measured ? 15 : 0),
+               _detail: detail, _measured: measured };
     }),
     edges: graph.edges.map((e) => ({ id: e.id, sources: [e.source], targets: [e.target] })),
   };
@@ -113,18 +138,33 @@ export async function renderPlan(container, graph, { onSelect, marks = null, lab
   for (const child of laid.children) {
     const n = byId[child.id];
     const mark = marks ? marks[n.id] : null;
-    const said = mark && MARKS[mark] ? ", " + t("plan.mark." + mark) : "";
-    const g = el("g", { class: "plan-node" + (mark ? " diff-" + mark : ""), transform: `translate(${child.x},${child.y})`,
+    const telemetry = metrics ? metrics[n.id] : null;
+    const isBottleneck = Boolean(bottleneck) && n.id === bottleneck;
+    /* The bottleneck is never colour alone: it carries a glyph, the words in its accessible
+       name, and the share is already written inside the node. */
+    const said = (mark && MARKS[mark] ? ", " + t("plan.mark." + mark) : "")
+      + (telemetry ? ", " + t("plan.metrics.said", {
+          in: count(telemetry.rowsIn), out: count(telemetry.rowsOut),
+          share: telemetry.selfTimeShare === null || telemetry.selfTimeShare === undefined
+            ? "?" : Math.round(telemetry.selfTimeShare * 100) }) : "")
+      + (isBottleneck ? ", " + t("plan.metrics.bottleneck") : "");
+    const g = el("g", { class: "plan-node" + (mark ? " diff-" + mark : "") + (isBottleneck ? " bottleneck" : ""),
+                        transform: `translate(${child.x},${child.y})`,
                         tabindex: 0, role: "button", "aria-label": `${n.op} ${n.detail}`.trim() + said,
-                        "data-op": n.op }, svg);
+                        "data-op": n.op, "data-node": n.id }, svg);
     el("title", {}, g).textContent = n.label + said;
     el("rect", { width: child.width, height: child.height, rx: 6 }, g);
     el("rect", { class: "bar fam-" + n.family, width: 5, height: child.height, rx: 2 }, g);
     el("text", { x: 14, y: 20, "font-weight": 600 }, g).textContent = n.op;
     if (mark && MARKS[mark]) {
       el("text", { x: child.width - 16, y: 20, class: "mark", "aria-hidden": "true" }, g).textContent = MARKS[mark];
+    } else if (isBottleneck) {
+      el("text", { x: child.width - 16, y: 20, class: "mark hot", "aria-hidden": "true" }, g).textContent = "▲";
     }
     if (child._detail) el("text", { x: 14, y: 37, class: "detail" }, g).textContent = child._detail;
+    if (child._measured) {
+      el("text", { x: 14, y: child.height - 8, class: "measured" }, g).textContent = child._measured;
+    }
     const choose = () => {
       nodes.forEach((x) => x.classList.remove("selected"));
       g.classList.add("selected");
@@ -161,6 +201,9 @@ export function exportSvg(svg, filename = "pravaha-plan.svg") {
     `.plan-node rect{fill:${style.getPropertyValue("--raised")};stroke:${style.getPropertyValue("--edge")}}`,
     `.plan-node text{fill:${style.getPropertyValue("--ink")};font-family:sans-serif;font-size:12px}`,
     `.plan-node text.detail{fill:${style.getPropertyValue("--muted")};font-family:monospace;font-size:10.5px}`,
+    `.plan-node text.measured{fill:${style.getPropertyValue("--muted")};font-family:monospace;font-size:10.5px}`,
+    `.plan-node.bottleneck rect:first-of-type{stroke:${style.getPropertyValue("--warn")};stroke-width:2.5}`,
+    `.plan-node text.mark.hot{fill:${style.getPropertyValue("--warn")};font-family:monospace;font-size:13px;font-weight:700}`,
     `.plan-edge{fill:none;stroke:${style.getPropertyValue("--edge")};stroke-width:1.5}`,
     `.plan-arrow{fill:${style.getPropertyValue("--edge")}}`,
     ...FAMILIES.map(

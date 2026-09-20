@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+{% from "_helpcards.html" import screenhelp, helplink %}
+{% import "_states.html" as states %}
+{% block title %}{{ t('cutover.title', name=query.name) }} — {{ app_name }}{% endblock %}
+{% block content %}
+{#- Design 23.10, ADR-046. Deliberately without an ETA, a percentage or a progress bar: a
+    source does not say how much history it holds, so there is no denominator that is not
+    invented. Every number here is one the engine measured. -#}
+{% set bf = replacement.backfill if replacement else none %}
+{% set active = replacement and replacement.state in ('BACKFILLING', 'CAUGHT_UP') %}
+<p class="text-muted small"><a href="/queries/{{ query.name }}">&larr; {{ t('cutover.back', name=query.name) }}</a></p>
+<div class="accent"></div>
+<p class="kicker mt-2 mb-1">{{ t('cutover.kicker') }}</p>
+<div class="page-head">
+  <h1>{{ t('cutover.heading', name=query.name) }}{{ helplink('replacement') }}</h1>
+  <span class="freshness" id="rep-freshness" data-state="fresh"><span class="dot"></span><span>{{ t('cutover.as_of_load') }}</span></span>
+</div>
+<div class="rule"></div>
+{# Stale (23.12): written by replacement.js when the 1 Hz stream drops, outside the block that dims. #}
+<div id="rep-banner"></div>
+
+{% if acted %}<div class="alert alert-success py-2 small" id="rep-acted" role="status">{{ acted }}</div>{% endif %}
+{% if action_error %}<div class="alert alert-danger py-2 small" id="rep-action-error" role="alert">
+  {% if action_code %}<a href="/help/codes/{{ action_code }}">{{ action_code }}</a> {% endif %}{{ action_error }}</div>{% endif %}
+
+{% if replacement_error %}
+  {{ states.error(replacement_error, retry_href='/queries/' ~ query.name ~ '/replacement', id='rep-error') }}
+{% elif not replacement %}
+  {{ states.empty(title=t('cutover.none.title', name=query.name), body=t('cutover.none.body'),
+                  id='rep-none', action_href='/workbench?query=' ~ query.name,
+                  action_label=t('cutover.none.start')) }}
+  <p class="small text-muted mt-2">{{ t('cutover.none.note') }}</p>
+{% else %}
+
+<div id="rep-app">
+<div class="d-flex flex-wrap gap-2 mb-3" id="rep-summary">
+  <span class="chip {{ 'ok' if replacement.state in ('CUT_OVER', 'FINISHED') else 'bad' if replacement.state in ('FAILED', 'ROLLED_BACK') else 'warn' }}" id="rep-state"
+        data-state="{{ replacement.state }}">{{ t('cutover.state.' ~ replacement.state|lower) }}</span>
+  {% if replacement.candidate %}<span class="chip info" title="{{ t('cutover.candidate_title') }}">{{ t('cutover.candidate', id=replacement.candidate[:12]) }}</span>{% endif %}
+  {% if replacement.replacing %}<span class="chip mute" title="{{ t('cutover.replacing_title') }}">{{ t('cutover.replacing', id=replacement.replacing[:12]) }}</span>{% endif %}
+  {% if replacement.owner %}<span class="chip mute">{{ t('cutover.owner', who=replacement.owner) }}</span>{% endif %}
+  {% if replacement.startedAt %}<span class="chip mute">{{ t('cutover.started', at=replacement.startedAt) }}</span>{% endif %}
+</div>
+
+{% if replacement.failure %}
+<div class="alert alert-danger py-2 small" id="rep-failure" role="alert">
+  {% if replacement.failure.code %}<a href="/help/codes/{{ replacement.failure.code }}">{{ replacement.failure.code }}</a> {% endif %}{{ replacement.failure.message }}</div>
+{% endif %}
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="card h-100">
+      <div class="card-header">{{ t('cutover.progress.heading') }}</div>
+      <div class="card-body">
+        {# The honesty, first and not in a footnote: this is the one screen where a plausible
+           bar would be believed, and there is nothing behind it to believe. #}
+        <p class="small text-muted" id="rep-no-eta">{{ t('cutover.no_eta') }}</p>
+        <dl class="row small mb-0" id="rep-numbers">
+          <dt class="col-6">{{ t('cutover.progress.history_rows') }}</dt><dd class="col-6 num mono" data-field="historyRows">{{ "{:,}".format(bf.historyRows) }}</dd>
+          <dt class="col-6">{{ t('cutover.progress.live_rows') }}</dt><dd class="col-6 num mono" data-field="liveRows">{{ "{:,}".format(bf.liveRows) }}</dd>
+          <dt class="col-6">{{ t('cutover.progress.rate') }}</dt><dd class="col-6 num mono" data-field="rowsPerSecond">{{ t('cutover.progress.rows_per_second', n="{:,.0f}".format(bf.rowsPerSecond)) }}</dd>
+          <dt class="col-6">{{ t('cutover.progress.partitions') }}</dt><dd class="col-6 num mono" data-field="partitions">{{ t('cutover.progress.of', live=bf.partitionsLive, total=bf.partitions) }}</dd>
+          <dt class="col-6">{{ t('cutover.progress.lag') }}</dt>
+          <dd class="col-6 num mono" data-field="lagSeconds">{% if bf.lagSeconds is none %}<span class="text-muted">{{ t('cutover.progress.lag_unknown') }}</span>{% else %}{{ t('cutover.progress.seconds', n="{:,.1f}".format(bf.lagSeconds)) }}{% endif %}</dd>
+          <dt class="col-6">{{ t('cutover.progress.rate_limit') }}</dt>
+          <dd class="col-6 num mono" data-field="rateLimit">{% if bf.rateLimit %}{{ t('cutover.progress.rows_per_second', n="{:,}".format(bf.rateLimit)) }}{% else %}<span class="text-muted">{{ t('cutover.progress.no_limit') }}</span>{% endif %}</dd>
+          <dt class="col-6">{{ t('cutover.progress.history') }}</dt>
+          <dd class="col-6" data-field="historyComplete">{% if bf.historyComplete %}<span class="chip ok">{{ t('cutover.progress.history_complete') }}</span>{% else %}<span class="chip warn">{{ t('cutover.progress.history_reading') }}</span>{% endif %}</dd>
+          <dt class="col-6">{{ t('cutover.progress.reading') }}</dt>
+          <dd class="col-6" data-field="paused">{% if bf.paused %}<span class="chip mute">{{ t('cutover.progress.paused') }}</span>{% else %}<span class="chip ok">{{ t('cutover.progress.running') }}</span>{% endif %}</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card h-100">
+      <div class="card-header">{{ t('cutover.rollback.heading') }}</div>
+      <div class="card-body small" id="rep-rollback">
+        {% if replacement.state == 'CUT_OVER' and replacement.rollbackAvailable %}
+          <p class="mb-1">{{ t('cutover.rollback.open', until=replacement.rollbackUntil) }}</p>
+          <p class="text-muted mb-0">{{ t('cutover.rollback.open_note') }}</p>
+        {% elif replacement.rollbackUntil and not replacement.rollbackAvailable %}
+          {# Said, not hidden: a window that has closed is the fact an operator most needs. #}
+          <p class="mb-1"><span class="chip bad">{{ t('cutover.rollback.closed') }}</span></p>
+          <p class="text-muted mb-0">{{ t('cutover.rollback.closed_note', until=replacement.rollbackUntil) }}</p>
+        {% elif replacement.state in ('ROLLED_BACK', 'FINISHED', 'ABANDONED') %}
+          <p class="text-muted mb-0">{{ t('cutover.rollback.over', state=t('cutover.state.' ~ replacement.state|lower)) }}</p>
+        {% else %}
+          <p class="text-muted mb-0">{{ t('cutover.rollback.not_yet') }}</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>{{ t('cutover.controls.heading') }}</h2>
+{% if refused %}
+{# Unauthorized (23.12, 23.16): every control on this screen needs the administer permission,
+   so a reader sees the screen with each one disabled and the policy's own reason on the page
+   -- never in a title a disabled button cannot show, and never a button that fails on click. #}
+<div class="d-flex flex-wrap gap-2" id="rep-refused-buttons">
+  <button class="btn btn-sm btn-outline-secondary" id="bf-pause" type="button" disabled aria-describedby="rep-refused">{{ t('cutover.controls.pause') }}</button>
+  <button class="btn btn-sm btn-outline-secondary" id="bf-throttle" type="button" disabled aria-describedby="rep-refused">{{ t('cutover.controls.throttle') }}</button>
+  <button class="btn btn-sm btn-primary" id="rep-cutover" type="button" disabled aria-describedby="rep-refused">{{ t('cutover.controls.cutover') }}</button>
+  <button class="btn btn-sm btn-outline-danger" id="rep-rollback-btn" type="button" disabled aria-describedby="rep-refused">{{ t('cutover.controls.rollback') }}</button>
+  <button class="btn btn-sm btn-outline-secondary" id="rep-finish" type="button" disabled aria-describedby="rep-refused">{{ t('cutover.controls.finish') }}</button>
+  <button class="btn btn-sm btn-outline-secondary" id="rep-abandon" type="button" disabled aria-describedby="rep-refused">{{ t('cutover.controls.abandon') }}</button>
+</div>
+<div class="alert alert-info py-2 small mt-3 mb-0" id="rep-refused" role="note">
+  <div class="fw-semibold">{{ t('cutover.refused_title') }}</div>
+  {{ t('cutover.refused_body', reason=refused) }}
+  <a href="/admin/access">{{ t('cutover.refused_access') }}</a></div>
+{% else %}
+<div class="d-flex flex-wrap gap-2 align-items-end">
+  {% if active %}
+  <form method="post" action="/queries/{{ query.name }}/replacement/{{ 'resume' if bf.paused else 'pause' }}">
+    <button class="btn btn-sm btn-outline-secondary" id="bf-pause" type="submit">{{ t('cutover.controls.resume') if bf.paused else t('cutover.controls.pause') }}</button>
+  </form>
+  <form method="post" action="/queries/{{ query.name }}/replacement/throttle" class="d-flex gap-2 align-items-end">
+    <div>
+      <label class="form-label small mb-1" for="bf-rate">{{ t('cutover.controls.rate_label') }}</label>
+      <input class="form-control form-control-sm" style="width:9rem" type="number" min="0" step="1"
+             id="bf-rate" name="rate" value="{{ bf.rateLimit }}" inputmode="numeric">
+    </div>
+    <button class="btn btn-sm btn-outline-secondary" id="bf-throttle" type="submit">{{ t('cutover.controls.throttle') }}</button>
+  </form>
+  {% endif %}
+
+  {# Cutover and rollback move what every reader of the name sees. Confirmed by the typed
+     name, exactly as a drop is: a plain form that works with no script at all, and a
+     typed-confirmation dialog replacement.js swaps in when it can run one. #}
+  {% if replacement.state in ('BACKFILLING', 'CAUGHT_UP') %}
+  <form method="post" action="/queries/{{ query.name }}/replacement/cutover" id="cutoverForm">
+    <button class="btn btn-sm btn-primary" id="rep-cutover-plain" type="submit"
+            {{ 'disabled' if not bf.historyComplete }}
+            title="{{ t('cutover.controls.cutover_early') if not bf.historyComplete else t('cutover.controls.cutover_title') }}">{{ t('cutover.controls.cutover') }}</button>
+  </form>
+  <button type="button" class="btn btn-sm btn-primary d-none" id="rep-cutover"
+          {{ 'disabled' if not bf.historyComplete }}
+          data-bs-toggle="modal" data-bs-target="#cutoverConfirmModal">{{ t('cutover.controls.cutover') }}</button>
+  <form method="post" action="/queries/{{ query.name }}/replacement/abandon">
+    <button class="btn btn-sm btn-outline-secondary" id="rep-abandon" type="submit">{{ t('cutover.controls.abandon') }}</button>
+  </form>
+  {% endif %}
+
+  {% if replacement.state == 'CUT_OVER' %}
+  <form method="post" action="/queries/{{ query.name }}/replacement/rollback" id="rollbackForm">
+    <button class="btn btn-sm btn-outline-danger" id="rep-rollback-plain" type="submit"
+            {{ 'disabled' if not replacement.rollbackAvailable }}
+            title="{{ t('cutover.controls.rollback_gone') if not replacement.rollbackAvailable else t('cutover.controls.rollback_title') }}">{{ t('cutover.controls.rollback') }}</button>
+  </form>
+  <button type="button" class="btn btn-sm btn-outline-danger d-none" id="rep-rollback-btn"
+          {{ 'disabled' if not replacement.rollbackAvailable }}
+          data-bs-toggle="modal" data-bs-target="#rollbackConfirmModal">{{ t('cutover.controls.rollback') }}</button>
+  <form method="post" action="/queries/{{ query.name }}/replacement/finish">
+    <button class="btn btn-sm btn-outline-secondary" id="rep-finish" type="submit">{{ t('cutover.controls.finish') }}</button>
+  </form>
+  {% endif %}
+</div>
+<p class="small text-muted mt-3 mb-0" id="rep-controls-note">{{ t('cutover.controls.note') }}</p>
+{% endif %}
+
+<h2>{{ t('cutover.versions.heading') }}</h2>
+<div class="card"><div class="card-body">
+  <dl class="row small mb-0" id="rep-versions">
+    <dt class="col-sm-3">{{ t('cutover.versions.candidate_sql') }}</dt><dd class="col-sm-9"><pre class="mb-0" id="rep-sql">{{ replacement.sql }}</pre></dd>
+    <dt class="col-sm-3">{{ t('cutover.versions.options') }}</dt><dd class="col-sm-9 mono">{{ replacement.options or '—' }}</dd>
+    <dt class="col-sm-3">{{ t('cutover.versions.sink') }}</dt><dd class="col-sm-9 mono">{{ replacement.sink or '—' }}</dd>
+    <dt class="col-sm-3">{{ t('cutover.versions.cut_over_at') }}</dt><dd class="col-sm-9 mono">{{ replacement.cutOverAt or '—' }}</dd>
+  </dl>
+</div></div>
+
+<h2>{{ t('cutover.history.heading') }}</h2>
+{% if replacement.history is none %}
+  {# Partial (23.12). The engine records who served this name from which seam; the status the
+     console can read does not carry it, and an empty list here would read as "nobody has". #}
+  {{ states.partial(body=t('cutover.history.not_carried'), id='rep-history-partial') }}
+{% elif not replacement.history %}
+  {{ states.empty(title=t('cutover.history.none_title'), body=t('cutover.history.none_body'),
+                  id='rep-history-none', heading='h3') }}
+{% else %}
+<ol class="small" id="rep-history">{% for entry in replacement.history %}<li class="mono">{{ entry }}</li>{% endfor %}</ol>
+{% endif %}
+</div>
+
+{% if not refused and replacement.state in ('BACKFILLING', 'CAUGHT_UP') %}
+<div class="modal fade" id="cutoverConfirmModal" tabindex="-1" aria-labelledby="cutoverConfirmLabel" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header">
+      <h2 class="modal-title h5" id="cutoverConfirmLabel">{{ t('cutover.confirm.cutover_title', name=query.name) }}</h2>
+      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ t('cutover.confirm.cancel') }}"></button>
+    </div>
+    <div class="modal-body">
+      <p>{{ t('cutover.confirm.cutover_body', name=query.name) }}</p>
+      <label for="cutoverConfirmInput" class="form-label small">{{ t('cutover.confirm.type_before') }}
+        <code>{{ query.name }}</code>{{ t('cutover.confirm.type_after') }}</label>
+      <input type="text" class="form-control" id="cutoverConfirmInput" autocomplete="off"
+             aria-describedby="cutoverConfirmHelp" data-expected="{{ query.name }}">
+      <div id="cutoverConfirmHelp" class="form-text">{{ t('cutover.confirm.exact') }}</div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ t('cutover.confirm.cancel') }}</button>
+      <button type="submit" class="btn btn-primary" id="cutoverConfirmSubmit" disabled form="cutoverForm">{{ t('cutover.confirm.cutover_submit') }}</button>
+    </div>
+  </div></div>
+</div>
+{% endif %}
+
+{% if not refused and replacement.state == 'CUT_OVER' %}
+<div class="modal fade" id="rollbackConfirmModal" tabindex="-1" aria-labelledby="rollbackConfirmLabel" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header">
+      <h2 class="modal-title h5" id="rollbackConfirmLabel">{{ t('cutover.confirm.rollback_title', name=query.name) }}</h2>
+      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ t('cutover.confirm.cancel') }}"></button>
+    </div>
+    <div class="modal-body">
+      <p>{{ t('cutover.confirm.rollback_body', name=query.name) }}</p>
+      <label for="rollbackConfirmInput" class="form-label small">{{ t('cutover.confirm.type_before') }}
+        <code>{{ query.name }}</code>{{ t('cutover.confirm.type_after') }}</label>
+      <input type="text" class="form-control" id="rollbackConfirmInput" autocomplete="off"
+             aria-describedby="rollbackConfirmHelp" data-expected="{{ query.name }}">
+      <div id="rollbackConfirmHelp" class="form-text">{{ t('cutover.confirm.exact') }}</div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ t('cutover.confirm.cancel') }}</button>
+      <button type="submit" class="btn btn-danger" id="rollbackConfirmSubmit" disabled form="rollbackForm">{{ t('cutover.confirm.rollback_submit') }}</button>
+    </div>
+  </div></div>
+</div>
+{% endif %}
+<script type="application/json" id="rep-initial">{{ replacement|tojson }}</script>
+{% endif %}
+{{ screenhelp('replacement') }}
+{% endblock %}
+{% block scripts %}<script src="/static/js/replacement.js"></script>{% endblock %}
