@@ -28,7 +28,7 @@ import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 import com.ash.messaging.pravaha.registry.ReplaySource;
 
 /**
- * Reads a query's bound sources one row at a time, from a checkpoint's positions (ADR-047).
+ * Reads a query's bound sources one row at a time, from a checkpoint's positions (ADR-048).
  *
  * <p>The pull side of the debugger. A {@link com.ash.messaging.pravaha.registry.SourceFeed} is a
  * set of pumps on threads, pushing rows as fast as backpressure allows; this polls one reader for

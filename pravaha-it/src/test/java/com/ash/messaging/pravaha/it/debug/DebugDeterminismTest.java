@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * The claim the whole debugger rests on: the same fork and the same steps give the same answers
- * (ADR-047, design section 16.4).
+ * (ADR-048, design section 16.4).
  *
  * <p>Two sessions are forked from one checkpoint and given an identical script -- single rows, a
  * batch, a watermark, a predicate -- and every report is compared field for field: the rows that

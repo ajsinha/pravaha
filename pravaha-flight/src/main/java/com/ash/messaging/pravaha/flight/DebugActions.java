@@ -31,7 +31,7 @@ import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.serving.ViewChange;
 
 /**
- * The time-travel debugger over Flight actions (ADR-047, design section 16.4).
+ * The time-travel debugger over Flight actions (ADR-048, design section 16.4).
  *
  * <p>Its own class rather than nine more cases in {@code PravahaFlightSqlProducer}'s switch, which
  * is already the largest method in the gateway and is near this repository's file-size limit. The

@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * A query's inputs, read one row at a time from a position, by hand (ADR-047).
+ * A query's inputs, read one row at a time from a position, by hand (ADR-048).
  *
  * <p>Not a {@link SourceFeed}. A feed is a set of pumps on threads of their own, delivering rows as
  * fast as backpressure allows -- which is what a running query wants and exactly what a debugger
@@ -31,7 +31,7 @@ import java.util.Optional;
  * reach the lanes is whatever the schedulers did that second, and is not reproducible. This reads
  * the partitions round-robin in a fixed order. That is what makes two runs of the same session give
  * the same answers -- and it means a bug that only appears under one particular interleaving of two
- * partitions may not reproduce here. ADR-047 records the trade.
+ * partitions may not reproduce here. ADR-048 records the trade.
  */
 public interface ReplaySource extends AutoCloseable {
 

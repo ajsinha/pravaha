@@ -418,7 +418,7 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
     }
 
     /**
-     * Every window this aggregate is still retaining, with what it published for each key (ADR-047).
+     * Every window this aggregate is still retaining, with what it published for each key (ADR-048).
      *
      * <p><strong>Fired windows only, and that is a real limit rather than an oversight.</strong> A
      * window still filling lives in the sliced accumulators, and the only way to read a slice's

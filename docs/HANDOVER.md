@@ -42,13 +42,16 @@ transactional (a staging table, applied in one database transaction per checkpoi
 exactly once; `aerospike-sink` is effectively once and `filesystem` at least once. The registry logs
 which at registration.
 **The time-travel debugger's engine is built** (2026-09-19,
-[ADR-047](adr/047-a-debug-fork-is-a-second-computation-nothing-can-read.md), batch B4). A query is
+[ADR-048](adr/048-a-debug-fork-is-a-second-computation-nothing-can-read.md), batch B4). A query is
 forked from one of its retained checkpoints into a second computation on lanes of its own, reading
 the same sources from that checkpoint's offsets — with no sink attached, its view in no catalogue
 and the live query untouched — and stepped by hand: one row, N rows, to the next commit, to a
 watermark, or until one column of the view crosses a value. Each step reports the rows that
 entered, every operator's rows in and out, the view's changes with weights, and the watermark.
 Operator state reads on the lane that owns it, bounded and paged, emitting and evicting nothing.
+The per-operator counts are **B6's**, not a second set: a step's operator lines and the plan
+endpoint's numbers are the same counters under the same node ids, and a fork turns the
+measurement on for itself rather than depending on `pravaha.metrics.operators`.
 The session exports as a self-contained JUnit fixture whose expectation is *rehearsed* through a
 second empty execution at export time, and `DebugFixtureExportTest` compiles and runs one — which
 is W10's acceptance ("a seeded production bug is found by replay and exported as a passing JUnit

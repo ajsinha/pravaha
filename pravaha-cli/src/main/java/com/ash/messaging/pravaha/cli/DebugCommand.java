@@ -28,7 +28,7 @@ import com.ash.messaging.pravaha.sdk.flight.DebugStepReport;
 import com.ash.messaging.pravaha.sdk.flight.PravahaFlightClient;
 
 /**
- * {@code pravaha debug}: the time-travel debugger from a terminal (ADR-047).
+ * {@code pravaha debug}: the time-travel debugger from a terminal (ADR-048).
  *
  * <p>Design section 23.9 says the debugger "has no meaningful CLI form", and as a stepping
  * <em>interface</em> that is right -- four panels updating together is a screen, not a scroll. What

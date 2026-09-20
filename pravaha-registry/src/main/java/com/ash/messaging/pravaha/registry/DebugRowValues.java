@@ -20,7 +20,7 @@ import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 
 /**
- * Writes a replayed value back into a binary row (ADR-047).
+ * Writes a replayed value back into a binary row (ADR-048).
  *
  * <p>A debug session reads its input as values -- it has to, because those values are what the
  * exported fixture states -- and then has to hand the engine a binary row. This is the one place

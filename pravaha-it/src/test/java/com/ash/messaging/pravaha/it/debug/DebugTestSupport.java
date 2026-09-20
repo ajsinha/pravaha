@@ -36,7 +36,7 @@ import com.ash.messaging.pravaha.serving.ViewCatalog;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * A registry with a checkpointed query over a file, arranged so that a fork has rows to step (ADR-047).
+ * A registry with a checkpointed query over a file, arranged so that a fork has rows to step (ADR-048).
  *
  * <p>The arrangement is the fiddly part and is the same for every test here, so it lives once.
  * Getting a debug session something to step through means getting a checkpoint taken at a position

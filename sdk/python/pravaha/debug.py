@@ -8,7 +8,7 @@ it needs a connection: a session's status and a step's report are positional row
 turning one into a dataclass is a pure function that is easier to test on its own.
 
 The layout mirrors the Java SDK's, field for field, which is the promise the two clients
-make to a team running both (ADR-047).
+make to a team running both (ADR-048).
 """
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def _optional_number(text: str) -> Optional[int]:
 
 @dataclass(frozen=True)
 class DebugSession:
-    """A debug session as the server reports it (ADR-047).
+    """A debug session as the server reports it (ADR-048).
 
     A fork of a query from one of its checkpoints, reading the same sources from the
     offsets that checkpoint recorded, with every sink disabled and nothing able to read
@@ -314,7 +314,7 @@ class DebugCommands:
     """
 
     def debug_fork(self, query: str, checkpoint_id: "Optional[int]" = None) -> "DebugSession":
-        """Forks a debug session from a query's checkpoint (ADR-047).
+        """Forks a debug session from a query's checkpoint (ADR-048).
 
         A second copy of the query, restored from that checkpoint and reading the same
         sources from the offsets it recorded, with **every sink disabled** and nothing

@@ -18,7 +18,7 @@ package com.ash.messaging.pravaha.sdk.flight;
 import java.util.List;
 
 /**
- * A time-travel debug session as the server reports it (ADR-047).
+ * A time-travel debug session as the server reports it (ADR-048).
  *
  * @param id the session's own id, which every other debug call names
  * @param query the query it was forked from

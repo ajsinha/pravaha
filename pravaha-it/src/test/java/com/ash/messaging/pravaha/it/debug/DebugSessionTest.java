@@ -49,7 +49,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * The time-travel debugger's engine: fork, step, inspect, refuse (ADR-047, design section 16.4).
+ * The time-travel debugger's engine: fork, step, inspect, refuse (ADR-048, design section 16.4).
  *
  * <p>Every test here is about one of the four claims the feature makes, and each is stated as the
  * thing that would be wrong if it were not true:
@@ -159,10 +159,13 @@ final class DebugSessionTest {
                     .as("every edge of the plan, named, with what crossed it this step")
                     .isNotEmpty();
             DebugStep.Operator scan = first.operators().stream()
-                    .filter(operator -> operator.kind().equals("scan"))
+                    .filter(operator -> operator.kind().equals("Scan"))
                     .findFirst()
                     .orElseThrow();
-            assertThat(scan.label()).isEqualTo("txn");
+            assertThat(scan.id())
+                    .as("B6's plan-node ids, so the debugger and the plan endpoint agree")
+                    .startsWith("n");
+            assertThat(scan.label()).contains("txn");
             assertThat(scan.rowsOut()).as("one row entered the query").isEqualTo(1);
 
             assertThat(first.viewChanges())

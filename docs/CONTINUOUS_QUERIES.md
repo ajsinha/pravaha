@@ -1770,7 +1770,7 @@ its checkpoints, one row at a time, reporting every operator's rows in and out b
 changes — which is what tells a filter that rejected the row apart from an aggregate that produced
 a zero delta. Every sink is disabled and nothing can read the fork, so the live query is
 untouched. See [`USER_GUIDE.md` §11](USER_GUIDE.md#11-the-time-travel-debugger) and
-[ADR-047](adr/047-a-debug-fork-is-a-second-computation-nothing-can-read.md); the incident exports
+[ADR-048](adr/048-a-debug-fork-is-a-second-computation-nothing-can-read.md); the incident exports
 as a JUnit test that compiles and passes.
 
 ---

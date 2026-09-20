@@ -48,7 +48,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * W10's acceptance, as a test: a seeded bug is found by replay and exported as a passing JUnit
- * fixture (ADR-047, design section 16.4).
+ * fixture (ADR-048, design section 16.4).
  *
  * <p>The claim "the exported test compiles and passes when dropped into pravaha-it" is worth
  * nothing asserted. So this test asserts it by doing it: it exports a session, compiles the

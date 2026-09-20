@@ -117,7 +117,7 @@ public class PersistenceProperties {
     }
 
     /**
-     * The debugger's own bounds, in the engine's configuration type (ADR-047).
+     * The debugger's own bounds, in the engine's configuration type (ADR-048).
      *
      * <p>Durations in nanoseconds for the same reason the checkpointer's are: Spring parses
      * {@code 15m} into a {@code Duration} whose {@code toString} is ISO-8601, and the engine's own

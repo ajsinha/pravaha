@@ -276,7 +276,7 @@ final class KeyedAggregate implements RowProcessor {
     }
 
     /**
-     * Every group this aggregate holds, as text, for somebody looking at it (ADR-047).
+     * Every group this aggregate holds, as text, for somebody looking at it (ADR-048).
      *
      * <p>Read-only and non-emitting. {@link #emit} produces rows and pushes them downstream, which
      * is the last thing an inspection should do -- looking at a query must not change its answer.

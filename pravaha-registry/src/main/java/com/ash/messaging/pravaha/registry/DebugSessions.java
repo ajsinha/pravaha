@@ -29,7 +29,6 @@ import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.common.config.Configuration;
 import com.ash.messaging.pravaha.runtime.exec.OperatorState;
-import com.ash.messaging.pravaha.runtime.exec.OperatorTrace;
 import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
 import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.Principal;
@@ -41,7 +40,7 @@ import com.ash.messaging.pravaha.state.checkpoint.Checkpoint;
 import com.ash.messaging.pravaha.state.checkpoint.FileCheckpointStore;
 
 /**
- * The time-travel debugger's sessions on one node: forked, bounded, expiring (ADR-047).
+ * The time-travel debugger's sessions on one node: forked, bounded, expiring (ADR-048).
  *
  * <h2>A session is a resource, not a view of one</h2>
  *
@@ -145,23 +144,12 @@ public final class DebugSessions implements AutoCloseable {
                     .derivedFrom(streams);
             DebugSession.requireNotTheLiveView(query.view(), view);
             ViewSink sink = new ViewSink(view, schema);
-            OperatorTrace trace = new OperatorTrace(query.plan());
-            execution = forkExecution(query.plan(), view, sink, trace);
+            execution = forkExecution(query.plan(), view, sink);
             // Both halves or neither, exactly as a restart restores: the operator state and the
             // view together, beside source readers opened at the offsets that state describes.
             execution.restore(checkpoint, RESTORE_TIMEOUT);
             session = new DebugSession(
-                    id,
-                    query,
-                    checkpoint.id(),
-                    principal.id(),
-                    execution,
-                    trace,
-                    view,
-                    sink,
-                    replay,
-                    searchCeiling,
-                    maxRows);
+                    id, query, checkpoint.id(), principal.id(), execution, view, sink, replay, searchCeiling, maxRows);
         } catch (RuntimeException e) {
             if (session == null) {
                 if (execution != null) {
@@ -184,15 +172,15 @@ public final class DebugSessions implements AutoCloseable {
      *
      * <p>Never on a shared lane, and that is the isolation design section 16.4 asks for "at the
      * lane-allocation level, not by convention": a fork of a query hosted on a multiplexed lane
-     * would otherwise share an inbox and an arena with three hundred live registrations. One lane,
-     * because the trace's counters are per plan and a keyed aggregate's groups are partitioned
-     * across lanes -- "the groups" only means something when there is one.
+     * would otherwise share an inbox and an arena with three hundred live registrations.
+     *
+     * <p>One lane, because a keyed aggregate's groups are partitioned across lanes -- "the groups"
+     * only means something when there is one -- and measured whatever the node's {@code
+     * pravaha.metrics.operators} says, because a session exists to report what each operator did
+     * and that answer must not depend on a setting somebody did not turn on before the incident.
      */
     private QueryExecution forkExecution(
-            com.ash.messaging.pravaha.runtime.plan.PhysicalOperator plan,
-            ServedView view,
-            ViewSink sink,
-            OperatorTrace trace) {
+            com.ash.messaging.pravaha.runtime.plan.PhysicalOperator plan, ServedView view, ViewSink sink) {
         return QueryExecution.start(
                         plan,
                         1,
@@ -201,7 +189,7 @@ public final class DebugSessions implements AutoCloseable {
                         sink::laneOutput,
                         registry.lookups,
                         registry.laneRunner(),
-                        trace)
+                        true)
                 .checkpointingViewWith(view::snapshot, view::restore)
                 .checkingViewWith(ServedView::requireReadable);
     }
@@ -324,7 +312,7 @@ public final class DebugSessions implements AutoCloseable {
                 QueryRegistry.DEFAULT_MAX_KEYS,
                 query.view().retention());
         ViewSink sink = new ViewSink(view, schema);
-        QueryExecution execution = forkExecution(query.plan(), view, sink, null);
+        QueryExecution execution = forkExecution(query.plan(), view, sink);
         try (DebugFeeder feeder = new DebugFeeder(execution)) {
             for (DebugSession.Action action : session.script()) {
                 if (action.isWatermark()) {

@@ -1469,7 +1469,7 @@ record it was taken after, so there is no offset a history and a live stream cou
 
 ## Debugging a live query: the operator's side
 
-A query is answering wrongly and nothing in the log says why. Fork it (ADR-047, and
+A query is answering wrongly and nothing in the log says why. Fork it (ADR-048, and
 [`USER_GUIDE.md`](USER_GUIDE.md#11-the-time-travel-debugger) for the walk-through).
 
 A debug session is a **second copy of the query**, restored from one of its retained checkpoints

@@ -162,7 +162,7 @@ public class PravahaNode implements SmartLifecycle {
     private final Optional<Path> checkpointPath;
     private final Configuration checkpointConfiguration;
 
-    /** The debugger's bounds, pravaha.debug.* (ADR-047). */
+    /** The debugger's bounds, pravaha.debug.* (ADR-048). */
     private final Configuration debugConfiguration;
 
     private volatile ClusterCoordinator coordinator;
@@ -777,7 +777,7 @@ public class PravahaNode implements SmartLifecycle {
         // W9-8. The registry could host queries on shared lanes and no node ever asked it to.
         registry.multiplexingLanes(
                 lanes.getMultiplex().effectiveLanes(), lanes.getMultiplex().getMaxQueriesPerLane());
-        // The debugger's bounds (ADR-047): how many forks this node will hold, how long an
+        // The debugger's bounds (ADR-048): how many forks this node will hold, how long an
         // abandoned one lives, and how far a step will read. Given before anything can fork.
         registry.configuredWith(debugConfiguration);
         // Said once at startup, because the ceiling it names is the one a node holding many sources

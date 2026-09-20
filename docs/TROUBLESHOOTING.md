@@ -533,7 +533,7 @@ running computation, not a durable one. Confirm or roll back before a planned re
 
 ## The time-travel debugger refuses (`PRV-8011` … `PRV-8016`)
 
-A debug session (ADR-047, [`USER_GUIDE.md`](USER_GUIDE.md#11-the-time-travel-debugger)) forks a query
+A debug session (ADR-048, [`USER_GUIDE.md`](USER_GUIDE.md#11-the-time-travel-debugger)) forks a query
 from one of its checkpoints and steps it with every sink disabled. Six refusals, each naming the
 thing rather than the operation.
 
@@ -543,7 +543,7 @@ thing rather than the operation.
 | `PRV-8012` | A source cannot be rewound to the checkpoint's offsets: nothing is bound to the stream (its rows are pushed in by an embedder), the plugin cannot be read again from a position it handed out, or its positions do not order the records within a partition | The same constraint a backfill has (`PRV-4018`), for the same reason and named the same way. Debug a query over a source whose offsets are records — a file, a Kafka topic, a Delta table, `postgres-cdc` |
 | `PRV-8013` | No session answers to that id: it was ended, or it expired after `pravaha.debug.session.ttl` untouched | Fork again. A session holds a second copy of a query's state, so it is not kept indefinitely; `pravaha debug sessions` lists the ones this node has |
 | `PRV-8014` | This node already holds `pravaha.debug.sessions.max` sessions | End one — the message lists their ids — or raise the setting. The ceiling is memory rather than policy: each session is a whole extra copy of a query |
-| `PRV-8015` | A step, a predicate or a page this session cannot make sense of: an unreadable step verb, a predicate over a column the view does not have, a comparison that is not one of `= != < <= > >=`, a watermark that goes backwards, a page above the ceiling, a session past `pravaha.debug.session.max-rows`, or a fixture name that cannot be a Java class | The message says which and lists the legal values. A predicate is one column against one value on purpose (ADR-047); anything more is a query, so step to the row and read the view |
+| `PRV-8015` | A step, a predicate or a page this session cannot make sense of: an unreadable step verb, a predicate over a column the view does not have, a comparison that is not one of `= != < <= > >=`, a watermark that goes backwards, a page above the ceiling, a session past `pravaha.debug.session.max-rows`, or a fixture name that cannot be a Java class | The message says which and lists the legal values. A predicate is one column against one value on purpose (ADR-048); anything more is a query, so step to the row and read the view |
 | `PRV-8016` | The query this session forked from has been dropped, or replaced by a different computation (ADR-046), since the fork | Export what the session has if you still want it, then end it. Stepping on would report the old version's behaviour under a name that now answers a new one |
 
 **A fork cannot make a query worse.** Its view is in no catalogue, no sink is attached to it, and

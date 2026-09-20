@@ -20,7 +20,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * What an operator is holding, read back as text for somebody looking at it (ADR-047).
+ * What an operator is holding, read back as text for somebody looking at it (ADR-048).
  *
  * <p>Text, not the values themselves, and that is the decision this class records. State lives in
  * arena memory as a flyweight whose bytes are reused as soon as the next row arrives, so handing a

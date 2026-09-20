@@ -440,7 +440,7 @@ pravaha:
     # died.
     keep: 3
 
-  # The time-travel debugger (ADR-047). A session forks a query from one of the checkpoints above
+  # The time-travel debugger (ADR-048). A session forks a query from one of the checkpoints above
   # and steps it under inspection, with every sink disabled and nothing able to read its view --
   # so it needs pravaha.checkpoint.directory to be set, and refuses with PRV-8011 when it is not.
   #

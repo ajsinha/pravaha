@@ -46,7 +46,7 @@ import com.ash.messaging.pravaha.server.security.HttpAuthorizer;
 import com.ash.messaging.pravaha.serving.ViewChange;
 
 /**
- * The time-travel debugger over HTTP (ADR-047, design section 16.4).
+ * The time-travel debugger over HTTP (ADR-048, design section 16.4).
  *
  * <p>What the console's debugger screen (design section 23.9) is built on, and it is shaped by
  * that screen: one step returns everything the screen shows at once -- the rows that entered, what

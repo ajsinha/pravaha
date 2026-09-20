@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * A debug session, written out as a JUnit test this repository can run offline (ADR-047,
+ * A debug session, written out as a JUnit test this repository can run offline (ADR-048,
  * design section 16.4).
  *
  * <p>This is the step that closes the loop the design's §16.4 describes: a production incident

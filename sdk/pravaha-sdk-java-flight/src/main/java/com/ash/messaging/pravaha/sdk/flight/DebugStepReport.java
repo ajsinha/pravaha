@@ -19,7 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * What one step of a debug session did (ADR-047, design section 16.4).
+ * What one step of a debug session did (ADR-048, design section 16.4).
  *
  * <p>One answer rather than four calls, and that is the shape design section 23.9's screen needs:
  * the input rows, the operator flows, the view's changes and the watermark are four panels of one

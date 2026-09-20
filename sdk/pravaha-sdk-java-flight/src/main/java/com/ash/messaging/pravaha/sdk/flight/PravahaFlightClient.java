@@ -727,7 +727,7 @@ public final class PravahaFlightClient implements AutoCloseable {
         return subscribe(view, Map.of(), onBatch);
     }
 
-    // ------------------------------------------------------------------ the debugger (ADR-047)
+    // ------------------------------------------------------------------ the debugger (ADR-048)
 
     /**
      * Forks a debug session from a query's newest retained checkpoint.

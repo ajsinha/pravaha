@@ -387,7 +387,7 @@ final class JoinSide implements AutoCloseable {
     }
 
     /**
-     * Every row this side holds, keyed by its join key, as text (ADR-047).
+     * Every row this side holds, keyed by its join key, as text (ADR-048).
      *
      * <p>Read-only. It walks the buckets exactly as {@link #writeTo} does and rewrites nothing:
      * inspecting a join's index must not evict from it, and eviction is what every other walk here

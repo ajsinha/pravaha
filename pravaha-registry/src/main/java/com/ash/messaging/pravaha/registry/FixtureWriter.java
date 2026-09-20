@@ -25,7 +25,7 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.serving.ViewChange;
 
 /**
- * Writes the JUnit source of a {@link FixtureExport} (ADR-047).
+ * Writes the JUnit source of a {@link FixtureExport} (ADR-048).
  *
  * <p>Separate from {@link FixtureExport}, which is the value, because generating Java is all
  * string building and it is the kind of code that grows: the export is what a caller holds and
@@ -154,7 +154,7 @@ final class FixtureWriter {
                 .append(query)
                 .append("'.\n")
                 .append(" *\n")
-                .append(" * <p>Written by the time-travel debugger (ADR-047, design section 16.4): the rows the\n")
+                .append(" * <p>Written by the time-travel debugger (ADR-048, design section 16.4): the rows the\n")
                 .append(" * session stepped through, the SQL it stepped them through, and the view it ended with.\n")
                 .append(" * Nothing here needs the node it came from, the source it read, or the checkpoint it\n")
                 .append(" * was forked from -- it registers the query and replays the rows from empty state.\n")

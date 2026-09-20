@@ -778,7 +778,7 @@ yet.
 ## 11. The time-travel debugger
 
 A query is producing a wrong row and the logs do not say why. Forking it lets you watch the row
-that caused it go through, one step at a time (ADR-047, design §16.4).
+that caused it go through, one step at a time (ADR-048, design §16.4).
 
 A **debug session** is a second copy of the query, restored from one of its retained checkpoints,
 reading the same sources from the offsets that checkpoint recorded. **Every sink is disabled, the
@@ -809,9 +809,9 @@ and out**, **the view's changes** with their weights, and **where event time sta
 ```
 step 11 (UNTIL)  the view satisfies total < 0
   in   +1 txn#0@8842 [user_42, -160]
-  op   scan#3 txn  in=1 out=1
-  op   filter#2  in=1 out=1
-  op   aggregate#1  in=1 out=2
+  op   n0 Aggregate(group=[user_id], [SUM(total)])  in=1 out=2
+  op   n1 Filter(amount <> 0)  in=1 out=1
+  op   n2 Scan(txn)  in=1 out=1
   view -1 [user_42, 120]
   view +1 [user_42, -40]
   rows consumed 11, view 3 rows, watermark 1740000000000000000
@@ -819,6 +819,10 @@ step 11 (UNTIL)  the view satisfies total < 0
 
 An operator that took a row and produced nothing is the answer to "where did my row go": a filter
 that rejected it and an aggregate that produced a zero delta look identical from the view alone.
+
+The `n0`, `n1`, ... are the plan's own node ids — the same ones
+`GET /api/v1/queries/{name}/plan` uses — so a step's numbers and the plan graph's are the same
+numbers, counted once.
 
 ### Reading an operator's state
 
@@ -852,7 +856,7 @@ correctable.
 | `until:<column>:<op>:<value>` | Rows until any row of the view satisfies the comparison |
 
 A predicate is **one column of the view against one value**, with `= != < <= > >=`. That is
-deliberate and ADR-047 says why: a second expression language that is nearly SQL's is a source of
+deliberate and ADR-048 says why: a second expression language that is nearly SQL's is a source of
 wrong answers in the one tool you are using because you already have one. An unknown column is
 refused by name with the columns there are.
 

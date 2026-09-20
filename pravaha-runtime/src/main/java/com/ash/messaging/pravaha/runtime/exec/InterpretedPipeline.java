@@ -545,7 +545,7 @@ public final class InterpretedPipeline implements AutoCloseable {
     }
 
     /**
-     * The pieces of state in this pipeline that can be looked at, and how much each holds (ADR-047).
+     * The pieces of state in this pipeline that can be looked at, and how much each holds (ADR-048).
      *
      * <p>Ids are positional within a kind -- {@code aggregate#0}, {@code join#1.left} -- and are
      * stable for the life of a pipeline because the builder wires the plan in a fixed order. They
@@ -586,7 +586,7 @@ public final class InterpretedPipeline implements AutoCloseable {
     }
 
     /**
-     * One page of one operator's state, filtered by key (ADR-047).
+     * One page of one operator's state, filtered by key (ADR-048).
      *
      * <p>Bounded in memory as well as in what it returns: entries outside the page are counted and
      * discarded as the walk goes, so paging a join holding a million rows costs the walk and a page,

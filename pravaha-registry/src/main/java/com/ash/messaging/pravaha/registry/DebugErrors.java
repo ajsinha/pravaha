@@ -18,7 +18,7 @@ package com.ash.messaging.pravaha.registry;
 import com.ash.messaging.pravaha.api.ErrorCode;
 
 /**
- * What the time-travel debugger refuses, and why (ADR-047).
+ * What the time-travel debugger refuses, and why (ADR-048).
  *
  * <p>Each of these is a refusal <em>by name</em>: the thing that cannot be done is named in the
  * message, along with the query, the stream or the session it applies to. A debugger is opened by

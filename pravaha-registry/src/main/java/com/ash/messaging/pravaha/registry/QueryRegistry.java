@@ -463,7 +463,7 @@ public final class QueryRegistry implements AutoCloseable {
         return this;
     }
 
-    /** Settings the debugger reads: {@code pravaha.debug.*} (ADR-047). Defaults until told. */
+    /** Settings the debugger reads: {@code pravaha.debug.*} (ADR-048). Defaults until told. */
     private Configuration configuration = Configuration.builder().build();
 
     /** Gives this registry the node's configuration, which today only the debugger reads. */
@@ -472,10 +472,10 @@ public final class QueryRegistry implements AutoCloseable {
         return this;
     }
 
-    /** Debug sessions, created with the first fork (ADR-047, design section 16.4). */
+    /** Debug sessions, created with the first fork (ADR-048, design section 16.4). */
     private volatile DebugSessions debugSessions;
 
-    /** The time-travel debugger's sessions on this registry (ADR-047, design section 16.4). */
+    /** The time-travel debugger's sessions on this registry (ADR-048, design section 16.4). */
     public DebugSessions debugSessions() {
         DebugSessions open = debugSessions;
         if (open == null) {

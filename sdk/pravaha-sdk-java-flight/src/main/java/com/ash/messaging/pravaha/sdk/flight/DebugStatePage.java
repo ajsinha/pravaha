@@ -21,7 +21,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * One page of one operator's state inside a debug session's fork (ADR-047).
+ * One page of one operator's state inside a debug session's fork (ADR-048).
  *
  * @param id the operator, as {@link PravahaFlightClient#debugState} named it
  * @param kind {@code aggregate}, {@code global}, {@code window} or {@code join}

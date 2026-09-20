@@ -30,7 +30,7 @@ import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
 import com.ash.messaging.pravaha.serving.ViewSink;
 
 /**
- * Hands replayed rows to an execution, one at a time (ADR-047).
+ * Hands replayed rows to an execution, one at a time (ADR-048).
  *
  * <p>Shared by the two things that replay a script: the debug session itself, and the rehearsal
  * that works out what an exported fixture should expect. They have to encode a row identically or

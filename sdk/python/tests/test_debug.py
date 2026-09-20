@@ -5,7 +5,7 @@ PROPRIETARY AND CONFIDENTIAL. See the LICENSE file for the full terms.
 
 The step report is the only nested thing on Pravaha's control wire: three variable-length
 lists laid out as counts followed by groups, because the wire is a flat list of strings
-(ADR-047). Reading it wrong does not fail -- it shifts, and every field after the mistake
+(ADR-048). Reading it wrong does not fail -- it shifts, and every field after the mistake
 is the next field's value. So the rows here are written by hand, exactly as `DebugActions`
 encodes them, and read back field for field.
 """

@@ -141,7 +141,7 @@ public final class ControlWire {
     public static final String DLQ_REPLAY = "pravaha.dlq.replay";
 
     /**
-     * The time-travel debugger (ADR-047). One action per verb, because a debugger is a
+     * The time-travel debugger (ADR-048). One action per verb, because a debugger is a
      * conversation -- fork, step, step, inspect, export -- and a single action carrying a verb
      * field would put the routing in the body where no client's types can see it.
      */

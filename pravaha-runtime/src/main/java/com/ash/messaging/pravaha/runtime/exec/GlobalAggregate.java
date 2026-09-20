@@ -493,7 +493,7 @@ final class GlobalAggregate implements RowProcessor {
     }
 
     /**
-     * The accumulators this aggregate holds, as text (ADR-047). One entry, because an unkeyed
+     * The accumulators this aggregate holds, as text (ADR-048). One entry, because an unkeyed
      * aggregate is one row of state.
      *
      * <p>Read-only: {@link #emit} and {@link #emitIncremental} push rows downstream, and an

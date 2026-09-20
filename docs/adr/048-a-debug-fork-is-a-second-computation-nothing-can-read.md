@@ -1,14 +1,14 @@
-# ADR-047: a debug fork is a second computation nothing can read, stepped by hand
+# ADR-048: a debug fork is a second computation nothing can read, stepped by hand
 
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted; built — `DebugSessions` in `pravaha-registry`, `OperatorTrace` and `OperatorStateReader` in `pravaha-runtime`, `PluginReplaySource` in `pravaha-bindings` |
+| Status | Accepted; built — `DebugSessions` in `pravaha-registry`, `OperatorStateReader` in `pravaha-runtime`, `PluginReplaySource` in `pravaha-bindings`; per-operator counts come from ADR-039 item 3's `OperatorMetrics` |
 | Date | 2026-09-19 |
 | Deciders | Ashutosh Sinha |
-| Relates to | ADR-008 (aligned checkpoints), ADR-038 (which moved the debugger to the roadmap), ADR-046 (the shadow computation a replacement runs), design §16.4 and §23.9 |
+| Relates to | ADR-008 (aligned checkpoints), ADR-038 (which moved the debugger to the roadmap), ADR-046 (the shadow computation a replacement runs), B6's per-operator measurement, design §16.4 and §23.9 |
 
 ## Decision
 
@@ -88,6 +88,24 @@ satisfying anything, and an unknown column refused **by name** with the columns 
 when any row of the view satisfies it, which is what "stop when user_42's sum goes negative" means,
 since the group is a column of the view. Anything more is a query, and the way to ask it is to step
 to the row and read the view.
+
+### 4a. The operator counters are B6's, not a second set
+
+The first cut of this carried its own per-edge counters. B6's per-operator measurement landed on
+`develop` while it was being written and does the same thing better -- rows in *and* out per plan
+node, ids from `PlanNodes`, a sampled self time, state bytes and a watermark -- so the debugger
+reports **those**, and the rebase deleted the duplicate.
+
+What that buys is not only one mechanism but one set of numbers: a step's operator lines and
+`GET /api/v1/queries/{name}/plan` are keyed by the same node ids and counted once, so an operator
+comparing the debugger against the plan graph cannot be shown two answers.
+
+It costs one thing, and it is handled where it arises: B6's measurement is off by default behind
+`pravaha.metrics.operators` (it was measured at 7.9-8.6% of a narrow query's throughput). A debug
+fork turns it on **for itself**, through a per-compile override rather than the node-wide flag --
+a session exists to say what each operator did, and that answer must not depend on a setting
+somebody did not turn on before the incident. One lane, one person stepping: nobody is counting
+the throughput.
 
 ### 5. Inspecting state must not change it, and a window cannot be looked into
 
@@ -175,9 +193,8 @@ registry could not reach them and one above would need the registry to expose al
 - A source that cannot be rewound to a checkpoint's offsets cannot be debugged: `PRV-8012`, before
   anything opens, naming the stream and the plugin. That is the same question `backfillRefusal`
   already answers for a replacement, and it is answered by the same code.
-- `OperatorTrace` is a per-plan counter, so a traced execution runs on **one lane**; a keyed
-  aggregate's groups are partitioned across lanes and "the groups" only means something when there
-  is one. `QueryExecution.start` refuses a trace with any other lane count.
+- A fork runs on **one lane**: a keyed aggregate's groups are partitioned across lanes, and "the
+  groups" only means something when there is one.
 - Six new codes, `PRV-8011` to `PRV-8016`.
 - The `.restore()` and `.latest()` call sites STATE-050 counts each gain one. That case's premise —
   that nothing shipped calls them — is now wrong twice over, and the test says so rather than being

@@ -79,9 +79,9 @@ Each step answers four questions at once, which is what makes a wrong answer exp
 ```text
 step 11 (UNTIL)  the view satisfies total < 0
   in   +1 txn#0@8842 [user_42, -160]
-  op   scan#3 txn  in=1 out=1
-  op   filter#2  in=1 out=1
-  op   aggregate#1  in=1 out=2
+  op   n0 Aggregate(group=[user_id], [SUM(total)])  in=1 out=2
+  op   n1 Filter(amount <> 0)  in=1 out=1
+  op   n2 Scan(txn)  in=1 out=1
   view -1 [user_42, 120]
   view +1 [user_42, -40]
   rows consumed 11, view 3 rows, watermark 1740000000000000000
@@ -90,6 +90,10 @@ step 11 (UNTIL)  the view satisfies total < 0
 **The operator lines are the part a view alone cannot give you.** A filter that rejected the row
 and an aggregate that produced a zero delta look identical from the outside; here one reads
 `in=1 out=0` and the other `in=1 out=2`.
+
+`n0`, `n1`, ... are the plan's own node ids, the same ones the
+[plan endpoint](/help/topics/metrics-index) publishes per-operator numbers under — so a step and
+the plan graph show the same counters rather than two of them.
 
 The view lines carry their [Z-set weights](/help/topics/zset-weights): an update is the old row
 withdrawn at −1 and the new one inserted at +1, which is why a single arriving row produces two

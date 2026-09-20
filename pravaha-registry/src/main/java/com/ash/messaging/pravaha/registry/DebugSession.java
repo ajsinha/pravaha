@@ -24,16 +24,16 @@ import java.util.OptionalLong;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
+import com.ash.messaging.pravaha.runtime.exec.OperatorMetrics;
 import com.ash.messaging.pravaha.runtime.exec.OperatorState;
 import com.ash.messaging.pravaha.runtime.exec.OperatorStateReader;
-import com.ash.messaging.pravaha.runtime.exec.OperatorTrace;
 import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
 import com.ash.messaging.pravaha.serving.ServedView;
 import com.ash.messaging.pravaha.serving.ViewChange;
 import com.ash.messaging.pravaha.serving.ViewSink;
 
 /**
- * One query, forked from a checkpoint and stepped forward by hand (ADR-047, design section 16.4).
+ * One query, forked from a checkpoint and stepped forward by hand (ADR-048, design section 16.4).
  *
  * <h2>What a fork is</h2>
  *
@@ -99,7 +99,6 @@ public final class DebugSession implements AutoCloseable {
     private final Instant startedAt;
 
     private final QueryExecution execution;
-    private final OperatorTrace trace;
     private final ServedView view;
     private final ViewSink sink;
     private final ReplaySource replay;
@@ -157,7 +156,6 @@ public final class DebugSession implements AutoCloseable {
             long checkpointId,
             String owner,
             QueryExecution execution,
-            OperatorTrace trace,
             ServedView view,
             ViewSink sink,
             ReplaySource replay,
@@ -172,7 +170,6 @@ public final class DebugSession implements AutoCloseable {
         this.owner = owner;
         this.startedAt = Instant.now();
         this.execution = execution;
-        this.trace = trace;
         this.view = view;
         this.sink = sink;
         this.replay = replay;
@@ -211,7 +208,10 @@ public final class DebugSession implements AutoCloseable {
         requireOpen();
         lastUsed = Instant.now();
         byte[] before = view.snapshot();
-        trace.mark();
+        // What each operator had done before this step, so the report is the step's own work
+        // rather than the session's running total. B6's counters are cumulative and published at
+        // each batch boundary; a step ends with the lane drained, so both reads are consistent.
+        Map<String, OperatorMetrics.Snapshot> beforeOperators = operatorsByNode();
         List<DebugStep.InputRow> rowsIn = new ArrayList<>();
         String stopped;
         boolean exhausted = false;
@@ -284,8 +284,14 @@ public final class DebugSession implements AutoCloseable {
         settle();
         List<ViewChange> changes = view.changesSince(before, true);
         List<DebugStep.Operator> operators = new ArrayList<>();
-        for (OperatorTrace.Flow flow : trace.sinceMark()) {
-            operators.add(new DebugStep.Operator(flow.id(), flow.kind(), flow.label(), flow.rowsIn(), flow.rowsOut()));
+        for (OperatorMetrics.Snapshot now : execution.operatorMetrics()) {
+            OperatorMetrics.Snapshot then = beforeOperators.get(now.nodeId());
+            operators.add(new DebugStep.Operator(
+                    now.nodeId(),
+                    now.operator(),
+                    now.detail(),
+                    now.rowsIn() - (then == null ? 0 : then.rowsIn()),
+                    now.rowsOut() - (then == null ? 0 : then.rowsOut())));
         }
         OptionalLong watermark = watermark();
         last = new DebugStep(
@@ -342,6 +348,22 @@ public final class DebugSession implements AutoCloseable {
         DebugFeeder.settle(execution, sink);
     }
 
+    /**
+     * What each operator of the fork's plan has done so far, by plan-node id.
+     *
+     * <p>The debugger reports B6's per-operator counters rather than keeping a second set of its
+     * own (ADR-048): the numbers a session shows are then the same numbers {@code
+     * GET /api/v1/queries/{name}/plan} shows, keyed by the same node ids, and there is one
+     * definition of what "rows out of this operator" means.
+     */
+    private Map<String, OperatorMetrics.Snapshot> operatorsByNode() {
+        Map<String, OperatorMetrics.Snapshot> byNode = new java.util.LinkedHashMap<>();
+        for (OperatorMetrics.Snapshot each : execution.operatorMetrics()) {
+            byNode.put(each.nodeId(), each);
+        }
+        return byNode;
+    }
+
     /** Where this session's event time stands: what a step pushed, or what the execution derived. */
     private OptionalLong watermark() {
         if (pushedWatermark != Long.MIN_VALUE) {
@@ -353,7 +375,7 @@ public final class DebugSession implements AutoCloseable {
     // ------------------------------------------------------------------ exporting
 
     /**
-     * Writes this session out as a JUnit test (ADR-047, design section 16.4).
+     * Writes this session out as a JUnit test (ADR-048, design section 16.4).
      *
      * <p>The whole session, not the current step: the rows it consumed, the watermarks it pushed,
      * in the order it did them. Running the generated test replays that script into a freshly

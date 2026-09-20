@@ -100,7 +100,7 @@ class StateRestoreTest extends StateTestSupport {
         // (ADR-046); they are the same calls on the same shipped path -- register() still makes
         // them on every registration a checkpoint root is configured for.
         //
-        // A second shipped caller arrived with the time-travel debugger (ADR-047). DebugSessions
+        // A second shipped caller arrived with the time-travel debugger (ADR-048). DebugSessions
         // reads the store's ids, loads one checkpoint and restores it into a forked execution, so
         // both greps gain one line. That is the opposite of STATE-050's premise twice over: the
         // read half is not only wired, it is now a product surface of its own.

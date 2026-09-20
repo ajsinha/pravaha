@@ -497,7 +497,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
     }
 
     /**
-     * Opens every bound partition for reading by hand, from a checkpoint's offsets (ADR-047).
+     * Opens every bound partition for reading by hand, from a checkpoint's offsets (ADR-048).
      *
      * <p>Readers of its own, never a shared one: a shared reader fans one poll out to every query
      * on it, and a debugger pulling a row at a time from it would either starve the live queries

@@ -21,7 +21,7 @@ import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 
 /**
- * One column against one value: "stop when {@code balance < 0}" (ADR-047).
+ * One column against one value: "stop when {@code balance < 0}" (ADR-048).
  *
  * <p><strong>Deliberately not a language.</strong> The design's sketch of the debugger shows a
  * conditional breakpoint reading {@code group = "user_42" AND SUM(amount) < 0}, and the obvious

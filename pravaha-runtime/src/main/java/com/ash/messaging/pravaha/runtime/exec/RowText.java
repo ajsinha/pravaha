@@ -23,7 +23,7 @@ import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 
 /**
- * Renders a row into strings, for anything that shows state to a person (ADR-047).
+ * Renders a row into strings, for anything that shows state to a person (ADR-048).
  *
  * <p>Immediately, while the flyweight still points at the bytes. A row read out of operator state
  * is a window onto arena memory that is reused as soon as the walk moves on, so anything that keeps

@@ -47,7 +47,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * The debugger through the surfaces a person actually uses: a real node, the Flight actions, the
- * Java SDK and the CLI (ADR-047).
+ * Java SDK and the CLI (ADR-048).
  *
  * <p>{@code DebugSessionTest} proves the engine; this proves the wire. The control wire is a flat
  * list of strings and a step's report is not flat -- it carries three variable-length lists -- so
@@ -111,9 +111,13 @@ class DebugSurfacesEndToEndTest {
                         assertThat(row.values()).containsExactly("cat", "7");
                     });
             assertThat(first.operators())
-                    .as("the plan's edges came back with their counts")
+                    .as("every plan node came back with its own id, kind, label and counts")
                     .isNotEmpty()
-                    .anySatisfy(operator -> assertThat(operator.kind()).isEqualTo("scan"));
+                    .anySatisfy(operator -> {
+                        assertThat(operator.kind()).isEqualTo("Scan");
+                        assertThat(operator.label()).contains("txn");
+                        assertThat(operator.id()).startsWith("n");
+                    });
             assertThat(first.viewChanges())
                     .as("the count was (2, 350) and is now (3, 357)")
                     .hasSize(2);

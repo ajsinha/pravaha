@@ -19,7 +19,7 @@ import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 
 /**
- * A {@link RowWriter} that keeps the values instead of encoding them (ADR-047).
+ * A {@link RowWriter} that keeps the values instead of encoding them (ADR-048).
  *
  * <p>What the debugger's replay reads through. A plugin writes a record the only way it knows --
  * through a row writer -- and a debug session needs the values themselves, because it shows them

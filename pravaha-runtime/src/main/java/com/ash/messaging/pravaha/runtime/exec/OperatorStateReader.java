@@ -20,7 +20,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Reads an execution's operator state <strong>on the lane that owns it</strong> (ADR-047).
+ * Reads an execution's operator state <strong>on the lane that owns it</strong> (ADR-048).
  *
  * <p>This is the whole reason the class exists. Operator state is arena memory written by one
  * thread, and the single-writer principle this runtime is built on means nobody else may touch it

@@ -81,7 +81,7 @@ public interface SourceFeedFactory {
     }
 
     /**
-     * Opens the query's inputs for reading by hand, from {@code from}, for a debug fork (ADR-047).
+     * Opens the query's inputs for reading by hand, from {@code from}, for a debug fork (ADR-048).
      *
      * <p>Not a feed: see {@link ReplaySource} for why a debugger pulls rows rather than being
      * pushed them. The offsets are a checkpoint's, keyed {@code partition-N} in the order the feed

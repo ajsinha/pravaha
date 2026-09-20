@@ -250,7 +250,7 @@ final class SymmetricHashJoin implements AutoCloseable {
     }
 
     /**
-     * Every row one side of this join is holding, keyed by its join key, as text (ADR-047).
+     * Every row one side of this join is holding, keyed by its join key, as text (ADR-048).
      *
      * <p>Read-only, and rendered as it walks: a stored row is a flyweight over the row store, and
      * the cursor moves to the next entry as soon as the visitor returns.
