@@ -230,7 +230,6 @@ final class GlobalAggregate implements RowProcessor {
         }
     }
 
-    /** Emits the accumulated result. Called when the input ends. */
     /**
      * Emits the running total, retracting the one emitted before it.
      *
@@ -261,6 +260,25 @@ final class GlobalAggregate implements RowProcessor {
 
     private long[] previous;
     private boolean emittedBefore;
+
+    /**
+     * Whether a lane drives this aggregate, rather than a bounded read.
+     *
+     * <p>It is the difference between the two things "the input ended" can mean, and the two are
+     * not the same answer. A bounded read publishes at the end because that is the only moment it
+     * has anything to publish, and an aggregate over no rows there answers zero -- the rows really
+     * were all of them. A registered query has been publishing on every tick, so the view already
+     * holds its last answer, and the end of the input is one more change to that answer or no
+     * change at all.
+     *
+     * <p>Set by {@link InterpretedPipeline#drivenContinuously()} when the pipeline is put on a
+     * lane, which is the one place where the distinction is a fact rather than a guess.
+     */
+    private boolean continuous;
+
+    void drivenContinuously() {
+        this.continuous = true;
+    }
 
     private long[] currentValues() {
         List<AggregateOperator.AggregateCall> calls = operator.aggregates();
@@ -322,7 +340,29 @@ final class GlobalAggregate implements RowProcessor {
         };
     }
 
+    /**
+     * Publishes the answer because the input has ended.
+     *
+     * <p>On a lane that is the change since the answer this aggregate last published, and nothing
+     * at all when there has been no change. Inserting the published answer a second time was
+     * CKPT-3: closing a query doubled its row's weight in the view a moment before the view was
+     * discarded, and handed every subscriber a {@code +1} for an answer they already had, with no
+     * retraction to pair it with. An upsert sink absorbed the repeat and an append-only sink is
+     * refused a revising query, so what it cost was the subscribers and the view's own arithmetic
+     * -- but a duplicate that happens to be survivable is still a duplicate.
+     *
+     * <p>For a bounded read nothing has been published before, so this writes the whole answer
+     * once, including the zero an aggregate over no rows has: there, the absence of rows is the
+     * answer rather than a question not yet answered.
+     */
     void emit() {
+        if (continuous) {
+            if (emittedBefore && java.util.Arrays.equals(currentValues(), previous)) {
+                return;
+            }
+            emitIncremental();
+            return;
+        }
         long handle = arena.allocate(layout.rowSize(256));
         if (handle == ArenaHandle.NULL) {
             throw new PravahaException(RuntimeErrors.ARENA_EXHAUSTED, "no room to emit the aggregate result");

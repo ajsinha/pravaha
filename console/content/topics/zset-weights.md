@@ -131,6 +131,11 @@ and a subscriber to `large_totals` sees:
 The retraction and its replacement are **always in the same commit** — a commit ends only at the
 edge of a batch the engine has finished — so a reader never sees the total vanish between the two.
 
+Dropping the query is no exception. The close publishes whatever the aggregate has computed and not
+yet published, as the same retraction-and-insert pair; when the answer has not changed since the
+last one it published, the close publishes nothing at all rather than inserting that answer a
+second time.
+
 (A global aggregate is allowed over a stream because it has one group and so bounded state. A
 *keyed* unwindowed aggregate — `GROUP BY user_id` — is refused with PRV-2050. Any unwindowed
 aggregate revises its answer, which is why pointing one at an append-only sink is refused with

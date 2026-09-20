@@ -33,6 +33,15 @@ import com.ash.messaging.pravaha.runtime.lane.LaneProcessor;
 record LanePipeline(InterpretedPipeline pipeline, BinaryRowView[] views, BinaryRowView[] partials, List<String> streams)
         implements LaneProcessor {
 
+    LanePipeline {
+        // A lane is a registered continuous query, and that is true by construction here: nothing
+        // else builds one of these. An unwindowed aggregate on a lane publishes its answer on
+        // every tick, so the end of the input is a change to that answer rather than the first
+        // sight of it -- which is what keeps a close from re-inserting the answer the view already
+        // holds (CKPT-3).
+        pipeline.drivenContinuously();
+    }
+
     @Override
     public int onBatch(MemoryRegion region, long[] offsets, int count) {
         return onBatch(0, region, offsets, count);

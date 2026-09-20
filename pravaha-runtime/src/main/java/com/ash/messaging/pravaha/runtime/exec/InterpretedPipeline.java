@@ -545,6 +545,19 @@ public final class InterpretedPipeline implements AutoCloseable {
     }
 
     /**
+     * Says that a lane drives this pipeline, so its unwindowed aggregates publish as the stream
+     * runs rather than only when the input ends.
+     *
+     * <p>Called once, when the pipeline is placed on a lane ({@code LanePipeline}), and never for
+     * the pipeline a bounded read builds. It changes what {@link #finish()} means for an
+     * unwindowed aggregate and nothing else: on a lane the view already holds the answer, so
+     * ending the input publishes the change since it and not the answer again (CKPT-3).
+     */
+    public void drivenContinuously() {
+        globals.forEach(GlobalAggregate::drivenContinuously);
+    }
+
+    /**
      * The pieces of state in this pipeline that can be looked at, and how much each holds
      * (ADR-048). See {@link OperatorStateIndex}, which is where the naming and the paging live.
      *
