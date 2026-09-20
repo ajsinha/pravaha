@@ -252,7 +252,7 @@ class RegistrationOptionsTest {
 
     @Test
     void aRangeOverAColumnThisEngineCannotOrderIsRefusedAtRegistration() {
-        PravahaException refused = refusalOf(() -> run("CREATE CONTINUOUS QUERY texty KEYED BY (amount) "
+        PravahaException refused = refusalOf(() -> run("CREATE CONTINUOUS QUERY texty INDEXED BY (amount) "
                 + "RANGE (user_id) AS SELECT amount, user_id FROM txn"));
 
         assertThat(refused.errorCode()).isEqualTo(SqlErrors.RANGE_NOT_ORDERED);

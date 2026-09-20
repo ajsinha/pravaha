@@ -457,7 +457,7 @@ would be one index entry and two view rows. `BYTES` and `BOOLEAN` are refused wi
 <!-- sql: refused PRV-2073 -->
 ```sql
 CREATE CONTINUOUS QUERY by_currency
-    KEYED BY (merchant) RANGE (currency)
+    INDEXED BY (merchant) RANGE (currency)
 AS SELECT merchant, currency FROM txn
 ```
 
@@ -466,7 +466,7 @@ unaffected — or range-scan a whole-number or temporal column:
 
 ```sql
 CREATE CONTINUOUS QUERY by_amount
-    KEYED BY (merchant) RANGE (amount)
+    INDEXED BY (merchant) RANGE (amount)
 AS SELECT merchant, amount FROM txn
 ```
 

@@ -1393,10 +1393,16 @@ SHOW   CONTINUOUS QUERIES
   which pins the columns before it and bounds that one is answered by walking the run rather than
   the view (§4). The design writes it `INDEXED BY (user_id) RANGE (window_end)`, and that is what
   it means here: `user_id` is probed, `window_end` is scanned between bounds, and the two together
-  are the key — a column the key does not already end with is appended to it. One column only, and
-  it must be the key's last, or the columns after it would be what an index entry is sorted by. A
-  column this engine has no total order for is refused at registration with `PRV-2073`, which says
-  which of the reasons applies.
+  are the key. One column only, and it must be the key's last, or the columns after it would be
+  what an index entry is sorted by. A column this engine has no total order for is refused at
+  registration with `PRV-2073`, which says which of the reasons applies.
+
+  **This is the one place `INDEXED BY` and `KEYED BY` are not aliases.** Under `INDEXED BY`, a
+  `RANGE` column the list does not already end with is appended to the key, because that is what
+  the design's spelling means. Under `KEYED BY` it is refused (`PRV-2070`): the writer has spelled
+  out what the view conflates, and a key of `(a, b)` is a different view from one keyed by `a` —
+  two rows sharing `a` and differing in `b` stop being one row, and every count over the view
+  changes. The refusal shows both ways to say what was meant.
 - **`OR REPLACE`** starts a blue/green replacement when the name already exists (§8.1), and is an
   ordinary `CREATE` when it does not — so the same script runs on the first deployment and on the
   tenth. It does **not** take the name from its readers: the new version is registered beside the

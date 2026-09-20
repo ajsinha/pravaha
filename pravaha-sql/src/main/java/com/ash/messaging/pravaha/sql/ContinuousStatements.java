@@ -56,8 +56,10 @@ import com.ash.messaging.pravaha.api.PravahaException;
  * <p>{@code RANGE (column)} asks for the ordered index design section 17.2 calls for, and the
  * column it names is the key's last one: the design writes {@code INDEXED BY (user_id) RANGE
  * (window_end)}, where {@code user_id} is probed and {@code window_end} is scanned between bounds,
- * and the two together are the key. A column the key does not already end with is appended to it,
- * so that spelling means what it reads as.
+ * and the two together are the key. Under {@code INDEXED BY} a column the key list does not already
+ * end with is appended, so that spelling means what it reads as. Under {@code KEYED BY} it is
+ * refused -- the one place the two words are not aliases, because widening a key somebody has just
+ * written out changes what the view conflates and therefore every count over it.
  *
  * <p>{@code WITH (...)} is read here and judged elsewhere, because which options exist depends on
  * what the statement is: a plain {@code CREATE} takes a registration's ({@code
@@ -215,6 +217,7 @@ public final class ContinuousStatements {
             keyword("QUERY");
             String name = identifier("the query's name");
             List<String> keys = null;
+            boolean keyedBy = false;
             String range = null;
             StatementLexer.Token rangeAt = null;
             String sink = null;
@@ -246,7 +249,7 @@ public final class ContinuousStatements {
                         String select = select(clause);
                         return new ContinuousStatement.Create(
                                 name,
-                                withRange(keys, range, rangeAt),
+                                withRange(keys, keyedBy, range, rangeAt),
                                 Optional.ofNullable(range),
                                 Optional.ofNullable(sink),
                                 Optional.ofNullable(retain),
@@ -258,6 +261,9 @@ public final class ContinuousStatements {
                         once(keys == null, clause, "the key");
                         keyword("BY");
                         keys = columns();
+                        // Which word was used matters for exactly one thing, below: whether a RANGE
+                        // column the list does not hold may be appended to the key.
+                        keyedBy = word.equals("KEYED");
                     }
                     case "RANGE" -> {
                         once(range == null, clause, "RANGE");
@@ -321,12 +327,17 @@ public final class ContinuousStatements {
          * The key, with the {@code RANGE} column at the end of it.
          *
          * <p>{@code INDEXED BY (user_id) RANGE (window_end)} is design section 17.2's spelling and
-         * means a key of {@code (user_id, window_end)} whose last column is ordered, so a column
-         * the key does not already end with is appended rather than refused. A column the key holds
-         * somewhere other than at the end is refused: the ordered column has to be the last one, or
-         * the columns after it would be what an index entry is sorted by.
+         * means a key of {@code (user_id, window_end)} whose last column is ordered, so under that
+         * spelling a column the key does not already end with is appended. Under {@code KEYED BY}
+         * it is refused instead, which is the one place the two words differ: a writer who has
+         * spelled out the key has said what the view conflates, and widening it silently would
+         * change every count over that view.
+         *
+         * <p>A column the key holds somewhere other than at the end is refused either way: the
+         * ordered column has to be the last one, or the columns after it would be what an index
+         * entry is sorted by.
          */
-        private List<String> withRange(List<String> keys, String range, StatementLexer.Token at) {
+        private List<String> withRange(List<String> keys, boolean keyedBy, String range, StatementLexer.Token at) {
             if (range == null) {
                 return keys == null ? List.of() : keys;
             }
@@ -335,6 +346,23 @@ public final class ContinuousStatements {
             }
             int held = keys.indexOf(range);
             if (held < 0) {
+                if (keyedBy) {
+                    // KEYED BY (a) RANGE (b) is refused rather than read as a key of (a, b). The
+                    // two are not the same view: widening a key changes what it conflates, so two
+                    // rows that share 'a' and differ in 'b' stop being one row and every count over
+                    // the view changes. Appending to a list the writer has just spelled out would
+                    // be this engine deciding that for them, silently.
+                    throw malformed(
+                            at == null ? 0 : at.start(),
+                            "RANGE names '" + range + "', which KEYED BY does not. The ordered column is part "
+                                    + "of the key, and adding it to one that is already written out would "
+                                    + "change what the view conflates: two rows sharing " + keys
+                                    + " and differing in '" + range + "' would stop being one row. Write "
+                                    + "KEYED BY (" + String.join(", ", keys) + ", " + range + ") RANGE ("
+                                    + range + ") if that is the view you want, or INDEXED BY ("
+                                    + String.join(", ", keys) + ") RANGE (" + range + "), which is design "
+                                    + "section 17.2's spelling for exactly that key");
+                }
                 List<String> extended = new ArrayList<>(keys);
                 extended.add(range);
                 return extended;

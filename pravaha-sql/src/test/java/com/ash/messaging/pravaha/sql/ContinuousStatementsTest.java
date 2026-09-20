@@ -401,9 +401,26 @@ class ContinuousStatementsTest {
     @Test
     void aRangeCanBeWrittenBeforeTheKeyLikeEveryOtherClause() {
         ContinuousStatement.Create create =
-                create("CREATE CONTINUOUS QUERY v RANGE (b) KEYED BY (a) RETAIN FOREVER AS SELECT a, b FROM t");
+                create("CREATE CONTINUOUS QUERY v RANGE (b) INDEXED BY (a) RETAIN FOREVER AS SELECT a, b FROM t");
 
         assertThat(create.keyColumns()).containsExactly("a", "b");
+    }
+
+    @Test
+    void keyedByPlusARangeItDoesNotHoldIsRefusedRatherThanQuietlyWideningTheKey() {
+        // INDEXED BY (a) RANGE (b) is the design's spelling and appends. KEYED BY (a) RANGE (b) is
+        // not the same sentence: the writer has spelled out what the view conflates, and a key of
+        // (a, b) is a different view -- every count over it changes.
+        assertThat(refusal("CREATE CONTINUOUS QUERY v KEYED BY (a) RANGE (b) AS SELECT a, b FROM t")
+                        .getMessage())
+                .contains("PRV-2070")
+                .contains("which KEYED BY does not")
+                .contains("stop being one row")
+                .contains("KEYED BY (a, b) RANGE (b)")
+                .contains("INDEXED BY (a) RANGE (b)");
+        assertThat(create("CREATE CONTINUOUS QUERY v INDEXED BY (a) RANGE (b) AS SELECT a, b FROM t")
+                        .keyColumns())
+                .containsExactly("a", "b");
     }
 
     @Test
@@ -610,7 +627,7 @@ class ContinuousStatementsTest {
 
     @Test
     void anOrderableRangeColumnResolvesToItsOrdinal() {
-        assertThat(create("CREATE CONTINUOUS QUERY v KEYED BY (user_id) RANGE (total) AS SELECT 1")
+        assertThat(create("CREATE CONTINUOUS QUERY v INDEXED BY (user_id) RANGE (total) AS SELECT 1")
                         .rangeOrdinal(OUTPUT))
                 .contains(2);
         assertThat(create("CREATE CONTINUOUS QUERY v KEYED BY (user_id) AS SELECT 1")
@@ -632,8 +649,8 @@ class ContinuousStatementsTest {
                 .field("blob", Types.bytes())
                 .build();
 
-        assertThatThrownBy(() -> create(
-                                "CREATE CONTINUOUS QUERY v KEYED BY (user_id) RANGE (" + column + ") " + "AS SELECT 1")
+        assertThatThrownBy(() -> create("CREATE CONTINUOUS QUERY v INDEXED BY (user_id) RANGE (" + column + ") "
+                                + "AS SELECT 1")
                         .rangeOrdinal(output))
                 .isInstanceOfSatisfying(
                         PravahaException.class, e -> assertThat(e.errorCode()).isEqualTo(SqlErrors.RANGE_NOT_ORDERED))
@@ -644,7 +661,7 @@ class ContinuousStatementsTest {
 
     @Test
     void aRangeOverAColumnTheQueryDoesNotProduceIsTheKeyRefusal() {
-        assertThatThrownBy(() -> create("CREATE CONTINUOUS QUERY v KEYED BY (user_id) RANGE (nope) AS SELECT 1")
+        assertThatThrownBy(() -> create("CREATE CONTINUOUS QUERY v INDEXED BY (user_id) RANGE (nope) AS SELECT 1")
                         .rangeOrdinal(OUTPUT))
                 .hasMessageContaining("PRV-2071");
     }

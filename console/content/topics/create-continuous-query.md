@@ -281,16 +281,26 @@ AS SELECT merchant, amount FROM txn
 SELECT merchant, amount FROM by_amount WHERE merchant = 'acme' AND amount >= 100 AND amount < 500
 ```
 
-The column `RANGE` names must be the key's last — one column, and appended to the key if it is not
-already there. It must also be one this engine has a total order for: the whole-number and temporal
-types. Text needs a collation (which is why `<` on text is refused in a `WHERE` clause at all),
+The column `RANGE` names must be the key's last, and there is one of it. This is the only place
+`INDEXED BY` and `KEYED BY` differ: under `INDEXED BY` a column the list does not already end with
+is appended to the key, which is what the design's spelling means, and under `KEYED BY` it is
+refused with PRV-2070 — a key of `(merchant, amount)` is a different view from one keyed by
+`merchant`, and quietly widening a key somebody wrote out changes every count over it.
+
+<!-- sql: refused PRV-2070 -->
+```sql
+CREATE CONTINUOUS QUERY widened KEYED BY (merchant) RANGE (amount) AS SELECT merchant, amount FROM txn
+```
+
+The ordered column must also be one this engine has a total order for: the whole-number and
+temporal types. Text needs a collation (which is why `<` on text is refused in a `WHERE` clause at all),
 `FLOAT` is IEEE 754 and `NaN` is ordered against nothing, and a `DECIMAL`'s `compareTo` disagrees
 with its `equals`. Anything else is PRV-2073, at registration:
 
 <!-- sql: refused PRV-2073 -->
 ```sql
 CREATE CONTINUOUS QUERY by_currency
-    KEYED BY (merchant) RANGE (currency)
+    INDEXED BY (merchant) RANGE (currency)
 AS SELECT merchant, currency FROM txn
 ```
 

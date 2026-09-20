@@ -36,11 +36,19 @@ key (which is why the recognizer has always accepted it as an alias for `KEYED B
 adds an order to its last column: `user_id` is probed for equality, `window_end` is scanned between
 bounds, and the two together are the key of that aggregate.
 
-So `RANGE (column)` names a column that **is** the key's last one, and a column the key does not
-already end with is appended to the key rather than refused — that is what makes the design's own
-spelling mean what it reads as. A column the key holds somewhere other than at the end is refused,
-because an index entry sorted by a column with other key columns after it is sorted by those
-columns too. More than one `RANGE` column is refused: two ordered columns are two indexes.
+So `RANGE (column)` names a column that **is** the key's last one. A column the key holds somewhere
+other than at the end is refused, because an index entry sorted by a column with other key columns
+after it is sorted by those columns too, and more than one `RANGE` column is refused because two
+ordered columns are two indexes.
+
+A column the key list does not hold at all is where `INDEXED BY` and `KEYED BY` stop being aliases,
+and that is deliberate. Under `INDEXED BY` it is **appended**, because `INDEXED BY (user_id) RANGE
+(window_end)` is the design's way of writing the key `(user_id, window_end)` and refusing it would
+refuse the document. Under `KEYED BY` it is **refused**: the writer has spelled out what the view
+conflates, and a key of `(a, b)` is a different view from one keyed by `a` — two rows sharing `a`
+and differing in `b` stop being one row, and every count over the view changes. Quietly widening a
+key is the same class of change as quietly ignoring a retention, and it gets the same treatment.
+The refusal shows both ways to say what was meant.
 
 **A secondary index over a non-key column is not built, and the reason is not effort.** A row's
 non-key values change under such an index, so every update is a delete and an insert in the index
@@ -107,6 +115,8 @@ cannot — and generated predicates are put to both, including while the views c
 - A point lookup by the whole key is a hash probe on **every** view, declared or not, over Flight
   SQL, the REST view read and the PostgreSQL gateway alike, because all three run `ViewQuery`.
 - A prefix-and-range read is an index walk when the key's last column is orderable.
+- `INDEXED BY` and `KEYED BY` differ in exactly one respect, named above and documented in
+  `CONTINUOUS_QUERIES.md` §10.1; everywhere else they remain the same clause.
 - A partial-key read is still a scan: the index deliberately omits rows whose ordered column is
   null, since those satisfy no bound, so a prefix-only read answered from it would lose them.
 - A predicate on a non-key column is still a scan and a filter, and design §17.2's promise that
