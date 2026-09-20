@@ -9,6 +9,9 @@ description = "Operator console for Project Pravaha. A separate process, built o
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
 authors = [{ name = "Ashutosh Sinha", email = "ajsinha@gmail.com" }]
+# Said in the metadata as well as the file, as the SDK says it: a wheel's classifiers are what
+# an index and a dependency scanner read, and this project is not open source (LIC-1).
+classifiers = ["License :: Other/Proprietary License"]
 
 # The console is the first real consumer of the Python SDK, which is the second reason ADR-024
 # chose Python for it: an integrator's experience of the client is our experience of it.

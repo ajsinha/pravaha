@@ -208,7 +208,7 @@ class SchemaRegistryTest {
         registry = new FakeRegistry("/apis/ccompat/v7");
         registry.serve(7, envelope(ORDER_SCHEMA));
         SchemaRegistry client =
-                new SchemaRegistry("orders", registry.url() + "/apis/ccompat/v7", null, "", Duration.ofSeconds(2));
+                new SchemaRegistry("orders", registry.url() + "/apis/ccompat/v7", null, "", Duration.ofSeconds(30));
         closeables.add(client);
 
         assertThat(decoder(client)
@@ -279,8 +279,14 @@ class SchemaRegistryTest {
     // ---------------------------------------------------------------------------------------
 
     private SchemaRegistry client(String authorization) {
+        // Thirty seconds, not the two a deployment would set: the registry here is a loopback
+        // HttpServer in this JVM, so the timeout can only be reached by the machine being busy --
+        // and when it is, the client retries and `anIdIsFetchedOnceHoweverManyRecordsCarryIt` sees
+        // two requests for one id and calls the cache broken. A test of caching must not be a test
+        // of the clock. The timeout's own behaviour is covered by the registry-down cases, which
+        // fail on a refused connection rather than on time.
         SchemaRegistry client =
-                new SchemaRegistry("orders", registry.url(), null, authorization, Duration.ofSeconds(2));
+                new SchemaRegistry("orders", registry.url(), null, authorization, Duration.ofSeconds(30));
         closeables.add(client);
         return client;
     }
