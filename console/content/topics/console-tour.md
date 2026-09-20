@@ -163,6 +163,12 @@ source does not say how much history it holds — a ceiling that may only be low
 and a rollback each needing the name typed, as drop does. See
 [backfill and cutover](/help/topics/backfill-cutover).
 
+`/queries/{name}/debug` is its **time-travel debugger**: the query forked from a retained
+checkpoint into a second computation nothing can read, stepped one row at a time, with every
+operator's rows in and out beside each step and the view's changes with their weights. It exports
+the session as a JUnit fixture. The live query is untouched throughout — if it looks wrong, an
+open session is not why. See [the time-travel debugger](/help/topics/time-travel-debugger).
+
 ## Plugins
 
 `/plugins` is every plugin the node can load, from the engine's `GET /api/v1/plugins`: its version,

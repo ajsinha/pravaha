@@ -205,8 +205,32 @@ pravaha debug end --session "$SESSION"
 | Java SDK | `client.debugFork(...)`, `debugStep`, `debugState`, `debugInspect`, `debugView`, `debugExport`, `debugEnd` |
 | Python SDK | `client.debug_fork(...)`, `debug_step`, `debug_state`, `debug_inspect`, `debug_view`, `debug_export`, `debug_end` |
 | Flight | Nine actions under `pravaha.debug.*` |
+| Console | `/queries/{name}/debug`, reached from the query's own page and from the command palette |
 
-**The console's debugger screen is not built.** The engine half is; the screen is not.
+## In the console
+
+The **Debugger** screen is the same session through a browser. It lists the positions this node
+still retains, forks from the one you choose (or from the newest at the moment you press the
+button, which is not necessarily the newest on the list — a node prunes while a page is open), and
+then steps the fork: one row, ten rows, on to the next commit, or a spec typed in full for a
+watermark or an `until:` comparison. Each step's report lands at the top of a log, so the sequence
+reads as a sequence, and the step happens without the page navigating.
+
+The controls are ordinary forms and work with no JavaScript at all — a step posts and the screen
+answers with that step's report. It is the one place in the console that does not redirect after a
+post, because the report *is* the answer and the engine has no call that hands back a step it has
+already taken. Repeating a step is the cheapest mistake on the screen: nothing outside the fork can
+be reached by it.
+
+**DEBUG — sinks disabled** stays on the screen for as long as the session does, read from the
+engine's own answer rather than written into the page.
+
+The operator-state and view panels are a read of the fork at the position the page was loaded at.
+Stepping does not redraw them, and the screen says so rather than quietly rebuilding them from
+something else; reload to read them where you have stepped to.
+
+Everything on the screen needs the **administer** permission, reading included. A reader sees the
+screen with the fork control disabled and the policy's own reason beside it.
 
 ## Where next
 

@@ -969,7 +969,9 @@ holding.
 Over HTTP the same verbs are `POST /api/v1/queries/{name}/debug`,
 `POST /api/v1/debug/sessions/{id}/step`, `GET /api/v1/debug/sessions/{id}/state/{operator}`,
 `POST /api/v1/debug/sessions/{id}/fixture` and `DELETE /api/v1/debug/sessions/{id}`; both SDKs have
-`debug_fork` / `debugFork` and the rest. The console's debugger screen is not built.
+`debug_fork` / `debugFork` and the rest. The console's debugger screen is
+`/queries/{name}/debug`, reached from the query's own page: the same session, forked, stepped
+and exported through a browser.
 
 ---
 
