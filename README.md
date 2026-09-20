@@ -95,7 +95,7 @@ corrected by late data arrives as a retraction of the old answer followed by the
 | **State** | Off-heap: join indexes and windowed-aggregate accumulators live in `RowStore` blocks behind open-addressed tables, `COUNT(DISTINCT)`'s values included. With `pravaha.state.spill.*` set, state past its memory ceiling spills to memory-mapped files and the query slows instead of stopping. Per-query gauges show state approaching its ceiling |
 | **Blue/green replacement** | A registered query's SQL is changed without taking its answer away: `CREATE OR REPLACE CONTINUOUS QUERY`, `pravaha replace`, both SDKs, the Flight actions and `/api/v1/queries/{name}/replacement`. The new version runs beside the old one, replays the source from the beginning, **splices onto the live stream at the exact position the running version has reached**, and takes the name only when the two have consumed the same input — so a reader sees the old answer up to the seam and the new one after it, with no gap and nothing counted twice. Subscribers are told the view was replaced (`PRV-4019`) rather than handed another query's changes; a sink follows the name at a checkpoint boundary and is sent only the difference; the replaced version keeps running for an hour, so a rollback is one swap. The backfill is throttled, pausable and watched by eight gauges, and a replacement in flight survives a restart ([ADR-046](docs/adr/046-a-replacement-meets-the-running-version-at-a-position.md)) |
 | **Observability** | Prometheus per query: rows in, view size, state against its ceiling, watermark lag, checkpoint health, commit latency as an exact mean, a replacement's backfill progress, and — since B6 — **backpressure in time rather than in refusals**: how often and how long a writer into the query's lanes had nowhere to put a row, the share of wall clock that is, and the inbox's depth now. With `pravaha.metrics.operators` on (off by default: it costs about 8 % of throughput on the reference machine), `GET /api/v1/queries/{name}/plan` also carries **rows in, rows out, state bytes, watermark and a sampled self time per plan node**, and names the bottleneck operator. Where a number is not measured the API says so rather than reporting zero |
-| **Time-travel debugger** | A query is forked from one of its retained checkpoints into a second copy that reads the same sources from the offsets that checkpoint recorded — with **every sink disabled**, its view in no catalogue and its lanes its own, so the live query, its view and its subscribers see nothing. It is stepped by hand: one row, N rows, to the next commit, to a watermark, or until a column of the view crosses a value. Each step reports the rows that entered with their weights, **every operator's rows in and out**, the view's changes, and where event time stands — which is what tells a filter that rejected the row apart from an aggregate that produced a zero delta. An operator's state is readable, bounded and paged, without emitting or evicting anything. Two sessions over one checkpoint given the same steps report identically. The session exports as a **self-contained JUnit test** whose expectation is rehearsed at export time rather than asserted, so the incident becomes a regression test that compiles and passes. `pravaha debug`, Flight actions, `/api/v1/debug/*`, both SDKs ([ADR-048](docs/adr/048-a-debug-fork-is-a-second-computation-nothing-can-read.md)) |
+| **Time-travel debugger** | A query is forked from one of its retained checkpoints into a second copy that reads the same sources from the offsets that checkpoint recorded — with **every sink disabled**, its view in no catalogue and its lanes its own, so the live query, its view and its subscribers see nothing. It is stepped by hand: one row, N rows, to the next commit, to a watermark, or until a column of the view crosses a value. Each step reports the rows that entered with their weights, **every operator's rows in and out**, the view's changes, and where event time stands — which is what tells a filter that rejected the row apart from an aggregate that produced a zero delta. An operator's state is readable, bounded and paged, without emitting or evicting anything. Two sessions over one checkpoint given the same steps report identically. The session exports as a **self-contained JUnit test** whose expectation is rehearsed at export time rather than asserted, so the incident becomes a regression test that compiles and passes. `pravaha debug`, Flight actions, `/api/v1/debug/*`, both SDKs, and the console's **Debugger** screen at `/queries/{name}/debug` ([ADR-048](docs/adr/048-a-debug-fork-is-a-second-computation-nothing-can-read.md)) |
 | **Recovery** | Checkpoints hold operator state, source offsets and the served view, cut at one point across every input (ADR-008), so a restart resumes rather than replaying from scratch or starting empty. The registry journal brings back every registration, and its sink |
 | **Survival** | A node claims the directories it writes, so two nodes cannot silently share state (`PRV-4003`). A standby takes over when the claim goes stale and reports what the takeover cost. Undecodable input goes to a dead-letter directory instead of ending the query |
 | **Many queries on one node** | A fixed pool of one thread per core drives every lane, and the watermark and checkpoint clocks are one timer for the process: **200 queries add 24 platform threads** on 24 cores, where they once added 400. About **1 MiB off-heap per idle query** on a lane of its own, and every component reports its own bytes. With lane sharing on, **1,000 queries over one source run on 8 lanes, and each row is written into them 8 times instead of 1,000** |
@@ -214,11 +214,10 @@ corrected by late data arrives as a retraction of the old answer followed by the
   manifest listing, and admin screens for access and the audit trail are built, and a
   headless-Chrome suite holds zero axe violations, visual baselines in light and dark at both
   densities, the measurable §23.15 budgets, the eight states of §23.12 screen by screen, and all
-  eight journeys — seven end to end, one as far as the engine goes. A component gallery the
+  eight journeys, all of them end to end. A component gallery the
   console renders itself stands in for Storybook, which is not adopted (it needs Node). Not done:
-  the manual WCAG 2.2 AA audit, and the screen for the time-travel debugger, whose engine is
-  built and whose journey therefore stops at the console rather than at the engine, plus cluster screens, tenants and quotas, and editing grants (the engine
-  is not where grants live).
+  the manual WCAG 2.2 AA audit, plus cluster screens, tenants and quotas, and editing grants (the
+  engine is not where grants live).
 
 ## Performance: what is measured, and what cannot be here
 
@@ -308,9 +307,9 @@ a new version started beside the running one, what its backfill has read — and
 percentage, because a source does not say how much history it holds — a throttle that may only be
 lowered, and a cutover and a rollback each confirmed by the typed name, with the rollback window
 shown as a time and said to have closed when it has.
-All eight §23.18 journeys run in headless Chrome, seven of them end to end; light, dark and compact
-density are photographed and audited by axe. The time-travel debugger's screen is not built, though its engine is,
-and neither is the manual WCAG 2.2 AA audit. [How it is built →](console/README.md)
+All eight §23.18 journeys run in headless Chrome, end to end; light, dark and compact
+density are photographed and audited by axe. The manual WCAG 2.2 AA audit is not done.
+[How it is built →](console/README.md)
 
 ## Documentation
 
@@ -400,9 +399,9 @@ console is its own artefact in [`console`](console).
 
 Waves 10 and 11 were redefined twice: [ADR-038](docs/adr/038-one-node-ga.md) moved the time-travel
 debugger and the Nexmark comparison out to the roadmap, and ADR-039 put the known gaps and cluster
-mode in their place. The debugger's engine has since been built anyway
-([ADR-048](docs/adr/048-a-debug-fork-is-a-second-computation-nothing-can-read.md)); its console
-screen has not. Most of the gap work has landed as the unfinished part of waves 8 and 9, which is
+mode in their place. The debugger has since been built anyway
+([ADR-048](docs/adr/048-a-debug-fork-is-a-second-computation-nothing-can-read.md)), its console
+screen included. Most of the gap work has landed as the unfinished part of waves 8 and 9, which is
 why the counter still reads 9. "Built" means the code is there and tested; it does not mean a
 performance gate passed.
 
