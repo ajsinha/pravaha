@@ -11,54 +11,54 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/debug/sessions/{id}" : {
       "delete" : {
         "hasBody" : false,
         "parameters" : [ "path:id" ],
-        "responses" : [ "204" ]
+        "responses" : [ "204", "default" ]
       },
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:id" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/debug/sessions/{id}/fixture" : {
       "post" : {
         "hasBody" : true,
         "parameters" : [ "path:id" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/debug/sessions/{id}/state" : {
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:id" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/debug/sessions/{id}/state/{operator}" : {
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:id", "path:operator", "query:key", "query:limit", "query:offset" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/debug/sessions/{id}/step" : {
       "post" : {
         "hasBody" : true,
         "parameters" : [ "path:id" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/debug/sessions/{id}/view" : {
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:id" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/me/permissions" : {
@@ -135,42 +135,42 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:name", "query:limit", "query:offset" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/queries/{name}/dead-letters/count" : {
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/queries/{name}/dead-letters/replay" : {
       "post" : {
         "hasBody" : true,
         "parameters" : [ "path:name" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/queries/{name}/dead-letters/{id}" : {
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:id", "path:name" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/queries/{name}/debug" : {
       "post" : {
         "hasBody" : true,
         "parameters" : [ "path:name" ],
-        "responses" : [ "201" ]
+        "responses" : [ "201", "default" ]
       }
     },
     "/api/v1/queries/{name}/debug/checkpoints" : {
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/queries/{name}/plan" : {
