@@ -98,11 +98,25 @@ public final class PluginLookupSources implements AutoCloseable {
                             + "': " + e.getMessage(),
                     e);
         }
+        // CFG-4, the lookup half. The source side's message was rewritten to say what "available"
+        // means, because a one-entry list read beside a document naming seven plugins looks like a
+        // contradiction rather than an answer. This one was left as the bare list, and it has a
+        // second trap of its own: both shipped lookup plugins report a name ending in `-lookup`,
+        // while docs/CONNECTORS.md's table called them "aerospike, jdbc" -- so the likeliest way
+        // to arrive here is to have copied the name out of the documentation.
         throw new PravahaException(
                 IngestErrors.NO_SUCH_PLUGIN,
                 "no lookup plugin named '" + binding.plugin() + "' is on the classpath, so dimension table '"
                         + binding.streamName() + "' cannot be opened. Available: "
-                        + (available.isEmpty() ? "none -- no lookup plugin jar is on the classpath" : available));
+                        + (available.isEmpty() ? "none -- no lookup plugin jar is on the classpath" : available)
+                        + ". A plugin answers to the name it reports for itself and is found by "
+                        + "ServiceLoader, so it resolves only when its jar is on THIS process's classpath: the "
+                        + "server jar carries no lookup plugin at all, and the two that ship -- "
+                        + "'aerospike-lookup' in pravaha-plugin-aerospike and 'jdbc-lookup' in "
+                        + "pravaha-plugin-jdbc -- are separate modules that have to be added to it. Both names "
+                        + "end in '-lookup': 'aerospike' and 'jdbc' without the suffix are the source plugins, "
+                        + "and naming one of those here finds nothing. docs/CONNECTORS.md says which module "
+                        + "ships which name.");
     }
 
     @Override

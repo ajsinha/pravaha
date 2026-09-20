@@ -48,7 +48,7 @@ Three kinds, and a connector may be more than one:
 |---|---|---|
 | `StreamSourcePlugin` | Rows in. The thing a `FROM` clause reads | filesystem, feedfile, aerospike, delta, jdbc, cassandra, `postgres-cdc` (a changelog: deletes and before-images), `kafka` (a topic, one reader per partition, exactly once from the checkpoint's offsets) |
 | `StreamSinkPlugin` | Rows out — every commit of a query that names the sink at registration ([ADR-043](adr/043-how-a-continuous-query-names-its-sink.md)). A sink with a configured schema or key reports it through `schema()` and `keyColumns()`, and a registration that does not match is refused | filesystem (append-only), `aerospike-sink` (upsert and delete by key, composite keys), `jdbc-sink` (upsert and delete by key or append, into a table you create; transactional through a staging table, so exactly once on a checkpointed node), `kafka-sink` (keyed JSON upserts with a tombstone for a retraction, or an explicit changelog, to a topic you create; transactional through a staging topic, so exactly once to a `read_committed` consumer on a checkpointed node), `delta-sink` (a Delta Lake table kept equal to the view by key, or a changelog of every change; one Delta commit per checkpoint, so exactly once on a checkpointed node) |
-| `LookupSourcePlugin` | Point lookups for a temporal join's right side | aerospike, jdbc |
+| `LookupSourcePlugin` | Point lookups for a temporal join's right side | `aerospike-lookup`, `jdbc-lookup` — **with the suffix**: a plugin answers to the name it reports for itself, and these two report `aerospike-lookup` and `jdbc-lookup`. This row said "aerospike, jdbc" until CFG-4, so `pravaha.lookups.<n>.plugin: jdbc` copied from it was refused at startup with `PRV-5090` |
 
 ---
 

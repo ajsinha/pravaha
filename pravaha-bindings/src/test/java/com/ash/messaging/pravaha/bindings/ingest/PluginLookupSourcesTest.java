@@ -69,6 +69,34 @@ class PluginLookupSourcesTest {
         }
     }
 
+    /**
+     * CFG-4. The list is an answer only if the reader knows what it is a list of.
+     *
+     * <p>On a shipped node it is empty -- the server jar carries no lookup plugin -- and beside a
+     * document naming two, an empty list reads as a broken node rather than as a packaging
+     * decision. The source side's twin was rewritten for exactly this and this one was not.
+     */
+    @Test
+    void theLookupRefusalSaysWhatAvailableMeansAndWhereTheTwoShippedNamesLive_CFG4() {
+        try (PluginLookupSources sources =
+                new PluginLookupSources().bind(new SourceBinding("users", "jdbc", Map.of()))) {
+            assertThatThrownBy(sources::open)
+                    .isInstanceOf(PravahaException.class)
+                    .hasMessageContaining("PRV-5090")
+                    // what "available" means, so a short list is not read as a broken node
+                    .hasMessageContaining("THIS process's classpath")
+                    // and the packaging decision that changes it
+                    .hasMessageContaining("pravaha-plugin-jdbc")
+                    .hasMessageContaining("pravaha-plugin-aerospike")
+                    .hasMessageContaining("docs/CONNECTORS.md")
+                    // CFG-4's own trap: 'jdbc' is the *source* plugin, and the documentation's
+                    // lookup table said "aerospike, jdbc" until this finding.
+                    .hasMessageContaining("jdbc-lookup")
+                    .hasMessageContaining("aerospike-lookup")
+                    .hasMessageContaining("without the suffix are the source plugins");
+        }
+    }
+
     @Test
     void aNodeWithNoLookupsBlockOpensNothing() {
         try (PluginLookupSources sources = new PluginLookupSources()) {
