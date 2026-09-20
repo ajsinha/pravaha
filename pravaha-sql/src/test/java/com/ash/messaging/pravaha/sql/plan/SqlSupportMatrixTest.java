@@ -226,16 +226,17 @@ class SqlSupportMatrixTest {
                     "BOB!",
                     "ANN!",
                     "CAT!"),
-            // Accepted, and worth knowing why it is not refused: Calcite's validator coerces the 0
-            // to the string '0' before Pravaha sees the query, so the branches do agree on a type by
-            // the time they arrive. The result is text -- a downstream SUM of it will not plan.
-            Case.answers(
+            // Refused since TY-23, and it used to answer "big" for every row. Calcite's validator
+            // coerced the 0 into the string '0' before Pravaha saw the query, so the branches
+            // agreed on a type by the time they arrived -- while the same CASE with a *column* in
+            // the numeric branch (`ELSE amount`) was refused, because a column arrives intact.
+            // Whether a number could be turned into text therefore depended on whether it was
+            // written as a literal, which is not a rule anybody can read off the types. Both
+            // shapes refuse now.
+            Case.refused(
                     "a CASE mixing text and a number",
                     "SELECT CASE WHEN amount > 5 THEN 'big' ELSE 0 END FROM txn",
-                    "big",
-                    "big",
-                    "big",
-                    "big"),
+                    "PRV-2021"),
             Case.refused("SELECT DISTINCT (over a stream)", "SELECT DISTINCT user_id FROM txn", "PRV-2050"),
 
             // --- WHERE ------------------------------------------------------------------------
@@ -453,8 +454,11 @@ class SqlSupportMatrixTest {
             // message names the kind and the column and round 2 found the four drifting apart.
             Case.refused("SUM over a FLOAT64 column", "SELECT SUM(price) FROM txn", "PRV-2020"),
             Case.refused("AVG over a FLOAT64 column", "SELECT AVG(price) FROM txn", "PRV-2020"),
-            // SQLX-088: IS NULL over an expression rather than over a bare column.
-            Case.refused("IS NULL over an expression", "SELECT txn_id FROM txn WHERE (amount * 2) IS NULL", "PRV-2021"),
+            // SQLX-088: IS NULL over an expression rather than over a bare column. Planned since
+            // TY-5 -- the expression tree has always been able to say whether a node is null, and
+            // the compiler simply required a column reference. `amount` is NOT NULL in this
+            // fixture, so the answer is no rows rather than a refusal.
+            Case.answers("IS NULL over an expression", "SELECT txn_id FROM txn WHERE (amount * 2) IS NULL"),
             // SQLX-163 to SQLX-182: statements that are not queries, and queries that name things
             // that do not exist. Each must be a coded refusal rather than a stack trace.
             // The empty statement is not here: its message is an internal StringIndexOutOfBounds

@@ -390,15 +390,15 @@ class ExpressionMatrixTest {
                     "0",
                     "14",
                     "14"),
-            Case.answers(
-                    "SQLX-044 a CASE mixing text and a number produces text",
+            // TY-23. This answered "big"/"0" -- Calcite's validator coerced the 0 into the string
+            // '0' before the compiler saw it -- while the same CASE over a numeric *column*
+            // (`ELSE amount`) was refused, because a column survives coercion intact. The engine
+            // has no number-to-text conversion anywhere, so the literal form was the odd one out
+            // and is refused now.
+            Case.refused(
+                    "SQLX-044/TY-23 a CASE mixing text and a number is refused",
                     "SELECT CASE WHEN amount > 50 THEN 'big' ELSE 0 END FROM txn",
-                    "big",
-                    "big",
-                    "0",
-                    "0",
-                    "0",
-                    "0"),
+                    "PRV-2021"),
             Case.answers(
                     "SQLX-045 UPPER and LOWER, including above the BMP",
                     "SELECT UPPER(user_id), LOWER(user_id) FROM txn",
@@ -588,10 +588,11 @@ class ExpressionMatrixTest {
                     "SQLX-096 comparing text to a number is refused",
                     "SELECT txn_id FROM txn WHERE amount > user_id",
                     "PRV-2021"),
-            Case.refused(
-                    "SQLX-088 IS NULL over an expression is refused",
-                    "SELECT txn_id FROM txn WHERE (amount * 2) IS NULL",
-                    "PRV-2021"),
+            // TY-5. This was refused -- the compiler required a bare column reference for IS NULL
+            // -- and now plans. `amount` is NOT NULL across D1, so the answer is no rows; the CASE
+            // shape the finding is actually about is in TypeClusterTest with a nullable operand.
+            Case.answers(
+                    "SQLX-088/TY-5 IS NULL over an expression", "SELECT txn_id FROM txn WHERE (amount * 2) IS NULL"),
 
             // --- SQLX §4, aggregation ---------------------------------------------------------
             Case.answers("SQLX-097 global COUNT(*) over a stream", "SELECT COUNT(*) AS n FROM txn", "6"),
@@ -951,12 +952,13 @@ class ExpressionMatrixTest {
                     "AGG-102 two COUNTs over different columns are not the same number",
                     "SELECT COUNT(status) AS a, COUNT(user_id) AS b, COUNT(*) AS c FROM txn",
                     "5|6|6"),
-            // AGG-048 and TYPE-040 both predicted PRV-2002 from Calcite's validator. What arrives
-            // is PRV-2021, because Calcite coerces the column to DECIMAL(38,19) for the SUM and
-            // Pravaha then refuses the decimal arithmetic. The refusal is coded and at plan time,
-            // so it is pinned here -- but a user who asked for the sum of a text column is told
-            // about ledgers and 128-bit decimals and never told that SUM over text is the problem.
-            Case.refused("AGG-048/TYPE-040 SUM over a STRING column", "SELECT SUM(user_id) FROM txn", "PRV-2021"),
+            // AGG-048 and TYPE-040 both predicted PRV-2002 from Calcite's validator, and what
+            // used to arrive was PRV-2021 about ledgers and 128-bit decimals: Calcite coerces the
+            // column to DECIMAL(38,19) for the SUM and Pravaha refused the decimal arithmetic,
+            // never mentioning that summing text was the problem. TY-16: the operand is checked at
+            // the aggregate now, before the cast underneath it is built, and refused with PRV-2020
+            // -- the same code the float-accumulator refusal uses, for the same reason.
+            Case.refused("AGG-048/TYPE-040 SUM over a STRING column", "SELECT SUM(user_id) FROM txn", "PRV-2020"),
             // ...and SUM over BOOLEAN is refused one layer earlier, by Calcite, with PRV-2002 and
             // a message that does name the problem. Two spellings of "sum something that is not a
             // number", two codes, two qualities of explanation.

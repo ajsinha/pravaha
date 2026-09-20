@@ -133,8 +133,9 @@ public final class SqlPlanner {
             refuseDml(parsed);
 
             SqlNode validated;
+            SqlNode written = dropStreamKeyword(parsed);
             try {
-                validated = planner.validate(dropStreamKeyword(parsed));
+                validated = planner.validate(written);
             } catch (ValidationException e) {
                 // SX-5/SX-1. This appended every known stream name, which is a catalogue dump
                 // handed to whoever typed a name that does not exist -- including a caller
@@ -148,13 +149,18 @@ public final class SqlPlanner {
                 // discloses nothing about what the names are.
                 throw new PravahaException(
                         SqlErrors.VALIDATION_FAILED,
-                        rootMessage(e) + ". This server has "
+                        rootMessage(e) + "." + guidanceFor(rootMessage(e)) + " This server has "
                                 + schema.streamNames().size()
                                 + " stream(s) declared; their names are not listed here because that would "
                                 + "tell a caller who may not read them that they exist. Use the listing call, "
                                 + "which is filtered by what you may read.",
                         e);
             }
+
+            // Finding TY-20 and TY-23. Refused here, between validation and optimisation, because
+            // the optimiser is about to delete the evidence: an unlimited ORDER BY inside a derived
+            // table and a CAST of a literal to text are both gone by the time a plan exists.
+            SqlShapeRefusals.check(written);
 
             try {
                 RelRoot root = planner.rel(validated);
@@ -405,6 +411,39 @@ public final class SqlPlanner {
                 .context(org.apache.calcite.plan.Contexts.of(new CalciteConnectionConfigImpl(properties)))
                 .typeSystem(PravahaTypeSystem.INSTANCE)
                 .build();
+    }
+
+    /**
+     * Pravaha's own sentence, appended to a refusal Calcite's validator made first.
+     *
+     * <p>Finding TY-24. Five ordinary mistakes never reach this engine's own message: an unknown
+     * function, a function given the wrong number of arguments, a cast between types that do not
+     * convert. Calcite's validator refuses each of them first, correctly and with a less specific
+     * message -- {@code No match found for function signature LTRIM(<CHARACTER>)} says nothing
+     * about what this engine <em>does</em> evaluate, which is the only thing the reader needs.
+     *
+     * <p>Winning the race instead of joining it would mean replacing Calcite's operator table and
+     * its cast checker with Pravaha's own, so that every unsupported function is declared here in
+     * order to be refused here. That is a real piece of work and it is not this one. Appending the
+     * supported set to the validator's own sentence costs nothing, is correct whichever refusal
+     * won, and is pinned by a test -- so if a Calcite upgrade rewords one of these, the test says
+     * so rather than the sentence quietly disappearing.
+     */
+    private static String guidanceFor(String message) {
+        String functions = " Pravaha evaluates + - * / %, ABS, FLOOR, CEIL, ROUND, CASE WHEN, UPPER, LOWER, "
+                + "TRIM, SUBSTRING and ||, and the aggregates COUNT, SUM, MIN, MAX and AVG; each of the "
+                + "one-argument functions takes exactly one argument. See docs/CONTINUOUS_QUERIES.md.";
+        if (message.contains("No match found for function signature")
+                || message.contains("Invalid number of arguments to function")) {
+            return functions;
+        }
+        if (message.contains("Cast function cannot convert value of type")) {
+            return " Pravaha evaluates conversions between numbers and nothing else: there is no cast to or "
+                    + "from text, and none to or from BOOLEAN. Write CASE WHEN <condition> THEN 1 ELSE 0 END "
+                    + "for a boolean read as a number, and assemble text where the text is assembled. See "
+                    + "docs/CONTINUOUS_QUERIES.md.";
+        }
+        return "";
     }
 
     /** The innermost message, which is nearly always the one that says what is actually wrong. */
