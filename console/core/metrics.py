@@ -308,7 +308,7 @@ def findings(queries: dict[str, dict[str, Any]], *, state_warn: float = 0.75,
         blocked = q.get("blocked_fraction")
         if blocked is not None and blocked >= BLOCKED_WARN:
             depth, cells = q.get("inbox_depth"), q.get("inbox_cells")
-            queue = (f" Its inbox holds {int(depth)} of {int(cells)} cells."
+            queue = (f" Its inbox holds {int(depth):,} of {int(cells):,} cells."
                      if depth is not None and cells else "")
             episodes = q.get("backpressure_waits")
             waited = q.get("backpressure_wait_seconds")

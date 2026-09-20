@@ -1327,7 +1327,7 @@ def test_the_verdict_names_the_query_and_the_operator_the_time_goes_into(signed_
     backpressured = next(f for f in snapshot["findings"] if f["title"] == "Cannot be fed fast enough")
     assert backpressured["query"] == "hot" and backpressured["operator"] == "Aggregate (n0)"
     assert "92% of the time" in backpressured["detail"]
-    assert "2040 of 2048 cells" in backpressured["detail"]
+    assert "2,040 of 2,048 cells" in backpressured["detail"]
     assert "shared lane" in backpressured["detail"], "whose fault it is on a shared lane"
     assert "Most of the time goes into Aggregate (n0)" in signed_in.get("/operations").text
 
@@ -1339,16 +1339,28 @@ def test_a_query_that_is_not_backpressured_raises_no_finding_about_it(signed_in)
 
 
 def test_the_plan_of_a_registered_query_carries_its_operators_and_its_bottleneck(signed_in):
+    """Explaining a registered query's own SQL gets its running plan's numbers attached --
+    same SQL, same plan, same node ids -- and explaining anything else does not, because the
+    numbers would then be about a different plan."""
     plan = signed_in.post("/api/v1/sql/explain",
                           json={"sql": "SELECT user_id, COUNT(*) FROM txn GROUP BY user_id",
                                 "query": "hot"}).json()
-    # Explaining SQL is not running it: the per-operator numbers belong to the running plan.
-    assert plan["metrics_state"] == "not_running"
-    assert plan["operator_metrics"] is None and plan["bottleneck"] is None
-    assert "not running" in plan["metrics_note"]
+    assert plan["metrics_state"] == "measured"
+    assert set(plan["operator_metrics"]) == {n["id"] for n in plan["graph"]["nodes"]}
+    assert plan["bottleneck"] == "n0"
+    assert plan["query_metrics"]["blockedFraction"] == 0.92
 
-    running = signed_in.get("/api/v1/queries/hot").json()
-    assert running["name"] == "hot"
+    edited = signed_in.post("/api/v1/sql/explain",
+                            json={"sql": "SELECT user_id, COUNT(*) FROM txn GROUP BY user_id "
+                                         "HAVING COUNT(*) > 2", "query": "hot"}).json()
+    assert edited["metrics_state"] == "not_running"
+    assert edited["operator_metrics"] is None and edited["bottleneck"] is None
+    assert "not running" in edited["metrics_note"]
+    assert edited["query_metrics"] is None
+
+    anonymous_sql = signed_in.post("/api/v1/sql/explain", json={"sql": "SELECT * FROM txn"}).json()
+    assert anonymous_sql["metrics_state"] == "not_running"
+    assert anonymous_sql["operator_metrics"] is None
 
 
 def test_the_running_plan_is_keyed_by_the_graphs_own_node_ids(signed_in, engine):

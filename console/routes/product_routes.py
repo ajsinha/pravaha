@@ -321,13 +321,20 @@ class ProductRoutes(Routes):
             def explain():
                 answer = services.authoring.explain(sql, str(body.get("level") or "physical"))
                 if query:
-                    # The registered query's measured totals, attached only while the SQL being
-                    # explained is still that query's own: under an edited query they would be
-                    # numbers about a different plan.
+                    # The registered query's measured numbers, attached only while the SQL
+                    # being explained is still that query's own: under an edited query they
+                    # would be numbers about a different plan. Same SQL means the same plan
+                    # means the same node ids, which is what lets the per-operator block be
+                    # drawn on this graph's nodes rather than on a set that only looks alike.
                     try:
                         registered = services.queries.get(query)
                         if registered.sql.strip() == sql.strip():
-                            answer["query_metrics"] = services.authoring.plan(query).get("query_metrics")
+                            running = services.authoring.plan(query)
+                            answer["query_metrics"] = running.get("query_metrics")
+                            answer["operator_metrics"] = running.get("operator_metrics")
+                            answer["bottleneck"] = running.get("bottleneck")
+                            answer["metrics_note"] = running.get("metrics_note")
+                            answer["metrics_state"] = running.get("metrics_state")
                     except ServiceError:
                         pass
                 return answer

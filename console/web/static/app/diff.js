@@ -306,7 +306,12 @@ export function DiffPanel({ sql, title, origin, drafts, active, getMonaco, onNew
     if (!active || !answer) return;
     const draw = (host, side, marks, label) => {
       if (host && side.graph) {
-        renderPlan(host, side.graph, { marks, label })
+        /* A registered side carries the engine's per-operator numbers; a draft carries none,
+           because nothing has run it. Drawing them on one side and not the other is the
+           honest picture: the shapes are comparable and the measurements are not. */
+        renderPlan(host, side.graph, { marks, label,
+                                       metrics: side.operator_metrics || null,
+                                       bottleneck: side.bottleneck || null })
           .catch((err) => { host.textContent = t("wb.diff.not_drawn", { error: err.message }); });
       }
     };

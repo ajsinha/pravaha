@@ -264,10 +264,16 @@ class UIRoutes(Routes):
                                  detail=str(exc))
             status, status_error = _attempt(lambda: services.replacements.status(name), None,
                                             "the query's replacement")
+            # The running version's own key columns, so the form that starts a replacement
+            # begins from them: a candidate keyed differently is a different view, and nobody
+            # means that by "a new version of this query".
+            detail = _safe(lambda: services.queries.detail(name), None) or {}
+            keys = [str(k.get("name")) for k in detail.get("keyColumns") or []]
             refused = services.admin.affordances().administer_refused(name)
             return self.page(request, "replacement.html", current="/queries", query=query,
                              replacement=status, replacement_error=status_error, refused=refused,
-                             acted=acted, action_error=action_error, action_code=action_code)
+                             query_keys=keys, acted=acted, action_error=action_error,
+                             action_code=action_code)
 
         def _replacement_redirect(name: str, message: str = "",
                                   refusal: ServiceError | None = None) -> RedirectResponse:
@@ -284,6 +290,37 @@ class UIRoutes(Routes):
             else:
                 tail = f"?acted={quote(message)}" if message else ""
             return RedirectResponse(f"/queries/{name}/replacement{tail}", status_code=303)
+
+        @self.app.post("/queries/{name}/replacement/start", tags=["ui"])
+        def start_replacement(request: Request, name: str, sql: str = Form(...),
+                              keys: str = Form(""), backfill: str = Form("history"),
+                              rate: str = Form("")):
+            """Starts a candidate beside the running version.
+
+            The SQL is not checked here beyond being present: the planner is the engine's, and
+            a console that decided what was replaceable would be a second, weaker opinion. The
+            engine refuses a candidate that normalises to the computation already running
+            (PRV-4017 -- a cutover to itself) and a stream whose source cannot replay
+            (PRV-4018), and the screen shows those refusals with their codes.
+            """
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            logger.info("%s started replacing '%s'", current_user(request), name)
+            parts = [part.strip() for part in keys.split(",") if part.strip()]
+            try:
+                if parts and not all(p.lstrip("-").isdigit() for p in parts):
+                    ordinals, _fields = services.authoring.key_ordinals(sql, parts)
+                else:
+                    ordinals = [int(p) for p in parts]
+                services.replacements.start(
+                    name, sql, ordinals, backfill=backfill or None,
+                    rate_limit=int(rate) if str(rate).strip().isdigit() and int(rate) else None)
+            except ServiceError as exc:
+                return _replacement_redirect(name, refusal=exc)
+            except ValueError:
+                return _replacement_redirect(
+                    name, refusal=ServiceError(self.t("cutover.error.keys", keys=keys), 400))
+            return _replacement_redirect(name, message=self.t("cutover.done.start", name=name))
 
         @self.app.post("/queries/{name}/replacement/throttle", tags=["ui"])
         def throttle_backfill(request: Request, name: str, rate: str = Form("")):
