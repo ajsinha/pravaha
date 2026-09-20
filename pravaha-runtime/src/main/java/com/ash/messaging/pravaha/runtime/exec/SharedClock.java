@@ -80,7 +80,16 @@ public final class SharedClock {
      * @return a handle the caller cancels when its query goes; nothing else stops it
      */
     public static ScheduledFuture<?> every(Duration period, String what, Runnable task) {
-        long millis = Math.max(1L, period.toMillis());
+        // TIME-11. This was Math.max(1L, period.toMillis()), and a clamp is the one thing the
+        // engine's duration settings do not do: zero, half a millisecond and minus one second were
+        // all accepted here and all became a millisecond, while the caller went on logging what was
+        // asked for. A period this timer cannot count is a refusal, with the value in it.
+        if (period == null || period.toMillis() < 1L) {
+            throw new IllegalArgumentException("a period of " + period + " cannot be scheduled for '" + what
+                    + "': this timer counts in milliseconds, so anything shorter than one -- including zero "
+                    + "and any negative -- has no honest reading. Ask for at least PT0.001S.");
+        }
+        long millis = period.toMillis();
         AtomicBoolean running = new AtomicBoolean();
         return TIMER.scheduleAtFixedRate(
                 () -> {

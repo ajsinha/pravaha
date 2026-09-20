@@ -563,11 +563,11 @@ public final class QueryExecution implements AutoCloseable {
                             + "partition of the watermark, and its stream would advance event time for "
                             + "everybody else while contributing nothing of its own");
         }
-        if (tick.compareTo(idleAfter) > 0) {
-            throw new IllegalArgumentException("the watermark tick (" + tick + ") is longer than the idle "
-                    + "timeout (" + idleAfter + "), so a partition could not be noticed idle until long "
-                    + "after it was. Idleness is detected on the tick; the tick has to be the finer of the two.");
-        }
+        // The tick's bounds live with the idle timeout's, in WatermarkTracker: this used to be the
+        // ordering check alone, so a zero, sub-millisecond or negative tick passed here and was
+        // clamped to a millisecond further down (TIME-11). A configured node is refused earlier,
+        // at startup, which is where one bad value should cost one failure (TIME-5).
+        WatermarkTracker.requireTick(tick, idleAfter);
         this.generator = generator;
         // Bounds are the tracker's, and it refuses rather than clamps: a timeout quietly changed to
         // something the operator did not ask for is how a tuned value becomes a mystery later.

@@ -214,4 +214,45 @@ class WatermarkTrackerTest {
         assertThatThrownBy(() -> WatermarkGenerator.boundedOutOfOrderness(-1))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void time11ATickThisTimerCannotCountIsRefusedRatherThanClamped() {
+        // TIME-11. Three configurations were accepted on live nodes and all three became one
+        // millisecond: 0s (a thousand passes a second over every lane, for ever, on a daemon
+        // thread), PT0.0005S (an operator who asked for 2000 ticks a second got 1000), and -1s
+        // (nothing looked at the sign, because tick.compareTo(idleAfter) > 0 is false for a
+        // negative). The bounds belong here beside the idle timeout's, which have refused rather
+        // than clamped from the start, for the reason this class already states: a value quietly
+        // changed to something the operator did not ask for is how a tuned setting becomes a
+        // mystery later.
+        Duration idle = Duration.ofSeconds(30);
+        assertThatThrownBy(() -> WatermarkTracker.requireTick(Duration.ZERO, idle))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("is not a period");
+        assertThatThrownBy(() -> WatermarkTracker.requireTick(Duration.ofSeconds(-1), idle))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("is not a period");
+        assertThatThrownBy(() -> WatermarkTracker.requireTick(Duration.ofNanos(500_000), idle))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("below the minimum of PT0.001S");
+
+        // And the boundary is live in the other direction: exactly a millisecond is accepted.
+        WatermarkTracker.requireTick(WatermarkTracker.MINIMUM_TICK, idle);
+    }
+
+    @Test
+    void time5ATickLongerThanTheIdleTimeoutIsRefusedByTheSameCheck() {
+        // TIME-5. The ordering rule existed and lived in QueryExecution.generatingWatermarks, so it
+        // fired once per *registration*: `tick: 5m` with `idle-after: 30s` started a node that
+        // logged both settings as in force, reported UP, recovered its journal and then refused
+        // every query. Moving the bound here is what lets PravahaNode.start apply it once, where
+        // one bad value costs one startup failure.
+        assertThatThrownBy(() -> WatermarkTracker.requireTick(Duration.ofMinutes(5), Duration.ofSeconds(30)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("longer than the idle timeout");
+        assertThatThrownBy(() -> WatermarkTracker.requireTick(Duration.ofSeconds(31), Duration.ofSeconds(30)))
+                .as("the boundary is live, so only the placement was ever wrong")
+                .isInstanceOf(IllegalArgumentException.class);
+        WatermarkTracker.requireTick(Duration.ofSeconds(30), Duration.ofSeconds(30));
+    }
 }

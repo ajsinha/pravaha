@@ -90,6 +90,54 @@ public final class WatermarkTracker {
      */
     public static final Duration MAXIMUM_IDLE_TIMEOUT = Duration.ofMinutes(10);
 
+    /**
+     * The shortest watermark tick this engine will accept.
+     *
+     * <p>TIME-11. The tick used to be clamped -- {@code Math.max(1L, period.toMillis())}, first in
+     * {@code QueryExecution} and then, after the clock was shared, in {@code SharedClock.every} --
+     * so {@code 0s}, {@code PT0.0005S} and {@code -1s} were all accepted and all silently became one
+     * millisecond, while the only line that mentions the tick went on printing what the operator
+     * asked for. A zero tick is a thousand passes a second over every lane, for ever, on a daemon
+     * thread; a negative one is not a period at all and slipped through because
+     * {@code tick.compareTo(idleAfter) > 0} is false for a negative.
+     *
+     * <p>A millisecond is the floor because the timer counts in milliseconds: below it there is no
+     * value the engine could honour, and honouring something else is the thing this class refuses
+     * to do everywhere else. Anybody who wants finer than a millisecond wants a different clock.
+     */
+    public static final Duration MINIMUM_TICK = Duration.ofMillis(1);
+
+    /**
+     * Refuses a watermark tick this engine cannot honour, with the reason.
+     *
+     * <p>Here rather than at each caller, so the bounds have one home with the idle timeout's --
+     * the principle above applies to both, and a second copy in the server would drift from this
+     * one. {@code QueryExecution.generatingWatermarks} calls it so an embedder is refused, and
+     * {@code PravahaNode.start} calls it so a configured node fails once at startup rather than
+     * once per registration (TIME-5).
+     *
+     * @throws IllegalArgumentException with a sentence saying what the value would do to a node
+     */
+    public static void requireTick(Duration tick, Duration idleAfter) {
+        if (tick == null || tick.isZero() || tick.isNegative()) {
+            throw new IllegalArgumentException("a watermark tick of " + tick + " is not a period. The tick is "
+                    + "what advances event time and what makes an idle partition detectable at all, so there "
+                    + "is no sensible reading of zero or less; it was accepted and quietly became one "
+                    + "millisecond, which is a thousand passes over every lane a second for ever.");
+        }
+        if (tick.compareTo(MINIMUM_TICK) < 0) {
+            throw new IllegalArgumentException("a watermark tick of " + tick + " is below the minimum of "
+                    + MINIMUM_TICK + ". The timer counts in milliseconds, so anything finer cannot be "
+                    + "honoured -- it was rounded up to a millisecond and reported as what you asked for, "
+                    + "which is how a tuned value becomes a mystery later.");
+        }
+        if (idleAfter != null && tick.compareTo(idleAfter) > 0) {
+            throw new IllegalArgumentException("the watermark tick (" + tick + ") is longer than the idle "
+                    + "timeout (" + idleAfter + "), so a partition could not be noticed idle until long "
+                    + "after it was. Idleness is detected on the tick; the tick has to be the finer of the two.");
+        }
+    }
+
     public WatermarkTracker(long idleTimeoutNanos) {
         if (idleTimeoutNanos < MINIMUM_IDLE_TIMEOUT.toNanos()) {
             throw new IllegalArgumentException("an idle timeout of " + Duration.ofNanos(idleTimeoutNanos)
