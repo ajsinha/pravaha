@@ -11,10 +11,12 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 Each batch names the files it owns, so batches in the same wave touch disjoint trees and can be
 built by different agents at the same time without merging into each other. The constraint that
-shapes the schedule is the owner's: **at most three agents besides the lead**, in three slots —
-one for the engine's core (serial, because `QueryRegistry`, `QueryExecution` and `ViewSink` are one
-another's neighbours), one for an isolated module (a plugin, `pravaha-state`), and one for the
-console.
+shapes the schedule is the owner's: **at most five agents besides the lead** (three until the
+evening of 2026-09-19, when measuring where the time went showed the work is agent-bound, not
+gate-bound: the full gate is 5m30s and runs beside the agents, while a batch takes 40 to 120
+minutes). The slots: the engine's core, serial, because `QueryRegistry`, `QueryExecution` and
+`ViewSink` are one another's neighbours; two isolated lanes (a plugin, `pravaha-state`,
+`pravaha-sql`); the console; and the findings clusters.
 
 ## Wave 1 — in flight
 
