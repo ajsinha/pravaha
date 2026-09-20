@@ -37,6 +37,63 @@ from browser_harness import (
 pytestmark = pytest.mark.browser
 
 
+# ============================================================ 0. arriving at a bare host name
+
+
+def test_a_stranger_arrives_at_the_landing_page_and_can_read_the_product(page, console):
+    """Nobody has signed in. `/` answers with the landing page rather than the sign-in form,
+    the figure is there, the documentation and About open, and the way in is one click.
+
+    Driven signed *out* on purpose: a test that only ever drives a signed-in browser would
+    not notice the day `/` starts redirecting to `/login` again.
+    """
+    page.goto(console.url("/"))
+    settled(page)
+    assert page.url().rstrip("/").endswith(console.url("").rstrip("/")), page.url()
+    assert "Ask once." in page.text("main")
+
+    # The rail: the version, the page's sections, the two public documents, one call to
+    # action, and it reads "Sign in" because nobody has.
+    assert page.exists(".rail")
+    assert "Sign in" in page.text("#rail-cta")
+    assert page.exists('.rail a[href="/help"]') and page.exists('.rail a[href="/about"]')
+
+    # The figure is drawn, is decorative, and says the same thing in words below.
+    assert page.exists("#figure svg[aria-hidden=true]")
+    assert page.eval("document.querySelectorAll('#figure .fig-motion, #figure .fig-still').length") == 2
+    assert "steps back to 90" in page.text("#how-it-works")
+
+    # Nothing about this deployment: reachability, and not the address.
+    assert "engine.test" not in page.text("body")
+
+    # The documentation and About open with no session, and come back.
+    page.wait_for_navigation(lambda: page.click('.rail a[href="/about"]'))
+    assert page.url().endswith("/about")
+    page.wait_for_navigation(lambda: page.click('a[href="/help"]'))
+    assert "/help" in page.url()
+
+    # And the way in is one click from the landing page.
+    page.goto(console.url("/"))
+    settled(page)
+    page.wait_for_navigation(lambda: page.click("#rail-cta"))
+    assert "/login" in page.url()
+    assert page.exceptions == [], page.exceptions
+
+
+def test_signing_out_comes_back_to_the_landing_page(page):
+    """Not to the sign-in form: somebody who has just left is a reader again, and the page
+    that says what this is is the one to leave them on."""
+    with own_console() as own:
+        sign_in(page, own)
+        page.goto(own.url("/"))
+        settled(page)
+        assert "Open the console" in page.text("#rail-cta")
+        page.wait_for_navigation(lambda: page.goto(own.url("/logout")))
+        assert page.url().rstrip("/").endswith(own.url("").rstrip("/")), page.url()
+        assert "Sign in" in page.text("#rail-cta")
+        assert page.exceptions == [], page.exceptions
+
+
 # ============================================================ 1. first run -> a running query
 
 def test_first_run_onboarding_reaches_a_live_view_that_changes(page):

@@ -1996,3 +1996,76 @@ def test_the_slogan_is_on_a_page_nobody_has_signed_in_for(anonymous):
     """The landing page and the sign-in page are the first two a person ever sees."""
     for path in ("/", "/login", "/help"):
         assert "Ask once. Answer always." in anonymous.get(path).text, path
+
+
+# ============================================================ the landing page
+
+
+def test_the_landing_page_is_what_an_anonymous_visitor_gets(anonymous):
+    """Not a redirect to the sign-in form. Somebody arriving at a bare host name is at least
+    as likely to be asking what this server is as to be an operator checking on it, and the
+    page has to answer the first without a session."""
+    page = anonymous.get("/", follow_redirects=False)
+    assert page.status_code == 200
+    assert "Ask once." in page.text and "Answer always." in page.text
+    # The rail: the version from the configuration, the page's sections, and the two public
+    # documents. Every one of them reachable without signing in.
+    assert 'class="rail"' in page.text
+    assert 'href="/help"' in page.text and 'href="/about"' in page.text
+    assert anonymous.get("/help").status_code == 200
+    assert anonymous.get("/about").status_code == 200
+
+
+def test_the_landing_pages_call_to_action_follows_the_session(anonymous, signed_in):
+    """Sign in when there is no session, the console when there is -- in the rail, in the
+    hero and in the closing, so none of the three sends somebody to a form they have already
+    filled in."""
+    out = anonymous.get("/").text
+    assert out.count('href="/login"') >= 3 and 'href="/home"' not in out
+    inn = signed_in.get("/").text
+    assert inn.count('href="/home"') >= 3
+    assert 'id="rail-cta"' in out and 'id="rail-cta"' in inn
+
+
+def test_the_landing_page_tells_a_stranger_nothing_about_this_deployment(anonymous, signed_in):
+    """A page anonymous readers can see is a disclosure decision, and this is the decision:
+    the console's own version and whether the engine answers -- which is what reaching this
+    port establishes anyway -- and nothing else. The engine's address, the reason it is not
+    answering, and what is registered on it wait for a session."""
+    out = anonymous.get("/").text
+    assert "engine up" in out                      # reachability: safe
+    assert "engine.test" not in out                # the address: not
+    assert "big_txn" not in out and "/queries/" not in out
+    # And the same fact in the shell, which is on every page a stranger can reach.
+    for path in ("/", "/help", "/login", "/about"):
+        assert "engine.test" not in anonymous.get(path).text, path
+    # A signed-in reader is shown it, because it is the thing they need when a screen is empty.
+    assert "engine.test" in signed_in.get("/").text
+
+
+def test_the_figure_is_drawn_twice_so_it_survives_reduced_motion(anonymous):
+    """The animated telling and the still one. Swapping whole groups is what lets
+    `prefers-reduced-motion` stop it: `display:none` on the ancestor stops SMIL, where CSS
+    alone cannot -- and the still group keeps the weights and the corrected total on screen,
+    so the figure still says what it says when nothing moves."""
+    page = anonymous.get("/").text
+    assert 'class="fig-motion"' in page and 'class="fig-still"' in page
+    assert "@media (prefers-reduced-motion:reduce)" in page
+    assert ".fig-motion{display:none;}" in page and ".fig-still{display:block;}" in page
+    # Decorative, with the same thing said in words further down the page.
+    assert 'aria-hidden="true" focusable="false"' in page
+    assert "steps back to 90 without" in page
+    # The weights are the point: +1 and −1 on both tellings.
+    assert page.count("+1") >= 4 and page.count("&#8722;1") >= 2
+
+
+def test_the_figure_carries_no_number_that_was_typed_into_it(anonymous):
+    """Everything on the page that is a fact about this deployment comes from where the rest
+    of the console gets it. The figure's rows are an illustration and are labelled as one;
+    the version beside the wordmark is the configured one."""
+    from core.i18n import Messages
+
+    page = anonymous.get("/").text
+    assert Messages()("landing.instance.console", version="0.1.0") == "console 0.1.0"
+    assert "console 0.1.0" in page
+    assert "FIG. 01" in page

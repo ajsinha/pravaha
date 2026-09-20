@@ -416,10 +416,13 @@ footer .slogan{font-family:var(--serif);font-style:italic;color:var(--flow);}
           {# The engine's reachability on every page, not only the one that
              failed: an operator who navigates away must not lose the single
              fact that explains why the next screen is empty. #}
+          {# Reachability is safe to show anyone -- it is what reaching this port establishes
+             anyway. The address it reached, and the reason it did not, are the deployment's
+             and wait for a session. #}
           {% if engine_up %}
-            <span class="chip ok" title="{{ engine_url }}"><span class="dot"></span>{{ t('shell.engine_up') }}</span>
+            <span class="chip ok"{% if signed_in %} title="{{ engine_url }}"{% endif %}><span class="dot"></span>{{ t('shell.engine_up') }}</span>
           {% else %}
-            <span class="chip bad" title="{{ engine_error }}"><span class="dot"></span>{{ t('shell.engine_down') }}</span>
+            <span class="chip bad"{% if signed_in %} title="{{ engine_error }}"{% endif %}><span class="dot"></span>{{ t('shell.engine_down') }}</span>
           {% endif %}
           {% if signed_in %}
             <div class="dropdown">
@@ -465,7 +468,11 @@ footer .slogan{font-family:var(--serif);font-style:italic;color:var(--flow);}
 <footer><div class="container d-flex flex-wrap gap-3 justify-content-between">
   <span class="slogan">{{ t('shell.slogan') }}</span>
   <span class="principle">{{ principle }}</span>
-  <span>{{ app_name }} {{ version }} — {{ t('shell.footer_engine') }} <span class="mono">{{ engine_url }}</span></span>
+  {# The engine's address is the deployment's, not the product's: it named a host and a port
+     to anybody who could reach this port, on the landing page, the documentation and the
+     sign-in form. The version of the console is the product's own fact and stays. #}
+  <span>{{ app_name }} {{ version }}{% if signed_in %} — {{ t('shell.footer_engine') }}
+    <span class="mono">{{ engine_url }}</span>{% endif %}</span>
 </div></footer>
 <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="/static/js/theme.js"></script>

@@ -1170,7 +1170,49 @@
       "up_before": "The console is connected. Open the",
       "up_link": "overview",
       "up_after": "to see what is registered.",
-      "down": "This console is running; the engine it is pointed at is not answering. That is reported rather than hidden — a console that refuses to start when the engine is down cannot tell you the engine is down."
+      "down": "This console is running; the engine it is pointed at is not answering. That is reported rather than hidden — a console that refuses to start when the engine is down cannot tell you the engine is down.",
+      "console": "console {version}",
+      "up_anonymous": "The console is running and the engine it is pointed at is answering. What is registered on it, and where it is, are for somebody signed in."
+    },
+    "rail": {
+      "what": "What it is",
+      "figure": "How it works",
+      "different": "What makes it different",
+      "does": "What it does",
+      "start": "Start here",
+      "docs": "Documentation",
+      "about": "About"
+    },
+    "figure": {
+      "caption": "FIG. 01 — ONE QUESTION, KEPT ANSWERED",
+      "source": "SOURCE",
+      "stream_txn": "txn",
+      "stream_ref": "customer",
+      "filter": "FILTER",
+      "join": "JOIN ON customer_id",
+      "aggregate": "AGGREGATE SUM(amount)",
+      "view": "THE VIEW · MAINTAINED, NOT RECOMPUTED",
+      "col_key": "user_id",
+      "col_total": "total",
+      "subscriber": "SUBSCRIBER",
+      "point_read": "POINT READ",
+      "sink": "SINK",
+      "kicker": "HOW IT WORKS",
+      "heading": "A row arrives, and the answer changes by exactly that much",
+      "said_1": "Rows arrive from the streams the query names, pass through the operators the planner chose — a filter, a join on the key, an aggregate — and reach a view the engine keeps. Each one carries a weight: +1 for a row that is now true, −1 for one that was true and is not. A correction is the old row withdrawn and the new one inserted, so a total that read 900 steps back to 90 without anything being rescanned.",
+      "said_2": "The view is the answer, already computed. A subscriber is sent every change as it commits, a point read looks one key up, and a sink writes the same changes out — three ways of reading one computation, not three copies of it."
+    },
+    "read": {
+      "kicker": "READ FURTHER",
+      "about_body": "What is built, what is measured, what is not built, and who made it.",
+      "weights": "Z-set weights and retractions",
+      "weights_body": "Why a correction is two changes, and what that buys.",
+      "decisions": "The decisions",
+      "decisions_body": "Every architectural record, with the reasoning kept even where it was later reversed."
+    },
+    "closing": {
+      "heading": "Register the question once.",
+      "body": "The engine maintains its answer for as long as the query is registered, and everyone who asked the same thing shares one computation."
     }
   },
   "about": {
