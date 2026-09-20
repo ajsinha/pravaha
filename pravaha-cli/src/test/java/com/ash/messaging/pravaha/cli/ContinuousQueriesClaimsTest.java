@@ -112,6 +112,105 @@ class ContinuousQueriesClaimsTest {
                 .contains("| Renaming a window column — `window_end AS hour_end` | ❌ | `PRV-2050`");
     }
 
+    /**
+     * The TY cluster's claims, each measured and then looked for in §11, §12, §13, §15 and §16.
+     *
+     * <p>Every one of these is a sentence the document did not have, or had wrong, while the
+     * planner behaved a third way. They are grouped by the section they belong to rather than one
+     * test per finding, because a reader checking the document reads a section at a time.
+     */
+    @Test
+    void theProjectionSectionsClaimsAboutCastsCasesAndConcatenationHold() {
+        // TY-23: a number cannot become text, whether it is written as a column or as a literal.
+        for (String sql : new String[] {
+            "SELECT user_id || amount AS c FROM txn",
+            "SELECT user_id || 5 AS c FROM txn",
+            "SELECT user_id || CAST(5 AS VARCHAR) AS c FROM txn",
+            "SELECT CAST(5 AS VARCHAR) AS c FROM txn"
+        }) {
+            assertThatThrownBy(() -> plan(sql))
+                    .as("%s", sql)
+                    .isInstanceOf(PravahaException.class)
+                    .hasMessageContaining("PRV-2021");
+        }
+        plan("SELECT CAST(NULL AS VARCHAR) AS c FROM txn");
+        plan("SELECT user_id || '!' AS c FROM txn");
+
+        // TY-4: a CASE whose branches disagree is refused with a code, as decimal arithmetic.
+        assertThatThrownBy(() -> plan("SELECT CASE WHEN amount > 5 THEN 1 ELSE 1.5 END AS c FROM txn"))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-2021");
+        // TY-4: and an approximate literal written with an exponent computes rather than throwing.
+        plan("SELECT ratio / 3.0E0 AS c FROM txn");
+
+        assertThat(continuousQueries())
+                .contains("`CAST(NULL AS VARCHAR)` is accepted")
+                .contains("**Every branch must produce the same type**")
+                .contains("Both sides must be text");
+    }
+
+    @Test
+    void theFilterSectionsClaimsAboutNullChecksAndIncomparableColumnsHold() {
+        // TY-5: IS NULL over an expression, not only over a column.
+        plan("SELECT txn_id FROM txn WHERE (CASE WHEN amount > 5 THEN status ELSE 'x' END) IS NULL");
+        plan("SELECT txn_id FROM txn WHERE (amount * 2) IS NOT NULL");
+
+        assertThat(continuousQueries())
+                .contains("Over a column, and over any expression")
+                .contains("Comparing a `BYTES`, `ARRAY`, `MAP` or `ROW` column");
+    }
+
+    @Test
+    void theAggregationSectionsClaimAboutSummingTextHolds() {
+        // TY-16: PRV-2020, the float-accumulator code, and not the decimal-arithmetic paragraph.
+        for (String aggregate : new String[] {"SUM", "AVG"}) {
+            assertThatThrownBy(() -> plan("SELECT " + aggregate + "(user_id) AS v" + WINDOW))
+                    .as("%s over text", aggregate)
+                    .isInstanceOf(PravahaException.class)
+                    .hasMessageContaining("PRV-2020")
+                    .hasMessageNotContaining("DECIMAL arithmetic");
+        }
+
+        assertThat(continuousQueries()).contains("| `SUM` or `AVG` over a text column | ❌ | `PRV-2020`");
+    }
+
+    @Test
+    void theSortingSectionsClaimThatEveryOrderByIsRefusedHolds() {
+        // TY-20: the shape that planned and ran was the one the optimiser deleted first.
+        for (String sql : new String[] {
+            "SELECT txn_id FROM txn ORDER BY amount",
+            "SELECT * FROM (SELECT txn_id FROM txn ORDER BY txn_id) x",
+            "SELECT * FROM (SELECT txn_id FROM txn ORDER BY txn_id FETCH FIRST 2 ROWS ONLY) x"
+        }) {
+            assertThatThrownBy(() -> plan(sql))
+                    .as("%s", sql)
+                    .isInstanceOf(PravahaException.class)
+                    .hasMessageContaining("PRV-2020");
+        }
+
+        assertThat(continuousQueries()).contains("in every shape it can be written in");
+    }
+
+    @Test
+    void theTypeSectionsClaimsAboutSchemaStringsAndNestedColumnsHold() {
+        // TY-8 and TY-9: the code is a configuration one and the message names both places.
+        assertThatThrownBy(() -> com.ash.messaging.pravaha.plugin.filesystem.FilesystemSourcePlugin.parseSchema(
+                        "d", "id:INT64,amt:DECIMAL"))
+                .hasMessageContaining("PRV-1027")
+                .hasMessageContaining("stream 'd'")
+                .hasMessageContaining("column 'amt'");
+        // TY-7's fix, which §16 used to describe as still broken.
+        assertThat(com.ash.messaging.pravaha.plugin.filesystem.FilesystemSourcePlugin.parseSchema(
+                                "d", "id:INT64,amt:DECIMAL(10,2)")
+                        .fieldCount())
+                .isEqualTo(2);
+
+        assertThat(continuousQueries())
+                .contains("**`DECIMAL(p,s)` can be declared through the schema string**")
+                .contains("**A schema string that will not parse is `PRV-1027`")
+                .contains("| `PRV-1027` |");
+    }
+
     @Test
     void aRegistrationWithoutARetentionKeepsForever() {
         try (var registry = new com.ash.messaging.pravaha.registry.QueryRegistry(

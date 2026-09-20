@@ -89,6 +89,12 @@ are declared and points at `GET /api/v1/streams`, which is filtered by what you 
 ### PRV-2003 — unknown stream
 
 A stream named by an API call — `GET /api/v1/streams/{name}`, a registration against a stream — is not
+A refusal the validator makes first still ends with what this engine *does* evaluate. An unknown
+function (`LTRIM`, `RTRIM`, `CONCAT`), a function given the wrong number of arguments (`ABS(x, 1)`),
+and a cast between types that do not convert (`CAST(<boolean> AS INTEGER)`) are all caught by SQL's
+own validator before Pravaha's compiler sees them, so the code is PRV-2002 and the first sentence is
+the validator's. The sentence after it is this engine's, and names the supported set (TY-24).
+
 declared on this node. In SQL an unknown name in `FROM` is reported by the validator as PRV-2002
 first; this code is what the catalogue itself says. Declare the stream under
 `pravaha.streams.<name>` or `POST /api/v1/streams`, and check you are pointed at the node you think.
@@ -151,6 +157,26 @@ GROUP BY site, window_start, window_end
 `ORDER BY` over a stream would mean a total order over rows that have not all arrived; there is no
 answer to give. Most of these are ADR-030's deliberate scope rather than an unfinished corner.
 
+**Every spelling of `ORDER BY` is refused, including the one that used to run.** A sort inside a
+derived table with no `FETCH` cannot change the answer, so the optimiser deletes it — and it was
+deleted before the refusal could see it, which meant this planned and ran under a success code while
+the same clause one line up was refused (TY-20):
+
+<!-- sql: refused PRV-2020 -->
+```sql
+SELECT * FROM (SELECT txn_id FROM txn ORDER BY txn_id) x
+```
+
+**`SUM` or `AVG` over a text column** is this code too, and names the column. SQL would otherwise
+cast the operand to `DECIMAL(38,19)` on your behalf, and the refusal you met was about decimal
+arithmetic in a ledger — a true sentence about a cast nobody wrote, saying nothing about summing
+text (TY-16):
+
+<!-- sql: refused PRV-2020 -->
+```sql
+SELECT SUM(user_id) AS total FROM txn
+```
+
 ### PRV-2021 — unsupported expression
 
 An expression or function the engine will not compile: numeric functions beyond `ABS`, `FLOOR`,
@@ -174,6 +200,36 @@ SELECT txn_id, CAST(amount AS VARCHAR) AS amount_text FROM txn
     The name in a PRV-2021 message is the function the *planner* saw. The SQL front end rewrites some
     calls before the engine reads the query — `SQRT(x)` becomes `POWER(x, 0.5)` — so a refusal can
     name a function your SQL does not contain.
+
+**A number cannot become text, however it is written.** There is no number-to-text conversion
+anywhere in this engine, and until TY-23 that rule depended on spelling: `user_id || amount` was
+refused and `user_id || 5` succeeded, because SQL's own coercion turns the literal into text and the
+optimiser folds the cast away before anything here can look at it. Both refuse now:
+
+<!-- sql: refused PRV-2021 -->
+```sql
+SELECT user_id || 5 AS tagged FROM txn
+```
+
+<!-- sql: refused PRV-2021 -->
+```sql
+SELECT CAST(5 AS VARCHAR) AS five FROM txn
+```
+
+`CAST(NULL AS VARCHAR)` is still accepted — it converts nothing, and it is what the bare-`NULL`
+refusal tells you to write.
+
+**A `CASE` whose branches produce different types** is refused rather than widened, because a row
+whose type depends on its own values has no schema. `CASE WHEN c THEN 1 ELSE 1.5 END` is `DECIMAL`
+to SQL and is refused exactly as `amount * 1.5` is; it used to escape as an uncoded Java exception
+(TY-4).
+
+**A `BYTES`, `ARRAY`, `MAP` or `ROW` column compared in a predicate** is refused with this code and
+the column's name. A `BYTES` column can be selected, null-checked and used as a join key; comparing
+one is not built, and the refusal used to name only the implicit cast SQL had inserted (TY-14).
+
+**`IS NULL` over an expression plans** — `(CASE WHEN … END) IS NULL`, `(amount * 2) IS NULL`. Only
+the bare-column form compiled until TY-5.
 
 A nullable comparison projected as a boolean is refused because writing UNKNOWN into a boolean column
 would report it as `false` — a wrong answer under a success code. The message says to choose what

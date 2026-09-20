@@ -1482,18 +1482,18 @@ engine. The PostgreSQL gateway is read-only and refuses all five with `PRV-6211`
 | Qualified columns — `t.amount`, `t.*` | ✅ | In `SELECT`, `WHERE`, `GROUP BY` and join conditions |
 | Integer and floating arithmetic — `amount * 2 + 1`, `price / 2` | ✅ | |
 | Modulo — `amount % 3`, `MOD(price, 2)` | ✅ | Over integers and over floating point alike. The remainder takes the sign of the dividend, so `-50 % 3` is `-2` and `-50.0 % 1.0` is `-0.0` |
-| `CAST(x AS DOUBLE)` | ✅ | Between numeric types |
+| `CAST(x AS DOUBLE)` | ✅ | Between numeric types, and only between numeric types. A cast to or from text is refused `PRV-2021`, and that is now true of a literal as well as of a column: `CAST(5 AS VARCHAR)` used to be folded away by the optimiser before the refusal could fire (TY-23). `CAST(NULL AS VARCHAR)` is accepted — it converts nothing, and it is what the bare-`NULL` refusal tells you to write. A cast between the same type at the same width is a no-op and passes through |
 | Literals — `SELECT 1` | ✅ | |
-| `CASE WHEN … THEN … END` | ✅ | Any number of branches, with or without `ELSE`. Only the branch taken is evaluated, so `CASE WHEN n = 0 THEN 0 ELSE t / n END` does not divide by zero |
+| `CASE WHEN … THEN … END` | ✅ | Any number of branches, with or without `ELSE`. Only the branch taken is evaluated, so `CASE WHEN n = 0 THEN 0 ELSE t / n END` does not divide by zero. **Every branch must produce the same type**, and the whole `CASE` is typed by SQL rather than by this engine: `CASE WHEN c THEN 1 ELSE 1.5 END` is `DECIMAL` to SQL and is refused `PRV-2021` exactly as `amount * 1.5` is, rather than being widened to a double behind your back. It used to throw an uncoded `IllegalArgumentException` (TY-4) |
 | A boolean-valued expression — `CASE WHEN c THEN TRUE ELSE FALSE END`, `amount > 50`, `status IS NULL` | ✅ | Only where the result cannot be UNKNOWN. See below |
 | Scalar functions — `ABS`, `FLOOR`, `CEIL`, `ROUND` | ✅ | One argument. `ROUND(x, 2)` is refused: rounding to decimal places is not built |
 | Numeric functions beyond those four | ❌ | `PRV-2021` |
 | String literals — `SELECT 'flagged'` | ✅ | |
 | `UPPER`, `LOWER` | ✅ | Converted in the root locale, so the answer does not depend on the machine the lane runs on |
 | `TRIM(x)` | ✅ | Strips spaces from both ends. `TRIM(LEADING …)` and a trim character other than a space are refused |
-| String concatenation — `a \|\| b` | ✅ | Any length of chain. **Null concatenated with anything is null**, not an empty string |
+| String concatenation — `a \|\| b` | ✅ | Any length of chain. **Null concatenated with anything is null**, not an empty string. Both sides must be text: there is no conversion from a number, a boolean or a date to text anywhere in this engine, so `s \|\| 5`, `s \|\| CAST(5 AS VARCHAR)` and `s \|\| amount` are all refused `PRV-2021`. The first two used to succeed and the third did not, which made the rule depend on how the value was spelled (TY-23) |
 | `SUBSTRING(s FROM start)`, `… FOR length` | ✅ | Positions are 1-based and counted in code points, so a substring never splits an emoji in half |
-| Other string functions — `REPLACE`, `POSITION`, `LPAD` | ❌ | `PRV-2021` |
+| Other string functions — `REPLACE`, `POSITION`, `LPAD` | ❌ | `PRV-2021`, or `PRV-2002` where SQL's own validator does not recognise the name first — `LTRIM`, `RTRIM` and `CONCAT` arrive that way. Either refusal now ends with what this engine does evaluate (TY-24) |
 | `SELECT DISTINCT` | ❌ | `PRV-2050` — it is a `GROUP BY` over an unbounded key space; see §13 |
 
 **A projected boolean holds two values, and SQL comparisons have three.** `SELECT amount > 50`
@@ -1553,7 +1553,7 @@ worst time to meet it. If a query is this wide, split it into several narrower o
 | `AND`, `OR`, `NOT` | ✅ | `NOT` is pushed down at compile time by De Morgan |
 | `IN (a, b, c)` | ✅ | Expanded to a chain of equalities |
 | `BETWEEN a AND b` | ✅ | Expanded to `>= AND <=` |
-| `IS NULL`, `IS NOT NULL` | ✅ | |
+| `IS NULL`, `IS NOT NULL` | ✅ | Over a column, and over any expression — `(CASE WHEN … END) IS NULL`, `(amount * 2) IS NULL`. Only the column form was compiled until TY-5 |
 | Arithmetic in a predicate — `amount * 2 > 100` | ✅ | |
 | A bare boolean column — `WHERE flagged` | ✅ | |
 | Column against column — `WHERE a > b` | ✅ | Both numeric |
@@ -1562,6 +1562,7 @@ worst time to meet it. If a query is this wide, split it into several narrower o
 | `LIKE … ESCAPE` | ❌ | `PRV-2021`. Without it, `%` and `_` are always wildcards and cannot be matched literally |
 | Text ordering — `WHERE status > user_id` | ❌ | `PRV-2021`. `>` on text needs a collation, and assuming one gives wrong answers that look right. `=` and `<>` on text do work |
 | Comparing text to a number | ❌ | `PRV-2021` |
+| Comparing a `BYTES`, `ARRAY`, `MAP` or `ROW` column | ❌ | `PRV-2021`, naming the column. A `BYTES` column can be selected, null-checked and used as a join key; comparing one in a predicate is not built. The `BYTES` refusal used to name only the implicit cast SQL inserted (TY-14) |
 
 Three-valued logic is honoured throughout: a comparison with NULL is UNKNOWN, and a filter keeps
 only rows where the predicate is TRUE.
@@ -1582,6 +1583,7 @@ Rewrite the filter as a range comparison, or join against a table of values inst
 | `TUMBLE` windows | ✅ | |
 | `HOP` (sliding) windows | ✅ | |
 | `COUNT`, `SUM`, `MIN`, `MAX`, `AVG` | ✅ | Over integer columns. `SUM` of a `TINYINT`, `SMALLINT` or `INT` — a column, or an expression such as `CASE WHEN tier = 'silver' THEN 1 ELSE 0 END` — is a `BIGINT`; `MIN`, `MAX` and `AVG` keep their argument's type. Until HLP-1 a `SUM` of an `INT` planned an `INT` column the 64-bit accumulator could not write, and the first row stopped the query, as it did for `MIN`, `MAX` and `AVG` of one. `SUM`, `AVG`, `MIN` **and `MAX`** over a `FLOAT32`/`FLOAT64` column are all refused `PRV-2020`: every accumulator is a 64-bit integer, whatever the column's type, and before the refusal a float aggregate produced no rows under a success status. Only `COUNT` of a float column plans, because it never reads the value. The refusal suggests `SUM(CAST(price AS BIGINT))`, which works if the rounding is acceptable |
+| `SUM` or `AVG` over a text column | ❌ | `PRV-2020`, naming the column — the same code the float-accumulator refusal carries, because it is the same kind of answer: the accumulator takes a number and this operand is not one. SQL would otherwise cast the column to `DECIMAL(38,19)` on your behalf, and the refusal you got was about decimal arithmetic in a ledger rather than about summing text (TY-16) |
 | Renaming a window column — `window_end AS hour_end` | ❌ | `PRV-2050`: the window columns must keep their names. Project `window_start` and `window_end` under their own names (or `window_end AS window_end`) and rename them downstream |
 | `COUNT(DISTINCT x)` | ✅ | Windowed. Over an unwindowed stream it is refused `PRV-2050`, like any other unbounded key space |
 | Aggregate over an expression — `SUM(amount * 2)` | ✅ | |
@@ -1684,7 +1686,7 @@ then, the message says plainly what is wrong.
 | Derived tables — `FROM (SELECT …) x` | ✅ | |
 | `WITH` (common table expressions) | ✅ | |
 | `SELECT STREAM` | ✅ | Accepted as a synonym; every query here is a streaming query |
-| `ORDER BY` | ❌ | `PRV-2020` |
+| `ORDER BY` | ❌ | `PRV-2020`, in every shape it can be written in — including one inside a derived table with no `FETCH`, which the optimiser deletes as harmless before any plan exists. That one planned and ran, exit 0, while every other spelling was refused (TY-20). The refusal is made on the statement now, not on the plan |
 | `LIMIT` / `OFFSET` | ❌ | `PRV-2020` |
 | `UNION`, `UNION ALL`, `INTERSECT`, `EXCEPT` | ❌ | `PRV-2020` |
 | `IN (subquery)`, `EXISTS`, scalar subqueries | ❌ | `PRV-2021` |
@@ -1724,13 +1726,26 @@ belongs to whoever owns the ledger and not to a serialiser. Year–month interva
 MONTH`) are refused because a month is not a fixed length of time; day–time intervals work and are
 what windows use.
 
-**`DECIMAL(p,s)` cannot be declared at all through the schema string**, even though the refusal for
-an unknown type names it as supported. `--schema`, `--out-schema`, `pravaha.streams.*.schema` and
-`POST /api/v1/streams` share one grammar, `name:TYPE,name:TYPE`, which is split on commas before any
-type is parsed — so `amt:DECIMAL(10,2)` is cut at its own comma and fails as `unknown type
-'DECIMAL(10'`. A decimal column can only be declared programmatically, through
-`Types.decimal(p, s)`. A decimal that *is* declared that way is carried through scans, filters and
-projections correctly; what is not built is arithmetic over it. Recorded as TY-7.
+**`DECIMAL(p,s)` can be declared through the schema string** (TY-7, fixed). `--schema`,
+`--out-schema`, `pravaha.streams.*.schema` and `POST /api/v1/streams` share one grammar,
+`name:TYPE,name:TYPE`, and it used to be split on every comma before any type was parsed — so
+`amt:DECIMAL(10,2)` was cut at its own comma and failed as `unknown type 'DECIMAL(10'`, while the
+refusal went on listing `DECIMAL(p,s)` as supported. The split is paren-aware now. A decimal column
+is carried through scans, filters and projections correctly; what is still not built is arithmetic
+over it.
+
+**A schema string that will not parse is `PRV-1027`, and it names the stream and the column.** It
+was `PRV-5040`, the filesystem plugin's decode code, because that is where the parser lives — which
+put a caller's typo in the plugin series and made `POST /api/v1/streams` answer `500 the server is
+broken` to a request the caller could fix themselves (TY-8). It is a configuration code now, so the
+same mistake answers `400`. The message reads
+`stream 'd', column 'amt': unknown type 'DECIMAL'`; it used to name neither, so an operator whose
+node refused to start had one sentence and every declared stream to check it against (TY-9).
+`PRV-5040` still means what it always meant: a line of data a file could not decode.
+
+**An `ARRAY`, `MAP` or `ROW` column can be declared and cannot be selected.** All three reach the
+planner as SQL's `ANY`, and projecting one is refused `PRV-2021` naming the column and saying which
+Pravaha types arrive that way — the refusal used to name only `ANY`, a word nobody wrote (TY-10).
 
 ---
 
@@ -1779,6 +1794,7 @@ as a JUnit test that compiles and passes.
 
 | Code | Means |
 |---|---|
+| `PRV-1027` | A `name:TYPE,name:TYPE` schema string that will not parse — an entry with no colon, or a type nothing knows. Names the stream and the column — §16 |
 | `PRV-2001` | Syntax error, with Calcite's line and column preserved |
 | `PRV-2002` | Validation failed — an unknown column, a type mismatch |
 | `PRV-2003` | The query names a stream that is not registered |

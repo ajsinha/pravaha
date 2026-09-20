@@ -247,11 +247,16 @@ rounding decision belongs to whoever owns the ledger and not to a serialiser:
 SELECT txn_id, CAST(amount AS DECIMAL(12, 2)) / 100 AS amount_major FROM txn
 ```
 
-And **`DECIMAL(p,s)` cannot be declared through a schema string at all**, even though the refusal for
-an unknown type names it: `amt:DECIMAL(10,2)` in `--schema`, `pravaha.streams.*.schema` or
-`POST /api/v1/streams` is cut at its own comma and fails as `unknown type 'DECIMAL(10'`. A decimal
-column can be declared programmatically through `Types.decimal(p, s)`; it is then carried through
-scans, filters and projections correctly — what is not built is arithmetic over it.
+**`DECIMAL(p,s)` can be declared through a schema string** — `amt:DECIMAL(10,2)` in `--schema`,
+`pravaha.streams.*.schema` or `POST /api/v1/streams`. It used to be cut at its own comma and fail as
+`unknown type 'DECIMAL(10'`, because the `name:TYPE,name:TYPE` grammar was split on every comma
+before any type was read (TY-7). A declared decimal is carried through scans, filters and
+projections correctly; what is not built is arithmetic over it.
+
+A schema string that will not parse answers **`PRV-1027`**, a configuration code, and names both
+places: `stream 'd', column 'amt': unknown type 'DECIMAL'`. It used to answer `PRV-5040` — the
+filesystem plugin's decode code — which made `POST /api/v1/streams` return `500` for a typo in the
+caller's own request (TY-8), and it named neither the stream nor the column (TY-9).
 
 **The rewrite everyone ends up with:** integer minor units. `amount` here is cents; a JDBC source can
 do the conversion where the decimal already lives

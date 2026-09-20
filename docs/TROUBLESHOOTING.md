@@ -277,16 +277,28 @@ format.
 | Too many open files | One bound source costs about one descriptor. The node logs its descriptor ceiling at startup, and a source that fails to open near that ceiling gets a sentence naming `ulimit -n` and `LimitNOFILE`. Two codes still name the wrong thing when descriptors are the real cause: `PRV-5040 FILESYSTEM_DECODE_FAILED` (a decode code for a resource exhaustion) and `PRV-5080 AEROSPIKE_CONNECT_FAILED`, whose every suggested remedy is wrong in that case — the Aerospike client's exception carries no cause, so it cannot be told apart by catching it (SRC-4) |
 | Disk growing | **Not checkpoints, unless you configured it that way.** `PeriodicCheckpointer` prunes after every checkpoint, keeping the newest `pravaha.checkpoint.keep` (default 3) per query; this row used to say nothing called `prune`, and something does. Check `pravaha.checkpoint.keep`, and then the registry journal, which grows until it is compacted. See [`OPERATIONS.md`](OPERATIONS.md) |
 
-## `PRV-5040` — reading a file, or declaring the schema for one
+## `PRV-1027` — a schema string that will not parse
 
-**`unknown type 'DECIMAL(10'`, when you wrote `DECIMAL(10,2)`.** The schema-string grammar —
-`name:TYPE,name:TYPE`, used by `--schema`, `--out-schema`, `pravaha.streams.*.schema` and
-`POST /api/v1/streams` alike — is split on commas before any per-column type is parsed, so a
-parenthesised type is cut in half at its own comma. `DECIMAL(p,s)` is therefore **not declarable
-through any surface**, despite being named in this refusal's own list of supported types. There is
-no escaping or quoting that gets round it. A decimal column has to be declared programmatically
-(`Types.decimal(p, s)` through the embedded API) until the parser reads a column at a time. Recorded
-as TY-7; the message's claim is what to distrust here, not your spelling.
+**The code moved, and the message grew two names (TY-8, TY-9).** A `name:TYPE,name:TYPE` schema
+string that will not parse used to answer `PRV-5040`, the filesystem plugin's decode code, because
+the parser for that grammar lives in that plugin. Two things were wrong with that. The HTTP API
+derives its status from the code's *category*, so `POST /api/v1/streams` with a misspelled type
+answered `500 Internal Server Error` for a mistake in the caller's own request body; `PRV-1027` is
+a configuration code, so the same request now answers `400`. And the message named neither the
+stream nor the column, so an operator whose node refused to start over `pravaha.streams.*.schema`
+had one sentence and every declared stream to check it against. It now reads:
+
+```text
+PRV-1027  stream 'd', column 'amt': unknown type 'DECIMAL'. Supported: BOOLEAN, INT8, ...
+```
+
+**`DECIMAL(10,2)` is declarable** (TY-7, fixed). The grammar is split at commas at paren depth
+zero, so a parenthesised type survives every surface: `--schema`, `--out-schema`,
+`pravaha.streams.*.schema` and `POST /api/v1/streams`. Arithmetic over a decimal is still not built
+— that is `PRV-2021` at plan time, and deliberate — but the column can be declared, scanned,
+filtered and projected.
+
+## `PRV-5040` — reading a file
 
 **`read failed at line 0` on a file you know is there.** If any byte in the file is not valid UTF-8,
 this is the whole-file failure it produces. The delimited source reads lines as UTF-8 text before a

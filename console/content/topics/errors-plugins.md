@@ -104,9 +104,11 @@ A line of a delimited file does not match the declared schema — a value that d
 column's type, the wrong number of fields — or the schema itself cannot be declared. Three causes are
 worth knowing because the message alone will not tell you:
 
-- **`unknown type 'DECIMAL(10'` when you wrote `DECIMAL(10,2)`.** The `name:TYPE,name:TYPE` grammar is
-  split on commas, and a decimal cannot be declared through any schema string today (TY-7). Declare
-  it programmatically, or carry integer cents in an `INT64`.
+- **A schema string that will not parse is no longer this code.** It is
+  [`PRV-1027`](/help/topics/errors-config), a configuration code, so the REST API answers `400`
+  rather than `500` to a caller who misspelled a type in their own request body (TY-8), and the
+  message names the stream and the column (TY-9). `DECIMAL(10,2)` parses now, at every surface
+  (TY-7).
 - **`read failed at line 0` on a file that is plainly there.** Some byte in the file is not valid
   UTF-8. The reader decodes whole lines as UTF-8 before any column, so one invalid sequence ends the
   read — including one inside a `BYTES` column (TY-12). Base64 binary into a `STRING` instead.

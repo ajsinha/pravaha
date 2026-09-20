@@ -150,6 +150,30 @@ pravaha:
 or rename it to letters, digits and hyphens. The same rule covers `pravaha.sources`,
 `pravaha.lookups` and `pravaha.sinks`.
 
+### PRV-1027 — CONFIG_SCHEMA_MALFORMED
+
+A `name:TYPE,name:TYPE` schema string that will not parse: an entry with no colon, or a type nothing
+knows. One grammar serves every surface that declares a stream's shape — `--schema`, `--out-schema`,
+`pravaha.streams.*.schema`, `POST /api/v1/streams`, and a source or sink plugin's own `schema`
+option — so this is the code for all of them.
+
+```text
+PRV-1027  stream 'd', column 'amt': unknown type 'DECIMAL'. Supported: BOOLEAN, INT8, ...
+```
+
+The message names the **stream** and the **column**, which it did not before: an operator whose node
+refused to start had one sentence about a type and every declared stream to check it against (TY-9).
+
+**It used to be `PRV-5040`**, the filesystem plugin's decode code, because that is where the parser
+lives. The REST API derives its HTTP status from a code's category, so a caller who misspelled a type
+in the body of their own request was answered `500 Internal Server Error` — the server is broken —
+for something only they could fix. It answers `400` now (TY-8). `PRV-5040` still means what it always
+meant: a line of data in a file that could not be decoded.
+
+**Do:** read the column the message names. `DECIMAL(10,2)` parses, so a parenthesised type is not the
+problem it once was (TY-7); suffix a type with `?` for nullable; `ARRAY`, `MAP` and `ROW` are not
+declarable through this grammar at all.
+
 ## The client SDKs
 
 The Java SDK (`pravaha-sdk-java`) and the Python SDK (`pravaha`) raise the same codes with the same
