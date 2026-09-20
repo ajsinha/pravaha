@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+#
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
 # Fast feedback while iterating on a fix. NOT a release gate -- tools/verify-clean.sh is.
 #
 # The difference that matters: verify-clean.sh deletes the installed Pravaha

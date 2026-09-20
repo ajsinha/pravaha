@@ -1,5 +1,8 @@
 """The service layer: everything the browser can ask for, as typed calls.
 
+Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+Proprietary and confidential. See LICENSE at the repository root.
+
 ADR-033. The browser talks to versioned JSON services; the services talk to the engine
 through the SDK. Nothing above this layer knows the SDK exists, and nothing below it
 knows a browser does.

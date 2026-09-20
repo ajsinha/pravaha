@@ -1,3 +1,8 @@
+"""
+Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+Proprietary and confidential. See LICENSE at the repository root.
+"""
+
 #!/usr/bin/env python3
 """Emit order lifecycle events as aql INSERT statements.
 

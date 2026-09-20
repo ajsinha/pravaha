@@ -1,5 +1,8 @@
 """The console against a real engine.
 
+Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+Proprietary and confidential. See LICENSE at the repository root.
+
 Started here the same way the Python SDK's tests start one: the actual Java server, with a
 registry, from the classpath the Maven build writes. A console tested against a fake engine
 would prove the fake works.

@@ -1,5 +1,8 @@
 """What the SQL Workbench knows about Pravaha SQL: plans, diagnostics, and their fixes.
 
+Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+Proprietary and confidential. See LICENSE at the repository root.
+
 Kept on the server, not in the browser, for the same reason the error mapping in
 ``routes/base.py`` is: a judgement written once cannot drift between two screens. The
 workbench, the onboarding flow and a query's own page all show a plan and all show a

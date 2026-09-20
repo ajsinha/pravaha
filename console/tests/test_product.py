@@ -1,5 +1,8 @@
 """The persona surfaces, against a stand-in for the engine adapter.
 
+Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+Proprietary and confidential. See LICENSE at the repository root.
+
 ``tests/test_console.py`` drives the console against a real engine, and that is where the
 claim "the console works" is proven end to end. This file covers what those tests cannot
 reach without a Java build: every new route and JSON endpoint, the sign-in gate on each,

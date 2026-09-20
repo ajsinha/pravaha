@@ -1,5 +1,8 @@
 """Reading the engine's Prometheus endpoint, and answering "is everything healthy?".
 
+Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+Proprietary and confidential. See LICENSE at the repository root.
+
 Parsed here, in the console's backend, rather than in the browser (design 23.17: a BFF,
 not a second engine). Three reasons:
 

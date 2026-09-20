@@ -1,5 +1,8 @@
 """Every ``PRV-nnnn`` code, resolved to what the documentation says about it.
 
+Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+Proprietary and confidential. See LICENSE at the repository root.
+
 Design 23.4b: every code resolves to a page. The engine's own ``helpUrl`` points at a host
 that does not exist (TROUBLESHOOTING.md says so), and an air-gapped browser could not reach
 it if it did, so the workbench links each diagnostic here instead.

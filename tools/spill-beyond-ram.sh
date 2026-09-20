@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+#
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
 # ADR-044's beyond-RAM measurement: the spill tier with state larger than the memory the
 # measured process may use, page cache included.
 #

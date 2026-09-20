@@ -1,5 +1,8 @@
 """Authentication and authorization, from Python, against the real server.
 
+Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+PROPRIETARY AND CONFIDENTIAL. See the LICENSE file for the full terms.
+
 The point of these tests is that they run against ``TestFlightServerMain`` with
 ``--authenticated``: the same server, the same policy, and the same refusals the
 Java tests see. A Python fake would prove that the fake refuses.

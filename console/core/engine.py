@@ -1,5 +1,8 @@
 """The console's only way of reaching the engine: the published Python SDK.
 
+Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+Proprietary and confidential. See LICENSE at the repository root.
+
 Every call in here goes through ``pravaha``, the same client an integrator uses -- Flight for
 queries, registration, lifecycle and subscriptions, and the SDK's own calls to the engine's
 published, versioned REST endpoints for the catalogue, validation, plans, sinks, per-query

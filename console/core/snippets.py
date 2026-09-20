@@ -1,5 +1,8 @@
 """Copy-paste client code for a view, in every client Pravaha ships.
 
+Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+Proprietary and confidential. See LICENSE at the repository root.
+
 The application developer's whole job on the console is "how do I read this from my
 service?" (design 23.2). The answer is a snippet they can paste and run, for the view and
 key they are looking at -- not a link to a reference page and an exercise left to them.
