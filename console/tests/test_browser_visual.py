@@ -204,6 +204,61 @@ def test_the_audit_trail_when_not_permitted_matches_its_baseline(shooters, compa
 @pytest.mark.parametrize("density", DENSITIES)
 @pytest.mark.parametrize("viewport", list(VIEWPORTS))
 @pytest.mark.parametrize("theme", THEMES)
+def test_a_backfill_in_flight_matches_its_baseline(shooters, comparer, console, baseline_chrome,
+                                                   theme, viewport, density):
+    """The state design 23.10 is about, and the one the page's whole shape argues with: a job
+    running, with no bar and no estimate anywhere on it."""
+    console.engine.start_replacement(
+        "big_txn", "SELECT txn_id, user_id, amount FROM txn WHERE amount > 500", [0],
+        backfill="history", rate_limit=5000)
+    console.engine.backfill_progress("big_txn", historyRows=412_000, liveRows=980,
+                                     rowsPerSecond=4800.0, partitionsLive=2, lagSeconds=63.0)
+    try:
+        test_every_page_matches_its_baseline(
+            shooters, comparer, console, baseline_chrome, "replacement-backfilling",
+            "/queries/big_txn/replacement", "document.getElementById('rep-numbers')",
+            theme, viewport, density)
+    finally:
+        console.engine.replacements_by_name.clear()
+
+
+@pytest.mark.parametrize("density", DENSITIES)
+@pytest.mark.parametrize("viewport", list(VIEWPORTS))
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_replacement_that_has_cut_over_matches_its_baseline(shooters, comparer, console, baseline_chrome,
+                                                              theme, viewport, density):
+    """With the rollback window open, which is the half of the screen an operator reads
+    under pressure."""
+    console.engine.start_replacement("big_txn", "SELECT txn_id FROM txn", [0])
+    console.engine.backfill_progress("big_txn", historyRows=412_000, partitionsLive=4,
+                                     historyComplete=True, lagSeconds=0.0)
+    console.engine.cut_over("big_txn")
+    try:
+        test_every_page_matches_its_baseline(
+            shooters, comparer, console, baseline_chrome, "replacement-cut-over",
+            "/queries/big_txn/replacement", "document.getElementById('rep-rollback-btn')",
+            theme, viewport, density)
+    finally:
+        console.engine.replacements_by_name.clear()
+
+
+@pytest.mark.parametrize("density", DENSITIES)
+@pytest.mark.parametrize("viewport", list(VIEWPORTS))
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_plan_with_its_operator_numbers_matches_its_baseline(shooters, comparer, console, baseline_chrome,
+                                                               theme, viewport, density):
+    """B6's numbers drawn on the operators, with the bottleneck marked. Photographed whole,
+    like the Compare panel: the plan is below the editor and the first screen shows none of it."""
+    FULL_PAGE.add("workbench-operators")
+    test_every_page_matches_its_baseline(
+        shooters, comparer, console, baseline_chrome, "workbench-operators",
+        "/workbench?query=hot&panel=explain",
+        "document.querySelector('svg g.plan-node.bottleneck')", theme, viewport, density)
+
+
+@pytest.mark.parametrize("density", DENSITIES)
+@pytest.mark.parametrize("viewport", list(VIEWPORTS))
+@pytest.mark.parametrize("theme", THEMES)
 def test_a_screen_whose_engine_call_failed_matches_its_baseline(shooters, comparer, console, baseline_chrome,
                                                                 theme, viewport, density):
     """The error state of design 23.12 as a screen draws it -- what failed, the retry, the

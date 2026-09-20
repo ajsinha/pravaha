@@ -345,6 +345,9 @@ PAGES: list[tuple[str, str, bool, str]] = [
       " && document.querySelector('.diff-sql[data-diff-ready=yes] .monaco-diff-editor .view-line')")),
     ("queries", "/queries", True, "true"),
     ("query", "/queries/big_txn", True, "true"),
+    # B9's blue/green screen as an engine with nothing being replaced shows it: the state
+    # every query is in most of the time, and the form that starts the first one.
+    ("replacement", "/queries/big_txn/replacement", True, "document.querySelector('#rep-none')"),
     ("overview", "/overview", True, "true"),
     ("plugins", "/plugins", True, "true"),
     ("admin-access", "/admin/access", True, "true"),

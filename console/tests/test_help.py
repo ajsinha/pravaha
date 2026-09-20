@@ -549,7 +549,8 @@ SCREENS = {"/workbench": "workbench", "/catalog": "catalog", "/views": "views",
            "/views/big_txn": "view", "/views/big_txn/live": "live", "/operations": "operations",
            "/queries": "queries", "/queries/big_txn": "query", "/plugins": "plugins",
            "/admin/access": "admin", "/admin/audit": "admin", "/catalog/streams/txn": "stream",
-           "/overview": "overview"}
+           "/overview": "overview", "/queries/big_txn/dead-letters": "dead-letters",
+           "/queries/big_txn/replacement": "replacement"}
 
 
 def test_every_product_screen_links_to_its_help_topics(catalog):

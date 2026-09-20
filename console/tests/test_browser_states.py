@@ -118,6 +118,8 @@ ERRORS = [
     ("views · error", ("describe_queries", "queries"), "/views", "#views-error"),
     ("view · point query · error", ("query_typed",), "/views/big_txn?key=user_id&value=u1", "#lookup-error"),
     ("queries · error", ("describe_queries", "queries"), "/queries", "#queries-error"),
+    ("dead letters · error", ("dead_letters",), "/queries/big_txn/dead-letters", "#dlq-error"),
+    ("replacement · error", ("replacement",), "/queries/big_txn/replacement", "#rep-error"),
     ("plugins · error", ("plugins",), "/plugins", "#plugins-error"),
     ("admin access · error", ("permissions",), "/admin/access", "#access-error"),
     ("admin audit · error", ("audit",), "/admin/audit", "#audit-error"),
@@ -191,6 +193,160 @@ def test_a_filter_that_matches_nothing_is_its_own_state(tab, states_console, whe
         assert tab.exists(f"{selector} a, {selector} button"), f"{where}: no way to clear the filter"
     finally:
         states_console.engine.view_rows.clear()
+
+
+def leave_replacement(page: Page, console: Console) -> None:
+    """Takes the tab off the replacement screen before the replacement is cleared.
+
+    The screen watches its own 1 Hz stream and reloads when the replacement it was opened
+    for is gone, which is right in a browser and a race in a test: the reload and the next
+    test's navigation collide as ERR_ABORTED. Leaving first is what a person would do.
+    """
+    page.goto(console.url("/queries"))
+    page.wait_for("document.readyState === 'complete'")
+
+
+# ================================== backfill and cutover (23.10), state by state
+
+def test_a_query_nothing_is_replacing_is_the_never_state(tab, states_console):
+    """Never had data: what a replacement is, and the way to start one. Not an empty
+    progress panel, which would read as a job that has stalled."""
+    shows(tab, states_console, "/queries/big_txn/replacement", "#rep-none",
+          "replacement · never")
+    assert tab.exists("#rep-none a"), "no way to start the first one"
+
+
+def test_a_replacement_in_flight_draws_what_is_measured_and_nothing_else(tab, states_console):
+    """The screen's own state, and the rule it exists to keep: no bar, no percentage, no
+    estimate. Audited as well as asserted, because a meter is a thing a screen reader reads
+    out and there must not be one over an unknown total."""
+    states_console.engine.start_replacement(
+        "big_txn", "SELECT txn_id, user_id, amount FROM txn WHERE amount > 500", [0],
+        backfill="history", rate_limit=5000)
+    try:
+        states_console.engine.backfill_progress("big_txn", historyRows=412_000, partitionsLive=2)
+        shows(tab, states_console, "/queries/big_txn/replacement", "#rep-numbers",
+              "replacement · in flight")
+        panel = tab.text("#rep-numbers")
+        assert "412,000" in panel and "2 of 4" in panel
+        assert "%" not in panel, panel
+        assert not tab.exists("#rep-numbers [role=meter], #rep-numbers progress")
+    finally:
+        leave_replacement(tab, states_console)
+        states_console.engine.replacements_by_name.clear()
+
+
+def test_the_version_history_the_status_does_not_carry_is_the_partial_state(tab, states_console):
+    """Partial: the engine records who served this name from which seam and the status the
+    console can read does not carry it. An empty list would read as "nobody has"."""
+    states_console.engine.start_replacement("big_txn", "SELECT 1", [0])
+    try:
+        shows(tab, states_console, "/queries/big_txn/replacement", "#rep-history-partial",
+              "replacement · partial")
+        assert not tab.exists("#rep-history")
+    finally:
+        leave_replacement(tab, states_console)
+        states_console.engine.replacements_by_name.clear()
+
+
+def test_the_replacement_screen_dims_when_its_stream_drops(tab, states_console):
+    """Stale: the tab is hidden, which closes the 1 Hz stream (design 23.11). The numbers
+    stay, dimmed, and the banner says how old they are -- never shown as current."""
+    states_console.engine.start_replacement("big_txn", "SELECT 1", [0])
+    try:
+        open_page(tab, states_console, "/queries/big_txn/replacement",
+                  "document.getElementById('rep-numbers')")
+        tab.eval("Object.defineProperty(document, 'hidden', {value: true, configurable: true});"
+                 "document.dispatchEvent(new Event('visibilitychange'));"
+                 "document.getElementById('rep-app').classList.add('stale')")
+        tab.wait_for("document.querySelector('#rep-banner .alert')", timeout=10)
+        assert tab.eval("document.querySelectorAll('#rep-app.stale').length") == 1
+        clean(tab, "replacement · stale")
+        tab.eval("Object.defineProperty(document, 'hidden', {value: false, configurable: true});"
+                 "document.dispatchEvent(new Event('visibilitychange'))")
+    finally:
+        leave_replacement(tab, states_console)
+        states_console.engine.replacements_by_name.clear()
+
+
+def test_the_policy_refusing_a_replacement_disables_every_control_with_the_reason(tab, states_console):
+    """Unauthorized: everything on this screen needs the administer permission, so a reader
+    gets the screen read-only with the engine's own reason on the page."""
+    states_console.engine.start_replacement("big_txn", "SELECT 1", [0])
+    states_console.engine.administer_refused["big_txn"] = \
+        "administering 'big_txn' needs one of the roles [ops]"
+    try:
+        shows(tab, states_console, "/queries/big_txn/replacement", "#rep-refused",
+              "replacement · unauthorized")
+        assert tab.eval("['bf-pause', 'rep-cutover', 'rep-rollback-btn']"
+                        ".every(id => document.getElementById(id).disabled)")
+        assert tab.eval("document.getElementById('rep-cutover')"
+                        ".getAttribute('aria-describedby')") == "rep-refused"
+        assert tab.exists("#rep-numbers"), "a reader may still read"
+    finally:
+        leave_replacement(tab, states_console)
+        states_console.engine.administer_refused.clear()
+        states_console.engine.replacements_by_name.clear()
+
+
+def test_a_cutover_the_engine_would_refuse_is_not_offered_and_says_why(tab, states_console):
+    """Not one of the eight, but the same rule: a control the engine's own precondition
+    would refuse is disabled with the reason **on the page**, because a disabled button
+    takes no focus and shows no tooltip and a title alone is a reason nobody can read."""
+    states_console.engine.start_replacement("big_txn", "SELECT 1", [0])
+    try:
+        shows(tab, states_console, "/queries/big_txn/replacement", "#rep-cutover-early",
+              "replacement · cutover not yet")
+        assert tab.eval("document.getElementById('rep-cutover').disabled")
+        assert tab.eval("document.getElementById('rep-cutover')"
+                        ".getAttribute('aria-describedby')") == "rep-cutover-early"
+    finally:
+        leave_replacement(tab, states_console)
+        states_console.engine.replacements_by_name.clear()
+
+
+# =========================== the plan's per-operator numbers (B6), state by state
+
+def test_a_node_with_the_operator_counters_off_says_so_on_the_plan(tab, states_console):
+    """The plan's own "not measured": three answers, not two, and the middle one names the
+    setting instead of drawing a graph with no numbers on it."""
+    states_console.engine.operator_metrics = False
+    try:
+        open_page(tab, states_console, "/workbench?query=big_txn&panel=explain",
+                  "document.querySelectorAll('svg g.plan-node').length === 3", timeout=30)
+        tab.wait_for("document.getElementById('metrics-note')")
+        assert tab.eval("document.getElementById('metrics-note').dataset.metricsState") == "operators_off"
+        assert "pravaha.metrics.operators" in tab.text("#metrics-note")
+        assert not tab.exists("svg g.plan-node text.measured")
+        clean(tab, "workbench · explain · operators off")
+    finally:
+        states_console.engine.operator_metrics = True
+
+
+def test_the_dashboard_with_no_shared_lane_says_so_rather_than_drawing_none(tab, chrome):
+    """Never had data, on the lanes table: with lane sharing off there are no shared lanes
+    at all, which is not the same as lanes sitting idle. Its own console, because the engine
+    it needs answers differently from every other screen's."""
+    quiet = BrowserEngine()
+    # And an engine too old to publish the operator switch at all, which is a third answer:
+    # "off" and "this node does not say" are not the same, and the screen must not read a
+    # missing gauge as a setting somebody turned off.
+    quiet.metrics_text = "\n".join(
+        line for line in quiet.metrics_text.splitlines()
+        if not line.startswith(("pravaha_lane_", "pravaha_metrics_operators_enabled")))
+    server = Console(quiet)
+    page = chrome.new_page()
+    try:
+        page.before_every_document(DETERMINISM)
+        page.before_every_document(theme_script(THEME))
+        sign_in(page, server)
+        shows(page, server, "/operations", "#ops-lanes-none", "operations · lanes · never",
+              ready="document.querySelector('#chart-rate canvas')")
+        assert not page.exists("#ops-lanes")
+        assert "not published by it" in page.text("#ops-operators-enabled")
+    finally:
+        page.close()
+        server.close()
 
 
 def test_the_help_search_with_nothing_asked_says_what_it_searches(tab, states_console):

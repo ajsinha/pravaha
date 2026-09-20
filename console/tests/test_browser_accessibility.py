@@ -226,6 +226,53 @@ def test_controls_the_policy_refuses_have_no_axe_violations(themed, console, the
 
 
 @pytest.mark.parametrize("theme", THEMES)
+def test_a_replacement_in_flight_has_no_axe_violations(themed, console, theme):
+    """The backfill and cutover screen carrying a job: the numbers, the throttle form, the
+    controls, and the typed-name dialog a cutover opens."""
+    page = themed(theme)
+    console.engine.start_replacement(
+        "big_txn", "SELECT txn_id, user_id, amount FROM txn WHERE amount > 500", [0],
+        backfill="history", rate_limit=5000)
+    try:
+        console.engine.backfill_progress("big_txn", historyRows=412_000, liveRows=980,
+                                         rowsPerSecond=4800.0, partitionsLive=2, lagSeconds=63.0)
+        open_page(page, console, "/queries/big_txn/replacement",
+                  "document.getElementById('rep-numbers')")
+        _assert_clean(page, f"a replacement in flight ({theme})")
+
+        console.engine.backfill_progress("big_txn", partitionsLive=4, historyComplete=True)
+        open_page(page, console, "/queries/big_txn/replacement",
+                  "document.getElementById('rep-cutover') && !document.getElementById('rep-cutover').disabled")
+        page.click("#rep-cutover")
+        page.wait_for("document.querySelector('#cutoverConfirmModal.show')")
+        page.settle(quiet_ms=400)
+        _assert_clean(page, f"the cutover confirmation ({theme})")
+        page.press("Escape")
+        page.wait_for("!document.querySelector('#cutoverConfirmModal.show')")
+
+        console.engine.cut_over("big_txn")
+        open_page(page, console, "/queries/big_txn/replacement",
+                  "document.getElementById('rep-rollback-btn')")
+        _assert_clean(page, f"a replacement that has cut over ({theme})")
+    finally:
+        console.engine.replacements_by_name.clear()
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_plan_with_its_operator_numbers_has_no_axe_violations(themed, console, theme):
+    """The plan graph carrying B6's numbers: the measured line inside each operator, the
+    bottleneck's marking, and the detail card a selected operator opens."""
+    page = themed(theme)
+    open_page(page, console, "/workbench?query=hot&panel=explain",
+              "document.querySelectorAll('svg g.plan-node').length === 3")
+    page.wait_for("document.querySelector('svg g.plan-node.bottleneck')", timeout=20)
+    _assert_clean(page, f"a plan with its operator numbers ({theme})")
+    page.click("svg g.plan-node.bottleneck")
+    page.wait_for("document.getElementById('operator-metrics')")
+    _assert_clean(page, f"an operator's measured detail ({theme})")
+
+
+@pytest.mark.parametrize("theme", THEMES)
 def test_the_drop_confirmation_has_no_axe_violations(themed, console, theme):
     page = themed(theme)
     open_page(page, console, "/queries/hot", "!document.getElementById('dropModalTrigger').classList.contains('d-none')")

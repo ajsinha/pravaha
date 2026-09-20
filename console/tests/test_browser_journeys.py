@@ -3,13 +3,18 @@
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 Proprietary and confidential. See LICENSE at the repository root.
 
-Design 23.18 names eight critical journeys, and all eight are here. Two walk end to end:
-first run to a live view that changes, and author-validate-explain-deploy. The other six walk
-as far as the console and the engine go today and stop where an engine feature that does not
-exist would take over -- backpressure sampling, a readable DLQ, backfill jobs, blue/green
-cutover, the time-travel debugger, an API for grants. Each stop is asserted (the console says
-what is missing, or offers nothing), never simulated, and each test's docstring names what it
-waits on; the README's 23.20 table lists them.
+Design 23.18 names eight critical journeys, and all eight are here. Seven walk end to end.
+One stops where an engine feature that does not exist would take over -- the time-travel
+debugger (23.9) -- and that stop is asserted (the console offers nothing rather than a
+control that fails), never simulated; its docstring names what it waits on, and the README's
+23.20 table lists it. The other seven walked as far as the engine went until B5, B6 and
+ADR-046 landed: a readable dead-letter queue, backpressure and per-operator sampling, and
+blue/green replacement with a cutover and a rollback window. Each of those turned an
+assertion that the console offered nothing into a screen this file now drives.
+
+Journey 8's grant is not a console step and cannot be one -- grants live in the deployment's
+identity system behind ``SecurityPolicy``, and no API changes one -- so it ends where the
+console's own half of it ends, which is not the same as waiting on the engine.
 
 Each journey drives Chrome the way a person would: typing into fields, clicking with the
 mouse or pressing keys, and reading what the page then shows. Nothing is called on the
@@ -417,18 +422,19 @@ def test_a_screen_s_question_mark_opens_its_help(page, console):
     href = page.eval("document.querySelector('h1 .screen-help').getAttribute('href')")
     assert href == "/help/topics/sql-reference"
     cards = page.eval("[...document.querySelectorAll('.helpcards a')].map(a => a.getAttribute('href'))")
-    assert len(cards) == 4 and all(c.startswith("/help/topics/") for c in cards)
+    assert len(cards) == 5 and all(c.startswith("/help/topics/") for c in cards)
     assert "/help/topics/compare-versions" in cards
+    assert "/help/topics/reading-a-plan" in cards, "the numbers the plan now draws"
     page.wait_for_navigation(lambda: page.click("h1 .screen-help"))
     assert page.url().endswith(href)
 
 
 # ============================================================ the other six journeys of design 23.18
 #
-# Each walks as far as the console and the engine can go today, and stops where an engine
-# feature that does not exist would have to take over. The stop is asserted, not assumed: the
-# console must say what is missing, or offer nothing, rather than draw a control that fails.
-# What each waits on is in its docstring and in the README's 23.20 table.
+# Five of these now walk end to end. The sixth -- debugging a wrong result -- stops where the
+# time-travel debugger would take over, and the stop is asserted, not assumed: the console
+# must offer nothing rather than draw a control that fails. What it waits on is in its
+# docstring and in the README's 23.20 table.
 
 def _palette_titles(page, text: str) -> list[str]:
     """The palette's options after typing ``text``; the palette is closed again after."""
@@ -450,25 +456,41 @@ def _access_row(page, name: str) -> str:
 
 
 def test_journey_diagnose_a_struggling_query_from_the_dashboard(page):
-    """Design 23.18 journey 3, "diagnose a backpressured query from the dashboard": the operator
-    lands on the verdict, follows the finding to the query, reads its plan and measured totals,
-    and acts on it -- pauses it, sees it paused, resumes it.
+    """Design 23.18 journey 3, "diagnose a backpressured query from the dashboard", end to end:
+    the verdict names the query *and* the operator, the finding says how much of the time its
+    lane had nowhere to put a row and whether a neighbour on the shared lane is the cause, the
+    plan draws the numbers on the operators and marks the bottleneck, and the operator acts.
 
-    Waits on the engine for the half the name promises. The engine does not sample lane
-    backpressure, so no finding can say "backpressured" and the plan cannot colour its edges by
-    it (23.8); and it counts rows, state and watermarks per query, not per operator, so the plan
-    cannot name the operator that is the bottleneck. The journey diagnoses what the engine does
-    measure -- state against its ceiling, watermark lag -- and asserts both screens say what is
-    not measured.
+    It used to stop half way and assert that both screens said backpressure was not sampled and
+    per-operator numbers were not published. B6 measures both -- episodes and blocked time per
+    query, blocked fraction and inbox depth per lane, and rows, state, watermark and a sampled
+    self time per operator with the engine naming the bottleneck -- so the journey walks the
+    whole thing instead of asserting the absence.
     """
     with own_console() as ops:
         sign_in(page, ops)
         assert page.url().endswith("/operations")
         settled(page)
-        assert "State ceiling nearly reached" in page.text("#findings")
-        # What is not measured is on the dashboard, not left for the operator to infer.
-        unmeasured = page.text("main")
-        assert "Backpressure" in unmeasured and "does not sample lane backpressure" in unmeasured
+
+        # The verdict answers "where?" with the operator, not just the query: on a
+        # backpressured query the query's name is not yet an answer.
+        assert "hot → Aggregate (n0)" in page.text("#verdict")
+        findings = page.text("#findings")
+        assert "Cannot be fed fast enough" in findings
+        assert "92% of the time" in findings and "2,040 of 2,048 cells" in findings
+        assert "Most of the time goes into Aggregate (n0)" in findings
+
+        # The numbers behind it, on the query's row: the lane's blocked share and its inbox.
+        row = page.eval("""[...document.querySelectorAll('#ops-queries tbody tr')]
+            .find(r => r.textContent.includes('hot ') || r.querySelector('a').textContent === 'hot').textContent""")
+        assert "92%" in row and "2,040 / 2,048" in row, row
+
+        # And the lane's own view, which is the other half of "whose fault is it": the shared
+        # lane this query is on is as blocked as it is, and two queries are queued behind it.
+        lanes = page.text("#ops-lanes")
+        assert "lane 0" in lanes and "92%" in lanes and "lane 1" in lanes
+        assert "3%" in lanes, "the other lane is not blocked, so this is not the node"
+        assert "Per-operator numbers are on for this node" in page.text("#ops-operators-enabled")
 
         # The finding is a link to the query it is about.
         page.wait_for_navigation(lambda: page.click("#findings a[href='/queries/hot']"))
@@ -476,14 +498,34 @@ def test_journey_diagnose_a_struggling_query_from_the_dashboard(page):
         assert "RUNNING" in page.text("#meta")
         assert "hot_alias" in page.text("main"), "the page says another name shares the computation"
 
-        # Its plan, with the totals the engine measured for the query as a whole.
+        # Its plan: the totals for the query, and the numbers on the operators themselves.
         page.wait_for_navigation(lambda: page.click("a[href='/workbench?query=hot&panel=explain']"))
         page.wait_for("document.querySelectorAll('svg g.plan-node').length === 3", timeout=20)
         page.wait_for("document.getElementById('query-metrics')")
-        assert "state 3 of 100" in page.text("#query-metrics")
-        page.click("svg g.plan-node")
-        page.wait_for("[...document.querySelectorAll('.card-body')]"
-                      ".some(c => c.textContent.includes('Per-operator numbers are not shown'))")
+        totals = page.text("#query-metrics")
+        assert "state 3 of 100" in totals
+        assert "lane blocked 92% of the time" in totals
+        assert "41 episodes, 312.5 s in all" in totals and "inbox 2,040 of 2,048" in totals
+
+        # Every operator carries its own line, and exactly one is marked the bottleneck --
+        # by a border, a glyph and the words in its accessible name, never colour alone.
+        drawn = page.eval("[...document.querySelectorAll('svg g.plan-node')]"
+                          ".map(g => g.getAttribute('aria-label'))")
+        assert len(drawn) == 3 and all("4,213 rows in" in label for label in drawn), drawn
+        hot_nodes = page.eval("[...document.querySelectorAll('svg g.plan-node.bottleneck')]"
+                              ".map(g => [g.dataset.node, g.getAttribute('aria-label')])")
+        assert len(hot_nodes) == 1 and hot_nodes[0][0] == "n0"
+        assert "the bottleneck" in hot_nodes[0][1] and "86 per cent" in hot_nodes[0][1]
+        assert page.exists("svg g.plan-node.bottleneck text.mark"), "marked by colour alone"
+        assert "The bottleneck is Aggregate (n0)." in page.text("#metrics-note")
+
+        # Its own numbers, and how many samples the share came from -- so a share read off a
+        # handful of samples can be recognised as one.
+        page.click("svg g.plan-node.bottleneck")
+        page.wait_for("document.getElementById('operator-metrics')")
+        detail = page.text("#operator-detail")
+        assert "4,213" in detail and "8,388,608" in detail and "86%" in detail
+        assert "Sampled from 4 rows" in detail
 
         # Act: pause it, see it paused, resume it.
         page.goto(ops.url("/queries/hot"))
@@ -496,6 +538,32 @@ def test_journey_diagnose_a_struggling_query_from_the_dashboard(page):
         settled(page)
         assert "RUNNING" in page.text("#meta")
         assert ops.engine.lifecycle_calls == [("pause", "hot"), ("resume", "hot")]
+        assert page.exceptions == [], page.exceptions
+
+
+def test_a_node_with_the_operator_counters_off_names_the_setting(page):
+    """The other half of journey 3, and the one a first run actually meets: per-operator
+    counting costs about 8 % and is off by default, so the commonest answer to "which
+    operator?" is "this node is not counting". The panel must say that and name the setting,
+    not draw an empty graph and let the reader conclude the operators did no work."""
+    with own_console() as off:
+        off.engine.operator_metrics = False
+        sign_in(page, off, role="analyst")
+        page.goto(off.url("/workbench?query=hot&panel=explain"))
+        page.wait_for("document.querySelectorAll('svg g.plan-node').length === 3", timeout=30)
+        page.wait_for("document.getElementById('metrics-note')")
+        note = page.text("#metrics-note")
+        assert page.eval("document.getElementById('metrics-note').dataset.metricsState") == "operators_off"
+        assert "switched off on this node" in note
+        assert "pravaha.metrics.operators is off" in note and "re-register the query" in note
+        assert not page.exists("svg g.plan-node.bottleneck")
+        # The query's own totals are measured either way, and are still there.
+        assert "lane blocked 92% of the time" in page.text("#query-metrics")
+        # And no operator's numbers are invented in its place.
+        page.click("svg g.plan-node")
+        page.wait_for("document.getElementById('operator-not-measured')")
+        assert "published no numbers" in page.text("#operator-not-measured")
+        assert not page.exists("#operator-metrics")
         assert page.exceptions == [], page.exceptions
 
 
@@ -560,8 +628,8 @@ def test_journey_find_a_querys_dead_letters(page, console):
     assert any("Replayed" in r for r in states), states
 
     # The one that is still malformed fails again and returns to the queue rather than looping.
-    still_bad = [e["id"] for e in console.engine.dead_letter_queues["big_txn"]
-                 if e["replay"] == "NEW"][0]
+    still_bad = next(e["id"] for e in console.engine.dead_letter_queues["big_txn"]
+                     if e["replay"] == "NEW")
     page.click(f"#dlq-table input[value='{still_bad}']")
     page.wait_for_navigation(lambda: page.click("#dlq-replay"))
     assert "1 failed to decode again" in page.text("#dlq-replayed")
@@ -572,47 +640,111 @@ def test_journey_find_a_querys_dead_letters(page, console):
     assert page.exceptions == [], page.exceptions
 
 
-def test_journey_prepare_a_backfill(page, console):
-    """Design 23.18 journey 5, "start and throttle a backfill", up to the start: the operator
-    finds the stream to reload, what feeds it, whether that source can replay, and which queries
-    a reload would reach.
+def test_journey_start_and_throttle_a_backfill(page):
+    """Design 23.18 journey 5, "start and throttle a backfill", end to end: the operator finds
+    the stream to reload, what feeds it and whether that source can replay, sees which queries
+    a reload would reach, starts a backfill against one of them, watches it read, turns it
+    down while production is busy, pauses it and resumes it.
 
-    Waits on the engine for starting and throttling. ``pravaha-backfill`` is built as a library
-    and reachable from no running path: there is no job to start, pause or abort, no throttle,
-    no progress stream (23.10; 23.11's "long jobs"), and the storage cluster's own latency is
-    not a metric. So there is no screen 14, and the journey asserts nothing offers a backfill.
+    It used to stop at "whether the source can replay" and assert that nothing offered a
+    backfill, because ``pravaha-backfill`` was a library reachable from no running path.
+    ADR-046 put it on one, so this walks the screen.
+
+    The journey also holds the console to the rule that made this screen hard: **no ETA and no
+    percentage**. It asserts that no number on the panel is a share of unknown work, and that a
+    lag nothing has measured is said to be unknown rather than shown as zero.
     """
-    sign_in(page, console)
-    page.goto(console.url("/catalog"))
-    settled(page)
-    page.wait_for_navigation(lambda: page.click("main a[href='/catalog/streams/txn']"))
-    assert "filesystem" in page.text("#stream-time"), "what feeds it"
-    readers = page.eval("[...document.querySelectorAll('main a[href^=\"/queries/\"]')].map(a => a.textContent.trim())")
-    assert {"big_txn", "hot"} <= set(readers), readers
+    with own_console() as bf:
+        sign_in(page, bf)
+        page.goto(bf.url("/catalog"))
+        settled(page)
+        page.wait_for_navigation(lambda: page.click("main a[href='/catalog/streams/txn']"))
+        assert "filesystem" in page.text("#stream-time"), "what feeds it"
+        readers = page.eval("[...document.querySelectorAll('main a[href^=\"/queries/\"]')]"
+                            ".map(a => a.textContent.trim())")
+        assert {"big_txn", "hot"} <= set(readers), readers
 
-    # Whether the source can rewind to an offset: its plugin's declared capabilities.
-    page.goto(console.url("/plugins"))
-    settled(page)
-    plugin = page.eval("[...document.querySelectorAll('#plugin-cards .card')]"
-                       ".find(c => c.textContent.includes('filesystem')).textContent")
-    assert "replayable" in plugin.lower(), plugin
+        # Whether the source can rewind to an offset: its plugin's declared capabilities.
+        # A backfill against a source that cannot replay is refused by the engine (PRV-4018),
+        # so this is the thing to check before starting one.
+        page.goto(bf.url("/plugins"))
+        settled(page)
+        plugin = page.eval("[...document.querySelectorAll('#plugin-cards .card')]"
+                           ".find(c => c.textContent.includes('filesystem')).textContent")
+        assert "replayable" in plugin.lower(), plugin
 
-    assert not [t for t in _palette_titles(page, "backfill") if "backfill" in t.lower()]
+        # Reached from the query, because a backfill belongs to one.
+        page.goto(bf.url("/queries/big_txn"))
+        settled(page)
+        page.wait_for_navigation(lambda: page.click("#replacement-link"))
+        assert page.url().endswith("/queries/big_txn/replacement")
+        assert page.exists("#rep-none"), "nothing is being replaced yet"
+
+        # Start one. The SQL comes prefilled with what is running and is edited here; the
+        # planner is the engine's, and the form says so rather than pretending to check it.
+        assert "does not check it" in page.text("#rep-start-note")
+        page.eval("document.getElementById('start-sql').value = "
+                  "'SELECT txn_id, user_id, amount FROM txn WHERE amount > 500'")
+        page.eval("document.getElementById('start-rate').value = '5000'")
+        page.wait_for_navigation(lambda: page.click("#rep-start"))
+        assert bf.engine.replacement_calls[0][0] == "start"
+        assert bf.engine.replacement_calls[0][2].endswith("amount > 500")
+        assert "still answers the version it answered before" in page.text("#rep-acted")
+
+        # What it shows while it reads, and what it refuses to show.
+        assert "Backfilling" in page.text("#rep-state")
+        panel = page.text("#rep-numbers")
+        assert "0 of 4" in panel, "partitions on the live stream, out of how many it has"
+        assert "not known yet" in panel, "no lag measured yet, and not 0 s"
+        assert "5,000 rows/s" in panel, "the ceiling it was started with"
+        assert "There is no estimate and no percentage here" in page.text("#rep-no-eta")
+        assert "%" not in panel, panel
+        assert not page.exists("#rep-numbers [role=meter], #rep-numbers progress"), \
+            "a bar over an unknown total is a promise the engine never made"
+
+        # It reads. The numbers move over the 1 Hz stream, and nothing else on the page does.
+        bf.engine.backfill_progress("big_txn", historyRows=412_000, liveRows=980,
+                                    rowsPerSecond=4800.0, partitionsLive=2, lagSeconds=63.0)
+        page.wait_for("document.querySelector('#rep-numbers [data-field=historyRows]')"
+                      ".textContent.includes('412,000')", timeout=10)
+        moved = page.text("#rep-numbers")
+        assert "2 of 4" in moved and "63.0 s" in moved
+
+        # Production is busy: turn it down. The engine's ceiling is the one it started with,
+        # and asking for more is its refusal to give, not the console's to hide.
+        page.eval("document.getElementById('bf-rate').value = '800'")
+        page.wait_for_navigation(lambda: page.click("#bf-throttle"))
+        assert ("throttle", "big_txn", 800) in bf.engine.replacement_calls
+        assert "at most 800 records a second" in page.text("#rep-acted")
+
+        page.eval("document.getElementById('bf-rate').value = '90000'")
+        page.wait_for_navigation(lambda: page.click("#bf-throttle"))
+        refusal = page.text("#rep-action-error")
+        assert "PRV-4018" in refusal and "may be slowed, not sped up" in refusal
+        assert ("throttle", "big_txn", 90000) in bf.engine.replacement_calls, "the console clamped it"
+
+        # Pause, and see that what it has read is kept.
+        page.wait_for_navigation(lambda: page.click("#bf-pause"))
+        assert "paused" in page.text("#rep-numbers")
+        assert "412,000" in page.text("#rep-numbers"), "pausing gave up what it had read"
+        page.wait_for_navigation(lambda: page.click("#bf-pause"))
+        assert ("resume", "big_txn", None) in bf.engine.replacement_calls
+        assert "reading" in page.text("#rep-numbers")
+
+        # And it is in the palette, so it is reachable without knowing the URL.
+        assert [t for t in _palette_titles(page, "replacement") if "replacement" in t.lower()]
+        assert page.exceptions == [], page.exceptions
 
 
 def test_journey_blue_green_update_and_roll_back(page):
-    """Design 23.18 journey 6, "blue/green update with rollback", as far as registration goes:
-    open v1 in the workbench, change it, validate and explain the change, register it beside v1
-    as v2, diff v2 against v1, compare the two views with the same point query, and roll back by dropping v2 --
-    confirmed by its typed name -- with v1 running throughout.
+    """Design 23.18 journey 6, "blue/green update with rollback", end to end: open v1 in the
+    workbench, change it, explain it, register it beside v1 as v2, diff the two plans, compare
+    the two views with the same point query -- and then take the name across and put it back.
 
-    Waits on the engine for the cutover. Moving a view's name (or a sink) from v1 to v2 at an
-    aligned frontier, with v1 kept for rollback through its retention, is built in
-    ``pravaha-backfill`` and reachable from no running path, and ``CREATE OR REPLACE`` is refused
-    (PRV-2072). So there is no screen 15 and no cutover button: v1 and v2 stay two names a
-    client switches between itself. What the console can show before a cutover it does: the
-    workbench's SQL and plan diff of v2 against v1 (23.7), with the changed operator marked and
-    the engine's fingerprints saying the two are separate computations.
+    It used to stop at the diff and assert that nothing offered a cutover. ADR-046 built one,
+    so the journey now runs the second half on the real screen: start the replacement, let the
+    backfill reach the seam, cut over with the name typed, watch the rollback window, roll back
+    with the name typed again, and see the name answering the version it answered before.
     """
     with own_console(default_role="analyst") as bg:
         bg.engine.view_rows["big_txn_v2"] = [[2, "u2", 900]]
@@ -670,7 +802,16 @@ def test_journey_blue_green_update_and_roll_back(page):
         # The changed operator, marked in v2's plan and said in words; nothing added or removed.
         changed = page.eval("[...document.querySelectorAll('#diff-result svg g.plan-node.diff-changed')]"
                             ".map(g => g.getAttribute('aria-label'))")
-        assert len(changed) == 2 and all(label.startswith("Filter") and label.endswith("changed") for label in changed)
+        # v1's side also carries its measured numbers, so the mark is named in the label
+        # rather than being the last thing in it.
+        assert len(changed) == 2 and all(
+            label.startswith("Filter") and ", changed" in label for label in changed), changed
+        assert any("of the sampled time" in label for label in changed), \
+            "v1 is running and its operators are measured"
+        assert not any("of the sampled time" in label for label in page.eval(
+            "[...document.querySelectorAll('#diff-result svg g.plan-node')]"
+            ".map(g => g.getAttribute('aria-label'))")[3:]), \
+            "the draft has not run, so nothing on its side is measured"
         assert not page.exists("#diff-result svg g.diff-added") and not page.exists("#diff-result svg g.diff-removed")
         assert page.text("#diff-changes").strip() == "changed: Filter(amount > 100) → Filter(amount > 500)"
         # The engine's own answer, now that v2 is registered: two fingerprints, two computations.
@@ -693,7 +834,8 @@ def test_journey_blue_green_update_and_roll_back(page):
         v2 = page.text("#lookup-result")
         assert "u1" not in v2 and "u2" in v2
 
-        # Roll back: drop v2, by its typed name. v1 never stopped.
+        # Drop the trial registration: the real move is a cutover of the name, not a second
+        # name a client has to know about. Dropped by its typed name; v1 never stopped.
         page.goto(bg.url("/queries/big_txn_v2"))
         settled(page)
         page.wait_for("!document.getElementById('dropModalTrigger').classList.contains('d-none')")
@@ -708,7 +850,63 @@ def test_journey_blue_green_update_and_roll_back(page):
         listed = page.eval("[...document.querySelectorAll('main a[href^=\"/queries/\"]')].map(a => a.textContent.trim())")
         assert "big_txn_v2" not in listed and "big_txn" in listed, listed
         assert ("drop", "big_txn") not in bg.engine.lifecycle_calls
-        assert not [t for t in _palette_titles(page, "cutover") if "cutover" in t.lower()]
+
+        # Now the cutover itself: the same new version, but replacing big_txn rather than
+        # standing beside it, so readers of the name move across without being told to.
+        page.goto(bg.url("/queries/big_txn/replacement"))
+        settled(page)
+        page.eval("document.getElementById('start-sql').value = "
+                  "'SELECT txn_id, user_id, amount FROM txn WHERE amount > 500'")
+        page.wait_for_navigation(lambda: page.click("#rep-start"))
+        assert "Backfilling" in page.text("#rep-state")
+
+        # Cutting over before the candidate has read all of the history is not offered: the
+        # engine would refuse it (PRV-4014), and a control that fails on click is the thing
+        # 23.12's unauthorized state exists to prevent.
+        assert page.eval("document.getElementById('rep-cutover').disabled") is True
+        assert "has not read all of the history yet" in page.text("main")
+
+        bg.engine.backfill_progress("big_txn", historyRows=412_000, partitionsLive=4,
+                                    historyComplete=True, lagSeconds=0.0)
+        page.wait_for("document.getElementById('rep-state').dataset.state === 'CAUGHT_UP'", timeout=10)
+        settled(page)
+        assert page.eval("document.getElementById('rep-cutover').disabled") is False
+
+        # Deliberately deliberate (23.10): the name, typed, exactly as a drop asks for it.
+        page.click("#rep-cutover")
+        page.wait_for("document.querySelector('#cutoverConfirmModal.show')")
+        page.wait_for("document.activeElement && document.activeElement.id === 'cutoverConfirmInput'")
+        assert page.eval("document.getElementById('cutoverConfirmSubmit').disabled") is True
+        page.type("big_txn_wrong")
+        assert page.eval("document.getElementById('cutoverConfirmSubmit').disabled") is True
+        page.eval("document.getElementById('cutoverConfirmInput').value = ''")
+        page.type("big_txn")
+        page.wait_for("!document.getElementById('cutoverConfirmSubmit').disabled")
+        page.wait_for_navigation(lambda: page.click("#cutoverConfirmSubmit"))
+        assert ("cutover", "big_txn", None) in bg.engine.replacement_calls
+        assert "now answers the new version" in page.text("#rep-acted")
+        assert "Cut over" in page.text("#rep-state")
+
+        # The rollback window, as a time and not as a mood.
+        assert "retained until 2026-09-19T15:30:00Z" in page.text("#rep-rollback")
+
+        # Roll back, by the typed name again. The name answers what it answered before.
+        page.click("#rep-rollback-btn")
+        page.wait_for("document.querySelector('#rollbackConfirmModal.show')")
+        page.wait_for("document.activeElement && document.activeElement.id === 'rollbackConfirmInput'")
+        page.type("big_txn")
+        page.wait_for("!document.getElementById('rollbackConfirmSubmit').disabled")
+        page.wait_for_navigation(lambda: page.click("#rollbackConfirmSubmit"))
+        assert ("rollback", "big_txn", None) in bg.engine.replacement_calls
+        assert "answers the replaced version again" in page.text("#rep-acted")
+        assert "Rolled back" in page.text("#rep-state")
+        # The window is over, and the screen says so rather than leaving the button to guess at.
+        assert "no window to keep open" in page.text("#rep-rollback")
+
+        # v1 ran throughout: nothing dropped it, and the point query answers as it always did.
+        assert ("drop", "big_txn") not in bg.engine.lifecycle_calls
+        page.goto(bg.url("/views/big_txn?key=user_id&value=u1"))
+        assert "u1" in page.text("#lookup-result")
         assert page.exceptions == [], page.exceptions
 
 
