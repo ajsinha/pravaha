@@ -821,8 +821,13 @@ class Client:
 
     def query_plan(self, name: str) -> dict:
         """The plan a registered query is running, as ``nodes`` and ``edges``, with the
-        query-level numbers the engine measures under ``query``. Per-operator numbers are
-        not published (``operatorMetrics`` is null and ``metricsNote`` says why).
+        query-level numbers the engine measures under ``query`` -- including how long its
+        writers spent unable to place a row. ``operatorMetrics`` carries rows in, rows out,
+        state bytes, the watermark and a sampled self time per node, keyed by the same node
+        ids ``nodes`` uses, and ``bottleneck`` names the node most of the query's own time
+        went into. It is ``None`` when nothing was measuring -- the query is not registered,
+        the node runs with ``pravaha.metrics.operators`` off, or the caller is entitled only
+        to a row-filtered slice -- and ``metricsNote`` says which.
         ``GET /api/v1/queries/{name}/plan``."""
         return dict(self._http().get("/api/v1/queries/" + _segment(name) + "/plan") or {})
 
