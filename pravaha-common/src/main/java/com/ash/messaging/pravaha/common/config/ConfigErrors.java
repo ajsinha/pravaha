@@ -32,5 +32,18 @@ public final class ConfigErrors {
     public static final ErrorCode NOT_AN_ENUM = new ErrorCode(1025, "CONFIG_NOT_AN_ENUM");
     public static final ErrorCode OUT_OF_RANGE = new ErrorCode(1026, "CONFIG_OUT_OF_RANGE");
 
+    /**
+     * A key is in the configuration file and never reached the code that would have read it.
+     *
+     * <p>CFG-3. Spring's relaxed binder canonicalises a map key before it binds it, and a key it
+     * cannot canonicalise is dropped -- so {@code pravaha.streams.txnü} and {@code
+     * pravaha.streams."txn "} were present in the file, syntactically valid, absent from the
+     * catalog, and reported at no log level at all. The query against them then failed with
+     * "Object 'txnü' not found. Known streams: [...]", which is accurate and unhelpable.
+     *
+     * <p>The remedy is Spring's own bracket form, so the message names it.
+     */
+    public static final ErrorCode KEY_UNREACHABLE = new ErrorCode(1027, "CONFIG_KEY_UNREACHABLE");
+
     private ConfigErrors() {}
 }
