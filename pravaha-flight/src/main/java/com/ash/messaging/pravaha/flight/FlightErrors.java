@@ -90,6 +90,14 @@ public final class FlightErrors {
             // back, so UNAVAILABLE, which every gRPC client already retries.
             case "PRV-8018" -> CallStatus.NOT_FOUND;
             case "PRV-8019" -> CallStatus.UNAVAILABLE;
+            // The debugger's own two of the same shape. A session that has ended or expired is
+            // gone, not a bad request (PRV-8013), and a node already holding its ceiling of
+            // sessions is saturated, which is the case this method's own javadoc says must not
+            // look like a malformed query (PRV-8014). The rest of 8011..8016 are arguments the
+            // caller can correct -- no checkpoint, a source that cannot replay, an unreadable
+            // step -- so INVALID_ARGUMENT is right for them.
+            case "PRV-8013", "PRV-8016" -> CallStatus.NOT_FOUND;
+            case "PRV-8014" -> CallStatus.RESOURCE_EXHAUSTED;
             // A handle the server cannot read, or one from an older version: the client's move is
             // to prepare the statement again, which NOT_FOUND is the conventional prompt for.
             case "PRV-6102" -> CallStatus.NOT_FOUND;

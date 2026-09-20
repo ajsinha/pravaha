@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **345 findings carrying a
-status — 270 FIXED, 62 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 62 open, **0 are
-GA-BLOCKER, 1 GA-REQUIRED, 55 POST-GA and 6 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **346 findings carrying a
+status — 284 FIXED, 49 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 49 open, **0 are
+GA-BLOCKER, 1 GA-REQUIRED, 42 POST-GA and 6 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -56,7 +56,7 @@ argued against, and its length was hiding the nineteen entries below.
 |---|---|---|
 | **GA-BLOCKER** | 0 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
 | **GA-REQUIRED** | 1 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
-| **POST-GA** | 55 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
+| **POST-GA** | 42 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 6 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
 **The blockers, by what they break — none open.** `SUB-1` (a subscribe-and-read gap) and `SCAN-1`
@@ -4108,8 +4108,7 @@ inside the band the code itself computed, and the correction still did not fire.
 
 ### TIME-3 (MEDIUM) — `out-of-orderness` has no unit bound, so `60` is sixty milliseconds and looks exactly like a correct configuration
 
-> **Status:** OPEN — reproduced. `pravaha.streams.ev.out-of-orderness: 60` gives **11** windows, the same count a correct 10-second setting gives; `60s` gives **6**. The operator who meant a minute cannot see the difference in the output.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the STRM/TIME cluster, 2026-09-19, verdicts in [`strm-time-cluster-2026-09-19.md`](strm-time-cluster-2026-09-19.md): `@DurationUnit(SECONDS)` on `out-of-orderness` **and** on `allowed-lateness`, which had the same defect one key over. No bound could catch this one: 60 ms is a legitimate value. Seed-proven.
 
 Spring's relaxed binding reads a unitless number into a `Duration` as **milliseconds** unless a
 `@DurationUnit` says otherwise, and `StreamDeclarationProperties.Declaration.outOfOrderness` carries
@@ -4180,8 +4179,7 @@ larger than the data (TIME-035), and to a query whose watermark has frozen (TIME
 
 ### TIME-5 (MEDIUM) — `tick` longer than `idle-after` starts a healthy node on which every registration fails
 
-> **Status:** OPEN — reproduced. `pravaha.watermark.tick: 5m` with `idle-after: 30s` starts, logs both settings as in force, reports `UP`, recovers its journal, and refuses every registration. This is round 1's DEPLOY-053 one configuration key across, and the `idle-after` startup validation that fixed DEPLOY-053 does not cover it.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the STRM/TIME cluster, 2026-09-19, verdicts in [`strm-time-cluster-2026-09-19.md`](strm-time-cluster-2026-09-19.md): the bound moved to `WatermarkTracker.requireTick`, and `PravahaNode.start` applies it as `PRV-2002`. Seed-proven.
 
 `PravahaNode.start` validates `idle-after` by constructing a throwaway `WatermarkTracker`
 (`PravahaNode.java:386-397`) and does **not** validate `tick <= idle-after`. That check lives in
@@ -4255,8 +4253,7 @@ that does not.
 
 ### TIME-8 (MEDIUM) — nothing reports a partition's idle state, its exclusions or its regressions, and there is no query listing in the REST API at all
 
-> **Status:** OPEN — every shipped surface searched on a live node with a stalled and a healthy query side by side.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the STRM/TIME cluster, 2026-09-19, verdicts in [`strm-time-cluster-2026-09-19.md`](strm-time-cluster-2026-09-19.md): `diagnostics()` and four meters carry what `WatermarkTracker` knew and no surface showed. The finding's two other claims were already false: `GET /api/v1/queries` exists, and `registeredQueries` has counted names since HLP-8. Seed-proven.
 
 `WatermarkTracker` exposes `isIdle(String)`, `idleExclusions()` and `regressions()` and documents the
 second as "the metric that explains a moving watermark" (`WatermarkTracker.java:206`). None of the
@@ -4276,8 +4273,7 @@ that `pravaha queries` listed **three** queries on, at the same moment.
 
 ### TIME-9 (LOW-MEDIUM) — the event-time refusals that are not `idle-after`'s carry no code, no key and no diagnosis
 
-> **Status:** OPEN — four refusals compared side by side in one harness. Two are exemplary and two are bare `IllegalArgumentException`s wearing a stack trace.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the STRM/TIME cluster, 2026-09-19, verdicts in [`strm-time-cluster-2026-09-19.md`](strm-time-cluster-2026-09-19.md): one shape in `StreamCatalog.withEventTime` — code, stream, value, consequence, and both spellings of the setting. It could not be fixed where it was raised: `StreamSchema` is in `pravaha-api` and knows neither the key nor the surface. Seed-proven.
 
 `pravaha.watermark.idle-after`'s four refusals (999ms, 600001ms, 0s, −5s) each name the key, the
 rejected duration in ISO form, the bound violated and its value, and a sentence saying what the
@@ -4326,8 +4322,7 @@ query the planner built."* `CONCEPTS.md` says the unqualified version.
 
 ### TIME-11 (LOW) — the watermark tick is clamped where every neighbouring duration is refused, and the log reports the value that was not used
 
-> **Status:** OPEN — three configurations, all accepted, all reproduced on live nodes.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the STRM/TIME cluster, 2026-09-19, verdicts in [`strm-time-cluster-2026-09-19.md`](strm-time-cluster-2026-09-19.md): `MINIMUM_TICK` is 1 ms, refused rather than clamped, in three layers, and the startup line prints the settings in force by construction. The evidence had moved since the finding was written: the clamp now lived in `SharedClock.every`. Seed-proven.
 
 `QueryExecution.java:367` is `long period = Math.max(1, tick.toMillis())`.
 
@@ -4384,8 +4379,7 @@ expected failures passed for that reason (STRM-017, 027, 096/097) and are record
 
 ### STRM-1 (LOW) — a change with weight 0 is delivered as a positive change and applies nothing, where the Z-set model says the row is not there
 
-> **Status:** OPEN — reproduced in `SectionA.s007`: `feedW("u1", 300, 0, 1)` then `commit()` delivers `[+0[u1, 300]]` with `isRetraction() == false`, and `ServedView.get("u1")` still returns `[u1, 300]`.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the STRM/TIME cluster, 2026-09-19, verdicts in [`strm-time-cluster-2026-09-19.md`](strm-time-cluster-2026-09-19.md): the view's zero-weight arithmetic was right and its *report* was wrong: `ViewSink` staged a `weight == 0` change and `isRetraction()` called it an insertion, so the consumption model `ViewChange`'s own javadoc recommends — ignore negatives, overwrite by key — wrote a stale row over a live one. Zero-weight changes are no longer staged, and `isInsertion()` exists. Seed-proven.
 
 `docs/CONCEPTS.md` §4 and the authoring brief both say a net weight of zero means the row is not
 there. Two separate pieces of code disagree, in different ways.
@@ -4616,8 +4610,7 @@ never reaches `SubscriptionFilter` for an unauthorised caller.
 
 ### STRM-10 (MEDIUM) — a subscriber that falls behind loses whole batches and has no way to find out
 
-> **Status:** OPEN — reproduced in `SrvC.s049` with an SDK subscriber sleeping 5 s per batch against a 1000 rows/s feed for 60 s.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the STRM/TIME cluster, 2026-09-19, verdicts in [`strm-time-cluster-2026-09-19.md`](strm-time-cluster-2026-09-19.md): `BatchMark` carries a dropped count, appended only when non-zero, so a plain batch keeps a mark it always had; `Subscription.dropped()`, `ChangeBatch.droppedBefore`/`missedAnything()` and Python's `batch.dropped_before` expose it, and both decoders split on every colon rather than the last. Seed-proven.
 
 ```
 pushed 59700 rows; client rows()=1300 in 13 batches; loss = 58400 rows
@@ -4674,8 +4667,7 @@ busy query is the ordinary case rather than the unusual one.
 
 ### STRM-12 (MEDIUM) — every way a subscription ends for a reason the client should act on reaches it as a clean completion, in-process subscribers are left attached for ever, and `subscriberCount()` never returns to zero
 
-> **Status:** OPEN — the drop reproduced in `SrvC.s065`, the restart in `SrvT.s072`, the in-process half and the counter in `SectionE.s076`.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the STRM/TIME cluster, 2026-09-19, verdicts in [`strm-time-cluster-2026-09-19.md`](strm-time-cluster-2026-09-19.md): `PRV-8018` answers `NOT_FOUND` and `PRV-8019` `UNAVAILABLE`, so a client can tell a dropped name from a stopping node, and `close()` ends subscriptions after the final commit so `subscriberCount()` returns to zero. Seed-proven.
 
 `QueryRegistry.drop` sets the state to `DROPPED`; the Flight loop notices via
 `query.state().isTerminal()` and calls `listener.completed()`:
@@ -4752,8 +4744,7 @@ not a security one.
 
 ### STRM-14 (MEDIUM) — a subscriber keeps being streamed under a name the server says does not exist
 
-> **Status:** OPEN — reproduced in `SrvD.s068` with `q68` and `q68b` registered over byte-identical SQL, subscriber X attached to `q68`.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the STRM/TIME cluster, 2026-09-19, verdicts in [`strm-time-cluster-2026-09-19.md`](strm-time-cluster-2026-09-19.md): `subscribeAs(name, …)`, and a drop ends that name's subscriptions before forgetting the name — now `RegisteredQuery.dropName`, one call that cannot be got the wrong way round, because after `removeName` the subscriptions cannot be found and would stream under a name a read refuses. A surviving second name is untouched. Seed-proven.
 
 ```
 X subscribed under the name q68:
@@ -4780,8 +4771,7 @@ dropped name only.
 
 ### STRM-15 (MEDIUM) — the handover bound is stated in batches, so it is not a bound on memory: 1.7 GB for one stalled subscriber
 
-> **Status:** OPEN — reproduced in `SrvC.s086` against the node on 19800, one SDK subscriber sleeping 600 s per batch.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the STRM/TIME cluster, 2026-09-19, verdicts in [`strm-time-cluster-2026-09-19.md`](strm-time-cluster-2026-09-19.md): a second bound in rows (250,000) beside the 64 batches. Seed-proven.
 
 ```
 20 x 50000-row appends, one stalled subscriber:
@@ -4800,8 +4790,7 @@ denominated in the wrong unit. A row bound, or a byte bound, would say what it i
 
 ### STRM-16 (LOW) — `CONFLATE` corrupts a weight-maintaining consumer's total, it is the default, and it is the only policy a remote subscriber can have
 
-> **Status:** OPEN — the corruption reproduced in `SectionF.s082`; the unreachability is structural, in `ControlWire.subscribeTicket` and `streamSubscription`.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the STRM/TIME cluster, 2026-09-19, verdicts in [`strm-time-cluster-2026-09-19.md`](strm-time-cluster-2026-09-19.md): the overflow preference rides last on the ticket — filter pairs are even, one more field is odd — so no version bump, and an unknown preference is refused rather than defaulted. Both SDKs. Seed-proven.
 
 `SubscriptionOptions.CONFLATE`'s own javadoc says it is "Wrong for anything maintaining its own
 aggregate from the weights, because conflating drops the intermediate weights that aggregate is
@@ -4828,8 +4817,7 @@ reachable effect.
 
 ### STRM-17 (LOW) — the refusal to subscribe to a dropped query names a fingerprint the caller has never seen, instead of the name they asked for
 
-> **Status:** OPEN — reproduced in `SectionD.s066`: `registry.drop("q")` then `query.subscribe(...)`.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the STRM/TIME cluster, 2026-09-19, verdicts in [`strm-time-cluster-2026-09-19.md`](strm-time-cluster-2026-09-19.md): `removeName` keeps the last name, and the refusal says `'q'` rather than a fingerprint. Seed-proven.
 
 ```
 PRV-8003  cannot subscribe to 'a740dfd20964': it is DROPPED
@@ -4847,8 +4835,7 @@ also the code a bad *filter column* gets (STRM-043).
 
 ### STRM-18 (LOW) — `docs/qa/cases/STRM.md`'s `H-EA` harness cannot be registered, and three details of `H-S` are wrong
 
-> **Status:** OPEN — the case file is wrong, not the code; recorded so the next executor does not spend the afternoon this one did.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the STRM/TIME cluster, 2026-09-19, verdicts in [`strm-time-cluster-2026-09-19.md`](strm-time-cluster-2026-09-19.md): five corrections to the case file, each with its note; `STRM-013` and `STRM-100` stay blocked. Seed-proven.
 
 Eight of the case file's eighteen stated facts are false against this build. The full table is in
 `docs/qa/logs/STRM.md`. Four are worth naming here because they change what can be run at all:
@@ -6766,3 +6753,7 @@ runs is how a default becomes folklore, and this project has already found two o
 > **Status:** OPEN — `SharedLaneIngestPropertyTest.queriesSharingALanesIngestAnswerExactlyAsOnLanesOfTheirOwn` fails intermittently with the shared side **ahead** of the answer `LaneEquivalence.expected` computes from `CountingScanPlugin.STORE`, e.g. `[74, 13750]` where `[49, 9325]` was expected, after `awaitAnswer` has waited its full 30 seconds. Ahead, not behind, is the interesting direction: the query has counted rows the model excludes, and the model excludes rows by `pausedAt`, so the suspect is the boundary at which a paused query on a *shared* lane stops receiving — LANE-2's routes and its pause-at-an-exact-row task — rather than the test's timing.
 > **Disposition:** POST-GA — it is a property test over lane sharing, which is off by default; no shipped path is known to be wrong, and the same seeds pass on other runs. It must not be closed by re-running it or by widening a timeout: either the pause boundary is exact and the model is wrong, or the boundary is not exact and LANE-2 is incomplete, and the answer decides whether anything ships broken.
 > **Evidence, both directions:** the debugger batch's agent saw it fail three times in its worktree at load 1.9–2.8, including against `84348b5` with none of its own code; the lead ran it three times at the same commit and load and saw it pass three times. A test that reports a mismatch when `awaitAnswer` gives up — comparing two sides at different positions — also cannot tell "not yet" from "wrong", and that is worth fixing whichever way the engine question lands.
+
+### FLIGHT-1 (MEDIUM) — a saturated node's debug refusal looked like a malformed query
+
+> **Status:** FIXED — the time-travel debugger's six codes reached `FlightErrors.statusFor` through its default arm, so all of them arrived at a gRPC client as `INVALID_ARGUMENT`, including `PRV-8013` (the session has ended or expired) and `PRV-8014` (the node already holds its ceiling of sessions). That is the shape the method's own javadoc says must not happen — a saturated node looking like a bad request — and it matters because a client retries one and not the other. 8013 and 8016 now answer `NOT_FOUND`, 8014 `RESOURCE_EXHAUSTED`; the other three stay `INVALID_ARGUMENT`, because a missing checkpoint, an unreplayable source and an unreadable step are all things the caller can correct. `DebugStatusMappingTest`. Found by the STRM/TIME cluster's agent during its rebase, in a file neither batch had reason to touch.
