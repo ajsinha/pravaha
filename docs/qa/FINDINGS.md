@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **345 findings carrying a
-status — 260 FIXED, 72 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 72 open, **0 are
-GA-BLOCKER, 1 GA-REQUIRED, 65 POST-GA and 6 are not defects at all** — see the triage below. Counted by the same pattern
+status — 270 FIXED, 62 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 62 open, **0 are
+GA-BLOCKER, 1 GA-REQUIRED, 55 POST-GA and 6 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -56,7 +56,7 @@ argued against, and its length was hiding the nineteen entries below.
 |---|---|---|
 | **GA-BLOCKER** | 0 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
 | **GA-REQUIRED** | 1 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
-| **POST-GA** | 65 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
+| **POST-GA** | 55 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 6 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
 **The blockers, by what they break — none open.** `SUB-1` (a subscribe-and-read gap) and `SCAN-1`
@@ -2151,8 +2151,7 @@ returns *all* rows including the NaN one, where SQL's three-valued `=` should ma
 self-comparison UNKNOWN and drop it. See docs/qa/logs/TYPE.md §10-12 (TYPE-089, TYPE-090).
 
 ## TY-4 (MEDIUM) — two ordinary expression shapes crash with a raw, uncoded Java exception instead of a `PRV-` refusal
-> **Status:** OPEN — both shapes still raw/uncoded: a numeric-literal cast throws `ClassCastException` from `ExpressionCompiler.literal`, and the mixed CASE throws `IllegalArgumentException` straight from `Expression.Case`'s compact constructor, unwrapped.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the TY cluster, 2026-09-19, verdicts in [`ty-cluster-2026-09-19.md`](ty-cluster-2026-09-19.md): both halves: `ExpressionCompiler.literal` read an exponent-written double as the `Double` Calcite carries rather than casting it to `BigDecimal`, and a literal that is neither now gets a coded refusal; `caseWhen` asks the whole CASE's type first, so branches that disagree reach the existing decimal refusal. The update half no longer reproduced on its own — TY-13 had closed the predicate path and left the projection path open, and both are covered now. Seed-proven.
 
 
 (a) `r / 3.0E0` (a `FLOAT32` column divided by an `E`-suffixed `DOUBLE` literal) throws
@@ -2173,8 +2172,7 @@ ordinary-looking, user-reachable shape that crashes uncoded. See docs/qa/logs/TY
 (TYPE-099, TYPE-101).
 
 ## TY-5 (MEDIUM) — `WHERE (CASE ... END) IS NULL` is refused
-> **Status:** OPEN — reproduced live: still returns `PRV-2021 cannot compile the expression 'IS NULL(CASE(...))'`; `PredicateCompiler.nullCheck` still requires `instanceof RexInputRef`.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the TY cluster, 2026-09-19, verdicts in [`ty-cluster-2026-09-19.md`](ty-cluster-2026-09-19.md): `Predicate.IsNullExpression` asks the compiled expression its own `isNull`, so `IS NULL` over a computed CASE partitions the rows; the column form keeps its single bitmap test, codegen refuses the new one as it refuses comparisons, and pushdown treats it as unattributable. Seed-proven.
 
 
 `PredicateCompiler` has no compiled path for `IS NULL` wrapped around a `CASE` expression:
@@ -2265,8 +2263,7 @@ comma-delimited schema-string grammar.
 (TYPE-002, TYPE-008).
 
 ## TY-8 (MEDIUM) — a client schema-string mistake on `POST /api/v1/streams` returns HTTP 500, not 4xx
-> **Status:** OPEN — `DelimitedCodec.DECODE_FAILED` (5040) is category PLUGIN, and `ApiExceptionHandler.statusFor` still maps PLUGIN to `INTERNAL_SERVER_ERROR`, i.e. HTTP 500.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the TY cluster, 2026-09-19, verdicts in [`ty-cluster-2026-09-19.md`](ty-cluster-2026-09-19.md): a malformed schema string is `PRV-1028 CONFIG_SCHEMA_MALFORMED` rather than a plugin code, so `POST /api/v1/streams` answers 400 instead of 500. `PRV-5040` still covers a row that will not decode. Seed-proven.
 
 
 `PRV-5040` (the schema-parse refusal) is in the PLUGIN 5000-series of error codes, which
@@ -2280,8 +2277,7 @@ body carries the `PRV-5040` sentence.
 **Status: OPEN.** Not seed-proven (out of required scope). See docs/qa/logs/TYPE.md §1-3 (TYPE-002).
 
 ## TY-9 (LOW) — node-startup type refusal does not name the stream or column
-> **Status:** OPEN — `PravahaNode.registerDeclaredStreams()` calls `parseSchema(name, declaration.getSchema())` with no added context, and the refusal message never includes the stream or column name.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the TY cluster, 2026-09-19, verdicts in [`ty-cluster-2026-09-19.md`](ty-cluster-2026-09-19.md): `parseSchema` names the stream and the column (`stream 'd', column 'amt': …`), fixed at the parser so every surface inherits it. Seed-proven.
 
 
 Starting a node with `pravaha.streams.d.schema: "id:INT64,amt:DECIMAL"` refuses to start (correct),
@@ -2291,8 +2287,7 @@ to — an operator with several declared streams has to guess which one is wrong
 **Status: OPEN.** See docs/qa/logs/TYPE.md §1-3 (TYPE-002).
 
 ## TY-10 (LOW) — `ARRAY`/`MAP`/`ROW` in a projection now throw a coded refusal, but it still doesn't name the type or column
-> **Status:** OPEN — `TypeMapping.baseFromCalcite`'s default throws `PRV-2021` with only the SQL type name; its caller `PhysicalPlanBuilder.schemaOf` holds `field.getName()` but never passes or wraps it in.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the TY cluster, 2026-09-19, verdicts in [`ty-cluster-2026-09-19.md`](ty-cluster-2026-09-19.md): `TypeMapping.fromCalcite` takes the column name, and the message says which Pravaha types arrive as `ANY`. Seed-proven.
 
 
 Positive drift from TYPE.md's preamble Fact 2: projecting an `ARRAY`/`MAP`/`ROW` column now throws a
@@ -2357,8 +2352,7 @@ is the same observation for an engine-side comparison bug, a pushdown re-encodin
 into a number that named the cause on the first run. See docs/qa/logs/TYPE.md §1-3 (TYPE-027).
 
 ## TY-14 (LOW-MEDIUM) — a BYTES-vs-literal refusal names no column, unlike the equivalent ARRAY/MAP/ROW refusal
-> **Status:** OPEN — reproduced live: `WHERE bin = 'cafe'` still returns `PRV-2021 'CAST('cafe'):VARBINARY NOT NULL' has SQL type VARBINARY, which Pravaha cannot compute with yet`, naming no column.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the TY cluster, 2026-09-19, verdicts in [`ty-cluster-2026-09-19.md`](ty-cluster-2026-09-19.md): `PredicateCompiler.refuseIncomparableColumn` runs first, so comparing a `BYTES` column is refused as comparing an `ARRAY` already was. Seed-proven.
 
 
 `WHERE bin = 'cafe'` (and `<>`, `>`) refuses with a generic
@@ -2407,8 +2401,7 @@ project the column away, because it reaches a user as a failed query rather than
 error. Seed-proven by restoring the refusal for BYTES.
 
 ## TY-16 (LOW) — `SUM`/`AVG` over a STRING column is refused by the wrong code
-> **Status:** OPEN — reproduced live: `SUM`/`AVG` over a STRING column still returns `PRV-2021 'CAST($1):DECIMAL(38, 19) NOT NULL' is DECIMAL arithmetic`, not a STRING-specific code.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the TY cluster, 2026-09-19, verdicts in [`ty-cluster-2026-09-19.md`](ty-cluster-2026-09-19.md): `refuseNonNumericAggregate` runs before the aggregate's input is built — the input *is* the cast — resolving the ordinal through the projection, and refuses with `PRV-2020`, following the float-accumulator precedent rather than inventing a second way to say it. Seed-proven.
 
 
 Calcite inserts an implicit `CAST(s AS DECIMAL(38,19))` ahead of `SUM`/`AVG` on a STRING operand,
@@ -2496,8 +2489,7 @@ throws a clean, coded `PRV-4025` naming the view and column, rather than silentl
 the bytes. See docs/qa/logs/TYPE.md §7-9 (TYPE-076).
 
 ## TY-20 (MEDIUM) — `ORDER BY` inside a non-limited derived table plans and runs instead of being refused
-> **Status:** OPEN — `PhysicalPlanBuilder.build()`'s switch still has no `Sort` case; live `SqlPlanner` run of an unlimited `ORDER BY` inside a derived table still plans and runs (a `ProjectOperator`, exit 0) because Calcite drops the Sort first.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the TY cluster, 2026-09-19, verdicts in [`ty-cluster-2026-09-19.md`](ty-cluster-2026-09-19.md): `SqlShapeRefusals` walks the statement between validation and optimisation, because the optimiser deletes the evidence; `ORDER BY` is refused in all six shapes, including the subquery form that used to plan. Seed-proven.
 
 
 `SELECT * FROM (SELECT id FROM types ORDER BY id) x` plans successfully (exit 0) instead of being
@@ -2526,8 +2518,7 @@ timestamp spread, with no configuration escape hatch.
 
 
 ## TY-22 (MEDIUM) — `SUBSTRING(... FOR <a length near Long.MAX_VALUE>)` silently returns an empty string
-> **Status:** OPEN — `Expression.Substring.evaluateString` still computes `until = from + Math.max(0L, length...)` unchecked; `1L + Long.MAX_VALUE` wraps to `Long.MIN_VALUE`, returning "".
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the TY cluster, 2026-09-19, verdicts in [`ty-cluster-2026-09-19.md`](ty-cluster-2026-09-19.md): `Substring` saturates at `Long.MAX_VALUE`, and the `FROM`-only form goes through the same arithmetic. Proven by a property test against a `BigInteger` model: 13×13 edge pairs over seven subjects, plus 20,000 seeded random pairs. Seed-proven.
 
 
 `Expression.Substring.evaluateString` computes `until = from + Math.max(0L, length)` in `long`
@@ -2544,8 +2535,7 @@ empty string, not the original value.
 reading `Expression.java`. See docs/qa/logs/TYPE.md §16-19 (TYPE-138).
 
 ## TY-23 (MEDIUM) — `||` silently accepts a numeric literal, or a CAST-to-text of one, while correctly refusing the identical mismatch against a real column
-> **Status:** OPEN — reproduced live: `user_id || 5` and `user_id || CAST(5 AS VARCHAR)` still succeed (constant-folded before `ExpressionCompiler.cast()`'s check) while `user_id || amount` is correctly refused; `CONCAT(...)` still fails on Calcite's own `PRV-2002` since no custom `SqlOperatorTable` is registered.
-> **Disposition:** POST-GA — assigned by the severity rule in the header, not individually
+> **Status:** FIXED — the TY cluster, 2026-09-19, verdicts in [`ty-cluster-2026-09-19.md`](ty-cluster-2026-09-19.md): a cast to text of a non-text literal is refused, and so is the `CASE` that produced it. `SELECT CASE WHEN c THEN 'big' ELSE 0 END` answered `"0"` and was documented as working while the same CASE over a numeric *column* was refused: the accepted half was the wrong one. A documented behaviour narrows here, under the owner's standing rule that leniencies create silent bugs. Seed-proven.
 
 
 `s || <bare numeric literal>` succeeds (Calcite coerces the literal to text before Pravaha's
