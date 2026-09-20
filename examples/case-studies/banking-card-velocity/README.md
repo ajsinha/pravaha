@@ -61,6 +61,11 @@ One record per card authorisation. This is the thing that arrives constantly.
 
 > **Time is epoch nanoseconds.** The engine is built on event time throughout, and nanoseconds is
 > what it holds internally. A millisecond timestamp multiplied by 1 000 000 is fine.
+>
+> **And `auth_time` has to be *declared* as this stream's event time**, in
+> [`conf/application.yaml`](conf/application.yaml) — a `TIMESTAMP` column is not assumed to be one.
+> That single key is what makes a watermark advance and a window close; the engine refuses a
+> windowed query over a stream without it.
 
 ### `holder` — the reference data
 
@@ -74,7 +79,9 @@ One record per card. This changes rarely and is joined onto the stream.
 | `daily_limit_minor` | integer | Their agreed daily limit |
 
 The machine-readable version of this model, which the build checks the SQL against, is
-[`schema/streams.properties`](schema/streams.properties).
+[`schema/streams.properties`](schema/streams.properties); the node's own copy of it, with the
+event-time declaration that makes the window able to close, is
+[`conf/application.yaml`](conf/application.yaml).
 
 ## Step 1 — start Aerospike
 
@@ -112,7 +119,47 @@ SELECT * FROM test.holder;
 > the lookup join matches on the *bin* — the key is how Aerospike finds the record, the bin is what
 > the query compares.
 
-## Step 3 — the continuous query
+## Step 3 — start the node
+
+The server is described by one file, shipped with this study:
+[`conf/application.yaml`](conf/application.yaml). From this directory:
+
+```bash
+pravaha-server --spring.profiles.active=dev \
+               --spring.config.additional-location=file:./conf/application.yaml &
+pravaha queries --url grpc://localhost:9090     # expect: no continuous queries are registered
+```
+
+The Aerospike connector is not in the server jar and has to be built into it — see
+[`../SETUP.md`](../SETUP.md), which also explains the `dev` profile.
+
+Three lines of that file decide whether this study works at all:
+
+```yaml
+      event-time: auth_time
+      out-of-orderness: 10s
+        deletes: detect
+```
+
+- **`event-time: auth_time`** tells the catalogue which column carries an authorisation's own time,
+  and the node passes the same column to the Aerospike binding so every record read is stamped with
+  it. Without it no watermark advances over `card_auth`, so the minute the query groups by could
+  never close — and the engine refuses to register a windowed query over such a stream rather than
+  let you find out from an empty view.
+- **`out-of-orderness: 10s`** is how late an authorisation may arrive, in event time, and still be
+  waited for. It is why the minute closes ten seconds after its end rather than exactly at it.
+- **`deletes: detect`** is what lets an *aggregate* read an Aerospike scan at all. A plain scan
+  re-reads an updated record as a new row and retracts nothing, so `COUNT(*)` would count it twice;
+  the engine refuses that with `PRV-2042`.
+
+The node states what it is running on when it starts, which is the line to check if a view is ever
+unexpectedly empty:
+
+```text
+stream card_auth: event-time=auth_time, out-of-orderness=PT10S, allowed-lateness=PT0S
+```
+
+## Step 4 — the continuous query
 
 This is the whole thing. It is checked by the build, in
 [`sql/01-continuous-card-velocity.sql`](sql/01-continuous-card-velocity.sql):
@@ -180,7 +227,7 @@ pravaha queries --url grpc://localhost:9090
 Runnable versions: [`java/CardVelocityExample.java`](java/CardVelocityExample.java) and
 [`python/run.py`](python/run.py).
 
-## Step 4 — stream authorisations in
+## Step 5 — stream authorisations in
 
 Load some data that tells a story: `c-1002` goes on a spree, everyone else behaves.
 
@@ -206,17 +253,30 @@ INSERT INTO test.auth (PK, auth_id, card_id, merchant_id, amount_minor, mcc, sta
 
 `a-5` is declined, so the `WHERE` drops it — in Aerospike, before it is sent.
 
-> **Nothing appears yet, and that is correct.** The minute starting `1767225600` closes when the
-> engine is told nothing earlier is coming. Insert one authorisation with an `auth_time` past the
-> end of the minute and the window closes:
+> **Nothing appears yet, and one more authorisation finishes it.** The minute starting
+> `1767225600` ends at `1767225660`, and it is published once the engine has read an authorisation
+> whose `auth_time` is past that end plus the stream's `out-of-orderness` — ten seconds, so
+> `1767225670` or later. The five rows above are all inside the minute, so the window is still
+> open. Insert one past it and the answer appears within a scan interval:
 > ```sql
 > INSERT INTO test.auth (PK, auth_id, card_id, merchant_id, amount_minor, mcc, status, auth_time)
 >   VALUES ('a-9', 'a-9', 'c-1003', 'm-70', 100, 5411, 'APPROVED', 1767225700000000000);
 > ```
-> This is the single most confusing thing about event-time streaming the first time you meet it. The
-> engine is not slow; it is refusing to publish an answer it might have to retract.
+> ```bash
+> pravaha query --url grpc://localhost:9090 \
+>   --sql "SELECT card_id, auth_count, distinct_merchants FROM card_velocity"
+> ```
+> This is the single most confusing thing about event-time streaming the first time you meet it: the
+> engine is not slow, and it is not waiting on a clock — it is waiting to be told, by the data, that
+> the minute is over, because an answer published early is an answer it might have to retract.
+>
+> **What makes that true is `event-time: auth_time` in `conf/application.yaml`.** Take it out and
+> the minute is not slow to close, it can never close: nothing reads `auth_time` as time, no
+> watermark advances, and no authorisation however late would publish anything. That is why the
+> engine now refuses to register this query against a stream that does not declare its event time,
+> instead of running it for ever with an empty view and a healthy status.
 
-## Step 5 — ask questions
+## Step 6 — ask questions
 
 ### One card, by parameter
 
@@ -280,7 +340,7 @@ GROUP BY risk_band
 A keyed `GROUP BY` with no window — refused in a continuous query and fine here, because a read of a
 view scans a finite set of rows and stops.
 
-## Step 6 — update data and watch it follow
+## Step 7 — update data and watch it follow
 
 Change a cardholder's risk band and the *next* window reflects it, while windows already closed keep
 the band that was true when they closed:
@@ -318,4 +378,4 @@ Stated so you do not find them in a demo. The complete list is
 - **No `LIKE`**, and no scalar or string functions in a projection.
 - **`AVG` over integers truncates**, as SQL says. Sum and divide yourself if you need otherwise.
 - **An unwindowed `GROUP BY` over the stream is refused** (`PRV-2050`). That is the feature described
-  in Step 3, not a limitation to work around.
+  in Step 4, not a limitation to work around.

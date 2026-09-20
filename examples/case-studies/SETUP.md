@@ -134,13 +134,69 @@ Every case study can be driven entirely from it — register a continuous query,
 ask a question with bound parameters, watch a stream, drop it again. The commands go through the same
 published SDK your application would use, so nothing works there that would not work in your code.
 
+## The node, and the file that describes it
+
+A client sends SQL and reads answers; the stream definitions live on the server. Each case study
+ships that server's configuration as `conf/application.yaml`, and each says where to start it. The
+file has three blocks: `pravaha.streams` says what a stream **is** (enough to plan a query against
+it), `pravaha.sources` says where its rows **come from** (enough to run one), and `pravaha.lookups`
+binds the dimension table a temporal join asks.
+
+```bash
+pravaha-server --spring.profiles.active=dev \
+               --spring.config.additional-location=file:./conf/application.yaml &
+pravaha queries        # expect: no continuous queries are registered
+```
+
+The `dev` profile is the acknowledgement the node demands before it will serve every view to
+unauthenticated callers; without it, or real credentials, it refuses to start.
+
+> **The connector has to be inside the jar.** The server is launched as `java -jar`, which reads
+> only what the jar contains: there is no plugins directory and `-Dloader.path` is not honoured.
+> Only `filesystem` ships in the server jar, so every study here — all of them read Aerospike or
+> PostgreSQL — needs its plugin added as a dependency of `pravaha-server` and the jar rebuilt:
+> ```xml
+> <dependency>
+>   <groupId>com.ash.messaging.pravaha</groupId>
+>   <artifactId>pravaha-plugin-aerospike</artifactId>   <!-- or -jdbc, with the PostgreSQL driver -->
+>   <version>${project.version}</version>
+> </dependency>
+> ```
+> ```bash
+> ./mvnw -q -DskipTests -pl pravaha-server -am package
+> ```
+> Skip it and the node starts, and the first registration fails with `PRV-5090 no source plugin
+> named 'aerospike' is on the classpath`. Stated here rather than discovered there.
+
 ## A note on time
 
 Every case study is built on **event time** — the timestamp *in the data* — and not on when a row
 happened to be processed. That is what makes results reproducible: load the same rows in any order,
 at any speed, and you get the same answer.
 
-The practical consequence is that **a window does not close until data tells it to**. If you load ten
-rows and see no output, that is usually correct and not a bug: the engine is still waiting to be told
-that no more data belongs to the window. Each case study shows how to advance the watermark, and says
-where.
+Event time is not inferred. Each study's `conf/application.yaml` names the column it lives in:
+
+```yaml
+pravaha:
+  streams:
+    card_auth:
+      event-time: auth_time       # and its out-of-orderness beside it
+```
+
+**Declare it or the query is refused.** A windowed query over a stream with no `event-time` would
+ingest every row, report `RUNNING` and emit nothing, for ever — so the engine refuses to register it
+and says which column to declare. The same declaration is what the source stamps each row with, so
+one key does both.
+
+With it declared, **a window closes when data says the window is over**: the engine waits until it
+has read a row whose event time is past the end of the window plus the stream's `out-of-orderness`,
+and then publishes. So if you load ten rows that all fall inside one window and see no output, the
+window is still open — load one row past its end and the answer appears. Each study shows exactly
+which row does that, and the generators do it for you.
+
+If a view stays empty when you think it should not, the node said what it is running on, one line
+per stream, when it started:
+
+```text
+stream card_auth: event-time=auth_time, out-of-orderness=PT10S, allowed-lateness=PT0S
+```

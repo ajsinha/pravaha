@@ -54,6 +54,11 @@ One record per lifecycle event. An order that is placed and cancelled produces *
 > **`event_time` must be the exchange's timestamp, not yours.** Surveillance conclusions drawn from
 > the time your process happened to see a message are conclusions about your network. Every venue
 > gives you a timestamp; use it.
+>
+> **And it must be declared** as the stream's event time, in
+> [`conf/application.yaml`](conf/application.yaml): a `TIMESTAMP` column is not assumed to be one.
+> Without that key no watermark advances and no hopping window can ever close, which is why the
+> engine refuses a windowed query over a stream that lacks it.
 
 ### `instrument` — the reference data
 
@@ -64,7 +69,9 @@ One record per lifecycle event. An order that is placed and cancelled produces *
 | `asset_class` | string | `EQUITY`, `FUTURE`, `FX` |
 | `tick_minor` | integer | Minimum price increment |
 
-Machine-readable and build-checked: [`schema/streams.properties`](schema/streams.properties).
+Machine-readable and build-checked: [`schema/streams.properties`](schema/streams.properties). The
+node's own copy, with the event-time declaration, is
+[`conf/application.yaml`](conf/application.yaml).
 
 ## Step 1 — start Aerospike
 
@@ -89,7 +96,44 @@ INSERT INTO test.instrument (PK, instrument_id, symbol, asset_class, tick_minor)
   VALUES ('i-3', 'i-3', 'ESZ6',  'FUTURE', 25);
 ```
 
-## Step 3 — the two continuous queries
+## Step 3 — start the node
+
+The server is described by [`conf/application.yaml`](conf/application.yaml), shipped with this
+study. From this directory:
+
+```bash
+pravaha-server --spring.profiles.active=dev \
+               --spring.config.additional-location=file:./conf/application.yaml &
+pravaha queries --url grpc://localhost:9090     # expect: no continuous queries are registered
+```
+
+The Aerospike connector is not in the server jar and has to be built into it — see
+[`../SETUP.md`](../SETUP.md), which also explains the `dev` profile.
+
+Two keys in that file decide whether either query ever publishes:
+
+```yaml
+      event-time: event_time
+      out-of-orderness: 5s
+```
+
+**`event-time: event_time`** names the column each event's own time lives in, and the node passes
+it to the Aerospike binding so every record is stamped with it. Without it no watermark advances
+over `order_event`, so not one of the six overlapping windows an event falls into could ever close
+— and the engine refuses to register a windowed query over such a stream rather than run it for
+ever with an empty view. **`out-of-orderness: 5s`** is how late an event may be, in event time, and
+still be waited for: a window publishes once an event five seconds past its end has been read. The
+node prints both when it starts:
+
+```text
+stream order_event: event-time=event_time, out-of-orderness=PT5S, allowed-lateness=PT0S
+```
+
+`deletes: detect` is in there too, and it is not a tuning choice: a plain Aerospike scan re-reads an
+updated record without retracting the old one, so `COUNT(*)` would count it twice and the engine
+refuses an aggregate over such a source with `PRV-2042`.
+
+## Step 4 — the two continuous queries
 
 ### Orders, [`sql/01-continuous-new-order-rate.sql`](sql/01-continuous-new-order-rate.sql)
 
@@ -161,7 +205,7 @@ They have different plans, so they are **two computations with two copies of sta
 `pravaha queries` shows as two different fingerprints. That is the cost of not having `CASE`, stated
 where you can see it rather than hidden.
 
-## Step 4 — stream order events
+## Step 5 — stream order events
 
 ```sql
 INSERT INTO test.order_event (PK, order_id, trader_id, instrument_id, side, qty, price_minor, event_type, event_time)
@@ -176,15 +220,25 @@ INSERT INTO test.order_event (PK, order_id, trader_id, instrument_id, side, qty,
   VALUES ('e-5', 3, 't-9', 'i-2', 'SELL', 100, 19050, 'NEW',  1767225603000000000);
 ```
 
-`t-7` posts two and cancels two — a 100 % cancel ratio. `t-9` posts one and leaves it. To generate a
-realistic burst:
+`t-7` posts two and cancels two — a 100 % cancel ratio. `t-9` posts one and leaves it.
+
+> **Those five are all inside the first windows, so nothing has published yet.** A hopping window
+> ending at `1767225610` is published once an event five seconds past that end — the stream's
+> `out-of-orderness` — has been read. One more event does it:
+> ```sql
+> INSERT INTO test.order_event (PK, order_id, trader_id, instrument_id, side, qty, price_minor, event_type, event_time)
+>   VALUES ('e-6', 4, 't-9', 'i-2', 'SELL', 100, 19060, 'NEW', 1767225620000000000);
+> ```
+> The generator below crosses window boundaries continuously, so it never needs this.
+
+To generate a realistic burst:
 
 ```bash
 python3 data/generate_orders.py --traders t-7,t-9 --seconds 180 --cancel-ratio 0.9 | \
   docker exec -i pravaha-aerospike aql
 ```
 
-## Step 5 — ask questions
+## Step 6 — ask questions
 
 ### One trader
 
@@ -223,7 +277,7 @@ FROM order_rate
 GROUP BY asset_class
 ```
 
-## Step 6 — a symbol change mid-session
+## Step 7 — a symbol change mid-session
 
 ```sql
 UPDATE test.instrument SET symbol = 'VOD.LN' WHERE PK = 'i-1';

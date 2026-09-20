@@ -1,0 +1,44 @@
+# The node for the sequencing-QC study.
+#
+#   pravaha-server --spring.profiles.active=dev \
+#                  --spring.config.additional-location=file:./conf/application.yaml
+#
+# The schema is written twice on purpose: the catalogue plans with the first copy, the plugin
+# decodes records with the second, and a node whose two copies disagree refuses to start.
+pravaha:
+  streams:
+    read_metric:
+      schema: "read_id:INT64,run_id:STRING,sample_id:STRING,target_id:STRING,mapping_quality:INT32,depth:INT32,gc_percent:INT32,called_at:TIMESTAMP"
+      # Which column carries each read's own time. Without it no watermark advances over the
+      # stream, so no thirty-second window can ever close and the view stays empty however many
+      # millions of reads arrive -- which is why a windowed query over a stream without it is
+      # refused at registration.
+      event-time: called_at
+      # A run's reads are called in order but are read by a scan, so a few seconds of slack.
+      out-of-orderness: 5s
+  sources:
+    read_metric:
+      plugin: aerospike
+      options:
+        hosts: "localhost:3000"
+        namespace: test
+        set: read_metric
+        schema: "read_id:INT64,run_id:STRING,sample_id:STRING,target_id:STRING,mapping_quality:INT32,depth:INT32,gc_percent:INT32,called_at:TIMESTAMP"
+        stream: read_metric
+        # Required for this study, not a tuning choice. A plain last-update-time scan re-reads an
+        # updated record as a new row and retracts nothing, so COUNT(*) would count it twice -- and
+        # the engine refuses an aggregate over such a source with PRV-2042.
+        deletes: detect
+        deletes.state.dir: ./state/read_metric
+        scan.interval.ms: "1000"
+  lookups:
+    sample_manifest:
+      plugin: aerospike-lookup
+      options:
+        hosts: "localhost:3000"
+        namespace: test
+        set: sample_manifest
+        schema: "sample_id:STRING,subject_id:STRING,panel:STRING,tissue:STRING"
+        key.bin: sample_id
+        stream: sample_manifest
+        cache.seconds: "60"

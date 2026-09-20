@@ -1,0 +1,49 @@
+# The node for the card-velocity study.
+#
+#   pravaha-server --spring.profiles.active=dev \
+#                  --spring.config.additional-location=file:./conf/application.yaml
+#
+# Three blocks. `streams` says what a stream IS -- enough to plan a query against it. `sources` says
+# where its rows COME FROM -- enough to run one. `lookups` is the dimension table the temporal join
+# asks. The schema is written twice on purpose: the catalogue plans with the first, the plugin
+# decodes rows with the second, and a node whose two copies disagree refuses to start.
+pravaha:
+  streams:
+    card_auth:
+      schema: "auth_id:STRING,card_id:STRING,merchant_id:STRING,amount_minor:INT64,mcc:INT32,status:STRING,auth_time:TIMESTAMP"
+      # Which column carries each authorisation's own time. Leave this out and no watermark
+      # advances over the stream, so the minute the query groups by never closes and the view stays
+      # empty for ever -- which is why a windowed query over a stream without it is refused at
+      # registration rather than left to be discovered from an empty view.
+      event-time: auth_time
+      # How late an authorisation may arrive, in event time, and still be waited for. A minute
+      # closes once an authorisation ten seconds past its end has been read.
+      out-of-orderness: 10s
+  sources:
+    card_auth:
+      plugin: aerospike
+      options:
+        hosts: "localhost:3000"
+        namespace: test
+        set: auth
+        schema: "auth_id:STRING,card_id:STRING,merchant_id:STRING,amount_minor:INT64,mcc:INT32,status:STRING,auth_time:TIMESTAMP"
+        # The set is called `auth`; the stream the SQL names is `card_auth`.
+        stream: card_auth
+        # Required for this study, not a tuning choice. A plain last-update-time scan re-reads an
+        # updated record as a new row and retracts nothing, so COUNT(*) would count it twice -- and
+        # the engine refuses an aggregate over such a source with PRV-2042. `detect` compares each
+        # pass with what it has already emitted and retracts what changed or went away.
+        deletes: detect
+        deletes.state.dir: ./state/card_auth
+        scan.interval.ms: "1000"
+  lookups:
+    cardholder:
+      plugin: aerospike-lookup
+      options:
+        hosts: "localhost:3000"
+        namespace: test
+        set: holder
+        schema: "card_id:STRING,customer_id:STRING,risk_band:STRING,daily_limit_minor:INT64"
+        key.bin: card_id
+        stream: cardholder
+        cache.seconds: "60"

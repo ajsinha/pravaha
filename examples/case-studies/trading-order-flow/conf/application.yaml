@@ -1,0 +1,44 @@
+# The node for the order-flow study.
+#
+#   pravaha-server --spring.profiles.active=dev \
+#                  --spring.config.additional-location=file:./conf/application.yaml
+#
+# One stream feeds both continuous queries. The schema is written twice on purpose: the catalogue
+# plans with the first copy, the plugin decodes records with the second, and a node whose two
+# copies disagree refuses to start.
+pravaha:
+  streams:
+    order_event:
+      schema: "order_id:INT64,trader_id:STRING,instrument_id:STRING,side:STRING,qty:INT64,price_minor:INT64,event_type:STRING,event_time:TIMESTAMP"
+      # The exchange's timestamp, and the column both hopping windows are cut from. Without it no
+      # watermark advances over the stream, so not one of the six overlapping windows an event
+      # falls into can ever close -- which is why a windowed query over a stream without it is
+      # refused at registration.
+      event-time: event_time
+      out-of-orderness: 5s
+  sources:
+    order_event:
+      plugin: aerospike
+      options:
+        hosts: "localhost:3000"
+        namespace: test
+        set: order_event
+        schema: "order_id:INT64,trader_id:STRING,instrument_id:STRING,side:STRING,qty:INT64,price_minor:INT64,event_type:STRING,event_time:TIMESTAMP"
+        stream: order_event
+        # Required for this study, not a tuning choice. A plain last-update-time scan re-reads an
+        # updated record as a new row and retracts nothing, so COUNT(*) would count it twice -- and
+        # the engine refuses an aggregate over such a source with PRV-2042.
+        deletes: detect
+        deletes.state.dir: ./state/order_event
+        scan.interval.ms: "1000"
+  lookups:
+    instrument:
+      plugin: aerospike-lookup
+      options:
+        hosts: "localhost:3000"
+        namespace: test
+        set: instrument
+        schema: "instrument_id:STRING,symbol:STRING,asset_class:STRING,tick_minor:INT64"
+        key.bin: instrument_id
+        stream: instrument
+        cache.seconds: "60"

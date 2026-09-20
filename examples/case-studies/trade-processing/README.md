@@ -72,7 +72,9 @@ Slow-moving. One record per legal entity you trade with.
 > would make the amendment overwrite the original — so the audit trail, which is the thing a trade
 > store exists for, would quietly disappear.
 
-Machine-readable and build-checked: [`schema/streams.properties`](schema/streams.properties).
+Machine-readable and build-checked: [`schema/streams.properties`](schema/streams.properties). The
+node's own copy, with `trade_time` declared as the stream's event time, is
+[`conf/application.yaml`](conf/application.yaml).
 
 ## Step 1 — start Aerospike
 
@@ -84,7 +86,39 @@ docker exec pravaha-aerospike asinfo -v status   # expect: ok
 Read the `--network host` note in [`../SETUP.md`](../SETUP.md) before skipping it; it is the one
 thing that reliably costs people an afternoon.
 
-## Step 2 — the continuous query
+## Step 2 — start the node
+
+The server is described by [`conf/application.yaml`](conf/application.yaml), shipped with this
+study. From this directory:
+
+```bash
+pravaha-server --spring.profiles.active=dev \
+               --spring.config.additional-location=file:./conf/application.yaml &
+pravaha queries --url grpc://localhost:9090     # expect: no continuous queries are registered
+```
+
+The Aerospike connector is not in the server jar and has to be built into it — see
+[`../SETUP.md`](../SETUP.md), which also explains the `dev` profile.
+
+Nothing here windows, so no view is waiting on a watermark — but the file still declares the
+stream's event time:
+
+```yaml
+      event-time: trade_time
+```
+
+It earns that line twice. Retention is in event time and nothing else, so a view that keeps the
+last hour of trades needs to know which column an hour is measured in; and
+`FOR SYSTEM_TIME AS OF t.trade_time` asks each dimension table as of a trade's own time. Add a
+`TUMBLE` later — the variation this study's last section suggests — and the same key is what lets
+the window close at all, rather than leaving a query that reports `RUNNING` and never publishes.
+The node states it at startup:
+
+```text
+stream trade: event-time=trade_time, out-of-orderness=PT10S, allowed-lateness=PT0S
+```
+
+## Step 3 — the continuous query
 
 The whole thing, from [`sql/01-continuous-trade-feed.sql`](sql/01-continuous-trade-feed.sql):
 
@@ -146,7 +180,7 @@ pravaha register --name trade_feed --sql-file sql/01-continuous-trade-feed.sql -
 > `view.evicted()` counts what has been forgotten. It is not an error count; it is how you notice a
 > window shorter than the questions people are asking of it.
 
-## Step 3 — load some trades
+## Step 4 — load some trades
 
 ```bash
 docker exec -it pravaha-aerospike aql
@@ -193,7 +227,7 @@ python3 data/generate_trades.py --seconds 120 --rate 5 | docker exec -i pravaha-
 > appear as soon as they are committed. That is the other side of having no aggregation: nothing has
 > to wait to be sure it is complete.
 
-## Step 3b — the same feed, enriched
+## Step 4b — the same feed, enriched
 
 A trade id and a book id are not what a person reads. The desk wants the desk name; a regulatory
 report wants the counterparty's legal name and country. Both live in reference tables, and joining
@@ -241,7 +275,7 @@ Three things worth understanding before you copy this:
 client.register("enriched_trade", Files.readString(Path.of("sql/05-continuous-enriched-trades.sql")), List.of(0));
 ```
 
-## Step 4 — stream, with your own filter
+## Step 5 — stream, with your own filter
 
 This is the part the study exists for. The rates desk wants swaps from Murex and nothing else:
 
@@ -338,7 +372,7 @@ pass-through feed is where it is most visible. The rule itself is
 [ADR-031](../../../docs/adr/031-authorization-at-the-pravaha-layer.md); the same rule decides how a
 security row filter and a continuous-query parameter are handled.
 
-## Step 5 — query it with SQL
+## Step 6 — query it with SQL
 
 Streaming is for consumers that want everything as it happens. For "give me that one trade", ask.
 

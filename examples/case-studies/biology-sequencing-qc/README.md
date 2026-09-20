@@ -66,7 +66,10 @@ high-volume table; a run produces millions of rows.
 | `panel` | string | `CARDIO_V3`, `ONCO_V7` — the capture panel |
 | `tissue` | string | `BLOOD`, `TUMOUR`, `SALIVA` |
 
-Machine-readable and build-checked: [`schema/streams.properties`](schema/streams.properties).
+Machine-readable and build-checked: [`schema/streams.properties`](schema/streams.properties). The
+node's own copy, with `called_at` declared as the stream's event time, is
+[`conf/application.yaml`](conf/application.yaml) — a `TIMESTAMP` column is not assumed to be the
+event time, and a window over a stream that declares none is refused.
 
 ## Step 1 — start Aerospike
 
@@ -89,7 +92,43 @@ INSERT INTO test.sample_manifest (PK, sample_id, subject_id, panel, tissue)
   VALUES ('s-03', 's-03', 'subj-3', 'ONCO_V7',   'TUMOUR');
 ```
 
-## Step 3 — the continuous query
+## Step 3 — start the node
+
+The server is described by [`conf/application.yaml`](conf/application.yaml), shipped with this
+study. From this directory:
+
+```bash
+pravaha-server --spring.profiles.active=dev \
+               --spring.config.additional-location=file:./conf/application.yaml &
+pravaha queries --url grpc://localhost:9090     # expect: no continuous queries are registered
+```
+
+The Aerospike connector is not in the server jar and has to be built into it — see
+[`../SETUP.md`](../SETUP.md), which also explains the `dev` profile.
+
+The two keys that decide whether QC ever reports anything:
+
+```yaml
+      event-time: called_at
+      out-of-orderness: 5s
+```
+
+**`event-time: called_at`** names the column each read's own time lives in, and the node hands the
+same column to the Aerospike binding so every record is stamped with it. Without it no watermark
+advances over `read_metric`, so no thirty-second window can ever close — millions of reads would
+arrive and the QC view would stay empty, which is why the engine refuses to register a windowed
+query over a stream that does not declare its event time. **`out-of-orderness: 5s`** is how late a
+read may be, in event time, and still be waited for. The node prints both at startup:
+
+```text
+stream read_metric: event-time=called_at, out-of-orderness=PT5S, allowed-lateness=PT0S
+```
+
+`deletes: detect` is in that file too, and it is what lets an aggregate read an Aerospike scan at
+all: a plain scan re-reads an updated record without retracting the old one, so `COUNT(*)` would
+count it twice and the engine refuses such an aggregate with `PRV-2042`.
+
+## Step 4 — the continuous query
 
 [`sql/01-continuous-coverage-qc.sql`](sql/01-continuous-coverage-qc.sql):
 
@@ -123,7 +162,7 @@ Domain notes:
   division. A mean depth of 47.9 reads as 47. If that matters, take `SUM(r.depth)` and
   `COUNT(*)` and divide where you have floating point.
 
-## Step 4 — stream reads in
+## Step 5 — stream reads in
 
 ```sql
 INSERT INTO test.read_metric (PK, read_id, run_id, sample_id, target_id, mapping_quality, depth, gc_percent, called_at)
@@ -151,11 +190,20 @@ python3 data/generate_reads.py --run run-A --samples s-01,s-02,s-03 --minutes 5 
 `--degrade s-02` makes that sample's coverage fall away after the first minute, which is the failure
 you are trying to catch.
 
-> **Windows close on data, not on the clock.** Insert a read with `called_at` past the end of the
-> thirty-second window and the window publishes. The generator handles this; by hand, bump the
-> timestamp.
+> **Windows close on data, not on the clock.** The five reads above are all inside the window
+> starting `1767225600`, which ends at `1767225630`, so nothing has published yet. It publishes once
+> a read past that end plus the stream's `out-of-orderness` — five seconds, so `1767225635` or
+> later — has been read:
+> ```sql
+> INSERT INTO test.read_metric (PK, read_id, run_id, sample_id, target_id, mapping_quality, depth, gc_percent, called_at)
+>   VALUES ('r-9', 9, 'run-A', 's-01', 'EX1', 60, 50, 42, 1767225640000000000);
+> ```
+> The generator crosses window boundaries for you. What makes any of this work is
+> `event-time: called_at` in [`conf/application.yaml`](conf/application.yaml): without it the
+> window is not slow to close, it can never close, and the engine refuses the query rather than
+> let you wait.
 
-## Step 5 — ask questions
+## Step 6 — ask questions
 
 ### One sample
 
@@ -211,7 +259,7 @@ FROM coverage_qc
 GROUP BY panel
 ```
 
-## Step 6 — a manifest correction mid-run
+## Step 7 — a manifest correction mid-run
 
 Sample swaps happen, and the correction must not rewrite the run:
 

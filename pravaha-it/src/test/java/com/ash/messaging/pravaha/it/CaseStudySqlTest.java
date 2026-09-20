@@ -194,7 +194,14 @@ class CaseStudySqlTest {
             Path dir = studies().resolve(study);
             // A README that references a generator or an example nobody shipped wastes the reader's
             // time at exactly the point they had decided to try it.
-            for (String required : List.of("README.md", "schema/streams.properties", "sql", "java", "python", "data")) {
+            for (String required : List.of(
+                    "README.md",
+                    "schema/streams.properties",
+                    "conf/application.yaml",
+                    "sql",
+                    "java",
+                    "python",
+                    "data")) {
                 if (!Files.exists(dir.resolve(required))) {
                     missing.add(study + "/" + required);
                 }
@@ -216,7 +223,7 @@ class CaseStudySqlTest {
     private static List<String> referencedFiles(String readme) {
         List<String> paths = new ArrayList<>();
         java.util.regex.Matcher links = java.util.regex.Pattern.compile(
-                        "\\]\\((sql/[^)]+|schema/[^)]+|java/[^)]+|python/[^)]+|data/[^)]+)\\)")
+                        "\\]\\((sql/[^)]+|schema/[^)]+|java/[^)]+|python/[^)]+|data/[^)]+|conf/[^)]+)\\)")
                 .matcher(readme);
         while (links.find()) {
             paths.add(links.group(1));
@@ -227,6 +234,29 @@ class CaseStudySqlTest {
             paths.add(commands.group(1));
         }
         return paths;
+    }
+
+    /**
+     * The event time the test plans against is the event time the study tells a reader to configure.
+     *
+     * <p>Two files say which column a stream's time lives in: {@code schema/streams.properties},
+     * which this test plans from, and the {@code conf/application.yaml} a reader actually starts a
+     * node with. A study whose fixture declares an event time and whose shipped configuration does
+     * not is CASE-1 again with one more place to hide it -- green here, empty view there.
+     */
+    @Test
+    void everyStudyConfiguresTheEventTimeItIsPlannedWith() throws IOException {
+        List<String> wrong = new ArrayList<>();
+        for (String study : STUDIES) {
+            String configured = Files.readString(studies().resolve(study).resolve("conf/application.yaml"));
+            for (Map.Entry<String, String> declared : eventTimesOf(study).entrySet()) {
+                if (!configured.contains("event-time: " + declared.getValue())) {
+                    wrong.add(study + ": conf/application.yaml does not declare 'event-time: " + declared.getValue()
+                            + "' for stream '" + declared.getKey() + "', which its schema/streams.properties does");
+                }
+            }
+        }
+        assertThat(wrong).isEmpty();
     }
 
     @Test
@@ -286,13 +316,34 @@ class CaseStudySqlTest {
 
     private record Schemas(StreamSchema source, StreamSchema[] lookups) {}
 
-    private static Schemas schemasOf(String study) throws IOException {
+    private static Properties streamsOf(String study) throws IOException {
         Properties properties = new Properties();
         try (var in = Files.newInputStream(studies().resolve(study).resolve("schema/streams.properties"))) {
             properties.load(in);
         }
+        return properties;
+    }
+
+    /** stream name to the column the study declares as its event time, for the streams that have one. */
+    private static Map<String, String> eventTimesOf(String study) throws IOException {
+        Map<String, String> eventTimes = new LinkedHashMap<>();
+        Properties properties = streamsOf(study);
+        for (String key : properties.stringPropertyNames()) {
+            String[] parts = key.split("\\.");
+            if (parts.length == 3 && parts[0].equals("stream") && parts[2].equals("event-time")) {
+                eventTimes.put(parts[1], properties.getProperty(key).strip());
+            }
+        }
+        return eventTimes;
+    }
+
+    private static Schemas schemasOf(String study) throws IOException {
+        Properties properties = streamsOf(study);
         Map<String, String> roles = new LinkedHashMap<>();
         Map<String, String> fields = new LinkedHashMap<>();
+        // Spelled as the server spells it -- pravaha.streams.<name>.event-time -- so the fixture and
+        // the application.yaml the study ships cannot drift apart in wording.
+        Map<String, String> eventTimes = eventTimesOf(study);
         for (String key : properties.stringPropertyNames()) {
             String[] parts = key.split("\\.");
             if (parts.length == 3 && parts[0].equals("stream")) {
@@ -306,7 +357,7 @@ class CaseStudySqlTest {
         StreamSchema source = null;
         List<StreamSchema> lookups = new ArrayList<>();
         for (Map.Entry<String, String> entry : fields.entrySet()) {
-            StreamSchema schema = schemaOf(entry.getKey(), entry.getValue());
+            StreamSchema schema = schemaOf(study, entry.getKey(), entry.getValue(), eventTimes.get(entry.getKey()));
             if ("source".equals(roles.get(entry.getKey()))) {
                 source = schema;
             } else {
@@ -319,7 +370,29 @@ class CaseStudySqlTest {
         return new Schemas(source, lookups.toArray(new StreamSchema[0]));
     }
 
-    private static StreamSchema schemaOf(String name, String fields) {
+    /**
+     * A study's stream, built exactly as a node would build it -- <em>including</em> which column is
+     * its event time.
+     *
+     * <p>This fixture used never to call {@link StreamSchema.Builder#eventTime}, so it had the same
+     * gap the studies had (CASE-1): four of the five window over a stream, none of them declared an
+     * event-time column, and the plan the test checked was therefore not the plan a node would run.
+     * The test was green, and would have stayed green after a fix that only touched the studies.
+     *
+     * <p>So a stream carrying a {@code TIMESTAMP} column must say which one is its event time, and
+     * the fixture fails by name when it does not. That is not a test-only rule: without the
+     * declaration no watermark advances over the stream, so no window a query opens can ever close,
+     * and the engine refuses such a plan at registration. A study whose windows could never close
+     * now fails the build here rather than in a reader's empty view.
+     */
+    private static StreamSchema schemaOf(String study, String name, String fields, String eventTime) {
+        if ((eventTime == null || eventTime.isBlank()) && fields.contains("TIMESTAMP")) {
+            throw new IllegalStateException(study + "'s stream '" + name + "' carries a TIMESTAMP column and "
+                    + "declares no event time. Add stream." + name + ".event-time to its "
+                    + "schema/streams.properties (and pravaha.streams." + name + ".event-time to the "
+                    + "application.yaml it ships): without it no watermark advances over the stream and no "
+                    + "window over it can ever close.");
+        }
         StreamSchema.Builder builder = StreamSchema.builder(name);
         for (String field : fields.split(",")) {
             String[] parts = field.strip().split(":");
@@ -340,6 +413,9 @@ class CaseStudySqlTest {
                         default -> throw new IllegalArgumentException("unknown type '" + type + "' in " + name);
                     };
             builder.field(column, nullable ? resolved.withNullable(true) : resolved);
+        }
+        if (eventTime != null && !eventTime.isBlank()) {
+            builder.eventTime(eventTime.strip());
         }
         return builder.build();
     }

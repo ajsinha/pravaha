@@ -1,0 +1,49 @@
+# The node for the trade-processing study.
+#
+#   pravaha-server --spring.profiles.active=dev \
+#                  --spring.config.additional-location=file:./conf/application.yaml
+#
+# The schema is written twice on purpose: the catalogue plans with the first copy, the plugin
+# decodes records with the second, and a node whose two copies disagree refuses to start.
+pravaha:
+  streams:
+    trade:
+      schema: "trade_id:STRING,product_type:STRING,source_system:STRING,trade_event_id:INT64,trade_time:TIMESTAMP,counterparty_id:STRING,book_id:STRING,trade_json:STRING"
+      # Nothing here windows, so no window is waiting on this -- but retention is in event time and
+      # nothing else, and `FOR SYSTEM_TIME AS OF t.trade_time` asks each dimension table as of this
+      # column. Declare it and both mean what the README says they mean. Declare a window over this
+      # stream later (the README suggests TUMBLE as a variation) and it is what makes the window
+      # able to close at all.
+      event-time: trade_time
+      out-of-orderness: 10s
+  sources:
+    trade:
+      plugin: aerospike
+      options:
+        hosts: "localhost:3000"
+        namespace: test
+        set: trade
+        schema: "trade_id:STRING,product_type:STRING,source_system:STRING,trade_event_id:INT64,trade_time:TIMESTAMP,counterparty_id:STRING,book_id:STRING,trade_json:STRING"
+        stream: trade
+        scan.interval.ms: "1000"
+  lookups:
+    counterparty:
+      plugin: aerospike-lookup
+      options:
+        hosts: "localhost:3000"
+        namespace: test
+        set: counterparty
+        schema: "counterparty_id:STRING,legal_name:STRING,country:STRING,lei:STRING"
+        key.bin: counterparty_id
+        stream: counterparty
+        cache.seconds: "60"
+    book:
+      plugin: aerospike-lookup
+      options:
+        hosts: "localhost:3000"
+        namespace: test
+        set: book
+        schema: "book_id:STRING,desk:STRING,region:STRING,cost_centre:STRING"
+        key.bin: book_id
+        stream: book
+        cache.seconds: "60"

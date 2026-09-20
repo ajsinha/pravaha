@@ -26,6 +26,12 @@ uses — or from the `pravaha` command line. None of them reaches into the engin
 template: the client in these studies holds no schemas, no plugins and no engine, so copying one
 into your application does not drag the engine in with it.
 
+Each also ships the node's own configuration as `conf/application.yaml` — what its streams are,
+where their rows come from, and **which column is each stream's event time**. That last key is not
+optional decoration: without it no watermark advances over the stream, so no window a query opens
+could ever close, and the engine refuses to register such a query rather than run it for ever with
+an empty view. [`SETUP.md`](SETUP.md) explains the file once.
+
 All of them are the same three moves, which is the point of having several:
 
 1. **Register a continuous query.** It runs until dropped, maintaining a named view.
