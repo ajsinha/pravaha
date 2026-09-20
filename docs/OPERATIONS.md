@@ -303,7 +303,12 @@ the lane as not draining, rather than hanging it.
 
 **Pause, drop and checkpoints on a shared reader.** A query paused off a shared reader stops at an
 exact row and records that row as its position, so a checkpoint taken while it is paused resumes it
-where it stopped — not where the others have got to. Resuming catches it up through its own route. A
+where it stopped — not where the others have got to. Resuming catches it up through its own route,
+**unless nothing else was reading**: with every query on the reader paused the reader stands still
+while the source moves on, so a resume — or a fresh registration — moves the reader to that query's
+own row and lets it read the gap once, rather than catching it up over a gap the reader would then
+read again (LANE-6). Nothing is given up by moving it: every other query on that reader is paused,
+and a paused query resumes from the row it recorded, not from where the reader stands. A
 drop takes the query off the lane at the row it left and leaves the rest reading. A checkpoint of
 any query holds the shared reader between rows, so its state and its offset name one point, exactly
 as on a lane of its own; each query restores from its own checkpoint.

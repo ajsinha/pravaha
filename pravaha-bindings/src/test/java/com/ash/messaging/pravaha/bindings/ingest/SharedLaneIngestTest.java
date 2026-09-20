@@ -119,6 +119,44 @@ class SharedLaneIngestTest {
         engines.settle();
     }
 
+    /**
+     * LANE-6. Every query on the reader is paused, so the reader stops where the last of them left
+     * it and the source goes on without it. The rows in between have been read for nobody, and the
+     * query that resumes must be handed them once: a catch-up from its own row reads to the end of
+     * the source rather than stopping where the reader stands, so a reader left standing there
+     * covers the same rows a second time.
+     */
+    @Test
+    void aQueryResumedAfterEveryQueryWasPausedCountsTheGapOnce() {
+        engines = new LaneEquivalence(1);
+        engines.register(LaneEquivalence.POOL.get(0));
+        engines.register(LaneEquivalence.POOL.get(1));
+        append(1, 20);
+        engines.pause("all_n");
+        // big_n is still reading, so it carries the shared reader past the row all_n paused at.
+        append(21, 25);
+        engines.pause("big_n");
+        // Nobody is reading now: these 25 rows reach the reader's position for no query at all.
+        append(46, 25);
+        engines.resume("all_n");
+        engines.settle();
+    }
+
+    /** The same gap, reached by a query joining rather than resuming. */
+    @Test
+    void aQueryJoiningWhileEveryQueryIsPausedCountsTheGapOnce() {
+        engines = new LaneEquivalence(1);
+        engines.register(LaneEquivalence.POOL.get(0));
+        engines.register(LaneEquivalence.POOL.get(1));
+        append(1, 20);
+        engines.pause("all_n");
+        append(21, 25);
+        engines.pause("big_n");
+        append(46, 25);
+        engines.register(LaneEquivalence.POOL.get(2));
+        engines.settle();
+    }
+
     @Test
     void droppingOneQueryLeavesTheRestOfTheLaneCounting() {
         engines = new LaneEquivalence(1);

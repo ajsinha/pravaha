@@ -106,6 +106,12 @@ import com.ash.messaging.pravaha.runtime.lane.LaneMultiplexer;
  *   <li>A member leaving can only <em>narrow</em> it, and a wider reader than needed costs bytes,
  *       not answers. So {@link #leave} records the narrower request and the feed's own thread
  *       applies it the next time the reader is idle.
+ *   <li>A member joining or resuming while <em>no</em> member is live moves the reader to its own
+ *       row rather than catching up to where the reader stands (LANE-6). With everybody paused the
+ *       reader stops and the source goes on without it, so the rows in between have been read for
+ *       nobody -- and a catch-up reads to the end of the source, not to where this reader stands,
+ *       so leaving the reader there puts two readers over that gap and counts it twice. Nothing is
+ *       waiting at the position given up: a paused member resumes through the row it recorded.
  * </ul>
  *
  * <h2>One copy per shared lane (LANE-2)</h2>
@@ -284,9 +290,20 @@ final class SharedPartitionFeed {
                     drainToIdle();
                     replaceReader(union);
                 }
-                SourceOffset here = reader.position();
-                if (!here.equals(from)) {
-                    catchUpFrom = from;
+                if (anyoneLive()) {
+                    SourceOffset here = reader.position();
+                    if (!here.equals(from)) {
+                        catchUpFrom = from;
+                    }
+                } else {
+                    // Nobody is being fed from where the reader stands, so it is not a seam: while
+                    // every member was paused the reader stood still and the source moved on, and
+                    // the rows between the two would be read twice for this query -- once by the
+                    // catch-up, which reads to the end of the source, and again by the fan-out,
+                    // which starts where the reader stands. Moving the reader to this query's own
+                    // row leaves one reader covering the gap and needs no catch-up at all. See
+                    // {@link #resume}.
+                    replaceReaderAt(from, request);
                 }
             }
             member.pump = pumpFactory.apply(new MemberReader(member));
@@ -464,11 +481,33 @@ final class SharedPartitionFeed {
 
     /** Replaces the reader with one at its own position asking for {@code wanted}. Lock held. */
     private void replaceReader(ReadRequest wanted) {
-        PartitionReader replacement = plugin.createReader(partition, reader.position(), wanted);
+        replaceReaderAt(reader.position(), wanted);
+    }
+
+    /**
+     * Replaces the reader with one at {@code at} asking for {@code wanted}. Lock held.
+     *
+     * <p>Moving the reader to a row of somebody's choosing rather than to its own is only ever
+     * right while nothing is being fed from where it stands -- {@link #anyoneLive()} is false --
+     * because every other member then resumes through a catch-up from the row it recorded, and the
+     * position this reader held is a row no query is waiting at.
+     */
+    private void replaceReaderAt(SourceOffset at, ReadRequest wanted) {
+        PartitionReader replacement = plugin.createReader(partition, at, wanted);
         closeQuietly(reader);
         reader = replacement;
         request = wanted;
         readerIdle = true;
+    }
+
+    /** Whether any member is being fed from where the reader stands. Lock held. */
+    private boolean anyoneLive() {
+        for (Member member : members) {
+            if (!member.paused) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -532,17 +571,36 @@ final class SharedPartitionFeed {
             if (!member.paused) {
                 return;
             }
-            member.paused = false;
             SourceOffset resumeAt = member.resumeAt;
+            boolean movedTheReader = !anyoneLive() && resumeAt != null;
+            if (movedTheReader) {
+                // LANE-6. Nobody was being fed from where the reader stands: with every member
+                // paused it stopped reading and the source went on without it, so the rows between
+                // its position and the end of the source have been read for nobody. Left alone,
+                // two readers would cover them -- the catch-up below, which reads to the end of the
+                // source rather than stopping where this one stands, and then this one, once this
+                // member makes the group live again -- and this member would count each of them
+                // twice. Moving the reader to this member's own row instead leaves exactly one
+                // reader over the gap and no catch-up at all. Safe precisely because nobody is
+                // waiting at the position being given up: every other member is paused, and a
+                // paused member resumes through the row it recorded, not through this reader.
+                replaceReaderAt(resumeAt, request);
+            }
+            member.paused = false;
             member.resumeAt = null;
             if (member.route != null) {
                 // Back on the fan-out from here; the catch-up below covers the gap, as for a join.
                 member.laneInput.listen(member.route.id);
             }
-            if (resumeAt == null || resumeAt.equals(position())) {
+            if (movedTheReader || resumeAt == null || resumeAt.equals(position())) {
                 // Nothing moved while it was paused -- the common case, because a group of one
                 // stops reading entirely when its only consumer pauses. Identical to what a private
-                // reader did: carry on from where it left off.
+                // reader did: carry on from where it left off. A catch-up this member was part way
+                // through when it paused is closed rather than carried on with: the fan-out now
+                // starts at the row that catch-up had reached, and reading on from there as well
+                // would hand this query the rest of the source a second time.
+                closeQuietly(member.catchUp);
+                member.catchUp = null;
                 return;
             }
             startCatchUp(member, resumeAt);
