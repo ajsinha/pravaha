@@ -52,7 +52,14 @@ public record PlanGraph(List<Node> nodes, List<Edge> edges) {
         edges = List.copyOf(edges);
     }
 
-    /** The graph of a plan, root first. */
+    /**
+     * The graph of a plan, root first.
+     *
+     * <p>Ids come from {@link com.ash.messaging.pravaha.runtime.plan.PlanNodes}, which is also
+     * what the engine names its per-operator counters by. One definition of the order, because the
+     * console hangs those counters on these boxes by id and two walks that disagreed would put the
+     * numbers on the wrong operators without anything looking broken.
+     */
     public static PlanGraph of(PhysicalOperator root) {
         List<Node> nodes = new ArrayList<>();
         List<Edge> edges = new ArrayList<>();
@@ -61,7 +68,7 @@ public record PlanGraph(List<Node> nodes, List<Edge> edges) {
     }
 
     private static void visit(PhysicalOperator operator, String consumer, List<Node> nodes, List<Edge> edges) {
-        String id = "n" + nodes.size();
+        String id = com.ash.messaging.pravaha.runtime.plan.PlanNodes.idOf(nodes.size());
         List<String> fields = new ArrayList<>(operator.outputSchema().fieldCount());
         for (int i = 0; i < operator.outputSchema().fieldCount(); i++) {
             fields.add(operator.outputSchema().field(i).name());

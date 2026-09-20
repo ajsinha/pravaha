@@ -454,6 +454,10 @@ public final class QueryExecution implements AutoCloseable {
         } else {
             pump = new IngestPump(reader, lanes.lane(laneIndex), input, layout, policy);
         }
+        // Named only on a shared lane, because that is the only place the name answers anything: a
+        // lane a query owns has one writer, so "whose writer waited" is already known, and the
+        // unnamed entry on a shared lane is the shared route writer that belongs to no one query.
+        pump.attributedTo(hostedQueryId);
         trackEventTimeOf(streamName, laneIndex, pump::observeEventTimeWith);
         sources.add(pump, streamName);
         return pump;
@@ -746,6 +750,7 @@ public final class QueryExecution implements AutoCloseable {
                 keyOrdinals,
                 policy,
                 access);
+        pump.attributedTo(hostedQueryId);
         // Lane 0 names the partition and reads the schema; a partitioned pump feeds every lane, and
         // every lane's pipeline was compiled from the same plan, so any of them gives the same
         // lateness. What matters is that the partition is registered at all.
@@ -973,6 +978,45 @@ public final class QueryExecution implements AutoCloseable {
 
     public List<LaneMetrics> metrics() {
         return lanes.metrics();
+    }
+
+    /**
+     * What each operator of this query's plan has done, in plan-node order, summed across lanes.
+     *
+     * <p>Empty when the node was started with {@code pravaha.metrics.operators} off, which is not
+     * the same as every number being zero. See {@link OperatorTelemetry}.
+     */
+    public List<OperatorMetrics.Snapshot> operatorMetrics() {
+        return OperatorTelemetry.merge(pipelines);
+    }
+
+    /**
+     * How long this query's writers spent unable to place a row, across its lanes, and whose
+     * writers they were.
+     */
+    public com.ash.messaging.pravaha.runtime.lane.LaneBackpressure.Snapshot backpressure() {
+        return lanes.backpressure();
+    }
+
+    /**
+     * The same, from the source side: episodes and total wait time across this execution's own
+     * pumps.
+     *
+     * <p>Not read off the lane, because a shared lane's counters belong to every query on it. A
+     * query's own pumps are the ones it can be held to.
+     */
+    public long[] pumpBackpressure() {
+        long waits = 0;
+        long nanos = 0;
+        for (IngestPump pump : pumps) {
+            waits += pump.backpressureWaits();
+            nanos += pump.backpressureWaitNanos();
+        }
+        for (PartitionedIngestPump pump : partitionedPumps) {
+            waits += pump.backpressureWaits();
+            nanos += pump.backpressureWaitNanos();
+        }
+        return new long[] {waits, nanos};
     }
 
     /**
@@ -1354,59 +1398,5 @@ public final class QueryExecution implements AutoCloseable {
         // which is where the pipeline's end-of-input runs, so final windows are written into the
         // arena by the thread that owns it.
         lanes.close();
-    }
-
-    /** Adapts a lane's batch of row offsets to the pipeline's row-at-a-time interface. */
-    private record LanePipeline(
-            InterpretedPipeline pipeline, BinaryRowView[] views, BinaryRowView[] partials, List<String> streams)
-            implements com.ash.messaging.pravaha.runtime.lane.LaneProcessor {
-
-        @Override
-        public int onBatch(com.ash.messaging.pravaha.common.memory.MemoryRegion region, long[] offsets, int count) {
-            return onBatch(0, region, offsets, count);
-        }
-
-        @Override
-        public int onBatch(
-                int input, com.ash.messaging.pravaha.common.memory.MemoryRegion region, long[] offsets, int count) {
-            BinaryRowView view = views[input];
-            BinaryRowView partial = partials == null ? null : partials[input];
-            String stream = streams.get(input);
-            for (int i = 0; i < count; i++) {
-                int at = (int) offsets[i];
-                if (partial != null && region.getInt(at + RowLayout.OFFSET_SCHEMA_ID) == PARTIAL_AGGREGATE_ROW_ID) {
-                    // A source pre-combined these rows (ADR-039 item 6): fold the partial straight
-                    // into the aggregate, past the filter it was already computed under.
-                    partial.wrap(region, at);
-                    pipeline.acceptPartialAggregate(stream, partial, partial.weight());
-                    continue;
-                }
-                // A flyweight over the lane's own inbox cell: the row is read in place and never
-                // copied, which is the entire reason the inbox holds bytes rather than objects.
-                pipeline.accept(stream, view.wrap(region, at));
-            }
-            // The batch is whole: what it wrote may now be seen, all of it at once (VIEW-1). A
-            // checkpoint's marker cuts the batch before this runs, so the output its cut commits
-            // ends exactly at the marker.
-            pipeline.endOfBatch();
-            // The batch is done and everything it produced has been pushed downstream, so the rows
-            // this pipeline allocated are unreachable. Without this the arena only ever grew.
-            pipeline.resetArena();
-            return count;
-        }
-
-        @Override
-        public void onIdle() {
-            // Nothing arriving means nothing will push a parked record out, so anything waiting on
-            // a lookup is finished here instead of waiting for the stream to resume.
-            pipeline.drainPending();
-        }
-
-        @Override
-        public void close() {
-            // On the lane thread, at shutdown: stateful operators emit what they were holding.
-            pipeline.finish();
-            pipeline.close();
-        }
     }
 }

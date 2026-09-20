@@ -126,6 +126,34 @@ public final class InterpretedPipeline implements AutoCloseable {
     }
 
     /**
+     * Whether pipelines compiled from now on count rows, state and time per operator
+     * ({@code pravaha.metrics.operators}).
+     *
+     * <p><strong>Off by default, and the default is a measurement rather than a preference.</strong>
+     * Wrapping every stage costs two extra calls and two increments per row per operator;
+     * {@code OperatorMetricsOverheadIT} puts that at more than a few percent of a narrow query's
+     * throughput on this machine, which is over the bar this project set for something that is on
+     * by default. With it off there is no wrapper at all -- not a wrapper that checks a flag -- so
+     * a deployment that has not asked for the detail pays nothing for its existence.
+     *
+     * <p>Process-wide and read at compile time, exactly like {@link #configureSpill}: a query
+     * already running when this is switched on does not gain counters, because its stages were
+     * built without them. Turning it on and re-registering the query is how the detail is
+     * obtained, and saying so is better than pretending the switch is live.
+     */
+    private static volatile boolean measureOperators;
+
+    /** Turns per-operator measurement on or off for pipelines compiled from now on. */
+    public static void measureOperators(boolean measure) {
+        measureOperators = measure;
+    }
+
+    /** Whether per-operator measurement is on. */
+    public static boolean measuringOperators() {
+        return measureOperators;
+    }
+
+    /**
      * How many looked-up rows one lookup join may cache.
      *
      * <p>Bounded, and access-ordered underneath, because a lookup join's key distribution is
@@ -174,11 +202,41 @@ public final class InterpretedPipeline implements AutoCloseable {
     /** Where the terminal stage writes; told where each unit of work ends. */
     private final RowOutput output;
 
+    /**
+     * One entry per plan node, in {@link com.ash.messaging.pravaha.runtime.plan.PlanNodes} order,
+     * or empty when per-operator measurement was off when this pipeline was compiled.
+     */
+    private final List<OperatorMetrics> operators;
+
     private InterpretedPipeline(RowArena arena, RowProcessor head, List<ScanOperator> scans, RowOutput output) {
+        this(arena, head, scans, output, List.of());
+    }
+
+    private InterpretedPipeline(
+            RowArena arena,
+            RowProcessor head,
+            List<ScanOperator> scans,
+            RowOutput output,
+            List<OperatorMetrics> operators) {
         this.arena = arena;
         this.head = head;
         this.scans = List.copyOf(scans);
         this.output = output;
+        this.operators = List.copyOf(operators);
+    }
+
+    /**
+     * What each operator of this pipeline has done, in plan-node order.
+     *
+     * <p>Empty when {@link #measureOperators} was off at compile time -- which is not the same as
+     * every number being zero, and the caller has to be able to tell those apart.
+     */
+    public List<OperatorMetrics.Snapshot> operatorMetrics() {
+        List<OperatorMetrics.Snapshot> out = new ArrayList<>(operators.size());
+        for (OperatorMetrics each : operators) {
+            out.add(each.snapshot());
+        }
+        return out;
     }
 
     /**
@@ -197,6 +255,12 @@ public final class InterpretedPipeline implements AutoCloseable {
         if (!abandoned) {
             output.endOfBatch();
             compactSpilledState();
+            // Per batch, not per row. The operators count into lane-confined longs and this is the
+            // one moment they are all consistent with each other, so it is the moment to publish
+            // them -- the same bargain Lane strikes with its own counters.
+            for (OperatorMetrics each : operators) {
+                each.publish();
+            }
         }
     }
 
@@ -288,10 +352,11 @@ public final class InterpretedPipeline implements AutoCloseable {
     public static InterpretedPipeline compile(
             PhysicalOperator plan, RowOutput sink, Map<String, LookupSourcePlugin> lookups) {
         RowArena arena = new RowArena(MemoryAccess.best(), slabFor(plan), slabsFor(plan));
-        Builder builder = new Builder(arena, sink, lookups);
+        Builder builder = new Builder(arena, sink, lookups, measureOperators ? plan : null);
         RowProcessor built = builder.build(plan);
         RowProcessor head = builder.joins.isEmpty() ? built : null;
-        InterpretedPipeline pipeline = new InterpretedPipeline(arena, head, builder.scans, sink);
+        InterpretedPipeline pipeline =
+                new InterpretedPipeline(arena, head, builder.scans, sink, builder.operatorsInPlanOrder());
         pipeline.finishers.addAll(builder.finishers);
         pipeline.continuousEmitters.addAll(builder.continuousEmitters);
         pipeline.windowed.addAll(builder.windowed);
@@ -620,6 +685,13 @@ public final class InterpretedPipeline implements AutoCloseable {
         // survivable. Without this the join held every unmatched row until a size ceiling failed
         // the query.
         joins.forEach(join -> join.advanceWatermark(watermarkNanos));
+        // Every operator, because an advance reaches all of them in this one call: a plan's nodes
+        // cannot hold different watermarks, and publishing one per node is what lets a console
+        // show the figure beside the operator an operator is looking at rather than only at the
+        // top of the page. Recorded after the advance, so a node that threw does not claim it.
+        for (OperatorMetrics each : operators) {
+            each.reachedWatermark(watermarkNanos);
+        }
         // Every window this advance closed, with any correction it retracted, as one unit.
         endOfBatch();
     }
@@ -907,10 +979,70 @@ public final class InterpretedPipeline implements AutoCloseable {
 
         private final Map<String, LookupSourcePlugin> lookups;
 
-        Builder(RowArena arena, RowOutput sink, Map<String, LookupSourcePlugin> lookups) {
+        /**
+         * A counter block per plan node, by identity, or empty when measurement is off.
+         *
+         * <p>By identity rather than by value because a physical operator is a record: two filters
+         * with the same predicate over the same schema are {@code equals}, and a value-keyed map
+         * would merge their counters into one box on the graph.
+         */
+        private final java.util.IdentityHashMap<PhysicalOperator, OperatorMetrics> counters =
+                new java.util.IdentityHashMap<>();
+
+        /** The same blocks in plan-node order, which is the order their ids are assigned in. */
+        private final List<OperatorMetrics> ordered = new ArrayList<>();
+
+        /** Null when measurement is off, which is what removes the wrappers entirely. */
+        private final OperatorClock clock;
+
+        Builder(RowArena arena, RowOutput sink, Map<String, LookupSourcePlugin> lookups, PhysicalOperator measured) {
             this.arena = arena;
             this.sink = sink;
             this.lookups = lookups;
+            this.clock = measured == null ? null : new OperatorClock();
+            if (measured != null) {
+                List<PhysicalOperator> nodes = com.ash.messaging.pravaha.runtime.plan.PlanNodes.preOrder(measured);
+                for (int i = 0; i < nodes.size(); i++) {
+                    PhysicalOperator node = nodes.get(i);
+                    OperatorMetrics metrics = new OperatorMetrics(
+                            com.ash.messaging.pravaha.runtime.plan.PlanNodes.idOf(i), kindOf(node), node.label());
+                    ordered.add(metrics);
+                    // putIfAbsent, because a plan that reuses one operator instance in two places
+                    // is one box on the graph and must be one counter here too.
+                    counters.putIfAbsent(node, metrics);
+                }
+            }
+        }
+
+        List<OperatorMetrics> operatorsInPlanOrder() {
+            return ordered;
+        }
+
+        private static String kindOf(PhysicalOperator operator) {
+            String simple = operator.getClass().getSimpleName();
+            return simple.endsWith("Operator") && simple.length() > "Operator".length()
+                    ? simple.substring(0, simple.length() - "Operator".length())
+                    : simple;
+        }
+
+        /** The rows {@code operator} emits, counted. The downstream itself when measurement is off. */
+        private RowProcessor leaving(PhysicalOperator operator, RowProcessor downstream) {
+            OperatorMetrics metrics = counters.get(operator);
+            return metrics == null ? downstream : metrics.leaving(downstream);
+        }
+
+        /** The rows {@code operator} consumes, counted. {@code self} itself when measurement is off. */
+        private RowProcessor entering(PhysicalOperator operator, RowProcessor self) {
+            OperatorMetrics metrics = counters.get(operator);
+            return metrics == null ? self : metrics.entering(self, clock, operator instanceof ScanOperator);
+        }
+
+        /** Says where {@code operator}'s state bytes are read from, when it holds any. */
+        private void holdsState(PhysicalOperator operator, java.util.function.LongSupplier bytes) {
+            OperatorMetrics metrics = counters.get(operator);
+            if (metrics != null) {
+                metrics.holdsStateIn(bytes);
+            }
         }
 
         RowProcessor build(PhysicalOperator operator) {
@@ -925,12 +1057,9 @@ public final class InterpretedPipeline implements AutoCloseable {
                 }
                 case SinkOperator s -> {
                     RowProcessor terminal = row -> copyInto(sink, row, s.outputSchema());
-                    yield buildInput(s.inputs().get(0), terminal);
+                    yield buildInput(s, terminal);
                 }
-                case ScanOperator s -> {
-                    registerScan(s, row -> {});
-                    yield row -> {};
-                }
+                case ScanOperator s -> buildInput(s, row -> {});
                 default -> {
                     // A plan whose root is not a sink still has to run for tests and EXPLAIN; treat
                     // the root's output as the result.
@@ -940,12 +1069,21 @@ public final class InterpretedPipeline implements AutoCloseable {
             };
         }
 
-        /** Builds {@code operator} pushing into {@code downstream}, returning the chain's head. */
-        private RowProcessor buildInput(PhysicalOperator operator, RowProcessor downstream) {
+        /**
+         * Builds {@code operator} pushing into {@code downstream}, returning the chain's head.
+         *
+         * <p>Each case computes the stage itself and then recurses into its input with that stage
+         * as the downstream. The two counting wrappers hang off exactly those two points: {@link
+         * #leaving} on what the stage pushes into, {@link #entering} on the stage as its input sees
+         * it. With measurement off both are the identity and the tree is the one it always was.
+         */
+        private RowProcessor buildInput(PhysicalOperator operator, RowProcessor into) {
+            RowProcessor downstream = leaving(operator, into);
             return switch (operator) {
                 case ScanOperator s -> {
-                    registerScan(s, downstream);
-                    yield downstream;
+                    RowProcessor entry = entering(s, downstream);
+                    registerScan(s, entry);
+                    yield entry;
                 }
                 case FilterOperator f -> {
                     RowProcessor self = row -> {
@@ -953,15 +1091,15 @@ public final class InterpretedPipeline implements AutoCloseable {
                             downstream.process(row);
                         }
                     };
-                    yield buildInput(f.input(), self);
+                    yield buildInput(f.input(), entering(f, self));
                 }
                 case ProjectOperator p -> {
                     RowProcessor self = projector(p, downstream);
-                    yield buildInput(p.input(), self);
+                    yield buildInput(p.input(), entering(p, self));
                 }
                 case ComputeOperator c -> {
                     RowProcessor self = computer(c, downstream);
-                    yield buildInput(c.input(), self);
+                    yield buildInput(c.input(), entering(c, self));
                 }
                 case AggregateOperator a -> {
                     // Keyed and unkeyed are different operators rather than one with a branch: the
@@ -981,7 +1119,7 @@ public final class InterpretedPipeline implements AutoCloseable {
                             partialAggregateTargets.put(stream, aggregate::processPartial);
                             partialAggregateSchemas.put(stream, a.outputSchema());
                         });
-                        yield buildInput(a.input(), aggregate);
+                        yield buildInput(a.input(), entering(a, aggregate));
                     }
                     KeyedAggregate aggregate = new KeyedAggregate(
                             a, a.input().outputSchema(), arena, downstream, KeyedAggregate.DEFAULT_MAX_GROUPS);
@@ -990,11 +1128,11 @@ public final class InterpretedPipeline implements AutoCloseable {
                         partialAggregateTargets.put(stream, aggregate::processPartial);
                         partialAggregateSchemas.put(stream, a.outputSchema());
                     });
-                    yield buildInput(a.input(), aggregate);
+                    yield buildInput(a.input(), entering(a, aggregate));
                 }
                 case WindowAssignOperator w -> {
                     WindowAssign assign = new WindowAssign(w, arena, downstream);
-                    yield buildInput(w.input(), assign);
+                    yield buildInput(w.input(), entering(w, assign));
                 }
                 case WindowedAggregateOperator w -> {
                     WindowedAggregate aggregate = overflowAccess == null
@@ -1005,9 +1143,13 @@ public final class InterpretedPipeline implements AutoCloseable {
                     // exactly like the query being wrong about its last period.
                     finishers.add(aggregate::finish);
                     windowed.add(aggregate);
-                    yield buildInput(w.input(), aggregate);
+                    // Off-heap only, which is what there is a byte count for: the accumulators and,
+                    // since ADR-044, COUNT(DISTINCT)'s values. The slice bookkeeping above them is
+                    // on the heap and has no number that is not a guess.
+                    holdsState(w, () -> aggregate.state().offHeapBytesAllocated());
+                    yield buildInput(w.input(), entering(w, aggregate));
                 }
-                case SinkOperator s -> buildInput(s.input(), downstream);
+                case SinkOperator s -> buildInput(s.input(), entering(s, downstream));
                 case LookupJoinOperator l -> {
                     LookupSourcePlugin table = lookups.get(l.lookupStream());
                     if (table == null) {
@@ -1024,7 +1166,7 @@ public final class InterpretedPipeline implements AutoCloseable {
                     // parked on a round trip has been consumed and not yet answered, and dropping
                     // it at shutdown loses output that the offsets say was processed.
                     finishers.add(join::drain);
-                    yield buildInput(l.input(), join);
+                    yield buildInput(l.input(), entering(l, join));
                 }
                 case JoinOperator j -> {
                     // A join is where the plan stops being a chain. Both sides are built with the
@@ -1042,8 +1184,11 @@ public final class InterpretedPipeline implements AutoCloseable {
                                     overflow,
                                     spillSettings.maxOverflowSlabs());
                     joins.add(join);
-                    buildInput(j.left(), join.leftInput());
-                    buildInput(j.right(), join.rightInput());
+                    holdsState(j, join::stateBytes);
+                    // Both sides through the same counter: a join's rows in is what it was handed,
+                    // and which side a row arrived on is already in rowsPerLane and the plan.
+                    buildInput(j.left(), entering(j, join.leftInput()));
+                    buildInput(j.right(), entering(j, join.rightInput()));
                     yield row -> {
                         throw new IllegalStateException("rows must enter a join's inputs by stream name");
                     };

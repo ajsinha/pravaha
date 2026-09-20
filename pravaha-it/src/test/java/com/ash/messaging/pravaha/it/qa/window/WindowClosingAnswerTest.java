@@ -271,13 +271,15 @@ class WindowClosingAnswerTest extends WindowTestSupport {
     void win167_finishWouldFireTheLastWindowsAndRunsOnlyAtLaneShutdown() throws Exception {
         // WIN-167. WindowedAggregate.finish() advances past every window the highest event time
         // could be in, and it is wired to lane shutdown alone.
-        // LanePipelineProcessor is a nested class inside QueryExecution.java, not its own file, so
-        // the two call sites this case expects -- ViewQuery's bounded read path and
-        // LanePipelineProcessor.close() -- surface as exactly two file names here.
+        // The two call sites this case expects are ViewQuery's bounded read path and the lane
+        // processor's close(). That processor was a nested record inside QueryExecution.java until
+        // B6 extracted it -- QueryExecution had reached the size at which this project extracts
+        // rather than grows -- so the second name is now LanePipeline.java. The claim is unchanged:
+        // two call sites, one of them lane shutdown.
         String grepOutput = grepMainSources("\\.finish\\(\\)");
         assertThat(grepOutput.lines().sorted().toList())
-                .as("only ViewQuery and QueryExecution (which nests LanePipelineProcessor) call finish()")
-                .containsExactly("QueryExecution.java", "ViewQuery.java");
+                .as("only ViewQuery and the lane processor (LanePipeline.close) call finish()")
+                .containsExactly("LanePipeline.java", "ViewQuery.java");
 
         List<Integer> emittedPerAdvance = advanceSequenceAndCountEmissionsThenFinish(
                 "SELECT window_start, window_end, user_id, COUNT(*) AS n, SUM(amount) AS total FROM "
