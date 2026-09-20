@@ -427,6 +427,16 @@ public class PravahaMetrics implements AutoCloseable {
      */
     private final Map<Integer, String> laneRepresentative = new ConcurrentHashMap<>();
 
+    /**
+     * Which query each shared lane is read through, for a test that has to pin the indirection.
+     *
+     * <p>An empty entry and a lane that is genuinely idle both make the gauges read 0, so a test
+     * comparing the two numbers would pass with this broken. This is what it asserts instead.
+     */
+    Map<Integer, String> laneRepresentatives() {
+        return Map.copyOf(laneRepresentative);
+    }
+
     private void rememberLaneRepresentatives(QueryRegistry registry) {
         laneRepresentative.clear();
         for (String name : registry.names()) {

@@ -178,6 +178,37 @@ class NodeLaneSharingTest {
                     .as("the one shared lane's inbox and arena, held once for three queries")
                     .isEqualTo((double) registry.sharedLaneBytes())
                     .isPositive();
+
+            // B6. The lane's backpressure is read through a query hosted on it, because a hosted
+            // query's execution runs on that lane's group -- so the gauge and the query must agree
+            // exactly, and this is the assertion that catches the representative being picked
+            // wrong or going stale.
+            double laneBlocked = meters.find("pravaha.lane.blocked.fraction")
+                    .tag("lane", "0")
+                    .gauge()
+                    .value();
+            assertThat(laneBlocked)
+                    .as("a lane nothing is queued behind is not blocked, and says 0 rather than nothing")
+                    .isZero();
+            assertThat(metrics.laneRepresentatives())
+                    .as("lane 0 is read through one of the queries hosted on it -- an empty entry "
+                            + "and an idle lane both read 0, so the numbers agreeing proves nothing on its own")
+                    .containsKey(0);
+            assertThat(metrics.laneRepresentatives().get(0)).isIn("txn_totals", "order_totals", "txn_big");
+            assertThat(laneBlocked)
+                    .isEqualTo(registry.find(metrics.laneRepresentatives().get(0))
+                            .orElseThrow()
+                            .backpressure()
+                            .blockedFraction());
+            assertThat(meters.find("pravaha.lane.inbox.depth")
+                            .tag("lane", "0")
+                            .gauge()
+                            .value())
+                    .as("and its inbox is empty, because all three queries are keeping up")
+                    .isZero();
+            assertThat(meters.find("pravaha.metrics.operators.enabled").gauge().value())
+                    .as("per-operator counters are off unless pravaha.metrics.operators says otherwise")
+                    .isZero();
         } finally {
             metrics.close();
             meters.close();
