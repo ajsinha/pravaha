@@ -5,7 +5,16 @@ id order, each reproduced against today's code before anything was changed.
 
 `docs/qa/FINDINGS.md` is the lead's file and is not edited here. This is the input to it: one
 section per finding, with a verdict, the cause, the fix, the test, the seed-proof result and the
-commit.
+commit. One **new** finding, raised out of CFG-16 and unfiled, is at the end.
+
+> **Rebase state.** This branch is **not rebased** and is held deliberately: the time-travel
+> debugger and the CQ grammar batches are rebasing onto `develop` and both touch `pravaha-registry`,
+> `pravaha-server` and the docs. It rebases once, onto the result of both, rather than chasing
+> them. When it does: keep **both** sides in `application.yaml`, `PravahaNode` and `ApiDtos`, and
+> **regenerate** `api/openapi.lock.json` rather than merging it — the debugger adds debug paths and
+> the dead-letter batch has already added four, so a merged lock would be a lock of a document
+> nobody generated. `PRV-1027`, `PRV-1052` and `PRV-4091` do not collide with the debugger's
+> `PRV-8011..8016` or the grammar's `PRV-8017` and `PRV-2073`.
 
 **The shape of the cluster, once all sixteen were read together.** Fourteen of them are one defect
 wearing different clothes: *a value that is present in the configuration file, correct-looking, and
@@ -400,9 +409,10 @@ comment for `pravaha.watermark.idle-after` and applied to nothing else.
 with `theCheckpointCountsThatWorkKeepWorking_CFG16` as the V-control — `keep: 1` and `keep: 5` were
 both measured working and must stay legal.
 
-**Note left for the lead, not fixed here.** The finding's incidental observation stands and was not
-investigated: with `keep: 5` the survivors were ids `5,7,8,9,10`, so pruning is not strictly "newest
-K by id". That is a `PeriodicCheckpointer` question, not a configuration one.
+**The finding's incidental observation is now a finding of its own** — see *A gap in the checkpoint
+id sequence is a failed checkpoint* below. Short version: pruning **is** strictly newest-K-by-id;
+`5,7,8,9,10` is the newest five ids that exist, over a sequence where id 6 was attempted and never
+stored. Not a configuration defect, and not fixed here.
 
 **Seed proof.** The `keep < 1` guard neutered: `PersistencePropertiesTest` 1/10 fails, on the
 CFG-16 case; the V-control over `keep` 1, 3, 5 and `Integer.MAX_VALUE` stays green. Restored.
@@ -637,6 +647,50 @@ distinction the fix turns on. Restored.
 
 ---
 
+## New finding, not yet filed — a gap in the checkpoint id sequence is a failed checkpoint, and nothing says so
+
+**Raised out of CFG-16, for the lead to file. Not fixed here.**
+
+**What was seen.** CFG-16 records, as an incidental observation from the 2026-09-14 run: with
+`keep: 5`, the survivors were ids `5,7,8,9,10` — *"not the five newest, so pruning is not strictly
+newest K by id"*.
+
+**That inference is wrong, and what is actually there is worse.** Read rather than re-run, because
+two methods answer it:
+
+- `FileCheckpointStore.availableIds` (`:125-135`) sorts by id, `Comparator.reverseOrder()`, newest
+  first. `prune(keep)` (`:186-197`) deletes from index `keep` onward. So pruning **is** strictly
+  "newest K by id", over the ids that exist.
+- `PeriodicCheckpointer.checkpointNow` (`:200-203`) takes the id **first** —
+  `long id = nextId.getAndIncrement();` — and only then calls `execution.checkpoint(id, timeout)`
+  and `store.store(checkpoint)`. A checkpoint that throws in either call has already consumed its
+  id and stored nothing.
+
+So `5,7,8,9,10` is the newest five ids that exist, over a sequence in which **id 6 was attempted
+and never landed**. Pruning is correct. The observation is a symptom of a different thing: a
+checkpoint failed, the id it burned is the only durable trace, and the sequence carries that trace
+permanently while no surface reads it.
+
+**Why it matters.** `pravaha_query_checkpoint_failures_total` counts failures and
+`pravaha_query_checkpoint_last_success_timestamp_seconds` ages, so a *fleet* can be alerted. What
+cannot be done is the thing an operator does at 3 a.m.: look at a checkpoint directory and tell
+whether it is healthy. A directory holding `5,7,8,9,10` and one holding `6,7,8,9,10` look equally
+fine to `ls`, and one of them has a hole. Nothing logs the gap, nothing reports it per query, and
+recovery does not mention it — recovery restores from the newest readable checkpoint and is
+correct either way, which is precisely why the hole stays invisible.
+
+**What it needs.** Not a change to pruning. Either take the id *after* the checkpoint is stored, so
+ids stay contiguous and a gap becomes impossible (the simpler fix, and it changes what an id
+means — `nextId` is also seeded from `availableIds().max()+1` at construction, so this wants
+checking against restart); or leave the gap and surface it — log it when it happens, and report it
+where the checkpoint's health is reported. The first is a `PeriodicCheckpointer` change, the second
+an observability one; both are somebody else's batch, and neither is a configuration defect, which
+is why this is a new finding rather than part of CFG-16.
+
+**Severity, suggested:** LOW. It misleads a diagnosis rather than losing data.
+
+---
+
 ## What this batch did not do
 
 - **`I-7`, a way to add a connector to a shipped node.** CFG-4's real remedy. It is a packaging
@@ -646,7 +700,14 @@ distinction the fix turns on. Restored.
 - **CFG-10(a)'s empty mapping.** `x: {}` produces no property, so no code in this process can see
   it. Measured, not assumed. Documented in three places; requiring `id` removes the reason to write
   it.
-- **CFG-16's pruning observation.** `keep: 5` leaving ids `5,7,8,9,10` is a `PeriodicCheckpointer`
-  question and was not investigated.
-- **CFG-024's rewritten case.** Whether the checkpoint timeout is *enforced* needs a run with state
-  large enough that a checkpoint exceeds it. The case says so; it has not been executed.
+- **CFG-16's pruning observation.** Raised as a new finding above rather than chased: pruning is
+  correct, and the gap in the id sequence means something else.
+- **CFG-024's rewritten case — deliberately left unexecuted.** Whether the checkpoint timeout is
+  *enforced* needs a view whose state is large enough that one checkpoint genuinely exceeds the
+  bound; the previous run's twelve-row view checkpointed well inside a millisecond and proved
+  nothing in either direction. That is a measurement on a quiet machine, not a unit test — the
+  result is a timing claim, and a timing claim taken on a box running four other agents' builds is
+  not evidence. **It belongs with the benchmark batch.** The rewritten case in
+  `docs/qa/cases/CFG.md` states the setup and requires the state size and the measured checkpoint
+  duration to be recorded alongside the result, so that whoever runs it cannot record a pass
+  without the numbers that make it one.
