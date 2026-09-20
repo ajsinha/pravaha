@@ -345,9 +345,12 @@ class StateCheckpointScheduleTest extends StateTestSupport {
             assertThat(checkpointerC.stats().taken()).isZero();
         }
 
-        // The documentation gap: application.yaml's checkpoint: block documents directory, interval
-        // and keep, and does not mention pravaha.checkpoint.timeout, which PeriodicCheckpointer.from
-        // reads.
+        // INVERTED for CFG-17. This asserted the documentation gap as a fact: application.yaml's
+        // checkpoint: block documented directory, interval and keep and never mentioned
+        // pravaha.checkpoint.timeout, which PeriodicCheckpointer.from reads -- and that absence is
+        // how docs/qa/cases/CFG.md came to record the key as one with a reader and no writer, which
+        // it is not. The key is now in the file with the other three, and this asserts the closure
+        // rather than the gap: all four names, in the block an operator reads.
         Path yaml = Path.of("").toAbsolutePath();
         Path root = yaml;
         while (root != null && !Files.exists(root.resolve("pravaha-server/src/main/resources/application.yaml"))) {
@@ -360,7 +363,12 @@ class StateCheckpointScheduleTest extends StateTestSupport {
         int checkpointBlock = yamlText.indexOf("checkpoint:");
         int nextTopLevel = yamlText.indexOf("\n  watermark:", checkpointBlock);
         String block = yamlText.substring(checkpointBlock, nextTopLevel);
-        assertThat(block).as("timeout is read by the code and not documented").doesNotContain("timeout");
+        assertThat(block)
+                .as("every key PeriodicCheckpointer.from reads has to be in the block an operator reads")
+                .contains("directory:")
+                .contains("interval:")
+                .contains("keep:")
+                .contains("timeout:");
     }
 
     @Test

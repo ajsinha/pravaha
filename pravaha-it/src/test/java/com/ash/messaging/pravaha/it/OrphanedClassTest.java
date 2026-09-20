@@ -91,6 +91,11 @@ class OrphanedClassTest {
             Map.entry("StatusController", "Spring @RestController"),
             Map.entry("DeadLetterController", "Spring @RestController"),
             Map.entry("PravahaMetrics", "Spring @Component"),
+            // A @Component whose whole job happens in its @PostConstruct: it compares the
+            // configuration file against what the server bound and refuses a key that reached
+            // nothing (CFG-3, CFG-8, CFG-15). Nothing calls it, by design -- a caller would be a
+            // second place deciding when configuration is checked.
+            Map.entry("ConfigurationCheck", "Spring @Component, runs in @PostConstruct"),
             Map.entry("EngineHealthIndicator", "Spring @Component, contributed to /actuator/health"),
             Map.entry("ApiExceptionHandler", "Spring @RestControllerAdvice"),
             // JMH generates the harness that calls these.

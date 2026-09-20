@@ -265,10 +265,16 @@ class StateClusterTest extends StateTestSupport {
                 .hasMessageContaining("PRV-9001")
                 .hasMessageContaining("no cluster coordinator called ''");
 
-        // Arm 4: case-sensitive, unlike the mode -- getString(...).strip() is not uppercased.
+        // Arm 4, INVERTED for CFG-18. This asserted that mechanism names are case-sensitive while
+        // modes are not, which is what the code did and is not a property worth keeping: two
+        // adjacent keys in one YAML block with two case rules, and `mechanism: SOCKET` answering
+        // "no cluster coordinator called 'SOCKET' is on the classpath" beside an
+        // "Available: [single, socket]" list that appears to contradict it. SOCKET now reaches the
+        // socket provider and fails where lower-case socket fails: on its missing peer list.
         assertThatThrownBy(() -> CoordinatorFactory.create(config("pravaha.cluster.mechanism", "SOCKET")))
-                .hasMessageContaining("PRV-9001")
-                .hasMessageContaining("no cluster coordinator called 'SOCKET'");
+                .as("a mechanism name is an identifier in a configuration file, matched as `mode` is")
+                .hasMessageContaining("PRV-9005")
+                .hasMessageContaining("pravaha.cluster.socket.peers");
     }
 
     @Test
@@ -290,16 +296,20 @@ class StateClusterTest extends StateTestSupport {
         assertThat(CoordinatorFactory.modeOf(config("pravaha.cluster.mode", "Replicated")))
                 .isEqualTo(ClusterMode.REPLICATED);
 
-        // The mechanism key is only stripped, never case-folded.
+        // The mechanism key is stripped, and -- since CFG-18 -- matched the way the mode is.
         try (ClusterCoordinator coordinator = CoordinatorFactory.create(config(
                 "pravaha.cluster.mechanism", "  socket  ",
                 "pravaha.cluster.socket.peers", "a=localhost:19088"))) {
             assertThat(coordinator.mechanism()).isEqualTo("socket");
         }
-        assertThatThrownBy(() -> CoordinatorFactory.create(config("pravaha.cluster.mechanism", "Socket")))
-                .as("mechanism names are case-sensitive, unlike modes")
-                .hasMessageContaining("PRV-9001")
-                .hasMessageContaining("no cluster coordinator called 'Socket'");
+        // INVERTED for CFG-18: this asserted that `Socket` was refused, which was true and was the
+        // finding -- one YAML block, two case rules. `Socket` now reaches the socket provider and
+        // fails on the peer list, exactly as lower-case `socket` does.
+        try (ClusterCoordinator coordinator = CoordinatorFactory.create(config(
+                "pravaha.cluster.mechanism", "Socket",
+                "pravaha.cluster.socket.peers", "a=localhost:19089"))) {
+            assertThat(coordinator.mechanism()).isEqualTo("socket");
+        }
     }
 
     @Test
