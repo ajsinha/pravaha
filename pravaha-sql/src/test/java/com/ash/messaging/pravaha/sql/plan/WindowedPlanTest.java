@@ -200,4 +200,70 @@ class WindowedPlanTest {
                                         + "INTERVAL '10' SECOND)) GROUP BY window_start, window_end")))
                 .isNotNull();
     }
+
+    @Test
+    void theGroupByFormOfTheWrongTimestampColumnIsRefusedToo() {
+        // Found while closing TIME-6. TIME-2's guard was added to buildWindowAssign alone, and
+        // Calcite lowers `GROUP BY TUMBLE(...)` through buildGroupedWindow instead -- so the
+        // spelling most queries actually use walked straight past it and cut its windows from a
+        // column no watermark tracks. The two spellings have to answer the same.
+        StreamSchema twoStamps = StreamSchema.builder("ev")
+                .field("id", Types.int64())
+                .field("amount", Types.int64())
+                .field("event_time", Types.timestamp())
+                .field("other_time", Types.timestamp())
+                .eventTime("event_time")
+                .build();
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new PhysicalPlanBuilder()
+                        .build(SqlPlanner.withStreams(twoStamps)
+                                .plan("SELECT SUM(amount) FROM ev GROUP BY TUMBLE(other_time, "
+                                        + "INTERVAL '10' SECOND)")))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("other_time")
+                .hasMessageContaining("event_time");
+
+        assertThat(new PhysicalPlanBuilder()
+                        .build(SqlPlanner.withStreams(twoStamps)
+                                .plan("SELECT SUM(amount) FROM ev GROUP BY TUMBLE(event_time, "
+                                        + "INTERVAL '10' SECOND)")))
+                .as("and the correct one, one identifier away, still plans")
+                .isNotNull();
+    }
+
+    @Test
+    void time6AWindowOverAStreamWithNoDeclaredEventTimeIsRefusedInBothSpellings() {
+        // TIME-6. Two of its four causes -- no event-time declaration and a blank one -- reach the
+        // planner as a schema with no eventTimeOrdinal, and used to plan, register, report RUNNING,
+        // ingest every row and emit nothing, for ever. The planner holds the schema and the answer
+        // is one call away.
+        StreamSchema undeclared = StreamSchema.builder("ev")
+                .field("id", Types.int64())
+                .field("amount", Types.int64())
+                .field("event_time", Types.timestamp())
+                .build();
+
+        for (String sql : java.util.List.of(
+                "SELECT COUNT(*) FROM TABLE(TUMBLE(TABLE ev, DESCRIPTOR(event_time), INTERVAL '10' SECOND)) "
+                        + "GROUP BY window_start, window_end",
+                "SELECT SUM(amount) FROM ev GROUP BY TUMBLE(event_time, INTERVAL '10' SECOND)")) {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> new PhysicalPlanBuilder()
+                            .build(SqlPlanner.withStreams(undeclared).plan(sql)))
+                    .as(sql)
+                    .isInstanceOf(PravahaException.class)
+                    .hasMessageContaining("PRV-2002")
+                    .hasMessageContaining("declares no event-time column")
+                    .hasMessageContaining("pravaha.streams.ev.event-time");
+        }
+
+        // Not over a bounded read, where finish() fires the windows at the end of the scan rather
+        // than a watermark: the same plan terminates and answers there, and refusing it would take
+        // away a query that works.
+        assertThat(new PhysicalPlanBuilder()
+                        .overBoundedInput()
+                        .build(SqlPlanner.withStreams(undeclared)
+                                .plan("SELECT COUNT(*) FROM TABLE(TUMBLE(TABLE ev, DESCRIPTOR(event_time), "
+                                        + "INTERVAL '10' SECOND)) GROUP BY window_start, window_end")))
+                .isNotNull();
+    }
 }

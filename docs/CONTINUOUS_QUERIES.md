@@ -77,10 +77,32 @@ nothing.
 once under the source's `options` for the plugin to parse rows with. That is a wart, not a design:
 the two are read by different components that do not share a parser today. They must agree.
 
-**`event-time` is the setting people most often omit, and its absence is silent.** Without it no
-watermark advances, so no window ever closes: a windowed query plans, registers, reports `RUNNING`,
-ingests every row and emits nothing, for ever. The `name:TYPE` grammar has no syntax for marking a
-column, so this key is the only way to say it.
+**`event-time` is the setting people most often omit, and its absence used to be silent.** Without
+it no watermark advances, so no window can ever close. A windowed query over such a stream is now
+**refused at registration** (TIME-6):
+
+```
+PRV-2002  TUMBLE is given DESCRIPTOR(event_time), but 'txn' declares no event-time column -- so no
+watermark advances over it and no window this query opens can ever close. It would register, report
+RUNNING, ingest every row and emit nothing, for ever.
+  Declare the column: pravaha.streams.txn.event-time: event_time, or 'eventTime' on
+POST /api/v1/streams. The column must be a TIMESTAMP.
+```
+
+Both spellings of a window answer the same way — `TABLE(TUMBLE(TABLE txn, DESCRIPTOR(...), ...))`
+and `GROUP BY TUMBLE(...)`. A **bounded** read is not refused: there the windows are fired by the
+end of the scan rather than by a watermark, so the same query does terminate and does answer. The
+`name:TYPE` grammar has no syntax for marking a column, so this key is the only way to say it.
+
+**The node also states what is in force, one line per stream, at startup:**
+
+```
+stream txn: event-time=event_time, out-of-orderness=PT10S, allowed-lateness=PT0S
+```
+
+which is the part a refusal cannot cover: an out-of-orderness larger than the data's span is a
+legitimate setting that happens to leave the view empty, and until TIME-6 nothing anywhere named
+the value in force.
 
 A stream declared over HTTP says the same two things in its body —
 `{"name": "txn", "schema": "...", "eventTime": "event_time", "outOfOrderness": "PT10S"}` to
@@ -88,6 +110,10 @@ A stream declared over HTTP says the same two things in its body —
 `outOfOrderness` and the `source` plugin feeding it (the plugin's name only, never its options). An
 out-of-orderness without an event time is refused: it is how late an event time may be, and there is
 none for it to be about.
+
+**A unitless number is seconds.** `out-of-orderness: 60` is a minute and `allowed-lateness: 30` is
+thirty seconds. They used to bind as *milliseconds*, so `60` produced a view identical to the
+ten-second default and the mistake was invisible (TIME-3); `60s`, `PT1M` and `60ms` are unchanged.
 
 **`out-of-orderness` belongs to the stream, not to the node.** It says how late *this* source's rows
 may arrive. A join across two streams takes the minimum of their watermarks — so a query is only as

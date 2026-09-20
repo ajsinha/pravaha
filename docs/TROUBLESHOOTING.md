@@ -125,6 +125,21 @@ By far the most common report, and usually not a fault.
 clock does. Ten rows in, nothing out, is correct if nothing has yet told the engine that the window
 is complete. Send an event past the window's end.
 
+**What lateness is actually in force?** The node states it, one line per stream, at startup
+(TIME-6):
+
+```
+stream txn: event-time=event_time, out-of-orderness=PT10M, allowed-lateness=PT0S
+stream ref: event-time=none -- no window over this stream can ever close
+```
+
+Read those before anything else when a windowed query is `RUNNING` with a climbing `ROWS IN` and an
+empty view. An out-of-orderness larger than the span of the data on hand holds every window open
+for ever, and it is a legitimate setting, so nothing refuses it — it is only visible here.
+**A unitless number is seconds**: `out-of-orderness: 60` is a minute, not sixty milliseconds
+(TIME-3). A windowed query over a stream with **no** event-time column is refused outright now,
+with `PRV-2002` naming the key to set, rather than accepted and left unable to emit.
+
 **Is the subscription attached?** A plain subscription starts from *now*, not from the beginning of
 time: a change committed before the subscriber attached was published to nobody. Worse, reading the
 view beside it does not fill the gap — subscribe-then-read and read-then-subscribe can both lose the

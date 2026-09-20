@@ -549,7 +549,24 @@ public class PravahaNode implements SmartLifecycle {
                                 + "is a name and a shape; the name alone cannot be planned against.");
             }
             StreamSchema parsed = FilesystemSourcePlugin.parseSchema(name, declaration.getSchema());
-            streams.register(withEventTime(name, parsed, declaration));
+            StreamSchema declared = withEventTime(name, parsed, declaration);
+            streams.register(declared);
+            // TIME-6. One line per stream saying what its event time is and what lateness is in
+            // force, because four of the six ways to arrive at "RUNNING, ingesting, serving
+            // nothing" are settings that nothing on the node ever mentioned. `sources bound:` and
+            // its `event.time` option was the only statement the engine made about any of this,
+            // and `grep -icE "out-of-orderness"` over a whole startup log was 0 on every
+            // configuration tried. The effective values, from the built schema rather than from
+            // the declaration, so a default shows as the default rather than as blank.
+            log.info(
+                    "stream {}: event-time={}, out-of-orderness={}, allowed-lateness={}",
+                    name,
+                    declared.eventTimeOrdinal().isPresent()
+                            ? declared.field(declared.eventTimeOrdinal().getAsInt())
+                                    .name()
+                            : "none -- no window over this stream can ever close",
+                    declared.eventTimeOrdinal().isPresent() ? declared.outOfOrderness() : "n/a",
+                    declared.eventTimeOrdinal().isPresent() ? declared.allowedLateness() : "n/a");
         });
         if (!declaredStreams.getStreams().isEmpty()) {
             log.info(
@@ -916,7 +933,29 @@ public class PravahaNode implements SmartLifecycle {
                             + "accept: " + e.getMessage() + " Left as configured, every registration on this "
                             + "node would fail and the node would look healthy.");
         }
+        // The tick, validated in the same place and for the same reason (TIME-5, TIME-11).
+        // `tick <= idle-after` was checked in QueryExecution.generatingWatermarks and therefore
+        // once per *registration*: `tick: 5m` with `idle-after: 30s` started a node that logged
+        // both settings as in force, reported UP, recovered its journal and then refused every
+        // registration with PRV-1041 -- one bad value producing every query failing separately,
+        // which is exactly what the comment above says this block exists to avoid. And a tick of
+        // 0s, PT0.0005S or -1s was accepted and silently clamped to a millisecond.
+        //
+        // The bounds themselves are WatermarkTracker's, like the idle timeout's, so there is one
+        // copy of them and the log line below can be read as the effective settings because no
+        // other value can reach it.
+        try {
+            com.ash.messaging.pravaha.runtime.time.WatermarkTracker.requireTick(watermarkTick, watermarkIdleAfter);
+        } catch (RuntimeException e) {
+            throw new PravahaException(
+                    SqlErrors.VALIDATION_FAILED,
+                    "pravaha.watermark.tick is " + watermarkTick + ", which this engine will not accept: "
+                            + e.getMessage() + " Left as configured, this node would start healthy and refuse "
+                            + "every registration, or run a clock nobody asked for.");
+        }
         registry.generatingWatermarks(watermarkIdleAfter, watermarkTick);
+        // The effective settings, which they now are: nothing between here and the clock changes
+        // either value, because a value the engine would have had to change was refused above.
         log.info("watermarks: idle-after={}, tick={}", watermarkIdleAfter, watermarkTick);
 
         feeds = new PluginSourceFeeds();

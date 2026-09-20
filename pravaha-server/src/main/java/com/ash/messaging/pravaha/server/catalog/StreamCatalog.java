@@ -115,20 +115,40 @@ public class StreamCatalog {
     public static StreamSchema withEventTime(
             StreamSchema parsed, String column, java.time.Duration outOfOrderness, java.time.Duration allowedLateness) {
         if (allowedLateness != null && allowedLateness.isNegative()) {
-            throw new IllegalArgumentException("stream '" + parsed.name() + "' gives a negative allowed lateness, "
-                    + allowedLateness + ". It is how long a closed window stays open to a late correction; "
-                    + "zero means none.");
+            throw refused(
+                    parsed.name(),
+                    "allowed-lateness",
+                    "gives a negative allowed lateness, " + allowedLateness
+                            + ". It is how long a closed window stays open to a late correction; zero means "
+                            + "none.");
+        }
+        if (outOfOrderness != null && outOfOrderness.isNegative()) {
+            // Here rather than only in StreamSchema.Builder.outOfOrderness, which raises a bare
+            // IllegalArgumentException carrying neither the stream nor the key (TIME-9).
+            throw refused(
+                    parsed.name(),
+                    "out-of-orderness",
+                    "gives a negative out-of-orderness, " + outOfOrderness
+                            + ". It is how late a row's event time may be before the engine stops waiting; "
+                            + "zero claims the source is strictly ordered, which the engine will hold you to.");
         }
         if (column == null || column.isBlank()) {
             if (allowedLateness != null) {
-                throw new IllegalArgumentException("stream '" + parsed.name() + "' gives an allowed lateness and "
-                        + "no event-time column. Allowed lateness is how long a window stays open to a late "
-                        + "row after it closes, so it needs an event time to be about.");
+                throw refused(
+                        parsed.name(),
+                        "allowed-lateness",
+                        "gives an allowed lateness and no event-time column. Allowed lateness is how long a "
+                                + "window "
+                                + "stays open to a late row after it closes, so it needs an event time to be "
+                                + "about.");
             }
             if (outOfOrderness != null) {
-                throw new IllegalArgumentException("stream '" + parsed.name() + "' gives an out-of-orderness and no "
-                        + "event-time column. Out-of-orderness is how late a row's event time may be, so it "
-                        + "needs an event time to be about.");
+                throw refused(
+                        parsed.name(),
+                        "out-of-orderness",
+                        "gives an out-of-orderness and no event-time column. Out-of-orderness is how late a "
+                                + "row's "
+                                + "event time may be, so it needs an event time to be about.");
             }
             return parsed;
         }
@@ -152,7 +172,49 @@ public class StreamCatalog {
         if (allowedLateness != null) {
             builder.allowedLateness(allowedLateness);
         }
-        return builder.build();
+        try {
+            return builder.build();
+        } catch (IllegalArgumentException e) {
+            // TIME-9. The builder's remaining refusal -- an event-time column that is not a
+            // TIMESTAMP -- was a bare IllegalArgumentException with no code, no stream name and no
+            // configuration key, whose primary output was a Spring ApplicationContextException
+            // stack trace. One line away in this same method, a *misspelt* column already got
+            // PRV-2002 naming the stream and listing its columns, so the bar was demonstrably met
+            // for one of two mistakes an operator makes in the same YAML block. Wrapped here
+            // rather than fixed in StreamSchema, which is in pravaha-api and cannot know either
+            // the key or which surface the value came through.
+            throw refused(parsed.name(), "event-time", "cannot declare its event time: " + e.getMessage() + ".");
+        }
+    }
+
+    /**
+     * One shape for every refusal of a stream's event-time declaration (TIME-9).
+     *
+     * <p>Code, stream, configuration key, the rejected value and what it would do -- the shape
+     * {@code pravaha.watermark.idle-after}'s four refusals already had and these did not. Both
+     * surfaces are named because this is the one implementation behind both: the key for a node
+     * described by a file, and the field for {@code POST /api/v1/streams}.
+     */
+    private static PravahaException refused(String stream, String setting, String what) {
+        return new PravahaException(
+                SqlErrors.VALIDATION_FAILED,
+                "stream '" + stream + "' " + what + " Set by pravaha.streams." + stream + "." + setting + ", or by '"
+                        + camel(setting) + "' on POST /api/v1/streams.");
+    }
+
+    /** {@code out-of-orderness} as the REST body spells it, so the message names both surfaces. */
+    private static String camel(String setting) {
+        StringBuilder text = new StringBuilder();
+        boolean up = false;
+        for (char c : setting.toCharArray()) {
+            if (c == '-') {
+                up = true;
+            } else {
+                text.append(up ? Character.toUpperCase(c) : c);
+                up = false;
+            }
+        }
+        return text.toString();
     }
 
     public synchronized Collection<StreamSchema> all() {

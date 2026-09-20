@@ -656,6 +656,13 @@ public final class PhysicalPlanBuilder {
                     }
                     default -> throw unsupported("GROUP BY " + function + " is not supported; use TUMBLE or HOP");
                 };
+        // The same check the TABLE(TUMBLE(...)) form gets, which this form never had. TIME-2's
+        // guard was added to buildWindowAssign alone, so `GROUP BY TUMBLE(other_time, ...)` over a
+        // stream declaring `event_time` walked straight past it and cut its windows from a column
+        // no watermark tracks -- the wrong-rather-than-late answer TIME-2 is about, reachable
+        // through the spelling most queries actually use. Found while closing TIME-6, whose
+        // refusal of a stream with no declared event time at all lives in the same method.
+        requireDeclaredEventTime(function, eventTimeOrdinal, input);
 
         // The assigner appends window_start and window_end to whatever it is given.
         StreamSchema assigned = appendBoundaries(input.outputSchema());
@@ -738,8 +745,6 @@ public final class PhysicalPlanBuilder {
         if (eventTimeOrdinal < 0) {
             throw unsupported("the windowing function names no time column. Pass one with DESCRIPTOR(event_time).");
         }
-        requireDeclaredEventTime(function, eventTimeOrdinal, input.outputSchema());
-
         WindowSpec spec =
                 switch (function) {
                     case "TUMBLE" -> {
@@ -760,6 +765,11 @@ public final class PhysicalPlanBuilder {
                                         + "store. Use TUMBLE or HOP.");
                     default -> throw unsupported("unsupported windowing function " + function);
                 };
+        // After the switch, not before it. A windowing function this engine does not execute at all
+        // -- SESSION -- has to say so first: checked before it, a SESSION query whose second
+        // DESCRIPTOR names the partitioning column was refused for its event time and never reached
+        // the sentence explaining that SESSION is not wired to SQL yet.
+        requireDeclaredEventTime(function, eventTimeOrdinal, input);
 
         StreamSchema output = schemaOf(windowing, input.outputSchema().name() + "_windowed", input.outputSchema());
         return new WindowAssignOperator(input, output, spec, eventTimeOrdinal);
@@ -780,17 +790,48 @@ public final class PhysicalPlanBuilder {
      * the column the stream declared. A window grid keyed to any other column is not a slower answer
      * to the same question; it is an answer to a question the engine cannot bound.
      *
-     * <p>A stream that declares no event time at all is left alone: that is TIME-002's finding and a
-     * different conversation, and refusing here would replace its message with this one.
+     * <p><strong>A stream that declares no event time at all is refused too, when the input is a
+     * stream</strong> (TIME-6). It used to be left alone, with the reasoning that TIME-002 owned
+     * that case; what TIME-6 measured is what being left alone costs. Four separate
+     * misconfigurations -- no {@code event-time} key, a blank one, and an out-of-orderness larger
+     * than the data's span twice over -- each produced a query reporting {@code RUNNING} with a
+     * climbing {@code ROWS IN}, an empty view, a {@code NaN} lag gauge and not one log line, and
+     * nothing on any surface told them apart from a query that was working. Two of the four are
+     * this one, and they are decidable here, where the schema is in hand.
+     *
+     * <p>Only for an unbounded input. Over a bounded read the windows are fired by {@code finish()}
+     * at the end of the scan rather than by a watermark, so the same plan does terminate and does
+     * answer, and refusing it would take away a query that works.
      */
-    private static void requireDeclaredEventTime(String function, int descriptorOrdinal, StreamSchema schema) {
+    private void requireDeclaredEventTime(String function, int descriptorOrdinal, PhysicalOperator input) {
+        StreamSchema schema = input.outputSchema();
+        // The stream's own name, not the derived one this operator's input carries. A projection
+        // names its output `<stream>_projected`, and telling an operator to set
+        // `pravaha.streams.ev_projected.event-time` names a stream that does not exist.
+        String stream = streamNameOf(input);
         java.util.OptionalInt declared = schema.eventTimeOrdinal();
-        if (declared.isEmpty() || declared.getAsInt() == descriptorOrdinal) {
+        if (declared.isEmpty()) {
+            if (boundedInput) {
+                return;
+            }
+            throw new PravahaException(
+                    SqlErrors.VALIDATION_FAILED,
+                    function + " is given DESCRIPTOR("
+                            + schema.field(descriptorOrdinal).name() + "), but '"
+                            + stream + "' declares no event-time column -- so no watermark advances "
+                            + "over it and no window this query opens can ever close. It would register, "
+                            + "report RUNNING, ingest every row and emit nothing, for ever.\n"
+                            + "  Declare the column: pravaha.streams." + stream + ".event-time: "
+                            + schema.field(descriptorOrdinal).name() + ", or 'eventTime' on "
+                            + "POST /api/v1/streams. The column must be a TIMESTAMP.\n"
+                            + "Refused at registration rather than discovered from an empty view later.");
+        }
+        if (declared.getAsInt() == descriptorOrdinal) {
             return;
         }
         throw unsupported(function + " is given DESCRIPTOR("
                 + schema.field(descriptorOrdinal).name() + "), but '"
-                + schema.name() + "' declares '"
+                + stream + "' declares '"
                 + schema.field(declared.getAsInt()).name()
                 + "' as its event time. Windows are assigned in event time and closed by a watermark, "
                 + "and the watermark only advances on the declared column -- so windows cut from '"
@@ -799,6 +840,21 @@ public final class PhysicalPlanBuilder {
                 + "DESCRIPTOR(" + schema.field(declared.getAsInt()).name() + "), or declare '"
                 + schema.field(descriptorOrdinal).name() + "' as the stream's event time if that is "
                 + "what it is.");
+    }
+
+    /**
+     * The stream a plan fragment reads, by descending to its leftmost leaf.
+     *
+     * <p>Every operator above a scan renames its output -- {@code ev_projected},
+     * {@code ev_windowed} -- so the schema in hand at a window assignment carries no name an
+     * operator could put in a configuration file. The scan's does.
+     */
+    private static String streamNameOf(PhysicalOperator operator) {
+        PhysicalOperator current = operator;
+        while (!current.inputs().isEmpty()) {
+            current = current.inputs().get(0);
+        }
+        return current.outputSchema().name();
     }
 
     private static void requireIntervals(String function, List<Long> intervals, int expected) {

@@ -64,12 +64,20 @@ class ExpressionMatrixTest {
             .field("status", Types.string().withNullable(true))
             .field("flagged", Types.bool())
             .field("event_time", Types.timestamp())
+            // Declared, not merely present. A stream whose event time is not declared has no
+            // watermark, so no window over it can close and the planner now refuses one (TIME-6);
+            // a fixture that windows has to be a stream a node could really window.
+            .eventTime("event_time")
             .build();
 
     private static final StreamSchema OTHER = StreamSchema.builder("other")
             .field("user_id", Types.string())
             .field("region", Types.string())
             .field("event_time", Types.timestamp())
+            // Declared, not merely present. A stream whose event time is not declared has no
+            // watermark, so no window over it can close and the planner now refuses one (TIME-6);
+            // a fixture that windows has to be a stream a node could really window.
+            .eventTime("event_time")
             .build();
 
     private static final long SECOND = 1_000_000_000L;

@@ -62,7 +62,7 @@ Every one of them decides whether memory is bounded at all — not one is a matt
 | `pravaha.streams.<name>.event-time` | none | which `TIMESTAMP` column is the stream's time. **Without it no watermark advances** |
 | `pravaha.streams.<name>.out-of-orderness` | `10s` | how far the watermark trails the newest row: how long a window waits for stragglers |
 | `pravaha.watermark.idle-after` | `30s` | how long a partition may produce nothing before it stops holding the watermark back (1 s to 10 min, refused outside that, never clamped) |
-| `pravaha.watermark.tick` | `1s` | how often event time advances and idleness is checked; keep it finer than `idle-after` |
+| `pravaha.watermark.tick` | `1s` | how often event time advances and idleness is checked; **must** be finer than `idle-after`, and at least `1ms`. Both refused at startup, never clamped |
 
 ```yaml
 pravaha:
@@ -75,6 +75,22 @@ pravaha:
     idle-after: 30s
     tick: 1s
 ```
+
+!!! note "A unitless number is seconds"
+    `out-of-orderness: 60` is a minute and `allowed-lateness: 30` is thirty seconds. They used to
+    bind as *milliseconds*, so `60` gave the same eleven windows and the same totals as the
+    ten-second default and the mistake could not be seen in the answer. `60s`, `PT1M` and `60ms`
+    all mean what they say.
+
+!!! note "The node says what is in force"
+    One line per stream at startup — `stream txn: event-time=event_time, out-of-orderness=PT10S,
+    allowed-lateness=PT0S`, and `event-time=none -- no window over this stream can ever close` for
+    a stream with none. Read it when a windowed query is `RUNNING` with a climbing `ROWS IN` and an
+    empty view: it is the one place the effective lateness is stated.
+
+A **windowed query over a stream with no `event-time`** is refused at registration rather than
+accepted and left unable to emit: `PRV-2002 ... declares no event-time column`, naming the key to
+set. A bounded read is still allowed, because there the end of the scan fires the windows.
 
 A source must also **stamp** each row with that column: on the `filesystem` and `aerospike`
 sources that is the `event.time` option. Without it every row carries the time it was *read*, the

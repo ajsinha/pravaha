@@ -85,7 +85,10 @@ pravaha:
 ```
 
 or `"allowedLateness": "PT5M"` beside `eventTime` in `POST /api/v1/streams`. It needs `event-time`
-(refused without one) and is refused negative; `GET /api/v1/streams` reports it. Every windowed query
+(refused without one) and is refused negative — both with `PRV-2002`, naming the stream and both
+spellings of the key. **A unitless number is seconds**: `allowed-lateness: 30` is thirty seconds,
+where it used to bind as thirty *milliseconds* and be indistinguishable from the zero default.
+`GET /api/v1/streams` reports it. Every windowed query
 planned over the stream afterwards gets it. With it, the fourth row above — 09:00:50, behind the
 watermark but within five minutes — **reopens** `[09:00, 09:01)`: the published `2, 1200` is
 retracted and `3, 2100` published, in one commit, and the read above returns `3  2100`.

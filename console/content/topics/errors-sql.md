@@ -86,6 +86,15 @@ The message deliberately does **not** list the streams that do exist: validation
 authorization can, and a list would hand every caller the node's inventory (SX-5). It says how many
 are declared and points at `GET /api/v1/streams`, which is filtered by what you may read.
 
+**Two event-time refusals also carry this code.** A windowed query over a stream that declares no
+event-time column — no watermark advances, so no window can ever close, and the query would sit at
+`RUNNING` with a climbing `ROWS IN` and an empty view for ever. And a stream declaration the node
+cannot accept: an event-time column that is not a `TIMESTAMP`, a negative out-of-orderness or
+allowed lateness, or either of those given with no event time for them to be about. Each names the
+stream and both spellings of the setting — `pravaha.streams.<name>.out-of-orderness`, or
+`outOfOrderness` on `POST /api/v1/streams`. See
+[Event time and watermarks](/help/topics/event-time-watermarks).
+
 ### PRV-2003 — unknown stream
 
 A stream named by an API call — `GET /api/v1/streams/{name}`, a registration against a stream — is not

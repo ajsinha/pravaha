@@ -613,7 +613,26 @@ server setting reached it — `pravaha.streams.<name>.allowed-lateness` and `POS
 `allowedLateness` are the two ways now; an embedder sets `StreamSchema.allowedLateness`. It needs
 an `event-time` and cannot be negative.
 
-Set it **per stream** — lateness is a property of the source, and a query reading three streams
+**A unitless number is seconds** for both keys. `out-of-orderness: 60` is a minute, not sixty
+milliseconds, and `allowed-lateness: 30` is thirty seconds (TIME-3). Until this was annotated,
+Spring's relaxed binding read them as milliseconds, and `60` produced a view identical to the
+ten-second default -- the misconfiguration was invisible at the only surface that could show it,
+and no bound can catch it, because sixty milliseconds is a legitimate out-of-orderness. Every
+explicit spelling (`60s`, `PT1M`, `60ms`) means what it says.
+
+**The node states what is in force, per stream, at startup.** One line each:
+
+```
+stream txn: event-time=event_time, out-of-orderness=PT10M, allowed-lateness=PT30S
+stream ref: event-time=none -- no window over this stream can ever close
+```
+
+Read from the schema the node built rather than from the file, so a default shows as the default.
+Before TIME-6 nothing anywhere mentioned out-of-orderness: `grep -icE "out-of-orderness"` over a
+full startup log was 0 on every configuration, and four separate ways of arriving at "RUNNING,
+ingesting, serving nothing" were indistinguishable from a query that was working.
+
+Set it **per stream** -- lateness is a property of the source, and a query reading three streams
 should get three tolerances rather than the worst of them. Configuration does that with
 `pravaha.streams.<name>.out-of-orderness`; an embedder does it with `StreamSchema.outOfOrderness`.
 
@@ -711,10 +730,19 @@ partitions that were merely slow. Above ten minutes, a broken partition is indis
 quiet one for longer than anyone can operate, and state grows throughout; a source whose normal gap
 exceeds that is a batch, and a batch should not be holding a stream's watermark.
 
-The **tick should be finer than the idle timeout** — idleness is detected on the tick, so a coarser
-one cannot notice until long after the fact. This is **not** validated at startup: a node with
-`tick: 30s` and `idle-after: 5s` starts and logs both values without complaint. Only
-`idle-after` itself is bounds-checked (1s to 10m, refused not clamped).
+The **tick must be finer than the idle timeout** — idleness is detected on the tick, so a coarser
+one cannot notice until long after the fact — and it **is** validated at startup now (TIME-5). A
+node with `tick: 5m` and `idle-after: 30s` used to start, log both values as in force, report `UP`,
+recover its journal and then refuse every registration, because the rule lived in
+`QueryExecution.generatingWatermarks` and therefore fired once per query. It is now
+`PRV-2002 pravaha.watermark.tick ...` at startup, where one bad value costs one failure.
+
+The tick has its own floor of **one millisecond**, refused rather than clamped (TIME-11).
+`tick: 0s`, `PT0.0005S` and `-1s` were each accepted and each silently became a millisecond — a
+zero tick is a thousand passes over every lane a second, for ever, on a daemon thread — while the
+log line printed the value you asked for. Because nothing between that line and the clock can
+change either number any more, `watermarks: idle-after=…, tick=…` is the **effective**
+configuration by construction.
 
 Watch `pravaha_query_watermark_lag_seconds`. Lag that climbs without bound means event time is not
 keeping up with arrival, and every bound downstream is measured against event time — so a stuck

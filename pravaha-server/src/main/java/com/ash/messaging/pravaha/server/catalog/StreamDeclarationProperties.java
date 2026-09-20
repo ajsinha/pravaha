@@ -56,7 +56,16 @@ public class StreamDeclarationProperties {
 
         private String schema;
         private String eventTime;
+
+        // Seconds, not Spring's default of milliseconds. See getOutOfOrderness (TIME-3). The
+        // annotation targets a field rather than a method, and the field is where Spring's
+        // JavaBeanBinder reads it from.
+        @org.springframework.boot.convert.DurationUnit(java.time.temporal.ChronoUnit.SECONDS)
         private java.time.Duration outOfOrderness;
+
+        // And its twin, for the same reason and in the same breath: `allowed-lateness: 30` bound as
+        // thirty milliseconds, which is indistinguishable from none.
+        @org.springframework.boot.convert.DurationUnit(java.time.temporal.ChronoUnit.SECONDS)
         private java.time.Duration allowedLateness;
 
         public String getSchema() {
@@ -84,7 +93,23 @@ public class StreamDeclarationProperties {
             this.eventTime = eventTime;
         }
 
-        /** How late this stream's rows may be. Overrides the engine default for this stream only. */
+        /**
+         * How late this stream's rows may be. Overrides the engine default for this stream only.
+         *
+         * <p><strong>A unitless number is seconds</strong> (TIME-3). Spring's relaxed binding reads
+         * one into a {@code Duration} as <em>milliseconds</em> unless told otherwise, and this
+         * carried no annotation: {@code out-of-orderness: 60} meant sixty milliseconds, gave 11
+         * windows and a last total of 1045 -- the same two numbers as the ten-second default, so
+         * the operator who meant a minute could not see the difference at the only surface that
+         * could have shown it. There is no bound that catches it either, because sixty milliseconds
+         * is a perfectly legitimate out-of-orderness; the key one line above,
+         * {@code pravaha.watermark.idle-after}, is saved by having a one-second minimum, and this
+         * has nothing to be saved by. Seconds is the unit lateness is discussed in, so a unitless
+         * number now means what somebody writing one meant, and every explicit form
+         * ({@code 60s}, {@code PT1M}, {@code 60ms}) is unchanged. The effective value is logged per
+         * stream at startup (TIME-6), which is the other half: a setting nothing states cannot be
+         * checked.
+         */
         public java.time.Duration getOutOfOrderness() {
             return outOfOrderness;
         }
@@ -102,6 +127,10 @@ public class StreamDeclarationProperties {
          * -- was built. Zero, the default, keeps a window final when it closes. Non-zero makes a
          * windowed query revise its answers, so it can no longer write to an append-only sink
          * ({@code PRV-2041}).
+         *
+         * <p>A unitless number is <strong>seconds</strong>, as {@link #getOutOfOrderness()}'s is
+         * and for the same reason (TIME-3): {@code allowed-lateness: 30} used to bind as thirty
+         * milliseconds, which is indistinguishable from the zero default.
          */
         public java.time.Duration getAllowedLateness() {
             return allowedLateness;

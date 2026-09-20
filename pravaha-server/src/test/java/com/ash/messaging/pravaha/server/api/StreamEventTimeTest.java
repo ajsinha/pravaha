@@ -94,10 +94,15 @@ class StreamEventTimeTest {
     void latenessWithoutAnEventTimeIsRefusedAndSoIsAColumnTheStreamDoesNotHave() {
         StreamController streams = controller(new StreamCatalog(), new SourceBindingProperties());
 
+        // TIME-9: a coded refusal naming the stream and both spellings of the key, where this was a
+        // bare IllegalArgumentException. The status is unchanged -- PRV-2002 is in the SQL category
+        // and maps to 400, as PRV-0400 did.
         assertThatThrownBy(() -> streams.register(
                         new StreamController.RegisterStreamRequest("a", "id:INT64", null, "PT5S"), asAdmin()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("needs an event time");
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-2002")
+                .hasMessageContaining("needs an event time")
+                .hasMessageContaining("pravaha.streams.a.out-of-orderness");
         assertThatThrownBy(() -> streams.register(
                         new StreamController.RegisterStreamRequest("b", "id:INT64", "at", null), asAdmin()))
                 .isInstanceOf(PravahaException.class)
