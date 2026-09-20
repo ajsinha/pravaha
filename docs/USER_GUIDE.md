@@ -317,6 +317,31 @@ depending on the order they attached (STRM-2). Reconnect and re-read the view to
 Whatever is lost is **counted** (`dropped()`, `conflated()`), because a subscriber silently missing
 data is the failure the mechanism exists to make visible.
 
+### How a subscription ends
+
+Four endings, and telling them apart is the difference between a client that reconnects and one
+that stops with a stale copy. Until STRM-12 they were one signal: an administrative drop, a node
+shutting down and your own `close()` all arrived as a clean completion, which means "this stream is
+finished", and only the last of the three is.
+
+| Ending | On the wire | Your move |
+|---|---|---|
+| You called `close()` | the stream ends normally | nothing |
+| The name was **dropped** | `PRV-8011`, Flight status `NOT_FOUND` | stop. The name is gone; what you have is complete up to the drop |
+| The **node is shutting down** | `PRV-8012`, Flight status `UNAVAILABLE` | reconnect. The query is journalled and comes back `RUNNING`; read the view to catch up |
+| The view was **replaced** at a cutover | `PRV-4019` | subscribe again to the same name, which the new version now answers |
+| Your entitlement or credential went | `PRV-7002` / `PRV-7001` | re-authenticate, or ask for the grant back |
+
+`PRV-8011` also ends a subscription on a name that was **sharing** a computation with another
+registration. Two registrations of the same question are one computation with two names; dropping
+one leaves the other running, and a subscriber on the dropped name used to go on being streamed
+rows under a name a read of the view refused as nonexistent (STRM-14). A subscriber on the
+surviving name is untouched, which is the point of sharing.
+
+In process the same event closes the `Subscription`, puts the reason in `failure()`, and returns
+`subscriberCount()` to zero — which after a drop it never did, so the number an operator reads as
+"nobody is watching this" was permanently wrong.
+
 ## 5. Manage what is running
 
 ```sql

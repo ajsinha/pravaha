@@ -387,6 +387,31 @@ public final class RegisteredQuery implements AutoCloseable {
             SubscriptionOptions options,
             SubscriptionFilter filter,
             java.util.function.Consumer<java.util.List<com.ash.messaging.pravaha.serving.ViewChange>> consumer) {
+        return subscribeAs(null, options, filter, consumer);
+    }
+
+    /**
+     * Attaches a consumer that asked for this computation by a particular one of its names.
+     *
+     * <p>STRM-14. A computation answers to every name registered over the same question, and
+     * dropping one of them leaves it running under the others -- correctly, because somebody else
+     * is still reading it. What was not correct is that a subscriber attached under the dropped
+     * name went on being streamed: {@code drop} removed the name from the registry and the view
+     * from the catalogue, {@code removeName} returned false because another name held the
+     * computation, so nothing terminal happened, and the subscriber's loop tested only
+     * {@code state().isTerminal()}. Two server responses to the same name at the same instant
+     * contradicted each other -- one streaming rows, the other refusing the view as nonexistent --
+     * and the authorization re-check went on asking the policy about a name it could no longer
+     * have an opinion on.
+     *
+     * @param underName the name the caller asked for, or null for a caller that holds this object
+     *     directly and has no name in mind
+     */
+    public Subscription subscribeAs(
+            String underName,
+            SubscriptionOptions options,
+            SubscriptionFilter filter,
+            java.util.function.Consumer<java.util.List<com.ash.messaging.pravaha.serving.ViewChange>> consumer) {
         refuseIfReplaced();
         // state(), not the field. Attaching a subscriber to a query whose lane has died gives it a
         // handle that will never deliver anything and never say why.
@@ -395,7 +420,7 @@ public final class RegisteredQuery implements AutoCloseable {
                     RegistryErrors.ILLEGAL_TRANSITION, "cannot subscribe to '" + anyName() + "': it is " + state());
         }
         return new Subscription(
-                anyName(),
+                underName == null ? anyName() : underName,
                 view.keyOrdinals(),
                 options == null ? SubscriptionOptions.DEFAULT : options,
                 filter,
@@ -430,6 +455,22 @@ public final class RegisteredQuery implements AutoCloseable {
     void endSubscriptions(PravahaException why) {
         for (Subscription subscription : subscriptions) {
             subscription.endBecause(why);
+        }
+    }
+
+    /**
+     * Ends the subscriptions opened under one of this computation's names, with the reason.
+     *
+     * <p>STRM-14. For a drop that does not release the computation: the name is gone and its view
+     * with it, so a subscriber that asked for that name has nothing left to watch, while every
+     * subscriber on a surviving name is correctly untouched -- which is the mirror case STRM-067
+     * confirmed was already right, and the reason this is by name rather than wholesale.
+     */
+    void endSubscriptionsUnder(String name, PravahaException why) {
+        for (Subscription subscription : subscriptions) {
+            if (name.equals(subscription.queryName())) {
+                subscription.endBecause(why);
+            }
         }
     }
 
@@ -684,8 +725,23 @@ public final class RegisteredQuery implements AutoCloseable {
     /** Removes a name; returns true when none are left and the computation should be released. */
     synchronized boolean removeName(String name) {
         names.remove(name);
+        if (names.isEmpty()) {
+            // STRM-17. Kept precisely for the message that comes next: once the set is empty,
+            // anyName() fell back to the fingerprint and the one refusal whose job is to tell
+            // somebody which query they cannot subscribe to read "cannot subscribe to
+            // 'a740dfd20964': it is DROPPED" -- an identifier that appears nowhere in their code.
+            lastName = name;
+        }
         return names.isEmpty();
     }
+
+    /**
+     * The name this computation last answered to, for a message raised after it stopped answering.
+     *
+     * <p>Not a name it can be reached by: it is out of {@link #names} and the registry has
+     * forgotten it. It exists so a refusal can be about the word the caller used.
+     */
+    private String lastName;
 
     /** Any one of this computation's names, for a log line or a wire response. */
     public synchronized String name() {
@@ -693,7 +749,10 @@ public final class RegisteredQuery implements AutoCloseable {
     }
 
     synchronized String anyName() {
-        return names.isEmpty() ? fingerprint.shortForm() : names.iterator().next();
+        if (!names.isEmpty()) {
+            return names.iterator().next();
+        }
+        return lastName != null ? lastName : fingerprint.shortForm();
     }
 
     /**
@@ -791,6 +850,21 @@ public final class RegisteredQuery implements AutoCloseable {
                         "could not commit the final windows of " + names + ": " + e.getMessage(),
                         e);
             }
+            // STRM-12. After the final commit, so a subscriber sees every change this computation
+            // ever made and is then told the query is gone -- and before this line nothing told it
+            // anything. Nothing closed the Subscription and nothing removed it from the sink's
+            // listeners, so three objects reported isClosed() == false with an empty failure(),
+            // attached to a closed computation, waiting for changes that would never come, and
+            // subscriberCount() -- which OPERATIONS.md offers as the operator's signal that nobody
+            // is watching a query -- never returned to zero after any drop.
+            //
+            // endBecause is a no-op on a subscription that has already ended, so a shutdown's
+            // NODE_STOPPING (set by QueryRegistry before it closes anything) wins over this, and a
+            // cutover's VIEW_REPLACED wins over both. The first reason is the true one.
+            endSubscriptions(new PravahaException(
+                    RegistryErrors.QUERY_DROPPED,
+                    "'" + anyName() + "' has been dropped and no longer exists on this node, so there are no "
+                            + "more changes to it. What you received up to here is complete."));
         }
     }
 

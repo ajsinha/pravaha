@@ -43,7 +43,7 @@ to fit would silently lose matches the query asked for, and a wrong answer is wo
 | `rejectedCount()`, `queueTimedOutCount()`, `tenantRejectedCount()` | `ReadAdmission` | Read load exceeding capacity, and which of the three ways |
 | `avoidableForks()` | `RegisteredQuery` | You are running N computations where one would do |
 | Shared fingerprints | `pravaha queries`, console | The sharing claim holding — or not |
-| `subscriberCount()` | `RegisteredQuery` | Consumers attached. Zero on a query somebody expects to be watched is a clue |
+| `subscriberCount()` | `RegisteredQuery` | Consumers attached. Zero on a query somebody expects to be watched is a clue, and it does return to zero -- a drop used to leave every subscriber attached for ever and the number permanently wrong (STRM-12) |
 
 These are on the objects and through the SDK. They are **also** published to Prometheus by the
 server — see *Watching a running node* below, which is the part that was added later and left this

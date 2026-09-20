@@ -424,6 +424,101 @@ class SubscriptionTest {
     }
 
     @Test
+    void strm17TheRefusalNamesTheQueryTheCallerAskedAboutRatherThanAFingerprint() {
+        // STRM-17. anyName() fell back to fingerprint.shortForm() once removeName had emptied the
+        // name set, and both subscribe overloads build their message from it -- so the one message
+        // whose job is to say which query you cannot subscribe to read "cannot subscribe to
+        // 'a740dfd20964': it is DROPPED", naming an identifier that appears nowhere in the
+        // caller's code.
+        registry.drop("q");
+
+        assertThatThrownBy(() -> query.subscribe(changes -> {}))
+                .hasMessageContaining("cannot subscribe to 'q'")
+                .hasMessageNotContaining(query.fingerprint().shortForm());
+    }
+
+    @Test
+    void strm12ADropClosesItsSubscriptionsAndSaysWhySoTheCountReturnsToZero() {
+        // STRM-12. RegisteredQuery.close() touched no subscription, so after any drop the
+        // Subscription objects reported isClosed() == false with an empty failure(), stayed in the
+        // sink's listener list, and subscriberCount() -- which OPERATIONS.md offers as the
+        // operator's signal that nobody is watching a query -- never returned to zero.
+        Subscription one = query.subscribe(changes -> {});
+        Subscription two = query.subscribe(changes -> {});
+        assertThat(query.subscriberCount()).isEqualTo(2);
+
+        registry.drop("q");
+
+        assertThat(one.isClosed()).isTrue();
+        assertThat(two.isClosed()).isTrue();
+        assertThat(one.failure().orElseThrow().getMessage())
+                .as("a reason the client can act on, not silence")
+                .contains("PRV-8011")
+                .contains("has been dropped");
+        assertThat(query.subscriberCount())
+                .as("the count is a signal only if it can go back down")
+                .isZero();
+    }
+
+    @Test
+    void strm12ClosingTheRegistrySaysTheNodeIsStoppingRatherThanThatTheQueryIsOver() {
+        // STRM-12's second half. A restart arrived as a clean completion, which reads as "this
+        // stream is finished" -- for a query that is journalled, comes back RUNNING and moves on
+        // without the client that stopped. The two events call for opposite responses, so they are
+        // two codes.
+        Subscription live = query.subscribe(changes -> {});
+
+        registry.close();
+
+        assertThat(live.isClosed()).isTrue();
+        assertThat(live.failure().orElseThrow().getMessage())
+                .contains("PRV-8012")
+                .contains("shutting down");
+    }
+
+    @Test
+    void strm14DroppingOneNameEndsOnlyTheSubscriptionsOpenedUnderIt() {
+        // STRM-14. Two registrations over byte-identical SQL are one computation with two names.
+        // Dropping one removed the name and the view but left the computation running, so a
+        // subscriber attached under the dropped name went on receiving rows -- while a read of
+        // that same name at the same instant was refused as a view that does not exist. Two server
+        // responses to one name, contradicting each other, and neither explicable as a stale
+        // client. The authorization consequence is the reason it is not cosmetic: the re-check
+        // loop kept asking the policy about a name it could no longer have an opinion on.
+        RegisteredQuery same = registry.register("qb", "SELECT user_id, amount FROM txn", List.of(0), DANA);
+        assertThat(same).isSameAs(query);
+
+        List<ViewChange> onDropped = new ArrayList<>();
+        List<ViewChange> onSurviving = new ArrayList<>();
+        Subscription dropped = query.subscribeAs("q", SubscriptionOptions.DEFAULT, null, onDropped::addAll);
+        Subscription surviving = query.subscribeAs("qb", SubscriptionOptions.DEFAULT, null, onSurviving::addAll);
+
+        feed("u1", 10);
+        query.commit();
+        assertThat(onDropped).hasSize(1);
+        assertThat(onSurviving).hasSize(1);
+
+        registry.drop("q");
+
+        assertThat(dropped.isClosed())
+                .as("the name it asked for is gone, and so is its view")
+                .isTrue();
+        assertThat(dropped.failure().orElseThrow().getMessage())
+                .contains("PRV-8011")
+                .contains("'q'");
+        assertThat(surviving.isClosed())
+                .as("STRM-067's mirror case was already right and must stay right")
+                .isFalse();
+
+        feed("u2", 20);
+        query.commit();
+        assertThat(onDropped)
+                .as("nothing more reaches a subscriber on a name that does not exist")
+                .hasSize(1);
+        assertThat(onSurviving).hasSize(2);
+    }
+
+    @Test
     void aPushedWatermarkIsStillReported() {
         // The property the fix must not cost: an embedder driving watermarks by hand is a real
         // caller, and its number is not the execution's.

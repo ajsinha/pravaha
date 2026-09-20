@@ -103,5 +103,37 @@ public final class RegistryErrors {
      */
     public static final ErrorCode OPTION_UNKNOWN = new ErrorCode(8017, "REGISTRY_OPTION_UNKNOWN");
 
+    // 8011..8016 are the time-travel debugger's and live in DebugErrors, next door; 8017 is above.
+    // The two below were written as 8011 and 8012 against a tree that had neither, and renumbered
+    // before either had shipped -- the only time a code may move. ErrorCodeUniquenessTest would
+    // have caught the collision, but after a merge, in somebody else's build.
+
+    /**
+     * The name a subscription was opened under has been dropped, so there are no more changes to it.
+     *
+     * <p>STRM-12 and STRM-14. An administrative drop used to reach a Flight subscriber as
+     * {@code listener.completed()} -- the same signal as the client's own {@code close()} and as a
+     * graceful shutdown -- and to reach an in-process subscriber as nothing at all, because
+     * {@code RegisteredQuery.close()} touched no subscription and left it in the sink's listener
+     * list for ever. Where the computation survives under another name it was worse still: the
+     * stream went on delivering rows under a name a read of the view refused as nonexistent, and
+     * the policy went on being asked about a name it could no longer have an opinion on.
+     *
+     * <p>Distinct from {@link #NO_SUCH_QUERY}, which is a name that was never here. This one was,
+     * and the subscriber's copy is right up to the moment it ended.
+     */
+    public static final ErrorCode QUERY_DROPPED = new ErrorCode(8011, "REGISTRY_QUERY_DROPPED");
+
+    /**
+     * The node is shutting down, so this subscription ends without the query having ended.
+     *
+     * <p>STRM-12's second half. A graceful shutdown drains in-flight Flight calls, so
+     * {@code listener.completed()} fired on the way out and a client read "this stream is
+     * finished" -- for a query that is journalled, comes back {@code RUNNING} after the restart,
+     * and moves on without the subscriber that stopped. Retryable, and said as such, because the
+     * right response is to reconnect.
+     */
+    public static final ErrorCode NODE_STOPPING = new ErrorCode(8012, "REGISTRY_NODE_STOPPING");
+
     private RegistryErrors() {}
 }

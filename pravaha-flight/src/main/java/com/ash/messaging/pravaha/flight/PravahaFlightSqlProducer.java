@@ -1040,7 +1040,10 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                 listener.setOnCancelHandler(finished::countDown);
                 try (Subscription subscription = fromSnapshot
                         ? subscribeFromSnapshot(query, filter, handover, fellBehind)
-                        : query.subscribe(SubscriptionOptions.DEFAULT, filter, changes -> {
+                        // subscribeAs, not subscribe: the subscription remembers the name this
+                        // client asked for, so dropping that name ends this stream even when the
+                        // computation survives under another (STRM-14).
+                        : query.subscribeAs(viewName, SubscriptionOptions.DEFAULT, filter, changes -> {
                             // offer, never put. A full queue means this subscriber is slower than
                             // the query, and the answer is to lose its batches rather than the
                             // engine's pace.
@@ -1132,9 +1135,15 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                             writeBatch(listener, root, schema, handed.changes(), handed.mark());
                         }
                     }
-                    if (fromSnapshot && subscription.failure().isPresent()) {
-                        // Said, not completed: a snapshot subscriber's copy is only right while the
-                        // stream is unbroken, and a clean end would read as "nothing more to come".
+                    if (subscription.failure().isPresent()) {
+                        // Said, not completed, and for every subscription rather than only a
+                        // snapshot's (STRM-12). An administrative drop, a node shutting down and
+                        // the client's own close() all used to arrive as listener.completed() --
+                        // one signal for three events, only one of which is an end the client
+                        // should accept. The reason carries its own code, and FlightErrors maps
+                        // each to the status a client acts on before it reads anything:
+                        // PRV-8011 NOT_FOUND for a dropped name, PRV-8012 UNAVAILABLE for a node
+                        // that is coming back.
                         listener.error(
                                 FlightErrors.failureOf(subscription.failure().get())
                                         .toRuntimeException());

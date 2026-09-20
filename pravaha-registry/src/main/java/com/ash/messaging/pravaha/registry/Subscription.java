@@ -279,6 +279,18 @@ public final class Subscription implements AutoCloseable {
         return filter;
     }
 
+    /**
+     * The name this subscription was opened under.
+     *
+     * <p>Not "a name of the computation": the two differ as soon as two registrations share one
+     * (STRM-14). Dropping one of them leaves the computation running under the other, and only a
+     * subscription that knows which word its client used can be ended when that word stops meaning
+     * anything.
+     */
+    public String queryName() {
+        return queryName;
+    }
+
     /** Changes handed to the consumer. */
     public long delivered() {
         return delivered.get();

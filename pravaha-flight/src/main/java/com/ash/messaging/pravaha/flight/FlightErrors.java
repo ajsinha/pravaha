@@ -84,6 +84,12 @@ public final class FlightErrors {
             case "PRV-4026", "PRV-4027", "PRV-4028", "PRV-6105" -> CallStatus.RESOURCE_EXHAUSTED;
             case "PRV-4021", "PRV-4029" -> CallStatus.TIMED_OUT;
             case "PRV-4023" -> CallStatus.NOT_FOUND;
+            // A subscription ending for a reason the client should act on, and the two reasons call
+            // for opposite actions (STRM-12). A dropped name is not coming back, so NOT_FOUND: stop,
+            // and do not reconnect to a name that no longer exists. A node shutting down is coming
+            // back, so UNAVAILABLE, which every gRPC client already retries.
+            case "PRV-8011" -> CallStatus.NOT_FOUND;
+            case "PRV-8012" -> CallStatus.UNAVAILABLE;
             // A handle the server cannot read, or one from an older version: the client's move is
             // to prepare the statement again, which NOT_FOUND is the conventional prompt for.
             case "PRV-6102" -> CallStatus.NOT_FOUND;
