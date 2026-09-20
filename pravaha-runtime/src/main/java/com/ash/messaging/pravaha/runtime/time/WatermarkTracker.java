@@ -49,7 +49,11 @@ public final class WatermarkTracker {
         final String name;
         final WatermarkGenerator generator;
         long lastActivityNanos;
-        boolean idle;
+
+        // Volatile because {@link #diagnostics} reads it from whichever thread is scraping, while
+        // advance() writes it from the clock's (TIME-8). One writer, so visibility is all that is
+        // needed; a lock here would be on the path a watermark tick takes through every lane.
+        volatile boolean idle;
 
         Partition(String name, WatermarkGenerator generator, long now) {
             this.name = name;
@@ -62,8 +66,12 @@ public final class WatermarkTracker {
     private final long idleTimeoutNanos;
 
     private long current = WatermarkGenerator.NOT_YET;
-    private long regressions;
-    private long idleExclusions;
+
+    // Volatile for the same reason as Partition.idle: written by advance() on the clock's thread,
+    // read by diagnostics() on whichever thread is asking (TIME-8).
+    private volatile long regressions;
+
+    private volatile long idleExclusions;
 
     /**
      * The shortest idle timeout that is not a mistake.
@@ -249,6 +257,45 @@ public final class WatermarkTracker {
     /** How often a partition has been excluded for idleness. The metric that explains a moving watermark. */
     public long idleExclusions() {
         return idleExclusions;
+    }
+
+    /**
+     * Everything this tracker knows that an operator would ask for, in one read.
+     *
+     * <p>TIME-8. {@code isIdle}, {@code idleExclusions()} and {@code regressions()} each existed,
+     * each were documented -- the second as "the metric that explains a moving watermark" -- and
+     * none of them had a caller outside this class. On a live node with a stalled query and a
+     * healthy one side by side, no shipped surface distinguished them: {@code pravaha queries}
+     * shows name, state, fingerprint and rows in; {@code /actuator/prometheus} had seven
+     * {@code pravaha_*} gauges and none of these; {@code /api/v1/status} has none. A quiet
+     * partition stopping every window in a query is the commonest streaming incident there is, and
+     * it presents as a hang.
+     *
+     * <p>One method rather than three getters wired up three times: the three numbers are read
+     * together or they mislead. An exclusion count with no idle count says a partition went quiet
+     * at some point; the pair says whether it is quiet now.
+     *
+     * @param partitions how many input partitions this lane has
+     * @param idleNow how many of them are excluded from the watermark at this moment
+     * @param idleExclusions how many times a partition has been excluded since the query started
+     * @param regressions how often a partition reported a watermark below the lane's -- a
+     *     source-side fault, counted and never silently applied
+     */
+    public record Diagnostics(int partitions, int idleNow, long idleExclusions, long regressions) {
+
+        /** For a query that derives no watermarks, which is not the same as one with none idle. */
+        public static final Diagnostics NONE = new Diagnostics(0, 0, 0, 0);
+    }
+
+    /** {@link Diagnostics} for this lane, readable from any thread. */
+    public Diagnostics diagnostics() {
+        int idle = 0;
+        for (Partition partition : partitions) {
+            if (partition.idle) {
+                idle++;
+            }
+        }
+        return new Diagnostics(partitions.size(), idle, idleExclusions, regressions);
     }
 
     @Override

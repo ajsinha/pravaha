@@ -130,6 +130,40 @@ class PravahaMetricsTest {
     }
 
     @Test
+    void time8TheThreeNumbersThatExplainAStuckWatermarkArePublished() {
+        // TIME-8. Every shipped surface was searched on a live node with a stalled query and a
+        // healthy one side by side, and none of them told the two apart: /actuator/prometheus had
+        // exactly seven pravaha_* gauges -- rows_in, running, view_evicted, view_removals,
+        // view_size, view_updates, watermark_lag_seconds -- while WatermarkTracker.isIdle,
+        // idleExclusions() and regressions() had no caller outside the class.
+        //
+        // Lag alone cannot say why a watermark is stuck: one quiet partition holding everything
+        // back, a partition that keeps going quiet, and a source whose time runs backwards are
+        // three different faults needing three different responses.
+        node.registry().orElseThrow().register("stalled", "SELECT user_id, amount FROM txn", List.of(0), DANA);
+        metrics.sync();
+
+        assertThat(meters.find("pravaha.query.watermark.partitions")
+                        .tag("query", "stalled")
+                        .gauge())
+                .isNotNull();
+        assertThat(meters.find("pravaha.query.watermark.partitions.idle")
+                        .tag("query", "stalled")
+                        .gauge())
+                .isNotNull();
+        assertThat(meters.find("pravaha.query.watermark.idle.exclusions")
+                        .tag("query", "stalled")
+                        .functionCounter())
+                .as("a counter, because a partition excluded once and back a second later is "
+                        + "invisible in a gauge and is the reason a window fired early")
+                .isNotNull();
+        assertThat(meters.find("pravaha.query.watermark.regressions")
+                        .tag("query", "stalled")
+                        .functionCounter())
+                .isNotNull();
+    }
+
+    @Test
     void aQueryThatHasSeenNothingReportsNoLagRatherThanZeroLag() {
         node.registry().orElseThrow().register("quiet", "SELECT user_id, amount FROM txn", List.of(0), DANA);
         metrics.sync();

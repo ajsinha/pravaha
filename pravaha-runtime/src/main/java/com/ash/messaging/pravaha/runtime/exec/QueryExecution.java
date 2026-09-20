@@ -688,6 +688,21 @@ public final class QueryExecution implements AutoCloseable {
     }
 
     /**
+     * What this execution's watermark tracker knows, or {@code NONE} when it derives none (TIME-8).
+     *
+     * <p>The getter that was missing. {@code WatermarkTracker} has exposed {@code isIdle},
+     * {@code idleExclusions()} and {@code regressions()} from the start and none of them had a
+     * caller outside the class, so an operator with a stalled query and a healthy one side by side
+     * had no surface that told them apart. This is the one call the server needs to publish them.
+     */
+    public com.ash.messaging.pravaha.runtime.time.WatermarkTracker.Diagnostics watermarkDiagnostics() {
+        WatermarkTracker tracker = watermarks;
+        return tracker == null
+                ? com.ash.messaging.pravaha.runtime.time.WatermarkTracker.Diagnostics.NONE
+                : tracker.diagnostics();
+    }
+
+    /**
      * Refuses to feed a multi-lane join from a reader that is not partitioned by the join key.
      *
      * <p>Every lane compiles its own pipeline, so a join on four lanes is four independent joins

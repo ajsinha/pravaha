@@ -216,6 +216,68 @@ class WatermarkTrackerTest {
     }
 
     @Test
+    void time8TheThreeNumbersThatExplainAStuckWatermarkAreReadableInOneCall() {
+        // TIME-8. isIdle, idleExclusions() and regressions() each existed, each were documented --
+        // the second as "the metric that explains a moving watermark" -- and none of them had a
+        // caller outside this class. On a live node with a stalled query and a healthy one side by
+        // side, every shipped surface showed the same thing: `pravaha queries` gives name, state,
+        // fingerprint and rows in, /actuator/prometheus had seven pravaha_* gauges and none of
+        // these, and /api/v1/status has none. A quiet partition stopping every window in a query is
+        // the commonest streaming incident there is and it presents as a hang.
+        //
+        // One call rather than three getters, because the three mislead apart: an exclusion count
+        // with no idle count says a partition went quiet at some point, and the pair says whether
+        // it is quiet now.
+        WatermarkTracker tracker = trackerWith("p0", "p1");
+        tracker.observe("p0", 50 * SECOND, 0L);
+        tracker.observe("p1", 50 * SECOND, 0L);
+        tracker.advance(0L);
+
+        assertThat(tracker.diagnostics()).isEqualTo(new WatermarkTracker.Diagnostics(2, 0, 0, 0));
+
+        // p1 goes quiet past the idle timeout: excluded now, and counted for having been.
+        long later = IDLE_TIMEOUT + SECOND;
+        tracker.observe("p0", 100 * SECOND, later);
+        tracker.advance(later);
+        assertThat(tracker.diagnostics())
+                .as("one of two excluded, and the exclusion recorded")
+                .isEqualTo(new WatermarkTracker.Diagnostics(2, 1, 1, 0));
+
+        // It comes back, which the gauge forgets a moment later and the counter does not -- which
+        // is why both are published.
+        tracker.observe("p1", 100 * SECOND, later + SECOND);
+        tracker.advance(later + SECOND);
+        assertThat(tracker.diagnostics().idleNow()).isZero();
+        assertThat(tracker.diagnostics().idleExclusions())
+                .as("the reason a window fired early and a row then arrived late")
+                .isEqualTo(1);
+
+        // And a partition reporting a watermark below the lane's is counted, never applied. The
+        // way to reach it is the one an operator does: a partition goes quiet, the lane's
+        // watermark runs on without it, and it comes back where it left off -- behind. Every row
+        // it sends from here is late, which is exactly what this counter is for.
+        WatermarkTracker regressing = trackerWith("p0", "p1");
+        regressing.observe("p0", 100 * SECOND, 0L);
+        regressing.observe("p1", 100 * SECOND, 0L);
+        assertThat(regressing.advance(0L)).isEqualTo(98 * SECOND);
+
+        regressing.observe("p0", 500 * SECOND, later);
+        assertThat(regressing.advance(later))
+                .as("p1 excluded, so p0 alone decides")
+                .isEqualTo(498 * SECOND);
+
+        regressing.observe("p1", 100 * SECOND, later + SECOND);
+        assertThat(regressing.advance(later + SECOND))
+                .as("the watermark never moves backwards")
+                .isEqualTo(498 * SECOND);
+        assertThat(regressing.diagnostics().regressions()).isEqualTo(1);
+
+        assertThat(WatermarkTracker.Diagnostics.NONE)
+                .as("a query that derives no watermarks is not a query with none idle")
+                .isEqualTo(new WatermarkTracker.Diagnostics(0, 0, 0, 0));
+    }
+
+    @Test
     void time11ATickThisTimerCannotCountIsRefusedRatherThanClamped() {
         // TIME-11. Three configurations were accepted on live nodes and all three became one
         // millisecond: 0s (a thousand passes a second over every lane, for ever, on a daemon

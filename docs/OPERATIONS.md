@@ -748,6 +748,15 @@ Watch `pravaha_query_watermark_lag_seconds`. Lag that climbs without bound means
 keeping up with arrival, and every bound downstream is measured against event time — so a stuck
 watermark shows up as growing memory, not as a stopped query.
 
+**And watch the three beside it, which say *why*** (TIME-8). Lag alone cannot tell one quiet
+partition holding everything back from a partition that keeps going quiet from a source whose time
+runs backwards, and those need different responses:
+`pravaha_query_watermark_partitions_idle` non-zero while lag climbs is the first;
+`pravaha_query_watermark_idle_exclusions_total` rising steadily is the second;
+`pravaha_query_watermark_regressions_total` non-zero at all is the third. `WatermarkTracker` has
+answered all three since it was written and until now none of them reached any surface, so a
+stalled query and a healthy one looked alike on a live node.
+
 **Without this, state is unbounded.** Windows then close only when the input ends, joins never
 evict, and views never forget. Correct over a file; fatal over a stream.
 
@@ -1239,6 +1248,10 @@ Per continuous query:
 | `pravaha_query_view_updates` | Corrections applied |
 | `pravaha_query_view_removals` | Retractions applied |
 | `pravaha_query_watermark_lag_seconds{query=}` | How far behind **event time** it is |
+| `pravaha_query_watermark_partitions{query=}` | Input partitions contributing to its watermark; 0 means it derives none |
+| `pravaha_query_watermark_partitions_idle{query=}` | How many are excluded right now for having gone quiet |
+| `pravaha_query_watermark_idle_exclusions_total{query=}` | How often one has been excluded since it started |
+| `pravaha_query_watermark_regressions_total{query=}` | How often one reported a watermark below the lane's -- a source-side fault |
 | `pravaha_query_subscribers{query=}` | How many subscribers are attached to the computation. A sink writing the query's changelog is **not** counted — it listens on the same commit and nobody is watching it. Two names on one computation report the same number, because they are one |
 | `pravaha_query_checkpoint_last_success_timestamp_seconds{query=}` | When the query last **stored** a checkpoint, as Unix seconds. Alert on its age (`time() - ...`): that is how much recovery would now replay. `NaN` while the query is not checkpointing or has not stored one yet — never zero, which would read as 1970 |
 | `pravaha_query_checkpoint_duration_seconds{query=}` | How long that last stored checkpoint took, snapshot to stored. `NaN` as above |

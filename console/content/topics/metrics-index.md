@@ -41,6 +41,10 @@ pravaha_query_state_fraction{query="user_volume"} 0.87
 | `pravaha_query_rows_in{query}` | gauge (monotonic) | Rows the query has ingested | `rate(...[5m]) == 0` on a query whose source should be live |
 | `pravaha_query_subscribers{query}` | gauge | Subscribers attached to the computation. A sink is **not** counted | 0 on a query somebody expects to be watched |
 | `pravaha_query_watermark_lag_seconds{query}` | gauge | How far behind **event time** the query is — the data, not the engine. `NaN` before the first row, never 0 | climbing without bound: event time is not advancing (a quiet source, or no `event-time` declared) |
+| `pravaha_query_watermark_partitions{query}` | gauge | Input partitions contributing to this query's watermark. 0 means the query derives none | 0 on a windowed query: no window over it can close |
+| `pravaha_query_watermark_partitions_idle{query}` | gauge | How many of them are **excluded right now** for having gone quiet | non-zero while lag climbs: a quiet partition is holding the watermark, or `idle-after` is longer than its normal gap |
+| `pravaha_query_watermark_idle_exclusions_total{query}` | counter | How often a partition has been excluded since the query started | rising steadily: a partition keeps going quiet, so windows keep firing early and its rows keep arriving late |
+| `pravaha_query_watermark_regressions_total{query}` | counter | How often a partition reported a watermark **below** the lane's — a source-side fault | non-zero at all: that source's time runs backwards, and its rows will be late from here on |
 
 ## Per query: state
 

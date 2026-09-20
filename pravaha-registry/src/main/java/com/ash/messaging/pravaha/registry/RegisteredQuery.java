@@ -251,6 +251,20 @@ public final class RegisteredQuery implements AutoCloseable {
         return pushed == Long.MIN_VALUE ? Optional.empty() : Optional.of(pushed);
     }
 
+    /**
+     * How many of this query's input partitions are excluded from its watermark, how often one has
+     * been, and how often one reported a watermark below the lane's (TIME-8).
+     *
+     * <p>The three numbers that explain a watermark that is not moving, and the reason a stalled
+     * query and a healthy one looked alike on every shipped surface. A lag gauge says a watermark
+     * is behind; only these say whether a partition went quiet, how often, and whether a source is
+     * reporting time that goes backwards. Zeroes on a query that derives no watermarks, which is a
+     * different statement from "none idle" and is why the partition count is here too.
+     */
+    public com.ash.messaging.pravaha.runtime.time.WatermarkTracker.Diagnostics watermarkDiagnostics() {
+        return execution.watermarkDiagnostics();
+    }
+
     /** Why it failed, if it did. */
     public Optional<PravahaException> failure() {
         if (failure != null) {

@@ -6,7 +6,7 @@ order: 60
 icon: clock-history
 summary: "Windows, join bounds and retention run on the time in the data; the watermark — nothing earlier is coming — closes windows and releases state. How it is computed, the settings that govern it, and how to spot a stuck one."
 audience: Everyone
-keywords: [watermark, watermarks, event time, event-time, out-of-orderness, idle-after, tick, lateness, lag, pravaha_query_watermark_lag_seconds, stuck watermark, empty view, clock]
+keywords: [watermark, watermarks, event time, event-time, out-of-orderness, idle-after, tick, lateness, lag, pravaha_query_watermark_lag_seconds, pravaha_query_watermark_partitions_idle, idle exclusions, regressions, stuck watermark, empty view, clock]
 guide: operations#running-against-a-source-that-does-not-end
 related: [windows, late-data, streams, metrics-alerts, joins]
 ---
@@ -144,7 +144,12 @@ released once the joint watermark passes its time plus an hour. A lookup join
 
 ## Watching it
 
-`pravaha_query_watermark_lag_seconds{query="…"}` is how far a query's event time is behind now.
+`pravaha_query_watermark_lag_seconds{query="…"}` is how far a query's event time is behind now, and
+three gauges beside it say **why** (TIME-8): `pravaha_query_watermark_partitions` and
+`..._partitions_idle` (how many inputs there are and how many are excluded right now),
+`..._idle_exclusions_total` (how often one has been) and `..._regressions_total` (how often one
+reported a watermark below the lane's, which is a source-side fault). Lag alone cannot tell those
+three apart, and they need different responses.
 Steady lag is the out-of-orderness plus the source's own delay. **Lag that climbs without bound means
 event time is stuck**, and because every bound downstream is measured in event time, a stuck
 watermark shows up as **growing memory**, not as a stopped query. The console's Operations screen

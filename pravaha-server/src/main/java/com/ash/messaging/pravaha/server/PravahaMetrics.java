@@ -199,6 +199,43 @@ public class PravahaMetrics implements AutoCloseable {
         // Event-time lag, not processing latency. A query can be fast and still far behind, because
         // this measures the data rather than the engine.
         ids.add(gauge("pravaha.query.watermark.lag.seconds", tags, query, PravahaMetrics::lagSeconds));
+        // TIME-8, and why the lag gauge alone was not enough. Lag says the watermark is behind; it
+        // does not say whether that is one quiet partition holding everything back, a partition
+        // that keeps going quiet, or a source reporting time that runs backwards -- and those need
+        // different responses. WatermarkTracker has answered all three from the start
+        // (`isIdle`, `idleExclusions()`, `regressions()`) and had no caller outside itself, so on a
+        // live node a stalled query and a healthy one were indistinguishable on every shipped
+        // surface: `pravaha queries` shows rows in, /actuator/prometheus had seven gauges and none
+        // of these, /api/v1/status has none.
+        //
+        // Partitions is published beside them because the pair has to be read together: "one
+        // excluded" means nothing without "of how many", and zero partitions is a query that
+        // derives no watermarks at all rather than one with none idle.
+        ids.add(gauge(
+                "pravaha.query.watermark.partitions",
+                tags,
+                query,
+                q -> q.watermarkDiagnostics().partitions()));
+        ids.add(gauge(
+                "pravaha.query.watermark.partitions.idle",
+                tags,
+                query,
+                q -> q.watermarkDiagnostics().idleNow()));
+        // Counters, because what matters is that it happened at all: a partition that was excluded
+        // once and came back is invisible in the gauge above a second later, and it is the reason
+        // a window fired early and a row arrived late.
+        ids.add(FunctionCounter.builder("pravaha.query.watermark.idle.exclusions", query, q ->
+                        (double) q.watermarkDiagnostics().idleExclusions())
+                .tags(tags)
+                .register(meters)
+                .getId());
+        // A source-side fault, counted and never silently applied: the watermark never moves
+        // backwards, so a partition that regresses is one whose rows will arrive late from here on.
+        ids.add(FunctionCounter.builder("pravaha.query.watermark.regressions", query, q ->
+                        (double) q.watermarkDiagnostics().regressions())
+                .tags(tags)
+                .register(meters)
+                .getId());
         ids.add(gauge("pravaha.query.running", tags, query, q -> q.state().isTerminal() ? 0 : 1));
         // FEED-1. A query whose source failed mid-read stays RUNNING -- so `running` above says 1 --
         // and its view stops moving. This is the number to alert on: 1 while any of its sources has
