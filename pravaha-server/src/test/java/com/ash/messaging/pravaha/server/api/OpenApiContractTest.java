@@ -145,6 +145,28 @@ class OpenApiContractTest {
     }
 
     @Test
+    void theOneErrorSchemaEveryClientMeetsHasItsFields_CFG20() throws Exception {
+        // CFG-20. components.schemas.ApiError was published with ZERO properties, so a generated
+        // client modelled every error as an empty object and not one of code, message, helpUrl,
+        // timestamp or path was discoverable -- on the single schema a client is guaranteed to
+        // meet, on a surface whose stated contract is "one error shape and nothing else".
+        JsonNode schema = json.readTree(mvc.perform(get("/api/v1/openapi.json"))
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString())
+                .path("components")
+                .path("schemas")
+                .path("ApiError");
+
+        assertThat(schema.isMissingNode())
+                .as("the error shape has to be in the document at all")
+                .isFalse();
+        assertThat(names(schema.path("properties")))
+                .as("the published ApiError schema: %s", schema.path("properties"))
+                .containsExactlyInAnyOrder("code", "message", "helpUrl", "timestamp", "path");
+    }
+
+    @Test
     void everyPathIsUnderTheVersionedPrefixOrIsAKnownException() throws Exception {
         // An unversioned path cannot be evolved without breaking clients, so new ones need a
         // deliberate decision rather than appearing by accident.

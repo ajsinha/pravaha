@@ -46,5 +46,23 @@ public final class ApiErrors {
      */
     public static final ErrorCode INVALID_PARAMETER = new ErrorCode(1051, "API_INVALID_PARAMETER");
 
+    /**
+     * The request reached no handler at all: an unmapped path, a method the path does not support,
+     * a body in a media type the endpoint does not read.
+     *
+     * <p>CFG-20. {@code application.yaml} turns RFC 7807 problem details off with the stated intent
+     * that "every non-2xx response is an ApiError and nothing else, because a client that has to
+     * parse two error shapes will handle one of them badly". Turning them off worked and was never
+     * the mechanism that mattered: {@code ApiExceptionHandler} handles {@code PravahaException} and
+     * {@code IllegalArgumentException}, and a 404 on an unmapped path, a 405 and a 415 are neither,
+     * so three of six non-2xx shapes fell through to Spring's {@code BasicErrorController} and came
+     * back as a <em>third</em> shape with no {@code code}, no {@code message} and no
+     * {@code helpUrl}.
+     *
+     * <p>One code rather than one per status, because the status is what distinguishes them and a
+     * client already has it. What the code adds is that the body is an {@code ApiError}.
+     */
+    public static final ErrorCode UNHANDLED_REQUEST = new ErrorCode(1052, "API_UNHANDLED_REQUEST");
+
     private ApiErrors() {}
 }

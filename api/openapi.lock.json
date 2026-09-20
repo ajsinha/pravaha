@@ -4,7 +4,7 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ "query:action", "query:cursor", "query:decision", "query:limit", "query:principal", "query:since", "query:until", "query:view" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/debug/sessions" : {
@@ -65,70 +65,70 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/plugins" : {
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/queries" : {
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/queries/explain" : {
       "post" : {
         "hasBody" : true,
         "parameters" : [ "query:format", "query:level" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/queries/validate" : {
       "post" : {
         "hasBody" : true,
         "parameters" : [ ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/queries/{name}" : {
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/queries/{name}/backfill" : {
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/queries/{name}/backfill/pause" : {
       "post" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/queries/{name}/backfill/resume" : {
       "post" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/queries/{name}/backfill/throttle" : {
       "post" : {
         "hasBody" : false,
         "parameters" : [ "path:name", "query:rate" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/queries/{name}/dead-letters" : {
@@ -177,99 +177,99 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/queries/{name}/replacement" : {
       "delete" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       },
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       },
       "post" : {
         "hasBody" : true,
         "parameters" : [ "path:name" ],
-        "responses" : [ "201" ]
+        "responses" : [ "201", "default" ]
       }
     },
     "/api/v1/queries/{name}/replacement/cutover" : {
       "post" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/queries/{name}/replacement/finish" : {
       "post" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/queries/{name}/replacement/rollback" : {
       "post" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/replacements" : {
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/sinks" : {
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/status" : {
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/streams" : {
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       },
       "post" : {
         "hasBody" : true,
         "parameters" : [ ],
-        "responses" : [ "201" ]
+        "responses" : [ "201", "default" ]
       }
     },
     "/api/v1/streams/{name}" : {
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/api/v1/views/{name}" : {
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     },
     "/status" : {
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
-        "responses" : [ "200" ]
+        "responses" : [ "200", "default" ]
       }
     }
   }

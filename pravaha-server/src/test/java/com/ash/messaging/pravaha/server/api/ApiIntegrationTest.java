@@ -25,6 +25,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -65,6 +66,10 @@ class ApiIntegrationTest {
 
     @Autowired
     private ObjectMapper json;
+
+    /** For CFG-19: whether the common tags reach the meters, not only the configuration. */
+    @Autowired
+    private io.micrometer.core.instrument.MeterRegistry meters;
 
     @BeforeEach
     void registerStream() throws Exception {
@@ -313,5 +318,64 @@ class ApiIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paths['/api/v1/streams']").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/queries/validate']").exists());
+    }
+
+    @Test
+    void aMethodThePathDoesNotSupportIsRefusedWithoutReachingAHandler_CFG20() throws Exception {
+        // CFG-20, the half MockMvc can see, and the reason the other half needs a real container:
+        // the status is right here and the BODY IS EMPTY, because MockMvc does not run the servlet
+        // container's error dispatch. A test of the error shape written on MockMvc therefore passes
+        // whether or not an ErrorController exists, which is how three of six non-2xx responses
+        // came back in Spring's own shape -- no code, no message, no helpUrl -- on an API whose
+        // stated contract is one error shape. ApiErrorShapeTest asserts the shape over a port.
+        assertThat(mvc.perform(delete("/api/v1/streams"))
+                        .andExpect(status().isMethodNotAllowed())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString())
+                .isEmpty();
+    }
+
+    @Test
+    void everyMetricSaysWhichApplicationAndWhichNodeItCameFrom_CFG19() throws Exception {
+        // CFG-19. The seven pravaha_* series carried a `query` label and nothing else, so a fleet
+        // scraped into one Prometheus had no label distinguishing Pravaha's own series from any
+        // other application's -- and none saying which node a number came from.
+        // spring.application.name was set in the shipped application.yaml and reached no tag.
+        //
+        // Asserted on the registry rather than on a scrape, because the tag has to be on every
+        // series this node publishes -- including ones registered after this test runs -- and a
+        // MeterFilter is what makes that true. A meter created here is any meter.
+        meters.counter("pravaha.test.common.tags").increment();
+
+        io.micrometer.core.instrument.Meter meter = meters.getMeters().stream()
+                .filter(m -> m.getId().getName().equals("pravaha.test.common.tags"))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(meter.getId().getTag("application")).isEqualTo("pravaha");
+        assertThat(meter.getId().getTag("node")).isEqualTo("pravaha-node-01");
+    }
+
+    @Test
+    void theEndpointAnOperatorChecksFirstIdentifiesTheNode_CFG19() throws Exception {
+        // `info` is on the shipped exposure list and the endpoint answered {} -- an empty object,
+        // while /api/v1/status two paths away knew the version and the id.
+        mvc.perform(get("/actuator/info"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pravaha.name").value("pravaha"))
+                .andExpect(jsonPath("$.pravaha.node").value("pravaha-node-01"))
+                .andExpect(jsonPath("$.pravaha.version").isNotEmpty());
+    }
+
+    @Test
+    void theBoundFlightAddressIsServed_CFG2() throws Exception {
+        // CFG-2(b). This context runs with pravaha.flight.port=0, so the configured port is not
+        // the bound one -- and no served surface reported the bound one: status had no field for
+        // it, and /actuator/health's components are suppressed by the shipped
+        // show-details: when-authorized on a node with authentication: none.
+        mvc.perform(get("/api/v1/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.flight").value(org.hamcrest.Matchers.matchesPattern("^.+:[1-9][0-9]*$")));
     }
 }

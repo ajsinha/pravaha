@@ -99,20 +99,37 @@ public class PravahaServerApplication {
     @Bean
     public com.ash.messaging.pravaha.security.SecurityPolicy pravahaSecurityPolicy(
             com.ash.messaging.pravaha.server.security.SecurityProperties security) {
-        String configured = security.getPolicy() == null
-                ? "permissive"
-                : security.getPolicy().trim();
-        return switch (configured.toLowerCase(java.util.Locale.ROOT)) {
+        // CFG-21. One validator, in SecurityProperties, reached from its own @PostConstruct as well
+        // as from here -- so the refusal an operator reads arrives while the properties bean is
+        // being built rather than four Caused-by levels under a Tomcat startup failure. This used
+        // to carry a second copy of the switch, and a second copy of the message.
+        return switch (security.trimmedPolicy()) {
             case "permissive" -> com.ash.messaging.pravaha.security.SecurityPolicy.PERMISSIVE;
-            case "authenticated", "authenticated-only" ->
-                new com.ash.messaging.pravaha.server.security.AuthenticatedOnlyPolicy(security.getAuditReaders());
             default ->
-                throw new com.ash.messaging.pravaha.api.PravahaException(
-                        com.ash.messaging.pravaha.security.SecurityErrors.MISCONFIGURED,
-                        "pravaha.security.policy is '" + configured + "', which is not a policy this node "
-                                + "knows. Use 'permissive' or 'authenticated', or implement SecurityPolicy "
-                                + "for rules of your own.");
+                new com.ash.messaging.pravaha.server.security.AuthenticatedOnlyPolicy(security.getAuditReaders());
         };
+    }
+
+    /**
+     * Tags every metric this node publishes with the application's name.
+     *
+     * <p>CFG-19. The seven {@code pravaha_*} series carried a {@code query} label and nothing else,
+     * so a fleet scraped into one Prometheus had no label distinguishing Pravaha's own series from
+     * any other application's -- and no way to say "this node" either. {@code
+     * spring.application.name} was set in the shipped {@code application.yaml} and reached no tag
+     * and no endpoint.
+     *
+     * <p>{@code node} as well as {@code application}, because the question an operator actually
+     * asks of a fleet is which node, and {@code pravaha.node.id} is the answer this project has
+     * already chosen for it -- it is what names a state claim and what a member advertises (CFG-1).
+     */
+    @Bean
+    public io.micrometer.core.instrument.config.MeterFilter pravahaCommonTags(Environment environment) {
+        return io.micrometer.core.instrument.config.MeterFilter.commonTags(java.util.List.of(
+                io.micrometer.core.instrument.Tag.of(
+                        "application", environment.getProperty("spring.application.name", "pravaha")),
+                io.micrometer.core.instrument.Tag.of(
+                        "node", environment.getProperty("pravaha.node.id", "pravaha-node-01"))));
     }
 
     /**
@@ -132,6 +149,75 @@ public class PravahaServerApplication {
     @Bean
     public com.ash.messaging.pravaha.security.AuditSink pravahaAuditSink(PravahaNode node) {
         return node.auditSink();
+    }
+
+    /**
+     * What {@code GET /actuator/info} says, which was {@code \{\}}.
+     *
+     * <p>CFG-19. {@code info} was on the shipped exposure list and the endpoint answered an empty
+     * object, so the first place an operator looks to identify a node told them nothing -- while
+     * {@code /api/v1/status} two paths away knew the version and the id. Contributed in code
+     * rather than through {@code management.info.env.*} and a block of {@code info.*} keys,
+     * because those are a second copy of facts this process already holds and can go stale against
+     * them.
+     */
+    @Bean
+    public org.springframework.boot.actuate.info.InfoContributor pravahaInfo(Environment environment) {
+        String version = PravahaServerApplication.class.getPackage().getImplementationVersion();
+        return builder -> builder.withDetail(
+                "pravaha",
+                java.util.Map.of(
+                        "name", environment.getProperty("spring.application.name", "pravaha"),
+                        "version", version == null ? "0.1.0-SNAPSHOT" : version,
+                        "node", environment.getProperty("pravaha.node.id", "pravaha-node-01")));
+    }
+
+    /**
+     * Publishes the error shape in the contract, and says which operations answer with it.
+     *
+     * <p>CFG-20. {@code ApiDtos.ApiError} is the return type of every {@code @ExceptionHandler} and
+     * of nothing a controller declares, so springdoc never walked it: the document either omitted
+     * {@code components.schemas.ApiError} or carried it with zero properties, and a generated
+     * client modelled every error as an empty object. The one schema a client is <em>guaranteed</em>
+     * to meet was the one it could not see.
+     *
+     * <p>Added as a {@code default} response on every operation rather than a per-status list,
+     * because the API's own rule is exactly that: any non-2xx, whatever its number, is an
+     * {@code ApiError}. Enumerating statuses per endpoint would be a second copy of that rule, kept
+     * by hand, wrong the first time an endpoint grows a refusal.
+     */
+    @Bean
+    public org.springdoc.core.customizers.OpenApiCustomizer pravahaErrorShape() {
+        return openApi -> {
+            io.swagger.v3.oas.models.media.Schema<?> error = io.swagger.v3.core.converter.ModelConverters.getInstance()
+                    .readAllAsResolvedSchema(com.ash.messaging.pravaha.server.api.ApiDtos.ApiError.class)
+                    .schema;
+            if (openApi.getComponents() == null) {
+                openApi.setComponents(new io.swagger.v3.oas.models.Components());
+            }
+            openApi.getComponents().addSchemas("ApiError", error);
+            if (openApi.getPaths() == null) {
+                return;
+            }
+            openApi.getPaths()
+                    .values()
+                    .forEach(path -> path.readOperations().forEach(operation -> {
+                        if (operation.getResponses() == null
+                                || operation.getResponses().getDefault() != null) {
+                            return;
+                        }
+                        operation
+                                .getResponses()
+                                .setDefault(new io.swagger.v3.oas.models.responses.ApiResponse()
+                                        .description("An ApiError. Every non-2xx response on this API is one.")
+                                        .content(new io.swagger.v3.oas.models.media.Content()
+                                                .addMediaType(
+                                                        "application/json",
+                                                        new io.swagger.v3.oas.models.media.MediaType()
+                                                                .schema(new io.swagger.v3.oas.models.media.Schema<>()
+                                                                        .$ref("#/components/schemas/ApiError")))));
+                    }));
+        };
     }
 
     @Bean
