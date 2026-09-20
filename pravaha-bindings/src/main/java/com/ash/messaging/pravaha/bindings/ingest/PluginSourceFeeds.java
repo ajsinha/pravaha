@@ -477,6 +477,11 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                     resources.add(reader);
                     IngestPump pump = execution.pumpInto(0, stream, reader, policy);
                     attachDeadLetters(pump, queryName, resources);
+                    // B5, on the backfill path too. A spliced reader does not answer hasReadPast --
+                    // it is mid-history by construction -- so for an exactly-once source this makes
+                    // a replay refuse, which is the right way round: the backfill is going to read
+                    // that offset itself, and feeding the record in now would count it twice.
+                    pump.sourceGuarantee(plugin.capabilities().guarantee());
                     pumps.add(pump);
                 }
             }

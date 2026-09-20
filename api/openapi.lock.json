@@ -77,6 +77,34 @@
         "responses" : [ "200" ]
       }
     },
+    "/api/v1/queries/{name}/dead-letters" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ "path:name", "query:limit", "query:offset" ],
+        "responses" : [ "200" ]
+      }
+    },
+    "/api/v1/queries/{name}/dead-letters/count" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ "path:name" ],
+        "responses" : [ "200" ]
+      }
+    },
+    "/api/v1/queries/{name}/dead-letters/replay" : {
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ "path:name" ],
+        "responses" : [ "200" ]
+      }
+    },
+    "/api/v1/queries/{name}/dead-letters/{id}" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ "path:id", "path:name" ],
+        "responses" : [ "200" ]
+      }
+    },
     "/api/v1/queries/{name}/plan" : {
       "get" : {
         "hasBody" : false,

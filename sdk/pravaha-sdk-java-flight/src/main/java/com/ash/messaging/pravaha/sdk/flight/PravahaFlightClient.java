@@ -509,6 +509,7 @@ public final class PravahaFlightClient implements AutoCloseable {
                     false);
         }
         return ReplacementInfo.of(results.get(0));
+    }
 
     /**
      * A page of the records this query's feed could not decode, newest first (B5).
