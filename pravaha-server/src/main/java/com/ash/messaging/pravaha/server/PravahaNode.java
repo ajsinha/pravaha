@@ -35,6 +35,7 @@ import com.ash.messaging.pravaha.bindings.ingest.PluginSourceFeeds;
 import com.ash.messaging.pravaha.bindings.ingest.SourceBinding;
 import com.ash.messaging.pravaha.cluster.ClusterCoordinator;
 import com.ash.messaging.pravaha.cluster.CoordinatorFactory;
+import com.ash.messaging.pravaha.common.config.ConfigErrors;
 import com.ash.messaging.pravaha.common.config.Configuration;
 import com.ash.messaging.pravaha.flight.PravahaFlightServer;
 import com.ash.messaging.pravaha.plugin.filesystem.FilesystemSourcePlugin;
@@ -54,7 +55,6 @@ import com.ash.messaging.pravaha.server.security.AuthenticatedOnlyPolicy;
 import com.ash.messaging.pravaha.server.security.SecurityProperties;
 import com.ash.messaging.pravaha.server.state.PersistenceProperties;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
-import com.ash.messaging.pravaha.sql.SqlErrors;
 
 /**
  * The parts that make this process a server rather than a library: the Flight endpoint clients
@@ -578,8 +578,10 @@ public class PravahaNode implements SmartLifecycle {
     private void registerDeclaredStreams() {
         declaredStreams.getStreams().forEach((name, declaration) -> {
             if (declaration.getSchema() == null || declaration.getSchema().isBlank()) {
+                // DOCX-19: PRV-1020, not PRV-2002. A key that is missing from the configuration
+                // file is not a SQL statement failing validation, and 2xxx is the SQL range.
                 throw new PravahaException(
-                        SqlErrors.VALIDATION_FAILED,
+                        ConfigErrors.MISSING_REQUIRED,
                         "stream '" + name + "' is declared under pravaha.streams with no schema. A stream "
                                 + "is a name and a shape; the name alone cannot be planned against.");
             }
@@ -790,8 +792,9 @@ public class PravahaNode implements SmartLifecycle {
         if (standby && standbyWatch == null) {
             java.util.Optional<java.nio.file.Path> watched = checkpointPath;
             if (watched.isEmpty()) {
+                // DOCX-19: PRV-1020. One key requires another and it is not set.
                 throw new PravahaException(
-                        SqlErrors.VALIDATION_FAILED,
+                        ConfigErrors.MISSING_REQUIRED,
                         "pravaha.standby.enabled=true needs pravaha.checkpoint.directory set: a standby waits on "
                                 + "the ownership marker in the directory it would take over, and with no such "
                                 + "directory there is nothing to wait on and nothing to resume from.");
@@ -976,8 +979,10 @@ public class PravahaNode implements SmartLifecycle {
             // in its constructor, so checking them here by hand would be a second copy to drift.
             new com.ash.messaging.pravaha.runtime.time.WatermarkTracker(watermarkIdleAfter.toNanos());
         } catch (RuntimeException e) {
+            // DOCX-19: PRV-1026, the code this repository already uses for a configured value
+            // outside the bounds the engine will accept.
             throw new PravahaException(
-                    SqlErrors.VALIDATION_FAILED,
+                    ConfigErrors.OUT_OF_RANGE,
                     "pravaha.watermark.idle-after is " + watermarkIdleAfter + ", which this engine will not "
                             + "accept: " + e.getMessage() + " Left as configured, every registration on this "
                             + "node would fail and the node would look healthy.");
@@ -996,8 +1001,9 @@ public class PravahaNode implements SmartLifecycle {
         try {
             com.ash.messaging.pravaha.runtime.time.WatermarkTracker.requireTick(watermarkTick, watermarkIdleAfter);
         } catch (RuntimeException e) {
+            // DOCX-19: PRV-1026, as for idle-after above.
             throw new PravahaException(
-                    SqlErrors.VALIDATION_FAILED,
+                    ConfigErrors.OUT_OF_RANGE,
                     "pravaha.watermark.tick is " + watermarkTick + ", which this engine will not accept: "
                             + e.getMessage() + " Left as configured, this node would start healthy and refuse "
                             + "every registration, or run a clock nobody asked for.");

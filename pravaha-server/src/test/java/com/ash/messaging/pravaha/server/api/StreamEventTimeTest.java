@@ -90,17 +90,42 @@ class StreamEventTimeTest {
         assertThat(plain.source()).isNull();
     }
 
+    /**
+     * DOCX-19: what a client that pinned the old number sees.
+     *
+     * <p>Seven refusals moved out of {@code PRV-2002} into the configuration range. Nothing about
+     * the HTTP surface moves with them: {@code statusFor} maps CONFIGURATION and PLANNING to the
+     * same {@code 400}, so a caller switching on the status is unaffected, and only one switching
+     * on the four digits has to be changed. A caller pinning {@code PRV-2002} for a *configuration*
+     * refusal was pinning a number that told it the wrong subsystem.
+     */
+    @Test
+    void theRenumberingChangesNoHttpStatus_DOCX19() {
+        for (com.ash.messaging.pravaha.api.ErrorCode moved : java.util.List.of(
+                com.ash.messaging.pravaha.common.config.ConfigErrors.MISSING_REQUIRED,
+                com.ash.messaging.pravaha.common.config.ConfigErrors.OUT_OF_RANGE,
+                com.ash.messaging.pravaha.common.config.ConfigErrors.CONTRADICTION,
+                com.ash.messaging.pravaha.common.config.ConfigErrors.STREAM_EVENT_TIME_INVALID,
+                com.ash.messaging.pravaha.common.config.ConfigErrors.STREAM_VERSION_IN_USE,
+                com.ash.messaging.pravaha.sql.SqlErrors.VALIDATION_FAILED)) {
+            assertThat(ApiExceptionHandler.statusFor(moved))
+                    .as(moved.code())
+                    .isEqualTo(org.springframework.http.HttpStatus.BAD_REQUEST);
+        }
+    }
+
     @Test
     void latenessWithoutAnEventTimeIsRefusedAndSoIsAColumnTheStreamDoesNotHave() {
         StreamController streams = controller(new StreamCatalog(), new SourceBindingProperties());
 
         // TIME-9: a coded refusal naming the stream and both spellings of the key, where this was a
-        // bare IllegalArgumentException. The status is unchanged -- PRV-2002 is in the SQL category
-        // and maps to 400, as PRV-0400 did.
+        // bare IllegalArgumentException. DOCX-19 moved it from PRV-2002 to PRV-1013: it names a
+        // configuration key, and 2xxx is the SQL range. The status is unchanged either way --
+        // CONFIGURATION and PLANNING both map to 400 in ApiExceptionHandler.statusFor.
         assertThatThrownBy(() -> streams.register(
                         new StreamController.RegisterStreamRequest("a", "id:INT64", null, "PT5S"), asAdmin()))
                 .isInstanceOf(PravahaException.class)
-                .hasMessageContaining("PRV-2002")
+                .hasMessageContaining("PRV-1013")
                 .hasMessageContaining("needs an event time")
                 .hasMessageContaining("pravaha.streams.a.out-of-orderness");
         assertThatThrownBy(() -> streams.register(

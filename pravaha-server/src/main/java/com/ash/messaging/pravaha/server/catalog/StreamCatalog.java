@@ -25,6 +25,7 @@ import org.springframework.stereotype.Component;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
+import com.ash.messaging.pravaha.common.config.ConfigErrors;
 import com.ash.messaging.pravaha.sql.SqlErrors;
 
 /**
@@ -45,8 +46,12 @@ public class StreamCatalog {
     public synchronized StreamSchema register(StreamSchema schema) {
         StreamSchema existing = streams.get(schema.name());
         if (existing != null && existing.version() == schema.version()) {
+            // DOCX-19: PRV-1014, not PRV-2002. This is a declaration conflicting with what the
+            // catalog already holds -- from pravaha.streams or from POST /api/v1/streams -- and
+            // not a SQL statement failing validation. Both codes are 400 over HTTP, so the status
+            // a client sees is unchanged; what changes is which range the number sends a reader to.
             throw new PravahaException(
-                    SqlErrors.VALIDATION_FAILED,
+                    ConfigErrors.STREAM_VERSION_IN_USE,
                     "stream '" + schema.name() + "' version " + schema.version()
                             + " is already registered. Schema versions are immutable; register a new "
                             + "version rather than replacing one a query may be planned against.");
@@ -154,8 +159,9 @@ public class StreamCatalog {
         }
         String eventTime = column.strip();
         if (!parsed.hasField(eventTime)) {
+            // DOCX-19: PRV-1013, the code for a stream declaration's time settings. See refused().
             throw new PravahaException(
-                    SqlErrors.VALIDATION_FAILED,
+                    ConfigErrors.STREAM_EVENT_TIME_INVALID,
                     "stream '" + parsed.name() + "' declares '" + eventTime + "' as its event time and has no such "
                             + "column. Its columns are "
                             + parsed.fields().stream()
@@ -197,7 +203,12 @@ public class StreamCatalog {
      */
     private static PravahaException refused(String stream, String setting, String what) {
         return new PravahaException(
-                SqlErrors.VALIDATION_FAILED,
+                // DOCX-19: PRV-1013, not PRV-2002. Every refusal that comes through here names a
+                // configuration key -- pravaha.streams.<n>.event-time, .out-of-orderness,
+                // .allowed-lateness -- or the REST field that spells the same setting. A node that
+                // will not start over one of those is not a SQL problem, and the ranges table puts
+                // 2xxx under SQL, so the number was sending the reader to their query.
+                ConfigErrors.STREAM_EVENT_TIME_INVALID,
                 "stream '" + stream + "' " + what + " Set by pravaha.streams." + stream + "." + setting + ", or by '"
                         + camel(setting) + "' on POST /api/v1/streams.");
     }

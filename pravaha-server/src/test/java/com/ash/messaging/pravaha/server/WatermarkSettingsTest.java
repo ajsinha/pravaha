@@ -138,7 +138,10 @@ class WatermarkSettingsTest {
                 .build();
         assertThatThrownBy(stopped::start)
                 .isInstanceOf(PravahaException.class)
-                .hasMessageContaining("PRV-2002")
+                // DOCX-19: PRV-1026, the configuration range's "outside a bound", where this was
+                // PRV-2002 -- an operator whose node would not boot over a duration was pointed
+                // at the SQL range.
+                .hasMessageContaining("PRV-1026")
                 .hasMessageContaining("pravaha.watermark.tick")
                 .hasMessageContaining("longer than the idle timeout");
     }
@@ -159,7 +162,7 @@ class WatermarkSettingsTest {
             assertThatThrownBy(refused::start)
                     .as("tick %s", tick)
                     .isInstanceOf(PravahaException.class)
-                    .hasMessageContaining("PRV-2002")
+                    .hasMessageContaining("PRV-1026")
                     .hasMessageContaining("pravaha.watermark.tick");
         }
     }
@@ -191,7 +194,8 @@ class WatermarkSettingsTest {
     void time9TheEventTimeRefusalsCarryTheirCodeTheStreamAndTheKey() {
         // TIME-9. Four refusals were compared side by side in one harness: idle-after's each named
         // the key, the rejected duration, the bound violated and what it would do to a running
-        // node, under PRV-2002. The two raised from StreamSchema.Builder.build were bare
+        // node, under what was then PRV-2002 and is PRV-1013 since DOCX-19. The two raised from
+        // StreamSchema.Builder.build were bare
         // IllegalArgumentExceptions wearing a Spring stack trace, with no code, no stream name in
         // one and no configuration key in either -- while a *misspelt* column one line away in the
         // same method already met the bar.
@@ -201,7 +205,9 @@ class WatermarkSettingsTest {
                 .build();
         assertThatThrownBy(() -> StreamCatalog.withEventTime(wrongType, "usr", null))
                 .isInstanceOf(PravahaException.class)
-                .hasMessageContaining("PRV-2002")
+                // DOCX-19: PRV-1013. Every refusal in this case names a configuration key, and
+                // PRV-2002 put them in the range the ranges table calls SQL.
+                .hasMessageContaining("PRV-1013")
                 .hasMessageContaining("stream 'ev'")
                 .hasMessageContaining("must be TIMESTAMP")
                 .hasMessageContaining("pravaha.streams.ev.event-time")
@@ -213,7 +219,7 @@ class WatermarkSettingsTest {
                 .build();
         assertThatThrownBy(() -> StreamCatalog.withEventTime(timed, "at", Duration.ofSeconds(-1)))
                 .isInstanceOf(PravahaException.class)
-                .hasMessageContaining("PRV-2002")
+                .hasMessageContaining("PRV-1013")
                 .hasMessageContaining("stream 'ev'")
                 .hasMessageContaining("negative out-of-orderness")
                 .hasMessageContaining("pravaha.streams.ev.out-of-orderness");

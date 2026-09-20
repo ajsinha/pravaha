@@ -242,6 +242,10 @@ class ConfigurationCheckTest {
                                       options: {path: /tmp/txn.csv, schema: "id:INT64,user_id:STRING"}
                                 """).check())
                 .isInstanceOf(PravahaException.class)
+                // DOCX-19: PRV-1015, a configuration code. This was PRV-2002, which is in the
+                // range TROUBLESHOOTING.md's table calls "SQL -- parsing, planning, what the
+                // engine will and will not run", for a node that will not boot over two YAML keys.
+                .hasMessageContaining("PRV-1015")
                 .hasMessageContaining("two schemas")
                 .hasMessageContaining("txn");
     }

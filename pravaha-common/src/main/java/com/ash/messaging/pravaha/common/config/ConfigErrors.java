@@ -35,6 +35,43 @@ public final class ConfigErrors {
      * a cycle is broken, a chain is flattened.
      */
     public static final ErrorCode REFERENCE_TOO_DEEP = new ErrorCode(1012, "CONFIG_REFERENCE_TOO_DEEP");
+     * Two keys that have to agree, and do not.
+     *
+     * <p>DOCX-19. Each value is well-formed on its own, so no single-key check sees anything wrong;
+     * what is wrong is the pair. The first of these is one stream with two schemas --
+     * {@code pravaha.streams.<n>.schema} is what a query is planned against and
+     * {@code pravaha.sources.<n>.options.schema} is what the plugin decodes rows with, so a
+     * divergence plans one shape and reads another.
+     *
+     * <p>It carried {@code PRV-2002 SQL_VALIDATION_FAILED} until DOCX-19, which put a node that
+     * will not boot over a YAML mistake into the range the ranges table calls "SQL -- parsing,
+     * planning, what the engine will and will not run".
+     */
+    public static final ErrorCode CONTRADICTION = new ErrorCode(1015, "CONFIG_CONTRADICTION");
+
+    /**
+     * A stream's declared event time, out-of-orderness or allowed lateness is not usable.
+     *
+     * <p>DOCX-19. {@code pravaha.streams.<n>.event-time} naming a column the schema does not
+     * carry or one that is not a {@code TIMESTAMP}, a negative lateness, a lateness declared with
+     * no event time to be about. Reachable from the configuration file and from
+     * {@code POST /api/v1/streams}, and the message names both spellings.
+     *
+     * <p>Its own code rather than {@code PRV-1028}: that one is the {@code name:TYPE,...} grammar
+     * refusing to parse, which is a different key with a different remedy, and giving two mistakes
+     * one number is the defect DOCX-19 records rather than a fix for it.
+     */
+    public static final ErrorCode STREAM_EVENT_TIME_INVALID = new ErrorCode(1013, "CONFIG_STREAM_EVENT_TIME_INVALID");
+
+    /**
+     * A stream schema version that is already registered.
+     *
+     * <p>DOCX-19. Schema versions are immutable, so the second declaration of one is refused
+     * rather than allowed to replace a shape a query may already be planned against. It is a
+     * conflict between a declaration and what the catalog already holds, not a SQL statement being
+     * validated, which is what {@code PRV-2002} said until DOCX-19.
+     */
+    public static final ErrorCode STREAM_VERSION_IN_USE = new ErrorCode(1014, "CONFIG_STREAM_VERSION_IN_USE");
 
     public static final ErrorCode MISSING_REQUIRED = new ErrorCode(1020, "CONFIG_MISSING_REQUIRED");
     public static final ErrorCode NOT_A_NUMBER = new ErrorCode(1021, "CONFIG_NOT_A_NUMBER");

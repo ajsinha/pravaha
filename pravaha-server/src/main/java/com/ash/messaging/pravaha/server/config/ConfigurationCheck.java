@@ -281,8 +281,12 @@ public class ConfigurationCheck {
         if (divergent.isEmpty()) {
             return;
         }
+        // DOCX-19: PRV-1015, not PRV-2002. Two configuration keys that must agree and do not is a
+        // node that will not boot over a YAML mistake; 2xxx is the range the ranges table calls
+        // "SQL -- parsing, planning, what the engine will and will not run", and an operator sent
+        // there goes looking at their query.
         throw new PravahaException(
-                com.ash.messaging.pravaha.sql.SqlErrors.VALIDATION_FAILED,
+                ConfigErrors.CONTRADICTION,
                 "one stream, two schemas: " + divergent + ". The declaration is what a query is planned "
                         + "against and the binding's option is what the plugin decodes rows with, so a "
                         + "divergence is a node that plans one shape and reads another -- and it used to "
