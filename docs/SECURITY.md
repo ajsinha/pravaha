@@ -35,7 +35,7 @@ they protect the connection, not the query.
 | | Answers | SPI |
 |---|---|---|
 | Authentication | Who is this? | `TokenVerifier`: credential in, `Principal` out |
-| Authorization | What may they read, register, administer — and may they read the audit trail? | `SecurityPolicy`: allow / allow-with-row-filter / deny |
+| Authorization | What may they read, register, administer, write to — and may they read the audit trail? | `SecurityPolicy`: allow / allow-with-row-filter / deny |
 | Audit | Who asked what, and what were they told? | `AuditSink`: every decision, allows included |
 
 Kept apart so a deployment can adopt an external identity provider without rewriting its rules, or
@@ -353,10 +353,6 @@ each individually valid but do not match each other lets the node start and repo
   clustering ([ADR-035](adr/035-wave-8-is-survival-not-distribution.md)), and a standby talks to
   a directory rather than to its primary, so there is no node-to-node channel to secure yet
 - **Secret management integration** (`SecretProvider` SPI in the design) — not built
-- **Per-sink authorization.** A principal allowed to register a query may name any bound sink, and
-  the audit line for the registration does not record which. The registrant can only write what they
-  may read — registration checks every stream the query reads — but a sink is a destination other
-  people read, so an operator should bind only sinks every registrant may write to (SINK-3)
 - **Security review and SBOM** — Wave 11 (the GA wave, which moved down one when ADR-036 inserted the scale wave)
 
 ## A conditional entitlement cannot subscribe
@@ -394,6 +390,32 @@ state, with the read path the only thing between a restricted principal and ever
 **One policy per deployment.** The server and the registry each hold a `SecurityPolicy`, and passing
 it to only one is refused at startup. Configured separately, registering was judged by one set of
 rules and reading by the other — silently, in the direction of whichever was more permissive.
+
+## What a registration is allowed to write
+
+A registration that names a sink is a **standing write** to a store outside Pravaha, under the
+credentials this node holds for it, for as long as the query runs. The engine asks
+`SecurityPolicy.mayWriteTo(principal, sink)` for it — after the source reads, because those decide
+what the rows *are* and this one decides where they come to rest — and records the decision as an
+audit event whose target is the sink's own name (`register:sink`, or `replace:sink` for a
+blue/green replacement, which is authorized by the same rules and inherits the name's sink).
+
+**It is not a disclosure check.** A registrant can only write what the source checks above let them
+read. It is a *placement* check: a sink is read by people who never talk to Pravaha, and "who put
+this in that table" should be answerable from the trail. Before SINK-3 the register event recorded
+the SQL and never the destination.
+
+**The default allows**, because a sink is a binding an operator wrote into this node's own
+configuration, and binding it is already most of the way to saying it may be written to. What the
+default buys is the question being asked: a deployment whose bindings are not all equally trusted
+overrides `mayWriteTo` and says so, where this page could previously only advise binding sinks
+every registrant may write to. As with every other verb on the interface, a policy written as a
+lambda keeps the default.
+
+**A row filter is refused here rather than ignored** (`PRV-7005`). A sink receives the query's whole
+changelog or none of it, so a decision that allowed the write and carried a filter would have had
+the excluded rows written anyway. It is refused at registration, before the sink is opened, and it
+is not `PRV-7002`: nothing was denied, so it is the policy that has to change.
 
 ## The console's own gate
 

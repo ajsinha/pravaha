@@ -172,8 +172,10 @@ public final class PgWireErrors {
             case "PRV-7001" -> "28000";
             // 42501 insufficient_privilege. PRV-7003 -- a row filter that cannot be enforced -- is
             // here too: like PRV-7002 it means this caller may not have these rows, and neither is
-            // fixed by presenting a fresh credential.
-            case "PRV-7002", "PRV-7003" -> "42501";
+            // fixed by presenting a fresh credential. PRV-7005, a sink write the policy allowed
+            // only through a row filter, is the same shape from the other end: the write does not
+            // happen, and no credential changes that.
+            case "PRV-7002", "PRV-7003", "PRV-7005" -> "42501";
             // 53400 configuration_limit_exceeded / 53000 insufficient_resources: admission refused
             // the read. Retryable, and saying so is the difference between a client that backs off
             // and one that hammers a node that is already full.

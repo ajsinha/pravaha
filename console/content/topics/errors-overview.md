@@ -95,7 +95,7 @@ taxonomy code for code:
 | Code(s) | Flight status | PostgreSQL SQLSTATE | Meaning for the client |
 |---|---|---|---|
 | PRV-7001 | `UNAUTHENTICATED` | `28000` | Present a (fresh) credential |
-| PRV-7002, PRV-7003 | `UNAUTHORIZED` | `42501` | A new credential will not help; a grant might |
+| PRV-7002, PRV-7003, PRV-7005 | `UNAUTHORIZED` | `42501` | A new credential will not help; a grant, or a corrected policy, might |
 | PRV-4026, PRV-4027, PRV-4028 | `RESOURCE_EXHAUSTED` | `53000` | Back off and retry |
 | PRV-4021, PRV-4029 | `TIMED_OUT` | `57014` | The read ran out of time |
 | PRV-4023 | `NOT_FOUND` | `42P01` | No such view |

@@ -28,9 +28,9 @@ That is structural, not a preference:
 Your stores' own controls still matter — Pravaha's connection to each should be least-privileged --
 but they protect the connection, not the query.
 
-## The four questions
+## The five questions
 
-A `SecurityPolicy` answers four questions. Each answer is *allow*, *allow with a row filter*, or
+A `SecurityPolicy` answers five questions. Each answer is *allow*, *allow with a row filter*, or
 *deny with a reason*.
 
 | Question | Asked when | Default if a policy does not say |
@@ -38,6 +38,7 @@ A `SecurityPolicy` answers four questions. Each answer is *allow*, *allow with a
 | `mayRead(principal, view)` | every read, every subscribe, `getFlightInfo` and schema lookups, every listing entry — and, at registration, **every stream the query reads** | (must be implemented) |
 | `mayRegisterQuery(principal)` | `register`, `CREATE CONTINUOUS QUERY` | anonymous callers refused; any verified principal allowed |
 | `mayAdminister(principal, view)` | `drop`, `pause`, `resume` (and their SQL statements); redeclaring a stream over HTTP | allowed exactly when `mayRead` allows **without** a row filter |
+| `mayWriteTo(principal, sink)` | a registration or a replacement that names a sink — `--sink`, `WITH (sink = ...)`, `WRITING TO` | allowed. A row filter is refused with PRV-7005 rather than ignored |
 | `mayReadAudit(principal)` | `GET /api/v1/audit` | **denied** — a permission of its own, never derived from reading |
 
 ### Registering is a standing read
@@ -47,6 +48,20 @@ stream the query names** — taken from the plan, not the SQL text, because the 
 stream the planner optimised away and omit one a view expanded into. Without the second check a
 principal could register `SELECT * FROM payroll` under an innocent name and read it back. Each check
 is audited as `register:source` against the stream.
+
+### Naming a sink is a standing write
+
+A registration that names a sink writes to a store outside Pravaha, under this node's credentials,
+for as long as it runs. `mayWriteTo` is asked for it, after the source reads, and the decision is
+audited as `register:sink` against the **sink's** name — which is what makes "who put this in that
+table" a question the trail can answer.
+
+It is not a disclosure check: a registrant can only write what the source checks let them read. It
+is a placement check, and it allows by default, because a sink is a binding the operator put in
+this node's own configuration. A deployment whose bindings are not all equally trusted overrides
+it. A decision that allows the write *and* carries a row filter is refused with PRV-7005: a sink
+takes the whole changelog or none of it, so the alternative to refusing is writing the excluded
+rows anyway.
 
 ### Administering is not reading a slice
 

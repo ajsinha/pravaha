@@ -135,6 +135,36 @@ public interface SecurityPolicy {
     }
 
     /**
+     * May this principal have a registration write to this sink?
+     *
+     * <p>Naming a sink in a registration is a <em>standing write</em> to a store outside Pravaha,
+     * under the credentials this node holds for it, for as long as the query runs. The rows are
+     * ones the registrant may already read -- {@link #mayRead} is asked for every stream the plan
+     * names -- so this is not a disclosure. It is a placement: it decides where permitted data
+     * comes to rest and who can see it there, which is a question about the destination rather
+     * than about the query, and the policy is the only thing that knows the answer.
+     *
+     * <p><strong>Allowed by default</strong>, and that is a considered default rather than an
+     * omission. A sink is a binding an operator wrote into this node's own configuration, so
+     * binding it is already most of the way to saying it may be written to, and a default that
+     * refused would turn every existing deployment's sinks off in one release. What the default
+     * buys is the <em>question being asked</em>: a deployment whose bindings are not all equally
+     * trusted now has somewhere to say so, where before {@code SECURITY.md} could only advise
+     * binding sinks every registrant may write to (SINK-3).
+     *
+     * <p>A row filter has no meaning here and is refused rather than ignored, with {@link
+     * SecurityErrors#SINK_WRITE_NOT_FILTERABLE}: a sink receives the query's whole changelog or
+     * none of it, so half an answer would have had the other half written to the table anyway.
+     *
+     * <p>A lambda does not override this, as with every other verb on this interface.
+     *
+     * @param sink the sink binding's name, as the registration wrote it
+     */
+    default AccessDecision mayWriteTo(Principal principal, String sink) {
+        return AccessDecision.allow();
+    }
+
+    /**
      * May this principal read the audit trail -- who asked for what, and with which SQL?
      *
      * <p><strong>Denied unless a policy says otherwise</strong>, and deliberately not derived from

@@ -4,7 +4,7 @@ slug: errors-security
 category: errors
 order: 80
 icon: shield-exclamation
-summary: "PRV-7001 to PRV-7004, told apart deliberately: not authenticated (present a credential), not authorized (ask for a grant), a row filter that cannot be enforced, and a security setting the node will not start with."
+summary: "PRV-7001 to PRV-7005, told apart deliberately: not authenticated (present a credential), not authorized (ask for a grant), a row filter that cannot be enforced, a security setting the node will not start with, and a sink write the policy allowed only in part."
 badge: PRV-7XXX
 audience: Everyone
 keywords: [unauthenticated, forbidden, unauthorized, 401, 403, token, bearer, credential, grant, row filter, policy, permissive, authenticated, allow-anonymous, audit, misconfigured]
@@ -12,9 +12,9 @@ guide: security
 related: [authentication, authorization, row-filters, audit, errors-overview]
 ---
 
-Four codes, and the reason there are four is the advice. Each one is answered by a different person
-doing a different thing — presenting a credential, granting access, fixing a view, editing a file —
-and a code that meant two of them would give the right advice to only one.
+Five codes, and the reason there are five is the advice. Each one is answered by a different person
+doing a different thing — presenting a credential, granting access, fixing a view, editing a file,
+correcting a policy — and a code that meant two of them would give the right advice to only one.
 
 | Code | Name | Who fixes it | How |
 |---|---|---|---|
@@ -22,13 +22,14 @@ and a code that meant two of them would give the right advice to only one.
 | PRV-7002 | SECURITY_FORBIDDEN | Whoever grants access | A grant; a new credential will not help |
 | PRV-7003 | SECURITY_FILTER_NOT_ENFORCEABLE | Whoever owns the view or the policy | Make the filter's column part of the view |
 | PRV-7004 | SECURITY_MISCONFIGURED | The operator | An edit to the node's security settings |
+| PRV-7005 | SECURITY_SINK_WRITE_NOT_FILTERABLE | Whoever owns the policy | Answer `mayWriteTo` with `allow()` or `deny()`, not with a row filter |
 
 How each travels:
 
 | Code | Flight status | PostgreSQL SQLSTATE | REST |
 |---|---|---|---|
 | PRV-7001 | `UNAUTHENTICATED` | `28000` | `401` from the bearer-token check |
-| PRV-7002, PRV-7003 | `UNAUTHORIZED` | `42501` | `403` |
+| PRV-7002, PRV-7003, PRV-7005 | `UNAUTHORIZED` | `42501` | `403` |
 | PRV-7004 | — (the node does not start) | — | — |
 
 ## PRV-7001 — unauthenticated
@@ -132,6 +133,23 @@ pravaha-server --spring.profiles.active=dev
 The tokens for `authentication: token` go under `pravaha.security.tokens`, each with an `id`, a
 `tenant` and `roles`; that static list is for development and tests, and a real deployment implements
 a `TokenVerifier` against its own identity system. See [Authentication](/help/topics/authentication).
+
+## PRV-7005 — a sink write allowed only in part
+
+The policy answered `mayWriteTo(principal, sink)` with **allow plus a row filter**, and there is no
+way to carry that out. A sink receives the query's whole changelog or none of it: withholding the
+rows the filter excludes would leave the destination unequal to the view, which is the one promise
+a sink makes. The registration is refused at registration time, before the sink is opened.
+
+```text
+PRV-7005  the policy would let dana write to sink 'orders' only through the row filter
+          (user_id = 'dana'), and a sink takes the query's whole changelog or none of it.
+          Refused rather than written unfiltered: answer mayWriteTo with allow() or deny().
+```
+
+**Whoever owns the policy fixes it**, by answering that question with `allow()` or `deny()`. It is
+deliberately not PRV-7002: nothing was denied, so telling the caller to go and ask for a grant
+would send the right person nowhere. See [Authorization](/help/topics/authorization).
 
 ## Where next
 

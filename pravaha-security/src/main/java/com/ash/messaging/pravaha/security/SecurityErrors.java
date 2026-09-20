@@ -52,5 +52,20 @@ public final class SecurityErrors {
      */
     public static final ErrorCode MISCONFIGURED = new ErrorCode(7004, "SECURITY_MISCONFIGURED");
 
+    /**
+     * A sink write the policy allowed only in part.
+     *
+     * <p>SINK-3. {@link SecurityPolicy#mayWriteTo} answers about a destination, and a destination
+     * takes a query's whole changelog or none of it: there is no row of it the engine could
+     * withhold and still leave the table equal to the view. A decision that allows the write and
+     * carries a row filter therefore describes something that cannot be done, and the only two
+     * ways past it are to write the excluded rows anyway or to refuse. It refuses, at
+     * registration, before the sink has been opened.
+     *
+     * <p>Not {@link #FORBIDDEN}, because nothing has been denied: the answer is one the engine
+     * cannot carry out, so it is the policy that has to change and not the caller's entitlement.
+     */
+    public static final ErrorCode SINK_WRITE_NOT_FILTERABLE = new ErrorCode(7005, "SECURITY_SINK_WRITE_NOT_FILTERABLE");
+
     private SecurityErrors() {}
 }

@@ -87,7 +87,7 @@ nobody sees.
 |---|---|
 | `query`, `prepare`, `schema` | a Flight read, a prepared statement's binding, a schema lookup |
 | `subscribe`, `subscribe.withdrawn` | opening a subscription, and one withdrawn |
-| `register`, `register:source` | a registration, and the read check on each stream it names |
+| `register`, `register:source`, `register:sink` | a registration, the read check on each stream it names, and the write check on the sink it names. `replace:*` is the same three for a blue/green replacement |
 | `drop`, `pause`, `resume` | lifecycle actions |
 | `list` | every per-view decision a listing makes |
 | `http.read`, `http.list`, `http.administer` | the same questions asked over HTTP |

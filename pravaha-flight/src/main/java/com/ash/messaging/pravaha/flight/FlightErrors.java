@@ -76,9 +76,12 @@ public final class FlightErrors {
     public static CallStatus statusFor(PravahaException e) {
         return switch (e.errorCode().code()) {
             case "PRV-7001" -> CallStatus.UNAUTHENTICATED;
-            // Authorization, and the unenforceable-filter refusal with it: both mean this caller may
-            // not have these rows, and neither is fixed by a fresh credential.
-            case "PRV-7002", "PRV-7003" -> CallStatus.UNAUTHORIZED;
+            // Authorization, and the two refusals that come with it: all three mean this caller may
+            // not have what they asked for, and none is fixed by a fresh credential. PRV-7005 is
+            // the policy's own fault rather than the caller's -- it allowed a sink write only
+            // through a row filter, which a sink cannot take -- but the client's move is the same,
+            // and a registration refused on the policy's answer is not a malformed request.
+            case "PRV-7002", "PRV-7003", "PRV-7005" -> CallStatus.UNAUTHORIZED;
             // Admission. Retryable, and saying so is the difference between a client that backs off
             // and one that hammers a node that is already full.
             case "PRV-4026", "PRV-4027", "PRV-4028", "PRV-6105" -> CallStatus.RESOURCE_EXHAUSTED;
