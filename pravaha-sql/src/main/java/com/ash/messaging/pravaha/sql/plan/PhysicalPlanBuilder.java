@@ -790,23 +790,31 @@ public final class PhysicalPlanBuilder {
      * the column the stream declared. A window grid keyed to any other column is not a slower answer
      * to the same question; it is an answer to a question the engine cannot bound.
      *
-     * <p><strong>A stream that declares no event time at all is left alone, and TIME-6 is why that
-     * is now a decision rather than an oversight.</strong> Refusing it here is one line and it was
-     * written and measured: it closes two of TIME-6's four ways to reach "RUNNING, ingesting,
-     * serving nothing", and it is correct -- no watermark advances over such a stream, so no window
-     * this query opens can ever close. It also fails 54 tests in {@code pravaha-it}, most of them
-     * fixtures that carry a timestamp column without declaring it, several case studies whose SQL
-     * would therefore never emit on a real node, and -- the reason it is the lead's call and not
-     * this batch's -- two cases that assert the current behaviour <em>by name</em>:
+     * <p><strong>A stream that declares no event time at all is left alone HERE AND ONLY FOR NOW:
+     * the refusal is agreed and scheduled as its own batch (TIME-6).</strong> Refusing it is one
+     * line and it was written and measured: it closes two of TIME-6's four ways to reach "RUNNING,
+     * ingesting, serving nothing", and it is correct -- no watermark advances over such a stream,
+     * so no window this query opens can ever close, and the query reports success throughout. That
+     * is the defect class the owner's standing rule is about: <em>leniencies create silent and hard
+     * to find bugs</em>. Do not read this early return as a decision that the engine should be
+     * lenient; it is a decision about <em>when</em>, taken because the change is not
+     * self-contained.
+     *
+     * <p>It fails 54 tests in {@code pravaha-it}, most of them fixtures that carry a timestamp
+     * column without declaring it -- declaring it is the fix, not a workaround -- several case
+     * studies whose SQL would therefore never emit on a real node, and two cases that assert the
+     * current behaviour <em>by name</em>:
      * {@code WindowAnswerTest.win005_tumbleOverAStreamWithNoDeclaredEventTimeNeverFiresRatherThan
      * Refusing} and {@code EventTimeTest.time002And009_...IngestsEverythingAndServesNothing}.
-     * Reversing a recorded decision changes those documented case outcomes.
+     * Those get rewritten outcomes with the reason when the batch lands; reversing a recorded
+     * decision is what made this the lead's call rather than a findings batch's.
      *
-     * <p>What TIME-6 got instead is the other half it asked for: {@code PravahaNode} now states the
-     * event time, out-of-orderness and allowed lateness in force for every declared stream at
+     * <p>What TIME-6 has in the meantime is the other half it asked for: {@code PravahaNode} states
+     * the event time, out-of-orderness and allowed lateness in force for every declared stream at
      * startup, including {@code event-time=none -- no window over this stream can ever close}. That
      * covers all four causes rather than two, because a lateness larger than the data's span is a
-     * legitimate setting no refusal could catch.
+     * legitimate setting no refusal could catch -- but it is a line in a log, not a refusal, and
+     * TIME-6 stays open until the refusal is here.
      *
      */
     private void requireDeclaredEventTime(String function, int descriptorOrdinal, PhysicalOperator input) {

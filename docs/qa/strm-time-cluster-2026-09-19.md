@@ -23,7 +23,7 @@ One section per finding: verdict, cause, fix, test, seed-proof, commit.
 | `STRM-4` | Structural half reproduces, **left open, its own batch**. The measured half does not support its attribution and should not be re-filed with it; ADR-026's rationale corrected | `a9f5c20` |
 | `STRM-8` | Reproduces, **left open, its own batch**. The three surfaces that promised the opposite corrected | `d6fd7b7` |
 | `STRM-10` | Reproduced, **fixed** — the loss count rides on every batch, both SDKs | `a9f5c20` |
-| `STRM-12` | Reproduced, **fixed** (all three halves) — `PRV-8011`, `PRV-8012`, and `subscriberCount()` returns to zero | `5721e6c` |
+| `STRM-12` | Reproduced, **fixed** (all three halves) — `PRV-8018`, `PRV-8019`, and `subscriberCount()` returns to zero | `5721e6c` |
 | `STRM-14` | Reproduced, **fixed** — a subscription knows the name it was opened under | `5721e6c` |
 | `STRM-15` | Reproduced, **fixed** — the handover is bounded in rows as well as batches | `a9f5c20` |
 | `STRM-16` | Reproduced, **fixed** — the preference rides on the ticket, and is refused rather than defaulted | `a9f5c20` |
@@ -31,12 +31,12 @@ One section per finding: verdict, cause, fix, test, seed-proof, commit.
 | `STRM-18` | Confirmed (the case file is wrong, not the code), **fixed in the case file** | `d6fd7b7` |
 | `TIME-3` | Reproduced, **fixed** — a unitless lateness is seconds, both keys | `a0a2d9a` |
 | `TIME-5` | Reproduced, **fixed** — one bad value is one startup failure | `0da7e8a`, `a0a2d9a` |
-| `TIME-6` | Reproduced, **fixed** as far as this batch may take it: the node states the lateness in force per stream, which covers all four causes. The plan-time refusal was written, costs 54 `pravaha-it` tests and two documented case outcomes, and is **backed out for the lead** | `a0a2d9a` |
+| `TIME-6` | Reproduced, **HALF CLOSED and staying so**: the node states the lateness in force per stream (all four causes). The plan-time refusal is backed out and **scheduled as its own batch** — the lead has ruled it correct under the owner's no-leniency rule. Do not close on the startup line alone | `a0a2d9a`, `a4f49aa` |
 | `TIME-8` | First clause reproduces and is **fixed**; the other two claims are already false and the entry should be narrowed | `51ba5c1` |
 | `TIME-9` | Reproduced, **fixed** — one shape for every event-time refusal | `a0a2d9a` |
 | `TIME-11` | Reproduced (the clamp had moved to `SharedClock.every`), **fixed** — refused, not clamped | `0da7e8a`, `a0a2d9a` |
 
-**Thirteen closed, two left open and one half-closed**, each with what it needs written down below. Three findings
+**Thirteen closed, two left open and one half-closed**, each with what it needs written down below. One **new finding** is filed below the `TIME-6` section: four of the five case studies ship a windowed query that can never emit, with a README paragraph explaining the symptom away. Three findings
 carried claims that are no longer true and should be narrowed rather than closed whole: `TIME-8`'s
 second clause and its `registeredQueries` observation, and `STRM-4`'s measurement.
 
@@ -173,10 +173,14 @@ Restored, 6 run, 0 failures.
 
 ## `TIME-6` — a windowed query that can never emit is indistinguishable from one that is working
 
-**Verdict: REPRODUCED. FIXED as far as this batch may take it — the diagnosability half, which is
-the finding's headline and covers all four causes. The plan-time refusal was written, measured and
-BACKED OUT: it reverses a recorded decision and changes documented case outcomes, so it is the
-lead's.**
+**Verdict: REPRODUCED. HALF CLOSED, and it stays half closed.** The diagnosability half is fixed
+here — the node states the lateness in force per stream, which covers all four causes. The
+plan-time refusal was written, measured and backed out, the decision was handed up, and **the lead
+has ruled that the refusal is correct and goes in as its own batch**, under the owner's standing
+rule of **no leniency**: "leniencies create silent and hard to find bugs". A windowed query over a
+stream with no declared event time ingests everything and serves nothing, for ever, under a success
+status, which is that defect class exactly. **Do not close this finding on the strength of the
+startup line.**
 
 **Cause.** Four configurations each produced `state=RUNNING`, a climbing `ROWS IN`, an empty view, a
 `NaN` lag gauge and not one log line, and nothing on any surface told them apart from a query that
@@ -208,9 +212,25 @@ current behaviour *by name*:
 Those are QA cases with outcomes recorded against them, and `requireDeclaredEventTime`'s own
 javadoc said the case was left alone on purpose, owned by `TIME-002`/`TIME-003`. Reversing a
 recorded decision and rewriting two documented case outcomes is not something to do inside a
-findings batch. **What it needs:** the lead's decision, then one batch — the refusal, the fixture
-sweep, the case-study SQL, and new outcomes for `win005` and `TIME-002`/`009`. The javadoc now
-records all of that where the next person will look, so it is a decision rather than an oversight.
+findings batch, so it went up.
+
+**The lead's answer, recorded here so the next person does not re-litigate it: the refusal is
+correct and is scheduled as its own batch.** None of the 54 is an argument against it — the
+fixtures declaring their event time *is* the fix, not a workaround, and the two cases get rewritten
+outcomes with the reason. What that batch does, in order:
+
+1. `PhysicalPlanBuilder.requireDeclaredEventTime` refuses `declared.isEmpty()` for an unbounded
+   input — the diff is in this batch's history, at `a0a2d9a`, and was reverted by `a4f49aa`, so it
+   can be lifted rather than rewritten.
+2. The `pravaha-it` fixtures declare their event time (54 tests, one shared schema constant in
+   several of them).
+3. The case studies — see the finding filed immediately below, which is the same defect reaching
+   users rather than tests.
+4. New outcomes for `WindowAnswerTest.win005` and `EventTimeTest.time002And009`, each saying why
+   the old one was recorded and what replaced it.
+
+The javadoc on `requireDeclaredEventTime` records all of that where the next person will look, so
+the early return there is a decision with a date on it rather than an oversight.
 
 **Kept, and found on the way.** Three things came out of writing the refusal, and all three are
 unambiguous improvements that cost nothing:
@@ -235,6 +255,65 @@ line, through a real node, captured) and
 grouped-window guard removed: `WindowedPlanTest` 1 failure. Restored, green.
 
 **Commit.** `a0a2d9a`, with the backing-out in the commit that follows it.
+
+---
+
+## New finding for the lead: **four of the five case studies ship a windowed query that can never emit**
+
+Found by writing `TIME-6`'s plan-time refusal and watching what it refused. Filed here because a
+case study is what somebody copies at the moment they do not know better, and this one comes with a
+paragraph explaining the symptom away.
+
+**Not one of the five case studies declares an event-time column anywhere.** Not in
+`schema/streams.properties`, not in `SETUP.md`, not in any README, and there is no shipped
+`application.yaml` in `examples/case-studies/` at all — `grep -rn "event-time\|eventTime\|event\.time"`
+over the whole tree returns exactly one hit, and it is prose. Four of them window over their source
+stream regardless:
+
+| Study | Continuous query | Source stream | The column it windows on |
+|---|---|---|---|
+| `banking-card-velocity` | `sql/01-continuous-card-velocity.sql` | `card_auth` | `auth_time` |
+| `biology-sequencing-qc` | `sql/01-continuous-coverage-qc.sql` | `read_metric` | `called_at` |
+| `finance-counterparty-exposure` | `sql/01-continuous-hourly-exposure.sql` | `settlement` | `value_time` |
+| `trading-order-flow` | `sql/01-continuous-new-order-rate.sql` | `order_event` | `event_time` |
+| `trading-order-flow` | `sql/02-continuous-cancel-rate.sql` | `order_event` | `event_time` |
+
+(`trade-processing` is unaffected: its continuous queries are unwindowed, and its README only
+suggests `TUMBLE` as a variation.)
+
+**Why this is worse than a missing line of configuration.** Without the declaration no watermark
+advances over the stream, so **no window any of these opens can ever close**, whatever timestamps
+arrive. The engine reports `RUNNING`, `ROWS IN` climbs, and the view stays empty for ever — and
+each study tells the reader that is expected. `banking-card-velocity`'s README, at the exact moment
+it happens:
+
+> **Nothing appears yet, and that is correct.** The minute starting `1767225600` closes when the
+> engine is told nothing earlier is coming. Insert one authorisation with an `auth_time` past the
+> end of the minute and the window closes … This is the single most confusing thing about
+> event-time streaming the first time you meet it. The engine is not slow; it is refusing to
+> publish an answer it might have to retract.
+
+**It will not close.** The remedy the README gives — insert a row past the end of the window —
+cannot work, because nothing is reading `auth_time` as event time. `SETUP.md` §"A note on time"
+says the same thing study-wide: "If you load ten rows and see no output, that is usually correct
+and not a bug." A reader who follows the instruction, sees nothing, and reads the paragraph
+concludes the product is working.
+
+**The fix is one key per study**, and it is the fix rather than a workaround:
+`pravaha.streams.card_auth.event-time: auth_time` and its four siblings, plus the matching
+`event.time` option on each source binding so the plugin stamps the rows (`PravahaNode.
+withDeclaredEventTime` does that from the same declaration). `CaseStudySqlTest`'s
+`schema/streams.properties` fixture needs an `event-time` key of its own and `schemaOf` needs to
+call `StreamSchema.Builder.eventTime`, or the test will go on planning what a node would not run.
+
+**Severity, for triage.** It is documentation plus example configuration, not engine code — but the
+symptom is a wrong answer under a success status on the product's most-copied path, and the
+documentation actively explains it away. It is also the thing `TIME-6`'s refusal would have caught
+at registration, which is the argument for that refusal in one sentence.
+
+**No test here.** `CaseStudySqlTest` plans the SQL against a fixture that has the same gap, so it
+is green today and would stay green after a fix that only touched the studies. Whatever closes this
+should make the fixture declare an event time first, so the test can tell.
 
 ---
 
@@ -326,8 +405,8 @@ listener list, so `Subscription` objects reported `isClosed() == false` with an 
 attached to a closed computation, and `subscriberCount()` — which `OPERATIONS.md` offers as the
 operator's signal that a query nobody is watching is a clue — never returned to zero after any drop.
 
-**Fix.** Two codes and one delivery path. `RegistryErrors.QUERY_DROPPED` (`PRV-8011`) and
-`NODE_STOPPING` (`PRV-8012`), and `FlightErrors.statusFor` maps them to the statuses a client acts
+**Fix.** Two codes and one delivery path. `RegistryErrors.QUERY_DROPPED` (`PRV-8018`) and
+`NODE_STOPPING` (`PRV-8019`), and `FlightErrors.statusFor` maps them to the statuses a client acts
 on before reading anything: `NOT_FOUND` for a name that is not coming back, `UNAVAILABLE` for a node
 that is. `RegisteredQuery.close()` calls the `endSubscriptions` that ADR-046's cutover already
 built, **after** the final commit — so a subscriber sees every change the computation ever made and
@@ -369,7 +448,7 @@ re-authorization loop went on asking the policy about a name it could no longer 
 **Fix.** `RegisteredQuery.subscribeAs(underName, …)` records the name the caller asked for, and the
 Flight producer passes the name from the ticket. `QueryRegistry.drop` calls
 `endSubscriptionsUnder(name, …)` — **before** `removeName`, because after it the name is not one the
-computation knows — with `PRV-8011`. By name and not wholesale: a subscriber on the surviving name
+computation knows — with `PRV-8018`. By name and not wholesale: a subscriber on the surviving name
 is untouched, which is `STRM-067`'s mirror case and the point of sharing.
 
 **Test.** `SubscriptionTest.strm14DroppingOneNameEndsOnlyTheSubscriptionsOpenedUnderIt` (both
