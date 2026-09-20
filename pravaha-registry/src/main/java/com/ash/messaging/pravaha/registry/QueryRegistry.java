@@ -18,7 +18,6 @@ package com.ash.messaging.pravaha.registry;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,8 +33,6 @@ import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
 import com.ash.messaging.pravaha.runtime.lane.LaneConfig;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
-import com.ash.messaging.pravaha.security.AccessDecision;
-import com.ash.messaging.pravaha.security.AuditEvent;
 import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityErrors;
@@ -698,68 +695,14 @@ public final class QueryRegistry implements AutoCloseable {
             SinkShape.require(sink, plan.outputSchema(), keyColumns, sinkName);
         }
 
-        AccessDecision decision = policy.mayRegisterQuery(principal);
-        audit.record(AuditEvent.of(principal, action, name, decision, sql));
-        if (!decision.allowed()) {
-            throw new PravahaException(
-                    SecurityErrors.FORBIDDEN, principal.id() + " may not register a query: " + decision.reason());
-        }
+        // The policy's three questions, in RegistrationAuthorization: may they register, may they
+        // read each source, and -- below -- may they write to the sink.
+        List<String> rowFilters = RegistrationAuthorization.requireReads(
+                policy, audit, principal, action, name, sql, PlanSources.of(plan));
 
-        // May this principal read what the query reads?
-        //
-        // Registration used to ask only whether somebody may register *anything*, and never
-        // whether they may read the streams the query names. So a principal who could register
-        // but could not read `payroll` could register `SELECT * FROM payroll` under a name of
-        // their choosing and then read that view -- because the read check is against the view's
-        // name, and the policy was never told what the view derives from. A careful policy author
-        // could not have refused it; the engine gave them nothing to refuse on.
-        List<String> rowFilters = new ArrayList<>();
-        for (String source : PlanSources.of(plan)) {
-            AccessDecision read = policy.mayRead(principal, source);
-            audit.record(AuditEvent.of(principal, action + ":source", source, read, sql));
-            if (!read.allowed()) {
-                throw new PravahaException(
-                        SecurityErrors.FORBIDDEN,
-                        principal.id() + " may not " + action + " '" + name + "' because it reads '" + source
-                                + "', which they may not read: " + read.reason()
-                                + ". A registration is a standing read of everything the query names, so it "
-                                + "is refused here rather than at the first row.");
-            }
-            read.rowFilter().ifPresent(rowFilters::add);
-        }
-        // Sorted, so two principals holding the same filters in a different order share, and two
-        // holding different ones do not.
-        Collections.sort(rowFilters);
-
-        // SINK-3. May this principal have the answer written where they asked for it to be
-        // written? Asked after the sources, and the order is the shape of the question: the reads
-        // decide what the rows are and are the check that can refuse a disclosure, and this one
-        // decides where permitted rows come to rest. It is not a disclosure -- a registrant can
-        // only write what the loop above let them read -- but a sink is read by people outside
-        // Pravaha and written under this node's own credentials, and "who put this there" should
-        // be answerable from the trail. Which is the other half: the sink is now a target in the
-        // audit, and before this the register event recorded the SQL and never the destination.
-        if (sinkName != null) {
-            AccessDecision write = policy.mayWriteTo(principal, sinkName);
-            audit.record(AuditEvent.of(principal, action + ":sink", sinkName, write, sql));
-            if (!write.allowed()) {
-                throw new PravahaException(
-                        SecurityErrors.FORBIDDEN,
-                        principal.id() + " may not " + action + " '" + name + "' writing to sink '" + sinkName
-                                + "': " + write.reason()
-                                + ". A sink is written under this node's credentials and read outside it, so "
-                                + "naming one is a permission of its own rather than part of registering.");
-            }
-            if (write.rowFilter().isPresent()) {
-                throw new PravahaException(
-                        SecurityErrors.SINK_WRITE_NOT_FILTERABLE,
-                        "the policy would let " + principal.id() + " write to sink '" + sinkName
-                                + "' only through the row filter ("
-                                + write.rowFilter().get()
-                                + "), and a sink takes the query's whole changelog or none of it. Refused rather "
-                                + "than written unfiltered: answer mayWriteTo with allow() or deny().");
-            }
-        }
+        // SINK-3, and the reason it is asked here rather than beside mayRegisterQuery, is in
+        // SinkAuthorization's own javadoc.
+        RegistrationAuthorization.requireSink(policy, audit, principal, action, name, sinkName, sql);
 
         // Bound values are in the plan, so they are in the fingerprint: two bindings of the same SQL
         // are two computations. That is the truth rather than a policy, and it is precisely why a
