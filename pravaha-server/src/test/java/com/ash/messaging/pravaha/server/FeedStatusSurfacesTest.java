@@ -144,7 +144,18 @@ class FeedStatusSurfacesTest {
         assertThat(detail.feed().state()).isEqualTo("STOPPED");
         assertThat(detail.feed().stoppedSources()).isEqualTo(1);
         assertThat(detail.feed().failure().code()).isEqualTo("PRV-5040");
-        assertThat(detail.feed().failure().helpUrl()).endsWith("/PRV-5040");
+        // DOCX-21. Nothing here configures pravaha.docs.base-url, so the field is present and
+        // empty rather than a link to a host that does not resolve. With a base it is that base
+        // plus the code as rendered -- this surface used to lower-case it, so it alone published
+        // .../errors/prv-5040 while every other one published PRV-5040.
+        assertThat(detail.feed().failure().helpUrl()).isEmpty();
+        com.ash.messaging.pravaha.api.HelpUrls.configure("https://help.example.test/errors/");
+        try {
+            assertThat(api.get("stalled", as(DANA)).feed().failure().helpUrl())
+                    .isEqualTo("https://help.example.test/errors/PRV-5040");
+        } finally {
+            com.ash.messaging.pravaha.api.HelpUrls.configure(null);
+        }
         assertThat(detail.feed().sources()).singleElement().satisfies(source -> {
             assertThat(source.stream()).isEqualTo("broken");
             assertThat(source.partition()).isZero();
