@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **342 findings carrying a
-status — 246 FIXED, 83 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 83 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 77 POST-GA and 6 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **343 findings carrying a
+status — 246 FIXED, 84 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 84 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 78 POST-GA and 6 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -56,7 +56,7 @@ argued against, and its length was hiding the nineteen entries below.
 |---|---|---|
 | **GA-BLOCKER** | 0 | The product makes a promise and breaks it **silently**: a wrong answer returned as correct, data lost without a refusal, or data reaching a principal not authorised for it. No release argument survives one of these being open. |
 | **GA-REQUIRED** | 0 | Not a breach. The product is not usable or not diagnosable without it — a documented feature unreachable, an error that sends the operator the wrong way on a path they will certainly hit. |
-| **POST-GA** | 77 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
+| **POST-GA** | 78 | Real, deferred. Narrow blast radius, a workaround, or a path a deployment is unlikely to take. |
 | **NOTE** | 6 | Not a defect: a reconfirmation of another finding, a correction to this file, or a coverage observation. Counted as open for years and never was. |
 
 **The blockers, by what they break — none open.** `SUB-1` (a subscribe-and-read gap) and `SCAN-1`
@@ -6772,3 +6772,8 @@ runs is how a default becomes folklore, and this project has already found two o
 
 > **Status:** FIXED — the root `pom.xml`'s `<licenses>` block declared "Apache License, Version 2.0" with `<distribution>repo</distribution>`, and every module inherits it, while `LICENSE`, every source file's header, the README's legal section and the container image's label say proprietary and all rights reserved. Nothing has been published from this tree, so nothing was granted in fact — but the POM of any artefact built from it would have said otherwise, and a POM is what a consumer's tooling reads. It now names the Pravaha Software Licence, links the `LICENSE` beside it and says `manual` distribution. Found by the packaging agent while writing the container image's labels.
 > **Why it mattered:** a licence grant the owner never made, in the one file a downstream build machine actually parses.
+
+### CKPT-5 (LOW) — a checkpoint that failed leaves a hole in the id sequence, and nothing reads it
+
+> **Status:** OPEN — `PeriodicCheckpointer.checkpointNow` takes the id first (`nextId.getAndIncrement()`) and only then cuts and stores, so a checkpoint that throws has spent its id and written nothing. `FileCheckpointStore.prune` is strictly newest-K-by-id, so a directory ends up holding `5,7,8,9,10`: the newest five that exist, over a sequence where 6 was attempted and lost. Recovery restores the newest readable one and is correct either way, which is why the hole stays invisible — a directory with a gap and one without look identical to `ls`, and no surface reports the difference. The fleet-level signals exist (`pravaha_query_checkpoint_failures_total`, the age of the last success); what is missing is the answer to "is this directory healthy?" asked of the directory itself.
+> **Disposition:** POST-GA — it misleads a diagnosis rather than losing data; the fix is either to take the id after the store succeeds, which makes a gap impossible (and then `nextId`'s seeding from `availableIds().max() + 1` needs checking against a restart), or to keep the gap and surface it: logged when it happens, and reported wherever checkpoint health is. Found by the CFG cluster's agent, correcting CFG-16's own inference that pruning was not newest-K — it is.
