@@ -1015,7 +1015,8 @@ def test_journey_debug_a_wrong_row_and_export_the_fixture(page):
         assert ["n1", "Filter(amount > 100)", "1", "0"] in flows, flows
         assert ["n2", "Scan(txn)", "1", "1"] in flows, flows
         # The counters moved with it, without a reload.
-        assert "2 rows consumed" in page.text("#dbg-summary")
+        summary = page.text("#dbg-summary")
+        assert "rows consumed 2" in summary and "steps 2" in summary, summary
 
         # A step the engine cannot read is refused by name, and the session survives it.
         page.eval("document.getElementById('dbg-step').value = 'until:total'")

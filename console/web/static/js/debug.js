@@ -115,8 +115,10 @@
     set("steps", api.t("debug.steps", {n: step.sequence}));
     set("rowsConsumed", api.t("debug.rows", {n: num(step.rowsConsumed)}));
     set("viewSize", api.t("debug.view_size", {n: num(step.viewSize)}));
+    /* The chip's own wording, not the report tail's: "none" ends a sentence there and would
+       be a label meaning nothing here. */
     set("watermarkNanos", step.watermarkNanos === null || step.watermarkNanos === undefined
-      ? api.t("debug.no_watermark") : api.t("debug.watermark", {n: step.watermarkNanos}));
+      ? api.t("debug.no_watermark_chip") : api.t("debug.watermark", {n: step.watermarkNanos}));
   }
 
   var note = null;

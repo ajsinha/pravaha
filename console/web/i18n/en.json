@@ -671,6 +671,7 @@
       "event_time": "Event time",
       "values": "Values",
       "no_watermark": "none",
+      "no_watermark_chip": "no watermark yet",
       "tail": "{rows} rows consumed in all · the view holds {view} rows · watermark {watermark}",
       "steps": "steps {n}",
       "rows": "rows consumed {n}",
