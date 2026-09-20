@@ -68,7 +68,33 @@ class DocumentationFreshnessTest {
             "docs/USER_GUIDE.md",
             "docs/OPERATIONS.md",
             "docs/SECURITY.md",
-            "docs/TROUBLESHOOTING.md");
+            "docs/TROUBLESHOOTING.md",
+            "docs/RELEASE_NOTES.md");
+
+    /**
+     * The release note's defect counts are the register's, or the page is lying to the reader it
+     * was written for.
+     *
+     * <p>A release note is read by somebody deciding whether to trust a build, and its numbers are
+     * the first thing they check and the last thing anybody updates. `FindingsRegisterTest` already
+     * holds the register's own header to what is beneath it; this holds the release note to the
+     * header, so the three cannot drift apart in silence.
+     */
+    @Test
+    void theReleaseNotesDefectCountsAreTheRegistersOwn() throws IOException {
+        Path notes = repoRoot().resolve("docs/RELEASE_NOTES.md");
+        Path register = repoRoot().resolve("docs/qa/FINDINGS.md");
+        java.util.regex.Matcher header = java.util.regex.Pattern.compile(
+                        "\\*\\*(\\d+) findings carrying a\\s+status — (\\d+) FIXED, (\\d+) OPEN")
+                .matcher(Files.readString(register, StandardCharsets.UTF_8));
+        assertThat(header.find()).as("the register's header states its counts").isTrue();
+
+        String stated =
+                "**" + header.group(1) + " findings — " + header.group(2) + " fixed, " + header.group(3) + " open";
+        assertThat(Files.readString(notes, StandardCharsets.UTF_8))
+                .as("docs/RELEASE_NOTES.md must say what docs/qa/FINDINGS.md says: \"%s\"", stated)
+                .contains(stated);
+    }
 
     @Test
     void everyMavenModuleIsDescribedInTheDocumentation() throws IOException {
