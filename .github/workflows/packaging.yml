@@ -1,0 +1,136 @@
+name: packaging
+
+# Everything a deployment consumes: the version, the workflows themselves, the Helm chart and
+# the container image. Nothing here publishes; see docs/DEPLOYMENT.md, "Release", for why.
+#
+# HAS THIS EVER RUN? Not as a GitHub Actions workflow -- this repository's CI is not exercised.
+# Every job's command HAS been run on the development machine, and that is the distinction:
+#
+#   versions   deploy/release/set-version.sh --check and deploy/release/test.sh, both green
+#   ci-helpers deploy/ci/test.sh, 15 checks green
+#   chart      deploy/helm/test.sh, 18 checks green, against a helm 3.16.3 fetched for it
+#              (helm is NOT installed on that machine; this job installs it the same way)
+#   image      deploy/docker/build.sh then deploy/docker/smoke.sh, 10 steps green against a
+#              real container
+#
+# So the risk here is the runner, not the commands: the cache keys, the Docker daemon on the
+# runner, and whether the offline build the image job wants has a populated ~/.m2 to be offline
+# against. The image job builds ONLINE for that reason, and says so where it does it.
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+
+concurrency:
+  group: packaging-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  versions:
+    name: one version, everywhere
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # 37 poms, two wheels and the chart carry the version as a literal. They have to agree or
+      # the reactor will not resolve and a release ships artefacts naming two versions.
+      - name: The 40 files must agree
+        run: deploy/release/set-version.sh --check
+
+      - name: The version script's own tests
+        run: deploy/release/test.sh
+
+  ci-helpers:
+    name: the CI helpers check themselves
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: PyYAML
+        run: python -m pip install --quiet pyyaml
+
+      # The workflows are validated by GitHub on push, after the commit. On a machine whose CI
+      # has never run, an unparsed workflow looks fine. This parses all of them here, and its
+      # own test seeds seven broken ones to prove it says no.
+      - name: Workflows parse and are wired
+        run: python3 deploy/ci/check-workflows.py
+
+      - name: The checkers' own tests
+        run: deploy/ci/test.sh
+
+  chart:
+    name: Helm chart
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned. A chart that lints under whatever helm shipped this morning is a chart nobody
+      # can reproduce the lint of.
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+
+      - name: Lint, template and assert
+        run: deploy/helm/test.sh
+
+      - name: Package it
+        run: helm package deploy/helm/pravaha --destination target
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: helm-chart
+          path: target/pravaha-*.tgz
+          retention-days: 14
+
+  image:
+    name: container image, built and smoke-tested
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: maven
+
+      # ONLINE, deliberately, and this is the one place in the repository that is. The offline
+      # gate (-o) is a property of a developer machine with a populated ~/.m2; a fresh runner
+      # has none, and -o there fails with "has not been downloaded from it before" -- a message
+      # about the cache, not about the commit. The image itself contains no Maven stage at all
+      # (deploy/docker/Dockerfile says why), so this is the only resolution that happens.
+      - name: Build the artefacts the image packages
+        run: ./mvnw -B -DskipTests package
+
+      - name: Docker must be reachable
+        run: docker version
+
+      - name: Build the image
+        run: deploy/docker/build.sh --tag pravaha-ci:${{ github.sha }}
+
+      # The whole journey against a real container: probes, register over Flight, read the
+      # view, append and watch it move, stop, the volume survived, a new container recovers the
+      # registration -- plus two seeds, that readiness goes red when Flight is taken away and
+      # that the node serves with a read-only root filesystem.
+      - name: Smoke-test it
+        run: deploy/docker/smoke.sh --image pravaha-ci:${{ github.sha }}
+
+      - name: What was built
+        if: always()
+        run: |
+          docker image inspect pravaha-ci:${{ github.sha }} --format \
+            'size {{.Size}} user {{.Config.User}} entrypoint {{.Config.Entrypoint}}' || true
+
+      # Nothing is pushed. There is no registry configured in this repository and no credential
+      # in it; adding either is a decision, not a workflow edit. docs/DEPLOYMENT.md, "Release".
+      - name: Clean up the image this job built
+        if: always()
+        run: docker image rm -f pravaha-ci:${{ github.sha }} || true

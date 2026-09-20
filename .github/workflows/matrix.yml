@@ -1,5 +1,10 @@
 name: matrix
 
+# HAS THIS EVER RUN? Not as a GitHub Actions workflow, and two of its legs have never run
+# anywhere: the JDK 25 leg (no 25 on the development machine) and Spring Boot 3.2, 3.3 and 3.4
+# (only 3.5 has been run there). docs/REMAINING.md B12 lists those Boot legs by name. They are
+# written so that a leg CANNOT pass by testing something else -- see BootVersionTest below.
+#
 # Java 21 is the baseline and the only JDK we compile with (design section 4.5). The 25 leg is a
 # *runtime* compatibility check: it runs the tests against artifacts compiled on 21, which is what
 # a customer on a newer JVM actually does. Recompiling on 25 would test something nobody ships.

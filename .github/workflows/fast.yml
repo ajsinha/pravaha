@@ -2,6 +2,10 @@ name: fast
 
 # The inner-loop gate. Budget: 6 minutes (implementation plan section 5.1). If this gets slow,
 # people stop waiting for it, and a check nobody waits for is not a check.
+#
+# HAS THIS EVER RUN? Not as a GitHub Actions workflow -- this repository's CI is not exercised.
+# Its command, `./mvnw verify -DskipITs`, is the build the development machine runs constantly,
+# so what is unproven here is the runner and the cache, not the build.
 on:
   push:
     branches: ['**']

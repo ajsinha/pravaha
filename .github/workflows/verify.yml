@@ -1,6 +1,11 @@
 name: verify
 
 # Integration tests and coverage gates. Slower, so it runs on pull requests rather than on push.
+#
+# HAS THIS EVER RUN? No. This machine's CI is not exercised; docs/REMAINING.md B12 lists the
+# Docker integration leg as one that has never run. The gate below exists because of that:
+# `./mvnw verify -Pit` exits 0 when it runs zero integration tests, and a leg that has never run
+# is indistinguishable from one that runs nothing.
 on:
   pull_request:
     branches: [develop, main]
@@ -17,8 +22,23 @@ jobs:
           distribution: temurin
           cache: maven
 
+      # Before the build, not after it. Testcontainers reports a missing daemon by skipping, and
+      # a skip inside a forty-minute build is a line nobody reads. GitHub's ubuntu runners have
+      # Docker; a self-hosted runner may not, and this says which one this is.
+      - name: Docker must be reachable
+        run: |
+          docker version
+          docker info --format 'storage driver: {{.Driver}}, containers: {{.Containers}}'
+
       - name: Integration tests (Testcontainers)
         run: ./mvnw -B clean verify -Pit
+
+      # The gate. -Pit exits 0 having run nothing if the profile did not activate, if the daemon
+      # was unreachable, or if the module holding the tests left the reactor. The floor is a
+      # number so that one test out of four hundred is not the same lie in a smaller font.
+      # Lower it in a commit that says why; never raise it to make a red build green.
+      - name: The integration tests must actually have run
+        run: deploy/ci/assert-suite-ran.sh failsafe 20
 
       - name: Coverage report
         if: always()
@@ -26,4 +46,12 @@ jobs:
         with:
           name: jacoco
           path: '**/target/site/jacoco/**'
+          retention-days: 7
+
+      - name: Integration test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failsafe-reports
+          path: '**/target/failsafe-reports/**'
           retention-days: 7

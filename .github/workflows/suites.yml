@@ -1,0 +1,152 @@
+name: suites
+
+# The two suites that are not Java: the Python SDK, and the console with a real headless Chrome.
+#
+# They are here rather than in `fast` because each needs a toolchain the engine's build does
+# not -- a Python interpreter, and a browser -- and `fast` has a six-minute budget that a
+# browser suite would eat on its own.
+#
+# HAS THIS EVER RUN? No, neither job. Both suites pass on the development machine through their
+# Makefiles; neither has been through GitHub Actions, because this repository's CI is not
+# exercised. What is most likely to be wrong on a first run is the browser job: Chrome's path,
+# its sandbox under a container runner, and the fonts a visual-regression baseline was taken
+# with. Read the "browser-tests-actually-ran" step's output before believing a green tick.
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+concurrency:
+  group: suites-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-sdk:
+    name: Python SDK
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      # The SDK's transport tests start the real Java server from this build's classes, so the
+      # Java side has to exist before pytest runs. That is also why the reactor binds these
+      # suites to pravaha-it, the last module, rather than to the aggregator.
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: maven
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build the Java side the transport tests need
+        run: ./mvnw -B -q -DskipTests package
+
+      - name: Install the SDK with its dev extras
+        run: make -C sdk/python install
+
+      - name: Lint
+        run: make -C sdk/python lint
+
+      - name: Type check
+        run: make -C sdk/python typecheck
+
+      - name: Tests
+        run: make -C sdk/python test
+
+      # The wheel is a deliverable, and `./mvnw -Ppython verify` packages one. A wheel that
+      # cannot be built is found here rather than during a release.
+      - name: Build the wheel
+        run: make -C sdk/python build
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: python-sdk-dist
+          path: sdk/python/dist/**
+          retention-days: 7
+
+  console:
+    name: Console (headless Chrome)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: maven
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # The console's browser tests drive Chrome over the DevTools protocol directly -- no
+      # Selenium, no Playwright, no driver to match to a browser version. They look for
+      # google-chrome, chromium and friends on the PATH and SKIP when none is found, so the
+      # browser has to be installed before pytest and the skip has to be treated as a failure.
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+        with:
+          chrome-version: stable
+
+      - name: Chrome must be here, and the suite must know it
+        run: |
+          echo "PRAVAHA_CHROME=${{ steps.chrome.outputs.chrome-path }}" >> "$GITHUB_ENV"
+          "${{ steps.chrome.outputs.chrome-path }}" --version
+
+      - name: Build the Java side the real-engine tests need
+        run: ./mvnw -B -q -DskipTests package
+
+      - name: Install the console and the SDK it is built on
+        run: make -C console install
+
+      - name: Lint
+        run: make -C console lint
+
+      - name: Type check
+        run: make -C console typecheck
+
+      # -rs prints the reason for every skip, which is what makes the next step's check
+      # readable when it fires.
+      # working-directory, not --rootdir: pytest's markers and testpaths live in
+      # console/pyproject.toml, and a run started from the repository root does not read them --
+      # `-m browser` would then be an unknown marker and select nothing.
+      - name: Tests, browser included
+        working-directory: console
+        env:
+          PRAVAHA_BROWSER_TESTS: '1'
+        run: .venv/bin/python -m pytest tests -q -rs
+
+      # The gate. The browser tests skip themselves when Chrome is missing, so a green run
+      # proves nothing on its own: this runs the browser-marked tests alone and fails if any of
+      # them skipped. Without it, a runner image that drops Chrome turns this whole job into a
+      # tick that means "we did not look".
+      - name: The browser tests must actually have run
+        working-directory: console
+        env:
+          PRAVAHA_BROWSER_TESTS: '1'
+        run: |
+          set -o pipefail
+          .venv/bin/python -m pytest tests -m browser -q -rs | tee /tmp/browser.txt
+          if grep -qE '[0-9]+ skipped' /tmp/browser.txt; then
+            echo "::error::browser tests skipped themselves. Chrome was not usable, and this job"
+            echo "::error::would otherwise be green having driven no browser at all."
+            grep -E '^SKIPPED' /tmp/browser.txt || true
+            exit 1
+          fi
+          if grep -qE 'no tests ran' /tmp/browser.txt; then
+            echo "::error::no browser-marked tests were collected at all."
+            exit 1
+          fi
+
+      # The visual-regression diffs are the artefact worth having when this fails: a pixel
+      # change is an argument about an image, and an image is not in a log.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: console-visual-failures
+          path: console/tests/visual/failures/**
+          retention-days: 14
