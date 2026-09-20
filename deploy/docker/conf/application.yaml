@@ -1,0 +1,58 @@
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+#
+# The image's own defaults. Baked in at /opt/pravaha/conf/application.yaml, which the image names
+# FIRST in spring.config.additional-location -- so anything a deployment mounts at
+# /etc/pravaha/application.yaml wins over every key here, and an environment variable wins over
+# both.
+#
+# Only keys whose right answer follows from "this process is in a container with a volume at
+# /var/lib/pravaha" belong here. A key that changes what the engine MEANS does not, however
+# convenient the default would be; those are listed at the bottom, unset and explained.
+
+pravaha:
+  # Where registered continuous queries are written down. Unset, the node runs and warns that a
+  # restart loses every registration. A container is restarted for a living, so the file goes on
+  # the volume: this is the difference between a restart costing a warm-up and costing every
+  # client's registrations.
+  #
+  # It holds query text and bound parameter values -- account numbers, customer ids. The image
+  # creates /var/lib/pravaha 0750 owned by uid 10001 for that reason; keep the volume behind it.
+  registry:
+    journal: /var/lib/pravaha/registry.journal
+
+  # What those queries had accumulated, so a restart is a resumption rather than a warm-up. Each
+  # query checkpoints into its own directory beneath this one.
+  #
+  # `interval` and `keep` are left at the engine's defaults (1m, 3) on purpose: they are capacity
+  # decisions for the deployment, and an image that halved them would be making one.
+  checkpoint:
+    directory: /var/lib/pravaha/checkpoints
+
+# --------------------------------------------------------------------------------------------
+# Deliberately NOT set here, although the directories exist in the image. Each of these changes
+# behaviour rather than location, so the deployment sets it, in /etc/pravaha/application.yaml or
+# in the chart's values:
+#
+#   pravaha.dlq.directory: /var/lib/pravaha/dlq
+#       Set, a record the engine cannot decode is written there and the source keeps reading.
+#       Unset, the source stops, loudly. Which of those is right is the deployment's call, not the
+#       image's -- and if it is set and unwritable the node refuses to start (PRV-4090).
+#
+#   pravaha.state.spill.directory: /var/lib/pravaha/spill
+#       A directory alone switches the overflow tier on (ADR-044). On, a query that outgrows its
+#       ceiling slows down; off, it dies with PRV-4001. Turning it on silently would also put
+#       state on whatever the volume happens to be -- and spilling to a tmpfs only moves the
+#       out-of-memory to the kernel. Set it together with pravaha.state.spill.max-bytes.
+#
+#   pravaha.node.id
+#       Defaults to pravaha-node-01 from the jar. The node CLAIMS its state directories under this
+#       id, so two containers on one volume with the same id is the case PRV-4003 refuses. The
+#       chart sets it from the pod name; a plain `docker run` should set it too if more than one
+#       node exists.
+#
+#   pravaha.security.*
+#       The shipped defaults refuse to start, on purpose. There is no credential in this image and
+#       none will be added to it.
+# --------------------------------------------------------------------------------------------
