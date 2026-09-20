@@ -15,6 +15,8 @@
  */
 package com.ash.messaging.pravaha.cluster;
 
+import com.ash.messaging.pravaha.common.net.Endpoint;
+
 public record Member(String id, String host, int port) {
 
     public Member {
@@ -23,8 +25,17 @@ public record Member(String id, String host, int port) {
         }
     }
 
+    /**
+     * Where another node reaches this one, written so it can be pasted into a connection string.
+     *
+     * <p>CFG-2(c). This was {@code host + ":" + port}, so a node bound to an IPv6 address
+     * advertised {@code ::1:9090} -- which no client library can parse, because the colon before
+     * the port is indistinguishable from the address's own. Bracketing is RFC 3986's answer and
+     * {@link Endpoint} is where this project keeps it, so the startup log and the membership record
+     * cannot disagree about how an address is spelled.
+     */
     public String address() {
-        return host + ":" + port;
+        return Endpoint.address(host, port);
     }
 
     @Override

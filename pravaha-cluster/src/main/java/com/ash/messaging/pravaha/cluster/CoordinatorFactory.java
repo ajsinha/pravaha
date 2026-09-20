@@ -62,6 +62,32 @@ public final class CoordinatorFactory {
     }
 
     /**
+     * The provider written as {@code name}, whatever case it was written in.
+     *
+     * <p>CFG-18. {@code mode} is upper-cased before it is resolved and {@code mechanism} was a plain
+     * map lookup, so two adjacent keys in one YAML block had two case rules: {@code mode:
+     * replicated} was accepted and {@code mechanism: SOCKET} was refused with "no cluster
+     * coordinator called 'SOCKET' is on the classpath" beside an "Available: [single, socket]" list
+     * that appears to contradict it. A mechanism name is an identifier in a configuration file, not
+     * data, and identifiers here are matched the way {@code mode} matches them.
+     *
+     * <p>Exact match first, so a provider that genuinely registers two names differing only in case
+     * keeps whichever one was asked for.
+     */
+    private static CoordinatorProvider providerNamed(Map<String, CoordinatorProvider> providers, String name) {
+        CoordinatorProvider exact = providers.get(name);
+        if (exact != null) {
+            return exact;
+        }
+        for (Map.Entry<String, CoordinatorProvider> candidate : providers.entrySet()) {
+            if (candidate.getKey().equalsIgnoreCase(name)) {
+                return candidate.getValue();
+            }
+        }
+        return null;
+    }
+
+    /**
      * Builds the coordinator this configuration asks for, having checked it can do the job.
      *
      * @throws PravahaException {@link ClusterErrors#UNKNOWN_MECHANISM} if no provider answers to the
@@ -74,7 +100,7 @@ public final class CoordinatorFactory {
                 configuration.getString("pravaha.cluster.mechanism", "single").strip();
 
         Map<String, CoordinatorProvider> providers = available();
-        CoordinatorProvider provider = providers.get(mechanism);
+        CoordinatorProvider provider = providerNamed(providers, mechanism);
         if (provider == null) {
             throw new PravahaException(
                     ClusterErrors.UNKNOWN_MECHANISM,
@@ -142,5 +168,20 @@ public final class CoordinatorFactory {
     public static String describe(Configuration configuration, ClusterCoordinator coordinator) {
         return "cluster mode " + modeOf(configuration) + " on "
                 + coordinator.guarantees().describe();
+    }
+
+    /**
+     * The same line, naming the member this node joined as.
+     *
+     * <p>CFG-1. {@code pravaha.node.id} decides which checkpoints and which registry journal this
+     * node may claim, and which id it advertises to a cluster -- and it reached exactly one surface,
+     * {@code GET /api/v1/status}'s {@code instanceId}. The membership line named the mode and the
+     * mechanism and never the member, so there was no way to confirm from a running node's log that
+     * the id it advertises is the id it was configured with. The address is the one the coordinator
+     * was handed, so an id and an unreachable address are distinguishable here rather than during a
+     * cluster that forms and cannot work.
+     */
+    public static String describe(Configuration configuration, ClusterCoordinator coordinator, Member self) {
+        return describe(configuration, coordinator) + ", this node " + self + " (pravaha.node.id=" + self.id() + ")";
     }
 }

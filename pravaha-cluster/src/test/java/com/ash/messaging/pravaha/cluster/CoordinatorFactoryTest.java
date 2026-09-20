@@ -154,6 +154,66 @@ class CoordinatorFactoryTest {
     }
 
     @Test
+    void theMechanismIsMatchedWithoutRegardToCase_CFG18() {
+        // CFG-18. `mode` is upper-cased before it is resolved and `mechanism` was a plain map
+        // lookup, so `mode: replicated` was accepted and `mechanism: SOCKET` -- two adjacent keys
+        // in one YAML block -- was refused with "no cluster coordinator called 'SOCKET' is on the
+        // classpath" printed beside an "Available: [single, socket]" list that contradicts it.
+        try (ClusterCoordinator coordinator =
+                CoordinatorFactory.create(config("pravaha.cluster.mechanism", "SINGLE"))) {
+            assertThat(coordinator.mechanism()).isEqualTo("single");
+        }
+        assertThatThrownBy(() -> CoordinatorFactory.create(config(
+                        "pravaha.cluster.mode", "replicated",
+                        "pravaha.cluster.mechanism", "SOCKET")))
+                .as("SOCKET must reach the socket provider, and then fail on its missing peer list")
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-9005");
+    }
+
+    @Test
+    void thePartitionedModeOnSingleStarts_CFG18() {
+        // The case file's load-bearing cell predicted PRV-9002 here. It does not fire and should
+        // not: `single` excludes split-brain because there is no second node, which is what
+        // OPERATIONS.md's own mechanism table says. The guard fires on PARTITIONED + socket, which
+        // partitionedModeIsRefusedOnACoordinatorWithoutConsensus above already pins.
+        try (ClusterCoordinator coordinator = CoordinatorFactory.create(config(
+                "pravaha.cluster.mode", "PARTITIONED",
+                "pravaha.cluster.mechanism", "single"))) {
+            assertThat(coordinator.guarantees().excludesSplitBrain()).isTrue();
+        }
+    }
+
+    @Test
+    void theStartupLineNamesTheMemberThisNodeJoinedAs_CFG1() {
+        // CFG-1. pravaha.node.id decides which checkpoints and which registry journal this node
+        // may claim and which id it advertises to a cluster, and it reached exactly one surface --
+        // GET /api/v1/status's instanceId. The membership line named the mode and the mechanism and
+        // never the member, so a running node's log could not confirm the id it advertises.
+        Configuration configuration = config("pravaha.node.id", "cfg-node");
+        try (ClusterCoordinator coordinator = CoordinatorFactory.create(configuration)) {
+            Member self = new Member("cfg-node", "10.0.0.7", 9090);
+            coordinator.start(self);
+
+            String line = CoordinatorFactory.describe(configuration, coordinator, self);
+
+            assertThat(line).contains("SINGLE").contains("cfg-node").contains("10.0.0.7:9090");
+            assertThat(CoordinatorFactory.describe(configuration, coordinator))
+                    .as("the two-argument line is unchanged for callers that have no member")
+                    .doesNotContain("cfg-node");
+        }
+    }
+
+    @Test
+    void anIpv6MemberAdvertisesAnAddressAClientCanParse_CFG2() {
+        // CFG-2(c). `::1` + 9090 was advertised and logged as `::1:9090`, where the colon before
+        // the port is indistinguishable from the address's own, so the string an operator copies
+        // into a connection is unparseable.
+        assertThat(new Member("n", "::1", 9090).address()).isEqualTo("[::1]:9090");
+        assertThat(new Member("n", "127.0.0.1", 9090).address()).isEqualTo("127.0.0.1:9090");
+    }
+
+    @Test
     void aSocketClusterNeedsItsPeerList() {
         assertThatThrownBy(() -> CoordinatorFactory.create(config("pravaha.cluster.mechanism", "socket")))
                 .isInstanceOf(PravahaException.class)
