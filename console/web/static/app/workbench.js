@@ -127,36 +127,36 @@ function defineThemes(monaco) {
        at 4.5:1 on --surface in every theme -- never from the data palette (--series-*), which is
        for marks on a chart and measured 2.7:1 as text. */
     rules: [
-      { token: "keyword", foreground: hex("--flow", "#1B5FA8"), fontStyle: "bold" },
-      { token: "predefined", foreground: hex("--info", "#274B6D") },
-      { token: "type", foreground: hex("--slate", "#464C57") },
-      { token: "type.identifier", foreground: hex("--ink", "#15181D"), fontStyle: "bold underline" },
+      { token: "keyword", foreground: hex("--flow", "#A51C30"), fontStyle: "bold" },
+      { token: "predefined", foreground: hex("--info", "#293352") },
+      { token: "type", foreground: hex("--slate", "#4A5058") },
+      { token: "type.identifier", foreground: hex("--ink", "#1A1A1A"), fontStyle: "bold underline" },
       { token: "string", foreground: hex("--ok", "#1B6B3A") },
       { token: "number", foreground: hex("--warn", "#8A5A12") },
-      { token: "comment", foreground: hex("--muted", "#646B78"), fontStyle: "italic" },
-      { token: "variable.parameter", foreground: hex("--bad", "#A82121"), fontStyle: "bold" },
+      { token: "comment", foreground: hex("--muted", "#61666E"), fontStyle: "italic" },
+      { token: "variable.parameter", foreground: hex("--bad", "#CC2200"), fontStyle: "bold" },
     ],
     colors: {
       "editor.background": "#" + hex("--surface", "#ffffff"),
-      "editor.foreground": "#" + hex("--ink", "#15181D"),
-      "editorLineNumber.foreground": "#" + hex("--muted", "#646B78"),
-      "editorCursor.foreground": "#" + hex("--flow", "#1B5FA8"),
+      "editor.foreground": "#" + hex("--ink", "#1A1A1A"),
+      "editorLineNumber.foreground": "#" + hex("--muted", "#61666E"),
+      "editorCursor.foreground": "#" + hex("--flow", "#A51C30"),
       /* Monaco's default occurrence highlight is a 25% grey that took the keyword colour
          under 4.5:1; the info tint keeps every syntax colour readable on it. */
-      "editor.wordHighlightBackground": "#" + hex("--info-soft", "#E8EDF3"),
-      "editor.wordHighlightStrongBackground": "#" + hex("--info-soft", "#E8EDF3"),
-      "editor.selectionHighlightBackground": "#" + hex("--info-soft", "#E8EDF3"),
+      "editor.wordHighlightBackground": "#" + hex("--info-soft", "#E9ECF3"),
+      "editor.wordHighlightStrongBackground": "#" + hex("--info-soft", "#E9ECF3"),
+      "editor.selectionHighlightBackground": "#" + hex("--info-soft", "#E9ECF3"),
       /* The Compare panel's SQL diff. A changed line is tinted from the semantic soft tokens,
          which every syntax colour above is held readable on, and marked + or − in the gutter.
          The changed words are not tinted again: a second wash over the first took the number
          colour to 4.2:1 (found by axe), and the line, its sign and the plan diff say enough. */
       "diffEditor.insertedLineBackground": "#" + hex("--ok-soft", "#E6F2EA"),
-      "diffEditor.removedLineBackground": "#" + hex("--bad-soft", "#F9E8E8"),
+      "diffEditor.removedLineBackground": "#" + hex("--bad-soft", "#FBE9E4"),
       "diffEditor.insertedTextBackground": "#00000000",
       "diffEditor.removedTextBackground": "#00000000",
       "diffEditorGutter.insertedLineBackground": "#" + hex("--ok-soft", "#E6F2EA"),
-      "diffEditorGutter.removedLineBackground": "#" + hex("--bad-soft", "#F9E8E8"),
-      "diffEditor.diagonalFill": "#" + hex("--rule", "#D9DEE6"),
+      "diffEditorGutter.removedLineBackground": "#" + hex("--bad-soft", "#FBE9E4"),
+      "diffEditor.diagonalFill": "#" + hex("--rule", "#E3DED7"),
     },
   });
   monaco.editor.setTheme("pravaha");

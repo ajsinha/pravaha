@@ -32,7 +32,17 @@ PAIRS = [
       for bg in ("ok-soft", "warn-soft", "bad-soft", "info-soft")],
     ("edge", "surface", 3.0), ("edge", "canvas", 3.0),          # form-control borders
     ("flow", "surface", 3.0),                                   # the focus ring
+    # The navigation bar is a gradient, which is the one background axe cannot resolve, so
+    # its three stops are tokens and the bar's text is checked against each of them here.
+    ("on-bar", "bar-from", 4.5), ("on-bar", "bar-via", 4.5), ("on-bar", "bar-to", 4.5),
 ]
+
+#: How far apart, in CIELAB, the accent has to be from each status colour. The accent says
+#: "this product" and the status colours say what is happening; a reader who has to compare
+#: two swatches to tell a brand link from a failure has been told nothing by either. The bar
+#: is the distance the palette already holds -- it exists so that the next accent cannot
+#: quietly be picked next to `--bad`, which is exactly what a crimson brand invites.
+ACCENT_APART = 25.0
 
 
 def _themes() -> dict[str, dict[str, str]]:
@@ -81,6 +91,61 @@ def test_every_allowed_token_pair_meets_wcag_aa(theme):
         if ratio < minimum:
             failures.append(f"--{fg} {tokens[fg]} on --{bg} {tokens[bg]}: {ratio:.2f} < {minimum}")
     assert not failures, f"{theme} theme:\n  " + "\n  ".join(failures)
+
+
+def _lab(hex_colour: str) -> tuple[float, float, float]:
+    """CIELAB (D65), for a distance between two colours rather than a contrast ratio."""
+    if len(hex_colour) == 4:
+        hex_colour = "#" + "".join(c * 2 for c in hex_colour[1:])
+    srgb = [int(hex_colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    r, g, b = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in srgb]
+    x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047
+    y = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883
+
+    def f(t: float) -> float:
+        return t ** (1 / 3) if t > 216 / 24389 else (24389 / 27 * t + 16) / 116
+
+    fx, fy, fz = f(x), f(y), f(z)
+    return 116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)
+
+
+def difference(a: str, b: str) -> float:
+    """CIE76 ΔE. Blunt, and blunt is what is wanted: it is a floor, not a grade."""
+    la, aa, ba = _lab(a)
+    lb, ab, bb = _lab(b)
+    return ((la - lb) ** 2 + (aa - ab) ** 2 + (ba - bb) ** 2) ** 0.5
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_the_accent_is_not_confusable_with_a_status_colour(theme):
+    """The accent is the product; ok, warn, bad and info are what is happening. With a
+    crimson accent `--bad` is the one that has to be moved out of its way, and this is what
+    stops it drifting back.
+
+    Light and dark only. The terminal theme is not the product's colours on another ground,
+    it is a named palette whose accent *is* its amber, and there `--warn` is a step of that
+    same amber (14.9 apart, and the next test says so rather than leaving it unmeasured).
+    """
+    tokens = _themes()[theme]
+    too_close = [f"--flow {tokens['flow']} and --{name} {tokens[name]}: "
+                 f"{difference(tokens['flow'], tokens[name]):.1f} < {ACCENT_APART}"
+                 for name in ("ok", "warn", "bad", "info")
+                 if difference(tokens["flow"], tokens[name]) < ACCENT_APART]
+    assert not too_close, f"{theme} theme:\n  " + "\n  ".join(too_close)
+
+
+@pytest.mark.parametrize("theme", ["light", "dark", "terminal"])
+def test_the_status_colours_are_not_confusable_with_each_other(theme):
+    """The property that still has to hold in the terminal theme, where the accent shares
+    its hue with `--warn`: "running", "watch this", "wrong" and "for information" have to be
+    four colours, not two pairs."""
+    tokens = _themes()[theme]
+    names = ("ok", "warn", "bad", "info")
+    too_close = [f"--{a} {tokens[a]} and --{b} {tokens[b]}: {difference(tokens[a], tokens[b]):.1f}"
+                 for i, a in enumerate(names) for b in names[i + 1:]
+                 if difference(tokens[a], tokens[b]) < ACCENT_APART]
+    assert not too_close, f"{theme} theme:\n  " + "\n  ".join(too_close)
 
 
 def _grayscale(hex_colour: str) -> str:

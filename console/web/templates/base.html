@@ -35,35 +35,49 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
    to sit ON something; in light that is white on a cool off-white, in dark it
    is a lighter panel on a darker ground, and one "background" cannot be both. */
 :root{
-  /* The ACCENT. Pravaha is a river: the product's blue, dark enough to carry
-     text on white at 4.5:1 -- a brand blue taken straight from a palette is
+  /* The ACCENT: Harvard crimson, #A51C30, and the two steps either side of it.
+     It carries text on white at 7.5:1, which is what lets it be a link colour
+     as well as a fill -- a brand colour taken straight from a palette is
      usually around 3.4 and fails as body text, which is the standard trap. */
-  --flow:#1B5FA8; --flow-d:#12447A; --flow-l:#2E7FD0;
+  --flow:#A51C30; --flow-d:#8A1626; --flow-l:#C4384B;
   --on-bar:#fff; --on-bar-dim:rgba(255,255,255,.82);
   --on-flow:#fff; --on-flow-dim:rgba(255,255,255,.86);
 
-  /* ground and text */
-  --canvas:#F9FAFC; --surface:#fff; --raised:#fff; --stripe:#F3F5F9;
-  --ink:#15181D; --slate:#464C57; --muted:#646B78;
-  --rule:#D9DEE6; --edge:#767E8C; --hairline:#EBEEF3;
+  /* ground and text. A warm off-white ground rather than a cool one: a cool
+     grey under a crimson accent reads as two products stuck together. */
+  --canvas:#F7F5F2; --surface:#fff; --raised:#fff; --stripe:#F1EEE9;
+  --ink:#1A1A1A; --slate:#4A5058; --muted:#61666E;
+  --rule:#E3DED7; --edge:#6B7480; --hairline:#EDE9E3;
 
-  /* semantic -- deliberately NOT the accent. Blue means "this product"; these
-     mean "running / watch this / wrong", and one colour cannot carry both jobs
-     without the reader learning nothing from either. */
+  /* semantic -- deliberately NOT the accent. Crimson means "this product";
+     these mean "running / watch this / wrong", and one colour cannot carry both
+     jobs without the reader learning nothing from either.
+
+     `--bad` is the one a crimson accent forces to move. A brand red and an
+     error red side by side is a page where nothing is wrong and everything
+     looks it, so the error is a bright, orange-shifted red -- #CC2200, 34 dE
+     from the accent in CIELAB -- rather than the wine the accent is. A test
+     holds that distance, because the temptation when picking a red is always
+     to reach for the brand's. */
   --on-accent:#fff;
   --ok:#1B6B3A; --ok-soft:#E6F2EA;
   --warn:#8A5A12; --warn-soft:#F8F0E2;
-  --bad:#A82121; --bad-soft:#F9E8E8;
-  --info:#274B6D; --info-soft:#E8EDF3;
+  --bad:#CC2200; --bad-soft:#FBE9E4;
+  --info:#293352; --info-soft:#E9ECF3;
 
   /* depth. Two levels and no more: a page where everything floats has no
      hierarchy, it just has shadows. */
-  --lift:0 1px 2px rgba(21,24,29,.06), 0 1px 3px rgba(21,24,29,.04);
-  --lift-2:0 2px 6px rgba(21,24,29,.08), 0 4px 14px rgba(21,24,29,.06);
+  --lift:0 1px 2px rgba(26,26,26,.06), 0 1px 3px rgba(26,26,26,.04);
+  --lift-2:0 2px 6px rgba(26,26,26,.08), 0 4px 14px rgba(26,26,26,.06);
 
-  --bar:linear-gradient(180deg, #216DBC 0%, var(--flow) 55%, #164E8C 100%);
-  --tint:linear-gradient(180deg, rgba(27,95,168,.045) 0%, rgba(27,95,168,0) 100%);
-  --focus-glow:rgba(27,95,168,.16);
+  /* The navigation gradient: crimson-deep, crimson, indigo, with white on all
+     three. Its stops are tokens of their own so the contrast test can check
+     white against each -- text on a gradient is the one place axe cannot
+     resolve a background, so it is checked there or nowhere. */
+  --bar-from:#6E1120; --bar-via:#A51C30; --bar-to:#293352;
+  --bar:linear-gradient(100deg, var(--bar-from) 0%, var(--bar-via) 48%, var(--bar-to) 100%);
+  --tint:linear-gradient(180deg, rgba(165,28,48,.045) 0%, rgba(165,28,48,0) 100%);
+  --focus-glow:rgba(165,28,48,.18);
 
   --sans:"Source Sans 3",-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   --serif:"Source Serif 4",Georgia,"Times New Roman",serif;
@@ -80,31 +94,36 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
   --series-5:#e87ba4; --series-6:#008300; --series-7:#4a3aa7; --series-8:#e34948;
 }
 
-/* Dark. Not an inversion -- an inverted blue is a mustard nobody chose, and
-   pure white on pure black shimmers. The accent lightens just enough to hold
-   4.5:1 on the dark ground, and the ground keeps a trace of the cool hue so
-   the two themes read as one product. */
+/* Dark. Not an inversion -- an inverted crimson is a green nobody chose, and
+   pure white on pure black shimmers. #A51C30 is 2.2:1 on this ground and fails
+   as text, so the accent lightens; it lightens one step further than the
+   palette's own dark crimson (#DE6B81), because design 23.12's stale state
+   greys the page out and every pair has to hold 4.5:1 after that too -- at
+   #DE6B81 the accent on a raised card greys to 4.10. #DE6B81 becomes the hover
+   step instead. The ground keeps a trace of the warm hue, so the two themes
+   read as one product. */
 :root[data-theme="dark"]{
-  --flow:#79B2F2; --flow-d:#5893D4; --flow-l:#9CC8F8;
-  --on-bar:#E6EEF8; --on-bar-dim:rgba(230,238,248,.72);
-  --on-flow:#0B1220; --on-flow-dim:rgba(11,18,32,.78);
+  --flow:#E47F92; --flow-d:#DE6B81; --flow-l:#EC9EAC;
+  --on-bar:#F6EDEF; --on-bar-dim:rgba(246,237,239,.74);
+  --on-flow:#151517; --on-flow-dim:rgba(21,21,23,.78);
 
-  --canvas:#0F1216; --surface:#171B21; --raised:#1D222A; --stripe:#1D222A;
-  --ink:#E7EAF0; --slate:#B4BCC8; --muted:#98A1AF;
-  --rule:#2A313B; --edge:#646D7B; --hairline:#232932;
+  --canvas:#151517; --surface:#1F1F23; --raised:#26262C; --stripe:#232329;
+  --ink:#ECECEF; --slate:#AEB6C0; --muted:#9AA2AC;
+  --rule:#34343A; --edge:#767C86; --hairline:#26262B;
 
-  --on-accent:#0B1220;
-  --ok:#6FC28C; --ok-soft:#14241A;
-  --warn:#DDA75F; --warn-soft:#291F12;
-  --bad:#EC7B78; --bad-soft:#2A1618;
-  --info:#8FB2DA; --info-soft:#151E28;
+  --on-accent:#151517;
+  --ok:#7FD39B; --ok-soft:#14241A;
+  --warn:#E8C26A; --warn-soft:#291F12;
+  --bad:#FF8B63; --bad-soft:#2E1A12;
+  --info:#A9B6D6; --info-soft:#1A1E2A;
 
   --lift:0 1px 2px rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.35);
   --lift-2:0 2px 8px rgba(0,0,0,.55), 0 6px 18px rgba(0,0,0,.4);
 
-  --bar:linear-gradient(180deg, #1B2735 0%, #16202C 60%, #121A24 100%);
-  --tint:linear-gradient(180deg, rgba(121,178,242,.06) 0%, rgba(121,178,242,0) 100%);
-  --focus-glow:rgba(121,178,242,.22);
+  --bar-from:#2E0810; --bar-via:#6E1120; --bar-to:#1B2138;
+  --bar:linear-gradient(100deg, var(--bar-from) 0%, var(--bar-via) 48%, var(--bar-to) 100%);
+  --tint:linear-gradient(180deg, rgba(228,127,146,.06) 0%, rgba(228,127,146,0) 100%);
+  --focus-glow:rgba(228,127,146,.24);
   --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70; --series-4:#c98500;
   --series-5:#d55181; --series-6:#008300; --series-7:#9085e9; --series-8:#e66767;
 }
@@ -139,7 +158,11 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
   --lift:0 1px 2px rgba(0,0,0,.7), 0 1px 3px rgba(0,0,0,.5);
   --lift-2:0 2px 8px rgba(0,0,0,.75), 0 6px 18px rgba(0,0,0,.6);
 
-  --bar:linear-gradient(180deg, #151610 0%, #0F100C 60%, #080A0A 100%);
+  /* Its own bar stops as well as its own bar: a theme that declared only the
+     gradient would inherit the crimson stops and have its amber text checked
+     against them. */
+  --bar-from:#151610; --bar-via:#0F100C; --bar-to:#080A0A;
+  --bar:linear-gradient(180deg, var(--bar-from) 0%, var(--bar-via) 60%, var(--bar-to) 100%);
   --tint:linear-gradient(180deg, rgba(255,169,43,.055) 0%, rgba(255,169,43,0) 100%);
   --focus-glow:rgba(255,169,43,.22);
   --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70; --series-4:#c98500;
@@ -150,21 +173,23 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
    toggle writes `data-theme`, which wins over this in both directions. */
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]):not([data-theme="terminal"]){
-    --flow:#79B2F2; --flow-d:#5893D4; --flow-l:#9CC8F8;
-    --on-bar:#E6EEF8; --on-bar-dim:rgba(230,238,248,.72);
-    --on-flow:#0B1220; --on-flow-dim:rgba(11,18,32,.78);
-    --canvas:#0F1216; --surface:#171B21; --raised:#1D222A; --stripe:#1D222A;
-    --ink:#E7EAF0; --slate:#B4BCC8; --muted:#98A1AF;
-    --rule:#2A313B; --edge:#646D7B; --hairline:#232932;
-    --on-accent:#0B1220;
-    --ok:#6FC28C; --ok-soft:#14241A;
-    --warn:#DDA75F; --warn-soft:#291F12;
-    --bad:#EC7B78; --bad-soft:#2A1618;
-    --info:#8FB2DA; --info-soft:#151E28;
+    --flow:#E47F92; --flow-d:#DE6B81; --flow-l:#EC9EAC;
+    --on-bar:#F6EDEF; --on-bar-dim:rgba(246,237,239,.74);
+    --on-flow:#151517; --on-flow-dim:rgba(21,21,23,.78);
+    --canvas:#151517; --surface:#1F1F23; --raised:#26262C; --stripe:#232329;
+    --ink:#ECECEF; --slate:#AEB6C0; --muted:#9AA2AC;
+    --rule:#34343A; --edge:#767C86; --hairline:#26262B;
+    --on-accent:#151517;
+    --ok:#7FD39B; --ok-soft:#14241A;
+    --warn:#E8C26A; --warn-soft:#291F12;
+    --bad:#FF8B63; --bad-soft:#2E1A12;
+    --info:#A9B6D6; --info-soft:#1A1E2A;
     --lift:0 1px 2px rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.35);
     --lift-2:0 2px 8px rgba(0,0,0,.55), 0 6px 18px rgba(0,0,0,.4);
-    --bar:linear-gradient(180deg, #1B2735 0%, #16202C 60%, #121A24 100%);
-    --focus-glow:rgba(121,178,242,.22);
+    --bar-from:#2E0810; --bar-via:#6E1120; --bar-to:#1B2138;
+    --bar:linear-gradient(100deg, var(--bar-from) 0%, var(--bar-via) 48%, var(--bar-to) 100%);
+    --tint:linear-gradient(180deg, rgba(228,127,146,.06) 0%, rgba(228,127,146,0) 100%);
+    --focus-glow:rgba(228,127,146,.24);
     --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70; --series-4:#c98500;
     --series-5:#d55181; --series-6:#008300; --series-7:#9085e9; --series-8:#e66767;
   }
@@ -333,6 +358,9 @@ a:focus-visible,button:focus-visible,.form-control:focus-visible,
 footer{border-top:1px solid var(--hairline);margin-top:2.4rem;padding:1.2rem 0;
   color:var(--muted);font-size:.78rem;}
 footer .principle{font-family:var(--serif);font-style:italic;}
+/* The product's slogan. Italic, and in the accent rather than the footer's muted grey,
+   because it is the one line in the footer that is the product's own voice. */
+footer .slogan{font-family:var(--serif);font-style:italic;color:var(--flow);}
 </style>
 {% block head %}{% endblock %}
 </head>
@@ -429,7 +457,13 @@ footer .principle{font-family:var(--serif);font-style:italic;}
   </div>
 </nav>
 <main class="{% block main_class %}container{% endblock %}" id="main" tabindex="-1">{% block content %}{% endblock %}</main>
+<!-- The slogan, on every page. In the footer rather than beside the wordmark because the bar
+     has to fit a hamburger and a brand at 390px and something there would be hidden at the
+     width most likely to be somebody's phone -- and "every page" has to mean every width
+     too. The footer is in this file, so the help, the sign-in page and the error pages carry
+     it without any of them knowing about it. -->
 <footer><div class="container d-flex flex-wrap gap-3 justify-content-between">
+  <span class="slogan">{{ t('shell.slogan') }}</span>
   <span class="principle">{{ principle }}</span>
   <span>{{ app_name }} {{ version }} — {{ t('shell.footer_engine') }} <span class="mono">{{ engine_url }}</span></span>
 </div></footer>

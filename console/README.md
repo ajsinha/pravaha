@@ -217,7 +217,12 @@ console that multiplied load by open tabs would contradict it.
 **A theme is a redefinition of one block of tokens**, and that now includes the data palette
 (`--series-1..8`, a colour-blind-checked categorical order stepped separately for dark). Charts,
 the editor's syntax colours and the plan graph read the tokens at draw time and redraw when the
-theme changes.
+theme changes. The accent is Harvard crimson (`#A51C30`, lightened to `#E47F92` on the dark
+ground where the crimson itself is 2.2:1 and fails as text), the bar is a crimson-deep → crimson
+→ indigo gradient whose three stops are tokens so white can be checked against each, and `--bad`
+is an orange-shifted red 34 ΔE away from the accent — a brand red and an error red beside each
+other is a page where nothing is wrong and everything looks it. `test_contrast.py` holds both the
+ratios and that distance.
 
 **Roles pick a landing, not a permission.** Every signed-in person can reach every screen; the
 server checks the session on every call. The shared-secret sign-in names everyone `operator`, so the
