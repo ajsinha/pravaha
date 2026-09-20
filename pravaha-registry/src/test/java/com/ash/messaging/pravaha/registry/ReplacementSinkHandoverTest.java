@@ -149,8 +149,83 @@ class ReplacementSinkHandoverTest {
         assertThat(warehouse.labels()).isSorted();
     }
 
+    /**
+     * SINK-3. A replacement inherits the name's sink without naming it, and that is a decision
+     * about a destination made by whoever ran the replacement: the SQL is theirs, so what the
+     * table comes to hold is theirs. It goes through the same {@code prepare} a registration does,
+     * so the policy is asked and the audit records it -- under {@code replace:sink}, against the
+     * sink's own name.
+     */
+    @Test
+    void aReplacementIsAuthorizedToGoOnWritingToTheNamesSink() {
+        ReplayableLog log = new ReplayableLog(TXN);
+        log.append("u1", 1L);
+        Warehouse warehouse = new Warehouse();
+        List<String> asked = new CopyOnWriteArrayList<>();
+        java.util.concurrent.atomic.AtomicBoolean allowed = new java.util.concurrent.atomic.AtomicBoolean(true);
+        com.ash.messaging.pravaha.security.AuditSink.InMemory audit =
+                new com.ash.messaging.pravaha.security.AuditSink.InMemory();
+        com.ash.messaging.pravaha.security.SecurityPolicy policy =
+                new com.ash.messaging.pravaha.security.SecurityPolicy() {
+                    @Override
+                    public com.ash.messaging.pravaha.security.AccessDecision mayRead(Principal principal, String view) {
+                        return com.ash.messaging.pravaha.security.AccessDecision.allow();
+                    }
+
+                    @Override
+                    public com.ash.messaging.pravaha.security.AccessDecision mayRegisterQuery(Principal principal) {
+                        return com.ash.messaging.pravaha.security.AccessDecision.allow();
+                    }
+
+                    @Override
+                    public com.ash.messaging.pravaha.security.AccessDecision mayWriteTo(
+                            Principal principal, String sink) {
+                        asked.add(sink);
+                        return allowed.get()
+                                ? com.ash.messaging.pravaha.security.AccessDecision.allow()
+                                : com.ash.messaging.pravaha.security.AccessDecision.deny(
+                                        "the warehouse is frozen for the quarter close");
+                    }
+                };
+        QueryRegistry registry = registry(log, warehouse, policy, audit);
+        registry.registerWritingTo("orders", V1, List.of(0), DANA, "warehouse");
+        awaitView(registry, "orders", 1);
+        assertThat(asked).containsExactly("warehouse");
+
+        allowed.set(false);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                        registry.replacements().replace("orders", V2, List.of(0), DANA, ReplacementOptions.defaults()))
+                .isInstanceOf(com.ash.messaging.pravaha.api.PravahaException.class)
+                .hasMessageContaining("PRV-7002")
+                .hasMessageContaining("warehouse")
+                .hasMessageContaining("frozen for the quarter close");
+
+        assertThat(asked)
+                .as("the replacement is asked about the sink it would inherit, by name")
+                .containsExactly("warehouse", "warehouse");
+        assertThat(audit.denials().stream()
+                        .map(event -> event.action() + " " + event.target())
+                        .toList())
+                .containsExactly("replace:sink warehouse");
+        assertThat(registry.require("orders").sql())
+                .as("the name still answers the version it answered before")
+                .isEqualTo(V1);
+    }
+
     private QueryRegistry registry(ReplayableLog log, Warehouse warehouse) {
-        QueryRegistry registry = new QueryRegistry(new ViewCatalog(), TXN)
+        return registry(
+                log,
+                warehouse,
+                com.ash.messaging.pravaha.security.SecurityPolicy.PERMISSIVE,
+                com.ash.messaging.pravaha.security.AuditSink.NONE);
+    }
+
+    private QueryRegistry registry(
+            ReplayableLog log,
+            Warehouse warehouse,
+            com.ash.messaging.pravaha.security.SecurityPolicy policy,
+            com.ash.messaging.pravaha.security.AuditSink audit) {
+        QueryRegistry registry = new QueryRegistry(new ViewCatalog(), policy, audit, TXN)
                 .feedingFrom(log)
                 .writingTo(new Warehouses(warehouse))
                 .checkpointingTo(
