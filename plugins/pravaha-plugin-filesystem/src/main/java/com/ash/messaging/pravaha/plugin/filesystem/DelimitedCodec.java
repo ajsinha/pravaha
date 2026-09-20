@@ -37,6 +37,24 @@ final class DelimitedCodec {
 
     static final ErrorCode DECODE_FAILED = new ErrorCode(5040, "FILESYSTEM_DECODE_FAILED");
 
+    /**
+     * A {@code name:TYPE,name:TYPE} schema string that will not parse.
+     *
+     * <p>Finding TY-8. This was {@link #DECODE_FAILED} -- where the parser happens to live rather
+     * than what went wrong -- which put a caller's typo in the PLUGIN series. The HTTP API derives
+     * its status from a code's category, so {@code POST /api/v1/streams} naming a type that does
+     * not exist answered {@code 500 the server is broken} for a request the client could fix by
+     * itself. A schema string is configuration on every surface that writes one
+     * ({@code pravaha.streams.*.schema}, {@code --schema}, a plugin's {@code schema} option), so
+     * it is a configuration code and a {@code 400}; 5040 stays what it has always been, a line of
+     * data a file could not decode.
+     *
+     * <p>In the 1xxx configuration range but declared here rather than in {@code ConfigErrors},
+     * because a plugin depends on {@code pravaha-api} and nothing else. The number is reserved
+     * there in a comment so it cannot be handed out twice.
+     */
+    static final ErrorCode SCHEMA_MALFORMED = new ErrorCode(1027, "CONFIG_SCHEMA_MALFORMED");
+
     private final StreamSchema schema;
     private final char delimiter;
     private final String nullLiteral;

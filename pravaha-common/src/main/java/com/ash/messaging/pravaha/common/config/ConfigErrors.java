@@ -45,5 +45,11 @@ public final class ConfigErrors {
      */
     public static final ErrorCode KEY_UNREACHABLE = new ErrorCode(1027, "CONFIG_KEY_UNREACHABLE");
 
+    // PRV-1027 CONFIG_SCHEMA_MALFORMED is allocated here and declared in
+    // com.ash.messaging.pravaha.plugin.filesystem.DelimitedCodec, because the `name:TYPE,name:TYPE`
+    // schema grammar lives in the filesystem plugin and a plugin depends on pravaha-api only -- it
+    // cannot see this class. It is written down here so the number is not handed out twice and so a
+    // reader looking for the configuration codes finds all of them (finding TY-8).
+
     private ConfigErrors() {}
 }

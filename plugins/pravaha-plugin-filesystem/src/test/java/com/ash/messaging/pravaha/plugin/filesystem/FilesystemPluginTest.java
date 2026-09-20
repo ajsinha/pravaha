@@ -27,6 +27,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import com.ash.messaging.pravaha.api.ConfigurationException;
+import com.ash.messaging.pravaha.api.ErrorCode;
 import com.ash.messaging.pravaha.api.data.EmitMode;
 import com.ash.messaging.pravaha.api.data.RowView;
 import com.ash.messaging.pravaha.api.data.RowWriter;
@@ -731,6 +732,40 @@ class FilesystemPluginTest {
         assertThat(schema.field(2).name())
                 .as("the column after the decimal survives")
                 .isEqualTo("note");
+    }
+
+    @Test
+    void ty9_anUnparseableSchemaNamesTheStreamAndTheColumn() {
+        // TY-9. `pravaha.streams.d.schema: "id:INT64,amt:DECIMAL"` refused to start, correctly, and
+        // said only `unknown type 'DECIMAL'`. An operator with several declared streams then had
+        // one sentence and a list of candidates to guess between. Both names are here at the point
+        // of failure and cost nothing to print.
+        assertThatThrownBy(() -> FilesystemSourcePlugin.parseSchema("d", "id:INT64,amt:DECIMAL"))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("stream 'd'")
+                .hasMessageContaining("column 'amt'")
+                .hasMessageContaining("unknown type 'DECIMAL'");
+        // The other half of the grammar, which also said nothing about where it was reading.
+        assertThatThrownBy(() -> FilesystemSourcePlugin.parseSchema("d", "id:INT64,user_id"))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("stream 'd'")
+                .hasMessageContaining("is not 'name:TYPE'");
+    }
+
+    @Test
+    void ty8_anUnparseableSchemaIsAConfigurationCodeAndNotAPluginOne() {
+        // TY-8. The refusal carried PRV-5040, a PLUGIN code, because the parser happens to live in
+        // this plugin. The HTTP API derives its status from a code's category, so a caller who
+        // misspelled a type in their own request body was told 500 -- the server is broken -- for
+        // something only they could fix. It is a configuration code now, and 5040 stays what it has
+        // always been: a line of data a file could not decode.
+        assertThatThrownBy(() -> FilesystemSourcePlugin.parseSchema("d", "id:INT64,amt:DECIMAL"))
+                .isInstanceOf(ConfigurationException.class)
+                .satisfies(e -> {
+                    ErrorCode code = ((ConfigurationException) e).errorCode();
+                    assertThat(code.code()).isEqualTo("PRV-1027");
+                    assertThat(code.category()).isEqualTo(ErrorCode.Category.CONFIGURATION);
+                });
     }
 
     @Test

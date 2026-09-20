@@ -173,6 +173,17 @@ public final class FilesystemSourcePlugin implements StreamSourcePlugin {
         return columns;
     }
 
+    /**
+     * The {@code name:TYPE,name:TYPE} schema grammar, shared by every surface that writes one.
+     *
+     * <p>Findings TY-8 and TY-9. Two things were wrong with the refusal rather than the parse. It
+     * carried {@code PRV-5040}, a PLUGIN code, so the HTTP API -- which derives its status from the
+     * code's category -- answered {@code 500} to a caller who had misspelled a type in the body of
+     * their own request; it is {@code PRV-1030} now, a configuration code, and {@code 400}. And it
+     * named neither the stream nor the column, so an operator whose node refused to start over
+     * {@code pravaha.streams.*.schema} had one sentence about a type and several streams to check
+     * it against. Both names are here at the point of failure and cost nothing to print.
+     */
     public static StreamSchema parseSchema(String streamName, String spec) {
         StreamSchema.Builder builder = StreamSchema.builder(streamName);
         for (String column : splitColumns(spec)) {
@@ -182,10 +193,19 @@ public final class FilesystemSourcePlugin implements StreamSourcePlugin {
             String[] parts = column.strip().split(":", 2);
             if (parts.length != 2) {
                 throw new ConfigurationException(
-                        DelimitedCodec.DECODE_FAILED,
-                        "schema entry '" + column.strip() + "' is not 'name:TYPE'. Example: id:INT64,name:STRING");
+                        DelimitedCodec.SCHEMA_MALFORMED,
+                        "stream '" + streamName + "': schema entry '" + column.strip()
+                                + "' is not 'name:TYPE'. Example: id:INT64,name:STRING");
             }
-            builder.field(parts[0].strip(), typeFor(parts[1].strip()));
+            String columnName = parts[0].strip();
+            try {
+                builder.field(columnName, typeFor(parts[1].strip()));
+            } catch (ConfigurationException unknownType) {
+                throw new ConfigurationException(
+                        unknownType.errorCode(),
+                        "stream '" + streamName + "', column '" + columnName + "': " + unknownType.getMessage(),
+                        unknownType);
+            }
         }
         return builder.build();
     }
@@ -205,7 +225,7 @@ public final class FilesystemSourcePlugin implements StreamSourcePlugin {
             return Types.decimal(Integer.parseInt(decimal.group(1)), Integer.parseInt(decimal.group(2)));
         }
         throw new ConfigurationException(
-                DelimitedCodec.DECODE_FAILED,
+                DelimitedCodec.SCHEMA_MALFORMED,
                 "unknown type '" + original + "'. Supported: BOOLEAN, INT8, INT16, INT32, INT64, FLOAT32, "
                         + "FLOAT64, STRING, BYTES, DATE, TIME, TIMESTAMP, DECIMAL(p,s). Suffix with ? for "
                         + "nullable. ARRAY, MAP and ROW are not supported by this engine at all.");
