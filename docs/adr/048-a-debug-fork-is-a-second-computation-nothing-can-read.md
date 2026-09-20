@@ -199,7 +199,14 @@ registry could not reach them and one above would need the registry to expose al
 - The `.restore()` and `.latest()` call sites STATE-050 counts each gain one. That case's premise —
   that nothing shipped calls them — is now wrong twice over, and the test says so rather than being
   reconciled quietly.
-- The console's debugger screen (§23.9) has everything it needs and is not built; that is B9.
+- The console's debugger screen (§23.9) is built (2026-09-20): `/queries/{name}/debug` lists the
+  retained checkpoints, forks, and steps the fork by row, N rows, commit, watermark or
+  `until:`, reporting each step's rows in with their weights, every operator's rows in and out
+  under the plan's own node ids, the view's changes with their weights, and where event time
+  stands. It neither polls nor opens a socket, because a fork moves only when somebody steps
+  it. Its operator-state and view panels are a read at page load and do not redraw on a step;
+  the step's own report carries the view's changes, and rebuilding two server-drawn tables in
+  the browser would be a second renderer.
 
 ## Notes
 
