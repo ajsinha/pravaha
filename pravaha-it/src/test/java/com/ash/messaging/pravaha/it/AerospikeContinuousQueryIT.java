@@ -118,6 +118,13 @@ class AerospikeContinuousQueryIT {
                 .field("amount", Types.int64())
                 .field("status", Types.string())
                 .field("event_time", Types.timestamp())
+                // Declared, because the query below tumbles on it. TIME-6 made a windowed query
+                // over a stream that declares no event time a refusal at planning rather than a
+                // query that reports RUNNING and never emits; the other fixture in this file
+                // (line 281) always declared it, and this one did not, so the two disagreed about
+                // the same stream. Found by the release's `verify`, which runs these Docker tests
+                // -- tools/verify-clean.sh runs surefire only and never sees them.
+                .eventTime("event_time")
                 .build();
     }
 
