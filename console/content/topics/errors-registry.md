@@ -4,7 +4,7 @@ slug: errors-registry
 category: errors
 order: 90
 icon: journal-x
-summary: "PRV-8001 to PRV-8104: a query's name and lifecycle, a failed query whose view refuses reads, the journal, replay after revocation, sinks that fail or do not fit, the time-travel debugger's six refusals, a `WITH (...)` option the engine does not build, and the embedded engine's four."
+summary: "PRV-8001 to PRV-8104: a query's name and lifecycle, its journal and its replay, sinks that fail or do not fit, an option the engine does not build, the time-travel debugger's six refusals, and the embedded engine's four."
 badge: PRV-8XXX
 audience: Analysts, operators, developers
 keywords: [registry, name in use, reserved word, no such query, drop, pause, resume, failed, journal, replay, sink detached, sink shape, keyed by, embedded, push, backpressure, row rejected, debug, debugger, debug session, fork, step, fixture, checkpoint, with, option, unknown option]
