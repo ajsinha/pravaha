@@ -346,7 +346,10 @@ public final class DebugSessions implements AutoCloseable {
 
     /** Ends a session and releases its fork. */
     public void end(String id, Principal principal) {
-        DebugSession session = require(id, principal, "debug-end");
+        // Held, not required-live: a session whose query has since been dropped is exactly the one
+        // that most needs releasing, and a refusal here would leave its fork running with no way
+        // to reach it but a restart.
+        DebugSession session = held(id, principal, "debug-end");
         byId.remove(session.id());
         session.close();
         LOG.log(System.Logger.Level.INFO, "debug session " + session.id() + " ended by " + principal.id());
@@ -359,7 +362,15 @@ public final class DebugSessions implements AutoCloseable {
 
     // ------------------------------------------------------------------ housekeeping
 
+    /** The session, authorized, and proven to be a replay of a query that still exists. */
     private DebugSession require(String id, Principal principal, String action) {
+        DebugSession session = held(id, principal, action);
+        liveQuery(session);
+        return session;
+    }
+
+    /** The session, authorized, whether or not the query it forked from is still there. */
+    private DebugSession held(String id, Principal principal, String action) {
         expireStale();
         DebugSession session = byId.get(id);
         if (session == null) {
@@ -370,7 +381,6 @@ public final class DebugSessions implements AutoCloseable {
                             + "not kept for ever. Fork again from the checkpoint.");
         }
         ContinuousQueryStatements.requireAdministrable(policy, audit, principal, session.queryName(), action);
-        liveQuery(session);
         return session;
     }
 

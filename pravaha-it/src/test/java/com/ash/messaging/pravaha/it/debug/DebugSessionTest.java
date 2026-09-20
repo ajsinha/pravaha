@@ -360,6 +360,11 @@ final class DebugSessionTest {
                     .isInstanceOf(PravahaException.class)
                     .hasMessageContaining("PRV-8016")
                     .hasMessageContaining("has been dropped since session");
+
+            // But it can still be ended. A session whose query has gone is the one that most needs
+            // releasing, and refusing here would strand its fork until the node restarted.
+            sessions.end(id, OWNER);
+            assertThat(sessions.open()).isZero();
         }
     }
 
