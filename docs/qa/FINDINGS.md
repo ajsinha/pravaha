@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **346 findings carrying a
-status — 286 FIXED, 47 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 47 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 41 POST-GA and 6 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **347 findings carrying a
+status — 286 FIXED, 48 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 48 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 42 POST-GA and 6 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -6739,6 +6739,11 @@ runs is how a default becomes folklore, and this project has already found two o
 
 > **Status:** OPEN — `PeriodicCheckpointer.checkpointNow` takes the id first (`nextId.getAndIncrement()`) and only then cuts and stores, so a checkpoint that throws has spent its id and written nothing. `FileCheckpointStore.prune` is strictly newest-K-by-id, so a directory ends up holding `5,7,8,9,10`: the newest five that exist, over a sequence where 6 was attempted and lost. Recovery restores the newest readable one and is correct either way, which is why the hole stays invisible — a directory with a gap and one without look identical to `ls`, and no surface reports the difference. The fleet-level signals exist (`pravaha_query_checkpoint_failures_total`, the age of the last success); what is missing is the answer to "is this directory healthy?" asked of the directory itself.
 > **Disposition:** POST-GA — it misleads a diagnosis rather than losing data; the fix is either to take the id after the store succeeds, which makes a gap impossible (and then `nextId`'s seeding from `availableIds().max() + 1` needs checking against a restart), or to keep the gap and surface it: logged when it happens, and reported wherever checkpoint health is. Found by the CFG cluster's agent, correcting CFG-16's own inference that pruning was not newest-K — it is.
+
+### PGW-1 (LOW) — a pgwire test's 15-second socket read times out when the machine is loaded, and reads as a protocol defect
+
+> **Status:** OPEN — `PgCatalogShimTest.setOfAnUnlistedParameterIsRefusedRatherThanSilentlyAccepted` failed a full-reactor gate with `java.net.SocketTimeoutException: Read timed out` from `PgTestClient.readUntilReady`, at load average 58 on 24 cores with five build agents running beside the gate. The same class passes in 4.8 s run alone on the same tree, and the gate passed on rerun: 3,928 tests, 0 failures. Nothing in the pgwire path changed in the commit it failed on (a licence-header sweep over Python and shell files).
+> **Disposition:** POST-GA — a test-harness bound, not the server's. The read bound is the client's own and is fixed rather than derived from anything, so a busy machine makes a wire that is working look like a wire that stopped answering, which costs a diagnosis rather than correctness. The fix is to give `PgTestClient` a bound proportional to what it is waiting for, as `SubscriptionEndingTest` now does for subscriptions (30 s and a stated deadline), rather than one tuned to an idle machine.
 
 ### CASE-1 (HIGH) — four of the five case studies window over a stream with no declared event time, and their READMEs explain the silence away
 
