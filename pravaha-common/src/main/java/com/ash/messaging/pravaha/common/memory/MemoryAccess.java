@@ -58,15 +58,35 @@ public interface MemoryAccess {
      */
     MemoryRegion allocate(int bytes, int alignment);
 
+    /** The values {@link #IMPL_PROPERTY} accepts, besides being unset. */
+    java.util.List<String> IMPL_NAMES = java.util.List.of("agrona", "foreign", "bytebuffer");
+
     /**
      * The best implementation for the running JDK.
      *
-     * <p>An unavailable or unflagged implementation is never an error: the default is a correct
-     * answer, not a degraded one, so selection silently falls through to it.
+     * <p>An implementation that is <em>unavailable</em> is not an error: the default is a correct
+     * answer, not a degraded one, and all four selections produce byte-identical results -- so
+     * {@code -Dpravaha.ffm=true} on a JDK that cannot support it falls through, deliberately.
+     *
+     * <p>An implementation that <strong>does not exist</strong> is a different thing, and is now
+     * refused (CFG-22). {@code -Dpravaha.memory=nonsense} used to start normally and run the
+     * default, which defeats the only reason to set the property: it is set to be certain, and
+     * silence is the one answer that cannot give certainty. A typo in a launcher script is the
+     * commonest way to reach it and the hardest to see, because the node it produces is correct.
      */
     static MemoryAccess best() {
         String requested = System.getProperty(IMPL_PROPERTY, "").trim();
+        if (!requested.isEmpty() && !IMPL_NAMES.contains(requested)) {
+            throw new IllegalArgumentException("-D" + IMPL_PROPERTY + "=" + requested
+                    + " names no off-heap implementation; the values are " + IMPL_NAMES
+                    + ", or leave it unset to let the engine choose. Falling through to the default "
+                    + "would run a node that is correct and is not the one you asked for, which is the "
+                    + "one thing setting this property is meant to rule out.");
+        }
 
+        if ("bytebuffer".equals(requested)) {
+            return ByteBufferMemoryAccess.INSTANCE;
+        }
         if ("agrona".equals(requested) && AgronaMemoryAccess.isAvailable()) {
             return AgronaMemoryAccess.INSTANCE;
         }

@@ -32,15 +32,44 @@ class MemoryAccessTest {
     @Test
     void bestFallsBackWhenAnUnavailableImplementationIsRequested() {
         // An unavailable implementation is never an error: the default is a correct answer, not a
-        // degraded one, so selection falls through silently.
+        // degraded one, so selection falls through silently. Still true after CFG-22, and it is the
+        // half that must stay true -- -Dpravaha.ffm=true on a JDK 21 is a launcher that will start
+        // working on an upgrade, not a mistake.
         withProperty(
                 MemoryAccess.FFM_PROPERTY,
                 "true",
                 () -> assertThat(MemoryAccess.best().name()).isEqualTo("bytebuffer"));
+    }
+
+    @Test
+    void anOffHeapImplementationThatDoesNotExistIsRefusedRatherThanIgnored_CFG22() {
+        // CFG-22. `-Dpravaha.memory=nonsense` used to start a node that ran the default and logged
+        // nothing about it, which defeats the only reason to set the property: it is set to be
+        // certain. This case asserted that fall-through as correct, so the test and the code agreed
+        // with each other and not with the operator.
         withProperty(
                 MemoryAccess.IMPL_PROPERTY,
                 "nonsense",
-                () -> assertThat(MemoryAccess.best().name()).isEqualTo("bytebuffer"));
+                () -> assertThatThrownBy(MemoryAccess::best)
+                        .isInstanceOf(IllegalArgumentException.class)
+                        .hasMessageContaining("pravaha.memory")
+                        .hasMessageContaining("nonsense")
+                        // And it says what the values are, rather than only that this one is not one.
+                        .hasMessageContaining("agrona")
+                        .hasMessageContaining("foreign")
+                        .hasMessageContaining("bytebuffer"));
+    }
+
+    @Test
+    void everyNameTheRefusalOffersIsOneBestAccepts_CFG22() {
+        // A refusal that lists values is worth nothing if one of them is refused too. `bytebuffer`
+        // was the default and was not a value you could ask for by name until CFG-22.
+        for (String name : MemoryAccess.IMPL_NAMES) {
+            withProperty(
+                    MemoryAccess.IMPL_PROPERTY,
+                    name,
+                    () -> assertThat(MemoryAccess.best()).isNotNull());
+        }
     }
 
     @Test
