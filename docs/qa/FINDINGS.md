@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **341 findings carrying a
-status — 245 FIXED, 83 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 83 open, **0 are
+only part that is kept current. Counting the register as it stands: **342 findings carrying a
+status — 246 FIXED, 83 OPEN, 6 BY DESIGN, 7 SUPERSEDED.** Of the 83 open, **0 are
 GA-BLOCKER, 0 GA-REQUIRED, 77 POST-GA and 6 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -6767,3 +6767,8 @@ runs is how a default becomes folklore, and this project has already found two o
 
 > **Status:** OPEN — `SlicedAggregateState.fire` materialises the window on the heap, one boxed handle per accumulator plus an entry per group, so 1.6 M accumulators throw `OutOfMemoryError` against a 160 MiB heap with the spill tier on and off alike; at 1 GiB the same window fires at about 375,000 groups a second. Found by the beyond-RAM measurement (`496314e`), which the spill tier itself survived.
 > **Disposition:** POST-GA — the spill tier's promise is that state past its ceiling goes to disk, and it keeps it; this is the heap cost of emitting a window, bounded by the operator's own sizing, and it is documented in [ADR-044](../adr/044-no-rocksdb-the-mapped-tier-is-l1.md) and OPERATIONS with the heap a large window needs. The fix is to fire in bounded batches straight into the output rather than building the whole window first
+
+### LIC-1 (HIGH) — the root POM granted Apache-2.0 while every other statement said proprietary
+
+> **Status:** FIXED — the root `pom.xml`'s `<licenses>` block declared "Apache License, Version 2.0" with `<distribution>repo</distribution>`, and every module inherits it, while `LICENSE`, every source file's header, the README's legal section and the container image's label say proprietary and all rights reserved. Nothing has been published from this tree, so nothing was granted in fact — but the POM of any artefact built from it would have said otherwise, and a POM is what a consumer's tooling reads. It now names the Pravaha Software Licence, links the `LICENSE` beside it and says `manual` distribution. Found by the packaging agent while writing the container image's labels.
+> **Why it mattered:** a licence grant the owner never made, in the one file a downstream build machine actually parses.

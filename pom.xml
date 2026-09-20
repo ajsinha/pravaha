@@ -11,11 +11,18 @@
   <description>An embeddable, store-native, incrementally-maintained continuous query engine</description>
   <url>https://github.com/ajsinha/pravaha</url>
 
+  <!--
+    The licence this project is actually under. It said Apache-2.0 until 2026-09-19, while LICENSE,
+    every source header and the container image's label said proprietary and all rights reserved:
+    a published artefact's POM would have granted rights the owner never granted. `manual` because
+    there is no repository to fetch it from, and the file beside this one is the licence.
+  -->
   <licenses>
     <license>
-      <name>Apache License, Version 2.0</name>
-      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
-      <distribution>repo</distribution>
+      <name>Pravaha Software Licence (proprietary and confidential)</name>
+      <url>https://github.com/ajsinha/pravaha/blob/main/LICENSE</url>
+      <distribution>manual</distribution>
+      <comments>All rights reserved. Not open source; see LICENSE for the terms.</comments>
     </license>
   </licenses>
 

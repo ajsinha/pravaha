@@ -1528,7 +1528,9 @@ No consensus, no membership protocol, no Ratis (ADR-035, ADR-034). Two processes
 | Server | `pravaha-server` + `pravaha-flight` | Standard deployment |
 | Console | `console/`, separate process | Operator UI, talks only to the public API |
 
-There is **no Spring Boot starter** (ADR-020 planned one; it does not exist).
+The **Spring Boot starter** (ADR-020) is built: `pravaha-spring-boot-starter` gives an application
+`@PravahaListener`, `PravahaTemplate`, a `@PravahaTest` slice, an optional actuator endpoint and
+health contributor, and a listener error handler. The engine underneath it stays Spring-free.
 
 Clustering has its coordination layer — membership, leadership, the guarantee rule above — and its
 assignment, handoff and rebalancing machinery, all tested against mocks. It has no engine wiring:
