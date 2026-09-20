@@ -53,8 +53,9 @@ import com.ash.messaging.pravaha.api.data.Types;
  *
  * <ul>
  *   <li>Delta {@code TIMESTAMP} is microsecond-precision UTC; Pravaha's is nanoseconds, so the
- *       conversion multiplies and never rounds. Reading is exact; a value written back would be
- *       truncated, which is a sink concern and is why the sink is not in this version.
+ *       conversion multiplies and never rounds. Reading is exact. Writing is the sink's side of the
+ *       same fact, and {@code DeltaSinkRows} refuses a value that is not a whole microsecond rather
+ *       than rounding it.
  *   <li>Delta {@code DATE} is days since epoch, which is Pravaha's {@code DATE} exactly.
  * </ul>
  */
