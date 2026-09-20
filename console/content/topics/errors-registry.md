@@ -221,7 +221,9 @@ again from the view's ...
 
 The query, its view and any other sink on it **carry on**. Writing later batches over the lost one
 would leave the sink missing a change with nothing to say so — a retraction that never arrived is a
-total that is wrong for ever. This console's query page shows the detach with its code.
+total that is wrong for ever. This console's query page shows the detach with its code, and so do
+`pravaha queries` (`SINK` reads `<name> (detached)`, with the code and the reason under the table),
+`GET /api/v1/queries/{name}` and both SDKs' listings.
 
 **Do:** fix what the sink refused, then drop and re-register the query; the sink is sent the view's
 whole contents first. Whatever it already held, it will hold twice — unless it upserts by key

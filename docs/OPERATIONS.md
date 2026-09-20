@@ -1505,7 +1505,7 @@ stopped moving. What does:
 |---|---|
 | The node's log | One `ERROR` line when it happens: the query, `stream#partition`, the code, the message |
 | `GET /api/v1/queries/{name}` | `feed.state` `STOPPED`; per partition `state`, `failure` (code, message, help URL), `stoppedAt`, whether its reader is `shared` and whether this partition's own read raised it (`origin`). A row-filtered caller gets the code and not the text |
-| `pravaha queries` | `RUNNING (source stopped)` in the state cell, and a line with the code, `stream#partition`, the time and the message. `--verbose` adds a `FEED` column for every query |
+| `pravaha queries` | `RUNNING (source stopped)` in the state cell, and a line with the code, `stream#partition`, the time and the message. A detached sink is the same shape in the `SINK` column: `<name> (detached)` and a line with `PRV-8009`. `--verbose` adds a `FEED` column for every query |
 | Both SDKs | `feed()` / `feedStop()` in Java, `feed` / `feed_stop` in Python, on `queries()` |
 | `pravaha_query_feed_stopped{query=}` | 1 |
 | `/status`, `/api/v1/status` | `stoppedFeeds`: how many queries, not which |

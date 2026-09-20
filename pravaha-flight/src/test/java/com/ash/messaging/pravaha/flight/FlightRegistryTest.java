@@ -172,7 +172,7 @@ class FlightRegistryTest {
             // The first five are exactly what a client built before these existed reads.
             assertThat(row.subList(0, 2)).containsExactly("trade_feed", "RUNNING");
             assertThat(row.get(4)).isEqualTo("0");
-            assertThat(row).hasSize(13);
+            assertThat(row).hasSize(16);
             assertThat(row.get(5)).as("key ordinals, as REGISTER takes them").isEqualTo("0,1");
             assertThat(row.get(6))
                     .as("no sink is an empty field, not a missing one")
@@ -180,6 +180,9 @@ class FlightRegistryTest {
             assertThat(row.get(7)).isEqualTo("PT24H");
             // FEED-1, trailing after these: nothing is bound here, so no feed and no stop.
             assertThat(row.subList(8, 13)).containsExactly("NONE", "", "", "", "");
+            // SINK-3, trailing after the feed: this query writes nowhere, so there is no sink to
+            // be attached or detached and no failure.
+            assertThat(row.subList(13, 16)).containsExactly("NONE", "", "");
         });
     }
 

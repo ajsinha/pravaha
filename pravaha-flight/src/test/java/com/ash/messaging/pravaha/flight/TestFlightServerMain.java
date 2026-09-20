@@ -243,8 +243,9 @@ public final class TestFlightServerMain {
         // A source that has nothing in it, so that a client in another language can drive a
         // blue/green replacement here (ADR-046): a backfill over an empty stream is caught up at
         // its first poll. Rows still arrive by being pushed, exactly as they did before.
-        QueryRegistry registry =
-                new QueryRegistry(catalog, policy, AuditSink.NONE, tradeSchema).feedingFrom(new QuietBackfillSource());
+        QueryRegistry registry = new QueryRegistry(catalog, policy, AuditSink.NONE, tradeSchema)
+                .feedingFrom(new QuietBackfillSource())
+                .writingTo(new BrokenSinks());
 
         PravahaFlightServer configured = new PravahaFlightServer(catalog).hosting(registry);
         if (authenticated) {
@@ -271,6 +272,77 @@ public final class TestFlightServerMain {
             System.out.println("PRAVAHA_FEED_FILE=" + feedFile.toAbsolutePath());
             System.out.flush();
             Thread.currentThread().join();
+        }
+    }
+
+    /**
+     * One sink binding, {@code broken_sink}, which refuses every batch (SINK-3).
+     *
+     * <p>So that a client in another language can see {@code PRV-8009} on a real server: a query
+     * registered against it is detached at its first commit, stays {@code RUNNING} with its view
+     * right, and its listing says the sink is gone and why. The configured "password" is there to
+     * be struck out -- the failure a listing carries must not carry a credential with it, and an
+     * SDK's test is where that is worth proving from outside.
+     */
+    static final class BrokenSinks implements com.ash.messaging.pravaha.registry.SinkFactory {
+
+        private static final String PASSWORD = "fixture-secret-password";
+
+        @Override
+        public com.ash.messaging.pravaha.api.plugin.SinkCapabilities capabilitiesOf(String sinkName) {
+            if (!"broken_sink".equals(sinkName)) {
+                throw new IllegalArgumentException("no sink is bound to '" + sinkName + "'");
+            }
+            return com.ash.messaging.pravaha.api.plugin.SinkCapabilities.appendOnly();
+        }
+
+        @Override
+        public com.ash.messaging.pravaha.api.plugin.StreamSinkPlugin open(String sinkName) {
+            capabilitiesOf(sinkName);
+            return new BrokenSink();
+        }
+
+        @Override
+        public String redact(String text) {
+            return text == null ? null : text.replace(PASSWORD, "[redacted password]");
+        }
+
+        @Override
+        public void release(com.ash.messaging.pravaha.api.plugin.StreamSinkPlugin plugin) {}
+
+        private static final class BrokenSink implements com.ash.messaging.pravaha.api.plugin.StreamSinkPlugin {
+
+            @Override
+            public com.ash.messaging.pravaha.api.plugin.SinkCapabilities capabilities() {
+                return com.ash.messaging.pravaha.api.plugin.SinkCapabilities.appendOnly();
+            }
+
+            @Override
+            public int write(List<com.ash.messaging.pravaha.api.data.RowView> batch) {
+                throw new IllegalStateException("could not reach the fixture's table with password=" + PASSWORD);
+            }
+
+            @Override
+            public void flush() {}
+
+            @Override
+            public String name() {
+                return "broken";
+            }
+
+            @Override
+            public com.ash.messaging.pravaha.api.plugin.Version version() {
+                return com.ash.messaging.pravaha.api.plugin.Version.apiVersion();
+            }
+
+            @Override
+            public void configure(com.ash.messaging.pravaha.api.plugin.PluginContext context) {}
+
+            @Override
+            public void open() {}
+
+            @Override
+            public void close() {}
         }
     }
 }

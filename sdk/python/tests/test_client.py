@@ -318,6 +318,47 @@ def test_a_stopped_source_is_listed_with_its_code_where_and_when(client):
         client.drop("stalled_py")
 
 
+def test_a_query_with_no_sink_says_so_rather_than_saying_nothing(client):
+    client.register("py_no_sink", TRADE_SQL, [0])
+    try:
+        listed = [q for q in client.queries() if q.name == "py_no_sink"][0]
+        assert listed.sink is None
+        assert listed.sink_state == "NONE"
+        assert not listed.is_sink_detached
+        assert listed.sink_failure is None
+    finally:
+        client.drop("py_no_sink")
+
+
+def test_a_detached_sink_is_listed_with_prv_8009_and_no_credential(client, feed):
+    # The fixture binds one sink, broken_sink, which refuses every batch (SINK-3). A query
+    # against it is detached at its first commit: still RUNNING, its view still right, and
+    # nothing more written to the sink -- which is exactly the state a listing has to show,
+    # because nothing else about the query looks wrong.
+    client.register("py_broken_sink", TRADE_SQL, [0], sink="broken_sink")
+    try:
+        feed("t1", "SWAP")
+        listed = None
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            found = [q for q in client.queries() if q.name == "py_broken_sink"]
+            if found and found[0].is_sink_detached:
+                listed = found[0]
+                break
+            time.sleep(0.1)
+        assert listed is not None, "the sink never reported itself detached"
+        assert listed.state == "RUNNING" and listed.is_running
+        assert listed.sink == "broken_sink"
+        assert listed.sink_state == "DETACHED"
+        assert listed.sink_failure.code == "PRV-8009"
+        assert "broken_sink" in listed.sink_failure.message
+        # The failure is the plugin's own text and can echo what the sink was configured with.
+        assert "fixture-secret-password" not in listed.sink_failure.message
+        assert "[redacted password]" in listed.sink_failure.message
+    finally:
+        client.drop("py_broken_sink")
+
+
 def test_a_retention_chosen_at_registration_is_listed_with_the_key(client):
     client.register("py_hourly", TRADE_SQL, [0, 1], retention="PT1H")
     try:

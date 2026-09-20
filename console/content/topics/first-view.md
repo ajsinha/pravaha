@@ -147,9 +147,9 @@ Each `CREATE` answers with one row — the name, its state, the fingerprint of t
 landed on, and the sink (none here). Then the listing:
 
 ```text
-NAME          STATE    FINGERPRINT   ROWS IN
-minute_spend  RUNNING  3b9f0c2e71a4  0
-big_payments  RUNNING  c05d81e6a9f2  0
+NAME          STATE    FINGERPRINT   ROWS IN  SINK
+minute_spend  RUNNING  3b9f0c2e71a4  0        -
+big_payments  RUNNING  c05d81e6a9f2  0        -
 ```
 
 Fingerprints are hashes of the normalised plan, so yours will be different strings. `KEYED BY`

@@ -86,6 +86,25 @@ public interface SinkFactory {
         }
     }
 
+    /**
+     * {@code text} with this factory's binding option values struck out of it.
+     *
+     * <p>A sink failure's message is the plugin's own exception text, and a plugin that echoes its
+     * connection string or its password into an exception is common enough that the text cannot be
+     * trusted not to. {@code PRV-8009} carries that text to the Flight listing, {@code pravaha
+     * queries}, both SDKs and the console, so it is struck out here, once, where the failure is
+     * recorded -- the same place and the same rule as a stopped source feed's ({@code
+     * FeedRedaction}), and for the same reason: a surface can forget, and the place the failure is
+     * written down cannot.
+     *
+     * <p>Unchanged by default. A factory with no configured options -- every test's, and the
+     * embedded engine's -- has nothing to strike, and the HTTP API redacts once more over the top
+     * from the bindings it can see.
+     */
+    default String redact(String text) {
+        return text;
+    }
+
     /** The sink itself, opened and ready to be written to. */
     StreamSinkPlugin open(String sinkName);
 

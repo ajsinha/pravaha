@@ -32,8 +32,9 @@ to serve in that mode (`PRV-9002`) until something does — the coordinator is s
 a library it is real. Otherwise:
 Sinks are real now: a registration can name one, every commit reaches it (ADR-043), a sink
 declares its schema and key and a registration that does not match is refused (`PRV-8010`), and
-`aerospike-sink` — upsert and delete by key — is nameable alongside `filesystem`. `SINK-3` records
-the gap left: no per-sink authorization. Output is exactly once to a transactional sink: the
+`aerospike-sink` — upsert and delete by key — is nameable alongside `filesystem`. Naming a sink is
+authorized as a write of its own (`SecurityPolicy.mayWriteTo`, allowing by default) and audited
+against the sink's name, which is what closed `SINK-3`. Output is exactly once to a transactional sink: the
 checkpoint commits the view on the lane at its marker, prepares each transactional sink there,
 records the handle in the checkpoint, and commits it once the checkpoint is durable; a restore
 commits what it recorded and has the sink abandon the rest (`RegisteredQuery.cutOutput` holds the

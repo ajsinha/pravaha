@@ -274,9 +274,9 @@ pravaha queries
 ```
 
 ```text
-NAME	STATE	FINGERPRINT	ROWS IN
-spend_by_hour	RUNNING	3f9c2a61d0b4	1284551
-big_txn	PAUSED	9a01bc77e2f3	-
+NAME	STATE	FINGERPRINT	ROWS IN	SINK
+spend_by_hour	RUNNING	3f9c2a61d0b4	1284551	spend_table
+big_txn	PAUSED	9a01bc77e2f3	-	-
 a '-' under ROWS IN means the server did not disclose the count: your access to that view is a filtered subset of its rows, and its total is not part of what you may see
 ```
 
@@ -286,10 +286,22 @@ A query whose source failed mid-read is still `RUNNING`, so the state cell says 
 the table says why — without being asked:
 
 ```text
-NAME	STATE	FINGERPRINT	ROWS IN
-w10	RUNNING (source stopped)	954ae0e3ea2c	120
+NAME	STATE	FINGERPRINT	ROWS IN	SINK
+w10	RUNNING (source stopped)	954ae0e3ea2c	120	-
 w10: source stopped with PRV-5040 reading ev#0 at 2026-09-19T08:00:00Z: PRV-5040  line 121 ...
 a stopped source is not retried: the view keeps answering at the frontier it reached. Fix the cause, then drop the query and register it again, or restart the node. Each code has a help page: https://docs.pravaha.io/errors/<code>
+```
+
+`SINK` is the binding the query's changes are also written to, or `-` when it writes only to its
+view. A sink that refused a batch is **detached** — the query stays `RUNNING` and its view stays
+right, and nothing more is written — so the cell says so and a line under the table says why, on
+the same terms as a stopped source:
+
+```text
+NAME	STATE	FINGERPRINT	ROWS IN	SINK
+merchant_spend	RUNNING	7c1a40f9b2de	98211	spend_table (detached)
+merchant_spend: sink 'spend_table' detached with PRV-8009: sink 'spend_table' for query 'merchant_spend' failed and has been detached: ...
+a detached sink is not retried either, and the query and its view carry on and stay right. Fix the cause, then drop the query and register it again: the sink is sent the view's whole contents first, so nothing written while it was detached is lost
 ```
 
 `pravaha queries --verbose` adds a `FEED` column: `RUNNING`, `PAUSED`, `STOPPED`, or `NONE` when

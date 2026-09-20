@@ -56,9 +56,9 @@ pravaha queries
 ```
 
 ```text
-NAME                 STATE    FINGERPRINT   ROWS IN
-big_spenders_desk_a  RUNNING  9d41c07ae3b2  18244
-big_spenders_desk_b  RUNNING  9d41c07ae3b2  18244
+NAME                 STATE    FINGERPRINT   ROWS IN  SINK
+big_spenders_desk_a  RUNNING  9d41c07ae3b2  18244    -
+big_spenders_desk_b  RUNNING  9d41c07ae3b2  18244    -
 ```
 
 One fingerprint, one computation, one `ROWS IN` counter. The CLI's `register` says so when it

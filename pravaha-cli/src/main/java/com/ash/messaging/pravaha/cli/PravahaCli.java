@@ -207,9 +207,11 @@ public final class PravahaCli {
                 "queries",
                 List.of(
                         "  queries   [--verbose] [--url ...]",
-                        "            List the continuous queries a server is running. A query whose source",
-                        "            stopped mid-read shows 'RUNNING (source stopped)' and a line naming the",
-                        "            code, the stream#partition and the time. --verbose adds each query's FEED."));
+                        "            List the continuous queries a server is running. SINK is the binding",
+                        "            each one writes to, or '-'. A query whose source stopped mid-read shows",
+                        "            'RUNNING (source stopped)', and a sink that refused a batch shows",
+                        "            '(detached)'; each gets a line naming the code and what happened.",
+                        "            --verbose adds each query's FEED."));
         commands.put(
                 "subscribe",
                 List.of(
@@ -289,9 +291,11 @@ public final class PravahaCli {
         out.println("            is how much event time the view keeps (ISO-8601, or 'forever').");
         out.println();
         out.println("  queries   [--verbose] [--url ...]");
-        out.println("            List the continuous queries a server is running. A query whose source");
-        out.println("            stopped mid-read shows 'RUNNING (source stopped)' and a line naming the");
-        out.println("            code, the stream#partition and the time. --verbose adds each query's FEED.");
+        out.println("            List the continuous queries a server is running. SINK is the binding");
+        out.println("            each one writes to, or '-'. A query whose source stopped mid-read shows");
+        out.println("            'RUNNING (source stopped)', and a sink that refused a batch shows");
+        out.println("            '(detached)'; each gets a line naming the code and what happened.");
+        out.println("            --verbose adds each query's FEED.");
         out.println();
         out.println("  subscribe --view <name> [--filter col=val,col2=val2] [--snapshot] [--limit N] [--url ...]");
         out.println("            Stream changes as they are committed. Each change leads with its weight:");

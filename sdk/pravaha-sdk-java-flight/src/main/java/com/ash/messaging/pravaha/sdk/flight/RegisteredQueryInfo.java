@@ -35,6 +35,11 @@ package com.ash.messaging.pravaha.sdk.flight;
  *     failed mid-read and is not retried; the query stays {@code RUNNING} and its view stops moving)
  *     or {@code NONE} (nothing is bound); null from a server that predates the field (FEED-1)
  * @param feedStop why the first stopped source stopped, or null while every source reads
+ * @param sinkState whether the sink is still writing: {@code ATTACHED}, {@code DETACHED} (it
+ *     refused a batch and was detached -- the query and its view carry on and nothing more is
+ *     written) or {@code NONE} (the query writes nowhere); null from a server that predates the
+ *     field (SINK-3)
+ * @param sinkFailure why it was detached, or null while it writes
  */
 public record RegisteredQueryInfo(
         String name,
@@ -46,7 +51,9 @@ public record RegisteredQueryInfo(
         String sink,
         String retention,
         String feed,
-        FeedStop feedStop) {
+        FeedStop feedStop,
+        String sinkState,
+        SinkFailure sinkFailure) {
 
     public RegisteredQueryInfo {
         keyColumns = keyColumns == null ? java.util.List.of() : java.util.List.copyOf(keyColumns);
@@ -67,7 +74,22 @@ public record RegisteredQueryInfo(
             java.util.List<Integer> keyColumns,
             String sink,
             String retention) {
-        this(name, state, sql, fingerprint, rowsIn, keyColumns, sink, retention, null, null);
+        this(name, state, sql, fingerprint, rowsIn, keyColumns, sink, retention, null, null, null, null);
+    }
+
+    /** Thirteen fields, as a server that predates the sink's state reports them (FEED-1's shape). */
+    public RegisteredQueryInfo(
+            String name,
+            String state,
+            String sql,
+            String fingerprint,
+            long rowsIn,
+            java.util.List<Integer> keyColumns,
+            String sink,
+            String retention,
+            String feed,
+            FeedStop feedStop) {
+        this(name, state, sql, fingerprint, rowsIn, keyColumns, sink, retention, feed, feedStop, null, null);
     }
 
     /**
@@ -81,8 +103,27 @@ public record RegisteredQueryInfo(
      */
     public record FeedStop(String code, String message, String where, String at) {}
 
+    /**
+     * Why a sink was detached (SINK-3).
+     *
+     * @param code {@code PRV-8009}
+     * @param message what happened, with every configured sink option struck out of it, or a note
+     *     that the server withheld it: a row-filtered caller is not sent a failure's text, which
+     *     can quote a row
+     */
+    public record SinkFailure(String code, String message) {}
+
     public boolean isRunning() {
         return "RUNNING".equals(state);
+    }
+
+    /**
+     * True when this query's sink refused a batch and was detached ({@code PRV-8009}). The query
+     * is still {@code RUNNING} and its view is still right; nothing more reaches the sink.
+     * {@link #sinkFailure()} says what happened.
+     */
+    public boolean isSinkDetached() {
+        return "DETACHED".equals(sinkState);
     }
 
     /**

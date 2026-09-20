@@ -256,16 +256,20 @@ final class ServerCommand {
                 return PravahaCli.EXIT_OK;
             }
             boolean verbose = args.has("verbose");
-            out.println(Ansi.bold("NAME\tSTATE\tFINGERPRINT\tROWS IN" + (verbose ? "\tFEED" : "")));
+            out.println(Ansi.bold("NAME\tSTATE\tFINGERPRINT\tROWS IN\tSINK" + (verbose ? "\tFEED" : "")));
             boolean anyWithheld = false;
             List<RegisteredQueryInfo> stopped = new ArrayList<>();
+            List<RegisteredQueryInfo> detached = new ArrayList<>();
             for (RegisteredQueryInfo query : queries) {
                 anyWithheld = anyWithheld || query.rowsIn() < 0;
                 if (query.isSourceStopped()) {
                     stopped.add(query);
                 }
+                if (query.isSinkDetached()) {
+                    detached.add(query);
+                }
                 out.println(query.name() + "\t" + stateText(query) + "\t" + query.fingerprint() + "\t"
-                        + rowsInText(query.rowsIn())
+                        + rowsInText(query.rowsIn()) + "\t" + sinkText(query)
                         + (verbose ? "\t" + (query.feed() == null ? "-" : query.feed()) : ""));
             }
             if (anyWithheld) {
@@ -282,6 +286,18 @@ final class ServerCommand {
                 out.println(Ansi.dim("a stopped source is not retried: the view keeps answering at the frontier it "
                         + "reached. Fix the cause, then drop the query and register it again, or restart the "
                         + "node. Each code has a help page: https://docs.pravaha.io/errors/<code>"));
+            }
+            // SINK-3. Beside the stopped-source lines and for the same reason: a query that says
+            // RUNNING while nothing reaches the table it was registered to write is the other thing
+            // an operator must not have to go and ask about.
+            for (RegisteredQueryInfo query : detached) {
+                out.println(Ansi.bad(query.name() + ": " + sinkFailureText(query)));
+            }
+            if (!detached.isEmpty()) {
+                out.println(Ansi.dim("a detached sink is not retried either, and the query and its view carry on "
+                        + "and stay right. Fix the cause, then drop the query and register it again: the sink "
+                        + "is sent the view's whole contents first, so nothing written while it was detached "
+                        + "is lost"));
             }
             return PravahaCli.EXIT_OK;
         } catch (RuntimeException e) {
@@ -300,6 +316,41 @@ final class ServerCommand {
      */
     static String stateText(RegisteredQueryInfo query) {
         return query.isSourceStopped() ? query.state() + " (source stopped)" : query.state();
+    }
+
+    /**
+     * The {@code SINK} cell: the binding a query writes to, {@code -} when it writes nowhere, and
+     * the binding marked when it has been detached (SINK-3).
+     *
+     * <p>A column rather than a marker on the state, unlike a stopped source, because the sink is a
+     * fact about the query that an operator asks for by name -- "which table does this write to"
+     * was not answerable from this listing at all, and the only other way to find out was the HTTP
+     * API. The detachment rides on the same cell so the column is never merely a name when the name
+     * is no longer being written to.
+     *
+     * <p>A server that predates the sink's state sends nothing for it, and such a sink reads as its
+     * name alone: unknown is not the same as attached, and claiming it is would be the one mistake
+     * this column must not make.
+     */
+    static String sinkText(RegisteredQueryInfo query) {
+        if (query.sink() == null || query.sink().isEmpty()) {
+            return "-";
+        }
+        return query.isSinkDetached() ? query.sink() + " (detached)" : query.sink();
+    }
+
+    /** One detached sink, as the line under the listing says it: the code and what happened. */
+    static String sinkFailureText(RegisteredQueryInfo query) {
+        RegisteredQueryInfo.SinkFailure failure = query.sinkFailure();
+        if (failure == null) {
+            return "the sink '" + query.sink() + "' was detached, and this server did not say why";
+        }
+        StringBuilder text = new StringBuilder("sink '").append(query.sink()).append("' detached with ");
+        text.append(failure.code());
+        if (failure.message() != null && !failure.message().isEmpty()) {
+            text.append(": ").append(failure.message());
+        }
+        return text.toString();
     }
 
     /** One stopped source, as the line under the listing says it: code, where, when, and why. */

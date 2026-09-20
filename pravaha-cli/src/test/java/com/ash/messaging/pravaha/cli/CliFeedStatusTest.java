@@ -99,14 +99,14 @@ class CliFeedStatusTest {
     void verboseAddsTheFeedOfEveryQuery() {
         String out = plain(cli("queries", "--verbose", "--url", url));
 
-        assertThat(out).contains("NAME\tSTATE\tFINGERPRINT\tROWS IN\tFEED");
-        assertThat(out).containsPattern("healthy\tRUNNING\t[0-9a-f]+\t0\tRUNNING");
+        assertThat(out).contains("NAME\tSTATE\tFINGERPRINT\tROWS IN\tSINK\tFEED");
+        assertThat(out).containsPattern("healthy\tRUNNING\t[0-9a-f]+\t0\t-\tRUNNING");
         assertThat(out).doesNotContain("source stopped");
     }
 
     @Test
     void withoutVerboseTheHeaderIsTheOneTheDocumentationShows() {
-        assertThat(plain(cli("queries", "--url", url))).contains("NAME\tSTATE\tFINGERPRINT\tROWS IN\n");
+        assertThat(plain(cli("queries", "--url", url))).contains("NAME\tSTATE\tFINGERPRINT\tROWS IN\tSINK\n");
     }
 
     private static String cli(String... args) {

@@ -693,7 +693,8 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                         // trailing, so a client that reads five fields reads exactly what it always
                         // did. Key ordinals comma-separated as REGISTER takes them, the sink's binding
                         // name or empty, and the retention as ISO-8601 or "forever". 8-12 are the
-                        // feed (FEED-1), trailing for the same reason; see feedFields.
+                        // feed (FEED-1) and 13-15 the sink's own state (SINK-3), trailing for the
+                        // same reason; see feedFields and sinkFields.
                         List<String> row = new java.util.ArrayList<>(List.of(
                                 entry.name(),
                                 query.state().name(),
@@ -704,6 +705,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                                 entry.sink().orElse(""),
                                 query.view().retention().toString()));
                         row.addAll(feedFields(entry));
+                        row.addAll(sinkFields(entry));
                         listener.onNext(new Result(ControlWire.encode(row.toArray(new String[0]))));
                     }
                 }
@@ -854,6 +856,36 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                         source.where(),
                         source.stop().at() == null ? "" : source.stop().at().toString()))
                 .orElseGet(() -> List.of(status.state().name(), "", "", "", ""));
+    }
+
+    /**
+     * The LIST row's sink fields (SINK-3), trailing after the feed's.
+     *
+     * <p>13: whether the sink is still writing -- {@code ATTACHED}, {@code DETACHED}, or {@code
+     * NONE} for a query that writes nowhere. 14: the code it was detached with ({@code PRV-8009}),
+     * empty while it writes. 15: that failure's message, or a note that it is withheld from a
+     * row-filtered caller -- the same rule as a feed's, and for the same reason. The message has
+     * already had every configured sink option struck out of it where the failure was recorded
+     * ({@code SinkFactory.redact}).
+     *
+     * <p>Field 6 has carried the sink's <em>name</em> since it was added; what was missing until
+     * now was any sign on this wire that the sink had stopped writing, which is the one thing
+     * about a sink an operator has to be told without asking. A client reading thirteen fields
+     * reads exactly what it always did.
+     */
+    private static List<String> sinkFields(QueryListing.Entry entry) {
+        if (entry.sink().isEmpty()) {
+            return List.of("NONE", "", "");
+        }
+        return entry.sinkFailure()
+                .map(failure -> List.of(
+                        "DETACHED",
+                        failure.errorCode().code(),
+                        entry.restricted()
+                                ? "the message is withheld: your access to this view is row-filtered, and a "
+                                        + "failure's text can quote rows outside your entitlement"
+                                : failure.getMessage()))
+                .orElseGet(() -> List.of("ATTACHED", "", ""));
     }
 
     /** A replacement's status as {@link ControlWire#REPLACEMENT_FIELDS} names its fields. */

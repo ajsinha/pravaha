@@ -160,8 +160,8 @@ pravaha queries
 ```
 
 ```text
-NAME             STATE   FINGERPRINT   ROWS IN
-region_five_min  PAUSED  5e0b3d27c41f  48210
+NAME             STATE   FINGERPRINT   ROWS IN  SINK
+region_five_min  PAUSED  5e0b3d27c41f  48210    -
 ```
 
 A `-` under `ROWS IN` means the server withheld the count, for the same reason. The HTTP API

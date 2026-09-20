@@ -381,7 +381,8 @@ Each is authorized exactly as the calls below are — a principal who may not dr
 drop through the other — and `SHOW` lists only what `pravaha queries` would show the same principal.
 
 ```bash
-pravaha queries                       # name, state, fingerprint, rows in; a stopped source is marked
+pravaha queries                       # name, state, fingerprint, rows in, sink; a stopped source
+                                      # and a detached sink are marked and explained beneath
 pravaha queries --verbose             # ...and each query's feed
 pravaha pause  --name card_velocity   # keeps answering, stops advancing
 pravaha resume --name card_velocity

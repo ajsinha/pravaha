@@ -245,8 +245,8 @@ pravaha queries
 ```
 
 ```
-NAME          STATE    FINGERPRINT   ROWS IN
-user_volume   RUNNING  a3f1c2d4e5b6  0
+NAME          STATE    FINGERPRINT   ROWS IN  SINK
+user_volume   RUNNING  a3f1c2d4e5b6  0        -
 ```
 
 It is now running and will keep `user_volume` current until you drop it.

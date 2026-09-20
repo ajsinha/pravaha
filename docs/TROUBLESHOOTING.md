@@ -197,7 +197,10 @@ queue (`pravaha.dlq.directory`) keeps the source going instead.
 **Has the sink stopped?** A query registered with `--sink` keeps its view current even after the sink
 refuses a batch: the sink is detached with `PRV-8009` and an `ERROR` line names it, and nothing more
 is written to it, because writing past a lost batch would leave the sink missing a change with
-nothing to say so. The view still answering is not evidence the sink is receiving. Fix what the sink
+nothing to say so. The view still answering is not evidence the sink is receiving. `pravaha queries`
+shows it: the `SINK` cell reads `<name> (detached)` and a line under the table gives the code and
+what happened. `GET /api/v1/queries/{name}` carries the same as `sink.attached` and `sink.failure`,
+and both SDKs' listings as `sinkState`/`sink_state` and `sinkFailure`/`sink_failure`. Fix what the sink
 refused, then drop and re-register the query; it is sent the view's contents first. A transactional
 sink is detached the same way when a prepare or a commit fails.
 

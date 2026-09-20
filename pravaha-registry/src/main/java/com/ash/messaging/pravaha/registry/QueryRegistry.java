@@ -889,7 +889,8 @@ public final class QueryRegistry implements AutoCloseable {
 
     private SinkDelivery openDelivery(String name, String sinkName, StreamSchema schema) {
         SinkFactory factory = sinks;
-        return new SinkDelivery(name, sinkName, factory.open(sinkName), schema, access, factory::release);
+        return new SinkDelivery(
+                name, sinkName, factory.open(sinkName), schema, access, factory::release, factory::redact);
     }
 
     private RegisteredQuery register(

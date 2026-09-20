@@ -71,6 +71,48 @@ public final class PluginSinks implements SinkFactory, AutoCloseable {
         return Map.copyOf(bindings);
     }
 
+    /** Option keys whose values are credentials or carry them, whatever their length. */
+    private static final java.util.regex.Pattern SENSITIVE_KEY = java.util.regex.Pattern.compile(
+            "(?i).*(pass|secret|token|key|credential|auth|url|uri|dsn|connection|user).*");
+
+    /**
+     * {@code text} with every bound sink's option values struck out of it.
+     *
+     * <p>Where {@code PRV-8009}'s message is made safe to send, once, at the point the failure is
+     * recorded -- the same place and the same rule as a stopped source feed's redaction
+     * ({@code FeedRedaction}). The message is the plugin's own exception text and can echo the
+     * connection string it was configured with, and it now travels to the Flight listing, {@code
+     * pravaha queries} and both SDKs as well as to the HTTP API, which keeps its own pass over the
+     * same bindings.
+     *
+     * <p>Every value of a key that names a credential, and every value long enough to be one
+     * whatever its key. Over-redacting a diagnostic costs a word; under-redacting costs a password.
+     * The sink's own name is in the message and says which binding it was, which is what a struck
+     * out connection string would otherwise have said.
+     */
+    @Override
+    public String redact(String text) {
+        if (text == null || text.isEmpty()) {
+            return text;
+        }
+        String out = text;
+        for (SinkBinding binding : bindings.values()) {
+            for (Map.Entry<String, String> option : binding.options().entrySet()) {
+                String value = option.getValue();
+                if (value == null || value.isBlank()) {
+                    continue;
+                }
+                boolean sensitive = SENSITIVE_KEY.matcher(option.getKey()).matches();
+                // Three characters at least: a one-letter value would strike every occurrence of
+                // that letter from the message and leave nothing to read.
+                if (value.length() >= 8 || (sensitive && value.length() >= 3)) {
+                    out = out.replace(value, "[redacted " + option.getKey() + "]");
+                }
+            }
+        }
+        return out;
+    }
+
     /**
      * Resolves, configures and opens the named sink.
      *

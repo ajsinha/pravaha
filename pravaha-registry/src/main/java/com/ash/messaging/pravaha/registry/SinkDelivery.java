@@ -130,6 +130,10 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
     private final int maxBatchRows;
     private final MemoryAccess access;
     private final java.util.function.Consumer<StreamSinkPlugin> release;
+
+    /** {@link SinkFactory#redact}, so a PRV-8009 message carries no configured credential. */
+    private final java.util.function.UnaryOperator<String> redact;
+
     private final boolean transactional;
     private final boolean idempotent;
     private final boolean acceptsRetractions;
@@ -164,10 +168,22 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
             StreamSchema schema,
             MemoryAccess access,
             java.util.function.Consumer<StreamSinkPlugin> release) {
+        this(queryName, sinkName, plugin, schema, access, release, java.util.function.UnaryOperator.identity());
+    }
+
+    SinkDelivery(
+            String queryName,
+            String sinkName,
+            StreamSinkPlugin plugin,
+            StreamSchema schema,
+            MemoryAccess access,
+            java.util.function.Consumer<StreamSinkPlugin> release,
+            java.util.function.UnaryOperator<String> redact) {
         this.queryName = queryName;
         this.sinkName = sinkName;
         this.plugin = plugin;
         this.schema = schema;
+        this.redact = redact;
         this.layout = RowLayout.of(schema);
         SinkCapabilities capabilities = plugin.capabilities();
         int declared = capabilities.maxBatchRows();
@@ -507,13 +523,18 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
     }
 
     private void fail(RuntimeException cause) {
+        // Redacted here rather than at each surface. The text after "detached:" is the plugin's own
+        // and can echo the connection string it was configured with, and PRV-8009 now reaches the
+        // Flight listing, `pravaha queries` and both SDKs as well as the HTTP API. A surface can
+        // forget; the place the failure is written down cannot. The cause keeps its own message for
+        // the log's stack trace, which is the operator's.
         failure = new PravahaException(
                 RegistryErrors.SINK_WRITE_FAILED,
-                "sink '" + sinkName + "' for query '" + queryName + "' failed and has been detached: "
+                redact.apply("sink '" + sinkName + "' for query '" + queryName + "' failed and has been detached: "
                         + cause.getMessage() + ". Writing later batches over the one that failed would leave "
                         + "the sink missing changes with nothing to say so; the query and its view carry on, "
                         + "and re-registering the query against the sink starts it again from the view's "
-                        + "contents.",
+                        + "contents."),
                 cause);
         LOG.log(System.Logger.Level.ERROR, failure.getMessage(), cause);
         close();

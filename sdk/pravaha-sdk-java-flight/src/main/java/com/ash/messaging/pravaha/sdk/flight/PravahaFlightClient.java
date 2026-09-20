@@ -410,6 +410,10 @@ public final class PravahaFlightClient implements AutoCloseable {
             // stream#partition and time. Empty from a server that predates them, read as unknown.
             String feed = field(row, 8);
             String code = field(row, 9);
+            // 13-15 are the sink's own state (SINK-3): ATTACHED, DETACHED or NONE, and the code and
+            // message it was detached with. Empty from a server that predates them.
+            String sinkState = field(row, 13);
+            String sinkCode = field(row, 14);
             queries.add(new RegisteredQueryInfo(
                     field(row, 0),
                     field(row, 1),
@@ -422,7 +426,9 @@ public final class PravahaFlightClient implements AutoCloseable {
                     feed.isEmpty() ? null : feed,
                     code.isEmpty()
                             ? null
-                            : new RegisteredQueryInfo.FeedStop(code, field(row, 10), field(row, 11), field(row, 12))));
+                            : new RegisteredQueryInfo.FeedStop(code, field(row, 10), field(row, 11), field(row, 12)),
+                    sinkState.isEmpty() ? null : sinkState,
+                    sinkCode.isEmpty() ? null : new RegisteredQueryInfo.SinkFailure(sinkCode, field(row, 15))));
         }
         return queries;
     }

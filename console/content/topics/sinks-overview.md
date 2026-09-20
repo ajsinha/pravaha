@@ -267,8 +267,13 @@ batches past a lost one would leave the sink silently missing a change.
 What you see:
 
 - the query's page in the console shows the sink's state and its PRV-8009 failure;
-- `GET /api/v1/queries/{name}` reports the sink with `attached: false` and the failure (with every
-  configured option value that could be a credential struck out);
+- `pravaha queries` marks the `SINK` cell `<name> (detached)` and prints the code and what
+  happened under the table, unasked — a query whose sink has stopped looks entirely healthy
+  otherwise, which is the reason it is not behind `--verbose`;
+- `GET /api/v1/queries/{name}` reports the sink with `attached: false` and the failure, and both
+  SDKs' listings carry it too (`sinkState`/`sinkFailure` in Java, `sink_state`/`sink_failure` in
+  Python) — in each case with every configured option value that could be a credential struck
+  out, which now happens where the failure is recorded rather than at each surface;
 - the node log carries the plugin's own reason (for `jdbc-sink`, a PRV-5076 naming the statement the
   database refused).
 

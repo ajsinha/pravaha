@@ -956,7 +956,8 @@ registration so a restart keeps it.
 
 **What was registered can be read back.** `pravaha queries` and both SDKs' `queries()` report each
 query's key ordinals, sink and retention (trailing fields 5–7 of the `pravaha.list` action, after the
-original five, so an older client reads what it always did). The HTTP API describes a query in full
+original five, so an older client reads what it always did) and whether that sink is still attached
+(fields 13–15: `ATTACHED`, `DETACHED` or `NONE`, and a detached one's `PRV-8009` code and message). The HTTP API describes a query in full
 (`GET /api/v1/queries/{name}`: keys by name, retention, sink and whether it is still attached, rows in,
 the other names sharing it, the streams it reads, and its feed — each source partition's state and a
 stopped one's code), its running plan as a graph

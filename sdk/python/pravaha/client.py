@@ -548,6 +548,9 @@ class Client(DebugCommands):
             # predates them sends five and these read as "unknown": an empty key, no sink,
             # no retention. 8-12 are the feed (FEED-1), trailing for the same reason.
             code = _at(row, 9)
+            # 13-15 are the sink's own state (SINK-3): ATTACHED, DETACHED or NONE, and the
+            # code and message it was detached with. Empty from a server that predates them.
+            sink_code = _at(row, 14)
             out.append(
                 RegisteredQuery(
                     name=_at(row, 0),
@@ -561,6 +564,9 @@ class Client(DebugCommands):
                     feed=_at(row, 8) or None,
                     feed_stop=(FeedStop(code=code, message=_at(row, 10), where=_at(row, 11),
                                         at=_at(row, 12)) if code else None),
+                    sink_state=_at(row, 13) or None,
+                    sink_failure=(SinkFailure(code=sink_code, message=_at(row, 15))
+                                  if sink_code else None),
                 )
             )
         return out
@@ -1359,6 +1365,20 @@ class FeedStop:
 
 
 @dataclass(frozen=True)
+class SinkFailure:
+    """Why a registered query's sink was detached (SINK-3, ``PRV-8009``).
+
+    A sink that refuses a batch is detached rather than written past: the query stays
+    ``RUNNING``, its view stays right, and nothing more is written. ``code`` is ``PRV-8009``;
+    ``message`` is what happened, with every configured sink option struck out of it, or a note
+    that the server withheld it from a row-filtered caller.
+    """
+
+    code: str
+    message: str = ""
+
+
+@dataclass(frozen=True)
 class RegisteredQuery:
     """What a server says about one registered continuous query."""
 
@@ -1379,6 +1399,11 @@ class RegisteredQuery:
     feed: Optional[str] = None
     #: Why the first stopped source stopped, or ``None`` while every source reads.
     feed_stop: Optional[FeedStop] = None
+    #: Whether the sink is still writing: ``ATTACHED``, ``DETACHED`` or ``NONE`` (writes
+    #: nowhere); ``None`` from a server that predates the field.
+    sink_state: Optional[str] = None
+    #: Why the sink was detached, or ``None`` while it writes.
+    sink_failure: Optional[SinkFailure] = None
 
     @property
     def is_running(self) -> bool:
@@ -1388,6 +1413,15 @@ class RegisteredQuery:
     def is_source_stopped(self) -> bool:
         """``RUNNING`` and not moving: a source stopped mid-read. :attr:`feed_stop` says why."""
         return self.feed == "STOPPED"
+
+    @property
+    def is_sink_detached(self) -> bool:
+        """The sink refused a batch and was detached (``PRV-8009``).
+
+        The query is still ``RUNNING`` and its view is still right; nothing more reaches the
+        sink. :attr:`sink_failure` says what happened.
+        """
+        return self.sink_state == "DETACHED"
 
     def __str__(self) -> str:
         return f"{self.name} [{self.state}, {self.fingerprint}, {self.rows_in} rows]"
