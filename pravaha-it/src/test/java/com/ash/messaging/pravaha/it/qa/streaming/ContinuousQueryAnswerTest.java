@@ -328,6 +328,12 @@ class ContinuousQueryAnswerTest {
             push("q", 3, "cal", 300, 1, 300_000_000L);
             advanceTo("q", 5_000_000_000L);
 
+            // Delivery runs on each subscription's own thread since STRM-8, so the two healthy
+            // subscribers are legitimately behind at this instant. awaitQuiet returns false if
+            // either is still behind at the deadline, so this is a wait and not a tolerance.
+            assertThat(healthyB.awaitQuiet(java.time.Duration.ofSeconds(30))).isTrue();
+            assertThat(healthyC.awaitQuiet(java.time.Duration.ofSeconds(30))).isTrue();
+
             assertThat(query.state())
                     .as("one subscriber's overflow policy is not a statement about the query")
                     .isEqualTo(QueryState.RUNNING);
