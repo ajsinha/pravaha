@@ -49,38 +49,104 @@ import com.ash.messaging.pravaha.security.TokenVerifier;
 public final class BearerTokenFilter extends OncePerRequestFilter {
 
     /**
-     * Paths that answer without a credential.
+     * Paths that answer without a credential whatever the deployment is configured to serve.
      *
      * <p>Liveness must not need one: a health probe that authenticates fails closed when the
-     * identity source is down, and takes the node out of rotation for a fault that has nothing to do
-     * with it. The OpenAPI document and the docs UI describe the shape of the API and disclose no
-     * data.
-     *
-     * <p>API-F11: {@code /swagger-ui} was here and {@code /api/swagger-ui} was not, so {@code GET
-     * /api/docs} answered 302 without a credential -- as intended -- and the redirect it handed the
-     * browser answered 401. These are matched against {@code getRequestURI()}, which carries the
-     * whole path, and springdoc serves the UI's own resources under {@code springdoc.swagger-ui
-     * .path}'s parent. A page the design means to be open has to be open at the address the server
-     * itself sends the reader to.
+     * identity source is down, and takes the node out of rotation for a fault that has nothing to
+     * do with it.
      */
-    private static final Set<String> OPEN_PREFIXES = Set.of(
-            "/actuator/health",
-            "/actuator/info",
-            "/api/v1/openapi.json",
-            "/api/docs",
-            "/swagger-ui",
-            "/api/swagger-ui");
+    private static final Set<String> ALWAYS_OPEN = Set.of("/actuator/health", "/actuator/info");
+
+    /** springdoc's own default, used when {@code springdoc.api-docs.path} is not configured. */
+    public static final String DEFAULT_API_DOCS_PATH = "/v3/api-docs";
+
+    /** springdoc's own default, used when {@code springdoc.swagger-ui.path} is not configured. */
+    public static final String DEFAULT_SWAGGER_UI_PATH = "/swagger-ui.html";
 
     private final TokenVerifier verifier;
 
+    /**
+     * The paths this filter lets through, as whole path segments.
+     *
+     * <p>API-F11, and the second half of it. The set was a constant: {@code /api/docs},
+     * {@code /api/v1/openapi.json} and {@code /swagger-ui} were written here, and the paths they
+     * are meant to name were written in {@code application.yaml}. They agreed by transcription, and
+     * they had already stopped agreeing -- {@code springdoc.swagger-ui.path: /api/docs} makes
+     * springdoc serve the page's own resources under {@code /api/swagger-ui}, which was not in the
+     * set, so the deliberately-open {@code /api/docs} answered 302 and the address it redirected to
+     * answered 401. Adding {@code /api/swagger-ui} to the constant fixes that one deployment and
+     * leaves the next operator who changes the property with the same split and no clue that a
+     * Java file decides it.
+     *
+     * <p>So the three are derived from the two properties instead: the document is open at
+     * whatever {@code springdoc.api-docs.path} says, the page at whatever
+     * {@code springdoc.swagger-ui.path} says, and the page's resources at the address springdoc
+     * computes from that path -- {@code <parent>/swagger-ui}. They cannot drift because there is
+     * one source for all three. Turning either off with {@code springdoc.*.enabled=false} removes
+     * its paths from the set rather than leaving an opening onto nothing.
+     *
+     * <p>Open by design and worth restating: they describe the shape of the API and disclose no
+     * stream, query, row or token text. A client that cannot fetch the schema cannot generate a
+     * client, and a person who cannot open the page cannot read the API they are entitled to call.
+     */
+    private final Set<String> openPaths;
+
+    /** The shipped configuration's paths, for a caller with no environment to read. */
     public BearerTokenFilter(TokenVerifier verifier) {
+        this(verifier, "/api/v1/openapi.json", "/api/docs");
+    }
+
+    /**
+     * @param apiDocs {@code springdoc.api-docs.path}, or null when the document is disabled
+     * @param swaggerUi {@code springdoc.swagger-ui.path}, or null when the page is disabled
+     */
+    public BearerTokenFilter(TokenVerifier verifier, String apiDocs, String swaggerUi) {
         this.verifier = verifier;
+        this.openPaths = openPaths(apiDocs, swaggerUi);
+    }
+
+    /** The open set for a pair of configured springdoc paths. */
+    static Set<String> openPaths(String apiDocs, String swaggerUi) {
+        Set<String> paths = new java.util.LinkedHashSet<>(ALWAYS_OPEN);
+        if (apiDocs != null && !apiDocs.isBlank()) {
+            paths.add(normalise(apiDocs));
+        }
+        if (swaggerUi != null && !swaggerUi.isBlank()) {
+            String page = normalise(swaggerUi);
+            paths.add(page);
+            // Where springdoc puts the page's own HTML, JavaScript and CSS, and the address the
+            // request for `page` is redirected to. It is derived from the configured path's parent
+            // by springdoc itself, so it is derived from the same place here.
+            paths.add(parentOf(page) + "/swagger-ui");
+        }
+        return Set.copyOf(paths);
+    }
+
+    /** A leading slash and no trailing one, so the segment comparison below has one shape to handle. */
+    private static String normalise(String path) {
+        String trimmed = path.strip();
+        String withSlash = trimmed.startsWith("/") ? trimmed : "/" + trimmed;
+        return withSlash.length() > 1 && withSlash.endsWith("/")
+                ? withSlash.substring(0, withSlash.length() - 1)
+                : withSlash;
+    }
+
+    /** {@code /api/docs} to {@code /api}, {@code /swagger-ui.html} to the empty string. */
+    private static String parentOf(String path) {
+        int lastSlash = path.lastIndexOf('/');
+        return lastSlash <= 0 ? "" : path.substring(0, lastSlash);
     }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
-        return OPEN_PREFIXES.stream().anyMatch(path::startsWith);
+        if (path == null) {
+            return false;
+        }
+        // Whole segments, not a bare prefix. `startsWith("/api/docs")` also opens
+        // `/api/docsomething`, and an open path that opens more than it names is the kind of rule
+        // that is right until somebody adds an endpoint next to it.
+        return openPaths.stream().anyMatch(open -> path.equals(open) || path.startsWith(open + "/"));
     }
 
     @Override

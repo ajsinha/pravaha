@@ -301,6 +301,59 @@ class ServerSecurityTest {
                 .isFalse();
     }
 
+    @Test
+    void theOpenDocsPathsFollowTheConfiguredOnesRatherThanACopyOfThem() {
+        // API-F11, the half that outlives the shipped application.yaml. The open set used to be a
+        // constant transcribed from springdoc's properties, so a deployment that moved either
+        // document put the page back behind a 401 -- silently, and with the cause in a Java file.
+        BearerTokenFilter moved = new BearerTokenFilter(TokenVerifier.rejectAll(), "/spec/openapi.json", "/help/ui");
+
+        assertThat(moved.shouldNotFilter(get("/help/ui")))
+                .as("the page is open where springdoc.swagger-ui.path puts it")
+                .isTrue();
+        assertThat(moved.shouldNotFilter(get("/help/swagger-ui/index.html")))
+                .as("and at the address that path's own redirect lands on")
+                .isTrue();
+        assertThat(moved.shouldNotFilter(get("/spec/openapi.json")))
+                .as("the document is open where springdoc.api-docs.path puts it")
+                .isTrue();
+        assertThat(moved.shouldNotFilter(get("/spec/openapi.json/swagger-config")))
+                .as("including the config document the page fetches under it")
+                .isTrue();
+
+        assertThat(moved.shouldNotFilter(get("/api/docs")))
+                .as("and the address it no longer serves is no longer open")
+                .isFalse();
+        assertThat(moved.shouldNotFilter(get("/api/v1/streams")))
+                .as("the control: moving the docs does not move the data")
+                .isFalse();
+    }
+
+    @Test
+    void documentationTurnedOffLeavesNoOpeningBehindIt() {
+        BearerTokenFilter off = new BearerTokenFilter(TokenVerifier.rejectAll(), null, null);
+
+        assertThat(off.shouldNotFilter(get("/api/docs"))).isFalse();
+        assertThat(off.shouldNotFilter(get("/api/swagger-ui/index.html"))).isFalse();
+        assertThat(off.shouldNotFilter(get("/api/v1/openapi.json"))).isFalse();
+        assertThat(off.shouldNotFilter(get("/actuator/health")))
+                .as("liveness is open whatever else is configured: a probe that authenticates "
+                        + "takes the node out of rotation when the identity source is down")
+                .isTrue();
+    }
+
+    @Test
+    void anOpenPathOpensItsOwnSegmentsAndNotANeighbourThatSharesItsPrefix() {
+        BearerTokenFilter filter = new BearerTokenFilter(TokenVerifier.rejectAll());
+
+        assertThat(filter.shouldNotFilter(get("/api/docsomething")))
+                .as("prefix matching would have opened this; it is not the docs path")
+                .isFalse();
+        assertThat(filter.shouldNotFilter(get("/api/v1/openapi.json.bak")))
+                .as("nor a sibling that merely starts the same way")
+                .isFalse();
+    }
+
     private static jakarta.servlet.http.HttpServletRequest get(String uri) {
         org.springframework.mock.web.MockHttpServletRequest request =
                 new org.springframework.mock.web.MockHttpServletRequest("GET", uri);

@@ -1052,6 +1052,12 @@ on it.
 **Expected:** unset → `/swagger-ui.html`; configured `/api/docs` → serves the UI and the UI loads
 the document from CFG-045's path; a mismatch between the two (change one, not the other) must
 produce a UI that fails to load, not a blank page — record which.
+**And with authentication on (API-F11).** `BearerTokenFilter` is handed both springdoc paths and
+opens them, plus the page's resource prefix, which springdoc derives from `swagger-ui.path`'s
+parent. So changing this setting must move the open path with it: set it to something else and the
+page must still answer without a credential at its new address, and must **not** at the old one.
+It used to be a constant transcribed from the shipped `application.yaml`, and they had already
+drifted.
 
 ## CFG-047 — `-Dpravaha.ffm` and `-Dpravaha.memory`
 **Intent:** The only two `pravaha.*` settings that are **system properties rather than configuration
