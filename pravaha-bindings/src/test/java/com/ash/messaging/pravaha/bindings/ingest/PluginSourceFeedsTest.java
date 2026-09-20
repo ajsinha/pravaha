@@ -140,6 +140,28 @@ class PluginSourceFeedsTest {
     }
 
     @Test
+    void theBindingsAreReportedInTheOrderTheyWereDeclared_CFG3() {
+        // CFG-3(b). `bindings` was a ConcurrentHashMap and `bindings()` returned Map.copyOf, which
+        // has no order either -- so the node's "sources bound:" line came out in hash order while
+        // the "streams declared in configuration:" line immediately above it, built from a
+        // LinkedHashMap, came out in file order. Two adjacent lines describing one file and
+        // disagreeing about it: a file declaring s3, s2, s1 logged [s3, s1, s2], which makes a
+        // diff of two nodes' startup logs unusable.
+        PluginSourceFeeds feeds = new PluginSourceFeeds()
+                .bind(new SourceBinding("s3", "filesystem", Map.of()))
+                .bind(new SourceBinding("s2", "filesystem", Map.of()))
+                .bind(new SourceBinding("s1", "filesystem", Map.of()))
+                .bind(new SourceBinding("s4", "filesystem", Map.of()));
+
+        assertThat(feeds.bindings().keySet()).containsExactly("s3", "s2", "s1", "s4");
+
+        // Re-binding a stream keeps its original place rather than moving it to the end: the log
+        // line is about the file, and a replacement is not a new declaration.
+        feeds.bind(new SourceBinding("s2", "filesystem", Map.of("path", "x")));
+        assertThat(feeds.bindings().keySet()).containsExactly("s3", "s2", "s1", "s4");
+    }
+
+    @Test
     void aBindingNamingAPluginThatIsNotThereIsRefusedWithWhatIsAvailable() {
         PluginSourceFeeds feeds = new PluginSourceFeeds().bind(new SourceBinding("txn", "kafka", Map.of("topic", "t")));
 
@@ -151,7 +173,16 @@ class PluginSourceFeedsTest {
                     .hasMessageContaining("PRV-5090")
                     .hasMessageContaining("kafka")
                     // Naming what *is* there turns "no such plugin" into a one-line fix.
-                    .hasMessageContaining("filesystem");
+                    .hasMessageContaining("filesystem")
+                    // CFG-4. On a shipped server that list has ONE entry, so for six of the seven
+                    // plugin names in the documentation the remedy the message offered was not one:
+                    // an operator reading "Available: [filesystem]" beside docs/CONNECTORS.md's
+                    // seven has no way to tell whether they mistyped a name or whether the jar is
+                    // simply absent. The message now says which of the two it is, and what an
+                    // "available" plugin is.
+                    .hasMessageContaining("ServiceLoader")
+                    .hasMessageContaining("classpath")
+                    .hasMessageContaining("docs/CONNECTORS.md");
         }
     }
 

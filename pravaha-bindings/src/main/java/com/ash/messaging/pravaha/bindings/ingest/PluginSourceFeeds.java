@@ -20,7 +20,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
-import java.util.concurrent.ConcurrentHashMap;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -62,7 +61,19 @@ import com.ash.messaging.pravaha.sql.plan.SourcePushdown;
  */
 public final class PluginSourceFeeds implements SourceFeedFactory {
 
-    private final Map<String, SourceBinding> bindings = new ConcurrentHashMap<>();
+    /**
+     * The bindings in force, in the order the configuration file declares them.
+     *
+     * <p>CFG-3(b). A {@code ConcurrentHashMap}, so the {@code sources bound:} line at startup came
+     * out in hash order while the {@code streams declared in configuration:} line immediately above
+     * it -- a {@code LinkedHashMap} -- came out in file order. Two adjacent lines describing one
+     * file, disagreeing about it: a file declaring {@code s3, s2, s1} logged {@code [s3, s1, s2]},
+     * and a diff of two nodes' startup logs was not usable. Synchronised rather than concurrent
+     * because binding happens once, at startup, and every read afterwards is a copy.
+     */
+    private final Map<String, SourceBinding> bindings =
+            java.util.Collections.synchronizedMap(new java.util.LinkedHashMap<>());
+
     private final BackpressurePolicy policy;
     private volatile java.nio.file.Path deadLetterDirectory;
 
@@ -193,9 +204,16 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         return this;
     }
 
-    /** The bindings in force, by stream name. */
+    /**
+     * The bindings in force, by stream name, in declaration order.
+     *
+     * <p>{@code Map.copyOf} would throw the order away again -- an immutable map has none -- which
+     * is half of why CFG-3(b) survived a reading of {@code bind}.
+     */
     public Map<String, SourceBinding> bindings() {
-        return Map.copyOf(bindings);
+        synchronized (bindings) {
+            return java.util.Collections.unmodifiableMap(new java.util.LinkedHashMap<>(bindings));
+        }
     }
 
     /**
@@ -818,11 +836,22 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                             + "': " + e.getMessage(),
                     e);
         }
+        // CFG-4. The list used to be the whole message, and on a shipped server it has ONE entry --
+        // so a well-formed error offered a remedy that was not one, beside documentation naming
+        // seven plugins as though they were all reachable. What the operator actually needs to know
+        // is that "available" means "on this process's classpath", and that the server jar carries
+        // only filesystem: the other plugins are separate modules, and adding one is a packaging
+        // decision rather than a configuration one.
         throw new PravahaException(
                 IngestErrors.NO_SUCH_PLUGIN,
                 "no source plugin named '" + binding.plugin() + "' is on the classpath, so stream '"
                         + binding.streamName() + "' cannot be fed. Available: "
-                        + (available.isEmpty() ? "none -- no source plugin jar is on the classpath" : available));
+                        + (available.isEmpty() ? "none -- no source plugin jar is on the classpath" : available)
+                        + ". A plugin answers to the name it reports for itself and is found by "
+                        + "ServiceLoader, so it resolves only when its jar is on THIS process's "
+                        + "classpath: the server jar carries filesystem alone, and feedfile, jdbc, delta, "
+                        + "aerospike, cassandra, kafka and postgres-cdc are separate modules that have to "
+                        + "be added to it. docs/CONNECTORS.md says which module ships which name.");
     }
 
     private static String describe(Map<String, Integer> partitionCounts, Map<String, String> pushed) {

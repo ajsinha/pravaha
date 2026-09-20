@@ -32,6 +32,16 @@ your-connector.jar
 
 Drop it on the classpath, name it in configuration, and a query can read from it.
 
+**"On the classpath" means on the running process's classpath, and the shipped `pravaha-server`
+executable jar carries `filesystem` alone.** Every other name in the tables below — `feedfile`,
+`jdbc`, `delta`, `aerospike`, `cassandra`, `postgres-cdc`, `kafka` and their sink counterparts —
+lives in its own module under `plugins/` and has to be added to the classpath of the node that is
+to use it, which is a packaging decision rather than a configuration one. Naming one that is not
+there is refused at startup with `PRV-5090`, and that refusal now says which of the two mistakes it
+is, because "Available: [filesystem]" read beside this document's seven names looked like a
+contradiction rather than an answer (CFG-4). There is **no drop-a-jar-in directory** yet: see
+[section 8](#8-what-is-missing-from-this-framework-today).
+
 Three kinds, and a connector may be more than one:
 
 | Interface | What it does | Shipped examples |
@@ -1023,6 +1033,7 @@ Stated so nobody discovers it mid-build:
 | Capability verification in the TCK | Replay and exactly-once are tested; ordering, deletes and pushdown claims are believed, not tested |
 | An SPI stability statement | `Version` exists; nothing says what change breaks a plugin |
 | Plugin isolation | A connector shares the engine's classpath; a dependency clash is yours to resolve |
+| A way to add one to a shipped node | The server jar carries `filesystem` and nothing else, and there is no directory a jar can be dropped into and no documented launcher that would read one. Adding a connector to a deployment today means building a jar that depends on both, so every name in this document except one is reachable from source and not from a release (`I-7`, reconfirmed from the configuration surface by CFG-4) |
 
 ---
 
