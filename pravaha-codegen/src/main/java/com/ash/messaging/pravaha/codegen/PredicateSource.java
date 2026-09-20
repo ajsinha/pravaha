@@ -85,6 +85,16 @@ final class PredicateSource {
                         "predicate '" + like.describe() + "' is a LIKE, which the generator does not emit: "
                                 + "matching a pattern needs a String and this stage exists to avoid making "
                                 + "one. The interpreted path evaluates it correctly.");
+            case Predicate.IsNullExpression n ->
+                // TY-5's IS NULL over a computed expression. Refused here for the same reason
+                // CompareExpressions is: emitting it means emitting the expression's own null
+                // propagation, which has to match the interpreter exactly or the differential
+                // tests start comparing two specifications. The interpreted path evaluates it.
+                throw new PravahaException(
+                        CodegenErrors.UNSUPPORTED,
+                        "predicate '" + n.describe() + "' null-checks a computed expression, which the "
+                                + "generator does not emit yet. The interpreted path evaluates it correctly "
+                                + "and more slowly.");
             case Predicate.CompareExpressions c ->
                 // Refused rather than generated. Generating arithmetic is the natural next step and
                 // is not free: null propagation, overflow checks and integer-versus-floating-point

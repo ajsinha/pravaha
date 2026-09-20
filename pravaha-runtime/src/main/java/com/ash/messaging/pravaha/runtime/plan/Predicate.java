@@ -355,6 +355,32 @@ public sealed interface Predicate {
     }
 
     /**
+     * {@code IS [NOT] NULL} over something that is not a bare column: {@code WHERE (CASE WHEN … END)
+     * IS NULL}.
+     *
+     * <p>Finding TY-5. {@link IsNull} reads one ordinal's null bit, so the compiler required a
+     * column reference and refused every other shape -- including the ordinary idiom of
+     * null-checking a computed CASE. The expression tree already answers {@link
+     * Expression#isNull(RowView)} for every node it has, so the check is that question asked of the
+     * compiled expression rather than of a row slot.
+     *
+     * <p>Separate from {@link IsNull} rather than replacing it: the column form is what the code
+     * generator turns into a single bitmap test, and folding it into an expression walk would cost
+     * the common case to serve the rare one.
+     */
+    record IsNullExpression(Expression value, boolean wantNull) implements Predicate {
+        @Override
+        public boolean test(RowView row) {
+            return value.isNull(row) == wantNull;
+        }
+
+        @Override
+        public String describe() {
+            return value.describe() + (wantNull ? " IS NULL" : " IS NOT NULL");
+        }
+    }
+
+    /**
      * A comparison between two computed expressions: {@code WHERE amount * 2 > threshold}.
      *
      * <p>The general case, and deliberately the <em>last</em> case. The specific forms above --

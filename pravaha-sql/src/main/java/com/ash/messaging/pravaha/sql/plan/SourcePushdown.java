@@ -193,6 +193,9 @@ public final class SourcePushdown {
             case Predicate.Or p -> unionOrNull(p.parts());
             case Predicate.Not p -> referencedOrdinals(p.inner());
             case Predicate.CompareExpressions ignored -> null;
+            // TY-5's IS NULL over a computed expression, for the same reason: its operand is an
+            // arbitrary expression and the ordinals it reads are not one lookup away.
+            case Predicate.IsNullExpression ignored -> null;
         };
     }
 

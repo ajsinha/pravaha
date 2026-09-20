@@ -172,6 +172,8 @@ public final class PredicateCompiler {
         RexNode left = call.getOperands().get(0);
         RexNode right = call.getOperands().get(1);
         Predicate.Op op = negated ? opOf(call.getKind()).negated() : opOf(call.getKind());
+        refuseIncomparableColumn(call, left);
+        refuseIncomparableColumn(call, right);
 
         // Column against literal, in either order, first: those are the shapes the code generator
         // turns into a single typed load and compare, and they are the overwhelming majority of
@@ -193,6 +195,33 @@ public final class PredicateCompiler {
             return compare(ref.getIndex(), flip(op), boundValue(ref.getIndex(), param));
         }
         return compareExpressions(call, op);
+    }
+
+    /**
+     * Refuses a comparison against a column whose type this engine cannot compare, by name.
+     *
+     * <p>Finding TY-14. {@code WHERE bin = 'cafe'} over a BYTES column was refused with {@code
+     * 'CAST('cafe'):VARBINARY NOT NULL' has SQL type VARBINARY, which Pravaha cannot compute with
+     * yet} -- Calcite's rendering of a cast the person did not write, naming no column. The same
+     * mistake against an ARRAY column got the column's name, because ARRAY maps to {@code ANY},
+     * takes no implicit cast, and so reached {@link #compare}'s column-naming branch. Two type
+     * families refusing the same mistake two different ways is the gap; this closes it from the
+     * column's side, which is the side the person can see.
+     */
+    private void refuseIncomparableColumn(RexCall call, RexNode operand) {
+        if (!(operand instanceof RexInputRef ref)) {
+            return;
+        }
+        TypeName type = schema.field(ref.getIndex()).type().typeName();
+        if (type != TypeName.BYTES && type != TypeName.ARRAY && type != TypeName.MAP && type != TypeName.ROW) {
+            return;
+        }
+        throw new PravahaException(
+                SqlErrors.UNSUPPORTED_EXPRESSION,
+                "cannot compare column '" + columnName(ref.getIndex()) + "' of type " + type
+                        + " in '" + call + "': this engine compares numbers, text, booleans, and the date "
+                        + "and time types. A " + type + " column can be selected and null-checked, and "
+                        + (type == TypeName.BYTES ? "compared only as a join key." : "nothing more than that."));
     }
 
     /**
@@ -271,11 +300,22 @@ public final class PredicateCompiler {
         };
     }
 
+    /**
+     * {@code IS [NOT] NULL}, over a column or over anything the expression compiler understands.
+     *
+     * <p>Finding TY-5. This required a column reference and refused everything else, so {@code
+     * WHERE (CASE WHEN … END) IS NULL} -- an ordinary way to ask whether a computed value came out
+     * empty -- was told the expression could not be compiled, while the same CASE in the SELECT
+     * list compiled fine. The column form is kept as its own predicate because the code generator
+     * emits it as a single bitmap test; everything else goes through the expression tree, which
+     * has answered this question for every node it has since it was written.
+     */
     private Predicate nullCheck(RexCall call, boolean wantNull) {
-        if (!(call.getOperands().get(0) instanceof RexInputRef ref)) {
-            throw unsupported(call);
+        if (call.getOperands().get(0) instanceof RexInputRef ref) {
+            return new Predicate.IsNull(ref.getIndex(), columnName(ref.getIndex()), wantNull);
         }
-        return new Predicate.IsNull(ref.getIndex(), columnName(ref.getIndex()), wantNull);
+        return new Predicate.IsNullExpression(
+                new ExpressionCompiler(schema).compile(call.getOperands().get(0)), wantNull);
     }
 
     private String columnName(int ordinal) {

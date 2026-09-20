@@ -118,9 +118,25 @@ final class ExpressionCompiler {
             // put a literal pair of apostrophes inside the row.
             return Expression.Literal.ofText(String.valueOf(literal.getValue2()));
         }
-        BigDecimal value = (BigDecimal) literal.getValue4();
+        // Finding TY-4(a). Calcite carries an approximate literal as a Double once it is written
+        // with an exponent -- `3.0E0` -- and as a BigDecimal when it is written `3.0`, and the cast
+        // below assumed the second. `r / 3.0E0` therefore reached the user as a raw
+        // ClassCastException with no code, from an ordinary division. Asking for the value as a
+        // Double rather than casting what happens to be stored handles both spellings.
+        if (isApproximate(sqlType)) {
+            return Expression.Literal.ofDouble(literal.getValueAs(Double.class));
+        }
+        if (!(literal.getValue4() instanceof BigDecimal value)) {
+            // Every remaining branch reads a BigDecimal. A literal that is something else is a
+            // shape this does not know, and a coded refusal naming it is the only honest answer --
+            // an uncoded ClassCastException reaching a client through Flight carries nothing.
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_EXPRESSION,
+                    "literal '" + literal + "' of SQL type " + sqlType + " is carried as a "
+                            + literal.getValue4().getClass().getSimpleName()
+                            + ", which this compiler has no conversion for.");
+        }
         return switch (sqlType) {
-            case DOUBLE, FLOAT, REAL -> Expression.Literal.ofDouble(value.doubleValue());
             // A literal written as 2.5 arrives as DECIMAL(2,1) regardless of what it multiplies,
             // so refusing it here would refuse `rate * 2.5` on a DOUBLE column -- not decimal
             // arithmetic in any sense that matters. The refusal belongs to the operation's type,
@@ -357,6 +373,15 @@ final class ExpressionCompiler {
      */
     private Expression caseWhen(RexCall call, int from) {
         java.util.List<RexNode> operands = call.getOperands();
+        if (from == 0) {
+            // Finding TY-4(b). `CASE WHEN n > 5 THEN 1 ELSE 1.5 END` reached the user as a raw
+            // IllegalArgumentException out of Expression.Case's constructor -- one branch compiled
+            // to an INT64 and the other to a FLOAT64 -- with no code and nothing said about why the
+            // query cannot be answered. Calcite types that CASE DECIMAL(2,1), exactly as it types
+            // `amount * 1.5`, so the refusal it deserves is the decimal one that already exists.
+            // Asking for the whole CASE's type first is what makes the two agree.
+            typeOf(call.getType().getSqlTypeName(), call.toString());
+        }
         if (from == operands.size() - 1) {
             return compile(operands.get(from));
         }
@@ -369,7 +394,19 @@ final class ExpressionCompiler {
                     "this CASE has no ELSE branch and no value to fall through to: " + call);
         }
         Predicate when = new PredicateCompiler(inputSchema).compile(operands.get(from));
-        return new Expression.Case(when, compile(operands.get(from + 1)), caseWhen(call, from + 2));
+        Expression then = compile(operands.get(from + 1));
+        Expression otherwise = caseWhen(call, from + 2);
+        try {
+            return new Expression.Case(when, then, otherwise);
+        } catch (IllegalArgumentException branchesDisagree) {
+            // The net under the type check above, for a shape where Calcite's declared type is one
+            // this engine has and the branches still compile to two different ones. Coded, because
+            // an IllegalArgumentException crossing Flight carries no code at all (TY-4(b)).
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_EXPRESSION,
+                    "'" + call + "' is a CASE whose branches produce different types: " + branchesDisagree.getMessage(),
+                    branchesDisagree);
+        }
     }
 
     /**
@@ -453,6 +490,16 @@ final class ExpressionCompiler {
     }
 
     private Expression cast(RexCall call) {
+        if (isIdentityCast(call)) {
+            // Calcite inserts a cast of a VARCHAR onto itself to settle a charset or a nullability
+            // difference -- `CAST($4):VARCHAR CHARACTER SET "UTF-8"` over a VARCHAR column. It
+            // converts nothing, and refusing it as "converts between STRING and STRING" refused
+            // ordinary queries (a text CASE, TY-5) for a wrapper the user never wrote. Identity is
+            // decided on Calcite's types, not Pravaha's, so `CAST(s AS VARCHAR(3))` -- which has to
+            // truncate and this engine does not -- stays refused rather than passed through
+            // unchanged, which would be a silently wrong answer.
+            return compile(call.getOperands().get(0));
+        }
         Expression source = compile(call.getOperands().get(0));
         TypeName target = typeOf(call.getType().getSqlTypeName(), call.toString());
         if (!isNumeric(source.type()) || !isNumeric(target)) {
@@ -462,6 +509,15 @@ final class ExpressionCompiler {
                             + "; Pravaha evaluates numeric conversions only");
         }
         return source.type() == target ? source : new Expression.Cast(source, target);
+    }
+
+    /** True when the cast's source and target are the same SQL type at the same width. */
+    private static boolean isIdentityCast(RexCall call) {
+        org.apache.calcite.rel.type.RelDataType from = call.getOperands().get(0).getType();
+        org.apache.calcite.rel.type.RelDataType to = call.getType();
+        return from.getSqlTypeName() == to.getSqlTypeName()
+                && from.getPrecision() == to.getPrecision()
+                && from.getScale() == to.getScale();
     }
 
     private static boolean isNumeric(TypeName type) {
