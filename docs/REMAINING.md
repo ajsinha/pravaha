@@ -21,16 +21,28 @@ minutes). The slots: the engine's core, serial, because `QueryRegistry`, `QueryE
 `ViewSink` are one another's neighbours; two isolated lanes (a plugin, `pravaha-state`,
 `pravaha-sql`); the console; and the findings clusters.
 
-## In flight, 2026-09-20
+## Built on 2026-09-20, after the waves
 
-Five agents, which is the cap. Each owns a disjoint tree.
+Everything the five slots carried that day landed, was gated and was drilled: the console's
+debugger screen (journey 7, so all eight journeys now run end to end), `ReplacementStatus.history`,
+the owner's three console requests — MAYA's crimson theme with the crimson-to-indigo gradient, the
+slogan in italics on every page, and a landing page with an animated SVG figure of a query being
+maintained — `DOCX-21`'s help URLs (the console's help, configurable, no link at all when unset),
+`DOCX-19`, `DOCX-20`, `CFG-4`, `CFG-10`, `LANE-6`, `STRM-4`, `STRM-8`, the API cluster
+(`API-F2`/`F6`/`F7`/`F8`/`F10`/`F11`, `E-8`, `E-15`, `SX-19`), and thirty singleton findings.
+The register went from 103 open in the morning to **17**, none of them GA-blocking.
+
+## Queued, and why they are not running
+
+Scheduled on 2026-09-20 and stopped before any of them wrote a line: all three agents failed to
+start against the account's monthly spend limit (HTTP 429, weekly reset 2026-09-26). Nothing was
+half-done and nothing needs unpicking; each is ready to start again as it stands.
 
 | Batch | What | Owns |
 |---|---|---|
-| B9's remainder | The debugger's console screen (journey 7), then `ReplacementStatus.history`; then the owner's two requests of 2026-09-20 — MAYA's crimson theme and gradient, and the slogan in italics on every page | `console/`, `sdk-python` |
-| B14's docs and config | `DOCX-21` (the help URLs, decided by the owner: the console's help, configurable, and no URL at all when unset), `DOCX-19`, `DOCX-20`, `CFG-4`, `CFG-10` | `docs/`, `pravaha-api`, `pravaha-cli`, `pravaha-server` |
-| B14's lanes and streams | `LANE-6` (a shared lane's queries read *past* the equivalence model, intermittently), `STRM-4`, `STRM-8` | `pravaha-runtime`, `pravaha-bindings`, `pravaha-flight` |
-| B14's singletons | The 44 open findings outside the cleared clusters, verdicts to `qa/singletons-2026-09-20.md` | scattered, one finding at a time |
+| **B11** | **Tenancy and admission quotas.** What a tenant scopes, how many queries and how much state it may hold, what happens at the limit (a refusal by name, not a silent degradation), whether identical SQL still shares one computation across tenants, and what an operator sees. With its own ADR. | `pravaha-registry`, `pravaha-security`, then `console/` |
+| The three MEDIUM findings | `SPILL-3` (fire a large window in bounded batches, then re-run the beyond-RAM measurement), `SRC-7` (an Aerospike scan that buffers everything, so `maxRecords` is not a bound), `W8-14` (a windowed aggregate keyed by a digest, which makes a collision a silently wrong answer) | `pravaha-runtime`, `plugins/pravaha-plugin-aerospike` |
+| The LOW findings | `DBG-1`, `DBG-2`, `WIRE-1`, `SINK-4`, `CKPT-6`, `SQL-13`, and the fixed test bounds behind `PGW-1` and `CON-8` | `pravaha-server`, `pravaha-flight`, `pravaha-sql`, `pravaha-pgwire` |
 
 ## Wave 1 — built
 
