@@ -106,6 +106,9 @@ sinks [filesystem](/help/topics/sink-filesystem), [jdbc-sink](/help/topics/sink-
 | `pravaha.checkpoint.keep` | `3` | Checkpoints kept per query. Counted, not timed: an age rule would delete the last fallback after a quiet night |
 | `pravaha.checkpoint.timeout` | `30s` | How long one checkpoint may take before it is abandoned (and counted in `pravaha_query_checkpoint_failures_total`) |
 | `pravaha.dlq.directory` | *empty* | Where records a source cannot decode are written, one file per query, instead of stopping the source. Set and unwritable: the node refuses to start (PRV-4090). See [Dead letters](/help/topics/dead-letters) |
+| `pravaha.dlq.max-bytes` | `268435456` | The largest one query's dead-letter file may grow. Past it the **oldest** entries are evicted, and the loss is written to `<query>.dlq.evicted`, warned about, and counted on every surface. `0` for no byte bound |
+| `pravaha.dlq.max-entries` | `0` | The most entries one query's file may hold. `0` is off |
+| `pravaha.dlq.max-age` | `0` | How long an entry is kept (`30d`, `PT72H`). `0` is off |
 
 See [Checkpoints and recovery](/help/topics/checkpoints-recovery).
 

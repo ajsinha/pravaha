@@ -204,6 +204,7 @@ choose:
 | `pravaha.state.allow-shared` | `false` | Skip the ownership check on the directories above |
 | `pravaha.standby.enabled` | `false` | Wait for the primary's claim to lapse, then take over |
 | `pravaha.dlq.directory` | empty | Where undecodable source records are written |
+| `pravaha.dlq.max-bytes` | `268435456` | How much of one query's dead-letter file is kept; past it the oldest are evicted and the loss recorded. `.max-entries` and `.max-age` bound it the other two ways |
 
 All of it is in [Checkpoints and recovery](/help/topics/checkpoints-recovery),
 [Standby](/help/topics/standby) and [Dead letters](/help/topics/dead-letters).

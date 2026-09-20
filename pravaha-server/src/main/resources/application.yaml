@@ -311,6 +311,22 @@ pravaha:
   dlq:
     directory: ""
 
+    # How much of each query's file is kept. Past a bound the OLDEST entries are evicted, and the
+    # loss is written to <query>.dlq.evicted, warned about in the log, and counted on every surface
+    # that shows the queue -- never dropped quietly.
+    #
+    # Eviction rather than refusal, and that way round on purpose: refusing the newest entry hands
+    # IngestPump a queue that has stopped accepting, whose only two remaining moves are to fail the
+    # poll (stopping the source, which is what the queue exists to prevent) or to drop the record
+    # (the silent loss it exists to prevent) -- and it would keep ten thousand copies of last
+    # month's schema change in preference to the record somebody is looking at right now.
+    #
+    # max-bytes is on by default because a bound that defaults to off is not a bound: the failure
+    # it stops is one renamed column in a busy feed filling the disk the checkpoints are on.
+    max-bytes: 268435456   # 256 MiB a query; 0 for no byte bound
+    max-entries: 0         # the most entries one query's file may hold; 0 is off
+    max-age: 0             # how long an entry is kept (30d, PT72H); 0 is off
+
 
   # What one registered query costs in memory, and how its lane waits.
   #
