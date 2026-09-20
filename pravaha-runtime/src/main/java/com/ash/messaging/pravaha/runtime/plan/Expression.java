@@ -387,8 +387,13 @@ public sealed interface Expression {
             }
             for (Expression part : parts) {
                 if (part.type() != TypeName.STRING) {
+                    // The advice here used to be "wrap it in CAST(… AS VARCHAR)", which is refused
+                    // by the same compiler for the same reason (TY-23): there is no number-to-text
+                    // conversion anywhere in this engine, so sending the reader to write one sends
+                    // them in a circle.
                     throw new IllegalArgumentException("|| joins text, and one side produces " + part.type()
-                            + ". Wrap it in CAST(… AS VARCHAR) if that is what you meant");
+                            + ". This engine has no conversion from a number to text -- not through CAST"
+                            + " either -- so format the value where the text is assembled");
                 }
             }
             parts = java.util.List.copyOf(parts);
@@ -471,10 +476,15 @@ public sealed interface Expression {
             String value = source.evaluateString(row);
             int total = value.codePointCount(0, value.length());
             long from = start.evaluateLong(row);
-            // The window in 1-based positions, half-open: [from, until). Computed in long so that
-            // a huge length cannot overflow into a negative and turn a valid query into an empty
-            // string.
-            long until = length == null ? total + 1L : from + Math.max(0L, length.evaluateLong(row));
+            // The window in 1-based positions, half-open: [from, until). Finding TY-22: the comment
+            // here used to claim long arithmetic made this overflow-safe, and it did not. `FOR
+            // 9223372036854775807` -- the way a generated query spells "to the end" -- made `1 +
+            // Long.MAX_VALUE` wrap to Long.MIN_VALUE, so the range came out empty and the whole
+            // value was silently replaced by "". Saturating at Long.MAX_VALUE is the arithmetic the
+            // old comment described: a window that runs past the end of the string is clamped to
+            // the end of the string one line below, which is what the standard asks for.
+            long span = length == null ? Long.MAX_VALUE : Math.max(0L, length.evaluateLong(row));
+            long until = from > Long.MAX_VALUE - span ? Long.MAX_VALUE : from + span;
             long firstPosition = Math.max(1L, from);
             long lastPosition = Math.min(total + 1L, until);
             if (firstPosition >= lastPosition) {
