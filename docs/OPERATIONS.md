@@ -1097,6 +1097,11 @@ Prometheus metrics are at `/actuator/prometheus`. Per continuous query:
 | `pravaha_query_spill_fragmentation{query=}` | `1 - live / held`, 0 to 1. Staying high while `_compactions` is flat means the threshold is set above what this query's churn reaches |
 | `pravaha_query_spill_compactions{query=}` | Compaction passes that emptied at least one slab |
 | `pravaha_query_spill_slabs_released{query=}` | Overflow slabs (files) compaction gave back |
+| `pravaha_query_backpressure_waits{query=}` | Episodes in which one of this query's writers found nowhere to put a row. A count of **episodes**, not of rows or polls: a source held off for an hour is one |
+| `pravaha_query_backpressure_wait_seconds{query=}` | How long those episodes lasted altogether, counting one still in progress. `rate()` of it against wall clock is the share of time this query could not be fed |
+| `pravaha_query_backpressure_blocked_fraction{query=}` | The same share as the *lanes* see it, 0 to 1, counting every writer into those lanes. **The one to alert on** for "is this query the limit": near 1 means it is. On a shared lane it counts the neighbours' writers too, which is how a query blocked *by* a neighbour is told from one blocking itself — that one reads high here and low on the two rows above |
+| `pravaha_query_inbox_depth{query=}` | Rows queued into the lane and not yet taken, right now. Sampled by whoever scrapes: it is an instantaneous gauge, so a burst between two scrapes is invisible |
+| `pravaha_query_inbox_cells{query=}` | What that depth is out of, so the depth can be read as a fraction without knowing `pravaha.lane.inbox.cells` |
 | `pravaha_query_view_size{query=}` | How many keys the view holds |
 | `pravaha_query_view_evicted{query=}` | What retention has removed. **Flat at zero on a long-running query** means either nothing is old enough yet or retention is longer than anyone intended |
 | `pravaha_query_view_updates` | Corrections applied |
@@ -1116,17 +1121,25 @@ Prometheus metrics are at `/actuator/prometheus`. Per continuous query:
 | `pravaha_query_backfill_lag_seconds{query=}` | How far behind the running version the candidate's **event time** is. Falling towards zero is a replacement approaching its cutover |
 | `pravaha_query_commit_latency_seconds_count{query=}`, `..._sum` | Commits that changed the view, and the total time they took: from applying the changes to the last subscriber **and sink** having them (a slow sink is on this thread, so it is in this number). The mean over a window is `rate(_sum) / rate(_count)`, exactly. **No percentiles are published**: the engine keeps a count and a total, not each commit's duration, and a p99 it did not measure would be invented. Idle commits — a watermark tick with nothing in it — are not timed |
 
-Not published, because the engine does not measure them: per-operator rows, state or watermarks
-(the runtime counts per query; `GET /api/v1/queries/{name}/plan` says so rather than splitting a
-query's totals across its operators), and lane backpressure.
+Per-operator rows, state, watermark and a sampled self time are published **on the plan**, not as
+meters: `GET /api/v1/queries/{name}/plan` carries them per node. See *Diagnosing backpressure*
+below. They are off unless `pravaha.metrics.operators` is set, and
+`pravaha_metrics_operators_enabled` says which it is on this node, so a dashboard that finds none
+can say "switched off" rather than drawing zeros.
+
+Still not published: latency percentiles. The engine keeps a count and a total per query, not each
+commit's duration, so the mean is exact and a p99 would be invented.
 
 And per node, for lane sharing (`pravaha.lane.multiplex.*`) and the spill tier:
 
 | Metric | Question it answers |
 |---|---|
 | `pravaha_lane_shared_queries{lane=}` | How many queries each shared lane carries, against `max-queries-per-lane`. Absent with sharing off |
+| `pravaha_lane_blocked_fraction{lane=}` | The share of time a writer into that shared lane had no room, 0 to 1. Per lane, not per query, because the lane is the thing being waited on: every query hosted on it queues behind one inbox. Absent with sharing off |
+| `pravaha_lane_inbox_depth{lane=}` | Cells published into that shared lane and not yet drained. Absent with sharing off |
 | `pravaha_lane_own_queries` | How many queries hold a lane — and an inbox — of their own. All of them with sharing off; with it on, the ones no shared lane would take |
 | `pravaha_lane_shared_bytes` | Off-heap the shared lanes hold between them — inboxes and arenas, counted once however many queries they carry. Zero with sharing off |
+| `pravaha_metrics_operators_enabled` | 1 when `pravaha.metrics.operators` is on, so per-operator numbers exist on this node's plans |
 | `pravaha_state_spill_bytes_mapped` | Overflow slab mapped on the node, across every query — what `pravaha.state.spill.max-bytes` counts. Alert well before it reaches the quota: at the quota the next query to need a slab stops with `PRV-4005` |
 
 `state_held` and `state_ceiling` are counted in the units the ceiling is expressed in —
@@ -1146,6 +1159,119 @@ watching.
 Meters are removed when a query is dropped. That matters more than it sounds: a gauge registered per
 query and never removed leaks the meter *and* the query state its reference keeps alive, and nothing
 in Micrometer would complain.
+
+### Diagnosing backpressure
+
+A query that is "slow" is one of three things, and until B6 the engine could not tell them apart:
+its source has stopped (above), it is keeping up and the data is late (`watermark_lag_seconds`), or
+**it cannot be fed as fast as rows arrive**. This is the third.
+
+**Is it backpressured at all.** `pravaha_query_backpressure_blocked_fraction` is the share of wall
+clock a writer into this query's lanes spent with nowhere to put a row. Near zero is headroom; over
+about 0.2 is worth looking at; near 1 means the lane is the limit and everything upstream is
+waiting on it. `pravaha_query_inbox_depth` against `pravaha_query_inbox_cells` says how full the
+queue is right now, which is what tells a lane that is *saturated* from one that is *bursty*.
+
+**Whose fault is it.** On a lane a query owns, the query's own `backpressure_waits` and
+`backpressure_wait_seconds` and the lane's `blocked_fraction` say the same thing. On a **shared**
+lane (`pravaha.lane.multiplex.*`) they come apart, and the difference is the diagnosis:
+
+| `backpressure_wait_seconds` | `blocked_fraction` | What it means |
+|---|---|---|
+| high | high | This query's own writer is waiting, and so is the lane. It is the one to look at |
+| low | high | The lane is full and somebody else's writer is waiting on it. Look at `pravaha_lane_blocked_fraction{lane=}` and at the other queries on that lane (`pravaha_lane_shared_queries{lane=}`) |
+| high | low | The source is being paused by the hysteresis rather than by a full inbox — check `pravaha.lane.backpressure.high-watermark` |
+
+**Which operator.** With `pravaha.metrics.operators` on, `GET /api/v1/queries/{name}/plan` carries
+a block per plan node, keyed by the same node ids the graph's `nodes` use:
+
+```json
+{ "nodes": [...], "edges": [...],
+  "operatorMetrics": {
+    "n0": {"rowsIn": 4213, "rowsOut": 4213, "stateBytes": null,  "watermark": "...", "selfNanos": 81234,  "sampledRows": 4, "selfTimeShare": 0.07},
+    "n1": {"rowsIn": 4213, "rowsOut": 4213, "stateBytes": 8388608, "watermark": "...", "selfNanos": 990123, "sampledRows": 4, "selfTimeShare": 0.86},
+    "n2": {"rowsIn": 4213, "rowsOut": 4213, "stateBytes": null,  "watermark": "...", "selfNanos": 80011,  "sampledRows": 4, "selfTimeShare": 0.07}
+  },
+  "bottleneck": "n1",
+  "metricsNote": "..." }
+```
+
+`bottleneck` is the node most of the query's own time went into. It is **measured, not inferred
+from row counts**: a filter that drops 99 % of its input is not the bottleneck for dropping them,
+and an engine that guessed from selectivity would say it was.
+
+`operatorMetrics` is `null` when nothing was counting, and `metricsNote` says which nothing it was
+— SQL that is not registered has nothing running; a node with `pravaha.metrics.operators` off has
+counters that were never built. Those are different answers and the API does not blur them into
+zeros. A caller entitled only to a row-filtered slice of the view gets `null` too: rows past a
+filter it may not see is still a count of rows it may not see.
+
+#### How exact these numbers are
+
+Rows in, rows out and state bytes are **counts**, exact to the last batch boundary — the lane
+publishes them once per batch, so a reader never sees half of one batch's work.
+
+The watermark is the query's, repeated on every node. An advance reaches every operator of a plan
+in one call on the lane thread, so the nodes cannot hold different watermarks, and the field is
+per node only so a console can draw it beside the operator somebody is looking at.
+
+Blocked time is measured in **episodes**, not per row. A writer opens one the first time it finds
+no room and closes it the first time it finds room again, so the two clock reads are paid once per
+stall rather than once per row. Its error has three named parts:
+
+- A pump notices the inbox only when it polls, so an episode's start and its end are each rounded
+  to the poll that found them. A stall shorter than the gap between two polls is not seen at all,
+  and one that is seen is right to within one poll interval at each end.
+- Several writers can be stalled at once — a join has one pump per side — so their episodes overlap
+  and their times add. `blocked_fraction` is clamped at 1; the raw sum in
+  `backpressure_wait_seconds` can exceed the elapsed time on a query with more than one input.
+- Inbox depth is instantaneous. Whoever scrapes is the one sampling it, so a burst between two
+  scrapes leaves no trace. `blocked_fraction` is the number that integrates over the gap.
+
+Self time is **sampled**, and the sample is regular rather than random: one row in every 1,024 that
+enters the pipeline is timed at every operator on its path, children subtracted, so the figure is
+that operator's own work and not its subtree's. `sampledRows` is published beside it, so a share
+computed from four samples can be recognised as one. Two consequences worth stating: a workload
+whose cost beats in step with a period of 1,024 rows would be measured wrong, and an operator that
+only runs on a watermark tick — a continuous aggregate's emission — is never on a sampled row's
+path and reports no self time at all.
+
+#### What it costs, and why it is off
+
+Measured on the reference machine (an AMD Ryzen AI 9 HX 370 laptop, 12 cores / 24 threads, 61 GiB
+RAM — the owner's decision of 2026-09-19 that the development machine is the reference), with
+`OperatorMetricsOverheadIT`: a three-operator plan, 20 million rows a pass, best of five passes
+after three warm-ups.
+
+| `pravaha.metrics.operators` | Rows a second |
+|---|---|
+| off | 11.4 – 12.6 M |
+| on | 10.5 – 11.6 M |
+
+**Cost: 7.9 %, 8.2 % and 8.6 % over three runs.** That is more than a few percent, so the detail is
+**switchable and off by default**:
+
+```yaml
+pravaha:
+  metrics:
+    operators: true
+```
+
+The number is deliberately pessimistic — the narrowest plan and the tightest loop the engine has,
+with no lane, no inbox and no view commit beside it, so the wrappers are the largest share of the
+total they will ever be. Backpressure measurement is *not* behind the switch and is always on: it
+costs one branch per poll, which is per batch of up to a few hundred rows.
+
+The switch is read when a query compiles its stages, so turning it on does not give counters to a
+query that is already running. Set it, restart the node or re-register the query, and read the plan
+again. `pravaha_metrics_operators_enabled` says which state a node is in.
+
+Reproduce the measurement:
+
+```
+./mvnw -o -pl pravaha-runtime -am test -Dtest=OperatorMetricsOverheadIT \
+    -DfailIfNoSpecifiedTests=false -Dsurefire.failIfNoSpecifiedTests=false
+```
 
 ### A source that stopped
 

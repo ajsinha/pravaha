@@ -159,6 +159,38 @@ commit that a crash aborted and the restart redid, twice; exactly once is promis
 **Did a filter silently match nothing?** `WHERE tier = ?` bound to `NULL` matches **no rows**, because
 `x = NULL` is UNKNOWN under SQL's three-valued logic. `IS NULL` is what finds the empty ones.
 
+## "It is running, but it cannot keep up"
+
+Different from the above: rows *are* arriving and the query *is* answering, just not as fast as the
+source produces. Nothing fails, nothing is dropped — the source is slowed instead — so the only
+evidence is in the numbers.
+
+**Is it actually backpressured?** `pravaha_query_backpressure_blocked_fraction{query=}` is the
+share of time a writer into this query's lanes had nowhere to put a row. Near zero and the query is
+keeping up and the lag is in the data (look at `pravaha_query_watermark_lag_seconds` instead).
+Near 1 and the lane is the limit. `pravaha_query_inbox_depth` against `pravaha_query_inbox_cells`
+says whether the queue is standing full or merely spiking.
+
+**Is it this query or a neighbour?** On a shared lane (`pravaha.lane.multiplex.*`) the queries
+queue behind one inbox. `pravaha_query_backpressure_wait_seconds{query=}` counts only this query's
+own writers; `blocked_fraction` counts every writer into the lane. High `blocked_fraction` with a
+low wait time is a query being held up by whatever else is on that lane — check
+`pravaha_lane_blocked_fraction{lane=}` and `pravaha_lane_shared_queries{lane=}`, and either move
+the query off (`pravaha.lane.multiplex.max-queries-per-lane`) or add lanes.
+
+**Which operator is the cost?** Set `pravaha.metrics.operators: true`, restart the node (the
+counters are compiled into a query's stages, so a running query does not gain them), and read
+`GET /api/v1/queries/{name}/plan`. Each node carries its own rows in, rows out, state bytes and a
+sampled self time, and `bottleneck` names the node most of the query's own time went into. It
+costs about 8 % of throughput, which is why it is off by default; `docs/OPERATIONS.md` has the
+measurement and what the sampling error is.
+
+**Common answers once the operator is named.** A join holding megabytes of state and most of the
+time is usually a match window wider than it needs to be (`pravaha_query_state_held`). A windowed
+aggregate is usually too many groups. A scan carrying most of the time with a filter above it
+passing 1 % is a filter that should have been pushed into the source — `EXPLAIN` says what the
+source accepted.
+
 ## "The numbers are wrong"
 
 **Is it `AVG` over an integer?** SQL's `AVG` on an integer column is integer division: a mean depth of

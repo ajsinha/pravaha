@@ -145,6 +145,46 @@ overflows, nothing is dropped, and an inbox never spills to disk. A slow query b
 which is the correct shape: the alternative is dropping rows, which is a wrong answer rather than a
 slow one.
 
+### What backpressure looks like from outside
+
+The pause was always there and was invisible from outside: the only number was `rejectedOffers`, a
+count of refusals with no time in it, so a lane stalled for a minute and a lane refused twice read
+the same.
+
+A writer now keeps **episodes**. It opens one the first time it finds no room and closes it the
+first time it finds room again, so the two clock reads are paid once per stall rather than once per
+row — the row path pays one branch per *poll*, which is per batch of up to a few hundred rows. From
+those come three numbers: how many times a writer waited, how long altogether, and the share of
+wall clock that is (`pravaha_query_backpressure_blocked_fraction`), beside the inbox's depth in
+cells right now.
+
+On a lane a query owns there is one writer and the attribution is trivial. On a **shared** lane
+there are many, and an episode is recorded against the query whose writer it was — which is the
+number that separates *this query is the limit* from *this query is queued behind a neighbour*.
+`docs/OPERATIONS.md` has the table and the error bars; the short version is that an episode's ends
+are each rounded to the poll that found them, and concurrent writers' episodes overlap and add.
+
+### What each operator is doing
+
+Rows were counted per *query*, so the plan a console drew was a picture with no numbers on it.
+With `pravaha.metrics.operators` on, each stage of the compiled pipeline is wrapped in two plain
+counters — rows in as its input sees it, rows out as it pushes downstream — written by the lane
+thread that owns the operator and published into volatile fields **once per batch**, which is the
+same bargain the lane's own counters strike. Reading them takes no lock and no walk of any state:
+state bytes come from a counter the store already keeps, and the watermark is written once per
+advance.
+
+Self time is the exception, because timing every row at every operator is not affordable. One row
+in every 1,024 that enters the pipeline is timed at every operator on its path, with children's
+time subtracted through a small stack that the lane thread owns; whole rows are sampled rather than
+whole operators, because sampling per operator would charge an untimed child's work to its timed
+parent. That is what makes "the bottleneck operator" a measurement rather than a guess from
+selectivity.
+
+The wrappers are not free — 8 % of a narrow query's throughput on the reference machine — so they
+are compiled in only when the switch is on, and off means there is no wrapper at all rather than a
+wrapper that checks a flag. The number and the method are in `OPERATIONS.md`.
+
 ### How a lane waits when its inbox is empty
 
 | Strategy | Behaviour | Use |
