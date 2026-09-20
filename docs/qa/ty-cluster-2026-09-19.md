@@ -28,7 +28,8 @@ and unusable, which is a different problem and a smaller one.
 
 Commits: `3106245f` (TY-4, TY-5, TY-14), `7b5138c3` (TY-10, TY-16), `22743bad` (TY-20, TY-23,
 TY-24), `6313c28c` (TY-22), `76cf0a08` (TY-8, TY-9), `8dacec2a` (documents), `57a2a253` (a test
-ordering so a seed proof lands on the finding's own shape).
+ordering so a seed proof lands on the finding's own shape), `eb864976` (two corrections to the
+above, found reviewing the diff: see TY-5 and TY-24).
 
 ---
 
@@ -90,9 +91,13 @@ one, as it already refuses `CompareExpressions`, so the query runs interpreted r
 two specifications of null propagation. `SourcePushdown` treats it as unattributable, which is the
 conservative direction (a filter not pushed costs rows, a filter wrongly pushed loses them).
 
-A cast of a type onto itself now passes through — decided on Calcite's types, so `CAST(s AS
-VARCHAR(3))`, which has to truncate and this engine does not, stays refused rather than passing
-through unchanged and silently not truncating.
+A cast of a type onto itself now passes through, with two guards. Identity is decided on Calcite's
+types, so `CAST(s AS VARCHAR(3))` — which has to truncate, and this engine does not — is not
+identity and stays refused rather than passing through and silently not truncating. And the type
+still has to be one the expression tree can carry: a `DECIMAL` cast onto itself converts nothing
+either, and the first version of this let it through, which would have put a 128-bit decimal behind
+an expression that reads it as a long. Caught reviewing the diff, not by a test, and fixed in
+`eb864976`.
 
 **Test.** `TypeClusterTest.ty5_isNullOverAComputedCaseIsAnsweredRatherThanRefused`. It asserts the
 rows, and that `IS NULL` and `IS NOT NULL` partition them: a null check that is not total is a
