@@ -19,6 +19,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 import com.ash.messaging.pravaha.common.queue.WaitStrategy;
+import com.ash.messaging.pravaha.runtime.ingest.BackpressurePolicy;
 import com.ash.messaging.pravaha.runtime.lane.LaneConfig;
 
 /**
@@ -55,6 +56,7 @@ public class LaneProperties {
     private final Inbox inbox = new Inbox();
     private final Arena arena = new Arena();
     private final Multiplex multiplex = new Multiplex();
+    private final Backpressure backpressure = new Backpressure();
 
     /** Rows handed to an operator at once. */
     private int batchSize = LaneConfig.DEFAULT_BATCH_SIZE;
@@ -78,6 +80,10 @@ public class LaneProperties {
 
     public Multiplex getMultiplex() {
         return multiplex;
+    }
+
+    public Backpressure getBackpressure() {
+        return backpressure;
     }
 
     public int getBatchSize() {
@@ -242,6 +248,57 @@ public class LaneProperties {
                         "pravaha.lane.multiplex.max-queries-per-lane must be at least 1, got " + maxQueriesPerLane);
             }
             return lanes > 0 ? lanes : com.ash.messaging.pravaha.runtime.lane.LaneRunner.defaultThreads();
+        }
+    }
+
+    /**
+     * When a source is paused because its query's inbox is filling, and when it is let go again.
+     *
+     * <p>{@link BackpressurePolicy}'s own javadoc has said since it was written that these are
+     * configuration, "because the right gap depends on how expensive a pause is for the source: a
+     * Kafka consumer pause is nearly free, an Aerospike scan throttle is not" -- and no key bound
+     * them, so every deployment ran the design's 0.8/0.5 whatever it put in its YAML.
+     * TROUBLESHOOTING told an operator diagnosing a paused source to check
+     * {@code pravaha.lane.backpressure.high-watermark}, which nothing read.
+     *
+     * <p>The pair is validated by {@code BackpressurePolicy}'s own constructor rather than by a
+     * second copy of the rule here: a high watermark outside (0, 1] and a low watermark at or above
+     * it are refused at startup, naming the key, instead of being clamped into something that runs.
+     * Equal watermarks in particular pause and resume a saturated source on alternate polls, which
+     * costs more than the backpressure saves.
+     */
+    public static class Backpressure {
+
+        private double highWatermark = BackpressurePolicy.defaults().highWatermark();
+        private double lowWatermark = BackpressurePolicy.defaults().lowWatermark();
+
+        public double getHighWatermark() {
+            return highWatermark;
+        }
+
+        public void setHighWatermark(double highWatermark) {
+            this.highWatermark = highWatermark;
+        }
+
+        public double getLowWatermark() {
+            return lowWatermark;
+        }
+
+        public void setLowWatermark(double lowWatermark) {
+            this.lowWatermark = lowWatermark;
+        }
+
+        /** The configured pair, or the reason it cannot be used, named by key. */
+        public BackpressurePolicy policy() {
+            try {
+                return new BackpressurePolicy(highWatermark, lowWatermark);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException(
+                        "pravaha.lane.backpressure.high-watermark="
+                                + highWatermark + " with pravaha.lane.backpressure.low-watermark=" + lowWatermark
+                                + " cannot be used: " + e.getMessage(),
+                        e);
+            }
         }
     }
 }

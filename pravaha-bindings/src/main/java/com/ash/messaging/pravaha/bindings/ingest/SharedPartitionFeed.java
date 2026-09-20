@@ -171,6 +171,16 @@ final class SharedPartitionFeed {
      * rows, and an unfair lock lets it barge ahead of a waiting registration for as long as a scan
      * takes to drain. Fairness is paid per poll -- per batch -- not per row.
      */
+    /**
+     * The watermarks this feed's routes pause and resume at.
+     *
+     * <p>The node's configured pair, not {@code defaults()}: a shared reader that ignored it would
+     * make {@code pravaha.lane.backpressure.*} true of a query with a lane of its own and silently
+     * false of the same query once it shares one -- and sharing is a deployment's choice, not the
+     * query's, so the setting would stop holding for a reason nothing tells the operator.
+     */
+    private final BackpressurePolicy policy;
+
     private final ReentrantLock lock = new ReentrantLock(true);
 
     private final List<Member> members = new ArrayList<>();
@@ -213,15 +223,21 @@ final class SharedPartitionFeed {
     private final java.util.Map<Lane, LaneRoute> routes = new java.util.HashMap<>();
 
     SharedPartitionFeed(String stream, SourcePartition partition, StreamSourcePlugin plugin) {
-        this(stream, partition, plugin, null);
+        this(stream, partition, plugin, null, BackpressurePolicy.defaults());
     }
 
     /** @param binding what this reads, whose option values a recorded failure must not carry; may be null */
-    SharedPartitionFeed(String stream, SourcePartition partition, StreamSourcePlugin plugin, SourceBinding binding) {
+    SharedPartitionFeed(
+            String stream,
+            SourcePartition partition,
+            StreamSourcePlugin plugin,
+            SourceBinding binding,
+            BackpressurePolicy policy) {
         this.binding = binding;
         this.stream = stream;
         this.partition = partition;
         this.plugin = plugin;
+        this.policy = policy == null ? BackpressurePolicy.defaults() : policy;
     }
 
     /**
@@ -299,12 +315,17 @@ final class SharedPartitionFeed {
         }
     }
 
+    /** The watermarks this feed's routes are opened with. Read by the test that keeps them threaded. */
+    BackpressurePolicy backpressurePolicy() {
+        return policy;
+    }
+
     /** The route shared by every member hosted on {@code input}'s lane, made on first use. Lock held. */
     private LaneRoute routeOn(SharedLaneInput input) {
         return routes.computeIfAbsent(input.lane(), lane -> {
             int id = LaneMultiplexer.newRoute();
             LaneRoute route = new LaneRoute(id);
-            route.writer = input.openRoute(id, BackpressurePolicy.defaults());
+            route.writer = input.openRoute(id, policy);
             route.writer.observeEventTimeWith(route::observe);
             return route;
         });

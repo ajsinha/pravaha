@@ -204,6 +204,8 @@ pravaha:
 | `pravaha.lane.inbox.cell-bytes` | 512 | The widest row that can be ingested at all |
 | `pravaha.lane.arena.slab-bytes` | 4194304 | Off-heap slab size, and the largest single output row |
 | `pravaha.lane.arena.max-slabs` | 8 | The lane arena's ceiling, `slab-bytes × max-slabs` |
+| `pravaha.lane.backpressure.high-watermark` | 0.8 | Inbox fill at which the source feeding a query is paused |
+| `pravaha.lane.backpressure.low-watermark` | 0.5 | Fill at which it is let go again; must be below the high one, or the node refuses to start naming both keys |
 | `pravaha.lane.multiplex.enabled` | `false` | Whether registered queries share lanes, and so share inboxes (below) |
 | `pravaha.lane.multiplex.lanes` | 0 | How many shared lanes; 0 means one per available processor |
 | `pravaha.lane.multiplex.max-queries-per-lane` | 300 | The ceiling on queries one shared lane carries |
@@ -1291,8 +1293,8 @@ Per continuous query:
 | `pravaha_query_spill_fragmentation{query=}` | `1 - live / held`, 0 to 1. Staying high while `_compactions` is flat means the threshold is set above what this query's churn reaches |
 | `pravaha_query_spill_compactions{query=}` | Compaction passes that emptied at least one slab |
 | `pravaha_query_spill_slabs_released{query=}` | Overflow slabs (files) compaction gave back |
-| `pravaha_query_backpressure_waits{query=}` | Episodes in which one of this query's writers found nowhere to put a row. A count of **episodes**, not of rows or polls: a source held off for an hour is one |
-| `pravaha_query_backpressure_wait_seconds{query=}` | How long those episodes lasted altogether, counting one still in progress. `rate()` of it against wall clock is the share of time this query could not be fed |
+| `pravaha_query_backpressure_waits_total{query=}` | Episodes in which one of this query's writers found nowhere to put a row. A count of **episodes**, not of rows or polls: a source held off for an hour is one |
+| `pravaha_query_backpressure_wait_seconds_total{query=}` | How long those episodes lasted altogether, counting one still in progress. `rate()` of it against wall clock is the share of time this query could not be fed |
 | `pravaha_query_backpressure_blocked_fraction{query=}` | The same share as the *lanes* see it, 0 to 1, counting every writer into those lanes. **The one to alert on** for "is this query the limit": near 1 means it is. On a shared lane it counts the neighbours' writers too, which is how a query blocked *by* a neighbour is told from one blocking itself — that one reads high here and low on the two rows above |
 | `pravaha_query_inbox_depth{query=}` | Rows queued into the lane and not yet taken, right now. Sampled by whoever scrapes: it is an instantaneous gauge, so a burst between two scrapes is invisible |
 | `pravaha_query_inbox_cells{query=}` | What that depth is out of, so the depth can be read as a fraction without knowing `pravaha.lane.inbox.cells` |
@@ -1379,7 +1381,7 @@ lane (`pravaha.lane.multiplex.*`) they come apart, and the difference is the dia
 |---|---|---|
 | high | high | This query's own writer is waiting, and so is the lane. It is the one to look at |
 | low | high | The lane is full and somebody else's writer is waiting on it. Look at `pravaha_lane_blocked_fraction{lane=}` and at the other queries on that lane (`pravaha_lane_shared_queries{lane=}`) |
-| high | low | The source is being paused by the hysteresis rather than by a full inbox — check `pravaha.lane.backpressure.high-watermark` |
+| high | low | The source is being paused by the hysteresis rather than by a full inbox: the fill reached `pravaha.lane.backpressure.high-watermark` (0.8 by default) and the source stays paused until it falls to `.low-watermark` (0.5). Widen the gap if the pause itself is what costs — an Aerospike scan throttle is expensive to re-establish, a Kafka consumer pause is nearly free — or raise `pravaha.lane.inbox.cells` so the burst fits |
 
 **Which operator.** With `pravaha.metrics.operators` on, `GET /api/v1/queries/{name}/plan` carries
 a block per plan node, keyed by the same node ids the graph's `nodes` use:

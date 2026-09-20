@@ -649,7 +649,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                     return null;
                 }
                 openConfigured(plugin, binding);
-                group = new SharedSourceGroup(key, plugin, plugin.partitions(stream));
+                group = new SharedSourceGroup(key, plugin, plugin.partitions(stream), policy);
                 groups.put(key, group);
             }
             group.retain();

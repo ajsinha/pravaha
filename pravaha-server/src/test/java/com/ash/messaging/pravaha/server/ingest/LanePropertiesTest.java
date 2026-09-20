@@ -18,9 +18,11 @@ package com.ash.messaging.pravaha.server.ingest;
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.common.queue.WaitStrategy;
+import com.ash.messaging.pravaha.runtime.ingest.BackpressurePolicy;
 import com.ash.messaging.pravaha.runtime.lane.LaneConfig;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** The knobs ADR-036 starts with, and the arithmetic an operator sizes a node by. */
 final class LanePropertiesTest {
@@ -76,5 +78,44 @@ final class LanePropertiesTest {
                         many.idleBytesPerQuery() * 1000 / (1024 * 1024))
                 .isLessThan(128L * 1024);
         assertThat(many.toLaneConfig().arenaSlabBytes()).isEqualTo(256 * 1024);
+    }
+
+    @Test
+    void theBackpressureWatermarksDefaultToTheDesignsAndCanBeSet() {
+        // BackpressurePolicy's javadoc has said since it was written that the gap between the
+        // watermarks is configuration -- "a Kafka consumer pause is nearly free, an Aerospike scan
+        // throttle is not" -- and no key bound it, so every node ran 0.8/0.5 whatever its YAML
+        // said. TROUBLESHOOTING sent an operator diagnosing a paused source to
+        // pravaha.lane.backpressure.high-watermark, which nothing read.
+        assertThat(new LaneProperties().getBackpressure().policy()).isEqualTo(BackpressurePolicy.defaults());
+
+        LaneProperties patient = new LaneProperties();
+        patient.getBackpressure().setHighWatermark(0.95);
+        patient.getBackpressure().setLowWatermark(0.9);
+
+        assertThat(patient.getBackpressure().policy()).isEqualTo(new BackpressurePolicy(0.95, 0.9));
+    }
+
+    @Test
+    void awatermarkPairThatCannotWorkIsRefusedAtStartupNamingItsKey() {
+        // Not clamped into something that runs. A low watermark at or above the high one makes a
+        // saturated source pause and resume on alternate polls, which costs more than the
+        // backpressure saves -- and a node that quietly repaired the pair would run slower than
+        // the unconfigured one for a reason nothing in any log would name.
+        LaneProperties crossed = new LaneProperties();
+        crossed.getBackpressure().setHighWatermark(0.5);
+        crossed.getBackpressure().setLowWatermark(0.5);
+
+        assertThatThrownBy(() -> crossed.getBackpressure().policy())
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("pravaha.lane.backpressure.high-watermark=0.5")
+                .hasMessageContaining("pravaha.lane.backpressure.low-watermark=0.5");
+
+        LaneProperties impossible = new LaneProperties();
+        impossible.getBackpressure().setHighWatermark(1.5);
+
+        assertThatThrownBy(() -> impossible.getBackpressure().policy())
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("pravaha.lane.backpressure.high-watermark=1.5");
     }
 }

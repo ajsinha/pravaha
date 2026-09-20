@@ -958,7 +958,10 @@ public class PravahaNode implements SmartLifecycle {
         // either value, because a value the engine would have had to change was refused above.
         log.info("watermarks: idle-after={}, tick={}", watermarkIdleAfter, watermarkTick);
 
-        feeds = new PluginSourceFeeds();
+        // The watermarks a source is paused and resumed at. Bound from pravaha.lane.backpressure.*
+        // rather than left at the library defaults: BackpressurePolicy has always said the gap is
+        // configuration, TROUBLESHOOTING told operators to set it, and no key reached here.
+        feeds = new PluginSourceFeeds(lanes.getBackpressure().policy());
         // TIME-4/W8-11. Without this the server has no way to switch the dead-letter path on, so
         // every node ran the unguarded one: a single undecodable field ended the poll and stopped
         // the source, taking every other row in the file with it, with the query still RUNNING and

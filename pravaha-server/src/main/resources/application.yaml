@@ -413,6 +413,17 @@ pravaha:
     arena:
       slab-bytes: 4194304
       max-slabs: 8
+    # When a source feeding a query is paused, and when it is let go again, as a fraction of the
+    # query's inbox. Pausing at 0.8 and resuming at 0.5 is the design's pair; the gap is what stops
+    # a saturated source pausing and resuming on alternate polls.
+    #
+    # Widen the gap where undoing a pause is expensive -- an Aerospike scan throttle is, a Kafka
+    # consumer pause is nearly free. A high watermark outside (0, 1], or a low one at or above the
+    # high one, is refused at startup naming both keys rather than clamped into something that runs.
+    backpressure:
+      high-watermark: 0.8
+      low-watermark: 0.5
+
     # Registered queries share `lanes` lanes, at most `max-queries-per-lane` to each, instead of
     # holding one lane -- and one inbox -- apiece. OFF by default: a shared lane shares its fate, so
     # a query whose pipeline fails takes every query on its lane down with it.

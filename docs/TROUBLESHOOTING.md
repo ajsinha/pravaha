@@ -209,7 +209,7 @@ Near 1 and the lane is the limit. `pravaha_query_inbox_depth` against `pravaha_q
 says whether the queue is standing full or merely spiking.
 
 **Is it this query or a neighbour?** On a shared lane (`pravaha.lane.multiplex.*`) the queries
-queue behind one inbox. `pravaha_query_backpressure_wait_seconds{query=}` counts only this query's
+queue behind one inbox. `pravaha_query_backpressure_wait_seconds_total{query=}` counts only this query's
 own writers; `blocked_fraction` counts every writer into the lane. High `blocked_fraction` with a
 low wait time is a query being held up by whatever else is on that lane — check
 `pravaha_lane_blocked_fraction{lane=}` and `pravaha_lane_shared_queries{lane=}`, and either move

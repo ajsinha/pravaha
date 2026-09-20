@@ -23,6 +23,7 @@ import com.ash.messaging.pravaha.api.plugin.DeliveryGuarantee;
 import com.ash.messaging.pravaha.api.plugin.SourceCapabilities;
 import com.ash.messaging.pravaha.api.plugin.SourcePartition;
 import com.ash.messaging.pravaha.api.plugin.StreamSourcePlugin;
+import com.ash.messaging.pravaha.runtime.ingest.BackpressurePolicy;
 
 /**
  * Everything that reads one binding: one plugin, one reader per partition, many queries.
@@ -56,13 +57,13 @@ final class SharedSourceGroup {
     /** Queries holding this group. Guarded by the owning {@link PluginSourceFeeds}'s monitor. */
     private int holders;
 
-    SharedSourceGroup(Key key, StreamSourcePlugin plugin, List<SourcePartition> partitions) {
+    SharedSourceGroup(Key key, StreamSourcePlugin plugin, List<SourcePartition> partitions, BackpressurePolicy policy) {
         this.key = key;
         this.plugin = plugin;
         this.partitions = List.copyOf(partitions);
         List<SharedPartitionFeed> built = new ArrayList<>(partitions.size());
         for (SourcePartition partition : this.partitions) {
-            built.add(new SharedPartitionFeed(key.stream(), partition, plugin, key.binding()));
+            built.add(new SharedPartitionFeed(key.stream(), partition, plugin, key.binding(), policy));
         }
         this.feeds = List.copyOf(built);
     }
@@ -177,5 +178,10 @@ final class SharedSourceGroup {
             // The group is going away regardless, and a plugin that will not close cleanly must not
             // stop the registry from forgetting it.
         }
+    }
+
+    /** This group's feeds, for the test that keeps the configured watermarks threaded down to them. */
+    List<SharedPartitionFeed> feeds() {
+        return feeds;
     }
 }
