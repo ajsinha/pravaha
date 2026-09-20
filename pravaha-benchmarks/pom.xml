@@ -8,7 +8,7 @@
   </parent>
   <artifactId>pravaha-benchmarks</artifactId>
   <name>Pravaha :: benchmarks</name>
-  <description>JMH micro-benchmarks. Baselines are committed; CI fails on a &gt;10% regression.</description>
+  <description>JMH micro-benchmarks. Baselines are committed; nothing compares a run against them yet (PF-2).</description>
 
   <properties>
     <maven.deploy.skip>true</maven.deploy.skip>

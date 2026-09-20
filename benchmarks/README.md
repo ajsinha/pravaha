@@ -2,13 +2,21 @@
 
 Copyright © 2026 Ashutosh Sinha. Proprietary and confidential; see `../LICENSE`.
 
-`baselines/` holds committed JMH results. CI compares each run against them and **fails the build on
-a regression greater than 10 %**. Improving a baseline requires an explicit commit that updates the
-recorded value, so every performance change is deliberate and reviewed.
+`baselines/` holds committed JMH results, and **nothing compares a run against them** (PF-2). This
+page and `pravaha-benchmarks/pom.xml` both said CI fails the build on a regression greater than
+10 %; it does not, and never has. No plugin reads the `benchmarks.skip` property the `bench` and
+`all` profiles set, no workflow in `.github/workflows/` runs JMH, and `package` produces a
+byte-identical artefact with and without `-Pbench`. A claim about a gate is worth less than no
+claim: it stops the next person building the gate.
 
-This is set up before there is much to measure, on purpose. Retrofitting performance gates onto an
-existing codebase does not work: by the time anyone notices, the regressions are already in and
-nobody knows which commit caused them (implementation plan §5.2).
+What does exist, and is run: the measured gates in [`../docs/gates/`](../docs/gates), whose
+harnesses live in `pravaha-it` under `qa/perf` and print the machine's state beside every number.
+They are run by hand, on this machine, and a target that is not reached is recorded as not reached.
+
+The intent behind the original claim stands and is worth keeping: retrofitting performance gates
+onto an existing codebase does not work, because by the time anyone notices, the regressions are
+already in and nobody knows which commit caused them (implementation plan §5.2). Wiring a
+comparison is the work PF-2 leaves; committing baselines first was the cheap half and it is done.
 
 ## Running
 
@@ -59,8 +67,12 @@ reference hardware.
 
 ## Profile A — generated versus interpreted
 
-Design §28.4's Profile A shape: filter and project over twelve fields, ~10 % selectivity,
-512-row batches. Measured on a 24-core workstation, JDK 21, generational ZGC, 2 forks.
+Design §28.4's Profile A shape: filter and project over twelve fields, 512-row batches. The
+selectivity is **3-4 %, not the 10 % the design specifies and this page used to claim** (PF-13):
+`status = 'COMPLETED'` passes one row in three and `amount > 900` one in ten, and 23 of the 512
+rows pass both. A narrower filter means fewer rows downstream, so the figure below is flattered by
+it. Measured on this machine -- a 12-core laptop part, not the "24-core workstation" this line
+said -- JDK 21, generational ZGC, 2 forks.
 
 | Arm | batches/s | rows/s | error |
 |---|---|---|---|
