@@ -185,6 +185,61 @@ class DebugSurfacesEndToEndTest {
         }
     }
 
+    @Test
+    void aForkOfAQueryThatWritesToASinkWritesNothingToIt(@TempDir Path dir) throws Exception {
+        // The claim "sinks are hard-disabled" is worth nothing asserted, so it is made against a
+        // real sink: a query bound to a filesystem sink is forked, the fork consumes rows the live
+        // query never read, and the file it would have written is byte for byte what it was.
+        Path input = dir.resolve("txn.csv");
+        Files.writeString(input, "ann,300\nbob,50\n");
+        Path output = dir.resolve("large.csv");
+
+        PravahaNode node = node(dir, input, output);
+        node.start();
+        String url = "grpc://127.0.0.1:" + node.flightPort().orElseThrow();
+        try (PravahaFlightClient client = PravahaFlightClient.connect(url)) {
+            // A filter, not an aggregate: a query that revises its answer is refused against an
+            // append-only sink (PRV-2041) before it ever reaches a debugger.
+            client.register("big", "SELECT user_id, amount FROM txn WHERE amount > 100", List.of(0), "large_txn");
+            await(() -> !client.debugCheckpoints("big").isEmpty(), "the query to take its first checkpoint");
+            client.pause("big");
+            List<Long> already = client.debugCheckpoints("big");
+            await(
+                    () -> client.debugCheckpoints("big").stream().anyMatch(id -> !already.contains(id)),
+                    "a checkpoint taken while the feed was paused");
+            long checkpoint = client.debugCheckpoints("big").stream()
+                    .filter(id -> !already.contains(id))
+                    .max(Long::compare)
+                    .orElseThrow();
+            await(() -> Files.exists(output), "the live query to write what it read");
+            String before = Files.readString(output);
+
+            // Four rows past the checkpoint, three of which the sink would take.
+            Files.writeString(input, "cat,700\ndan,10\neve,900\nfay,400\n", StandardOpenOption.APPEND);
+
+            DebugSessionInfo session = client.debugFork("big", checkpoint);
+            DebugStepReport stepped = client.debugStep(session.id(), "rows:10");
+            assertThat(stepped.rowsConsumed()).as("the fork read all four").isEqualTo(4);
+            assertThat(client.debugView(session.id()))
+                    .as("and its own view holds the one the checkpoint carried plus the three the filter passed")
+                    .hasSize(4);
+
+            // Twice, a moment apart: a sink write is on the commit path, so a file compared once
+            // immediately would pass even if a write were in flight.
+            Thread.sleep(500);
+            assertThat(Files.readString(output))
+                    .as("the sink the live query writes to has not been written by the fork")
+                    .isEqualTo(before);
+            assertThat(before).doesNotContain("cat").doesNotContain("eve").doesNotContain("fay");
+
+            client.debugEnd(session.id());
+            Thread.sleep(200);
+            assertThat(Files.readString(output)).as("nor by its release").isEqualTo(before);
+        } finally {
+            node.stop();
+        }
+    }
+
     private static void await(java.util.function.BooleanSupplier until, String what) throws InterruptedException {
         long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
         while (System.nanoTime() < deadline) {
@@ -197,6 +252,10 @@ class DebugSurfacesEndToEndTest {
     }
 
     private static PravahaNode node(Path dir, Path input) {
+        return node(dir, input, null);
+    }
+
+    private static PravahaNode node(Path dir, Path input, Path sinkFile) {
         StreamCatalog catalog = new StreamCatalog();
         catalog.register(TXN);
 
@@ -206,6 +265,15 @@ class DebugSurfacesEndToEndTest {
         source.getOptions().put("path", input.toString());
         source.getOptions().put("schema", SCHEMA_SPEC);
         sources.getSources().put("txn", source);
+
+        SinkBindingProperties sinks = new SinkBindingProperties();
+        if (sinkFile != null) {
+            SinkBindingProperties.Spec sink = new SinkBindingProperties.Spec();
+            sink.setPlugin("filesystem");
+            sink.getOptions().put("path", sinkFile.toString());
+            sink.getOptions().put("schema", SCHEMA_SPEC);
+            sinks.getSinks().put("large_txn", sink);
+        }
 
         SecurityProperties security = new SecurityProperties();
         security.setAllowAnonymous(true);
@@ -217,7 +285,7 @@ class DebugSurfacesEndToEndTest {
         return PravahaNode.builder()
                 .withCatalog(catalog)
                 .withSources(sources)
-                .withSinks(new SinkBindingProperties())
+                .withSinks(sinks)
                 .withDeclaredStreams(new StreamDeclarationProperties())
                 .withSecurity(security)
                 .withFlight(true, "127.0.0.1", 0)
