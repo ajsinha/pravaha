@@ -453,7 +453,7 @@ class SubscriptionTest {
         assertThat(two.isClosed()).isTrue();
         assertThat(one.failure().orElseThrow().getMessage())
                 .as("a reason the client can act on, not silence")
-                .contains("PRV-8011")
+                .contains("PRV-8018")
                 .contains("has been dropped");
         assertThat(query.subscriberCount())
                 .as("the count is a signal only if it can go back down")
@@ -472,7 +472,7 @@ class SubscriptionTest {
 
         assertThat(live.isClosed()).isTrue();
         assertThat(live.failure().orElseThrow().getMessage())
-                .contains("PRV-8012")
+                .contains("PRV-8019")
                 .contains("shutting down");
     }
 
@@ -504,7 +504,7 @@ class SubscriptionTest {
                 .as("the name it asked for is gone, and so is its view")
                 .isTrue();
         assertThat(dropped.failure().orElseThrow().getMessage())
-                .contains("PRV-8011")
+                .contains("PRV-8018")
                 .contains("'q'");
         assertThat(surviving.isClosed())
                 .as("STRM-067's mirror case was already right and must stay right")

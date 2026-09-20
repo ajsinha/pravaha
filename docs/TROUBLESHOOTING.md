@@ -151,10 +151,10 @@ every later batch is a commit after it, with none missed. The console shows subs
 **Did your subscription end, and did it say why?** It does now (STRM-12). An administrative drop,
 a node shutting down and your own `close()` used to be one signal -- a clean completion, which
 reads as "this stream is finished" -- and only the last of the three is. A drop arrives as
-`PRV-8011` with Flight status `NOT_FOUND`: the name is gone, what you received is complete, and
-there is nothing to reconnect to. A shutdown arrives as `PRV-8012` with `UNAVAILABLE`, which every
+`PRV-8018` with Flight status `NOT_FOUND`: the name is gone, what you received is complete, and
+there is nothing to reconnect to. A shutdown arrives as `PRV-8019` with `UNAVAILABLE`, which every
 gRPC client already retries: the query is journalled, comes back `RUNNING`, and a read of the view
-catches you up on what it did while you were away. `PRV-8011` also ends a subscription on a name
+catches you up on what it did while you were away. `PRV-8018` also ends a subscription on a name
 that was **sharing** a computation with another registration -- dropping that name leaves the
 computation running for the other name, and a subscriber on the dropped one was being streamed
 rows under a name a read refused as nonexistent (STRM-14).
@@ -824,8 +824,8 @@ client models the error rather than an empty object.
 | `PRV-8015` | DEBUG_BAD_STEP | registry (debugger) |
 | `PRV-8016` | DEBUG_QUERY_GONE | registry (debugger) |
 | `PRV-8017` | REGISTRY_OPTION_UNKNOWN | registry |
-| `PRV-8011` | REGISTRY_QUERY_DROPPED | registry |
-| `PRV-8012` | REGISTRY_NODE_STOPPING | registry |
+| `PRV-8018` | REGISTRY_QUERY_DROPPED | registry |
+| `PRV-8019` | REGISTRY_NODE_STOPPING | registry |
 | `PRV-8101` | EMBEDDED_UNKNOWN_STREAM | registry (embedded engine) |
 | `PRV-8102` | EMBEDDED_ROW_REJECTED | registry (embedded engine) |
 | `PRV-8103` | EMBEDDED_BACKPRESSURE | registry (embedded engine) |

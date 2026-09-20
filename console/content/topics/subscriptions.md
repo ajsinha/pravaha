@@ -323,11 +323,11 @@ is finished" — and only the last of them is.
 | Ending | On the wire | What to do |
 |---|---|---|
 | You closed it | the stream ends normally | nothing |
-| The name was **dropped** | `PRV-8011`, Flight status `NOT_FOUND` | stop. The name does not exist any more, and what you received is complete up to the drop |
-| The **node is shutting down** | `PRV-8012`, Flight status `UNAVAILABLE` | reconnect. The query is journalled and comes back `RUNNING`; read the view to catch up on the commits you missed |
+| The name was **dropped** | `PRV-8018`, Flight status `NOT_FOUND` | stop. The name does not exist any more, and what you received is complete up to the drop |
+| The **node is shutting down** | `PRV-8019`, Flight status `UNAVAILABLE` | reconnect. The query is journalled and comes back `RUNNING`; read the view to catch up on the commits you missed |
 | Your **entitlement** was withdrawn, or the credential expired | `PRV-7002` / `PRV-7001` | re-authenticate, or ask for the grant back |
 
-`PRV-8011` also ends a subscription on a name that was **sharing** a computation. Two registrations
+`PRV-8018` also ends a subscription on a name that was **sharing** a computation. Two registrations
 over the same question are one computation with two names; dropping one leaves the other running,
 and a subscriber on the dropped name used to go on receiving rows under a name a read of the view
 refused as nonexistent (STRM-14). A subscriber on the surviving name is unaffected, which is the

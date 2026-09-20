@@ -1167,7 +1167,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                         // one signal for three events, only one of which is an end the client
                         // should accept. The reason carries its own code, and FlightErrors maps
                         // each to the status a client acts on before it reads anything:
-                        // PRV-8011 NOT_FOUND for a dropped name, PRV-8012 UNAVAILABLE for a node
+                        // PRV-8018 NOT_FOUND for a dropped name, PRV-8019 UNAVAILABLE for a node
                         // that is coming back.
                         listener.error(
                                 FlightErrors.failureOf(subscription.failure().get())

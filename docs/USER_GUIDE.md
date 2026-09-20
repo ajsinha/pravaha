@@ -353,12 +353,12 @@ finished", and only the last of the three is.
 | Ending | On the wire | Your move |
 |---|---|---|
 | You called `close()` | the stream ends normally | nothing |
-| The name was **dropped** | `PRV-8011`, Flight status `NOT_FOUND` | stop. The name is gone; what you have is complete up to the drop |
-| The **node is shutting down** | `PRV-8012`, Flight status `UNAVAILABLE` | reconnect. The query is journalled and comes back `RUNNING`; read the view to catch up |
+| The name was **dropped** | `PRV-8018`, Flight status `NOT_FOUND` | stop. The name is gone; what you have is complete up to the drop |
+| The **node is shutting down** | `PRV-8019`, Flight status `UNAVAILABLE` | reconnect. The query is journalled and comes back `RUNNING`; read the view to catch up |
 | The view was **replaced** at a cutover | `PRV-4019` | subscribe again to the same name, which the new version now answers |
 | Your entitlement or credential went | `PRV-7002` / `PRV-7001` | re-authenticate, or ask for the grant back |
 
-`PRV-8011` also ends a subscription on a name that was **sharing** a computation with another
+`PRV-8018` also ends a subscription on a name that was **sharing** a computation with another
 registration. Two registrations of the same question are one computation with two names; dropping
 one leaves the other running, and a subscriber on the dropped name used to go on being streamed
 rows under a name a read of the view refused as nonexistent (STRM-14). A subscriber on the

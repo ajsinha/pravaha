@@ -91,6 +91,12 @@ public final class RegistryErrors {
      */
     public static final ErrorCode SINK_SHAPE_MISMATCH = new ErrorCode(8010, "REGISTRY_SINK_SHAPE_MISMATCH");
 
+    // 8011..8017 are taken and are deliberately not filled in here: 8011-8016 belong to the
+    // time-travel debugger and 8017 to the CONTINUOUS QUERY grammar, both of which merged ahead of
+    // this. The two below were written as 8011 and 8012 and renumbered before either had shipped,
+    // which is the only time a code may move -- ErrorCodeUniquenessTest would have caught the
+    // collision, but after a merge, in somebody else's build.
+
     /**
      * A {@code WITH (...)} option on a registration that this engine does not build, or one whose
      * value is not the kind of thing it names.
@@ -122,7 +128,7 @@ public final class RegistryErrors {
      * <p>Distinct from {@link #NO_SUCH_QUERY}, which is a name that was never here. This one was,
      * and the subscriber's copy is right up to the moment it ended.
      */
-    public static final ErrorCode QUERY_DROPPED = new ErrorCode(8011, "REGISTRY_QUERY_DROPPED");
+    public static final ErrorCode QUERY_DROPPED = new ErrorCode(8018, "REGISTRY_QUERY_DROPPED");
 
     /**
      * The node is shutting down, so this subscription ends without the query having ended.
@@ -133,7 +139,7 @@ public final class RegistryErrors {
      * and moves on without the subscriber that stopped. Retryable, and said as such, because the
      * right response is to reconnect.
      */
-    public static final ErrorCode NODE_STOPPING = new ErrorCode(8012, "REGISTRY_NODE_STOPPING");
+    public static final ErrorCode NODE_STOPPING = new ErrorCode(8019, "REGISTRY_NODE_STOPPING");
 
     private RegistryErrors() {}
 }

@@ -106,7 +106,7 @@ class LifeDropTest extends LifecycleTestSupport {
                 .as("STRM-12: the administrative destruction of the thing it asked to watch")
                 .isTrue();
         assertThat(subscription.failure().orElseThrow().getMessage())
-                .contains("PRV-8011")
+                .contains("PRV-8018")
                 .contains("has been dropped");
         subscription.close();
     }

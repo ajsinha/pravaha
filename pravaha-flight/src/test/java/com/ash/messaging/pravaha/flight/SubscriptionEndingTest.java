@@ -147,7 +147,7 @@ class SubscriptionEndingTest {
                 .as("'completed normally, no error' is what a client's own close() looks like, and this "
                         + "is the administrative destruction of the thing it asked to watch")
                 .doesNotContain("completed normally")
-                .contains("PRV-8011")
+                .contains("PRV-8018")
                 .contains("has been dropped");
     }
 
@@ -168,7 +168,7 @@ class SubscriptionEndingTest {
         assertThat(endedWithin(ended, 30)).isTrue();
         assertThat(ended.get())
                 .doesNotContain("completed normally")
-                .contains("PRV-8012")
+                .contains("PRV-8019")
                 .contains("shutting down");
     }
 
@@ -193,7 +193,7 @@ class SubscriptionEndingTest {
                 .as("the name it asked for is gone and so is its view; a read of q68 at this moment "
                         + "is refused, and two server answers to one name cannot contradict each other")
                 .isTrue();
-        assertThat(onDropped.get()).contains("PRV-8011").contains("q68");
+        assertThat(onDropped.get()).contains("PRV-8018").contains("q68");
         assertThat(onSurviving.get())
                 .as("STRM-067's mirror case was already right and must stay right")
                 .isNull();

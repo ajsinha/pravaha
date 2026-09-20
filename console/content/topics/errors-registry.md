@@ -28,8 +28,6 @@ inside an application's own process and adds the ways an application can push ro
 | PRV-8007 | REGISTRY_REPLAY_UNAUTHORIZED | A journalled registration's owner may no longer have it |
 | PRV-8008 | REGISTRY_NAME_UNUSABLE | The name cannot be a view name at all |
 | PRV-8009 | REGISTRY_SINK_WRITE_FAILED | A sink refused a batch and was detached |
-| PRV-8011 | REGISTRY_QUERY_DROPPED | The name a subscription was opened under has been dropped |
-| PRV-8012 | REGISTRY_NODE_STOPPING | The node is shutting down; the query is coming back, this stream is not |
 | PRV-8010 | REGISTRY_SINK_SHAPE_MISMATCH | The query's output or key does not fit the sink |
 | PRV-8011 | DEBUG_NO_CHECKPOINT | There is no checkpoint for a debug session to fork from |
 | PRV-8012 | DEBUG_SOURCE_NOT_REPLAYABLE | A source cannot be rewound to the checkpoint's offsets |
@@ -38,6 +36,8 @@ inside an application's own process and adds the ways an application can push ro
 | PRV-8015 | DEBUG_BAD_STEP | A step, a predicate or a page this session cannot make sense of |
 | PRV-8016 | DEBUG_QUERY_GONE | The query this session forked from has been dropped or replaced |
 | PRV-8017 | REGISTRY_OPTION_UNKNOWN | A `WITH (...)` option this engine does not build, or one said twice |
+| PRV-8018 | REGISTRY_QUERY_DROPPED | The name a subscription was opened under has been dropped |
+| PRV-8019 | REGISTRY_NODE_STOPPING | The node is shutting down; the query is coming back, this stream is not |
 | PRV-8101 | EMBEDDED_UNKNOWN_STREAM | A row pushed to an undeclared stream |
 | PRV-8102 | EMBEDDED_ROW_REJECTED | A pushed row does not fit its stream |
 | PRV-8103 | EMBEDDED_BACKPRESSURE | A push waited too long for room |
@@ -105,7 +105,7 @@ one that has failed, subscribing to one that is `FAILED` or `DROPPED` ("cannot s
 'hourly_spend': it is FAILED"). `FAILED` and `DROPPED` are terminal: a failed query is dropped and
 registered again, not resumed.
 
-### PRV-8011 / PRV-8012 — how a subscription ends
+### PRV-8018 / PRV-8019 — how a subscription ends
 
 Three different events used to be one signal on the wire: an administrative drop, a node shutting
 down, and the client's own `close()` all arrived as a clean completion, and only the last of the
@@ -114,10 +114,10 @@ says which action to take before you read anything.
 
 | Code | Status | What happened | What to do |
 |---|---|---|---|
-| PRV-8011 | `NOT_FOUND` | the name you subscribed to was dropped | stop. The name does not exist any more; what you received is complete up to the drop |
-| PRV-8012 | `UNAVAILABLE` | the node is shutting down | reconnect. The query is journalled and comes back `RUNNING`; read the view to catch up on what happened in between |
+| PRV-8018 | `NOT_FOUND` | the name you subscribed to was dropped | stop. The name does not exist any more; what you received is complete up to the drop |
+| PRV-8019 | `UNAVAILABLE` | the node is shutting down | reconnect. The query is journalled and comes back `RUNNING`; read the view to catch up on what happened in between |
 
-PRV-8011 also ends a subscription on a name that was **sharing** a computation (STRM-14). Two
+PRV-8018 also ends a subscription on a name that was **sharing** a computation (STRM-14). Two
 registrations over the same question are one computation with two names; dropping one leaves the
 other running, and a subscriber on the dropped name used to go on receiving rows under a name a
 read of the view refused as nonexistent. A subscriber on the surviving name is unaffected.

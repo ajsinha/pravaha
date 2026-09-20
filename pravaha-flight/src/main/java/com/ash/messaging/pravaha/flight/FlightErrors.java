@@ -88,8 +88,8 @@ public final class FlightErrors {
             // for opposite actions (STRM-12). A dropped name is not coming back, so NOT_FOUND: stop,
             // and do not reconnect to a name that no longer exists. A node shutting down is coming
             // back, so UNAVAILABLE, which every gRPC client already retries.
-            case "PRV-8011" -> CallStatus.NOT_FOUND;
-            case "PRV-8012" -> CallStatus.UNAVAILABLE;
+            case "PRV-8018" -> CallStatus.NOT_FOUND;
+            case "PRV-8019" -> CallStatus.UNAVAILABLE;
             // A handle the server cannot read, or one from an older version: the client's move is
             // to prepare the statement again, which NOT_FOUND is the conventional prompt for.
             case "PRV-6102" -> CallStatus.NOT_FOUND;
