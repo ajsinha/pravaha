@@ -43,7 +43,7 @@ been through it is an image nobody has run.
 |---|---|
 | Built by | [`deploy/docker/Dockerfile`](../deploy/docker/Dockerfile), staged by [`deploy/docker/build.sh`](../deploy/docker/build.sh) |
 | Base | `eclipse-temurin:21-jre-alpine` (287 MB) plus ~2 MB of `bash` |
-| Size | **434 MB** as `docker images` reports it; 77 MB of that is the application jar |
+| Size | **436,555,582 bytes** (~437 MB) as `docker image inspect` reports it; 77 MB of that is the application jar |
 | User | uid **10001**, non-root, numeric — a Kubernetes `runAsUser` and a `docker --user` both take a number |
 | Entrypoint | `/__cacert_entrypoint.sh bin/pravaha-server` |
 | Ports | 8080 HTTP, 9090 Flight SQL |

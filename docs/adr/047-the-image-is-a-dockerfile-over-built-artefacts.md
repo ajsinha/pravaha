@@ -61,7 +61,7 @@ exists so that every way of starting this server goes through one line. `bash` c
 buys one launcher, one place the flags live, and a `HEALTHCHECK` that can use busybox `wget`.
 
 Alpine over the Ubuntu-based `eclipse-temurin:21-jre` is measured: **287 MB against 459 MB** for the
-same JRE. The finished image is **434 MB** as `docker images` reports it, 77 MB of which is the
+same JRE. The finished image is **436,555,582 bytes** -- about 437 MB -- 77 MB of which is the
 application jar. The CLI jar is deliberately left out — 49 MB, a second copy of the whole engine, to
 run a client that belongs on the operator's machine.
 
