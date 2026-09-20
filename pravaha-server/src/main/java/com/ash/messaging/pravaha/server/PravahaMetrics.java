@@ -98,6 +98,9 @@ public class PravahaMetrics implements AutoCloseable {
         }
         publishLaneSharing(registry);
         Set<String> live = registry.names();
+        // Before the per-query loop below, so a lane whose only query was just registered has a
+        // representative by the time its gauge is next read.
+        rememberLaneRepresentatives(registry);
 
         for (String name : live) {
             if (published.containsKey(name)) {
@@ -409,16 +412,49 @@ public class PravahaMetrics implements AutoCloseable {
         }
     }
 
-    private static double sharedLaneBlocked(PravahaNode node, int lane) {
-        return node.registry()
-                .flatMap(registry -> registry.sharedLaneBackpressure(lane))
+    /**
+     * One query on each shared lane, by lane index, refreshed with the rest of the meters.
+     *
+     * <p>A shared lane's backpressure is read through a query hosted on it, because a hosted
+     * query's execution runs on that lane's group -- {@code RegisteredQuery.backpressure()} is
+     * therefore the lane's own snapshot, breakdown and all, whichever of its queries is asked.
+     *
+     * <p>Through a representative rather than by asking the registry for the lane, so that {@code
+     * QueryRegistry} gains nothing: it is four lines under this project's file-size ceiling and
+     * the rule is to extract rather than grow. Recorded once per {@link #sync()} rather than per
+     * scrape, because finding it means walking the names under the registry's own lock, and that
+     * is the lock registration takes.
+     */
+    private final Map<Integer, String> laneRepresentative = new ConcurrentHashMap<>();
+
+    private void rememberLaneRepresentatives(QueryRegistry registry) {
+        laneRepresentative.clear();
+        for (String name : registry.names()) {
+            registry.sharedLaneOf(name).ifPresent(lane -> laneRepresentative.putIfAbsent(lane, name));
+        }
+    }
+
+    /**
+     * That lane's backpressure, or empty when no query has been placed on it yet -- which is not
+     * the same as a lane that is never blocked, and is why the gauges read 0 rather than NaN: a
+     * lane carrying nothing genuinely has nobody waiting on it.
+     */
+    private java.util.Optional<com.ash.messaging.pravaha.runtime.lane.LaneBackpressure.Snapshot> sharedLane(
+            PravahaNode node, int lane) {
+        String name = laneRepresentative.get(lane);
+        return name == null
+                ? java.util.Optional.empty()
+                : node.registry().flatMap(registry -> registry.find(name)).map(RegisteredQuery::backpressure);
+    }
+
+    private double sharedLaneBlocked(PravahaNode node, int lane) {
+        return sharedLane(node, lane)
                 .map(com.ash.messaging.pravaha.runtime.lane.LaneBackpressure.Snapshot::blockedFraction)
                 .orElse(0d);
     }
 
-    private static double sharedLaneDepth(PravahaNode node, int lane) {
-        return node.registry()
-                .flatMap(registry -> registry.sharedLaneBackpressure(lane))
+    private double sharedLaneDepth(PravahaNode node, int lane) {
+        return sharedLane(node, lane)
                 .map(snapshot -> (double) snapshot.inboxDepth())
                 .orElse(0d);
     }

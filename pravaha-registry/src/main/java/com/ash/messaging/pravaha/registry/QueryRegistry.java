@@ -223,19 +223,6 @@ public final class QueryRegistry implements AutoCloseable {
         return sharedLaneCount == 0 ? 0 : sharedLanes().offHeapBytes();
     }
 
-    /**
-     * One shared lane's backpressure: how long its writers waited for room, whose writers they
-     * were, and how deep its inbox is now.
-     *
-     * <p>Empty when multiplexing is off or that lane has not been built. The per-query breakdown
-     * inside it is the answer to "which query is this lane waiting on", which is the question a
-     * shared lane invents and a lane per query never had.
-     */
-    public synchronized java.util.Optional<com.ash.messaging.pravaha.runtime.lane.LaneBackpressure.Snapshot>
-            sharedLaneBackpressure(int lane) {
-        return sharedLaneCount == 0 ? java.util.Optional.empty() : sharedLanes().backpressureOn(lane);
-    }
-
     /** The per-lane ceiling in force, or zero when not multiplexing. */
     public synchronized int maxQueriesPerSharedLane() {
         return sharedLaneCount == 0 ? 0 : maxQueriesPerSharedLane;

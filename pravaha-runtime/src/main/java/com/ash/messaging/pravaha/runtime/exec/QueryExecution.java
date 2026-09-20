@@ -1006,17 +1006,7 @@ public final class QueryExecution implements AutoCloseable {
      * query's own pumps are the ones it can be held to.
      */
     public long[] pumpBackpressure() {
-        long waits = 0;
-        long nanos = 0;
-        for (IngestPump pump : pumps) {
-            waits += pump.backpressureWaits();
-            nanos += pump.backpressureWaitNanos();
-        }
-        for (PartitionedIngestPump pump : partitionedPumps) {
-            waits += pump.backpressureWaits();
-            nanos += pump.backpressureWaitNanos();
-        }
-        return new long[] {waits, nanos};
+        return sources.backpressure();
     }
 
     /**

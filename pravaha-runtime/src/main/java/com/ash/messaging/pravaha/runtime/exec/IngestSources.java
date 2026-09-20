@@ -80,6 +80,30 @@ final class IngestSources {
         return partitionedPumps.size();
     }
 
+    /**
+     * How often and how long these pumps found nowhere to put a row, as {@code {episodes, nanos}}.
+     *
+     * <p>The query's own writers rather than its lanes' (B6). On a lane a query owns the two agree;
+     * on a shared lane they come apart, and the difference is the diagnosis -- a lane's counters
+     * belong to every query on it, so only these can be held against this one.
+     *
+     * <p>Read without freezing: both are counters the pumps maintain, and a reading taken between
+     * two of a pump's polls is exactly what it says it is.
+     */
+    long[] backpressure() {
+        long episodes = 0;
+        long nanos = 0;
+        for (IngestPump pump : pumps) {
+            episodes += pump.backpressureWaits();
+            nanos += pump.backpressureWaitNanos();
+        }
+        for (PartitionedIngestPump pump : partitionedPumps) {
+            episodes += pump.backpressureWaits();
+            nanos += pump.backpressureWaitNanos();
+        }
+        return new long[] {episodes, nanos};
+    }
+
     /** Each source's offset, keyed as a checkpoint records them. Call between {@link #freeze} and {@link #thaw}. */
     void offsetsInto(Map<String, String> offsets) {
         for (int index = 0; index < pumps.size(); index++) {
