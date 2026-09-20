@@ -241,20 +241,27 @@ public class QueryController {
 
         requireSql(request);
         requireReadable(http, request.sql());
-        // API-F8. `defaultValue` is not the same rule as "absent": Spring substitutes it for an
-        // EMPTY value too, so `?level=` -- a parameter the caller wrote, with nothing after it --
-        // answered 200 with level:"physical", the same as omitting it, while `?level=PHYSICAL`
-        // was refused. Absent means take the default; present and not one of the names is a
-        // refusal, whether what was written is "PHYSICAL" or nothing at all.
-        String chosenLevel = level == null ? "physical" : level;
-        String chosenFormat = format == null ? "text" : format;
-        if (!"text".equals(chosenFormat) && !"graph".equals(chosenFormat)) {
+        // API-F8. These were @RequestParam(defaultValue = ...), and Spring applies a default to an
+        // *empty* value as well as to an absent one -- so `?level=` answered 200 with the physical
+        // plan while `?level=PHYSICAL` answered 400. A caller who sent the parameter said
+        // something, and what they said is not a level this endpoint has; the commonest way to
+        // send an empty one is a shell variable that did not expand, which is a mistake worth
+        // being told about rather than one worth guessing past. Absent still means the default:
+        // not asking is not the same as asking for nothing.
+        //
+        // Both halves of this batch fixed it, and the comparisons below must use the RESOLVED
+        // values: one version compared the raw `format`, so a request that sent none fell past
+        // the text arm into the graph one and planned twice. Its control asserted the level,
+        // which the graph arm also returns, so it passed.
+        String wanted = level == null ? "physical" : level;
+        String shape = format == null ? "text" : format;
+        if (!"text".equals(shape) && !"graph".equals(shape)) {
             throw new IllegalArgumentException(
-                    "format must be 'text' or 'graph', got '" + chosenFormat + "'. An empty ?format= is "
+                    "format must be 'text' or 'graph', got " + quoted(shape) + ". An empty ?format= is "
                             + "this, not an absent one: write the value or leave the parameter out.");
         }
-        ApiDtos.ExplainResult text = explainText(request, chosenLevel);
-        if ("text".equals(format)) {
+        ApiDtos.ExplainResult text = explainText(request, wanted);
+        if ("text".equals(shape)) {
             return text;
         }
         return new ApiDtos.ExplainResult(
@@ -277,12 +284,25 @@ public class QueryController {
                 yield new ApiDtos.ExplainResult(
                         "physical", PhysicalPlanBuilder.explain(plan), mapper.toFields(plan.outputSchema()));
             }
+            // The message used to name two of the three levels it accepts, so a caller reading it
+            // after a typo learned that `codegen` -- which works -- was not a level (API-083's
+            // second finding).
             default ->
                 throw new IllegalArgumentException(
-                        "level must be 'logical', 'physical' or 'codegen', got '" + level + "'. An empty "
-                                + "?level= is this, not an absent one: write the value or leave the "
-                                + "parameter out.");
+                        "level must be 'physical', 'logical' or 'codegen', got " + quoted(level)
+                                + ". An empty ?level= is this, not an absent one: write the value "
+                                + "or leave the parameter out.");
         };
+    }
+
+    /**
+     * A value as the message should show it: quoted, and named rather than shown when it is empty.
+     *
+     * <p>{@code got ''} is a pair of quotes a reader has to interpret, and in a log line that has
+     * been through a shell or a JSON encoder it is often not even that.
+     */
+    private static String quoted(String value) {
+        return value.isEmpty() ? "an empty value" : "'" + value + "'";
     }
 
     private PhysicalOperator planFor(String sql) {
