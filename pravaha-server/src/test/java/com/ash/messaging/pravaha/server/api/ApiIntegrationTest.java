@@ -313,19 +313,23 @@ class ApiIntegrationTest {
      */
     @Test
     void apiF10_anUnpairedSurrogateInTheSqlIsRefusedAsABadRequest() throws Exception {
+        // PRV-1053, not PRV-1051: two batches fixed API-F10 independently and the earlier refusal
+        // won. This one refused the malformed `sql` where the endpoint read its parameters; the
+        // other refuses any malformed string in any request body, in the deserializer, which is
+        // the only place that sees every one of them and is before the body becomes an argument.
         String loneHighSurrogate = "{\"sql\":\"\\ud800\"}";
 
         mvc.perform(post("/api/v1/queries/validate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(loneHighSurrogate))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("PRV-1051"));
+                .andExpect(jsonPath("$.code").value("PRV-1053"));
 
         mvc.perform(post("/api/v1/queries/explain")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(loneHighSurrogate))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("PRV-1051"));
+                .andExpect(jsonPath("$.code").value("PRV-1053"));
 
         // A complete pair is a character and is left alone: this refuses half of one, not
         // everything outside the basic plane.
