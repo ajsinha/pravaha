@@ -1968,3 +1968,31 @@ def test_the_shell_and_the_palette_speak_from_the_catalog(signed_in):
     assert '<script type="application/json" id="i18n-messages">' in page
     assert '"palette.placeholder"' in page
     assert ">Skip to content<" in page and 'aria-label="Primary"' in page
+
+
+#: Every kind of page the shell wraps: signed in and anonymous, a product screen, the
+#: documentation, the sign-in page, the landing page and the two refusals.
+EVERY_KIND_OF_PAGE = ["/", "/about", "/help", "/help/topics/first-view", "/login",
+                      "/catalog", "/queries/big_txn", "/operations", "/workbench",
+                      "/views/no_such_view"]
+
+
+@pytest.mark.parametrize("path", EVERY_KIND_OF_PAGE)
+def test_the_slogan_is_on_every_page_in_italics(signed_in, path):
+    """"Ask once. Answer always." is the sentence at the top of every source file in this
+    repository, and it is on every page of the product for the same reason. In the shell, so
+    no template can be the one that forgot it, and from the string catalog, as every
+    user-visible string is."""
+    from core.i18n import Messages
+
+    page = signed_in.get(path).text
+    assert Messages()("shell.slogan") == "Ask once. Answer always."
+    assert "Ask once. Answer always." in page, path
+    assert 'class="slogan"' in page, path
+    assert "footer .slogan{font-family:var(--serif);font-style:italic;" in page, path
+
+
+def test_the_slogan_is_on_a_page_nobody_has_signed_in_for(anonymous):
+    """The landing page and the sign-in page are the first two a person ever sees."""
+    for path in ("/", "/login", "/help"):
+        assert "Ask once. Answer always." in anonymous.get(path).text, path

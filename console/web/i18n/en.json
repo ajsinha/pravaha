@@ -1,6 +1,7 @@
 {
   "shell": {
     "skip": "Skip to content",
+    "slogan": "Ask once. Answer always.",
     "menu": "Menu",
     "primary_nav": "Primary",
     "palette_open": "Open the command palette",
