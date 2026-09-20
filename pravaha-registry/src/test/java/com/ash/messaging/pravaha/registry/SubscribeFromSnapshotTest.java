@@ -255,6 +255,16 @@ class SubscribeFromSnapshotTest {
             query.commit();
             query.commit();
 
+            // Delivery is each subscription's own thread since STRM-8, so the mirrors are behind
+            // the view for as long as it takes them to drain. Waiting for that is not tolerance
+            // of a race: awaitQuiet returns false if a subscriber is still behind at the
+            // deadline, and the equality below is asserted exactly as before.
+            for (Subscription subscription : subscriptions) {
+                assertThat(subscription.awaitQuiet(Duration.ofSeconds(30)))
+                        .as("round %d: the subscription drained", round)
+                        .isTrue();
+            }
+
             Map<List<Object>, Long> expected = zset(query.view().committedRows());
             assertThat(expected).hasSize(1);
             for (Mirror mirror : mirrors) {
