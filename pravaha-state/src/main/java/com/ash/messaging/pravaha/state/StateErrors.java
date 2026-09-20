@@ -81,5 +81,19 @@ public final class StateErrors {
      */
     public static final ErrorCode DLQ_REPLAY_REFUSED = new ErrorCode(4092, "STATE_DLQ_REPLAY_REFUSED");
 
+    /**
+     * {@code pravaha.checkpoint.directory} is set and this node cannot checkpoint into it.
+     *
+     * <p>CFG-7. Refused at startup, where a bad path is one failure, rather than at the first
+     * registration, where it is every query failing separately on a node that started healthy,
+     * passes every probe, and logged "checkpointing registered queries under …" about a path that
+     * is a regular file.
+     *
+     * <p>4093 and not 4091: the dead-letter batch took 4091 and 4092 while this branch was held
+     * un-rebased, and a code is what goes in a runbook.
+     */
+    public static final ErrorCode CHECKPOINT_DIRECTORY_UNUSABLE =
+            new ErrorCode(4093, "STATE_CHECKPOINT_DIRECTORY_UNUSABLE");
+
     private StateErrors() {}
 }

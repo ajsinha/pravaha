@@ -203,6 +203,113 @@ public class PersistenceProperties {
         }
     }
 
+    /**
+     * Refuses a persistence setting that cannot do what it says, before the node is built on it.
+     *
+     * <p>CFG-7 and CFG-16, which are one defect with two faces: a value that is wrong in the file
+     * and is discovered <em>per registration</em>. {@code keep: 0} started a node that logged
+     * "checkpointing registered queries under …", reported {@code UP} on every probe, and then
+     * refused every {@code register} with {@code PRV-1041}; a {@code checkpoint.directory} naming a
+     * regular file did the same thing with a different message. One bad value should be one startup
+     * failure, which is exactly the argument {@code PravahaNode} already makes for
+     * {@code pravaha.watermark.idle-after}, and made for nothing else.
+     *
+     * <p>Runs while this bean is being initialised, so it is ahead of the node's own start and
+     * ahead of the web server -- the CFG-21 placement, for the same reason.
+     */
+    @jakarta.annotation.PostConstruct
+    public void validate() {
+        if (checkpoint.keep < 1) {
+            throw new com.ash.messaging.pravaha.api.PravahaException(
+                    com.ash.messaging.pravaha.common.config.ConfigErrors.OUT_OF_RANGE,
+                    "pravaha.checkpoint.keep is " + checkpoint.keep + ", and at least one checkpoint must "
+                            + "be kept: keeping none means every restart starts from nothing, which is what "
+                            + "leaving pravaha.checkpoint.directory unset already means. More than one is "
+                            + "kept by default because the newest is the likeliest to be unreadable -- it is "
+                            + "the one that was being written when a process died.");
+        }
+        requirePositive("pravaha.checkpoint.interval", checkpoint.interval);
+        requirePositive("pravaha.checkpoint.timeout", checkpoint.timeout);
+        checkpointPath().ifPresent(PersistenceProperties::requireCheckpointDirectory);
+        journalPath().ifPresent(PersistenceProperties::requireJournalPath);
+    }
+
+    private static void requirePositive(String key, Duration value) {
+        if (value == null || value.isZero() || value.isNegative()) {
+            throw new com.ash.messaging.pravaha.api.PravahaException(
+                    com.ash.messaging.pravaha.common.config.ConfigErrors.OUT_OF_RANGE,
+                    key + " is " + value + ", and it has to be positive. Zero or less is a tight loop or a "
+                            + "checkpoint that has already timed out before it starts.");
+        }
+    }
+
+    /**
+     * The checkpoint root has to be a directory this node can write into, or become one.
+     *
+     * <p>CFG-7. Pointing it at an existing regular file started a node that announced checkpointing
+     * and then failed every registration with {@code PRV-1041 cannot create the checkpoint directory
+     * …/txnA.csv/QW} -- up, green, and unable to accept work.
+     */
+    private static void requireCheckpointDirectory(Path directory) {
+        if (java.nio.file.Files.exists(directory) && !java.nio.file.Files.isDirectory(directory)) {
+            throw new com.ash.messaging.pravaha.api.PravahaException(
+                    com.ash.messaging.pravaha.state.StateErrors.CHECKPOINT_DIRECTORY_UNUSABLE,
+                    "pravaha.checkpoint.directory is " + directory + ", which exists and is not a "
+                            + "directory. Each query checkpoints into its own directory beneath this one, so "
+                            + "this has to be a directory; name one, or leave the key unset to run without "
+                            + "checkpoints.");
+        }
+        if (java.nio.file.Files.isDirectory(directory) && !java.nio.file.Files.isWritable(directory)) {
+            throw new com.ash.messaging.pravaha.api.PravahaException(
+                    com.ash.messaging.pravaha.state.StateErrors.CHECKPOINT_DIRECTORY_UNUSABLE,
+                    "pravaha.checkpoint.directory is " + directory + ", which this process cannot write "
+                            + "to. Every checkpoint would fail, one registration at a time.");
+        }
+        Path parent = directory.toAbsolutePath().getParent();
+        if (!java.nio.file.Files.exists(directory) && parent != null && !java.nio.file.Files.isDirectory(parent)) {
+            throw new com.ash.messaging.pravaha.api.PravahaException(
+                    com.ash.messaging.pravaha.state.StateErrors.CHECKPOINT_DIRECTORY_UNUSABLE,
+                    "pravaha.checkpoint.directory is " + directory + " and " + parent + " does not exist, "
+                            + "so the whole path is about to be created from a value nobody has checked. "
+                            + "Create the parent, or correct the path.");
+        }
+    }
+
+    /**
+     * The journal has to be a writable file path with a directory already under it.
+     *
+     * <p>CFG-7, both remaining cells. A journal path that is itself a directory failed at startup
+     * -- correctly -- with a bare {@code UncheckedIOException: cannot read the registry journal at
+     * …}, no code and no help URL, so the one shape caught early had the worst message. A journal
+     * inside a directory that does not exist was silently created by {@code RegistryJournal.append}
+     * through {@code Files.createDirectories}, so {@code PRV-8006} never fired for the commonest
+     * typo and a node came up journalling to a path nobody meant, empty, looking correct.
+     */
+    private static void requireJournalPath(Path journal) {
+        if (java.nio.file.Files.isDirectory(journal)) {
+            throw new com.ash.messaging.pravaha.api.PravahaException(
+                    com.ash.messaging.pravaha.registry.RegistryErrors.JOURNAL_UNWRITABLE,
+                    "pravaha.registry.journal is " + journal + ", which is a directory. The journal is one "
+                            + "append-only file; name the file, not the directory it lives in.");
+        }
+        Path parent = journal.toAbsolutePath().getParent();
+        if (parent != null && !java.nio.file.Files.isDirectory(parent)) {
+            throw new com.ash.messaging.pravaha.api.PravahaException(
+                    com.ash.messaging.pravaha.registry.RegistryErrors.JOURNAL_UNWRITABLE,
+                    "pravaha.registry.journal is " + journal + " and its directory " + parent + " does not "
+                            + "exist. It used to be created silently on the first append, so a typo in this "
+                            + "path produced a node that journalled correctly to the wrong place and a real "
+                            + "journal that stayed empty. Create the directory, or correct the path.");
+        }
+        if (parent != null && !java.nio.file.Files.isWritable(parent)) {
+            throw new com.ash.messaging.pravaha.api.PravahaException(
+                    com.ash.messaging.pravaha.registry.RegistryErrors.JOURNAL_UNWRITABLE,
+                    "pravaha.registry.journal is " + journal + " and this process cannot write into "
+                            + parent + ". Every registration would be accepted in memory and lost on "
+                            + "restart.");
+        }
+    }
+
     private static Optional<Path> pathOf(String value) {
         return value == null || value.isBlank() ? Optional.empty() : Optional.of(Path.of(value));
     }
