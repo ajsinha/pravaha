@@ -40,8 +40,19 @@ server, so an operator reads the sentence rather than Tomcat's.
 | `CFG-22` | Reproduced, **fixed** | An implementation that does not exist is refused; the choice is logged | `a8703a8`, `b000c94` |
 
 Test counts, per module, before → after: `pravaha-common` 240 → 246, `pravaha-cluster` 59 → 63,
-`pravaha-bindings` 63 → 64, `pravaha-server` 145 → 184. `pravaha-server -am verify`: BUILD SUCCESS.
+`pravaha-bindings` 63 → 64, `pravaha-server` 145 → 184, `pravaha-it` 807 (three inverted, none
+added). `./mvnw -o -pl pravaha-server,pravaha-it -am verify`: **BUILD SUCCESS**, 29 modules.
 Console `test_help.py`: 33 passed.
+
+**Three gate tests in `pravaha-it` asserted two of these defects as facts**, and are inverted with
+the reason in place. `StateClusterTest` state104 arm 4 and state105 both pinned "mechanism names
+are case-sensitive, unlike modes" — which is CFG-18 written as a property.
+`StateCheckpointScheduleTest` state011 asserted that `application.yaml`'s `checkpoint:` block does
+**not** contain `timeout`, under the description "timeout is read by the code and not documented"
+— and that absence is precisely how the case file came to record the key as having no writer
+(CFG-17). `OrphanedClassTest` flagged `ConfigurationCheck`, correctly: it is a `@Component` whose
+whole job happens in its `@PostConstruct` and nothing references it, so it is in
+`REACHABLE_OTHERWISE` with the mechanism named.
 
 Three error codes are new — `PRV-1027 CONFIG_KEY_UNREACHABLE`, `PRV-1052 API_UNHANDLED_REQUEST`,
 `PRV-4091 STATE_CHECKPOINT_DIRECTORY_UNUSABLE` — all three in `docs/TROUBLESHOOTING.md`'s table and
