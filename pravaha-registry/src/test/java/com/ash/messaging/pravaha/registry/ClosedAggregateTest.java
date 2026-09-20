@@ -125,10 +125,11 @@ class ClosedAggregateTest {
             // whatever is still waiting -- the subscription is over and the copy ends with it.
             // So the subscriber is the wrong witness for this finding now: what CKPT-3 is about
             // is the view's weights, which the close writes synchronously.
-            assertThat(subscription.awaitQuiet(java.time.Duration.ofSeconds(10)))
-                    .as("a subscription closed with changes still waiting says so, rather than "
-                            + "reporting itself quiet")
-                    .isFalse();
+            // Either answer is legitimate here and the test must not pick one: the delivery
+            // thread may have drained the change before close() ran, or close() may have
+            // discarded it. What is NOT legitimate is a spurious repeat, which is the finding,
+            // and the view's weights below, which are written synchronously.
+            subscription.awaitQuiet(java.time.Duration.ofSeconds(10));
             assertThat(onTheWayOut)
                     .as("nothing spurious reached the subscriber: it either received the real "
                             + "change or received nothing, never an unretracted repeat")
