@@ -126,28 +126,68 @@ public final class ContinuousQueryStatements {
     }
 
     private ViewQuery.Result create(ContinuousStatement.Create create, Principal principal) {
-        // The key by name, resolved against the columns the view would have. Planned the way register
-        // plans it, so the ordinal is the one register will use whatever order the SELECT list is in.
-        List<Integer> keys = create.keyOrdinals(registry.outputSchemaOf(create.select()));
-        if (create.orReplace() && registry.find(create.name()).isPresent()) {
-            return replace(create, keys, principal);
-        }
-        Retention retention = create.retain()
+        ContinuousStatement.Create statement = create;
+        Retention retention = statement
+                .retain()
                 .map(retain -> retain.age().map(Retention::ofAge).orElseGet(Retention::forever))
                 .orElse(null);
+
+        // A plain CREATE's WITH (...) list, read by the same parser that reads a replacement's and
+        // judged by the vocabulary a registration has (B8). A replacement's list is read below, by
+        // ReplacementOptions, because the two statements do not take the same options and an option
+        // that belongs to the other one is refused by name rather than accepted and dropped.
+        if (!statement.orReplace() && !statement.options().isEmpty()) {
+            RegistrationOptions options = RegistrationOptions.of(statement.options());
+            if (options.retention().isPresent()) {
+                if (retention != null) {
+                    throw new PravahaException(
+                            RegistryErrors.OPTION_UNKNOWN,
+                            "'" + statement.name() + "' says its retention twice: RETAIN before AS and retention "
+                                    + "in the WITH list. They are the same setting, and which of two answers wins "
+                                    + "is not something to leave to the order they are written in.");
+                }
+                retention = options.retention().get();
+            }
+            if (options.sink().isPresent()) {
+                String named = options.sink().get();
+                if (statement.sink().isPresent() && !statement.sink().get().equals(named)) {
+                    throw new PravahaException(
+                            RegistryErrors.OPTION_UNKNOWN,
+                            "'" + statement.name() + "' names two different sinks: '"
+                                    + statement.sink().get() + "' with WRITING TO and '" + named
+                                    + "' in the WITH list. A query's changelog goes to one place.");
+                }
+                statement = statement.withSink(named);
+            }
+            if (!options.keyColumns().isEmpty()) {
+                statement = statement.withKeyColumns(options.keyColumns());
+            }
+        }
+
+        // The key by name, resolved against the columns the view would have. Planned the way register
+        // plans it, so the ordinal is the one register will use whatever order the SELECT list is in.
+        StreamSchema output = registry.outputSchemaOf(statement.select());
+        List<Integer> keys = statement.keyOrdinals(output);
+        // RANGE (column): checked here, against the columns the view will actually have, so a
+        // column this engine cannot order is refused at registration rather than at the first read
+        // that wanted the index (PRV-2073, ADR-047).
+        statement.rangeOrdinal(output);
+        if (statement.orReplace() && registry.find(statement.name()).isPresent()) {
+            return replace(statement, keys, principal);
+        }
         RegisteredQuery query = register(
                 registry,
-                create.name(),
-                create.select(),
+                statement.name(),
+                statement.select(),
                 keys,
                 principal,
-                create.sink().orElse(null),
+                statement.sink().orElse(null),
                 retention);
         return new ViewQuery.Result(CREATED, List.<Object[]>of(new Object[] {
-            create.name(),
+            statement.name(),
             query.state().name(),
             query.fingerprint().shortForm(),
-            create.sink().orElse(null)
+            statement.sink().orElse(null)
         }));
     }
 

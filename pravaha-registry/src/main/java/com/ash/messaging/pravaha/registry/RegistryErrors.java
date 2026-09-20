@@ -91,5 +91,17 @@ public final class RegistryErrors {
      */
     public static final ErrorCode SINK_SHAPE_MISMATCH = new ErrorCode(8010, "REGISTRY_SINK_SHAPE_MISMATCH");
 
+    /**
+     * A {@code WITH (...)} option on a registration that this engine does not build, or one whose
+     * value is not the kind of thing it names.
+     *
+     * <p>Named rather than ignored, which is the whole reason a {@code WITH} list on a plain
+     * {@code CREATE} was refused outright before B8: an option nobody reads is a setting the person
+     * who wrote it believes is in force. See {@link RegistrationOptions} for the ones that exist; a
+     * replacement's are {@link ReplacementOptions} and are refused here by name too, with the
+     * statement that does take them.
+     */
+    public static final ErrorCode OPTION_UNKNOWN = new ErrorCode(8011, "REGISTRY_OPTION_UNKNOWN");
+
     private RegistryErrors() {}
 }
