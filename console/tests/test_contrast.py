@@ -35,6 +35,10 @@ PAIRS = [
     # The navigation bar is a gradient, which is the one background axe cannot resolve, so
     # its three stops are tokens and the bar's text is checked against each of them here.
     ("on-bar", "bar-from", 4.5), ("on-bar", "bar-via", 4.5), ("on-bar", "bar-to", 4.5),
+    # A retraction's weight on the landing page: written in its own colour on the page's
+    # ground (the gradient headline, the stats), and as a −1 on a disc of it (the figure and
+    # its legend). Text, so 4.5 each way.
+    ("retract", "canvas", 4.5), ("retract", "surface", 4.5), ("on-flow", "retract", 4.5),
 ]
 
 #: Every theme base.html declares. Blue and green are named palettes, like terminal: each is a
@@ -206,6 +210,18 @@ def test_every_named_palette_declares_every_token():
         block = re.search(r':root\[data-theme="%s"\]\{(.*?)\n\}' % theme, css, re.DOTALL).group(1)
         missing = colour - set(re.findall(r"--([a-z0-9-]+):", block))
         assert not missing, f"{theme} leaves {sorted(missing)} to the crimson light theme"
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_retraction_is_neither_the_accent_nor_a_failure(theme):
+    """The landing page draws an insert as a +1 in the accent and a retraction as a −1 in
+    `--retract`. That is the idea the product rests on -- the answer is maintained, and a
+    retraction corrects it -- so the two have to be told apart at a glance; and a correction is
+    not an error, so the −1 must not look like `--bad` either."""
+    tokens = _themes()[theme]
+    for other in ("flow", "bad"):
+        apart = difference(tokens["retract"], tokens[other])
+        assert apart >= ACCENT_APART, f"{theme}: --retract {tokens['retract']} and --{other} {tokens[other]}: {apart:.1f}"
 
 
 def test_the_system_dark_theme_leaves_the_named_palettes_alone():

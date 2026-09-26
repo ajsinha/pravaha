@@ -2043,20 +2043,42 @@ def test_the_landing_page_tells_a_stranger_nothing_about_this_deployment(anonymo
     assert "engine.test" in signed_in.get("/").text
 
 
-def test_the_figure_is_drawn_twice_so_it_survives_reduced_motion(anonymous):
-    """The animated telling and the still one. Swapping whole groups is what lets
-    `prefers-reduced-motion` stop it: `display:none` on the ancestor stops SMIL, where CSS
-    alone cannot -- and the still group keeps the weights and the corrected total on screen,
-    so the figure still says what it says when nothing moves."""
+def test_the_figure_is_an_island_that_says_in_words_what_it_draws(anonymous):
+    """The figure is a canvas drawn by the page's own script: decorative and aria-hidden, its
+    labels from the catalog, and everything it draws said in text beside it -- the +1 and the
+    −1 in the legend, the correction in "How it works"."""
+    from html import unescape
+
     page = anonymous.get("/").text
-    assert 'class="fig-motion"' in page and 'class="fig-still"' in page
-    assert "@media (prefers-reduced-motion:reduce)" in page
-    assert ".fig-motion{display:none;}" in page and ".fig-still{display:block;}" in page
-    # Decorative, with the same thing said in words further down the page.
-    assert 'aria-hidden="true" focusable="false"' in page
+    canvas = re.search(r'<canvas id="hero-net" aria-hidden="true" data-net="([^"]*)"', page)
+    assert canvas, "no aria-hidden figure canvas"
+    net = json.loads(unescape(canvas.group(1)))
+    assert net["sources"] == ["kafka", "postgres-cdc", "aerospike", "delta", "jdbc", "filesystem"]
+    assert net["readers"] == ["subscriber", "point read", "delta-sink", "jdbc-sink", "kafka-sink", "console"]
+    assert net["hub"] == "PRAVAHA" and net["slogan"] == "Ask once. Answer always."
+    assert (net["plus"], net["minus"]) == ("+1", "−1")
+    # Said in words: the legend under the canvas, and the section the rail calls How it works.
+    assert 'class="w plus">+1<' in page and 'class="w minus">−1<' in page
+    assert "a row taken back" in page and "once per commit" in page
     assert "steps back to 90 without" in page
-    # The weights are the point: +1 and −1 on both tellings.
-    assert page.count("+1") >= 4 and page.count("&#8722;1") >= 2
+    assert '<script src="/static/js/landing.js' in page
+
+
+def test_the_figure_script_is_plain_themed_and_stops_when_it_should():
+    """An island: plain script from this server, no library and no network. Its colours are the
+    theme's tokens, read at start and again when the theme changes; reduced motion gets a still
+    frame and no loop; a hidden page or an off-screen figure stops the loop."""
+    script = (CONSOLE_ROOT / "web" / "static" / "js" / "landing.js").read_text(encoding="utf-8")
+    assert not re.search(r"https?://|import\s|require\(", script)
+    assert "getComputedStyle(document.documentElement)" in script
+    for token in ("--flow", "--retract", "--on-flow", "--surface", "--code", "--serif"):
+        assert f'"{token}"' in script, token
+    # No colour of its own: every hex in it is inside the alpha() parser's pattern.
+    assert not re.search(r"['\"]#[0-9a-fA-F]{3,6}['\"]", script)
+    assert 'attributeFilter: ["data-theme"]' in script and "prefers-color-scheme: dark" in script
+    assert "prefers-reduced-motion: reduce" in script and "drawStill()" in script
+    assert "visibilitychange" in script and "cancelAnimationFrame" in script
+    assert "IntersectionObserver" in script
 
 
 def test_the_figure_carries_no_number_that_was_typed_into_it(anonymous):

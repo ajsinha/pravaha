@@ -66,8 +66,15 @@ TOLERANCE = 0.002
 THRESHOLD = 24
 
 #: Hidden before a screenshot: what changes with the clock rather than with the console.
+#:
+#: Every canvas but one. The landing page's figure (``#hero-net``) is photographed, not
+#: masked: the tabs emulate ``prefers-reduced-motion``, so it draws its still frame and never
+#: starts its loop, and the still frame is a function of the canvas's size and the theme alone
+#: -- nothing random, nothing timed, drawn after its fonts have loaded. Masking it would leave
+#: the hero's right half unreviewed; ``test_the_landing_figure_is_a_still_frame_here`` holds
+#: that no loop is running when the shot is taken.
 MASK = """
-canvas, .freshness, #ops-freshness, #count, .monaco-editor .cursors-layer,
+canvas:not(#hero-net), .freshness, #ops-freshness, #count, .monaco-editor .cursors-layer,
 .monaco-editor .current-line, .monaco-editor .scrollbar, .monaco-editor .decorationsOverviewRuler,
 [data-volatile] { visibility: hidden !important; }
 """
@@ -331,3 +338,19 @@ def test_the_comparison_itself_catches_a_change(comparer, shooters, console):
     assert result["changed"] / result["total"] > 0.0005, result["changed"]
     same = compare_png(comparer, before, before, THRESHOLD)
     assert same["changed"] == 0
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_landing_figure_is_a_still_frame_here(shooters, console, theme):
+    """The baselines photograph the landing page's canvas, which is only sound because what
+    they photograph is the reduced-motion still frame: drawn, and with no animation loop
+    running to move it between one shot and the next."""
+    page = shooters(theme, "wide")
+    open_page(page, console, "/", "window.PravahaLanding && window.PravahaLanding.stills() > 0")
+    assert page.eval("matchMedia('(prefers-reduced-motion: reduce)').matches") is True
+    assert page.eval("window.PravahaLanding.running()") is False
+    assert page.eval("window.PravahaLanding.frames()") == 0
+    drawn = """(() => { const c = document.getElementById('hero-net');
+        const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+        let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i]) n++; return n; })()"""
+    assert page.eval(drawn) > 2000, "the still frame drew nothing"

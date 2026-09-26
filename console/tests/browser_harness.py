@@ -313,7 +313,7 @@ def density_script(density: str) -> str:
 #: "Ready" is the island's own evidence that it mounted -- Monaco's editor, ECharts' canvas,
 #: the onboarding steps -- so nothing is audited or photographed half-built.
 PAGES: list[tuple[str, str, bool, str]] = [
-    ("landing", "/", False, "true"),
+    ("landing", "/", False, "window.PravahaLanding && (PravahaLanding.stills() > 0 || PravahaLanding.frames() > 0)"),
     ("about", "/about", False, "true"),
     ("help", "/help", False, "true"),
     ("help-topic", "/help/quickstart", False, "true"),

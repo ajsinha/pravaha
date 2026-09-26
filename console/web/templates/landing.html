@@ -6,7 +6,12 @@
    a lookalike -- one bar, one set of controls, and a second <header> would give the page two
    banner landmarks. What it adds is the rail below the bar: the version, the page's own
    sections, the documentation and About, and the one call to action, which reads "Open the
-   console" to somebody signed in and "Sign in" to somebody who is not. */
+   console" to somebody signed in and "Sign in" to somebody who is not.
+
+   Its shape is the one the author's SAJHA landing page has -- a hero with a status badge, a
+   headline with a gradient phrase, one line under it, two actions and a code sample; a strip
+   of numbers; a grid of features; the ways to connect; a closing call to action -- in this
+   console's tokens, so it wears whichever theme is chosen. */
 .rail{position:sticky;top:0;z-index:20;background:var(--surface);border-bottom:1px solid var(--rule);
   margin:-1.5rem 0 1.8rem;padding:.5rem 0;}
 .rail .inner{display:flex;flex-wrap:wrap;gap:.35rem 1.1rem;align-items:center;}
@@ -15,77 +20,97 @@
 .rail a:not(.btn):hover{color:var(--flow);text-decoration:underline;}
 .rail .sep{flex:1 1 auto;}
 
-.hero{background:linear-gradient(100deg,var(--bar-from) 0%,var(--bar-via) 48%,var(--bar-to) 100%);
-  color:#fff;border-radius:8px;padding:2.6rem clamp(1.4rem,3vw,2.6rem);margin-bottom:2.2rem;
-  display:grid;grid-template-columns:minmax(0,1fr) minmax(0,26rem);gap:2rem;align-items:center;}
-.hero h1{font-size:clamp(2.2rem,4.4vw,3.1rem);line-height:1.1;margin-bottom:.6rem;color:#fff;}
-.hero .lede{color:rgba(255,255,255,.88);font-size:1.02rem;max-width:40rem;line-height:1.6;}
-.hero .say{font-family:var(--serif);font-style:italic;font-size:1.2rem;color:#fff;margin:1.3rem 0 1.5rem;}
-.hero .tag{display:inline-block;background:rgba(255,255,255,.16);color:#fff;font-size:.68rem;
-  letter-spacing:.11em;font-weight:700;padding:.3rem .7rem;border-radius:3px;margin-bottom:1rem;}
-.hero .accent-rule{height:4px;background:rgba(255,255,255,.72);border-radius:2px;width:76px;margin:1.2rem 0;}
-/* White on all three stops of the gradient, which the contrast gate checks stop by stop. The
-   buttons invert rather than tint, because a tinted button on a gradient lands on a different
-   background at each end of the row. */
-.hero .btn-cta{background:#fff;color:var(--bar-from);border-color:#fff;font-weight:600;}
-.hero .btn-cta:hover{color:var(--bar-from);opacity:.92;}
-.hero .btn-ghost{color:#fff;border-color:rgba(255,255,255,.66);background:transparent;}
-.hero .btn-ghost:hover{background:#fff;color:var(--bar-from);border-color:#fff;}
-@media (max-width:991.98px){.hero{grid-template-columns:minmax(0,1fr);}}
-
-/* ---------------------------------------------------------------- the figure
-   No images, no script, no library: one inline SVG and the page's own tokens. It is drawn
-   twice. `.fig-motion` is the animated one -- rows arriving as pulses that carry their
-   weights, and the view's total stepping back when the retraction lands. `.fig-still` is the
-   same picture with the weights written on the edges and the view settled, and it is what a
-   reader who asked for reduced motion gets, so the figure still says what it says when
-   nothing moves. Swapping whole groups rather than pausing the animation is what makes that
-   work: `display:none` on the ancestor stops SMIL outright, where CSS cannot.
-
-   It is also what makes the screenshots deterministic. The visual harness emulates reduced
-   motion, so every baseline photographs the still group and no frame of an animation. */
-.figure{position:relative;}
-.figure svg{width:100%;height:auto;overflow:visible;display:block;}
-.fig-box{fill:rgba(255,255,255,.07);stroke:rgba(255,255,255,.42);stroke-width:1.2;}
-.fig-box.view{fill:rgba(255,255,255,.13);stroke:#fff;stroke-width:1.6;}
-.fig-edge{stroke:rgba(255,255,255,.38);stroke-width:1.2;fill:none;}
-.fig-label{font-family:var(--code);font-size:10px;fill:rgba(255,255,255,.92);letter-spacing:.1em;}
-.fig-kicker{font-family:var(--code);font-size:8.5px;fill:rgba(255,255,255,.62);letter-spacing:.16em;}
-.fig-cell{font-family:var(--code);font-size:10.5px;fill:#fff;}
-.fig-note{font-family:var(--serif);font-style:italic;font-size:10.5px;fill:rgba(255,255,255,.78);}
-.fig-pulse{fill:#fff;}
-.fig-weight{font-family:var(--code);font-size:9px;font-weight:700;fill:var(--bar-from);}
-.fig-minus .fig-pulse{fill:#FFD9C9;}
-.fig-minus .fig-weight{fill:#7A1A06;}
-.fig-caption{display:block;margin-top:.7rem;font-family:var(--code);font-size:.66rem;
-  letter-spacing:.16em;color:rgba(255,255,255,.66);}
-.fig-still{display:none;}
-.fig-core{animation:fig-breathe 3.4s ease-in-out infinite;}
-@keyframes fig-breathe{0%,100%{r:5}50%{r:7}}
-
-@media (prefers-reduced-motion:reduce){
-  .fig-motion{display:none;}
-  .fig-still{display:block;}
-  .fig-core{animation:none;}
+/* ------------------------------------------------------------------ the hero
+   One panel: the words on the left, the figure on the right as the hero's backdrop, on the
+   page's own surface with the theme's tint over it. The figure is drawn on the surface rather
+   than on the bar's gradient because its +1s wear the accent, and an accent on a gradient made
+   of the accent is a figure with nothing in it. */
+.hero{position:relative;overflow:hidden;background:var(--surface);background-image:var(--tint);
+  border:1px solid var(--rule);border-radius:14px;box-shadow:var(--lift-2);
+  display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:1rem;align-items:center;
+  padding:2.4rem 0 2rem clamp(1.2rem,3vw,2.6rem);margin-bottom:1.6rem;}
+.hero-copy{position:relative;z-index:2;}
+.hero-badge{display:inline-flex;align-items:center;gap:.45rem;flex-wrap:wrap;padding:.28rem .8rem;
+  border:1px solid var(--rule);border-radius:999px;background:var(--canvas);font-size:.76rem;
+  color:var(--slate);margin-bottom:1.3rem;}
+.hero-badge .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);}
+.hero-badge .dot.down{background:var(--bad);}
+.hero-badge .sep{color:var(--muted);}
+.hero h1{font-size:clamp(2.3rem,4.6vw,3.5rem);line-height:1.06;letter-spacing:-.02em;margin:0 0 1rem;color:var(--ink);}
+/* The gradient phrase runs from the accent to the retraction colour -- the +1 and the −1 of
+   the figure beside it -- both of which the contrast gate holds at 4.5:1 on this ground, so the
+   phrase is legible at every point along it, in every theme. */
+.hero h1 .grad{background:linear-gradient(100deg,var(--flow) 10%,var(--retract) 95%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;}
+.hero-sub{font-size:1.06rem;line-height:1.6;color:var(--slate);max-width:34rem;margin-bottom:1.6rem;}
+.hero-actions{display:flex;flex-wrap:wrap;gap:.6rem;}
+.hero-actions .btn{padding:.55rem 1.2rem;font-weight:600;}
+.net{position:relative;margin:0;min-width:0;}
+.net canvas{display:block;width:100%;height:clamp(330px,34vw,410px);}
+.net-legend{display:flex;flex-wrap:wrap;gap:.4rem 1.2rem;justify-content:center;font-size:.78rem;
+  color:var(--slate);padding:0 1rem;}
+.net-legend .w{display:inline-flex;align-items:center;justify-content:center;min-width:1.9rem;
+  height:1.25rem;border-radius:999px;font-family:var(--code);font-weight:700;font-size:.72rem;
+  color:var(--on-flow);margin-right:.35rem;}
+.net-legend .w.plus{background:var(--flow);}
+.net-legend .w.minus{background:var(--retract);}
+.fig-caption{display:block;text-align:center;margin-top:.5rem;font-family:var(--code);font-size:.66rem;
+  letter-spacing:.16em;color:var(--muted);}
+@media (max-width:991.98px){
+  .hero{grid-template-columns:minmax(0,1fr);padding:1.8rem 0 1.4rem;}
+  .hero-copy{padding:0 1.2rem;}
+  .net canvas{height:370px;}
 }
 
-.tclass{border-left:3px solid var(--flow);padding-left:.85rem;margin-bottom:1.05rem}
-.tclass .code{font-weight:700;color:var(--flow);font-size:.82rem;letter-spacing:.04em}
-.pillar{border:1px solid var(--rule);border-radius:4px;padding:1.15rem;height:100%}
-.pillar .n{color:var(--flow);font-weight:700;font-size:.72rem;letter-spacing:.09em}
-.closing{border-top:1px solid var(--rule);margin-top:2.2rem;padding-top:2.2rem;text-align:center;}
-.closing h2{font-size:1.8rem;margin:0 0 .6rem;}
-.closing p{color:var(--muted);max-width:38rem;margin:0 auto 1.4rem;}
+/* The code sample: what registering a question looks like, from any SQL client. */
+.code-window{background:var(--surface);border:1px solid var(--rule);border-radius:10px;overflow:hidden;
+  box-shadow:var(--lift);}
+.code-window .bar{display:flex;align-items:center;gap:.4rem;padding:.5rem .85rem;background:var(--stripe);
+  border-bottom:1px solid var(--rule);}
+.code-window .bar i{width:9px;height:9px;border-radius:50%;background:var(--edge);opacity:.5;}
+.code-window .bar span{margin-left:auto;font-family:var(--code);font-size:.72rem;color:var(--muted);}
+.code-window pre{border:0;border-radius:0;background:transparent;padding:1rem 1.1rem;font-size:.8rem;
+  line-height:1.7;margin:0;}
+
+/* The strip of numbers. Each one is a property of the product, true of every deployment;
+   nothing here counts anything in this one. */
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem;padding:1.6rem 0;
+  border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin:2rem 0;text-align:center;}
+.stats .num{font-family:var(--serif);font-size:2.3rem;font-weight:700;line-height:1.1;color:var(--flow);}
+.stats .num .minus{color:var(--retract);}
+.stats .lbl{font-size:.82rem;color:var(--slate);max-width:15rem;margin:.3rem auto 0;}
+@media (max-width:767.98px){.stats{grid-template-columns:repeat(2,minmax(0,1fr));}}
+
+.section-title{font-family:var(--serif);font-size:1.6rem;font-weight:600;margin:.2rem 0 .5rem;}
+.section-desc{color:var(--slate);max-width:44rem;line-height:1.6;margin-bottom:1.4rem;}
+.feature{background:var(--raised);border:1px solid var(--rule);border-radius:10px;padding:1.25rem;
+  height:100%;position:relative;overflow:hidden;transition:transform .2s ease,box-shadow .2s ease;}
+.feature::after{content:"";position:absolute;left:0;right:0;top:0;height:2px;
+  background:linear-gradient(90deg,transparent,var(--flow),transparent);opacity:0;transition:opacity .2s ease;}
+.feature:hover{transform:translateY(-3px);box-shadow:var(--lift-2);}
+.feature:hover::after{opacity:1;}
+.feature .icon{width:40px;height:40px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+  background:var(--stripe);color:var(--flow);font-size:1.15rem;margin-bottom:.8rem;}
+.feature .n{color:var(--flow);font-weight:700;font-size:.72rem;letter-spacing:.09em;}
+.feature h3{font-family:var(--serif);font-size:1.02rem;font-weight:600;margin:.2rem 0 .4rem;}
+.feature p{font-size:.86rem;color:var(--slate);margin:0;line-height:1.55;}
+.proto{display:inline-block;font-family:var(--code);font-size:.74rem;color:var(--flow);background:var(--stripe);
+  border:1px solid var(--rule);border-radius:5px;padding:.2rem .55rem;margin-bottom:.7rem;}
+.closing{background:var(--surface);background-image:var(--tint);border:1px solid var(--rule);border-radius:14px;
+  margin-top:2.4rem;padding:2.4rem 1.2rem;text-align:center;}
+.closing h2{font-size:1.9rem;margin:0 0 .6rem;}
+.closing p{color:var(--slate);max-width:38rem;margin:0 auto 1.4rem;}
+@media (prefers-reduced-motion:reduce){.feature,.feature::after{transition:none;}.feature:hover{transform:none;}}
 </style>{% endblock %}
 {% block content %}
 
 {# The rail. `current` is "/" here, so nothing in the shell's own nav is marked. #}
 <div class="rail"><div class="inner">
   <span class="ver">{{ app_name }} {{ version }}</span>
-  <a href="#what-it-is">{{ t('landing.rail.what') }}</a>
   <a href="#how-it-works">{{ t('landing.rail.figure') }}</a>
   <a href="#different">{{ t('landing.rail.different') }}</a>
-  <a href="#what-it-does">{{ t('landing.rail.does') }}</a>
+  <a href="#connect">{{ t('landing.rail.connect') }}</a>
+  <a href="#what-it-is">{{ t('landing.rail.what') }}</a>
   <a href="#start-here">{{ t('landing.rail.start') }}</a>
   <span class="sep"></span>
   <a href="/help">{{ t('landing.rail.docs') }}</a>
@@ -97,127 +122,141 @@
   {% endif %}
 </div></div>
 
-<div class="hero">
-  <div>
-    <span class="tag">{{ t('landing.tag') }}</span>
-    <h1 class="serif">{{ t('landing.hero_1') }}<br>{{ t('landing.hero_2') }}</h1>
-    <div class="accent-rule"></div>
-    <p class="lede">{{ t('landing.lede') }}</p>
-    <p class="say serif">{{ slogan }}</p>
-    {% if signed_in %}
-    <a href="/home" class="btn btn-cta btn-sm px-3">{{ t('landing.open_console') }}</a>
-    {% else %}
-    <a href="/login" class="btn btn-cta btn-sm px-3">{{ t('shell.sign_in') }}</a>
-    {% endif %}
-    <a href="/about" class="btn btn-ghost btn-sm px-3 ms-2">{{ t('landing.what_this_is') }}</a>
-    <a href="/help/quickstart" class="btn btn-ghost btn-sm px-3 ms-2">{{ t('landing.quick_start') }}</a>
+<section class="hero" aria-labelledby="hero-title">
+  <div class="hero-copy">
+    {# The status badge. Two facts a stranger may have: which console this is, and whether the
+       engine it is pointed at answers -- what reaching this port establishes anyway. Not the
+       engine's address, not what is registered, not how much: those wait for a session. #}
+    <span class="hero-badge" id="hero-badge">
+      {% if engine_up %}<span class="dot"></span>{{ t('shell.engine_up') }}
+      {% else %}<span class="dot down"></span>{{ t('shell.engine_down') }}{% endif %}
+      <span class="sep" aria-hidden="true">·</span>
+      <span>{{ t('landing.instance.console', version=version) }}</span>
+    </span>
+    <h1 class="serif" id="hero-title">{{ t('landing.hero_1') }} <span class="grad">{{ t('landing.hero_2') }}</span></h1>
+    <p class="hero-sub">{{ t('landing.hero_sub') }}</p>
+    <div class="hero-actions">
+      {% if signed_in %}
+      <a href="/home" class="btn btn-primary">{{ t('landing.open_console') }}</a>
+      {% else %}
+      <a href="/login" class="btn btn-primary">{{ t('shell.sign_in') }}</a>
+      {% endif %}
+      <a href="/help/quickstart" class="btn btn-outline-secondary">{{ t('landing.quick_start') }}</a>
+    </div>
   </div>
 
-  {# Decorative: everything it says is said in words under `#how-it-works`, so a screen
-     reader is handed the sentence and not a graph of forty nodes. #}
-  <div class="figure" id="figure">
-    <svg viewBox="0 0 520 450" role="presentation" aria-hidden="true" focusable="false">
-      <!-- edges -->
-      <path id="fg-e1" class="fig-edge" d="M117,58 V96"/>
-      <path id="fg-e2" class="fig-edge" d="M365,58 C365,118 344,132 322,164"/>
-      <path id="fg-e3" class="fig-edge" d="M117,130 C117,146 158,152 198,164"/>
-      <path id="fg-e4" class="fig-edge" d="M260,198 V230"/>
-      <path id="fg-e5" class="fig-edge" d="M260,264 V296"/>
-      <path id="fg-e6" class="fig-edge" d="M196,388 C196,404 152,404 96,412"/>
-      <path id="fg-e7" class="fig-edge" d="M260,388 V412"/>
-      <path id="fg-e8" class="fig-edge" d="M324,388 C324,404 368,404 424,412"/>
+  {# The figure. Decorative, and aria-hidden: everything it draws is said in words in the
+     legend under it and in "How it works" below, so a screen reader is handed the sentence
+     rather than a canvas. Its labels come from the catalog, through data-net. #}
+  {% set net = {
+       "sources": [t('landing.net.kafka'), t('landing.net.postgres_cdc'), t('landing.net.aerospike'),
+                   t('landing.net.delta'), t('landing.net.jdbc'), t('landing.net.filesystem')],
+       "readers": [t('landing.net.subscriber'), t('landing.net.point_read'), t('landing.net.delta_sink'),
+                   t('landing.net.jdbc_sink'), t('landing.net.kafka_sink'), t('landing.net.console')],
+       "hub": t('landing.net.hub'), "slogan": t('shell.slogan'),
+       "plus": t('landing.net.plus'), "minus": t('landing.net.minus')} %}
+  <figure class="net" id="figure">
+    <canvas id="hero-net" aria-hidden="true" data-net="{{ net|tojson|forceescape }}"></canvas>
+    <figcaption>
+      <span class="net-legend" id="net-legend">
+        <span><span class="w plus">{{ t('landing.net.plus') }}</span>{{ t('landing.net.legend_plus') }}</span>
+        <span><span class="w minus">{{ t('landing.net.minus') }}</span>{{ t('landing.net.legend_minus') }}</span>
+        <span>{{ t('landing.net.legend_commit') }}</span>
+      </span>
+      <span class="fig-caption">{{ t('landing.figure.caption') }}</span>
+    </figcaption>
+  </figure>
+</section>
 
-      <!-- sources -->
-      <rect class="fig-box" x="52" y="24" width="130" height="34" rx="4"/>
-      <text class="fig-kicker" x="56" y="18">{{ t('landing.figure.source') }}</text>
-      <text class="fig-label" x="117" y="46" text-anchor="middle">{{ t('landing.figure.stream_txn') }}</text>
-      <rect class="fig-box" x="300" y="24" width="130" height="34" rx="4"/>
-      <text class="fig-kicker" x="304" y="18">{{ t('landing.figure.source') }}</text>
-      <text class="fig-label" x="365" y="46" text-anchor="middle">{{ t('landing.figure.stream_ref') }}</text>
-
-      <!-- the operator chain -->
-      <rect class="fig-box" x="52" y="96" width="130" height="34" rx="4"/>
-      <text class="fig-label" x="117" y="118" text-anchor="middle">{{ t('landing.figure.filter') }}</text>
-      <rect class="fig-box" x="176" y="164" width="168" height="34" rx="4"/>
-      <text class="fig-label" x="260" y="186" text-anchor="middle">{{ t('landing.figure.join') }}</text>
-      <rect class="fig-box" x="176" y="230" width="168" height="34" rx="4"/>
-      <text class="fig-label" x="260" y="252" text-anchor="middle">{{ t('landing.figure.aggregate') }}</text>
-
-      <!-- the view: the thing that is maintained -->
-      <rect class="fig-box view" x="120" y="296" width="280" height="92" rx="5"/>
-      <text class="fig-kicker" x="132" y="314">{{ t('landing.figure.view') }}</text>
-      <text class="fig-cell" x="132" y="336">{{ t('landing.figure.col_key') }}</text>
-      <text class="fig-cell" x="330" y="336" text-anchor="end">{{ t('landing.figure.col_total') }}</text>
-      <text class="fig-cell" x="132" y="356">u1</text>
-      <text class="fig-cell" x="330" y="356" text-anchor="end">150</text>
-      <text class="fig-cell" x="132" y="374">u2</text>
-      <circle class="fig-core" cx="388" cy="310" r="5" fill="#fff"/>
-
-      <!-- readers -->
-      <rect class="fig-box" x="24" y="412" width="144" height="30" rx="4"/>
-      <text class="fig-label" x="96" y="431" text-anchor="middle">{{ t('landing.figure.subscriber') }}</text>
-      <rect class="fig-box" x="188" y="412" width="144" height="30" rx="4"/>
-      <text class="fig-label" x="260" y="431" text-anchor="middle">{{ t('landing.figure.point_read') }}</text>
-      <rect class="fig-box" x="352" y="412" width="144" height="30" rx="4"/>
-      <text class="fig-label" x="424" y="431" text-anchor="middle">{{ t('landing.figure.sink') }}</text>
-
-      {#- The animated telling. One 8-second cycle drives all of it, so the retraction and the
-          total stepping back are the same event rather than two things that happen to look
-          related: every animation below has dur="8s" and they start together. -#}
-      <g class="fig-motion">
-        <!-- rows arriving, each carrying its weight -->
-        <g><animateMotion dur="8s" repeatCount="indefinite" keyPoints="0;1;1" keyTimes="0;.14;1" calcMode="linear"><mpath href="#fg-e1"/></animateMotion>
-          <animate attributeName="opacity" dur="8s" repeatCount="indefinite" values="0;1;1;0;0" keyTimes="0;.02;.12;.15;1"/>
-          <circle class="fig-pulse" r="9"/><text class="fig-weight" y="3" text-anchor="middle">+1</text></g>
-        <g><animateMotion dur="8s" repeatCount="indefinite" keyPoints="0;1;1" keyTimes="0;.18;1" begin="1.1s" calcMode="linear"><mpath href="#fg-e3"/></animateMotion>
-          <animate attributeName="opacity" dur="8s" repeatCount="indefinite" begin="1.1s" values="0;1;1;0;0" keyTimes="0;.02;.16;.19;1"/>
-          <circle class="fig-pulse" r="9"/><text class="fig-weight" y="3" text-anchor="middle">+1</text></g>
-        <g><animateMotion dur="8s" repeatCount="indefinite" keyPoints="0;1;1" keyTimes="0;.2;1" begin=".5s" calcMode="linear"><mpath href="#fg-e2"/></animateMotion>
-          <animate attributeName="opacity" dur="8s" repeatCount="indefinite" begin=".5s" values="0;1;1;0;0" keyTimes="0;.02;.18;.21;1"/>
-          <circle class="fig-pulse" r="9"/><text class="fig-weight" y="3" text-anchor="middle">+1</text></g>
-
-        <!-- into the view: an insert, then the retraction that corrects it -->
-        <g><animateMotion dur="8s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;.2;.3;1" calcMode="linear"><mpath href="#fg-e5"/></animateMotion>
-          <animate attributeName="opacity" dur="8s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;.2;.22;.29;.31;1"/>
-          <circle class="fig-pulse" r="9"/><text class="fig-weight" y="3" text-anchor="middle">+1</text></g>
-        <g class="fig-minus"><animateMotion dur="8s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;.52;.62;1" calcMode="linear"><mpath href="#fg-e5"/></animateMotion>
-          <animate attributeName="opacity" dur="8s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;.52;.54;.61;.63;1"/>
-          <circle class="fig-pulse" r="9"/><text class="fig-weight" y="3" text-anchor="middle">&#8722;1</text></g>
-
-        <!-- and the total steps back when it lands -->
-        <text class="fig-cell" x="330" y="374" text-anchor="end">900
-          <animate attributeName="opacity" dur="8s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;.3;.31;.62;.63;1"/></text>
-        <text class="fig-cell" x="330" y="374" text-anchor="end">90
-          <animate attributeName="opacity" dur="8s" repeatCount="indefinite" values="1;1;0;0;1;1" keyTimes="0;.3;.31;.62;.63;1"/></text>
-
-        <!-- out of the view, to everything reading it -->
-        <circle class="fig-pulse" r="3.5"><animateMotion dur="8s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;.64;.74;1" calcMode="linear"><mpath href="#fg-e6"/></animateMotion></circle>
-        <circle class="fig-pulse" r="3.5"><animateMotion dur="8s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;.66;.76;1" calcMode="linear"><mpath href="#fg-e7"/></animateMotion></circle>
-        <circle class="fig-pulse" r="3.5"><animateMotion dur="8s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;.68;.78;1" calcMode="linear"><mpath href="#fg-e8"/></animateMotion></circle>
-      </g>
-
-      {#- The same figure with nothing moving: the weights written on the edges they travel,
-          and the view settled at the corrected total. -#}
-      <g class="fig-still">
-        <circle class="fig-pulse" cx="117" cy="80" r="9"/><text class="fig-weight" x="117" y="83" text-anchor="middle">+1</text>
-        <circle class="fig-pulse" cx="365" cy="104" r="9"/><text class="fig-weight" x="365" y="107" text-anchor="middle">+1</text>
-        <circle class="fig-pulse" cx="260" cy="214" r="9"/><text class="fig-weight" x="260" y="217" text-anchor="middle">+1</text>
-        <g class="fig-minus"><circle class="fig-pulse" cx="260" cy="280" r="9"/>
-          <text class="fig-weight" x="260" y="283" text-anchor="middle">&#8722;1</text></g>
-        <text class="fig-cell" x="330" y="374" text-anchor="end">90</text>
-      </g>
-    </svg>
-    <span class="fig-caption">{{ t('landing.figure.caption') }}</span>
+{# What the figure says, in words -- which is why the figure itself is aria-hidden -- beside
+   what registering a question looks like. #}
+<div class="row g-4 mb-2" id="how-it-works">
+  <div class="col-lg-6">
+    <p class="kicker">{{ t('landing.figure.kicker') }}</p>
+    <h2 class="section-title">{{ t('landing.figure.heading') }}</h2>
+    <p class="text-muted" style="line-height:1.65">{{ t('landing.figure.said_1') }}</p>
+    <p class="text-muted mb-0" style="line-height:1.65">{{ t('landing.figure.said_2') }}</p>
+  </div>
+  <div class="col-lg-6">
+    <div class="code-window">
+      <div class="bar"><i></i><i></i><i></i><span>{{ t('landing.code.file') }}</span></div>
+      <pre tabindex="0" aria-label="{{ t('landing.code.label') }}"><code>{{ t('landing.code.sample') }}</code></pre>
+    </div>
   </div>
 </div>
 
-{# What the figure says, in words -- which is why the figure itself is aria-hidden. #}
-<div class="row g-4 mb-4" id="how-it-works">
+<div class="stats" id="stats">
+  <div><div class="num">{{ t('landing.stats.weights') }}</div><div class="lbl">{{ t('landing.stats.weights_label') }}</div></div>
+  <div><div class="num">{{ t('landing.stats.shared') }}</div><div class="lbl">{{ t('landing.stats.shared_label') }}</div></div>
+  <div><div class="num">{{ t('landing.stats.rescans') }}</div><div class="lbl">{{ t('landing.stats.rescans_label') }}</div></div>
+  <div><div class="num">{{ t('landing.stats.commit') }}</div><div class="lbl">{{ t('landing.stats.commit_label') }}</div></div>
+</div>
+
+<section id="different" aria-labelledby="different-title">
+  <p class="kicker">{{ t('landing.different.kicker') }}</p>
+  <h2 class="section-title" id="different-title">{{ t('landing.different.heading') }}</h2>
+  <p class="section-desc">{{ t('landing.different.desc') }}</p>
+  <div class="row g-3 mb-4">
+    {% for icon, title, body in [
+       ('bi-plus-slash-minus', t('landing.different.incremental'), t('landing.different.incremental_body')),
+       ('bi-clock-history', t('landing.different.event_time'), t('landing.different.event_time_body')),
+       ('bi-diagram-2', t('landing.different.shared'), t('landing.different.shared_body')),
+       ('bi-shield-check', t('landing.different.bounded'), t('landing.different.bounded_body'))] %}
+    <div class="col-md-6 col-xl-3"><div class="feature">
+      <div class="icon"><i class="bi {{ icon }}" aria-hidden="true"></i></div>
+      <h3>{{ title }}</h3>
+      <p>{{ body }}</p>
+    </div></div>
+    {% endfor %}
+  </div>
+</section>
+
+<section id="what-it-does" aria-labelledby="does-title">
+  <p class="kicker">{{ t('landing.does.kicker') }}</p>
+  <h2 class="section-title" id="does-title">{{ t('landing.does.heading') }}</h2>
+  <div class="row g-3 mb-4">
+    {% for n, title, body in [
+       ('01', t('landing.does.continuous'), t('landing.does.continuous_body')),
+       ('02', t('landing.does.joins'), t('landing.does.joins_body')),
+       ('03', t('landing.does.protocol'), t('landing.does.protocol_body')),
+       ('04', t('landing.does.answers'), t('landing.does.answers_body'))] %}
+    <div class="col-md-6 col-xl-3"><div class="feature">
+      <div class="n">{{ n }}</div>
+      <h3>{{ title }}</h3>
+      <p>{{ body }}</p>
+    </div></div>
+    {% endfor %}
+  </div>
+</section>
+
+<section id="connect" aria-labelledby="connect-title">
+  <p class="kicker">{{ t('landing.connect.kicker') }}</p>
+  <h2 class="section-title" id="connect-title">{{ t('landing.connect.heading') }}</h2>
+  <p class="section-desc">{{ t('landing.connect.desc') }}</p>
+  <div class="row g-3 mb-4">
+    {% for proto, title, body in [
+       (t('landing.connect.register_proto'), t('landing.connect.register'), t('landing.connect.register_body')),
+       (t('landing.connect.read_proto'), t('landing.connect.read'), t('landing.connect.read_body')),
+       (t('landing.connect.subscribe_proto'), t('landing.connect.subscribe'), t('landing.connect.subscribe_body')),
+       (t('landing.connect.sink_proto'), t('landing.connect.sink'), t('landing.connect.sink_body'))] %}
+    <div class="col-md-6 col-xl-3"><div class="feature">
+      <span class="proto">{{ proto }}</span>
+      <h3>{{ title }}</h3>
+      <p>{{ body }}</p>
+    </div></div>
+    {% endfor %}
+  </div>
+</section>
+
+<div class="rule"></div>
+<div class="row g-4 mb-4" id="what-it-is">
   <div class="col-md-7">
-    <p class="kicker">{{ t('landing.figure.kicker') }}</p>
-    <h2 class="serif" style="font-size:1.45rem">{{ t('landing.figure.heading') }}</h2>
-    <p class="text-muted" style="line-height:1.65">{{ t('landing.figure.said_1') }}</p>
-    <p class="text-muted mb-0" style="line-height:1.65">{{ t('landing.figure.said_2') }}</p>
+    <p class="kicker">{{ t('landing.name.kicker') }}</p>
+    <h2 class="section-title">{{ t('landing.name.title') }}</h2>
+    <p class="text-muted" style="line-height:1.65">{{ t('landing.name.p1_before') }} <em>pravāha</em> {{ t('landing.name.p1_is') }}
+      <strong>{{ t('landing.name.p1_current') }}</strong>{{ t('landing.name.p1_flow') }} <em>{{ t('landing.name.p1_flowing') }}</em>{{ t('landing.name.p1_after') }}</p>
+    <p class="text-muted" style="line-height:1.65">{{ t('landing.name.p2') }}</p>
+    <p class="text-muted mb-0" style="line-height:1.65">{{ t('landing.name.p3_before') }} <em>{{ t('landing.name.p3_question') }}</em> {{ t('landing.name.p3_after') }}</p>
   </div>
   <div class="col-md-5">
     <p class="kicker">{{ t('landing.instance.kicker') }}</p>
@@ -246,45 +285,6 @@
       {% endif %}
     </div></div>
   </div>
-</div>
-
-<div class="rule"></div>
-<div class="row g-4 mb-4" id="what-it-is">
-  <div class="col-md-7">
-    <p class="kicker">{{ t('landing.name.kicker') }}</p>
-    <h2 class="serif" style="font-size:1.45rem">{{ t('landing.name.title') }}</h2>
-    <p class="text-muted" style="line-height:1.65">{{ t('landing.name.p1_before') }} <em>pravāha</em> {{ t('landing.name.p1_is') }}
-      <strong>{{ t('landing.name.p1_current') }}</strong>{{ t('landing.name.p1_flow') }} <em>{{ t('landing.name.p1_flowing') }}</em>{{ t('landing.name.p1_after') }}</p>
-    <p class="text-muted" style="line-height:1.65">{{ t('landing.name.p2') }}</p>
-    <p class="text-muted mb-0" style="line-height:1.65">{{ t('landing.name.p3_before') }} <em>{{ t('landing.name.p3_question') }}</em> {{ t('landing.name.p3_after') }}</p>
-  </div>
-  <div class="col-md-5" id="different">
-    <p class="kicker">{{ t('landing.different.kicker') }}</p>
-    <div class="tclass"><div class="code">{{ t('landing.different.incremental') }}</div>
-      <div class="small text-muted">{{ t('landing.different.incremental_body') }}</div></div>
-    <div class="tclass"><div class="code">{{ t('landing.different.event_time') }}</div>
-      <div class="small text-muted">{{ t('landing.different.event_time_body') }}</div></div>
-    <div class="tclass"><div class="code">{{ t('landing.different.shared') }}</div>
-      <div class="small text-muted">{{ t('landing.different.shared_body') }}</div></div>
-    <div class="tclass"><div class="code">{{ t('landing.different.bounded') }}</div>
-      <div class="small text-muted">{{ t('landing.different.bounded_body') }}</div></div>
-  </div>
-</div>
-
-<div class="rule"></div>
-<p class="kicker" id="what-it-does">{{ t('landing.does.kicker') }}</p>
-<div class="row g-3 mb-4">
-  {% for n, title, d in [
-     ('01', t('landing.does.continuous'), t('landing.does.continuous_body')),
-     ('02', t('landing.does.joins'), t('landing.does.joins_body')),
-     ('03', t('landing.does.protocol'), t('landing.does.protocol_body')),
-     ('04', t('landing.does.answers'), t('landing.does.answers_body'))] %}
-  <div class="col-md-3"><div class="pillar">
-    <div class="n">{{ n }}</div>
-    <div class="serif" style="font-size:1.02rem;margin:.3rem 0 .45rem">{{ title }}</div>
-    <div class="small text-muted">{{ d }}</div>
-  </div></div>
-  {% endfor %}
 </div>
 
 <div class="rule"></div>
@@ -323,10 +323,11 @@
   <h2 class="serif">{{ t('landing.closing.heading') }}</h2>
   <p>{{ t('landing.closing.body') }}</p>
   {% if signed_in %}
-  <a href="/home" class="btn btn-primary btn-sm px-3">{{ t('landing.open_console') }}</a>
+  <a href="/home" class="btn btn-primary px-3">{{ t('landing.open_console') }}</a>
   {% else %}
-  <a href="/login" class="btn btn-primary btn-sm px-3">{{ t('shell.sign_in') }}</a>
+  <a href="/login" class="btn btn-primary px-3">{{ t('shell.sign_in') }}</a>
   {% endif %}
-  <a href="/help/quickstart" class="btn btn-outline-secondary btn-sm px-3 ms-2">{{ t('landing.quick_start') }}</a>
+  <a href="/help/quickstart" class="btn btn-outline-secondary px-3 ms-2">{{ t('landing.quick_start') }}</a>
 </div>
 {% endblock %}
+{% block scripts %}<script src="/static/js/landing.js?v={{ asset_version }}"></script>{% endblock %}

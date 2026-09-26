@@ -96,6 +96,25 @@ def test_every_page_in_compact_density_has_no_axe_violations(compact, console, n
     _assert_clean(compact, f"{path} (compact)")
 
 
+@pytest.mark.parametrize("motion", ["moving", "reduced"])
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_landing_page_signed_out_has_no_axe_violations(chrome, console, theme, motion):
+    """The one page most people see first, as they see it: nobody signed in, the figure
+    moving -- or, for somebody who asked for reduced motion, still."""
+    page = chrome.new_page()
+    try:
+        page.before_every_document(DETERMINISM)
+        page.before_every_document(theme_script(theme))
+        page.emulate(reduced_motion=motion == "reduced", scheme="dark" if theme == "dark" else "light")
+        open_page(page, console, "/", "window.PravahaLanding && (PravahaLanding.stills() > 0 "
+                                      "|| PravahaLanding.frames() > 0)")
+        assert "Sign in" in page.text("#rail-cta")
+        assert page.exceptions == [], page.exceptions
+        _assert_clean(page, f"the landing page, signed out ({theme}, {motion})")
+    finally:
+        page.close()
+
+
 @pytest.mark.parametrize("theme", THEMES)
 def test_the_open_palette_has_no_axe_violations(themed, console, theme):
     page = themed(theme)

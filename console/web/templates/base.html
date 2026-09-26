@@ -65,6 +65,12 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
   --bad:#CC2200; --bad-soft:#FBE9E4;
   --info:#293352; --info-soft:#E9ECF3;
 
+  /* The RETRACTION: the colour a -1 wears where the product draws its weights (the landing
+     page's figure). Not a status -- a retraction is a correction, not a failure -- so it is the
+     palette's second hue, the indigo the bar ends on, and a test holds it apart from both the
+     accent and `--bad`. */
+  --retract:#293352;
+
   /* depth. Two levels and no more: a page where everything floats has no
      hierarchy, it just has shadows. */
   --lift:0 1px 2px rgba(26,26,26,.06), 0 1px 3px rgba(26,26,26,.04);
@@ -116,6 +122,7 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
   --warn:#E8C26A; --warn-soft:#291F12;
   --bad:#FF8B63; --bad-soft:#2E1A12;
   --info:#A9B6D6; --info-soft:#1A1E2A;
+  --retract:#A9B6D6;
 
   --lift:0 1px 2px rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.35);
   --lift-2:0 2px 8px rgba(0,0,0,.55), 0 6px 18px rgba(0,0,0,.4);
@@ -154,6 +161,7 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
   --warn:#FFC24D; --warn-soft:#2A2110;
   --bad:#FF6B6B; --bad-soft:#2A1414;
   --info:#3FD0FF; --info-soft:#0D2029;
+  --retract:#3FD0FF;
 
   --lift:0 1px 2px rgba(0,0,0,.7), 0 1px 3px rgba(0,0,0,.5);
   --lift-2:0 2px 8px rgba(0,0,0,.75), 0 6px 18px rgba(0,0,0,.6);
@@ -180,7 +188,10 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
    #0079C1 is on the bar, where white sits on it at 4.66:1. As the TEXT accent it is 4.25 on
    this canvas and 4.06 on a card header, so `--flow` is one step deeper in the same hue,
    #006BAC, which holds 4.8 on every ground it may sit on. The same move the dark crimson
-   makes, in the other direction. #00A3E0 is `--flow-l`, the glow, which carries no text. */
+   makes, in the other direction. #00A3E0 is `--flow-l`, the glow, which carries no text.
+
+   The retraction wears SAJHA's violet (#6F42C1), not a second blue: a −1 that is a darker
+   step of the +1 is a figure nobody can read at a glance. */
 :root[data-theme="blue"]{
   --flow:#006BAC; --flow-d:#003168; --flow-l:#00A3E0;
   --on-bar:#fff; --on-bar-dim:rgba(255,255,255,.82);
@@ -195,6 +206,7 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
   --warn:#8A5A12; --warn-soft:#F8F0E2;
   --bad:#CC2200; --bad-soft:#FBE9E4;
   --info:#293352; --info-soft:#E9ECF3;
+  --retract:#6F42C1;
 
   --lift:0 1px 2px rgba(0,49,104,.06), 0 1px 3px rgba(0,49,104,.04);
   --lift-2:0 2px 6px rgba(0,49,104,.08), 0 4px 14px rgba(0,49,104,.06);
@@ -216,7 +228,8 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
 
    #006039 carries text at 7:1 on this canvas and is the accent as published. #A37E2C does
    not: white on it is 3.76:1 and it is 3.42:1 as text on the canvas, so the gold on the bar's
-   last stop is #8A6A1F, the nearest step of the same hue that holds 4.5 both ways.
+   last stop, and the retraction's colour, is #8A6A1F: the nearest step of the same hue
+   that holds 4.5 both ways.
 
    Two status colours move, and a test is why. The crimson `--ok` (#1B6B3A) is 10 ΔE from this
    accent: "running" and "this product" would be one colour. It becomes a yellow-shifted green,
@@ -237,6 +250,7 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
   --warn:#9A4A00; --warn-soft:#F8F0E2;
   --bad:#CC2200; --bad-soft:#FBE9E4;
   --info:#293352; --info-soft:#E9ECF3;
+  --retract:#8A6A1F;
 
   --lift:0 1px 2px rgba(0,61,36,.06), 0 1px 3px rgba(0,61,36,.04);
   --lift-2:0 2px 6px rgba(0,61,36,.08), 0 4px 14px rgba(0,61,36,.06);
@@ -264,6 +278,7 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
     --warn:#E8C26A; --warn-soft:#291F12;
     --bad:#FF8B63; --bad-soft:#2E1A12;
     --info:#A9B6D6; --info-soft:#1A1E2A;
+    --retract:#A9B6D6;
     --lift:0 1px 2px rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.35);
     --lift-2:0 2px 8px rgba(0,0,0,.55), 0 6px 18px rgba(0,0,0,.4);
     --bar-from:#2E0810; --bar-via:#6E1120; --bar-to:#1B2138;
