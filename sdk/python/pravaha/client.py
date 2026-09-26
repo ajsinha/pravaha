@@ -1108,6 +1108,15 @@ class Client(DebugCommands):
         ``GET /api/v1/me/permissions``."""
         return dict(self._http().get("/api/v1/me/permissions") or {})
 
+    def tenants(self) -> dict:
+        """The admission quotas in force and each tenant's use against them (ADR-050):
+        ``scope`` (``all`` for a principal who may read the audit trail, otherwise ``own``),
+        ``defaults`` (``maxQueries`` and ``maxStateKeys``, ``None`` meaning no limit), and
+        ``tenants``, each with its use and the registrations refused for it. A principal who
+        may not read the audit trail is shown its own tenant and no other.
+        ``GET /api/v1/tenants``."""
+        return dict(self._http().get("/api/v1/tenants") or {})
+
     def metrics_text(self) -> str:
         """The node's Prometheus exposition, unparsed. ``GET /actuator/prometheus``."""
         return self._http().text("/actuator/prometheus")

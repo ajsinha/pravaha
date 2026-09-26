@@ -629,10 +629,5 @@ class Engine:
 
     def tenants(self) -> dict:
         """Each tenant's use against its admission quotas, and its refusals (ADR-050):
-        ``GET /api/v1/tenants``. The SDK has no method for this endpoint yet, so the call goes
-        through the SDK's own authenticated HTTP transport, which carries the token and the
-        timeout exactly as every other REST call here does."""
-        def read(client):
-            method = getattr(client, "tenants", None)
-            return method() if callable(method) else client._http().get("/api/v1/tenants")
-        return dict(self._rest(read) or {})
+        ``GET /api/v1/tenants``, through the SDK's ``Client.tenants``."""
+        return dict(self._rest(lambda c: c.tenants()) or {})

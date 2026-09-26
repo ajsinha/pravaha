@@ -98,6 +98,7 @@ def test_each_call_reaches_its_published_endpoint_with_the_token(engine):
     client.status()
     client.plugins()
     client.permissions()
+    client.tenants()
     client.declare_stream("clicks", "at:TIMESTAMP", event_time="at", out_of_orderness="PT5S")
 
     seen = [(c["method"], c["path"]) for c in _Recorder.calls]
@@ -114,6 +115,7 @@ def test_each_call_reaches_its_published_endpoint_with_the_token(engine):
         ("GET", "/api/v1/status"),
         ("GET", "/api/v1/plugins"),
         ("GET", "/api/v1/me/permissions"),
+        ("GET", "/api/v1/tenants"),
         ("POST", "/api/v1/streams"),
     ]
     assert all(c["authorization"] == "Bearer t0ken" for c in _Recorder.calls)
