@@ -622,6 +622,12 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                                 query.view().retention().toString()));
                         row.addAll(feedFields(entry));
                         row.addAll(sinkFields(entry));
+                        if (row.size() != ControlWire.LIST_FIELDS.size()) {
+                            // WIRE-1: a row whose width disagrees with the named fields would be
+                            // read by every client at the wrong positions, silently.
+                            throw new IllegalStateException("a pravaha.list row has " + row.size()
+                                    + " fields where ControlWire.LIST_FIELDS names " + ControlWire.LIST_FIELDS.size());
+                        }
                         listener.onNext(new Result(ControlWire.encode(row.toArray(new String[0]))));
                     }
                 }

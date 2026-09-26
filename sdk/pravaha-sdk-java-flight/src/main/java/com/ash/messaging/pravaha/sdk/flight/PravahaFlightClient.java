@@ -392,43 +392,54 @@ public final class PravahaFlightClient implements AutoCloseable {
         return new RegisteredQueryInfo(field(row, 0), field(row, 1), sql, field(row, 2), 0);
     }
 
+    /** A {@link ControlWire#LIST} row's field by its name (WIRE-1); empty when an older server did not send it. */
+    private static String listed(List<String> row, String name) {
+        return field(row, ControlWire.listField(name));
+    }
+
     /** Every continuous query this server is running. */
     public List<RegisteredQueryInfo> queries() {
         List<RegisteredQueryInfo> queries = new java.util.ArrayList<>();
         for (List<String> row : act(ControlWire.LIST)) {
             long rowsIn = 0;
             try {
-                rowsIn = Long.parseLong(field(row, 4));
+                rowsIn = Long.parseLong(listed(row, "rows_in"));
             } catch (NumberFormatException e) {
                 // An older server that does not report it. Not worth failing a listing over.
             }
             // Fields 5-7 are trailing additions; a server that predates them sends five and these read
             // as empty, which is what "unknown" means here.
-            String sink = field(row, 6);
-            String retention = field(row, 7);
+            String sink = listed(row, "sink");
+            String retention = listed(row, "retention");
             // 8-12 are the feed (FEED-1): its state, and the first stopped source's code, message,
             // stream#partition and time. Empty from a server that predates them, read as unknown.
-            String feed = field(row, 8);
-            String code = field(row, 9);
+            String feed = listed(row, "feed_state");
+            String code = listed(row, "feed_code");
             // 13-15 are the sink's own state (SINK-3): ATTACHED, DETACHED or NONE, and the code and
             // message it was detached with. Empty from a server that predates them.
-            String sinkState = field(row, 13);
-            String sinkCode = field(row, 14);
+            String sinkState = listed(row, "sink_state");
+            String sinkCode = listed(row, "sink_code");
             queries.add(new RegisteredQueryInfo(
-                    field(row, 0),
-                    field(row, 1),
-                    field(row, 2),
-                    field(row, 3),
+                    listed(row, "name"),
+                    listed(row, "state"),
+                    listed(row, "sql"),
+                    listed(row, "fingerprint"),
                     rowsIn,
-                    ordinalsOf(field(row, 5)),
+                    ordinalsOf(listed(row, "key_ordinals")),
                     sink.isEmpty() ? null : sink,
                     retention.isEmpty() ? null : retention,
                     feed.isEmpty() ? null : feed,
                     code.isEmpty()
                             ? null
-                            : new RegisteredQueryInfo.FeedStop(code, field(row, 10), field(row, 11), field(row, 12)),
+                            : new RegisteredQueryInfo.FeedStop(
+                                    code,
+                                    listed(row, "feed_message"),
+                                    listed(row, "feed_where"),
+                                    listed(row, "feed_at")),
                     sinkState.isEmpty() ? null : sinkState,
-                    sinkCode.isEmpty() ? null : new RegisteredQueryInfo.SinkFailure(sinkCode, field(row, 15))));
+                    sinkCode.isEmpty()
+                            ? null
+                            : new RegisteredQueryInfo.SinkFailure(sinkCode, listed(row, "sink_message"))));
         }
         return queries;
     }

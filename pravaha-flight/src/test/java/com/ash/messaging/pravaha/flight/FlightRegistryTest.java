@@ -171,18 +171,22 @@ class FlightRegistryTest {
         assertThat(act(ControlWire.LIST)).singleElement().satisfies(row -> {
             // The first five are exactly what a client built before these existed reads.
             assertThat(row.subList(0, 2)).containsExactly("trade_feed", "RUNNING");
-            assertThat(row.get(4)).isEqualTo("0");
-            assertThat(row).hasSize(16);
-            assertThat(row.get(5)).as("key ordinals, as REGISTER takes them").isEqualTo("0,1");
-            assertThat(row.get(6))
+            assertThat(row.get(ControlWire.listField("rows_in"))).isEqualTo("0");
+            assertThat(row).hasSize(ControlWire.LIST_FIELDS.size());
+            assertThat(row.get(ControlWire.listField("key_ordinals")))
+                    .as("key ordinals, as REGISTER takes them")
+                    .isEqualTo("0,1");
+            assertThat(row.get(ControlWire.listField("sink")))
                     .as("no sink is an empty field, not a missing one")
                     .isEmpty();
-            assertThat(row.get(7)).isEqualTo("PT24H");
+            assertThat(row.get(ControlWire.listField("retention"))).isEqualTo("PT24H");
             // FEED-1, trailing after these: nothing is bound here, so no feed and no stop.
-            assertThat(row.subList(8, 13)).containsExactly("NONE", "", "", "", "");
+            assertThat(row.subList(ControlWire.listField("feed_state"), ControlWire.listField("sink_state")))
+                    .containsExactly("NONE", "", "", "", "");
             // SINK-3, trailing after the feed: this query writes nowhere, so there is no sink to
             // be attached or detached and no failure.
-            assertThat(row.subList(13, 16)).containsExactly("NONE", "", "");
+            assertThat(row.subList(ControlWire.listField("sink_state"), ControlWire.LIST_FIELDS.size()))
+                    .containsExactly("NONE", "", "");
         });
     }
 

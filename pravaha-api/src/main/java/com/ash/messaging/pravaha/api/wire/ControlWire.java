@@ -61,6 +61,42 @@ public final class ControlWire {
 
     public static final String LIST = "pravaha.list";
 
+    /**
+     * The fields one {@link #LIST} row carries, in order (WIRE-1).
+     *
+     * <p>Positional and append-only: the first five were the original contract, and every field
+     * since has been added at the end, so a client that reads the first {@code n} goes on reading
+     * exactly what it always did. The order used to be defined by a comment beside the producer and
+     * read by index literals in three parsers; it is defined here, the producer refuses to send a row
+     * of any other width, and the parsers look fields up by these names. Add a field only at the end.
+     */
+    public static final java.util.List<String> LIST_FIELDS = java.util.List.of(
+            "name",
+            "state",
+            "sql",
+            "fingerprint",
+            "rows_in",
+            "key_ordinals",
+            "sink",
+            "retention",
+            "feed_state",
+            "feed_code",
+            "feed_message",
+            "feed_where",
+            "feed_at",
+            "sink_state",
+            "sink_code",
+            "sink_message");
+
+    /** Where a named field sits in a {@link #LIST} row; refused for a name {@link #LIST_FIELDS} does not have. */
+    public static int listField(String name) {
+        int index = LIST_FIELDS.indexOf(name);
+        if (index < 0) {
+            throw new IllegalArgumentException("a pravaha.list row has no field '" + name + "'; it has " + LIST_FIELDS);
+        }
+        return index;
+    }
+
     public static final String PAUSE = "pravaha.pause";
 
     public static final String RESUME = "pravaha.resume";

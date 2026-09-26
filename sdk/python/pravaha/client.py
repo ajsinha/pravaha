@@ -545,31 +545,31 @@ class Client(DebugCommands):
         out = []
         for row in self._act(_ACTION_LIST, []):
             try:
-                rows_in = int(_at(row, 4) or 0)
+                rows_in = int(_listed(row, "rows_in") or 0)
             except ValueError:
                 rows_in = 0
             # Fields 5-7 were added after the first five and trail them, so a server that
             # predates them sends five and these read as "unknown": an empty key, no sink,
             # no retention. 8-12 are the feed (FEED-1), trailing for the same reason.
-            code = _at(row, 9)
+            code = _listed(row, "feed_code")
             # 13-15 are the sink's own state (SINK-3): ATTACHED, DETACHED or NONE, and the
             # code and message it was detached with. Empty from a server that predates them.
-            sink_code = _at(row, 14)
+            sink_code = _listed(row, "sink_code")
             out.append(
                 RegisteredQuery(
-                    name=_at(row, 0),
-                    state=_at(row, 1),
-                    sql=_at(row, 2),
-                    fingerprint=_at(row, 3),
+                    name=_listed(row, "name"),
+                    state=_listed(row, "state"),
+                    sql=_listed(row, "sql"),
+                    fingerprint=_listed(row, "fingerprint"),
                     rows_in=rows_in,
-                    key_columns=_ordinals(_at(row, 5)),
-                    sink=_at(row, 6) or None,
-                    retention=_at(row, 7) or None,
-                    feed=_at(row, 8) or None,
-                    feed_stop=(FeedStop(code=code, message=_at(row, 10), where=_at(row, 11),
-                                        at=_at(row, 12)) if code else None),
-                    sink_state=_at(row, 13) or None,
-                    sink_failure=(SinkFailure(code=sink_code, message=_at(row, 15))
+                    key_columns=_ordinals(_listed(row, "key_ordinals")),
+                    sink=_listed(row, "sink") or None,
+                    retention=_listed(row, "retention") or None,
+                    feed=_listed(row, "feed_state") or None,
+                    feed_stop=(FeedStop(code=code, message=_listed(row, "feed_message"), where=_listed(row, "feed_where"),
+                                        at=_listed(row, "feed_at")) if code else None),
+                    sink_state=_listed(row, "sink_state") or None,
+                    sink_failure=(SinkFailure(code=sink_code, message=_listed(row, "sink_message"))
                                   if sink_code else None),
                 )
             )
@@ -1238,6 +1238,33 @@ def _subscribe_ticket(
 
 def _at(row: Sequence[str], index: int) -> str:
     return row[index] if index < len(row) else ""
+
+
+# The fields one pravaha.list row carries, in order: ControlWire.LIST_FIELDS on the server, which
+# ControlWireListFieldsTest holds this tuple to (WIRE-1). Positional and append-only.
+LIST_FIELDS = (
+    "name",
+    "state",
+    "sql",
+    "fingerprint",
+    "rows_in",
+    "key_ordinals",
+    "sink",
+    "retention",
+    "feed_state",
+    "feed_code",
+    "feed_message",
+    "feed_where",
+    "feed_at",
+    "sink_state",
+    "sink_code",
+    "sink_message",
+)
+
+
+def _listed(row: Sequence[str], name: str) -> str:
+    """A pravaha.list row's field by its name; empty when an older server did not send it."""
+    return _at(row, LIST_FIELDS.index(name))
 
 
 def _ordinals(text: str) -> "tuple[int, ...]":
