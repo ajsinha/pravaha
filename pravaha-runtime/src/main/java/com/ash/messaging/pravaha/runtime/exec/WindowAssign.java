@@ -70,7 +70,7 @@ final class WindowAssign implements RowProcessor {
         }
         writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
         for (int i = 0; i < inputColumns; i++) {
-            InterpretedPipeline.copyField(row, i, writer, i, operator.outputSchema());
+            RowStages.copyField(row, i, writer, i, operator.outputSchema());
         }
         writer.setLong(inputColumns, sliceStart);
         writer.setLong(inputColumns + 1, sliceStart + windows.sliceSizeNanos());

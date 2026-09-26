@@ -201,10 +201,10 @@ final class SymmetricHashJoin implements AutoCloseable {
         writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
         int width = plan.leftWidth();
         for (int i = 0; i < width; i++) {
-            InterpretedPipeline.copyField(left, i, writer, i, plan.outputSchema());
+            RowStages.copyField(left, i, writer, i, plan.outputSchema());
         }
         for (int i = 0; i < rightSchema.fields().size(); i++) {
-            InterpretedPipeline.copyField(right, i, writer, width + i, plan.outputSchema());
+            RowStages.copyField(right, i, writer, width + i, plan.outputSchema());
         }
         writer.weight(weight)
                 .eventTimestampNanos(Math.max(left.eventTimestampNanos(), right.eventTimestampNanos()))
@@ -236,7 +236,7 @@ final class SymmetricHashJoin implements AutoCloseable {
         writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
         int width = plan.leftWidth();
         for (int i = 0; i < width; i++) {
-            InterpretedPipeline.copyField(left, i, writer, i, plan.outputSchema());
+            RowStages.copyField(left, i, writer, i, plan.outputSchema());
         }
         for (int i = 0; i < rightSchema.fields().size(); i++) {
             writer.setNull(width + i);

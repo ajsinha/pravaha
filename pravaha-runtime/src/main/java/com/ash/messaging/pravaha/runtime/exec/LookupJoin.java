@@ -311,7 +311,7 @@ final class LookupJoin implements RowProcessor {
         writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
         int width = plan.streamWidth();
         for (int i = 0; i < width; i++) {
-            InterpretedPipeline.copyField(row, i, writer, i, plan.outputSchema());
+            RowStages.copyField(row, i, writer, i, plan.outputSchema());
         }
         for (int i = 0; i < lookupSchema.fields().size(); i++) {
             Object value = match == null ? null : match[i];

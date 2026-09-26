@@ -199,7 +199,7 @@ public final class FilterProjectGenerator {
      * <p><strong>Finding C-5.</strong> This emitted the value and nothing else. The output row's
      * null bitmap is zeroed once per row -- see the {@code setMemory} above -- so every column a
      * generated stage produced read back as NOT NULL, and a NULL arrived at the reader as the zero
-     * bytes underneath it: {@code isNull=false, value=0}. {@code InterpretedPipeline.copyField}
+     * bytes underneath it: {@code isNull=false, value=0}. {@code RowStages.copyField}
      * has always preserved the bit, so the two paths disagreed on exactly the input the
      * differential property could not generate, because its projection was two NOT NULL columns.
      *
