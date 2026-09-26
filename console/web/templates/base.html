@@ -17,7 +17,7 @@
    The full picker is /static/js/theme.js; this is only the part that cannot
    wait for it. */
 (function(){try{var t=localStorage.getItem("pravaha.theme");
-if(t==="light"||t==="dark"||t==="terminal"||t==="blue"){document.documentElement.setAttribute("data-theme",t);}
+if(t==="light"||t==="dark"||t==="terminal"||t==="blue"||t==="green"){document.documentElement.setAttribute("data-theme",t);}
 var d=localStorage.getItem("pravaha.density");
 if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d);}
 }catch(e){}}());
@@ -207,10 +207,52 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
   --series-5:#e87ba4; --series-6:#008300; --series-7:#4a3aa7; --series-8:#e34948;
 }
 
+/* ── GREEN ─────────────────────────────────────────────────────────────────
+   Rolex's green and gold, from the brand's published values -- green #006039 (Pantone
+   3425 C) and gold #A37E2C -- not measured off a page. Gold is the second hue, where crimson
+   has indigo: the bar runs deep green, green, gold, at the same angle as every other bar. The
+   fonts and the structure are the console's own; the canvas is a warm off-white, because a
+   cool grey under a green and gold reads as two products.
+
+   #006039 carries text at 7:1 on this canvas and is the accent as published. #A37E2C does
+   not: white on it is 3.76:1 and it is 3.42:1 as text on the canvas, so the gold on the bar's
+   last stop is #8A6A1F, the nearest step of the same hue that holds 4.5 both ways.
+
+   Two status colours move, and a test is why. The crimson `--ok` (#1B6B3A) is 10 ΔE from this
+   accent: "running" and "this product" would be one colour. It becomes a yellow-shifted green,
+   #3D6B00, 31 ΔE away. And the crimson `--warn` (#8A5A12) is 10 ΔE from the gold, so "watch
+   this" would read as the brand; it becomes a burnt orange, #9A4A00, 26 from the gold and 34
+   from `--bad`. */
+:root[data-theme="green"]{
+  --flow:#006039; --flow-d:#004A2C; --flow-l:#2E8B5F;
+  --on-bar:#fff; --on-bar-dim:rgba(255,255,255,.82);
+  --on-flow:#fff; --on-flow-dim:rgba(255,255,255,.86);
+
+  --canvas:#F5F4EE; --surface:#fff; --raised:#fff; --stripe:#EFEDE4;
+  --ink:#1A1C1A; --slate:#474F4A; --muted:#5E6660;
+  --rule:#E2DFD4; --edge:#6B736D; --hairline:#ECEAE1;
+
+  --on-accent:#fff;
+  --ok:#3D6B00; --ok-soft:#EEF3E2;
+  --warn:#9A4A00; --warn-soft:#F8F0E2;
+  --bad:#CC2200; --bad-soft:#FBE9E4;
+  --info:#293352; --info-soft:#E9ECF3;
+
+  --lift:0 1px 2px rgba(0,61,36,.06), 0 1px 3px rgba(0,61,36,.04);
+  --lift-2:0 2px 6px rgba(0,61,36,.08), 0 4px 14px rgba(0,61,36,.06);
+
+  --bar-from:#003D24; --bar-via:#006039; --bar-to:#8A6A1F;
+  --bar:linear-gradient(100deg, var(--bar-from) 0%, var(--bar-via) 48%, var(--bar-to) 100%);
+  --tint:linear-gradient(180deg, rgba(0,96,57,.045) 0%, rgba(0,96,57,0) 100%);
+  --focus-glow:rgba(0,96,57,.18);
+  --series-1:#2a78d6; --series-2:#eb6834; --series-3:#1baf7a; --series-4:#eda100;
+  --series-5:#e87ba4; --series-6:#008300; --series-7:#4a3aa7; --series-8:#e34948;
+}
+
 /* And for anybody who has never touched the picker: follow the machine. The
    toggle writes `data-theme`, which wins over this in both directions. */
 @media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]):not([data-theme="terminal"]):not([data-theme="blue"]){
+  :root:not([data-theme="light"]):not([data-theme="terminal"]):not([data-theme="blue"]):not([data-theme="green"]){
     --flow:#E47F92; --flow-d:#DE6B81; --flow-l:#EC9EAC;
     --on-bar:#F6EDEF; --on-bar-dim:rgba(246,237,239,.74);
     --on-flow:#151517; --on-flow-dim:rgba(21,21,23,.78);

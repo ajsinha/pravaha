@@ -37,12 +37,12 @@ PAIRS = [
     ("on-bar", "bar-from", 4.5), ("on-bar", "bar-via", 4.5), ("on-bar", "bar-to", 4.5),
 ]
 
-#: Every theme base.html declares. Blue is a named palette, like terminal: a complete block of
-#: its own, held to every rule below.
-THEMES = ["light", "dark", "terminal", "blue"]
+#: Every theme base.html declares. Blue and green are named palettes, like terminal: each is a
+#: complete block of its own, and each is held to every rule below.
+THEMES = ["light", "dark", "terminal", "blue", "green"]
 #: The themes whose accent is the product's own colour on a ground, rather than a palette whose
 #: accent is by design a step of a status colour (terminal's amber is `--warn`'s hue).
-BRAND_THEMES = ["light", "dark", "blue"]
+BRAND_THEMES = ["light", "dark", "blue", "green"]
 
 #: How far apart, in CIELAB, the accent has to be from each status colour. The accent says
 #: "this product" and the status colours say what is happening; a reader who has to compare
@@ -59,6 +59,7 @@ def _themes() -> dict[str, dict[str, str]]:
         "dark": re.search(r':root\[data-theme="dark"\]\{(.*?)\n\}', css, re.DOTALL),
         "terminal": re.search(r':root\[data-theme="terminal"\]\{(.*?)\n\}', css, re.DOTALL),
         "blue": re.search(r':root\[data-theme="blue"\]\{(.*?)\n\}', css, re.DOTALL),
+        "green": re.search(r':root\[data-theme="green"\]\{(.*?)\n\}', css, re.DOTALL),
     }
     themes: dict[str, dict[str, str]] = {}
     light: dict[str, str] = {}
@@ -131,7 +132,9 @@ def test_the_accent_is_not_confusable_with_a_status_colour(theme):
     crimson accent `--bad` is the one that has to be moved out of its way, and this is what
     stops it drifting back.
 
-    Every theme but terminal: blue is held to it as light is. The terminal theme is not the product's colours on another ground,
+    Every theme but terminal. Blue and green are held to it as light is -- green's accent sits
+    beside the crimson theme's `--ok`, which is why green declares an `--ok` of its own. The
+    terminal theme is not the product's colours on another ground,
     it is a named palette whose accent *is* its amber, and there `--warn` is a step of that
     same amber (14.9 apart, and the next test says so rather than leaving it unmeasured).
     """
@@ -211,11 +214,11 @@ def test_the_system_dark_theme_leaves_the_named_palettes_alone():
     theme's cards dark under its light text tokens."""
     css = BASE.read_text(encoding="utf-8")
     selector = re.search(r"@media \(prefers-color-scheme: dark\)\{\s*(:root[^{]*)\{", css).group(1)
-    for theme in ("light", "terminal", "blue"):
+    for theme in ("light", "terminal", "blue", "green"):
         assert f':not([data-theme="{theme}"])' in selector, theme
     product = (BASE.parents[1] / "static" / "app" / "product.css").read_text(encoding="utf-8")
     scheme = re.search(r"@media \(prefers-color-scheme: dark\)\{(:root[^{]*)\{color-scheme:dark;", product).group(1)
-    for theme in ("light", "blue"):
+    for theme in ("light", "blue", "green"):
         assert f':not([data-theme="{theme}"])' in scheme, theme
 
 
