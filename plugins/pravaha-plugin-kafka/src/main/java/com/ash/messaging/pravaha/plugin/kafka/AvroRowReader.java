@@ -19,7 +19,6 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -34,12 +33,16 @@ import com.ash.messaging.pravaha.plugin.kafka.KafkaValueDecoder.Undecodable;
 import com.ash.messaging.pravaha.plugin.kafka.KafkaValueDecoder.Unmappable;
 
 /**
- * One Avro writer schema, mapped to the binding's declared schema by field name, and the rows that
- * mapping reads.
+ * One Avro writer schema, resolved against a reader schema ({@link AvroResolver}) and mapped to the
+ * binding's declared schema by field name, and the rows that mapping reads. Without {@code
+ * schema.reader.file} the reader schema is the writer's own, which resolves to itself.
  *
  * <p><strong>The mapping is made once and refuses by name.</strong> Every column of the declared
- * schema must be a top-level field of the writer's record -- matched exactly, then ignoring case --
- * whose type this reader can turn into that column. A column no field carries, or a field whose type
+ * schema must be a field of the reader's record -- matched exactly, then ignoring case -- whose type
+ * this reader can turn into that column. A field of a <strong>nested record</strong> is matched by its
+ * path joined with underscores: column {@code address_city} is field {@code city} of record field
+ * {@code address}, at any depth, and through a union of {@code null} and the record, whose {@code null}
+ * makes every column under it NULL. Two paths that match one column are refused, never chosen between. A column no field carries, or a field whose type
  * cannot become its column, is {@link Unmappable}: {@code PRV-5108} when the schema came from {@code
  * schema.file} (at configuration, before a record moves), and a dead letter when it came from the
  * registry with the record (nothing else can be done then -- the next record may carry a schema id
@@ -70,24 +73,25 @@ import com.ash.messaging.pravaha.plugin.kafka.KafkaValueDecoder.Unmappable;
  *
  * <p>A field may be a <strong>union</strong>: every branch that is not {@code null} must map to the
  * column on its own, and a {@code null} branch reads as SQL NULL -- refused per record, like every
- * other format, when the column is {@code NOT NULL}. Records, arrays and maps map to no column type;
- * name one and the mapping is refused, leave it unnamed and it is skipped.
+ * other format, when the column is {@code NOT NULL}. A record maps to no column type itself, and
+ * neither does an array or a map; name one and the mapping is refused, leave it unnamed and it is
+ * skipped.
  */
 final class AvroRowReader {
 
     private static final long NANOS_PER_DAY = 86_400_000_000_000L;
 
-    private final StreamSchema schema;
-    private final AvroSchema.Node record;
-    private final int eventTimeOrdinal;
-    /** Per writer field, the column it fills, or -1 to skip it. */
-    private final int[] targets;
+    /** How deep a nested record's fields are looked for; deeper is a schema no column names. */
+    private static final int MAX_DEPTH = 16;
 
-    private AvroRowReader(StreamSchema schema, AvroSchema.Node record, int eventTimeOrdinal, int[] targets) {
+    private final StreamSchema schema;
+    private final int eventTimeOrdinal;
+    private final AvroResolver.Step plan;
+
+    private AvroRowReader(StreamSchema schema, int eventTimeOrdinal, AvroResolver.Step plan) {
         this.schema = schema;
-        this.record = record;
         this.eventTimeOrdinal = eventTimeOrdinal;
-        this.targets = targets;
+        this.plan = plan;
     }
 
     /**
@@ -95,56 +99,155 @@ final class AvroRowReader {
      * field stopped it.
      */
     static AvroRowReader map(StreamSchema schema, AvroSchema.Node writer, int eventTimeOrdinal) {
-        if (writer.kind != AvroSchema.Kind.RECORD) {
-            throw new Unmappable("the Avro schema is " + writer + ", not a record, so it has no fields to match the "
+        return map(schema, writer, writer, eventTimeOrdinal);
+    }
+
+    /**
+     * The mapping from bytes written with {@code writer}, read as {@code reader}, to {@code schema}; or
+     * {@link Unmappable} saying which column, field or resolution rule stopped it.
+     */
+    static AvroRowReader map(
+            StreamSchema schema, AvroSchema.Node writer, AvroSchema.Node reader, int eventTimeOrdinal) {
+        if (reader.kind != AvroSchema.Kind.RECORD) {
+            throw new Unmappable("the Avro schema is " + reader + ", not a record, so it has no fields to match the "
                     + "stream's columns to");
         }
-        Map<String, Integer> exact = new HashMap<>();
-        Map<String, Integer> folded = new HashMap<>();
-        for (int ordinal = 0; ordinal < schema.fieldCount(); ordinal++) {
-            exact.put(schema.field(ordinal).name(), ordinal);
-            folded.putIfAbsent(schema.field(ordinal).name().toLowerCase(Locale.ROOT), ordinal);
+        List<Path> paths = new ArrayList<>();
+        paths(reader, new ArrayList<>(), "", "", paths, new ArrayList<>());
+        Map<String, List<Path>> folded = new HashMap<>();
+        for (Path path : paths) {
+            folded.computeIfAbsent(path.name().toLowerCase(Locale.ROOT), k -> new ArrayList<>())
+                    .add(path);
         }
-        List<AvroSchema.Field> fields = writer.fields();
-        int[] targets = new int[fields.size()];
-        int[] filledBy = new int[schema.fieldCount()];
-        Arrays.fill(filledBy, -1);
-        for (int i = 0; i < fields.size(); i++) {
-            AvroSchema.Field field = fields.get(i);
-            Integer ordinal = exact.get(field.name());
-            if (ordinal == null) {
-                ordinal = folded.get(field.name().toLowerCase(Locale.ROOT));
-            }
-            if (ordinal == null) {
-                targets[i] = -1;
-                continue;
-            }
-            if (filledBy[ordinal] >= 0) {
-                throw new Unmappable("the Avro fields '"
-                        + fields.get(filledBy[ordinal]).name() + "' and '" + field.name() + "' both match column '"
-                        + schema.field(ordinal).name() + "'");
-            }
-            String why = why(field.type(), schema.field(ordinal).type());
-            if (why != null) {
-                throw new Unmappable("Avro field '" + field.name() + "' is " + field.type() + " and column '"
-                        + schema.field(ordinal).name() + "' is "
-                        + schema.field(ordinal).type() + ": " + why);
-            }
-            targets[i] = ordinal;
-            filledBy[ordinal] = i;
-        }
+        Path[] chosen = new Path[schema.fieldCount()];
         List<String> missing = new ArrayList<>();
         for (int ordinal = 0; ordinal < schema.fieldCount(); ordinal++) {
-            if (filledBy[ordinal] < 0) {
-                missing.add(schema.field(ordinal).name());
+            String column = schema.field(ordinal).name();
+            List<Path> matches = folded.getOrDefault(column.toLowerCase(Locale.ROOT), List.of());
+            if (matches.isEmpty()) {
+                missing.add(column);
+                continue;
             }
+            if (matches.size() > 1) {
+                throw new Unmappable("the Avro fields "
+                        + matches.stream().map(Path::dotted).toList() + " all match column '" + column + "'");
+            }
+            Path path = matches.get(0);
+            String why = why(path.type(), schema.field(ordinal).type());
+            if (why != null) {
+                throw new Unmappable("Avro field '" + path.dotted() + "' is " + path.type() + " and column '" + column
+                        + "' is " + schema.field(ordinal).type() + ": " + why);
+            }
+            chosen[ordinal] = path;
         }
         if (!missing.isEmpty()) {
             throw new Unmappable("the Avro schema has no field for column" + (missing.size() > 1 ? "s " : " ")
                     + missing + "; its fields are "
-                    + fields.stream().map(AvroSchema.Field::name).toList());
+                    + paths.stream()
+                            .filter(p -> p.indexes().size() == 1)
+                            .map(Path::name)
+                            .toList()
+                    + (paths.stream().anyMatch(p -> p.indexes().size() > 1)
+                            ? ", and a nested record's field is its path joined with '_'"
+                            : ""));
         }
-        return new AvroRowReader(schema, writer, eventTimeOrdinal, targets);
+        AvroResolver.Group root = group(chosen, 0, null);
+        AvroResolver.Step plan = AvroResolver.compile(
+                writer,
+                reader,
+                root,
+                (value, node, ordinal) -> column(
+                        value,
+                        node,
+                        schema.field(ordinal).type(),
+                        schema.field(ordinal).name()));
+        return new AvroRowReader(schema, eventTimeOrdinal, plan);
+    }
+
+    /**
+     * A field a column may name: its reader-field indexes from the root, its name (the path joined with
+     * underscores), and its type.
+     */
+    private record Path(List<Integer> indexes, String name, String dotted, AvroSchema.Node type) {}
+
+    /** Every field of {@code record} and, below a record-typed field, every field of that record. */
+    private static void paths(
+            AvroSchema.Node record,
+            List<Integer> at,
+            String prefix,
+            String dottedPrefix,
+            List<Path> into,
+            List<String> enclosing) {
+        if (at.size() >= MAX_DEPTH || enclosing.contains(record.name)) {
+            return; // A recursive record: a column cannot name an infinite path.
+        }
+        List<String> inside = new ArrayList<>(enclosing);
+        inside.add(record.name);
+        List<AvroSchema.Field> fields = record.fields();
+        for (int i = 0; i < fields.size(); i++) {
+            AvroSchema.Field field = fields.get(i);
+            List<Integer> here = new ArrayList<>(at);
+            here.add(i);
+            String name = prefix.isEmpty() ? field.name() : prefix + "_" + field.name();
+            String dotted = dottedPrefix.isEmpty() ? field.name() : dottedPrefix + "." + field.name();
+            into.add(new Path(List.copyOf(here), name, dotted, field.type()));
+            AvroSchema.Node nested = nestedRecord(field.type());
+            if (nested != null) {
+                paths(nested, here, name, dotted, into, inside);
+            }
+        }
+    }
+
+    /** The record a field holds, directly or as the one non-null branch of a union; else null. */
+    private static AvroSchema.Node nestedRecord(AvroSchema.Node type) {
+        if (type.kind == AvroSchema.Kind.RECORD) {
+            return type;
+        }
+        if (type.kind == AvroSchema.Kind.UNION) {
+            AvroSchema.Node only = null;
+            for (AvroSchema.Node branch : type.branches) {
+                if (branch.kind == AvroSchema.Kind.NULL) {
+                    continue;
+                }
+                if (only != null || branch.kind != AvroSchema.Kind.RECORD) {
+                    return null;
+                }
+                only = branch;
+            }
+            return only;
+        }
+        return null;
+    }
+
+    /** The targets under the reader record at {@code depth} of the chosen paths sharing {@code prefix}. */
+    private static AvroResolver.Group group(Path[] chosen, int depth, List<Integer> prefix) {
+        Map<Integer, List<Integer>> byField = new java.util.TreeMap<>();
+        List<Integer> all = new ArrayList<>();
+        for (int ordinal = 0; ordinal < chosen.length; ordinal++) {
+            Path path = chosen[ordinal];
+            if (path == null
+                    || path.indexes().size() <= depth
+                    || (prefix != null && !path.indexes().subList(0, depth).equals(prefix))) {
+                continue;
+            }
+            byField.computeIfAbsent(path.indexes().get(depth), k -> new ArrayList<>())
+                    .add(ordinal);
+            all.add(ordinal);
+        }
+        Map<Integer, AvroResolver.Target> targets = new HashMap<>();
+        for (Map.Entry<Integer, List<Integer>> entry : byField.entrySet()) {
+            List<Integer> ordinals = entry.getValue();
+            int first = ordinals.get(0);
+            if (ordinals.size() == 1 && chosen[first].indexes().size() == depth + 1) {
+                targets.put(entry.getKey(), new AvroResolver.Leaf(first));
+            } else {
+                List<Integer> below = new ArrayList<>(chosen[first].indexes().subList(0, depth));
+                below.add(entry.getKey());
+                targets.put(entry.getKey(), group(chosen, depth + 1, below));
+            }
+        }
+        return new AvroResolver.Group(
+                Map.copyOf(targets), all.stream().mapToInt(Integer::intValue).toArray());
     }
 
     /** Why {@code node} cannot fill a {@code type} column, or null when it can. */
@@ -206,15 +309,7 @@ final class AvroRowReader {
     Row read(byte[] value, int from, long recordTimestampMillis) throws Undecodable {
         Object[] values = new Object[schema.fieldCount()];
         AvroBinary in = new AvroBinary(value, from);
-        List<AvroSchema.Field> fields = record.fields();
-        for (int i = 0; i < fields.size(); i++) {
-            AvroSchema.Node node = fields.get(i).type();
-            if (targets[i] < 0) {
-                in.skip(node);
-            } else {
-                values[targets[i]] = value(in, node, targets[i]);
-            }
-        }
+        plan.run(in, values);
         if (!in.atEnd()) {
             throw new Undecodable("the record leaves " + in.remaining() + " byte(s) of the value unread, so the "
                     + "value was not written with this schema");
@@ -222,26 +317,19 @@ final class AvroRowReader {
         return KafkaValueDecoder.finish(schema, values, eventTimeOrdinal, 1L, recordTimestampMillis);
     }
 
-    private Object value(AvroBinary in, AvroSchema.Node node, int ordinal) throws Undecodable {
-        if (node.kind == AvroSchema.Kind.UNION) {
-            return value(in, in.branch(node), ordinal);
-        }
-        PravahaType type = schema.field(ordinal).type();
-        String column = schema.field(ordinal).name();
+    /**
+     * A resolved reader value -- {@code Boolean}, {@code Long} for an int or a long, {@code Float},
+     * {@code Double}, {@code String} (an enum's symbol too) or {@code byte[]} -- as its column's value,
+     * with the reader {@code node}'s logical type saying what a number or bytes mean.
+     */
+    private static Object column(Object value, AvroSchema.Node node, PravahaType type, String column)
+            throws Undecodable {
         return switch (node.kind) {
-            case NULL -> null;
-            case BOOLEAN -> in.readBoolean();
-            case INT -> integer(in.readInt(), type, column, node);
-            case LONG -> integer(in.readLong(), type, column, node);
-            case FLOAT -> {
-                float single = in.readFloat();
-                yield type.typeName() == TypeName.FLOAT32 ? (Object) single : (Object) (double) single;
-            }
-            case DOUBLE -> in.readDouble();
-            case STRING -> in.readString();
-            case ENUM -> symbol(in.readInt(), node);
-            case BYTES -> bytesOrDecimal(in.readBytes(), type, column, node);
-            case FIXED -> bytesOrDecimal(in.readFixed(node.size, "a fixed"), type, column, node);
+            case BOOLEAN, STRING, ENUM -> value;
+            case INT, LONG -> integer((Long) value, type, column, node);
+            case FLOAT -> type.typeName() == TypeName.FLOAT32 ? value : (Object) (double) (Float) value;
+            case DOUBLE -> value;
+            case BYTES, FIXED -> bytesOrDecimal((byte[]) value, type, column, node);
             default -> throw new Undecodable("column '" + column + "' is read from " + node + ", which it cannot be");
         };
     }
@@ -282,13 +370,6 @@ final class AvroRowReader {
             throw new Undecodable("column '" + column + "' is TIMESTAMP and " + raw + " " + logical + " is out of "
                     + "the range of a nanosecond timestamp");
         }
-    }
-
-    private static String symbol(int index, AvroSchema.Node node) throws Undecodable {
-        if (index < 0 || index >= node.symbols.size()) {
-            throw new Undecodable("an enum names symbol " + index + " of " + node.symbols.size() + " in " + node.name);
-        }
-        return node.symbols.get(index);
     }
 
     private static Object bytesOrDecimal(byte[] raw, PravahaType type, String column, AvroSchema.Node node)

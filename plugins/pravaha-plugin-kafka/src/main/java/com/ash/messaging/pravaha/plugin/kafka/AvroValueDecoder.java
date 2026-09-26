@@ -39,6 +39,14 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
  * schema id and the mismatch, and the mismatch is remembered so the next thousand records of the same
  * id cost nothing.
  *
+ * <p><strong>With {@code schema.reader.file}</strong> every writer schema -- the file's, or each id's
+ * from the registry -- is resolved against that reader schema by the specification's rules ({@link
+ * AvroResolver}): fields added with a default, fields removed, promotions, renames through aliases,
+ * enum symbols added. The columns are matched against the reader schema, so a producer's schema can
+ * evolve under a binding that does not change. A writer schema that does not resolve is refused by
+ * name: at configure for {@code schema.file}, and as a dead letter naming the schema id for the
+ * registry's -- never decoded as whatever the bytes happen to spell.
+ *
  * <p>A value that begins with {@code 0x00} when <em>no</em> registry is configured is the mistake
  * this format makes most: the refusal says so by name, and says to set {@code schema.registry.url}.
  */
@@ -51,6 +59,9 @@ final class AvroValueDecoder implements KafkaValueDecoder {
     private final StreamSchema schema;
     private final int eventTimeOrdinal;
     private final AvroRowReader configured;
+    /** {@code schema.reader.file}'s schema, or null to read each registry schema as itself. */
+    private final AvroSchema.Node readerSchema;
+
     private final SchemaRegistry registry;
     /** Per fetch thread; the registry's own cache is what is shared. */
     private final Map<Integer, Mapped> byId = new HashMap<>();
@@ -60,11 +71,13 @@ final class AvroValueDecoder implements KafkaValueDecoder {
             StreamSchema schema,
             int eventTimeOrdinal,
             AvroRowReader configured,
+            AvroSchema.Node readerSchema,
             SchemaRegistry registry) {
         this.instanceName = instanceName;
         this.schema = schema;
         this.eventTimeOrdinal = eventTimeOrdinal;
         this.configured = configured;
+        this.readerSchema = readerSchema;
         this.registry = registry;
     }
 
@@ -107,7 +120,10 @@ final class AvroValueDecoder implements KafkaValueDecoder {
         String text = registry.schemaText(id);
         Mapped mapped;
         try {
-            mapped = new Mapped(AvroRowReader.map(schema, AvroSchema.parse(text), eventTimeOrdinal), null);
+            AvroSchema.Node writer = AvroSchema.parse(text);
+            mapped = new Mapped(
+                    AvroRowReader.map(schema, writer, readerSchema != null ? readerSchema : writer, eventTimeOrdinal),
+                    null);
         } catch (AvroSchema.Invalid e) {
             mapped = new Mapped(
                     null,

@@ -26,17 +26,17 @@ import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
 
 /**
- * An Avro <em>writer</em> schema, as the specification's JSON declares it, read into a tree this
- * plugin's own binary reader walks.
+ * An Avro schema, as the specification's JSON declares it, read into a tree this plugin's own
+ * binary reader walks: the <em>writer</em> schema the bytes were written with, and, when a binding
+ * sets {@code schema.reader.file}, the <em>reader</em> schema it is resolved against.
  *
  * <p>Ours rather than {@code org.apache.avro}'s, deliberately: the Kafka plugin takes no new
  * dependency, and Avro's binary encoding is a small, frozen format -- the same trade {@code
- * postgres-cdc} made for {@code pgoutput}. Only what a <em>reader</em> needs is kept: the type of
- * every branch, the fields of every record in their written order, and the logical type where one
- * changes the meaning of the bytes. Defaults, documentation, aliases and every other attribute are
- * read past; they matter to schema <em>resolution</em>, which this plugin does not do -- the schema
- * it is given is the one the bytes were written with ({@code schema.file}, or the registry's, by the
- * record's own schema id).
+ * postgres-cdc} made for {@code pgoutput}. What reading and schema <em>resolution</em> need is
+ * kept: the type of every branch, the fields of every record in their written order, the logical
+ * type where one changes the meaning of the bytes, each field's default and aliases, each named
+ * type's aliases and an enum's default symbol ({@link AvroResolver} uses the last four).
+ * Documentation, {@code order} and every other attribute are read past.
  *
  * <p>Named types are registered as they are declared, by full name and (when unambiguous) by simple
  * name, so a later reference to one -- including a record inside itself -- resolves. A schema that
@@ -74,8 +74,19 @@ final class AvroSchema {
         }
     }
 
-    /** One field of a record, in the order it is written. */
-    record Field(String name, Node type) {}
+    /**
+     * One field of a record, in the order it is written.
+     *
+     * @param aliases the other names a reader schema accepts this field under
+     * @param hasDefault whether the field declares a default; the default itself may be JSON null
+     * @param defaultValue the default as parsed JSON (maps, lists, strings, numbers, booleans, null)
+     */
+    record Field(String name, Node type, List<String> aliases, boolean hasDefault, Object defaultValue) {
+
+        Field(String name, Node type) {
+            this(name, type, List.of(), false, null);
+        }
+    }
 
     /** One schema node. Only a record's fields are filled in after construction, so a record can contain itself. */
     static final class Node {
@@ -93,6 +104,10 @@ final class AvroSchema {
         final int precision;
         final int scale;
         private List<Field> fields = List.of();
+        /** A named type's aliases, as full names. */
+        private List<String> aliases = List.of();
+        /** An enum's {@code default} symbol, or null when it declares none. */
+        private String enumDefault;
 
         private Node(
                 Kind kind,
@@ -119,6 +134,14 @@ final class AvroSchema {
 
         List<Field> fields() {
             return fields;
+        }
+
+        List<String> aliases() {
+            return aliases;
+        }
+
+        String enumDefault() {
+            return enumDefault;
         }
 
         /** How this node reads in a refusal: {@code long (timestamp-millis)}, {@code ["null","string"]}. */
@@ -231,6 +254,7 @@ final class AvroSchema {
     private Node record(Map<?, ?> object, String namespace, String logical) {
         String full = fullName(object, namespace, "a record");
         Node node = new Node(Kind.RECORD, logical, full, null, null, List.of(), List.of(), 0, 0, 0);
+        node.aliases = aliases(object, namespace, true);
         register(full, node);
         Object fields = required(object, "fields", "a record");
         if (!(fields instanceof List<?> list)) {
@@ -245,7 +269,12 @@ final class AvroSchema {
             if (name.isEmpty()) {
                 throw new Invalid("record " + full + " has a field with no name");
             }
-            parsed.add(new Field(name, node(required(member, "type", "field '" + name + "'"), namespace)));
+            parsed.add(new Field(
+                    name,
+                    node(required(member, "type", "field '" + name + "'"), namespace),
+                    aliases(member, namespace, false),
+                    member.containsKey("default"),
+                    member.get("default")));
         }
         node.fields = List.copyOf(parsed);
         return node;
@@ -262,6 +291,14 @@ final class AvroSchema {
             names.add(text(symbol));
         }
         Node node = new Node(Kind.ENUM, logical, full, null, null, List.of(), List.copyOf(names), 0, 0, 0);
+        node.aliases = aliases(object, namespace, true);
+        if (object.containsKey("default")) {
+            String fallback = text(object.get("default"));
+            if (!names.contains(fallback)) {
+                throw new Invalid("enum " + full + "'s default '" + fallback + "' is not one of its symbols " + names);
+            }
+            node.enumDefault = fallback;
+        }
         register(full, node);
         return node;
     }
@@ -275,6 +312,7 @@ final class AvroSchema {
         int precision = logical.equals("decimal") ? number(object, "precision", "a decimal") : 0;
         int scale = logical.equals("decimal") ? optionalNumber(object.get("scale")) : 0;
         Node node = new Node(Kind.FIXED, logical, full, null, null, List.of(), List.of(), size, precision, scale);
+        node.aliases = aliases(object, namespace, true);
         register(full, node);
         return node;
     }
@@ -317,6 +355,29 @@ final class AvroSchema {
 
     private static Node primitive(Kind kind, String name) {
         return new Node(kind, "", name, null, null, List.of(), List.of(), 0, 0, 0);
+    }
+
+    /**
+     * The {@code aliases} of a named type (as full names, qualified by {@code namespace} when they
+     * are not already) or of a field (as they are written).
+     */
+    private static List<String> aliases(Map<?, ?> object, String namespace, boolean named) {
+        Object declared = object.get("aliases");
+        if (declared == null) {
+            return List.of();
+        }
+        if (!(declared instanceof List<?> list)) {
+            throw new Invalid("'aliases' must be an array of names, not " + describe(declared));
+        }
+        List<String> names = new ArrayList<>();
+        for (Object alias : list) {
+            String name = text(alias);
+            if (name.isEmpty()) {
+                throw new Invalid("an alias must be a non-empty name, not " + describe(alias));
+            }
+            names.add(named && !name.contains(".") && !namespace.isEmpty() ? namespace + "." + name : name);
+        }
+        return List.copyOf(names);
     }
 
     private static String namespaceOf(Map<?, ?> object, String enclosing) {

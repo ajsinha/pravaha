@@ -220,6 +220,59 @@ class KafkaSourceFormatOptionsTest {
     }
 
     @Test
+    void aReaderSchemaResolvesTheWriterSchemaAtConfigureAndReadsWithIt() throws IOException, Undecodable {
+        // The producer has moved on: amount is now a long and a channel field was added with a default
+        // the binding's columns read; the topic still holds bytes the old writer schema wrote.
+        Path reader = directory.resolve("reader.avsc");
+        Files.writeString(
+                reader,
+                "{\"type\":\"record\",\"name\":\"Txn\",\"fields\":[{\"name\":\"user_id\",\"type\":\"string\"},"
+                        + "{\"name\":\"amount\",\"type\":\"long\"},"
+                        + "{\"name\":\"channel\",\"type\":\"string\",\"default\":\"web\"}]}",
+                StandardCharsets.UTF_8);
+        Path writer = directory.resolve("writer.avsc");
+        Files.writeString(
+                writer,
+                "{\"type\":\"record\",\"name\":\"Txn\",\"fields\":[{\"name\":\"user_id\",\"type\":\"string\"},"
+                        + "{\"name\":\"amount\",\"type\":\"int\"}]}",
+                StandardCharsets.UTF_8);
+        Map<String, String> config = new HashMap<>(
+                Map.of("format", "avro", "schema.file", writer.toString(), "schema.reader.file", reader.toString()));
+        config.put("schema", "user_id:STRING,amount:INT64,channel:STRING");
+        KafkaSourceOptions options = options(config);
+
+        byte[] value = new AvroWriter().text("u1").integer(250).bytes();
+        assertThat(options.newDecoder().decode(value, 0).values()).containsExactly("u1", 250L, "web");
+        options.close();
+    }
+
+    @Test
+    void aWriterSchemaThatDoesNotResolveAgainstTheReaderIsRefusedAtConfigureWithTheSchemaCode() throws IOException {
+        Path reader = directory.resolve("reader.avsc");
+        Files.writeString(
+                reader,
+                "{\"type\":\"record\",\"name\":\"Txn\",\"fields\":[{\"name\":\"user_id\",\"type\":\"string\"},"
+                        + "{\"name\":\"amount\",\"type\":\"long\"}]}",
+                StandardCharsets.UTF_8);
+        Path writer = directory.resolve("writer.avsc");
+        Files.writeString(
+                writer,
+                "{\"type\":\"record\",\"name\":\"Txn\",\"fields\":[{\"name\":\"user_id\",\"type\":\"string\"},"
+                        + "{\"name\":\"amount\",\"type\":\"string\"}]}",
+                StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> options(Map.of(
+                        "format", "avro", "schema.file", writer.toString(), "schema.reader.file", reader.toString())))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("PRV-5108")
+                .hasMessageContaining("cannot be resolved against the reader schema at field 'amount' of Txn");
+        assertRefused(
+                Map.of("schema.reader.file", reader.toString()),
+                "sets schema.reader.file with format: json",
+                "belongs to format: avro");
+    }
+
+    @Test
     void aProtobufBindingMakesADecoderThatReadsAMessage() throws IOException, Undecodable {
         KafkaSourceOptions options = options(Map.of(
                 "format", "protobuf",

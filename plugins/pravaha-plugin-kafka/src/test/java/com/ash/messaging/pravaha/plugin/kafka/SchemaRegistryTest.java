@@ -253,6 +253,42 @@ class SchemaRegistryTest {
     }
 
     @Test
+    void eachRegistrySchemaIsResolvedAgainstTheReaderSchemaAndOneThatDoesNotResolveIsADeadLetter() throws Undecodable {
+        registry = new FakeRegistry();
+        // v1 wrote an int id; v2 renamed name to label. Both resolve against the reader.
+        registry.serve(
+                7,
+                envelope("{\"type\":\"record\",\"name\":\"Order\",\"fields\":["
+                        + "{\"name\":\"id\",\"type\":\"int\"},{\"name\":\"name\",\"type\":\"string\"}]}"));
+        registry.serve(
+                8,
+                envelope("{\"type\":\"record\",\"name\":\"Order\",\"fields\":["
+                        + "{\"name\":\"id\",\"type\":\"long\"},{\"name\":\"label\",\"type\":\"string\"}]}"));
+        // v3 made id a string, which no reading turns back into a long.
+        registry.serve(
+                9,
+                envelope("{\"type\":\"record\",\"name\":\"Order\",\"fields\":["
+                        + "{\"name\":\"id\",\"type\":\"string\"},{\"name\":\"name\",\"type\":\"string\"}]}"));
+        AvroSchema.Node reader = AvroSchema.parse("{\"type\":\"record\",\"name\":\"Order\",\"fields\":["
+                + "{\"name\":\"id\",\"type\":\"long\"},"
+                + "{\"name\":\"name\",\"type\":\"string\",\"aliases\":[\"label\"]}]}");
+        AvroValueDecoder decoder = new AvroValueDecoder(
+                "orders", KafkaSchema.parse("orders", "id:INT64,name:STRING"), -1, null, reader, client(""));
+
+        assertThat(decoder.decode(new AvroWriter().integer(1).text("a").framed(7), 0)
+                        .values())
+                .containsExactly(1L, "a");
+        assertThat(decoder.decode(new AvroWriter().number(2).text("b").framed(8), 0)
+                        .values())
+                .containsExactly(2L, "b");
+        assertThatThrownBy(() ->
+                        decoder.decode(new AvroWriter().text("3").text("c").framed(9), 0))
+                .isInstanceOf(Undecodable.class)
+                .hasMessageContaining("schema id 9")
+                .hasMessageContaining("cannot be resolved against the reader schema at field 'id' of Order");
+    }
+
+    @Test
     void aRegistrySchemaThatIsNotAvroIsADeadLetterNamingTheId() {
         registry = new FakeRegistry();
         registry.serve(7, "{\"schema\":\"{ not a schema\"}");
@@ -267,7 +303,7 @@ class SchemaRegistryTest {
     void aRegistryFramedRecordWithNoRegistryConfiguredIsRefusedByName() {
         StreamSchema schema = KafkaSchema.parse("orders", "id:INT64,name:STRING");
         AvroValueDecoder configured = new AvroValueDecoder(
-                "orders", schema, -1, AvroRowReader.map(schema, AvroSchema.parse(ORDER_SCHEMA), -1), null);
+                "orders", schema, -1, AvroRowReader.map(schema, AvroSchema.parse(ORDER_SCHEMA), -1), null, null);
         byte[] framed = new AvroWriter().number(42).text("ashutosh").framed(7);
 
         assertThatThrownBy(() -> configured.decode(framed, 0))
@@ -292,7 +328,8 @@ class SchemaRegistryTest {
     }
 
     private static AvroValueDecoder decoder(SchemaRegistry client) {
-        return new AvroValueDecoder("orders", KafkaSchema.parse("orders", "id:INT64,name:STRING"), -1, null, client);
+        return new AvroValueDecoder(
+                "orders", KafkaSchema.parse("orders", "id:INT64,name:STRING"), -1, null, null, client);
     }
 
     private static String envelope(String schema) {

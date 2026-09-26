@@ -109,6 +109,12 @@ final class KafkaSourceOptions {
     /** {@code format: avro} with {@code schema.file}: the mapping, made and refused here. */
     private final AvroRowReader avroReader;
 
+    /**
+     * {@code format: avro} with {@code schema.reader.file}: the reader schema every writer schema is
+     * resolved against, or null to read each writer schema as itself.
+     */
+    private final AvroSchema.Node avroReaderSchema;
+
     /** {@code format: protobuf}: the message {@code schema.message} names in {@code schema.descriptor}. */
     private final Descriptor protobufMessage;
 
@@ -209,6 +215,9 @@ final class KafkaSourceOptions {
                 context.get("schema.registry.password", ""),
                 context.get("schema.registry.token", "").strip());
         this.registryTimeout = duration(context, "schema.registry.timeout", Duration.ofSeconds(10));
+        this.avroReaderSchema = format == Format.AVRO
+                ? readerSchema(context.get("schema.reader.file", "").strip())
+                : null;
         this.avroReader = format == Format.AVRO && registryUrl.isEmpty()
                 ? avroReader(context.get("schema.file", "").strip())
                 : null;
@@ -229,6 +238,7 @@ final class KafkaSourceOptions {
      */
     private String requireFormatOptions(PluginContext context) {
         String schemaFile = context.get("schema.file", "").strip();
+        String readerFile = context.get("schema.reader.file", "").strip();
         String descriptor = context.get("schema.descriptor", "").strip();
         String messageName = context.get("schema.message", "").strip();
         String registryUrl = context.get("schema.registry.url", "").strip();
@@ -239,6 +249,7 @@ final class KafkaSourceOptions {
         switch (format) {
             case JSON, CHANGELOG -> {
                 refuseUnless(schemaFile.isEmpty(), "schema.file", "avro");
+                refuseUnless(readerFile.isEmpty(), "schema.reader.file", "avro");
                 refuseUnless(descriptor.isEmpty(), "schema.descriptor", "protobuf");
                 refuseUnless(messageName.isEmpty(), "schema.message", "protobuf");
                 refuseUnless(registryUrl.isEmpty(), "schema.registry.url", "avro");
@@ -255,6 +266,7 @@ final class KafkaSourceOptions {
             }
             case PROTOBUF -> {
                 refuseUnless(schemaFile.isEmpty(), "schema.file", "avro");
+                refuseUnless(readerFile.isEmpty(), "schema.reader.file", "avro");
                 if (descriptor.isEmpty() || messageName.isEmpty()) {
                     throw refusal("format: protobuf needs schema.descriptor (a FileDescriptorSet, written with "
                             + "protoc --include_imports --descriptor_set_out=x.desc) and schema.message (the "
@@ -314,6 +326,38 @@ final class KafkaSourceOptions {
         return registry;
     }
 
+    /**
+     * {@code schema.reader.file}'s schema, checked against the stream's columns here -- read as itself,
+     * which is what every writer schema is resolved into -- so a reader schema with no field for a
+     * column is a registration that fails, not a reader that dead-letters every record.
+     */
+    private AvroSchema.Node readerSchema(String path) {
+        if (path.isEmpty()) {
+            return null;
+        }
+        String text;
+        try {
+            text = Files.readString(Path.of(path), StandardCharsets.UTF_8);
+        } catch (IOException | InvalidPathException e) {
+            throw refusal("cannot read schema.reader.file '" + path + "': " + e.getMessage());
+        }
+        try {
+            AvroSchema.Node reader = AvroSchema.parse(text);
+            AvroRowReader.map(schema, reader, reader, eventTimeOrdinal);
+            return reader;
+        } catch (AvroSchema.Invalid e) {
+            throw new ConfigurationException(
+                    KafkaErrors.SCHEMA_UNMAPPABLE,
+                    "source '" + instanceName + "': schema.reader.file '" + path + "' is not an Avro schema: "
+                            + e.getMessage());
+        } catch (KafkaValueDecoder.Unmappable e) {
+            throw new ConfigurationException(
+                    KafkaErrors.SCHEMA_UNMAPPABLE,
+                    "source '" + instanceName + "': schema.reader.file '" + path + "' cannot be read into this "
+                            + "stream's columns: " + e.getMessage());
+        }
+    }
+
     private AvroRowReader avroReader(String path) {
         String text;
         try {
@@ -322,7 +366,9 @@ final class KafkaSourceOptions {
             throw refusal("cannot read schema.file '" + path + "': " + e.getMessage());
         }
         try {
-            return AvroRowReader.map(schema, AvroSchema.parse(text), eventTimeOrdinal);
+            AvroSchema.Node writer = AvroSchema.parse(text);
+            return AvroRowReader.map(
+                    schema, writer, avroReaderSchema != null ? avroReaderSchema : writer, eventTimeOrdinal);
         } catch (AvroSchema.Invalid e) {
             throw new ConfigurationException(
                     KafkaErrors.SCHEMA_UNMAPPABLE,
@@ -361,7 +407,8 @@ final class KafkaSourceOptions {
         return switch (format) {
             case JSON -> new KafkaRecordDecoder(schema, false, eventTimeOrdinal);
             case CHANGELOG -> new KafkaRecordDecoder(schema, true, eventTimeOrdinal);
-            case AVRO -> new AvroValueDecoder(instanceName, schema, eventTimeOrdinal, avroReader, registry());
+            case AVRO ->
+                new AvroValueDecoder(instanceName, schema, eventTimeOrdinal, avroReader, avroReaderSchema, registry());
             case PROTOBUF ->
                 ProtobufValueDecoder.map(schema, eventTimeOrdinal, protobufMessage, !registryUrl.isEmpty());
         };

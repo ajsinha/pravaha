@@ -181,12 +181,17 @@ final class AvroBinary {
 
     /** The branch a union's index selects. */
     AvroSchema.Node branch(AvroSchema.Node union) throws Undecodable {
+        return union.branches.get(branchIndex(union));
+    }
+
+    /** The index of the branch a union's value is written in, checked against the union. */
+    int branchIndex(AvroSchema.Node union) throws Undecodable {
         long index = readLong();
         if (index < 0 || index >= union.branches.size()) {
             throw new Undecodable("a union names branch " + index + " of " + union.branches.size()
                     + ", so the value was not written with this schema");
         }
-        return union.branches.get((int) index);
+        return (int) index;
     }
 
     private int length(String what) throws Undecodable {

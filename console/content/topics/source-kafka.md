@@ -7,7 +7,7 @@ icon: broadcast-pin
 summary: "kafka reads a topic as a stream: one reader per partition, its offsets in the query's checkpoint and never in a consumer group, exactly once. JSON, kafka-sink's changelog, Avro or Protobuf, with a schema registry and no library for any of them."
 badge: SOURCE
 audience: Operators
-keywords: [kafka, kafka source, topic, partition, offset, consumer, consumer group, monitoring.group, read_committed, isolation.level, exactly once, changelog, tombstone, json, avro, protobuf, schema registry, schema.file, schema.descriptor, schema.registry.url, confluent, karapace, apicurio, descriptor set, DynamicMessage, logical type, start.from, earliest, latest, retention, retention.ms, lag, sasl, scram, dead letter, PRV-5106, PRV-5108, PRV-5109]
+keywords: [kafka, kafka source, topic, partition, offset, consumer, consumer group, monitoring.group, read_committed, isolation.level, exactly once, changelog, tombstone, json, avro, protobuf, schema registry, schema.file, schema.reader.file, schema resolution, schema evolution, aliases, nested record, schema.descriptor, schema.registry.url, confluent, karapace, apicurio, descriptor set, DynamicMessage, logical type, start.from, earliest, latest, retention, retention.ms, lag, sasl, scram, dead letter, PRV-5106, PRV-5108, PRV-5109]
 guide: connectors#a-replayable-source-kafka
 related: [sources-overview, sink-kafka, source-postgres-cdc, checkpoints-recovery, zset-weights, dead-letters, connector-security, delivery-guarantees]
 ---
@@ -57,6 +57,7 @@ The same Kafka plugin ships the sink, `kafka-sink`; this page is its source, nam
 | `schema` | yes | — | `name:TYPE,...` — the same grammar as every other connector, `?` after a type for a nullable column, `DECIMAL(p,s)` accepted. Write the stream's own schema here, column for column |
 | `format` | no | `json` | `json`: each value is a JSON object of the row. `changelog`: each value is `kafka-sink`'s changelog envelope. `avro`: Avro's binary encoding. `protobuf`: one protobuf message. Anything else is PRV-5100 |
 | `schema.file` | with `format: avro` | — | The **writer** schema, as Avro JSON, on this node's disk. Exactly one of this and `schema.registry.url`; with any other format, PRV-5100 naming both |
+| `schema.reader.file` | no | — | With `format: avro` only: a **reader** schema, as Avro JSON. Every writer schema — `schema.file`'s, or each registry id's — is resolved against it by the Avro specification's rules, and the columns are matched against it. See [schema evolution](#schema-evolution-a-reader-schema). Any other format: PRV-5100 |
 | `schema.registry.url` | with `format: avro` | — | `http(s)://host:port`, any path prefix kept (Apicurio's `/apis/ccompat/v7`). Each value must then begin with the wire format's `0x00` and four-byte schema id. With `format: protobuf` it means only that the prefix and Confluent's message-index array are read past |
 | `schema.registry.user` / `schema.registry.password` | no | none | HTTP basic auth for the registry. Refused (PRV-5100) without `schema.registry.url` |
 | `schema.registry.token` | no | none | A bearer token instead of basic auth |
@@ -264,10 +265,44 @@ UTC. A `["null", T]` union reads NULL or its branch — and a NULL in a column n
 per record, as in every other format.
 
 **Fields and columns are matched by name** (exactly, then ignoring case). A field no column names is
-skipped whole, records, arrays and maps included. A column no field carries, or a field whose type
+skipped whole, records, arrays and maps included. **A nested record's field is a column by its path
+joined with underscores**: column `shipping_city` reads field `city` of record field `shipping`, at
+any depth, and through a `["null", record]` union, whose `null` makes every column under it NULL. A
+record itself fills no column. Two fields that match one column — a top-level `shipping_city` and
+`shipping.city` — are PRV-5108, never chosen between. A column no field carries, or a field whose type
 cannot become its column, is PRV-5108 **when the query registers** — not a stream of dead letters at
 three in the morning. Every row is an insertion, `+1`; Avro carries no weights, so retractions need
 `format: changelog`.
+
+### Schema evolution: a reader schema
+
+Producers change their schemas. With `schema.reader.file` the binding reads every writer schema *as*
+the reader schema, by the resolution rules of the Avro specification, so a producer can move on under
+a binding that does not change:
+
+| Writer and reader | Read as |
+|---|---|
+| a field the reader does not have | skipped |
+| a reader field the writer does not have | its `default` — and PRV-5108 if it has none |
+| a reader field whose `aliases` name the writer's field | the writer's field (a rename) |
+| `int` → `long`, `float`, `double`; `long` → `float`, `double`; `float` → `double`; `string` ↔ `bytes` | promoted |
+| records, enums, fixeds with the same unqualified name, or the writer's name in the reader type's `aliases` | resolved field by field |
+| an enum symbol the reader lacks | the reader enum's `default` symbol — PRV-5108 if it has none |
+| a writer union | each branch against the reader; a branch that resolves to nothing is PRV-5108 |
+| a reader union | its first branch that matches the writer |
+
+Everything the specification calls an error is refused **when the two schemas are compiled**, not when
+a record happens to reach it: a `schema.file` that does not resolve is PRV-5108 at registration, and a
+registry id that does not resolve is a dead letter naming the id (and is not fetched again). A logical
+type must be the same on both sides, and a decimal's precision and scale too: the specification falls
+back to the underlying type when they differ, and a `DECIMAL` read as raw bytes is exactly what this
+refusal exists to prevent. Without `schema.reader.file`, each writer schema is read as itself.
+
+```yaml
+        format: avro
+        schema.registry.url: https://registry.internal:8081
+        schema.reader.file: /etc/pravaha/schemas/orders-reader.avsc
+```
 
 ### `format: protobuf` — one message of a descriptor set
 
@@ -601,7 +636,7 @@ SCRAM mechanisms are allowed either way. `security.protocol` follows from the tw
 
 | Not built | Instead |
 |---|---|
-| **Avro schema resolution** (reading with a schema other than the writer's), **aliases**, **nested records as columns** | The writer schema is read as written, and only its top-level fields become columns. Flatten in the producer, or read the field as `BYTES` |
+| **An array or a map as a column** | Flatten it in the producer; a nested *record*'s fields are columns |
 | **A registry's Protobuf schemas** | They are `.proto` source; supply the descriptor set with `schema.descriptor` |
 | **Writing** Avro or Protobuf | `kafka-sink` writes JSON. See [the Kafka sink](/help/topics/sink-kafka) |
 | **The record key** as data | Only the value is read. Put every column in the value, as `kafka-sink` does |
@@ -621,7 +656,7 @@ SCRAM mechanisms are allowed either way. `security.protocol` follows from the tw
 | [PRV-5105](/help/codes/PRV-5105) | while running | A record does not fit the schema (or is a tombstone in `format: json`) and there is no dead-letter queue. The message names it as `topic/partition@offset`. Set `pravaha.dlq.directory`, fix the producer, or for tombstones set `tombstone: skip` |
 | [PRV-5106](/help/codes/PRV-5106) | at restore, or while running | The offset to resume from is gone — retention, or a recreated topic. Recover as above |
 | [PRV-5107](/help/codes/PRV-5107) | while running | Fetching failed in a way retrying will not fix: an ACL revoked, the topic deleted |
-| [PRV-5108](/help/codes/PRV-5108) | at registration | With `format: avro` or `protobuf`: the writer schema cannot become rows of this stream — a column with no field, a field whose type cannot fill its column, a `schema.file` that is not an Avro schema, a `schema.descriptor` that is not a descriptor set or has no such message. A registry's schema is checked when its first record arrives instead, and a mismatch there is a dead letter |
+| [PRV-5108](/help/codes/PRV-5108) | at registration | With `format: avro` or `protobuf`: the writer schema cannot become rows of this stream — a column with no field, a field whose type cannot fill its column, two nested paths matching one column, a writer schema that does not resolve against `schema.reader.file`, a `schema.file` that is not an Avro schema, a `schema.descriptor` that is not a descriptor set or has no such message. A registry's schema is checked when its first record arrives instead, and a mismatch there is a dead letter |
 | [PRV-5109](/help/codes/PRV-5109) | while running | The schema registry could not be read: unreachable after three attempts, the credentials refused, no schema with that id, or an answer that is not `GET /schemas/ids/{id}`'s documented shape. The reader stops and resumes from its checkpoint once the registry is back |
 | [PRV-2041](/help/codes/PRV-2041) | at registration | A query over a `format: changelog` stream pointed at an append-only sink |
 
