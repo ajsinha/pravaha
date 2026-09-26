@@ -261,7 +261,7 @@ no metaspace leak over 10 000 register/drop cycles.
 | P2-10 false-sharing audit | ✅ test + benchmark, padding worth 4.1× |
 | P2-11 `EXPLAIN codegen` | ✅ CLI `--level codegen`, API `level=codegen` |
 | P2-12 lane multiplexing | ✅ `LaneMultiplexer` |
-| P2-13 interpreted-first admission | ✅ `AdaptiveStage`, `StageUpgradeService` |
+| P2-13 interpreted-first admission | Replaced (2026-09-26, C-7): generated stages compile at registration through `GeneratedChains`; `AdaptiveStage` and `StageUpgradeService` are deleted |
 
 ### The gate needs one thing, and it is not code
 

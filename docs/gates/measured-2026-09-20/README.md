@@ -7,7 +7,7 @@ Copyright © 2026 Ashutosh Sinha. Proprietary and confidential; see `../../../LI
 | Date measured | **2026-09-20** |
 | Why now | There is no reference hardware and there is not going to be any. The owner's instruction on 2026-09-19 was to measure on the machine that exists and report every number with the machine named |
 | Harness | `pravaha-it/src/test/java/com/ash/messaging/pravaha/it/qa/perf/` — `ProfileAGateIT`, `ProfileBGateIT`, `NexmarkCoverageIT`, with `MachineState` and `GateReading` |
-| Verdict | **P2's throughput criterion is reached. P2's scaling criterion is not reached: 28–42 % against a target of 90 %. P3's throughput criterion is reached. W5's Nexmark comparison is not reached and cannot be run here: 5 of 23 queries ran at all on 2026-09-20, and 12 of 23 on 2026-09-26 (below)** |
+| Verdict | **P2's throughput criterion is reached. P2's scaling criterion is not reached: 28–42 % against a target of 90 %, and 33–46 % when re-measured on 2026-09-26 without the coverage agent that every earlier run carried (below). P3's throughput criterion is reached. W5's Nexmark comparison is not reached and cannot be run here: 5 of 23 queries ran at all on 2026-09-20, and 12 of 23 on 2026-09-26 (below)** |
 
 ## The one thing a reader must not conclude
 
@@ -161,6 +161,111 @@ The wave-3 pack recorded 2.7× (34 %) at eight lanes for the *lane machinery alo
 (`LaneScalingBenchmark`). Eight runs of a whole Profile A pipeline now put the same figure at
 28–42 %. That the two agree is mildly interesting and is not evidence for anything: they share the
 hardware confound that makes both untrustworthy.
+
+### Re-measured on 2026-09-26 — still not reached, and the harness was measuring a coverage agent
+
+Everything above this heading is as it was recorded on 2026-09-20. This section is what the
+investigation of the scaling gap found, what changed, and the figures after it. Same machine, same
+JDK; load average recorded per run, between 1.1 and 4.4 on 24 logical processors for every figure
+below, which is below the harness's withholding threshold throughout.
+
+**1. The runs above were taken with JaCoCo attached, and so was every run of this harness.** The
+root POM attaches the JaCoCo agent to every test JVM (`jacoco.skip` follows `skipTests`), and the
+reproduce command below does not turn it off. The agent's probes are one shared `boolean[]` per
+class, written by every lane on every row, so eight lanes contend for the same cache lines through
+code that shares nothing else. On 2026-09-26, with the agent, eight lanes measured **1 % of
+linear** — on this branch and, checked by switching the worktree back, on `75bb10ef`, the commit
+before any of this work. Without it the same code measured 49 %. Why the agent cost less on
+2026-09-20 than it does now is not known; what is known is that a figure taken under it is a figure
+about the agent. `ProfileAGateIT` now refuses to run when the agent is present, and the command
+needs `-Djacoco.skip=true`.
+
+**2. The machine's own ceiling, measured.** A new arm, `machineScalingReference`, runs independent
+compute threads — a private 32 KiB array each, nothing shared, nothing allocated. Best of three:
+
+| Threads | Steps/s | vs 1 thread | % of linear |
+|---|---|---|---|
+| 1 | 846,703,731 | 1.00× | 100 % |
+| 2 | 1,602,437,243 | 1.89× | 95 % |
+| 4 | 3,240,832,637 | 3.83× | 96 % |
+| 8 | 4,199,364,196 | 4.96× | 62 % |
+| 16 | 6,582,296,694 | 7.77× | 49 % |
+
+The fall between four threads and eight is the four Zen 5 cores running out and the Zen 5c cores
+taking over; past twelve it is SMT. The scaling arm runs two threads per lane, so its one-lane
+baseline is two threads here and its eight lanes are sixteen: **for work that shares nothing, this
+machine gives 51 % of linear over that range** (55 % in a second run at load 4.4). That is the
+machine's, and no change to the engine moves it.
+
+**3. What the engine was doing, from JFR** (a flight recording of the scaling arm, run in-process so
+the recording survived the fork):
+
+- **Half of every lane's samples were `new String(bytes, UTF_8)`.** The interpreted `WHERE status =
+  'COMPLETED'` decoded the column for every row to call `equals`. Besides the time, that is all of
+  a lane's garbage, and a young collection stops every lane at once, so the cost grows with the
+  lane count. `CompareString` now compares an ASCII literal in place and rules out a value with
+  fewer bytes than the literal has chars, with the decoded answer as its reference in
+  `CompareStringInPlaceTest`. One lane went from about 25 million rows a second to about 55.
+- **Each row looked its stream up by name** in the pipeline's map. `LanePipeline` resolves each
+  input's entry point once.
+- **A lane that had caught up with its producer drained six to eight rows a batch** and paid the
+  whole per-batch cost for each handful, while reading cells beside the ones the producer was still
+  writing. It now waits a few microseconds for an eighth of a batch when its last step worked —
+  looking at the producer's frontier every sixteen pauses, because looking on every pause took the
+  frontier's line away from the producer and made the producer the bound. A lane stepped by a
+  `LaneRunner` — every registered query's — gives its step back instead of spinning. Rows per batch
+  went from 6–8 to 67–110.
+- **The harness had false sharing of its own.** `CountingRowOutput` did a locked increment per
+  emitted row into `AtomicLong`s allocated side by side for every lane's sink. It now counts in a
+  plain field and publishes once a batch.
+- **Passes were about 80 ms long** at the default 2,000,000 rows a lane, so thread start and drain
+  were a visible share of each. The default is now 8,000,000, which is what the runs above used.
+
+**4. The figures after all of it.** Best of three passes per lane count, both paths inside the same
+loop, 8,000,000 rows a lane a pass. "Generated" is what a node now runs (C-7 below); "interpreted"
+is the fallback.
+
+| Lanes | Interpreted, run A (load 3.6) | Generated, run A | Interpreted, run B (load 2.8) | Generated, run B |
+|---|---|---|---|---|
+| 1 | 49,789,789 | 37,793,374 | 57,132,659 | 42,607,480 |
+| 2 | 97,440,228 (**98 %**) | 67,591,776 (**89 %**) | 109,968,709 (**96 %**) | 94,914,208 (**111 %**) |
+| 4 | 101,186,164 (**51 %**) | 71,159,297 (**47 %**) | 101,837,116 (**45 %**) | 80,447,487 (**47 %**) |
+| 8 | 129,639,769 (**33 %**) | 139,056,772 (**46 %**) | 183,257,463 (**40 %**) | 112,715,443 (**33 %**) |
+
+> **Verdict: NOT REACHED. Eight lanes measure 33–46 % of linear against a target of 90 %.** Against
+> the machine's own 51–55 % for sixteen threads that share nothing, the engine keeps between 60 and
+> 90 % of what this machine can give — but the gate is stated against linear and not against the
+> machine, so it stays not reached, and nothing here should be read as a claim that it would be
+> reached elsewhere. Throughput at eight lanes roughly doubled against the 2026-09-20 table, most of
+> it from the text comparison; that is a statement about aggregate rate, not about the ratio.
+
+What is left between the engine and the machine's ceiling was not isolated: the producer and the
+lane of one query sit on whichever cores the scheduler gives them, possibly on different CCXs, and
+each row crosses between them through the inbox. Pinning is not available from Java, and was not
+tried.
+
+### C-7: generated against interpreted, end to end, 2026-09-26
+
+Since C-7 a registered query's filter and projection run generated code. What that is worth end to
+end, on this harness:
+
+| Arm | Path | Separate JVMs, run 1 (load 2.3) | Run 2 (load 3.1–3.9) | Interleaved in one JVM (load 2.8) |
+|---|---|---|---|---|
+| One lane | interpreted | best 56,487,983 · median 43,559,720 | best 62,235,585 · median 52,388,465 | best 53,336,711 · median 48,795,686 |
+| One lane | generated | best 55,107,013 · median 44,435,719 | best 54,565,414 · median 39,708,854 | best 56,157,944 · median 55,269,869 |
+| Registry | interpreted | best 43,147,917 · median 34,318,227 | best 43,990,358 · median 37,497,726 | best 45,908,115 · median 40,940,621 |
+| Registry | generated | best 41,473,473 · median 33,085,342 | best 43,597,242 · median 30,587,786 | best 43,593,137 · median 33,117,773 |
+
+> **End to end the two paths are level on this harness: 0.95× to 1.13× by best, 0.76× to 1.13× by
+> median, inside the noise.** The reason is measured, not supposed: one producer thread copies every
+> row into the inbox, and with either pipeline the lane now waits on it — the generated lane spent
+> 44 % of its samples waiting at the producer's frontier before the batching change, and still takes
+> its batches at the eighth-of-a-batch mark. The pipeline itself, without a lane or a producer
+> (the same plan, rows fed in a loop on one thread, six rounds each), runs **106–118 million rows a
+> second generated against 60–66 million interpreted: 1.7×.** That is the figure for what the
+> generator saves; the end-to-end figure is what this harness's producer lets through.
+> `ProfileABenchmark`'s 10× is a different measurement: the generated batch loop against interpreted
+> operators over one batch, with no pipeline, arena or sink around either.
 
 ## Gate P3 — Profile B
 
@@ -368,6 +473,11 @@ export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 ./mvnw -o -pl pravaha-it test -Dtest=ProfileAGateIT \
     -DfailIfNoSpecifiedTests=false -Dsurefire.failIfNoSpecifiedTests=false \
     -Dpravaha.gate.p2.rows=20000000 -Dpravaha.gate.p2.scaling.rows=8000000
+
+# From 2026-09-26: -am so the modules under test are the worktree's, and -Djacoco.skip=true, without
+# which the harness refuses to run. -Dpravaha.gate.p2.codegen=false measures the interpreter.
+./mvnw -o -pl pravaha-it -am test -Dtest=ProfileAGateIT -Djacoco.skip=true \
+    -DfailIfNoSpecifiedTests=false -Dsurefire.failIfNoSpecifiedTests=false
 
 ./mvnw -o -pl pravaha-it test -Dtest=ProfileAGateIT \
     -DfailIfNoSpecifiedTests=false -Dsurefire.failIfNoSpecifiedTests=false \

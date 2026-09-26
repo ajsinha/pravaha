@@ -23,7 +23,9 @@ Consequences that follow directly, and are therefore part of the decision:
 - a record is copied into a lane's inbox **once** and every pipeline subscribed to that stream reads
   the same flyweight — fan-out inside a lane is zero-copy;
 - a newly registered query **runs interpreted immediately** and is swapped to its generated stage
-  when a bounded compile pool reaches it.
+  when a bounded compile pool reaches it. *(Not built that way: since 2026-09-26 a query's generated
+  stage is compiled at registration, before its first row, and the swap is deleted — ADR-005's
+  amendment.)*
 
 ## Alternatives considered
 

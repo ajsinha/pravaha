@@ -270,6 +270,14 @@ node restart. The interpreted path already exists as the correctness fallback (d
 **runs interpreted immediately** and is swapped to generated code as a bounded compile pool works
 through the backlog. The fallback stops being only a safety net and becomes the admission strategy.
 
+> **As built (2026-09-26, C-7), point 4 is not what happens.** Generated code is compiled when a
+> lane's pipeline is built, before its first row, and the background swap (`AdaptiveStage`,
+> `StageUpgradeService`) is deleted: nothing reached it, and its adapter wrote a stage's output over
+> its own input. The interpreter remains the fallback for every chain the generator refuses.
+> Compiled stages are shared between lanes and identical queries, so the restart cost is one Janino
+> compile per *distinct* filter-and-projection chain, paid serially at registration. See ADR-005's
+> amendment.
+
 ### What is not built yet
 
 Points 1 and 2 above are **still not in the code**, and the half of point 1 that *is* built is worth

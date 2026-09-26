@@ -197,6 +197,19 @@ Spinning costs a core per handful of idle queries — nine idle registrations on
 which is why nothing that registers queries spins by default. A node running one latency-critical
 query sets `pravaha.lane.wait-strategy: BUSY_SPIN` deliberately.
 
+### How a lane waits when its inbox is *nearly* empty
+
+A lane faster than its producer used to drain whatever had arrived -- six or seven rows -- and pay
+the whole per-batch cost for them, while reading cells beside the ones the producer was writing.
+Since 2026-09-26 (gate P2), a lane whose last step worked and which finds less than an eighth of a
+batch waiting waits for more: up to thirty-two looks at the producer's frontier, sixteen pauses
+apart, a few microseconds in all. A lane on its own thread spins for them; a lane stepped by a
+`LaneRunner` gives its step back to the runner instead. A lane whose last step found nothing does
+not wait, so a lone row on a quiet stream is taken at once, and nothing waits while a barrier is
+pending. It looks every sixteen pauses rather than on every one because the frontier is a line the
+producer writes per row, and a consumer polling it takes that line from the producer each time --
+measured, that made the producer the bound.
+
 ---
 
 ## 5. The arena

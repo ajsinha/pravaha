@@ -1573,6 +1573,32 @@ Reproduce the measurement:
     -DfailIfNoSpecifiedTests=false -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
+### Which path a query's filter and projection run on
+
+A registered query's filters and projection run as generated Java when the code generator can
+compile them, and interpreted when it cannot (finding C-7). The answer is the same either way --
+the generated stage is refused rather than allowed to differ -- so this is about speed, never about
+results. `GET /api/v1/queries/{name}` carries an `execution` list, one line per chain of filters
+and a projection standing on a scan:
+
+```
+generated: Project[txn_id, user_id, amount] <- Filter((status = 'COMPLETED' AND amount > 900)) <- Scan(txn) -- generated: <n> lines, compiled in <m> ms
+interpreted: Project[txn_id, status] <- Filter(amount > 10) <- Scan(txn) -- not generated: PRV-3101 cannot generate a projection of STRING yet ...
+generated: Filter(amount > 10) <- Scan(txn) -- generated: ...
+```
+
+The second and third lines are one query: its text projection is refused, and the filter beneath it
+is generated alone. A plan with no filter or projection directly on a scan says so in one line.
+
+- **Off switch:** `-Dpravaha.codegen.enabled=false` on the node's JVM. Every query registered after
+  start-up then runs interpreted. It is read at start-up; a running query keeps the path it was
+  built on.
+- **With `pravaha.metrics.operators` on, nothing is generated:** a generated stage is one fused
+  method with no operators to count, and the per-operator numbers are what that setting is for.
+- **Cost at registration:** one Janino compile per distinct chain, typically milliseconds; a
+  compiled stage is shared by every lane of the query and by identical queries. A node restarting
+  with many distinct queries pays one compile per chain, serially.
+
 ### A source that stopped
 
 A source that fails mid-read — a file deleted or truncated, a credential revoked, a topic deleted, a
