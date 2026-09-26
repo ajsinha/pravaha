@@ -23,15 +23,18 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
+import com.ash.messaging.pravaha.codegen.FilterProjectStageGenerator;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.common.queue.WaitStrategy;
 import com.ash.messaging.pravaha.common.row.BinaryRowView;
 import com.ash.messaging.pravaha.common.row.RowLayout;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.RegisteredQuery;
+import com.ash.messaging.pravaha.runtime.exec.GeneratedChains;
 import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
 import com.ash.messaging.pravaha.runtime.lane.LaneConfig;
 import com.ash.messaging.pravaha.security.Principal;
@@ -66,23 +69,28 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>{@link #profileAScalingFromOneLaneToEight()} -- the same pipeline at 1, 2, 4 and 8 lanes.
  * </ol>
  *
- * <p><strong>It measures the interpreted pipeline, because that is what a registered query runs.
- * </strong> {@code AdaptiveStage} and {@code StageUpgradeService} are reachable from no production
- * caller -- finding C-5 records that -- so the roughly 10x that {@code ProfileABenchmark} measures
- * for generated code is not available to a query somebody registers today, and a gate figure that
- * assumed it would be a figure about code nothing runs.
+ * <p><strong>It measures the generated filter and projection by default, because since C-7 that is
+ * what a registered query on a node runs.</strong> {@code -Dpravaha.gate.p2.codegen=false} measures
+ * the interpreter instead; {@link #profileAGeneratedAgainstInterpreted()} measures both, interleaved,
+ * and the scaling arm reports both.
+ *
+ * <p><strong>A coverage agent makes every number here meaningless, and the harness refuses to run
+ * under one.</strong> JaCoCo is attached to the test JVM by default ({@code jacoco.skip} follows
+ * {@code skipTests}), and its probes are one shared array per class that every lane thread writes
+ * on every row: on 2026-09-26 it turned 49 % scaling at eight lanes into 1 %. Pass
+ * {@code -Djacoco.skip=true}.
  *
  * <p><strong>Not part of the default build.</strong> Named {@code *IT}, which the root POM's
  * surefire configuration excludes, because a throughput measurement that gates a pull request is a
  * flaky test. Run it on purpose:
  *
  * <pre>
- * ./mvnw -o -pl pravaha-it test -Dtest=ProfileAGateIT \
+ * ./mvnw -o -pl pravaha-it -am test -Dtest=ProfileAGateIT -Djacoco.skip=true \
  *     -DfailIfNoSpecifiedTests=false -Dsurefire.failIfNoSpecifiedTests=false
  * </pre>
  *
- * <p>Knobs: {@code pravaha.gate.p2.rows} (rows per timed pass), {@code .passes} (timed passes) and
- * {@code .warmups}.
+ * <p>Knobs: {@code pravaha.gate.p2.rows} (rows per timed pass), {@code .passes} (timed passes),
+ * {@code .warmups}, {@code .scaling.rows}, {@code .scaling.passes} and {@code .codegen}.
  */
 @Timeout(3600)
 final class ProfileAGateIT {
@@ -102,7 +110,7 @@ final class ProfileAGateIT {
     private static final int WARMUPS = Integer.getInteger("pravaha.gate.p2.warmups", 2);
 
     /** Rows per lane in the scaling measurement: smaller, because eight lanes run eight of them. */
-    private static final long SCALING_ROWS = Long.getLong("pravaha.gate.p2.scaling.rows", 2_000_000L);
+    private static final long SCALING_ROWS = Long.getLong("pravaha.gate.p2.scaling.rows", 8_000_000L);
 
     private static final int SCALING_PASSES = Integer.getInteger("pravaha.gate.p2.scaling.passes", 3);
 
@@ -112,20 +120,48 @@ final class ProfileAGateIT {
 
     private static final Duration DRAIN = Duration.ofMinutes(5);
 
+    /** Whether the single-path arms run generated code, which is what a node runs (C-7). */
+    private static final boolean GENERATED =
+            Boolean.parseBoolean(System.getProperty("pravaha.gate.p2.codegen", "true"));
+
+    @BeforeAll
+    static void refuseACoverageAgent() {
+        List<String> arguments =
+                java.lang.management.ManagementFactory.getRuntimeMXBean().getInputArguments();
+        if (arguments.stream().anyMatch(argument -> argument.contains("jacoco"))) {
+            throw new IllegalStateException("a JaCoCo agent is attached to this JVM, and its per-class probe "
+                    + "arrays are written by every lane on every row: the measurement would be of the "
+                    + "agent. Run with -Djacoco.skip=true.");
+        }
+    }
+
+    /** Installs the generator, or removes it, for the queries a pass is about to start. */
+    private static void generate(boolean generated) {
+        if (generated) {
+            FilterProjectStageGenerator.install();
+        } else {
+            GeneratedChains.install(null);
+        }
+    }
+
+    private static String path(boolean generated) {
+        return generated ? "generated filter and project" : "interpreted filter and project";
+    }
+
     @Test
     void profileAThroughOneLane() {
         MemoryAccess access = MemoryAccess.best();
         try (ProfileARows rows = ProfileARows.encode(access)) {
             double[] samples = new double[PASSES];
             for (int pass = 0; pass < WARMUPS + PASSES; pass++) {
-                double rate = oneLanePass(rows, access);
+                double rate = oneLanePass(rows, access, GENERATED);
                 if (pass >= WARMUPS) {
                     samples[pass - WARMUPS] = rate;
                 }
             }
             GateReading reading = new GateReading(
-                    "Gate P2, Profile A end to end on one lane -- inbox handoff, batch loop, arena, "
-                            + "interpreted filter and project, sink dispatch",
+                    "Gate P2, Profile A end to end on one lane -- inbox handoff, batch loop, arena, " + path(GENERATED)
+                            + ", sink dispatch",
                     "rows/s",
                     THROUGHPUT_TARGET,
                     THROUGHPUT_SOURCE,
@@ -155,14 +191,14 @@ final class ProfileAGateIT {
         try (ProfileARows rows = ProfileARows.encode(access)) {
             double[] samples = new double[PASSES];
             for (int pass = 0; pass < WARMUPS + PASSES; pass++) {
-                double rate = registryPass(rows);
+                double rate = registryPass(rows, GENERATED);
                 if (pass >= WARMUPS) {
                     samples[pass - WARMUPS] = rate;
                 }
             }
             GateReading reading = new GateReading(
                     "Gate P2, Profile A through the product path -- SQL planned, query registered, "
-                            + "rows accepted, results applied to a served view",
+                            + "rows accepted, results applied to a served view, " + path(GENERATED),
                     "rows/s",
                     THROUGHPUT_TARGET,
                     THROUGHPUT_SOURCE,
@@ -179,11 +215,14 @@ final class ProfileAGateIT {
     void profileAScalingFromOneLaneToEight() throws Exception {
         MemoryAccess access = MemoryAccess.best();
         Map<Integer, double[]> byLaneCount = new LinkedHashMap<>();
+        Map<Integer, double[]> interpretedByLaneCount = new LinkedHashMap<>();
         try (ProfileARows rows = ProfileARows.encode(access)) {
             for (int lanes : LANE_COUNTS) {
                 byLaneCount.put(lanes, new double[SCALING_PASSES]);
-                // One warm-up pass per lane count, discarded.
-                scalingPass(rows, access, lanes);
+                interpretedByLaneCount.put(lanes, new double[SCALING_PASSES]);
+                // One warm-up pass per lane count and path, discarded.
+                scalingPass(rows, access, lanes, true);
+                scalingPass(rows, access, lanes, false);
             }
             // Passes on the outside and lane counts on the inside, which is the arrangement
             // OperatorMetricsOverheadIT arrived at for the same reason. Running every pass of one
@@ -194,16 +233,29 @@ final class ProfileAGateIT {
             // entirely by a depressed one-lane baseline -- before the loops were turned inside
             // out. Interleaving cannot make a scaling figure trustworthy on a shared machine, and
             // nothing can; it removes the one bias that was systematic.
+            //
+            // Both paths inside the same loop, for the same reason: a comparison between them is
+            // only a comparison if the machine was the same machine for both.
             for (int pass = 0; pass < SCALING_PASSES; pass++) {
                 for (int lanes : LANE_COUNTS) {
-                    byLaneCount.get(lanes)[pass] = scalingPass(rows, access, lanes);
+                    byLaneCount.get(lanes)[pass] = scalingPass(rows, access, lanes, true);
+                    interpretedByLaneCount.get(lanes)[pass] = scalingPass(rows, access, lanes, false);
                 }
             }
         }
-
-        double oneLane = best(byLaneCount.get(1));
         MachineState state = MachineState.now();
-        System.out.printf("%n  Gate P2, Profile A scaling -- one query per lane, one producer thread each%n");
+        scalingTable(interpretedByLaneCount, "interpreted filter and project", state);
+        double[] efficiencies = scalingTable(byLaneCount, "generated filter and project, what a node runs", state);
+        printScalingVerdict(efficiencies, byLaneCount, state);
+    }
+
+    /** Prints one path's table and returns its efficiency at each lane count. */
+    private static double[] scalingTable(Map<Integer, double[]> byLaneCount, String path, MachineState state) {
+        double oneLane = best(byLaneCount.get(1));
+        System.out.printf(
+                "%n  Gate P2, Profile A scaling -- one query per lane, one producer thread each, %s, %,d rows per"
+                        + " lane per pass, load %.1f%n",
+                path, SCALING_ROWS, state.loadAverage());
         System.out.printf(
                 "    %-6s %-16s %-14s %-12s %s%n", "lanes", "rows/s (best)", "vs 1 lane", "efficiency", "samples");
         double[] efficiencies = new double[LANE_COUNTS.length];
@@ -220,7 +272,12 @@ final class ProfileAGateIT {
                     String.format("%.0f %%", efficiencies[i] * 100),
                     samplesOf(byLaneCount.get(lanes)));
         }
+        return efficiencies;
+    }
 
+    private static void printScalingVerdict(
+            double[] efficiencies, Map<Integer, double[]> byLaneCount, MachineState state) {
+        double oneLane = best(byLaneCount.get(1));
         GateReading reading = new GateReading(
                 "Gate P2, scaling efficiency at eight lanes against one",
                 "% of linear",
@@ -252,10 +309,153 @@ final class ProfileAGateIT {
                 .isGreaterThan(0);
     }
 
+    /**
+     * The generated path against the interpreted one, end to end, interleaved pass by pass (C-7).
+     *
+     * <p>One lane and the registry, each run both ways inside the same loop, so the two figures of
+     * a pair were taken on the same machine a second apart. The ratio of the best samples is the
+     * figure; the medians are printed beside it because a best-of can flatter either side.
+     *
+     * <p><strong>Interleaving has a cost of its own, and it falls on the generated side.</strong>
+     * Both paths run through the same lane loop, the same entry-point call site and the same sink,
+     * so in one JVM those sites see both and the JIT compiles them for both. On 2026-09-26 the
+     * generated arm read 0.8x the interpreted one interleaved and 1.2x in separate JVMs. Both are
+     * reported in the gate's README; the separate-JVM figure is {@link #profileAThroughOneLane()}
+     * run twice, with {@code -Dpravaha.gate.p2.codegen} true and false.
+     */
+    @Test
+    void profileAGeneratedAgainstInterpreted() {
+        MemoryAccess access = MemoryAccess.best();
+        try (ProfileARows rows = ProfileARows.encode(access)) {
+            double[][] samples = new double[4][PASSES];
+            double[] batchInterpreted = new double[PASSES];
+            double[] batchGenerated = new double[PASSES];
+            for (int pass = 0; pass < WARMUPS + PASSES; pass++) {
+                double laneInterpreted = oneLanePass(rows, access, false);
+                double interpretedBatch = lastRowsPerBatch;
+                double laneGenerated = oneLanePass(rows, access, true);
+                double generatedBatch = lastRowsPerBatch;
+                double registryInterpreted = registryPass(rows, false);
+                double registryGenerated = registryPass(rows, true);
+                if (pass >= WARMUPS) {
+                    samples[0][pass - WARMUPS] = laneInterpreted;
+                    samples[1][pass - WARMUPS] = laneGenerated;
+                    samples[2][pass - WARMUPS] = registryInterpreted;
+                    samples[3][pass - WARMUPS] = registryGenerated;
+                    batchInterpreted[pass - WARMUPS] = interpretedBatch;
+                    batchGenerated[pass - WARMUPS] = generatedBatch;
+                }
+            }
+            GeneratedChains.install(null);
+            MachineState state = MachineState.now();
+            System.out.printf(
+                    "%n  C-7, Profile A generated against interpreted, interleaved, %,d rows a pass, load %.1f%n",
+                    ROWS, state.loadAverage());
+            String[] arms = {
+                "one lane, interpreted", "one lane, generated", "registry, interpreted", "registry, generated"
+            };
+            for (int i = 0; i < arms.length; i++) {
+                System.out.printf(
+                        "    %-24s best %,14.0f  median %,14.0f  samples %s%n",
+                        arms[i], best(samples[i]), median(samples[i]), samplesOf(samples[i]));
+            }
+            System.out.printf(
+                    "    rows per lane batch, one lane: interpreted %s; generated %s%n",
+                    samplesOf(batchInterpreted), samplesOf(batchGenerated));
+            System.out.printf(
+                    "    one lane : generated / interpreted = %.2fx best, %.2fx median%n",
+                    best(samples[1]) / best(samples[0]), median(samples[1]) / median(samples[0]));
+            System.out.printf(
+                    "    registry : generated / interpreted = %.2fx best, %.2fx median%n",
+                    best(samples[3]) / best(samples[2]), median(samples[3]) / median(samples[2]));
+            System.out.print(state.describe());
+            assertThat(best(samples[1])).isGreaterThan(0);
+        }
+    }
+
+    /**
+     * What this machine does for work that shares nothing, at the thread counts the scaling arm uses.
+     *
+     * <p>Each thread runs a multiply-xorshift chain over a private 32 KiB array: no memory is shared,
+     * nothing is allocated, nothing is synchronised. Whatever this loses between one thread and
+     * sixteen is lost to the machine -- the frequency envelope, the two core designs, SMT -- and is
+     * the ceiling for any engine on it. The scaling arm runs two threads per lane, so its one-lane
+     * baseline is two threads here and its eight lanes are sixteen.
+     */
+    @Test
+    void machineScalingReference() throws Exception {
+        int[] threads = {1, 2, 4, 8, 16};
+        long perThread = 200_000_000L;
+        double[] best = new double[threads.length];
+        for (int t : threads) {
+            computePass(t, perThread / 4);
+        }
+        for (int pass = 0; pass < 3; pass++) {
+            for (int i = 0; i < threads.length; i++) {
+                best[i] = Math.max(best[i], computePass(threads[i], perThread));
+            }
+        }
+        MachineState state = MachineState.now();
+        System.out.printf(
+                "%n  Machine reference -- independent compute threads, no shared memory, load %.1f%n",
+                state.loadAverage());
+        for (int i = 0; i < threads.length; i++) {
+            System.out.printf(
+                    "    threads %-3d %,16.0f steps/s  %5.2fx  %3.0f %% of linear from one thread%n",
+                    threads[i], best[i], best[i] / best[0], 100 * best[i] / best[0] / threads[i]);
+        }
+        System.out.printf(
+                "    two threads to sixteen (the scaling arm's shape): %.0f %% of linear%n",
+                100 * best[4] / best[1] / 8);
+        assertThat(best[0]).isGreaterThan(0);
+    }
+
+    private static volatile long computeSink;
+
+    /** Rows the lane took per batch in the last one-lane pass: how far behind the producer it ran. */
+    private static double lastRowsPerBatch;
+
+    private static double computePass(int threads, long perThread) throws Exception {
+        CountDownLatch ready = new CountDownLatch(threads);
+        CountDownLatch go = new CountDownLatch(1);
+        List<Thread> workers = new ArrayList<>();
+        for (int t = 0; t < threads; t++) {
+            long seed = t + 1;
+            Thread worker = new Thread(() -> {
+                long[] local = new long[4096];
+                long h = seed;
+                ready.countDown();
+                try {
+                    go.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                for (long i = 0; i < perThread; i++) {
+                    local[(int) (h & 4095)] += h;
+                    h = h * 6364136223846793005L + 1442695040888963407L;
+                    h ^= h >>> 29;
+                }
+                computeSink += h + local[7];
+            });
+            worker.setDaemon(true);
+            workers.add(worker);
+            worker.start();
+        }
+        ready.await();
+        long began = System.nanoTime();
+        go.countDown();
+        for (Thread worker : workers) {
+            worker.join();
+        }
+        return threads * perThread / ((System.nanoTime() - began) / 1e9);
+    }
+
     // ---------------------------------------------------------------- passes
 
     /** One timed pass of {@link #ROWS} rows through one lane, returning rows a second. */
-    private static double oneLanePass(ProfileARows rows, MemoryAccess access) {
+    private static double oneLanePass(ProfileARows rows, MemoryAccess access, boolean generated) {
+        generate(generated);
         CountingRowOutput sink = new CountingRowOutput(ProfileARows.outputSchema());
         try (QueryExecution execution =
                 QueryExecution.start(ProfileARows.plan(), 1, laneConfig(rows), access, () -> sink, Map.of(), null)) {
@@ -267,12 +467,14 @@ final class ProfileAGateIT {
             }
             long took = System.nanoTime() - began;
             requireWorkHappened(sink.committed(), ROWS, rows);
+            lastRowsPerBatch = ROWS / (double) Math.max(1, sink.batches());
             return ROWS / (took / 1e9);
         }
     }
 
     /** One timed pass through the registry: planner, query, lane, served view. */
-    private static double registryPass(ProfileARows rows) {
+    private static double registryPass(ProfileARows rows, boolean generated) {
+        generate(generated);
         ViewCatalog views = new ViewCatalog();
         try (QueryRegistry registry = new QueryRegistry(views, ProfileARows.schema())) {
             RegisteredQuery query = registry.register("p2_profile_a", ProfileARows.sql(), List.of(0), DANA);
@@ -314,7 +516,9 @@ final class ProfileAGateIT {
      *
      * @return aggregate rows a second across all lanes
      */
-    private static double scalingPass(ProfileARows rows, MemoryAccess access, int lanes) throws Exception {
+    private static double scalingPass(ProfileARows rows, MemoryAccess access, int lanes, boolean generated)
+            throws Exception {
+        generate(generated);
         List<QueryExecution> executions = new ArrayList<>(lanes);
         List<CountingRowOutput> sinks = new ArrayList<>(lanes);
         List<Thread> producers = new ArrayList<>(lanes);
@@ -410,6 +614,12 @@ final class ProfileAGateIT {
                 .withWaitStrategy(WaitStrategy.Kind.SPIN_THEN_YIELD)
                 .withArena(1 << 20, 4)
                 .withThreads("gate-p2-lane", true);
+    }
+
+    private static double median(double[] samples) {
+        double[] sorted = samples.clone();
+        java.util.Arrays.sort(sorted);
+        return sorted[sorted.length / 2];
     }
 
     private static double best(double[] samples) {

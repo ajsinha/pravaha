@@ -38,6 +38,17 @@ import com.ash.messaging.pravaha.runtime.exec.RowOutput;
 final class CountingRowOutput implements RowOutput {
 
     private final AtomicLong committed = new AtomicLong();
+
+    /**
+     * Counted by the lane thread alone and published once a batch.
+     *
+     * <p>It was {@code committed.incrementAndGet()} per row: a locked instruction on every emitted
+     * row, into an {@code AtomicLong} allocated next to the other lanes' sinks' counters by the thread
+     * that built them all -- so eight lanes' counters shared cache lines, and the harness measured
+     * its own false sharing as the engine's scaling (gate P2, 2026-09-26).
+     */
+    private long counted;
+
     private final AtomicLong batches = new AtomicLong();
     private final StreamSchema schema;
     private final Writer writer = new Writer();
@@ -53,7 +64,8 @@ final class CountingRowOutput implements RowOutput {
 
     @Override
     public void endOfBatch() {
-        batches.incrementAndGet();
+        committed.lazySet(counted);
+        batches.lazySet(batches.get() + 1);
     }
 
     long committed() {
@@ -65,6 +77,7 @@ final class CountingRowOutput implements RowOutput {
     }
 
     void reset() {
+        counted = 0;
         committed.set(0);
         batches.set(0);
     }
@@ -149,7 +162,7 @@ final class CountingRowOutput implements RowOutput {
 
         @Override
         public int commit() {
-            committed.incrementAndGet();
+            counted++;
             return 0;
         }
 
