@@ -78,8 +78,13 @@ class SharedSourceReaderTest {
             awaitRows(first, 3);
 
             // The baseline: what one query costs the store, measured rather than assumed, so the
-            // comparison below is against this build on this machine.
-            long oneQuery = scansOver(Duration.ofMillis(400));
+            // comparison below is against this build on this machine. Measured again after the
+            // second query is dropped, and the larger of the two taken: the scan rate follows how
+            // much CPU the pump gets, and a single baseline taken before a load spike failed a gate
+            // at load 61 (330 scans against a bound of 322) while the test passed three times alone.
+            // Bracketing the measurement puts the baseline on both sides of whatever the machine
+            // did meanwhile.
+            long oneQuery = scansOver(WINDOW);
 
             RegisteredQuery second = registry.register("asks_another", ASKS_ANOTHER, List.of(0), DANA);
 
@@ -88,37 +93,42 @@ class SharedSourceReaderTest {
             // which is the half of SRC-3 that is not a counter but an answer being right.
             awaitRows(second, 3);
 
-            long twoQueries = scansOver(Duration.ofMillis(400));
-
-            // Printed as well as asserted. The assertion says the ratio is not two; the numbers say
-            // what it is on this machine, which is what a later reader needs to know whether the
-            // threshold below has any headroom left.
-            System.out.printf(
-                    "%nSRC-3 scans of one binding in 400ms: 1 query = %d, 2 queries (different SQL) = %d, "
-                            + "readers open = %d%n",
-                    oneQuery, twoQueries, CountingScanPlugin.OPEN.get());
-
-            // The rate first, because it is the number the store feels and the one the finding is
-            // measured in. The reader count below is the structural claim behind it.
-            assertThat(twoQueries)
-                    .as(
-                            "one query scanned %d times in 400ms and two scanned %d. Scans must follow the "
-                                    + "number of bindings, not the number of registrations -- a thousand queries "
-                                    + "over one set is what ADR-036 section 3 is about, and the load lands on the "
-                                    + "store",
-                            oneQuery, twoQueries)
-                    .isLessThan(oneQuery * 3 / 2);
-
+            long twoQueries = scansOver(WINDOW);
             assertThat(CountingScanPlugin.OPEN.get())
                     .as("two different questions about one binding must be one reader of it. Before SRC-3 they "
                             + "were two: two plans, two fingerprints, two plugin instances, two readers and two "
                             + "scans of the same set")
                     .isEqualTo(1);
-
-            // Both queries answer, and they answer differently: the shared reader pushes the OR of
-            // the two filters, and each query keeps its own filter above it.
             assertThat(first.rowsIn()).isGreaterThanOrEqualTo(3);
             assertThat(second.rowsIn()).isGreaterThanOrEqualTo(3);
+
+            registry.drop("asks_another");
+            long oneQueryAgain = scansOver(WINDOW);
+            long baseline = Math.max(oneQuery, oneQueryAgain);
+
+            // Printed as well as asserted. The assertion says the ratio is not two; the numbers say
+            // what it is on this machine, which is what a later reader needs to know whether the
+            // threshold below has any headroom left.
+            System.out.printf(
+                    "%nSRC-3 scans of one binding per %d ms: 1 query = %d, 2 queries (different SQL) = %d, "
+                            + "1 query again = %d, load %.1f%n",
+                    WINDOW.toMillis(),
+                    oneQuery,
+                    twoQueries,
+                    oneQueryAgain,
+                    java.lang.management.ManagementFactory.getOperatingSystemMXBean()
+                            .getSystemLoadAverage());
+
+            // The rate first, because it is the number the store feels and the one the finding is
+            // measured in. The reader count below is the structural claim behind it.
+            assertThat(twoQueries)
+                    .as(
+                            "one query scanned %d and then %d times per window, and two scanned %d. Scans must "
+                                    + "follow the number of bindings, not the number of registrations -- a thousand "
+                                    + "queries over one set is what ADR-036 section 3 is about, and the load lands "
+                                    + "on the store",
+                            oneQuery, oneQueryAgain, twoQueries)
+                    .isLessThan(baseline * 3 / 2);
         }
     }
 
@@ -518,6 +528,9 @@ class SharedSourceReaderTest {
         }
         return CountingScanPlugin.OPEN.get() == expected;
     }
+
+    /** Long enough that one scheduling hiccup is a small part of what is counted. */
+    private static final Duration WINDOW = Duration.ofMillis(1000);
 
     private static long scansOver(Duration window) throws InterruptedException {
         long before = CountingScanPlugin.SCANS.get();

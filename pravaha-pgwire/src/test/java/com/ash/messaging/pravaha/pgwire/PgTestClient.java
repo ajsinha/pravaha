@@ -80,9 +80,30 @@ final class PgTestClient implements AutoCloseable {
     PgTestClient(int port) throws IOException {
         this.socket = new Socket();
         this.socket.connect(new InetSocketAddress("127.0.0.1", port), 5_000);
-        this.socket.setSoTimeout(15_000);
+        this.socket.setSoTimeout(readBoundMillis(
+                java.lang.management.ManagementFactory.getOperatingSystemMXBean()
+                        .getSystemLoadAverage(),
+                Runtime.getRuntime().availableProcessors()));
         this.in = new DataInputStream(socket.getInputStream());
         this.out = new DataOutputStream(socket.getOutputStream());
+    }
+
+    /** What a read waits on an idle machine: long enough for any answer this server gives a test. */
+    static final int IDLE_READ_BOUND_MILLIS = 15_000;
+
+    /**
+     * How long one read waits, in proportion to how busy the machine is (PGW-1).
+     *
+     * <p>A read waits for the server's thread to be scheduled, and on a machine with more runnable
+     * tasks than processors that wait grows with the ratio. The bound was a fixed fifteen seconds,
+     * which a full-reactor gate at load 58 on 24 cores exceeded on a wire that was working; the same
+     * class passed in 4.8 s alone. So the idle bound is scaled by runnable tasks per processor, never
+     * below it -- a wire that has genuinely stopped answering still fails, later on a loaded machine
+     * than on an idle one, which is what a bound on scheduling should do.
+     */
+    static int readBoundMillis(double loadAverage, int processors) {
+        double perProcessor = loadAverage < 0 || processors <= 0 ? 0 : loadAverage / processors;
+        return (int) Math.min(Integer.MAX_VALUE, Math.round(IDLE_READ_BOUND_MILLIS * Math.max(1.0, perProcessor)));
     }
 
     /** Sends an SSLRequest and returns the single byte the server answers with. */
