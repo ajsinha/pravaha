@@ -338,6 +338,8 @@ public final class ApiDtos {
      *     not be visible to them at all (SX-11)
      * @param feed whether rows are still reaching it, source by source, and why not when a source has
      *     stopped (FEED-1)
+     * @param execution which path each filter and projection chain runs on, one line per chain,
+     *     starting {@code generated:} or {@code interpreted:} with the reason (C-7)
      */
     public record QueryDetail(
             String name,
@@ -353,7 +355,8 @@ public final class ApiDtos {
             Instant registeredAt,
             Problem failure,
             List<String> reads,
-            QueryFeed feed) {}
+            QueryFeed feed,
+            List<String> execution) {}
 
     /**
      * A registered query's view, described without reading it.

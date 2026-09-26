@@ -16,6 +16,7 @@
 package com.ash.messaging.pravaha.codegen;
 
 import com.ash.messaging.pravaha.common.memory.MemoryRegion;
+import com.ash.messaging.pravaha.runtime.exec.GeneratedRowStage;
 
 /**
  * What a generated stage implements.
@@ -27,8 +28,13 @@ import com.ash.messaging.pravaha.common.memory.MemoryRegion;
  *
  * <p>Offsets rather than objects, for the same reason the row layout exists: an object per row is
  * the allocation the whole design is built to avoid.
+ *
+ * <p>A registered query does not use the batch entry point: its pipeline is row-at-a-time, so it
+ * calls the row-level halves this interface inherits from {@link GeneratedRowStage}, which the batch
+ * loop is built from. A filter-only stage's batch leaves the passing rows where they are and writes
+ * their own offsets to {@code outOffsets}.
  */
-public interface FusedStage {
+public interface FusedStage extends GeneratedRowStage {
 
     /**
      * Processes a batch.

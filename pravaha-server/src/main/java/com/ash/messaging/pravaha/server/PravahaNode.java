@@ -145,6 +145,9 @@ public class PravahaNode implements SmartLifecycle {
      */
     private final boolean measureOperators;
 
+    /** The JVM system property that turns generated filters and projections off (C-7). */
+    public static final String CODEGEN_PROPERTY = "pravaha.codegen.enabled";
+
     /**
      * {@code pravaha.watermark.out-of-orderness}: the lateness a stream takes when it declares
      * none of its own (T-6, DOCX-6).
@@ -1087,6 +1090,16 @@ public class PravahaNode implements SmartLifecycle {
         // given them. Off unless configured -- the wrappers cost throughput and a deployment that
         // has not asked for per-operator detail should not pay for it.
         com.ash.messaging.pravaha.runtime.exec.InterpretedPipeline.measureOperators(measureOperators);
+        // C-7, set here for the same reason: a lane's pipeline offers its filter and projection
+        // chains to the generator when it is compiled, so it has to be installed before the first
+        // query registers. On unless -Dpravaha.codegen.enabled=false; a query whose chains the
+        // generator refuses runs interpreted either way, and GET /api/v1/queries/{name} says which.
+        if (Boolean.parseBoolean(System.getProperty(CODEGEN_PROPERTY, "true"))) {
+            com.ash.messaging.pravaha.codegen.FilterProjectStageGenerator.install();
+        } else {
+            com.ash.messaging.pravaha.runtime.exec.GeneratedChains.install(null);
+            log.info("{}=false: every registered query runs interpreted", CODEGEN_PROPERTY);
+        }
         if (measureOperators) {
             log.info("pravaha.metrics.operators is on: queries registered from now on count rows, rows out, "
                     + "state bytes and a sampled self time per operator, which GET /api/v1/queries/"

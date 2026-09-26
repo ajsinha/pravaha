@@ -198,6 +198,8 @@ public final class InterpretedPipeline implements AutoCloseable {
     /** The layout a partial for each of {@link #partialAggregateTargets}' streams arrives in. */
     private final Map<String, StreamSchema> partialAggregateSchemas = new LinkedHashMap<>();
 
+    private final List<String> executionPaths = new ArrayList<>();
+
     private final List<ScanOperator> scans;
 
     /** Where the terminal stage writes; told where each unit of work ends. */
@@ -366,8 +368,23 @@ public final class InterpretedPipeline implements AutoCloseable {
      */
     public static InterpretedPipeline compile(
             PhysicalOperator plan, RowOutput sink, Map<String, LookupSourcePlugin> lookups, boolean measured) {
+        return compile(plan, sink, lookups, measured, false);
+    }
+
+    /**
+     * Builds a pipeline, offering its filter and projection chains to the installed {@link
+     * StageGenerator} when {@code generate} is true (C-7). A lane's pipeline passes true; a one-off
+     * read does not, because compiling Java for a pipeline that runs once costs more than it saves.
+     */
+    public static InterpretedPipeline compile(
+            PhysicalOperator plan,
+            RowOutput sink,
+            Map<String, LookupSourcePlugin> lookups,
+            boolean measured,
+            boolean generate) {
         RowArena arena = new RowArena(MemoryAccess.best(), slabFor(plan), slabsFor(plan));
         Builder builder = new Builder(arena, sink, lookups, measured || measureOperators ? plan : null);
+        builder.generate = generate && builder.clock == null;
         RowProcessor built = builder.build(plan);
         // A self-join reads one stream on both sides and has one entry point, which is its head.
         RowProcessor head = builder.joins.isEmpty()
@@ -386,7 +403,29 @@ public final class InterpretedPipeline implements AutoCloseable {
         pipeline.inputs.putAll(builder.heads);
         pipeline.partialAggregateTargets.putAll(builder.partialAggregateTargets);
         pipeline.partialAggregateSchemas.putAll(builder.partialAggregateSchemas);
+        pipeline.executionPaths.addAll(
+                builder.paths.isEmpty() ? List.of(noChainGenerated(generate, builder)) : builder.paths);
         return pipeline;
+    }
+
+    private static String noChainGenerated(boolean generate, Builder builder) {
+        if (!generate) {
+            return "interpreted: this pipeline was not offered to the code generator";
+        }
+        if (builder.clock != null) {
+            return "interpreted: per-operator measurement is on, and a generated stage has no operators to count";
+        }
+        return GeneratedChains.installed() == null
+                ? "interpreted: no code generator is installed in this process"
+                : "interpreted: no filter or projection in this plan stands directly on a scan";
+    }
+
+    /**
+     * Which path each filter and projection chain of this pipeline runs on, and why: one line per
+     * chain, each starting {@code generated:} or {@code interpreted:} (C-7).
+     */
+    public List<String> executionPaths() {
+        return List.copyOf(executionPaths);
     }
 
     /**
@@ -1060,6 +1099,11 @@ public final class InterpretedPipeline implements AutoCloseable {
 
         private final Map<String, LookupSourcePlugin> lookups;
 
+        /** Whether chains over a scan are offered to the generator, and what became of each. */
+        private boolean generate;
+
+        private final List<String> paths = new ArrayList<>();
+
         /**
          * A counter block per plan node, by identity, or empty when measurement is off.
          *
@@ -1167,6 +1211,10 @@ public final class InterpretedPipeline implements AutoCloseable {
                     yield entry;
                 }
                 case FilterOperator f -> {
+                    RowProcessor fused = generate ? GeneratedChains.generated(f, arena, downstream, paths) : null;
+                    if (fused != null) {
+                        yield buildInput(GeneratedChains.scanUnder(f), fused);
+                    }
                     RowProcessor self = row -> {
                         if (f.predicate().test(row)) {
                             downstream.process(row);
@@ -1175,6 +1223,10 @@ public final class InterpretedPipeline implements AutoCloseable {
                     yield buildInput(f.input(), entering(f, self));
                 }
                 case ProjectOperator p -> {
+                    RowProcessor fused = generate ? GeneratedChains.generated(p, arena, downstream, paths) : null;
+                    if (fused != null) {
+                        yield buildInput(GeneratedChains.scanUnder(p), fused);
+                    }
                     RowProcessor self = RowStages.projector(p, arena, downstream);
                     yield buildInput(p.input(), entering(p, self));
                 }

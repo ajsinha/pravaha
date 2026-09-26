@@ -54,6 +54,26 @@ final class SourceBuilder {
         return line("}");
     }
 
+    /** Closes an {@code if} block and opens its {@code else}. */
+    SourceBuilder orElse() {
+        indent--;
+        line("} else {");
+        indent++;
+        return this;
+    }
+
+    /** Starts at {@code level}, for a fragment built apart and then appended inside a class. */
+    SourceBuilder at(int level) {
+        indent = level;
+        return this;
+    }
+
+    /** Appends another builder's text as it stands. */
+    SourceBuilder append(SourceBuilder fragment) {
+        text.append(fragment.text);
+        return this;
+    }
+
     SourceBuilder closeWith(String suffix) {
         indent--;
         return line("}" + suffix);

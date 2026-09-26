@@ -218,9 +218,12 @@ class GeneratedStageTest {
     }
 
     @Test
-    void aNullableColumnGetsANullCheckAndANotNullColumnDoesNot() {
-        // The concrete payoff of carrying nullability through the planner: a NOT NULL column costs
-        // one load, a nullable one costs a load plus a bit test.
+    void everyComparedColumnGetsANullCheckAsTheInterpretedPredicateDoes() {
+        // It was the other way round: a NOT NULL column skipped the bit test, as an optimisation.
+        // Since C-7 made the generated stage what a registered query runs, it must give the
+        // interpreter's answer on every row, and CompareLong.test checks the bit on every column.
+        // A NOT NULL column's bit is never set by a writer, so this costs one byte load from a line
+        // already in cache -- and it removes the only input on which the two could differ.
         var generator = new FilterProjectGenerator();
 
         var notNull = generator.generate(
@@ -239,7 +242,7 @@ class GeneratedStageTest {
                         List.of(0, 1)),
                 "NullableStage");
 
-        assertThat(notNull.source()).doesNotContain("& 64").doesNotContain("!= 0)");
+        assertThat(notNull.source()).contains("(!((region.getByte(row + ").contains("region.getLong(row + ");
         assertThat(nullable.source()).contains("getByte").contains("!= 0)");
     }
 

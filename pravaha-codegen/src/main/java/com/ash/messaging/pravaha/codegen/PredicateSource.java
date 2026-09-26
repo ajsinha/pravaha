@@ -17,7 +17,9 @@ package com.ash.messaging.pravaha.codegen;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
@@ -34,14 +36,29 @@ import com.ash.messaging.pravaha.runtime.plan.Predicate;
  * few nanoseconds and a few hundred (design section 12.3).
  *
  * <p>Null handling follows SQL: a comparison involving NULL is UNKNOWN, and a {@code WHERE} clause
- * treats UNKNOWN as false. The generated code checks the null bit before reading, which is also why
- * a NOT NULL column is cheaper -- there is nothing to check.
+ * treats UNKNOWN as false. The generated code checks the null bit before reading.
+ *
+ * <p><strong>Each comparison mirrors the interpreted predicate exactly (C-7).</strong> Since the
+ * generated stage became what a registered query runs, the rule is that it gives the interpreter's
+ * answer or does not run. So a comparison reads with the same accessor the predicate's {@code test}
+ * uses ({@code getLong} for {@code CompareLong}, {@code getInt} for {@code CompareInt}, and so on),
+ * checks the null bit on every column as {@code test} does -- a NOT NULL column included -- and
+ * compares with the operator {@code test} applies. Where the predicate's accessor is not the width
+ * of the column it reads, the generator refuses rather than reproduce the read, and the interpreter
+ * runs it. A double literal is carried by its bits, so NaN, the infinities and negative zero arrive
+ * exactly.
  */
 final class PredicateSource {
 
     private final StreamSchema schema;
     private final RowLayout layout;
     private final List<byte[]> literals = new ArrayList<>();
+    private final List<Double> doubles = new ArrayList<>();
+
+    private static final Set<TypeName> LONG_READ = EnumSet.of(TypeName.INT64, TypeName.TIME, TypeName.TIMESTAMP_LTZ);
+    private static final Set<TypeName> INT_READ = EnumSet.of(TypeName.INT32, TypeName.DATE);
+    private static final Set<TypeName> DOUBLE_READ = EnumSet.of(TypeName.FLOAT64);
+    private static final Set<TypeName> BOOLEAN_READ = EnumSet.of(TypeName.BOOLEAN);
 
     PredicateSource(StreamSchema schema) {
         this.schema = schema;
@@ -68,12 +85,15 @@ final class PredicateSource {
             case Predicate.Or or -> join(rowVar, or.parts(), " || ");
             case Predicate.Not not -> "!(" + emit(rowVar, not.inner()) + ")";
             case Predicate.IsNull isNull -> isNull(rowVar, isNull.ordinal(), isNull.wantNull());
-            case Predicate.CompareLong c -> comparison(rowVar, c.ordinal(), c.op().java(), c.value());
-            case Predicate.CompareInt c -> comparison(rowVar, c.ordinal(), c.op().java(), c.value());
-            case Predicate.CompareDouble c -> comparison(rowVar, c.ordinal(), c.op().java(), c.value());
-            case Predicate.CompareString c ->
-                comparison(rowVar, c.ordinal(), c.op() == Predicate.Op.EQ ? "=" : "!=", c.value());
-            case Predicate.CompareBoolean c -> comparison(rowVar, c.ordinal(), "=", c.value());
+            case Predicate.CompareLong c ->
+                comparison(rowVar, c.ordinal(), "getLong", LONG_READ, c.op().java(), c.value() + "L");
+            case Predicate.CompareInt c ->
+                comparison(rowVar, c.ordinal(), "getInt", INT_READ, c.op().java(), Integer.toString(c.value()));
+            case Predicate.CompareDouble c ->
+                comparison(rowVar, c.ordinal(), "getDouble", DOUBLE_READ, c.op().java(), doubleLiteral(c.value()));
+            case Predicate.CompareBoolean c ->
+                comparison(rowVar, c.ordinal(), "getBoolean", BOOLEAN_READ, "==", Boolean.toString(c.value()));
+            case Predicate.CompareString c -> string(rowVar, c);
             case Predicate.Like like ->
                 // Refused for a structural reason rather than an unfinished one. This generator's
                 // whole advantage on text is that it compares UTF-8 bytes against a pre-encoded
@@ -117,37 +137,63 @@ final class PredicateSource {
     }
 
     /**
-     * Emits a boolean expression testing {@code column op literal}.
+     * Emits {@code column op literal} as the interpreted predicate evaluates it: null bit first, then
+     * the predicate's own accessor, then the operator.
      *
-     * @param rowVar the variable holding the row's byte offset
+     * @param getter the {@code MemoryRegion} accessor the predicate's {@code RowView} read resolves to
+     * @param widths the column types that accessor reads at their own width; any other is refused
      */
-    private String comparison(String rowVar, int ordinal, String operator, Object literal) {
+    private String comparison(
+            String rowVar, int ordinal, String getter, Set<TypeName> widths, String operator, String literal) {
         TypeName type = schema.field(ordinal).type().typeName();
-        boolean nullable = schema.field(ordinal).type().nullable();
+        if (!widths.contains(type)) {
+            throw new PravahaException(
+                    CodegenErrors.UNSUPPORTED,
+                    "the predicate reads column '" + schema.field(ordinal).name() + "' (" + type + ") with "
+                            + getter + ", which is not that column's width. The generator emits only reads "
+                            + "that match the column; the interpreted path runs this.");
+        }
         int offset = layout.offsetOf(ordinal);
+        String test = "region." + getter + "(" + rowVar + " + " + offset + ") " + operator + " " + literal;
+        return "(!" + nullTest(rowVar, ordinal) + " && (" + test + "))";
+    }
 
-        String test =
-                switch (type) {
-                    case BOOLEAN ->
-                        "region.getBoolean(" + rowVar + " + " + offset + ") " + ("=".equals(operator) ? "==" : "!=")
-                                + " " + literal;
-                    case INT8 -> "region.getByte(" + rowVar + " + " + offset + ") " + operator + " " + literal;
-                    case INT16 -> "region.getShort(" + rowVar + " + " + offset + ") " + operator + " " + literal;
-                    case INT32, DATE -> "region.getInt(" + rowVar + " + " + offset + ") " + operator + " " + literal;
-                    case INT64, TIME, TIMESTAMP_LTZ ->
-                        "region.getLong(" + rowVar + " + " + offset + ") " + operator + " " + literal + "L";
-                    case FLOAT32 ->
-                        "region.getFloat(" + rowVar + " + " + offset + ") " + operator + " " + literal + "f";
-                    case FLOAT64 -> "region.getDouble(" + rowVar + " + " + offset + ") " + operator + " " + literal;
-                    case STRING -> utf8Comparison(rowVar, ordinal, operator, String.valueOf(literal));
-                    default ->
-                        throw new UnsupportedOperationException(
-                                "no generated comparison for " + type + " yet; the interpreted path handles it");
-                };
+    /** A double literal by its bits, as a field, so no value is lost to printing and parsing. */
+    private String doubleLiteral(double value) {
+        doubles.add(value);
+        return "DBL_" + (doubles.size() - 1);
+    }
 
-        // Only pay for a null check on a column that can actually be null. This is the concrete
-        // reason nullability is carried through the planner rather than defaulted.
-        return nullable ? "(!" + nullTest(rowVar, ordinal) + " && (" + test + "))" : "(" + test + ")";
+    /**
+     * {@code column = 'literal'} or {@code <>}, as a byte comparison that agrees with {@code
+     * CompareString.test}, which decodes the column and compares Strings.
+     *
+     * <p>The two agree whenever the literal survives a UTF-8 round trip and does not contain the
+     * replacement character: valid stored bytes decode to the literal exactly when they are its
+     * encoding, and invalid ones decode to something containing U+FFFD, which such a literal cannot
+     * equal. A literal outside that -- an unpaired surrogate, or U+FFFD itself -- is refused.
+     */
+    private String string(String rowVar, Predicate.CompareString c) {
+        int ordinal = c.ordinal();
+        TypeName type = schema.field(ordinal).type().typeName();
+        if (type != TypeName.STRING) {
+            throw new PravahaException(
+                    CodegenErrors.UNSUPPORTED,
+                    "the predicate compares column '" + schema.field(ordinal).name() + "' (" + type
+                            + ") as text. The generator compares text only on a STRING column; the "
+                            + "interpreted path runs this.");
+        }
+        String value = c.value();
+        byte[] utf8 = value.getBytes(StandardCharsets.UTF_8);
+        if (value.indexOf('\uFFFD') >= 0 || !new String(utf8, StandardCharsets.UTF_8).equals(value)) {
+            throw new PravahaException(
+                    CodegenErrors.UNSUPPORTED,
+                    "the literal compared with '" + schema.field(ordinal).name() + "' does not survive a UTF-8 "
+                            + "round trip, so a byte comparison could disagree with the interpreter's String "
+                            + "comparison. The interpreted path runs this.");
+        }
+        String test = utf8Comparison(rowVar, ordinal, c.op() == Predicate.Op.EQ ? "=" : "!=", value);
+        return "(!" + nullTest(rowVar, ordinal) + " && (" + test + "))";
     }
 
     /**
@@ -180,6 +226,12 @@ final class PredicateSource {
 
     /** Emits the literal fields the generated class declares. */
     void emitLiteralFields(SourceBuilder source) {
+        for (int i = 0; i < doubles.size(); i++) {
+            long bits = Double.doubleToRawLongBits(doubles.get(i));
+            source.comment("the double " + doubles.get(i) + ", by its bits")
+                    .line("private static final double DBL_" + i + " = Double.longBitsToDouble(0x"
+                            + Long.toHexString(bits) + "L);");
+        }
         for (int i = 0; i < literals.size(); i++) {
             byte[] literal = literals.get(i);
             StringBuilder bytes = new StringBuilder();

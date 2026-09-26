@@ -431,7 +431,8 @@ public class QueryController {
                         .map(failure -> mapper.toProblem(failure, withheldOr(entry, failure)))
                         .orElse(null),
                 view.derivedFrom().stream().sorted().toList(),
-                feed(entry));
+                feed(entry),
+                query.executionPaths());
     }
 
     /**

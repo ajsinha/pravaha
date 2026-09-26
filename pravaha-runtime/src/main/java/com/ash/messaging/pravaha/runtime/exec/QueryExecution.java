@@ -238,7 +238,7 @@ public final class QueryExecution implements AutoCloseable {
                 access,
                 context -> {
                     InterpretedPipeline pipeline =
-                            InterpretedPipeline.compile(plan, sinkPerLane.get(), lookups, measureOperators);
+                            InterpretedPipeline.compile(plan, sinkPerLane.get(), lookups, measureOperators, true);
                     pipelines.add(pipeline);
 
                     // One view per input, because the two sides of a join have different layouts and
@@ -309,7 +309,7 @@ public final class QueryExecution implements AutoCloseable {
                         + "LaneMultiplexer, and this one runs "
                         + lane.processor().getClass().getSimpleName());
             }
-            InterpretedPipeline pipeline = InterpretedPipeline.compile(plan, sinkPerLane.get(), lookups);
+            InterpretedPipeline pipeline = InterpretedPipeline.compile(plan, sinkPerLane.get(), lookups, false, true);
             pipelines.add(pipeline);
 
             // One view per input: the two sides of a join have different layouts, and a shared view
@@ -1030,6 +1030,15 @@ public final class QueryExecution implements AutoCloseable {
      */
     public List<OperatorMetrics.Snapshot> operatorMetrics() {
         return OperatorTelemetry.merge(pipelines);
+    }
+
+    /**
+     * Which path each filter and projection chain runs on -- {@code generated:} or {@code
+     * interpreted:}, with the reason -- as the first lane's pipeline recorded it (C-7). Every lane
+     * compiles the same plan against the same generator, so every lane records the same lines.
+     */
+    public List<String> executionPaths() {
+        return pipelines.isEmpty() ? List.of() : pipelines.get(0).executionPaths();
     }
 
     /**

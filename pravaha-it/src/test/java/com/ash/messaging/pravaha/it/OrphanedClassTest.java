@@ -133,6 +133,10 @@ class OrphanedClassTest {
      * now (ADR-043), the registry calls it before opening the sink, and it is off this list.
      * {@code ErrcSqlTest} pins that ordering.
      *
+     * <p>{@code StageUpgradeService} came off it by deletion (C-7): generated filters and
+     * projections are now compiled when a lane's pipeline is built ({@code GeneratedChains}), so the
+     * background swap it and {@code AdaptiveStage} performed has nothing left to swap.
+     *
      * <p>This list is a record, not a permission. Every entry needs a verdict -- wire, delete, or
      * move to a module documented as a reference implementation -- and the assertion below stops it
      * growing in the meantime.
@@ -158,8 +162,7 @@ class OrphanedClassTest {
             "DeadLetterRate",
             "PeriodicCheckpointer",
             "BatchingController",
-            "PluginClassLoader",
-            "StageUpgradeService");
+            "PluginClassLoader");
 
     private static final Pattern PUBLIC_TYPE = Pattern.compile(
             "\\bpublic\\s+(?:final\\s+|abstract\\s+|sealed\\s+)?(?:class|record|interface|enum)\\s+(\\w+)");

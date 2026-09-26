@@ -168,6 +168,14 @@ public final class RegisteredQuery implements AutoCloseable {
     }
 
     /**
+     * Which path each filter and projection chain of this query runs on: one line per chain,
+     * starting {@code generated:} or {@code interpreted:}, with the reason (C-7).
+     */
+    public java.util.List<String> executionPaths() {
+        return execution.executionPaths();
+    }
+
+    /**
      * How often and how long this query's writers had nowhere to put a row.
      *
      * <p>The lane's view, so on a shared lane it names every query whose writer waited there --
