@@ -285,7 +285,7 @@ class ApiRoutes(Routes):
 
             logger.info("%s registered '%s'%s", current_user(request), body.get("name"),
                         f" writing to sink '{sink}'" if sink else "")
-            return self.json_guard(register_it, request=request)
+            return self.json_guard(register_it, request=request, status_code=201)
 
         @self.app.post(f"{api}/queries/{{name}}/{{action}}", tags=["api"])
         def act(request: Request, name: str, action: str):

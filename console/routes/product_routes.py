@@ -262,7 +262,7 @@ class ProductRoutes(Routes):
                 str(body.get("name", "")), str(body.get("schema", "")),
                 event_time=str(body.get("event_time") or body.get("eventTime") or "") or None,
                 out_of_orderness=str(body.get("out_of_orderness") or body.get("outOfOrderness") or "")
-                or None), request=request)
+                or None), request=request, status_code=201)
 
         @self.app.get(f"{api}/catalog/streams/{{name}}", tags=["api"])
         def api_stream(request: Request, name: str):

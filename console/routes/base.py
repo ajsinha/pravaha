@@ -240,7 +240,8 @@ class Routes:
             logger.warning("refused (%s) [%s]: %s", exc.code or "-", _correlation(request), exc)
             raise HTTPException(status_for(exc), problem(exc)) from exc
 
-    def json_guard(self, fn: Callable[[], Any], request: Request | None = None) -> JSONResponse:
+    def json_guard(self, fn: Callable[[], Any], request: Request | None = None,
+                   status_code: int = 200) -> JSONResponse:
         """The same, for the API: a JSON body rather than an exception.
 
         ``request`` is how the browser's own correlation id (api.js's ``X-Correlation-Id``,
@@ -248,9 +249,13 @@ class Routes:
         browser and never logging it server-side would make "paste the correlation id into a
         ticket" a step that finds nothing -- the whole point of having one is that the string
         on screen is the string an operator can grep for.
+
+        ``status_code`` is the success status, and a route that declares one other than 200
+        passes the same number here: the ``JSONResponse`` returned is the answer, so FastAPI's
+        declared ``status_code`` would otherwise reach only the schema (CON-9).
         """
         try:
-            return JSONResponse(fn())
+            return JSONResponse(fn(), status_code=status_code)
         except ServiceError as exc:
             logger.warning("refused (%s) [%s]: %s", exc.code or "-", _correlation(request), exc)
             return JSONResponse(problem(exc), status_code=status_for(exc))

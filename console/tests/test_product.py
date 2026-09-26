@@ -438,8 +438,11 @@ def test_registering_maps_key_names_to_the_validated_ordinals_and_passes_the_sin
     answer = signed_in.post("/api/v1/queries", json={
         "name": "by_user", "sql": "SELECT txn_id, user_id, amount FROM txn",
         "key_names": ["user_id", "AMOUNT"], "sink": "audit_trail"})
-    assert answer.status_code == 200, answer.text
+    assert answer.status_code == 201, answer.text
     assert answer.json()["keys"] == [1, 2]
+    # CON-9: the answer is the status the schema declares, not the default beside it.
+    declared = signed_in.get("/openapi.json").json()["paths"]["/api/v1/queries"]["post"]["responses"]
+    assert "201" in declared and "200" not in declared
     assert engine.registered[-1] == {"name": "by_user", "sql": "SELECT txn_id, user_id, amount FROM txn",
                                      "keys": [1, 2], "sink": "audit_trail", "retention": None}
 
@@ -447,7 +450,7 @@ def test_registering_maps_key_names_to_the_validated_ordinals_and_passes_the_sin
 def test_registering_passes_the_retention_through_json_and_the_plain_form(signed_in, engine):
     answer = signed_in.post("/api/v1/queries", json={
         "name": "kept", "sql": "SELECT txn_id, user_id, amount FROM txn", "keys": [0], "retention": "PT6H"})
-    assert answer.status_code == 200, answer.text
+    assert answer.status_code == 201, answer.text
     assert answer.json()["retention"] == "PT6H"
     assert engine.registered[-1]["retention"] == "PT6H"
     form = signed_in.post("/queries", data={"name": "kept2", "sql": "SELECT txn_id FROM txn", "keys": "0",
@@ -459,7 +462,7 @@ def test_registering_passes_the_retention_through_json_and_the_plain_form(signed
 def test_declaring_a_stream_passes_its_event_time_and_lateness(signed_in, engine):
     answer = signed_in.post("/api/v1/catalog/streams", json={
         "name": "clicks", "schema": "user:STRING,at:TIMESTAMP", "event_time": "at", "out_of_orderness": "PT5S"})
-    assert answer.status_code == 200, answer.text
+    assert answer.status_code == 201, answer.text
     assert answer.json()["eventTime"] == "at" and answer.json()["outOfOrderness"] == "PT5S"
 
 
@@ -532,7 +535,7 @@ def test_the_signed_in_palette_offers_queries_views_streams_and_allowed_actions(
 def test_declaring_a_stream_validates_the_name(signed_in):
     assert signed_in.post("/api/v1/catalog/streams", json={"name": "bad name", "schema": "a:INT64"}).status_code == 400
     made = signed_in.post("/api/v1/catalog/streams", json={"name": "orders", "schema": "id:INT64"})
-    assert made.status_code == 200 and made.json()["name"] == "orders"
+    assert made.status_code == 201 and made.json()["name"] == "orders"
 
 
 class _ScriptedMirror(FakeEngine):
