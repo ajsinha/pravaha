@@ -37,7 +37,7 @@ from cdp import Browser, Page
 
 pytestmark = pytest.mark.browser
 
-THEMES = ["light", "dark", "blue", "green"]
+THEMES = ["light", "dark", "terminal", "blue", "green"]
 
 
 @pytest.fixture(scope="module")
@@ -78,22 +78,34 @@ def test_every_page_has_no_axe_violations(themed, console, theme, name, path, re
 
 @pytest.fixture(scope="module")
 def compact(chrome: Browser, console: Console):
-    """One signed-in tab in the compact density (design 23.4), light: density moves no colour,
-    so what it can break is layout -- target size, overlap, reflow -- and one theme finds it."""
-    tab = chrome.new_page()
-    tab.before_every_document(DETERMINISM)
-    tab.before_every_document(theme_script("light"))
-    tab.before_every_document(density_script("compact"))
-    sign_in(tab, console)
-    yield tab
-    tab.close()
+    """One signed-in tab per theme in the compact density (design 23.4). Density moves no
+    colour, but it moves text onto tighter grounds and closer to its neighbours, so each theme
+    is audited in it rather than light standing in for the rest (VIS-2)."""
+    tabs: dict[str, Page] = {}
+
+    def get(theme: str) -> Page:
+        if theme not in tabs:
+            tab = chrome.new_page()
+            tab.before_every_document(DETERMINISM)
+            tab.before_every_document(theme_script(theme))
+            tab.before_every_document(density_script("compact"))
+            sign_in(tab, console)
+            tabs[theme] = tab
+        return tabs[theme]
+
+    yield get
+    for tab in tabs.values():
+        tab.close()
 
 
+@pytest.mark.parametrize("theme", THEMES)
 @pytest.mark.parametrize("name,path,ready", [(n, p, r) for n, p, _, r in PAGES], ids=[n for n, *_ in PAGES])
-def test_every_page_in_compact_density_has_no_axe_violations(compact, console, name, path, ready):
-    open_page(compact, console, path, ready)
-    assert compact.eval("document.documentElement.getAttribute('data-density')") == "compact"
-    _assert_clean(compact, f"{path} (compact)")
+def test_every_page_in_compact_density_has_no_axe_violations(compact, console, theme, name, path, ready):
+    page = compact(theme)
+    open_page(page, console, path, ready)
+    assert page.eval("document.documentElement.getAttribute('data-density')") == "compact"
+    assert page.eval("document.documentElement.getAttribute('data-theme')") == theme
+    _assert_clean(page, f"{path} (compact, {theme})")
 
 
 @pytest.mark.parametrize("motion", ["moving", "reduced"])
