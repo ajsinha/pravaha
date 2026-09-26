@@ -143,6 +143,28 @@ class ClosedAggregateTest {
                 .containsExactly(new ViewChange(new Object[] {3L, 425L}, 1L));
     }
 
+    @Test
+    void aQueryClosedBeforeAnyRowOrTickPublishesNoZero() {
+        // CKPT-6. An aggregate over no rows is a question with no answer yet on a lane, and an
+        // answer of zero only in a bounded read. A query closed before its first row and its first
+        // publish tick must therefore close in silence: the lane marks its pipeline as driven
+        // continuously when it builds it, before any tick, so the close cannot mistake it for a
+        // bounded read that ended empty.
+        RegisteredQuery query = registry.register("spend_totals", TOTALS, List.of(0), DANA);
+
+        List<ViewChange> onTheWayOut = new ArrayList<>();
+        try (Subscription subscription = query.subscribe(onTheWayOut::addAll)) {
+            query.close();
+            subscription.awaitQuiet(java.time.Duration.ofSeconds(10));
+            assertThat(onTheWayOut)
+                    .as("no row arrived, so there is no answer to publish")
+                    .isEmpty();
+        }
+        assertThat(query.view().committedRows())
+                .as("the view of a query that saw nothing holds nothing, not [0, 0]")
+                .isEmpty();
+    }
+
     private void txn(RegisteredQuery query, String user, long amount) {
         RowLayout layout = RowLayout.of(TXN);
         BinaryRowWriter writer = new BinaryRowWriter(layout);
