@@ -343,10 +343,18 @@ node would go on running the old one — an upgrade reporting success and changi
 - **No PodDisruptionBudget by default.** On one replica `minAvailable: 1` is unsatisfiable by
   definition and `kubectl drain` blocks for ever; the chart refuses that setting outright.
   `maxUnavailable: 1` is honest: it says nothing is protected, because with one node nothing can be.
-- **No plugin mechanism.** The server is launched as `java -jar`, which reads only what is inside
-  the jar: there is no plugins directory and `-Dloader.path` is not honoured. A plugin other than
-  `filesystem` is added by making it a dependency of `pravaha-server` and rebuilding both the jar
-  and the image.
+- **Every connector ships inside the jar; there is no plugin directory.** Since 2026-09-26 the
+  server jar carries all eight connector modules (`filesystem`, `feedfile`, `delta`, `jdbc`,
+  `kafka`, `postgres-cdc`, `aerospike`, `cassandra`: fourteen plugins in all, lookups and sinks
+  included) and the PostgreSQL JDBC driver, so `java -jar` binds any of them with nothing
+  installed. The jar is about 163 MB, up from 74. Spring Boot's nested layout keeps each plugin jar
+  whole, so no plugin's `META-INF/services` file is merged over by another's.
+  Two consequences to know. Spring Boot's Cassandra auto-configuration is excluded, because with
+  the driver present it opened a session to `localhost:9042` at startup and a node with no
+  Cassandra refused to start: connections belong to plugins, never to the framework. And the
+  launcher still reads only what is inside the jar (`-Dloader.path` is not honoured), so a JDBC
+  driver for a database other than PostgreSQL cannot be added at deployment time. The container
+  image is built from this jar, so it carries the connectors too.
 
 ---
 

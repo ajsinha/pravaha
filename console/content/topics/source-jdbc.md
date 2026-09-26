@@ -28,7 +28,7 @@ polls is seen once.
 | | |
 |---|---|
 | Plugin name | `jdbc` |
-| Module | `plugins/pravaha-plugin-jdbc` (also holds `jdbc-lookup` and `jdbc-sink`) — **not in the server jar** |
+| Module | `plugins/pravaha-plugin-jdbc` (also holds `jdbc-lookup` and `jdbc-sink`) — in the server jar |
 | Driver | supplied by the deployment, on the same classpath; the plugin ships none |
 | Kind | stream source |
 | Delivery guarantee | `AT_LEAST_ONCE` |

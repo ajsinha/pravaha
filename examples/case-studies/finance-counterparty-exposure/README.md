@@ -142,8 +142,8 @@ pravaha-server --spring.profiles.active=dev \
 pravaha queries --url grpc://localhost:9090     # expect: no continuous queries are registered
 ```
 
-The JDBC connector and the PostgreSQL driver are not in the server jar and have to be built into it
-— see [`../SETUP.md`](../SETUP.md), which also explains the `dev` profile.
+The JDBC connector and the PostgreSQL driver both ship inside the server jar, so there is nothing to
+build in — see [`../SETUP.md`](../SETUP.md) for how to start the node and what the `dev` profile does.
 
 Four settings in that file are the whole of how this study keeps time — `event-time` and
 `out-of-orderness` on the stream, `watermark.column` and `watermark.moves.on.update` on the source

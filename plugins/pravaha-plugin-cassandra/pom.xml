@@ -22,7 +22,7 @@
     </dependency>
     <dependency>
       <groupId>org.apache.cassandra</groupId>
-      <artifactId>java-driver-core</artifactId>
+      <artifactId>java-driver-core-shaded</artifactId>
       <exclusions>
         <!--
           jnr-posix is how the driver reads a microsecond clock through JNI, and it arrives with
@@ -75,6 +75,16 @@
       <groupId>org.testcontainers</groupId>
       <artifactId>cassandra</artifactId>
       <scope>test</scope>
+      <exclusions>
+        <!-- The module drags in the DataStax 3.10 driver and, through it, Netty 4.0, for a
+             CassandraContainer.getCluster() these tests never call: they connect with the 4.x
+             driver the plugin itself uses. The plain 4.x driver used to mask it by winning the
+             Netty version; the shaded one carries its own Netty and masks nothing. -->
+        <exclusion>
+          <groupId>com.datastax.cassandra</groupId>
+          <artifactId>cassandra-driver-core</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>org.testcontainers</groupId>

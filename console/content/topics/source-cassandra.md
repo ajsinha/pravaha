@@ -29,7 +29,7 @@ quietly misses rows**.
 | | |
 |---|---|
 | Plugin name | `cassandra` |
-| Module | `plugins/pravaha-plugin-cassandra` — **not in the server jar** |
+| Module | `plugins/pravaha-plugin-cassandra` — in the server jar |
 | Kind | stream source |
 | Strategy | `token-range-scan` — the only one implemented |
 | Delivery guarantee | `AT_LEAST_ONCE`; `EXACTLY_ONCE` with `deletes: detect` |

@@ -151,22 +151,11 @@ pravaha queries        # expect: no continuous queries are registered
 The `dev` profile is the acknowledgement the node demands before it will serve every view to
 unauthenticated callers; without it, or real credentials, it refuses to start.
 
-> **The connector has to be inside the jar.** The server is launched as `java -jar`, which reads
-> only what the jar contains: there is no plugins directory and `-Dloader.path` is not honoured.
-> Only `filesystem` ships in the server jar, so every study here — all of them read Aerospike or
-> PostgreSQL — needs its plugin added as a dependency of `pravaha-server` and the jar rebuilt:
-> ```xml
-> <dependency>
->   <groupId>com.ash.messaging.pravaha</groupId>
->   <artifactId>pravaha-plugin-aerospike</artifactId>   <!-- or -jdbc, with the PostgreSQL driver -->
->   <version>${project.version}</version>
-> </dependency>
-> ```
-> ```bash
-> ./mvnw -q -DskipTests -pl pravaha-server -am package
-> ```
-> Skip it and the node starts, and the first registration fails with `PRV-5090 no source plugin
-> named 'aerospike' is on the classpath`. Stated here rather than discovered there.
+> **Every connector these studies use is already inside the server jar.** Aerospike, JDBC and the
+> PostgreSQL driver ship in `pravaha-server.jar` along with every other connector the project
+> builds, so `java -jar` binds them with nothing to add and nothing to rebuild. Until 2026-09-26 only
+> `filesystem` shipped, and each study needed its plugin built in by hand or the first registration
+> failed with `PRV-5090`.
 
 ## A note on time
 

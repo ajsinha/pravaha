@@ -102,10 +102,77 @@
       <artifactId>pravaha-embedded</artifactId>
       <version>${project.version}</version>
     </dependency>
+    <!--
+      Every shipped connector is inside the server jar, so `java -jar pravaha-server.jar` can bind any
+      of them with nothing to install and no plugin directory to arrange: the owner's decision of
+      2026-09-26, for portability. Spring Boot's nested layout is what makes this safe. Each plugin
+      jar stays whole under BOOT-INF/lib, so its META-INF/services file survives intact rather than
+      being merged over by the next one, which is how a shaded fat jar silently loses plugins, and so do
+      the LICENSE and NOTICE files of the third-party libraries it redistributes.
+
+      One classpath means one version of each library. The collision that made that matter was
+      Netty: Arrow Flight's gRPC needs 4.2 and the Cassandra driver pulled 4.1, which is why the
+      Cassandra plugin uses the driver's shaded artifact. Delta's Hadoop is the shaded
+      hadoop-client-runtime for the same reason. ShippedConnectorsTest holds the list.
+
+      Not here: pravaha-cluster-zookeeper, which is a coordinator for multi-node execution (on
+      hold, ADR-045) rather than a connector.
+    -->
     <dependency>
       <groupId>com.ash.messaging</groupId>
       <artifactId>pravaha-plugin-filesystem</artifactId>
       <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-plugin-feedfile</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-plugin-delta</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-plugin-jdbc</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-plugin-kafka</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-plugin-postgres-cdc</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-plugin-aerospike</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-plugin-cassandra</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <!--
+      The PostgreSQL driver, in the jar for the same reason as the connectors. postgres-cdc declares
+      it `provided`, meaning the deployment supplies it; and under `java -jar` with no plugin
+      directory a deployment cannot supply anything, so the plugin would have loaded and then failed
+      at its first connection. BSD-2 licensed, about a megabyte, and it makes `jdbc` work against
+      PostgreSQL with nothing added. Other databases' drivers are not bundled: several are GPL or
+      carry their vendor's terms, which a proprietary distribution cannot simply redistribute.
+    -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <!-- The version postgres-cdc's own tests run against, not Spring Boot's managed one: what
+           ships should be what was tested. -->
+      <version>42.7.8</version>
+      <scope>runtime</scope>
     </dependency>
 
     <dependency>

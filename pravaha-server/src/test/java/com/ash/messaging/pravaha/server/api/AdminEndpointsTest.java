@@ -240,7 +240,10 @@ class AdminEndpointsTest {
         sources.getSources().put("payroll", payroll);
         SinkBindingProperties sinks = new SinkBindingProperties();
         SinkBindingProperties.Spec broken = new SinkBindingProperties.Spec();
-        broken.setPlugin("kafka");
+        // A plugin this project does not ship. It was "kafka" until 2026-09-26, when every shipped
+        // connector moved into the server jar and "kafka" stopped being absent; the case is about a
+        // binding that names a plugin nobody installed, so it names one that cannot be.
+        broken.setPlugin("iceberg");
         broken.setOptions(Map.of("sasl.password", PASSWORD));
         sinks.getSinks().put("events_out", broken);
         return new PluginController(
@@ -295,7 +298,7 @@ class AdminEndpointsTest {
                 .satisfies(plugin -> assertThat(plugin.bindings())
                         .extracting(AdminDtos.PluginBinding::name)
                         .containsExactly("orders"));
-        assertThat(listed.stream().filter(plugin -> plugin.name().equals("kafka")))
+        assertThat(listed.stream().filter(plugin -> plugin.name().equals("iceberg")))
                 .singleElement()
                 .satisfies(plugin -> {
                     assertThat(plugin.loaded()).isFalse();

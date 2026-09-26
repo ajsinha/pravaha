@@ -88,26 +88,28 @@ table stops the node from starting.
 
 ### Getting a plugin onto a node
 
+Nothing to do: **every connector the project builds ships inside the server jar**, and so does the
+PostgreSQL JDBC driver. `java -jar pravaha-server.jar` can bind any of them.
+
 | Plugin | Module | In the server jar |
 |---|---|---|
-| `filesystem` (source and sink) | `plugins/pravaha-plugin-filesystem` | **yes** |
-| `feedfile` | `plugins/pravaha-plugin-feedfile` | no |
-| `jdbc`, `jdbc-lookup`, `jdbc-sink` | `plugins/pravaha-plugin-jdbc` (plus your JDBC driver) | no |
-| `delta` | `plugins/pravaha-plugin-delta` | no |
-| `aerospike`, `aerospike-lookup`, `aerospike-sink` | `plugins/pravaha-plugin-aerospike` | no |
-| `cassandra` | `plugins/pravaha-plugin-cassandra` | no |
-| `postgres-cdc` | `plugins/pravaha-plugin-postgres-cdc` (plus the PostgreSQL JDBC driver) | no |
-| `kafka` (source), `kafka-sink` | `plugins/pravaha-plugin-kafka` | no |
+| `filesystem` (source and sink) | `plugins/pravaha-plugin-filesystem` | yes |
+| `feedfile` | `plugins/pravaha-plugin-feedfile` | yes |
+| `jdbc`, `jdbc-lookup`, `jdbc-sink` | `plugins/pravaha-plugin-jdbc` | yes — with the PostgreSQL driver; another database's driver is not bundled |
+| `delta`, `delta-sink` | `plugins/pravaha-plugin-delta` | yes |
+| `aerospike`, `aerospike-lookup`, `aerospike-sink` | `plugins/pravaha-plugin-aerospike` | yes |
+| `cassandra` | `plugins/pravaha-plugin-cassandra` | yes |
+| `postgres-cdc` | `plugins/pravaha-plugin-postgres-cdc` | yes, driver included |
+| `kafka` (source), `kafka-sink` | `plugins/pravaha-plugin-kafka` | yes |
 
-Be precise about what "drop a jar on the classpath" means today. The server is launched as
-`java -jar pravaha-server.jar` (that is what `bin/pravaha-server` runs), and that launcher reads only
-what is inside the jar: there is no plugins directory and `-Dloader.path` is not honoured. So:
+**One limit worth knowing.** The launcher still reads only what is inside the jar: there is no
+plugins directory and `-Dloader.path` is not honoured, so a JDBC driver for a database other than
+PostgreSQL cannot yet be added at deployment time. Drivers for MySQL, Oracle and others are not
+bundled because their licences do not allow a proprietary product to redistribute them freely.
 
-- **On a server node**, a plugin other than `filesystem` is added by making it a dependency of
-  `pravaha-server` and rebuilding the server jar.
-- **In an application that embeds the engine** (the embedded engine or the Spring Boot starter), a
-  plugin module on your application's classpath is found by `ServiceLoader` like any other — nothing
-  else to do. See [the embedded engine](/help/topics/embedded-engine).
+**In an application that embeds the engine** (the embedded engine or the Spring Boot starter), a
+plugin module on your application's classpath is found by `ServiceLoader` like any other — nothing
+else to do. See [the embedded engine](/help/topics/embedded-engine).
 
 ## The eight sources side by side
 

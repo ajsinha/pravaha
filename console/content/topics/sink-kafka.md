@@ -33,7 +33,7 @@ once ([the Kafka source](/help/topics/source-kafka)).
 | | |
 |---|---|
 | Plugin name | `kafka-sink` (under `pravaha.sinks.<name>`) |
-| Module | `plugins/pravaha-plugin-kafka` — **not in the server jar** |
+| Module | `plugins/pravaha-plugin-kafka` — in the server jar |
 | Format | JSON, the one format built: the key and the value are JSON objects by column name |
 | Accepts | `mode: upsert` (default): `UPSERT`, `RETRACT`. `mode: changelog`: `APPEND`, `RETRACT`. **Both take a revising query** |
 | Keyed | in upsert mode, by `key.columns`, which must be the view's key |

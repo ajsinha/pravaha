@@ -32,7 +32,7 @@ slot, and this page says how.
 | | |
 |---|---|
 | Plugin name | `postgres-cdc` |
-| Module | `plugins/pravaha-plugin-postgres-cdc` — **not in the server jar**. The PostgreSQL JDBC driver (42.7 or later) is yours to supply, as for `jdbc` |
+| Module | `plugins/pravaha-plugin-postgres-cdc` — in the server jar, **and so is the PostgreSQL JDBC driver** (42.7.8), so `java -jar` binds it with nothing added |
 | Database | PostgreSQL **14 or later**, nothing else |
 | Kind | stream source, one table per binding |
 | Delivery guarantee | **`EXACTLY_ONCE`** — the offset is a commit LSN, and the slot is confirmed only at checkpoints |

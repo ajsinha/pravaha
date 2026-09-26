@@ -31,8 +31,22 @@ import com.ash.messaging.pravaha.embedded.PravahaEngine;
  * (ADR-019). It owns the HTTP surface and the engine's lifecycle; the engine itself carries no
  * Spring, which is what lets the same engine be embedded in a host application on whatever Spring
  * version that application already runs.
+ *
+ * <p><strong>Spring opens no connection to a store.</strong> Every connector ships inside this jar
+ * (2026-09-26), and Spring Boot auto-configures a client for any driver it finds on the classpath:
+ * with the Cassandra driver present it built its own {@code CqlSession} to {@code localhost:9042}
+ * at startup, plus a health check against it, and a node with no Cassandra beside it refused to
+ * start. A connector's connections belong to its plugin, opened from {@code pravaha.sources} when
+ * something binds it, and never by the framework because a jar happens to be present. Excluded by
+ * name, so this class compiles without the auto-configuration classes and the exclusion holds when
+ * they are absent. {@code FatJarStartupTest} boots this context with every connector on the
+ * classpath and nothing to connect to.
  */
-@SpringBootApplication
+@SpringBootApplication(
+        excludeName = {
+            "org.springframework.boot.autoconfigure.cassandra.CassandraAutoConfiguration",
+            "org.springframework.boot.actuate.autoconfigure.cassandra.CassandraHealthContributorAutoConfiguration"
+        })
 public class PravahaServerApplication {
 
     public static void main(String[] args) {

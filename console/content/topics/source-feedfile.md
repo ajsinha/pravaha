@@ -28,7 +28,7 @@ perfectly short file, and no schema check can tell.
 | | |
 |---|---|
 | Plugin name | `feedfile` |
-| Module | `plugins/pravaha-plugin-feedfile` — **not in the server jar**; see [sources overview](/help/topics/sources-overview#getting-a-plugin-onto-a-node) |
+| Module | `plugins/pravaha-plugin-feedfile` — in the server jar |
 | Kind | stream source |
 | Formats | `csv` (quoted fields handled) and `parquet` (columns matched by name) |
 | Delivery guarantee | **depends on configuration**: `EXACTLY_ONCE` with `completion: marker` or `immediate` and no `archive.dir`; otherwise `AT_LEAST_ONCE` |

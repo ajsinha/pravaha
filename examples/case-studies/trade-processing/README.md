@@ -97,8 +97,8 @@ pravaha-server --spring.profiles.active=dev \
 pravaha queries --url grpc://localhost:9090     # expect: no continuous queries are registered
 ```
 
-The Aerospike connector is not in the server jar and has to be built into it — see
-[`../SETUP.md`](../SETUP.md), which also explains the `dev` profile.
+The Aerospike connector ships inside the server jar, so there is nothing to build in — see
+[`../SETUP.md`](../SETUP.md) for how to start the node and what the `dev` profile does.
 
 Nothing here windows, so no view is waiting on a watermark — but the file still declares the
 stream's event time:

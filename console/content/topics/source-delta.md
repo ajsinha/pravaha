@@ -34,7 +34,7 @@ cluster.
 | | |
 |---|---|
 | Plugin name | `delta` |
-| Module | `plugins/pravaha-plugin-delta` — **not in the server jar** |
+| Module | `plugins/pravaha-plugin-delta` — in the server jar |
 | Kind | stream source |
 | Delivery guarantee | `EXACTLY_ONCE` — a (version, phase, file, row) offset resumes exactly; Delta versions are immutable |
 | Replayable offsets | yes |

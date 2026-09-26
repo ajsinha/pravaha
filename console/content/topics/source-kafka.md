@@ -35,7 +35,7 @@ The same Kafka plugin ships the sink, `kafka-sink`; this page is its source, nam
 | | |
 |---|---|
 | Plugin name | `kafka` (under `pravaha.sources.<stream>`) |
-| Module | `plugins/pravaha-plugin-kafka` — **not in the server jar**; the same module as `kafka-sink` |
+| Module | `plugins/pravaha-plugin-kafka` — in the server jar; the same module as `kafka-sink` |
 | Kind | stream source, one topic per binding, **one reader per partition** |
 | Delivery guarantee | **`EXACTLY_ONCE`** — the offsets are the checkpoint's |
 | Replayable offsets / ordered | yes (for as long as retention keeps the records) / yes, within a partition |

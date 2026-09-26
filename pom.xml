@@ -295,9 +295,16 @@
         the query-builder module is not, because this plugin builds its one CQL shape (a
         token-range predicate) as a literal string rather than depending on a builder for it.
       -->
+      <!--
+        The SHADED core, not java-driver-core: the driver relocates its own Netty and Jackson under
+        com.datastax.oss.driver.shaded. Arrow Flight's gRPC needs Netty 4.2 and the plain driver pulls
+        Netty 4.1, and every connector now ships inside the one server jar, where a classpath holds
+        exactly one version of each library: Maven would have kept one, and the other side would have
+        failed at runtime rather than at build time.
+      -->
       <dependency>
         <groupId>org.apache.cassandra</groupId>
-        <artifactId>java-driver-core</artifactId>
+        <artifactId>java-driver-core-shaded</artifactId>
         <version>${cassandra.driver.version}</version>
       </dependency>
       <!-- The Kafka sink's client. Its compression codecs are excluded where it is used; see that pom. -->

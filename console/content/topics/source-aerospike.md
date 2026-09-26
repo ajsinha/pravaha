@@ -27,7 +27,7 @@ edition, and the plugin declares exactly what a scan can and cannot promise
 | | |
 |---|---|
 | Plugin name | `aerospike` |
-| Module | `plugins/pravaha-plugin-aerospike` (also holds `aerospike-lookup` and `aerospike-sink`) — **not in the server jar** |
+| Module | `plugins/pravaha-plugin-aerospike` (also holds `aerospike-lookup` and `aerospike-sink`) — in the server jar |
 | Kind | stream source |
 | Strategy | `lut-scan` — the only one implemented |
 | Delivery guarantee | `AT_LEAST_ONCE` — a rescan from the watermark re-delivers the boundary records. `EXACTLY_ONCE` with `deletes: detect` |
