@@ -126,6 +126,14 @@ class SnapshotSubscriberBehindTest {
             for (int i = 0; i < 80; i++) {
                 feedAndCommit(query, "T-" + i);
             }
+            // Every commit handed to the stream's subscription before it is released. Delivery runs
+            // on the subscription's own thread since STRM-8, so without this a loaded run released
+            // the stream while some of the 80 were still in transit: it wrote one commit, then fell
+            // behind -- correct behaviour, nothing written past the gap, but not the case under test,
+            // which is a subscriber already too far behind when it is next able to write.
+            assertThat(query.awaitSubscriptionsQuiet(Duration.ofSeconds(20)))
+                    .as("the 80 commits reached the stream's subscription")
+                    .isTrue();
             listener.release.countDown();
             streaming.join(Duration.ofSeconds(20).toMillis());
 

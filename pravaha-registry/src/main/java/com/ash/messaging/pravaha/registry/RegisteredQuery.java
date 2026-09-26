@@ -587,6 +587,26 @@ public final class RegisteredQuery implements AutoCloseable {
     }
 
     /**
+     * Waits until every open subscription has been handed what this computation committed to it.
+     *
+     * <p>Delivery runs on each subscription's own thread (STRM-8), so a commit returning is not a
+     * subscriber having received it. This is how anything that needs "every subscriber has seen
+     * this" can know rather than guess; the engine itself never calls it. Returns false if the
+     * deadline passes first, or if a subscription closed with changes still waiting -- the same
+     * answer {@link Subscription#awaitQuiet} gives, and for the same reason.
+     */
+    public boolean awaitSubscriptionsQuiet(java.time.Duration timeout) {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        for (Subscription subscription : subscriptions) {
+            long left = deadline - System.nanoTime();
+            if (left <= 0 || !subscription.awaitQuiet(java.time.Duration.ofNanos(left))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * How many consumers are attached.
      *
      * <p>Worth exposing rather than keeping private: it is what a console shows next to a query, and
