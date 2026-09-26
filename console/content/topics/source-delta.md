@@ -185,11 +185,11 @@ configuration, which this plugin does not manage.
     table's retention longer than the longest a query can be paused or behind, or restart the query
     from a later `start.version`.
 
-!!! warning "Pitfall: deletion vectors"
-    A table with deletion vectors enabled hides row-level deletes from file diffing — the file stays,
-    with some rows marked gone. Reading it as if it had no vectors would keep deleted rows alive, so
-    the reader refuses it with PRV-5055. Disable deletion vectors on tables Pravaha reads, or rewrite
-    them (`REORG … APPLY (PURGE)` in Spark) first.
+!!! note "Deletion vectors"
+    A table with deletion vectors marks deleted rows inside a file that stays. The reader applies the
+    vector, so a deleted row is never emitted, and a row newly deleted by a `DELETE` reaches the view
+    as a retraction. The cost: a vector change is read as the whole file retracted and re-added, so its
+    surviving rows are emitted once each way and cancel out.
 
 !!! note "Update-heavy tables are expensive this way"
     Rewriting a 100,000-row file to change one row yields 100,000 retractions and 100,000 insertions,

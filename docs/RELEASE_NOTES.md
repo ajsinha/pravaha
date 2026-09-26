@@ -75,7 +75,7 @@ part under load, several are too noisy to state as a figure, and the harness say
   densities — is green; a person still has to do the rest.
 - **The console's design-system surface**, by decision.
 - Smaller refusals, each named and reasoned where it is raised: no secondary index over a non-key
-  column, no `INSERT INTO <sink> SELECT`, no Iceberg or Hudi sink, no partitioned Delta tables,
+  column, no `INSERT INTO <sink> SELECT`, no Iceberg or Hudi sink, no deletion vectors written by `delta-sink`,
   `COUNT(DISTINCT)` cannot spill.
 
 ### Open defects

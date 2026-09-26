@@ -36,7 +36,8 @@ trails the view by up to one checkpoint interval.
 | Transactional | yes, by default (`transactional: true`) |
 | Delivery | **exactly once** with `transactional: true` and `pravaha.checkpoint.directory` set; effectively once (upsert) or at least once (changelog) otherwise |
 | Rows per batch | at most 1,000 per write |
-| Not supported | partitioned tables, deletion vectors, schema evolution, compaction |
+| Partitioned tables | yes — name the columns with `partition.columns`; each row is filed under its partition and the log records the values |
+| Not supported | writing deletion vectors, upsert into a table whose files carry them (`PRV-5055`), schema evolution, compaction |
 
 ## Options
 
@@ -88,8 +89,9 @@ then on the sink writes to it and never changes its shape.
 
 ## Upsert mode: a merge, because Delta has no delete
 
-A Delta data file is immutable. Without deletion vectors — which this plugin neither reads nor
-writes — removing a row means **rewriting the file that holds it**. So a commit in upsert mode is a
+A Delta data file is immutable. The sink does not write deletion vectors, so removing a row means
+**rewriting the file that holds it** (and upsert refuses a table whose files already carry deletion
+vectors, `PRV-5055`, because a rewrite would bring the deleted rows back). So a commit in upsert mode is a
 copy-on-write merge:
 
 1. The checkpoint's changes are collapsed by key. Of everything that happened to one key between
@@ -197,7 +199,7 @@ great many more, much smaller commits, so read the section above first.
 |---|---|---|
 | PRV-5056 | binding | A `mode` that is neither `upsert` nor `changelog`; a missing `key.columns` in upsert mode or a pointless one in changelog mode; a key that is floating-point, nullable or not in the schema; a `transaction.id` that cannot also be a directory name; a changelog schema that already declares `_op` or `_weight` |
 | PRV-5051 | binding | A column type Delta has no equivalent for — `TIME` |
-| PRV-5057 | when the sink opens | The table is partitioned, or its columns are not the binding's by position, name and type, or `create: false` and there is no table. The message names the column |
+| PRV-5057 | when the sink opens | The table is partitioned differently from `partition.columns` (in either direction), or its columns are not the binding's by position, name and type, or `create: false` and there is no table. The message names the column |
 | PRV-5058 | writing | Staging, reading back or committing failed. Two of its cases are the sink refusing rather than the filesystem failing: a null key column, and a `TIMESTAMP` that is not a whole number of microseconds |
 | PRV-5059 | committing | Another writer committed while this commit was being built |
 | PRV-8010 | registration | The query's `SELECT` list is not the binding's `schema`, or its key is not `key.columns` |
