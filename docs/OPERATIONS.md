@@ -142,10 +142,11 @@ ceiling per store — a windowed aggregate with `COUNT(DISTINCT)` has two stores
 In the measurement a query with a 64 MiB ceiling held ~480 MiB of anonymous memory (including a
 160 MiB heap) before anything spilled, and under a 512 MiB cgroup limit the kernel OOM-killed it
 rather than the tier saving it. Budget RAM for that floor, page cache for the index, and only then
-count on the disk. Firing a window is separate again: `fire` builds the window's groups on the
-**heap**, one entry per accumulator, so a query with millions of live accumulators needs hundreds of
-megabytes of heap at every watermark advance (1.6 M accumulators threw `OutOfMemoryError` with a
-160 MiB heap; the same window fired at ~375,000 groups/s with 1 GiB).
+count on the disk. Firing a window no longer needs heap in proportion to it (SPILL-3): `fire`
+streams each group out as it is combined, so a window of 1.6 M accumulators fired with a 32 MiB heap
+(it threw `OutOfMemoryError` at 160 MiB before). What it does need, once the state is on disk, is the
+disk: under a 512 MiB cap that window fired at about 900 groups/s, against about 650,000 with the
+files in the page cache.
 
 With it, join and windowed-aggregate state that outgrows memory is written to mapped files and the
 query keeps running, slower, instead of dying with `PRV-4001`. It is off by default, and stays so

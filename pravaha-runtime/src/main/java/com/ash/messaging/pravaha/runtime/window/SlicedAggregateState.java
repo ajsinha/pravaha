@@ -16,9 +16,7 @@
 package com.ash.messaging.pravaha.runtime.window;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.common.arena.ArenaHandle;
@@ -131,19 +129,6 @@ public final class SlicedAggregateState implements AutoCloseable {
         SUM,
         MIN,
         MAX
-    }
-
-    /**
-     * A group, while its slices are combined into a window: the digest and the key columns behind it.
-     *
-     * <p>The digest alone was this key until W8-14. However wide a digest is, two groups can share
-     * it, and when they did their slices were combined into one window result. The columns decide
-     * equality; the digest is carried because the result reports it.
-     */
-    private record Group(long keyHigh, long keyLow, List<Object> values) {
-        static Group of(long keyHigh, long keyLow, Object[] keyValues) {
-            return new Group(keyHigh, keyLow, keyValues == null ? null : java.util.Arrays.asList(keyValues));
-        }
     }
 
     private final SlicedWindows windows;
@@ -353,132 +338,171 @@ public final class SlicedAggregateState implements AutoCloseable {
     }
 
     /**
-     * Combines the slices of a window and returns one result per key that has data in it.
+     * Combines the slices of a window and hands each key that has data in it to {@code out}, one at
+     * a time, as it is combined.
      *
      * <p>Does not discard anything. A window that has fired may fire again when a late record
      * arrives, which is what allowed lateness means (design section 15.4) -- so releasing state is a
      * separate decision, made by {@link #discardSlicesEndingBefore}.
+     *
+     * <p><strong>Nothing the size of the window is built on the heap</strong> (SPILL-3). This used to
+     * gather every accumulator's handle into a list, then a map entry and a result per group, and
+     * return the lot -- so the heap a watermark advance needed was the size of the whole state, and
+     * 1.6 million accumulators threw {@code OutOfMemoryError} against a 160 MiB heap whether the state
+     * had spilled or not. Now the accumulators are walked in place: an accumulator whose group has one
+     * in an earlier slice of the window is passed over, and the first one found looks its group up in
+     * each later slice, off-heap, and is emitted straight away. {@code COUNT(DISTINCT)} answers are
+     * counted first into an off-heap map of their own ({@link WindowDistinctCounts}), released when the
+     * window has fired. What the heap holds at once is one result, which {@code out} is free to keep or
+     * drop.
+     *
+     * <p>{@code out} must not change this state: it runs while the accumulators are being walked. The
+     * order is the store's, stable within a run and not sorted; {@link #fire(long)} sorts, for a
+     * caller that wants a list.
+     *
+     * @return how many results were handed to {@code out}
      */
-    public List<WindowResult> fire(long windowEndNanos) {
-        List<Long> sliceStarts = windows.slicesOfWindowEnding(windowEndNanos);
-        Map<Group, SliceAccumulator> combined = new HashMap<>();
-        List<Long> handles = new ArrayList<>();
-        offHeap.forEach(handles::add);
-        for (long sliceStart : sliceStarts) {
-            for (long handle : handles) {
-                if (offHeap.sliceStartOf(handle) != sliceStart) {
-                    continue;
-                }
-                // Keyed by the group alone -- slice zeroed -- because combining slices into a
-                // window is precisely the act of forgetting which slice a value came from.
-                SliceAccumulator source = offHeap.read(handle);
-                Group groupKey = Group.of(offHeap.keyHighOf(handle), offHeap.keyLowOf(handle), source.keyValues);
-                SliceAccumulator target = combined.computeIfAbsent(groupKey, key -> new SliceAccumulator(kinds.length));
-                merge(target, source);
-            }
+    public long fire(long windowEndNanos, java.util.function.Consumer<WindowResult> out) {
+        List<Long> slices = windows.slicesOfWindowEnding(windowEndNanos);
+        long[] sliceStarts = new long[slices.size()];
+        for (int i = 0; i < sliceStarts.length; i++) {
+            sliceStarts[i] = slices.get(i);
         }
-        if (distinct != null) {
-            countDistinctValues(sliceStarts, combined);
-        }
-
+        java.util.Arrays.sort(sliceStarts);
         long windowStart = windowEndNanos - windows.spec().sizeNanos();
-        List<WindowResult> results = new ArrayList<>(combined.size());
-        combined.forEach((groupKey, accumulator) -> {
-            if (accumulator.count != 0) {
-                // A key whose weights cancel to zero within the window has no rows in it. Emitting a
-                // result for it would report an empty group as a present one.
-                long[] emitted = accumulator.values.clone();
+        WindowDistinctCounts distinctCounts = null;
+        try {
+            if (distinct != null) {
+                distinctCounts = new WindowDistinctCounts(
+                        kinds.length,
+                        distinct.access(),
+                        distinct.ramMaxSlabs(),
+                        distinct.overflowAccess(),
+                        distinct.maxOverflowSlabs());
+                distinct.countWindow(sliceStarts, distinctCounts);
+            }
+            WindowDistinctCounts counts = distinctCounts;
+            SliceAccumulator combined = new SliceAccumulator(kinds.length);
+            long[] emitted = {0};
+            offHeap.forEach(handle -> {
+                int position = indexOf(sliceStarts, offHeap.sliceStartOf(handle));
+                if (position < 0) {
+                    return;
+                }
+                // The group is emitted from its earliest slice in this window, once.
+                for (int earlier = 0; earlier < position; earlier++) {
+                    if (offHeap.findInSlice(handle, sliceStarts[earlier]) != ArenaHandle.NULL) {
+                        return;
+                    }
+                }
+                java.util.Arrays.fill(combined.values, 0);
+                java.util.Arrays.fill(combined.nonNull, 0);
+                combined.count = 0;
+                merge(combined, handle);
+                for (int later = position + 1; later < sliceStarts.length; later++) {
+                    long other = offHeap.findInSlice(handle, sliceStarts[later]);
+                    if (other != ArenaHandle.NULL) {
+                        merge(combined, other);
+                    }
+                }
+                if (combined.count == 0) {
+                    // A key whose weights cancel to zero within the window has no rows in it.
+                    // Emitting a result for it would report an empty group as a present one.
+                    return;
+                }
+                long[] values = combined.values.clone();
                 for (int i = 0; i < kinds.length; i++) {
                     if (kinds[i] == Kind.AVG) {
                         // Integer division, matching what the keyed and global paths do over an
                         // integer column. Dividing here rather than at the writer keeps every
                         // reader of a WindowResult seeing the answer rather than an intermediate.
-                        emitted[i] = accumulator.nonNull[i] == 0 ? 0 : accumulator.values[i] / accumulator.nonNull[i];
+                        values[i] = combined.nonNull[i] == 0 ? 0 : combined.values[i] / combined.nonNull[i];
+                    } else if (kinds[i] == Kind.COUNT_DISTINCT) {
+                        values[i] = counts.countOf(
+                                offHeap.keyRegionOf(handle),
+                                offHeap.keyOffsetOf(handle),
+                                OffHeapAccumulators.GROUP_OFFSET,
+                                offHeap.groupLengthOf(handle),
+                                i);
                     }
                 }
-                results.add(new WindowResult(
-                        groupKey.keyHigh(),
-                        groupKey.keyLow(),
-                        accumulator.keyValues,
+                out.accept(new WindowResult(
+                        offHeap.keyHighOf(handle),
+                        offHeap.keyLowOf(handle),
+                        offHeap.keyValuesOf(handle),
                         windowStart,
                         windowEndNanos,
-                        emitted,
-                        accumulator.count));
+                        values,
+                        combined.count));
+                emitted[0]++;
+            });
+            return emitted[0];
+        } finally {
+            if (distinctCounts != null) {
+                distinctCounts.close();
             }
-        });
+        }
+    }
+
+    /**
+     * {@link #fire(long, java.util.function.Consumer)}, collected into a list sorted by digest.
+     *
+     * <p>The list is the whole window on the heap, which is exactly what the streaming form exists to
+     * avoid; this is for a caller that knows its window is small -- a test, a tool -- and never for
+     * the operator, which streams.
+     */
+    public List<WindowResult> fire(long windowEndNanos) {
+        List<WindowResult> results = new ArrayList<>();
+        fire(windowEndNanos, results::add);
         results.sort((a, b) -> a.keyHigh() != b.keyHigh()
                 ? Long.compare(a.keyHigh(), b.keyHigh())
                 : Long.compare(a.keyLow(), b.keyLow()));
         return results;
     }
 
-    /**
-     * Distinct counts do not add across slices: a value in two slices is one distinct value in the
-     * window, not two. So each value is counted once, in the earliest of the window's slices that
-     * holds it -- decided by looking the same {@code (group, column, value)} up in each earlier slice,
-     * off-heap, rather than by building the window's set on the heap.
-     */
-    private void countDistinctValues(List<Long> sliceStarts, Map<Group, SliceAccumulator> combined) {
-        java.util.Set<Long> inWindow = new java.util.HashSet<>(sliceStarts);
-        for (long handle : distinct.handles()) {
-            long sliceStart = distinct.sliceStartOf(handle);
-            if (!inWindow.contains(sliceStart)) {
-                continue;
+    /** Where {@code sliceStart} is in a window's ascending slice starts, or {@code -1}. A window has a handful. */
+    static int indexOf(long[] sliceStarts, long sliceStart) {
+        for (int i = 0; i < sliceStarts.length; i++) {
+            if (sliceStarts[i] == sliceStart) {
+                return i;
             }
-            SliceAccumulator target = combined.get(
-                    Group.of(distinct.keyHighOf(handle), distinct.keyLowOf(handle), distinct.keyValuesOf(handle)));
-            if (target == null || presentInAnEarlierSlice(handle, sliceStart, sliceStarts)) {
-                continue;
-            }
-            target.values[distinct.columnOf(handle)]++;
         }
+        return -1;
     }
 
-    private boolean presentInAnEarlierSlice(long handle, long sliceStart, List<Long> sliceStarts) {
-        for (long other : sliceStarts) {
-            if (other < sliceStart && distinct.presentIn(handle, other)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void merge(SliceAccumulator target, SliceAccumulator source) {
-        if (target.keyValues == null) {
-            target.keyValues = source.keyValues;
-        }
-        target.count += source.count;
+    /** Folds one slice's accumulator, read in place off-heap, into a window's. */
+    private void merge(SliceAccumulator target, long handle) {
+        target.count += offHeap.count(handle);
         for (int i = 0; i < kinds.length; i++) {
+            long value = offHeap.value(handle, i);
+            long nonNull = offHeap.nonNull(handle, i);
             switch (kinds[i]) {
-                case COUNT -> target.values[i] += source.values[i];
+                case COUNT -> target.values[i] += value;
                 case SUM, AVG -> {
-                    target.values[i] += source.values[i];
-                    target.nonNull[i] += source.nonNull[i];
+                    target.values[i] += value;
+                    target.nonNull[i] += nonNull;
                 }
                 case COUNT_DISTINCT -> {
-                    // Not added: see countDistinctValues, which counts the values themselves.
+                    // Not added: distinct counts do not add across slices, and WindowDistinctCounts
+                    // counts the values themselves.
                 }
                 // Merged on the non-null count, not on whether the target held any rows: a
                 // slice of nothing but nulls has rows and no extreme, and treating it as seeded
                 // would merge its zero in as though it were a value.
                 case MIN -> {
-                    if (source.nonNull[i] > 0) {
-                        target.values[i] = target.nonNull[i] == 0
-                                ? source.values[i]
-                                : Math.min(target.values[i], source.values[i]);
+                    if (nonNull > 0) {
+                        target.values[i] = target.nonNull[i] == 0 ? value : Math.min(target.values[i], value);
                     }
                     // After the comparison, never before: the test above asks whether the target
                     // had an extreme yet, and adding first would answer it with the source's own
                     // rows.
-                    target.nonNull[i] += source.nonNull[i];
+                    target.nonNull[i] += nonNull;
                 }
                 case MAX -> {
-                    if (source.nonNull[i] > 0) {
-                        target.values[i] = target.nonNull[i] == 0
-                                ? source.values[i]
-                                : Math.max(target.values[i], source.values[i]);
+                    if (nonNull > 0) {
+                        target.values[i] = target.nonNull[i] == 0 ? value : Math.max(target.values[i], value);
                     }
-                    target.nonNull[i] += source.nonNull[i];
+                    target.nonNull[i] += nonNull;
                 }
             }
         }
@@ -497,13 +521,20 @@ public final class SlicedAggregateState implements AutoCloseable {
         java.util.function.LongPredicate dead =
                 sliceStart -> windows.lastWindowEndFor(sliceStart) + allowedLatenessNanos <= watermarkNanos;
         int before = offHeap.size();
-        List<Long> handles = new ArrayList<>();
-        offHeap.forEach(handles::add);
-        for (long handle : handles) {
-            long sliceStart = offHeap.sliceStartOf(handle);
-            if (dead.test(sliceStart)) {
-                offHeap.remove(handle);
+        // Only the dead handles are gathered, and as primitives: a list of every live handle, boxed,
+        // was a heap the size of the whole state at every watermark advance (SPILL-3's sibling).
+        long[][] deadHandles = {new long[64]};
+        int[] deadCount = {0};
+        offHeap.forEach(handle -> {
+            if (dead.test(offHeap.sliceStartOf(handle))) {
+                if (deadCount[0] == deadHandles[0].length) {
+                    deadHandles[0] = java.util.Arrays.copyOf(deadHandles[0], deadCount[0] * 2);
+                }
+                deadHandles[0][deadCount[0]++] = handle;
             }
+        });
+        for (int i = 0; i < deadCount[0]; i++) {
+            offHeap.remove(deadHandles[0][i]);
         }
         if (distinct != null) {
             distinct.removeSlices(dead);

@@ -147,9 +147,9 @@ final class DistinctValueCounts implements AutoCloseable {
     /**
      * Copies an entry's own key into the scratch region, returning its length.
      *
-     * <p>Through a byte array rather than {@link MemoryRegion#copyFrom}: the entry may sit in a mapped
-     * overflow slab, and the scratch region's own {@code copyFrom} accepts only a source of its own
-     * concrete type.
+     * <p>Not through {@link MemoryRegion#copyFrom}: the entry may sit in a mapped overflow slab, and
+     * the scratch region's own {@code copyFrom} accepts only a source of its own concrete type. Nor
+     * through a byte array, which this did until firing a window called it once per value (SPILL-3).
      */
     private int copyKeyToScratch(long handle) {
         int length = map.keyLengthOf(handle);
@@ -157,10 +157,36 @@ final class DistinctValueCounts implements AutoCloseable {
             keyScratch.close();
             keyScratch = access.allocate(Math.max(length, keyScratch.capacity() * 2));
         }
-        byte[] key = new byte[length];
-        map.keyRegionOf(handle).getBytes(map.keyOffsetOf(handle), key, 0, length);
-        keyScratch.putBytes(0, key, 0, length);
+        OffHeapAccumulators.copyBytes(map.keyRegionOf(handle), map.keyOffsetOf(handle), keyScratch, 0, length);
         return length;
+    }
+
+    /**
+     * Counts one window's distinct values into {@code into}: every value in one of {@code
+     * sliceStarts}, once, in the earliest of them that holds it -- decided by looking the same {@code
+     * (group, column, value)} up in each earlier slice, off-heap, rather than by building the
+     * window's set on the heap.
+     *
+     * @param sliceStarts the window's slices, ascending
+     */
+    void countWindow(long[] sliceStarts, WindowDistinctCounts into) {
+        map.forEach(handle -> {
+            int position = SlicedAggregateState.indexOf(sliceStarts, sliceStartOf(handle));
+            if (position < 0) {
+                return;
+            }
+            for (int earlier = 0; earlier < position; earlier++) {
+                if (presentIn(handle, sliceStarts[earlier])) {
+                    return;
+                }
+            }
+            into.add(
+                    map.keyRegionOf(handle),
+                    map.keyOffsetOf(handle),
+                    OFFSET_GROUP,
+                    groupLengthOf(handle),
+                    columnOf(handle));
+        });
     }
 
     long keyHighOf(long handle) {
@@ -263,6 +289,22 @@ final class DistinctValueCounts implements AutoCloseable {
 
     VariableKeyStateMap map() {
         return map;
+    }
+
+    MemoryAccess access() {
+        return access;
+    }
+
+    MemoryAccess overflowAccess() {
+        return overflowAccess;
+    }
+
+    int ramMaxSlabs() {
+        return ramMaxSlabs;
+    }
+
+    int maxOverflowSlabs() {
+        return maxOverflowSlabs;
     }
 
     void clear() {

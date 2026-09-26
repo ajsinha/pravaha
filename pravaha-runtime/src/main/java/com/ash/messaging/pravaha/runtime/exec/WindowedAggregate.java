@@ -381,7 +381,10 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
         java.util.Map<GroupKey, Published> previous = emitted.get(windowEnd);
         java.util.Map<GroupKey, Published> current = new java.util.HashMap<>();
 
-        for (SlicedAggregateState.WindowResult result : state.fire(windowEnd)) {
+        // Streamed: each group is emitted as the state combines it, so firing holds one result at a
+        // time rather than the window's whole list (SPILL-3). `current` still holds what the window
+        // published, for as long as a correction may need to retract it.
+        state.fire(windowEnd, result -> {
             GroupKey key = new GroupKey(result.keyValues());
             if (previous != null) {
                 Published before = previous.get(key);
@@ -391,14 +394,14 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
                         // insertion would be two rows that consolidate to nothing, which is
                         // arithmetically harmless and pure noise on the wire.
                         current.put(key, before);
-                        continue;
+                        return;
                     }
                     emitRow(result.keyValues(), result.windowStartNanos(), windowEnd, before.values(), -1L);
                 }
             }
             current.put(key, new Published(result.keyValues(), result.windowStartNanos(), result.values()));
             emitRow(result.keyValues(), result.windowStartNanos(), windowEnd, result.values(), 1L);
-        }
+        });
 
         // A key that was published and is no longer here has to be withdrawn. It used to be dropped
         // silently: a group whose weights netted to zero after its window was published left its

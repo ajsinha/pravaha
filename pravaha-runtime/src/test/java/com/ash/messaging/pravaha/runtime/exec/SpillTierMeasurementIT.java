@@ -371,7 +371,7 @@ class SpillTierMeasurementIT {
             start = System.nanoTime();
             long fired = 0;
             for (int slice = 0; slice < SLICES; slice++) {
-                fired += state.fire((slice + 1) * 10 * SECOND).size();
+                fired += state.fire((slice + 1) * 10 * SECOND, result -> {});
             }
             double firedPerSecond = fired / seconds(start);
             assertThat(fired).isEqualTo(groups * SLICES);

@@ -355,21 +355,21 @@ public final class SpillBeyondRamWorkload {
             }
             update.end(updates);
 
-            // Firing one window of four: what a watermark advance costs. fire() collects every
-            // accumulator's handle on the heap and reads each one's slice, so its cost -- heap and
-            // reads -- is the whole state's, not the window's; a heap that cannot hold the handles
-            // fails here, and that is recorded rather than hidden.
+            // Firing one window of four: what a watermark advance costs. fire() walks every
+            // accumulator in place and streams each group out as it is combined (SPILL-3), so its
+            // reads are the whole state's and its heap is one result's. An OutOfMemoryError here
+            // would be a regression, and is recorded rather than hidden.
             Phase fire = new Phase("fire");
             try {
-                long fired = state.fire(10 * SECOND).size();
+                long fired = state.fire(10 * SECOND, result -> {});
                 fire.end(fired);
                 if (fired != groups) {
                     throw new IllegalStateException(fired + " results for " + groups + " groups");
                 }
             } catch (OutOfMemoryError e) {
-                // fire() puts every accumulator's handle in an ArrayList<Long>, a HashMap entry per
-                // group and a WindowResult per group on the heap, so a window of a few million
-                // groups needs hundreds of MiB of heap whatever the tier holds. Recorded, not hidden.
+                // Before SPILL-3, fire() built the window on the heap -- a boxed handle per
+                // accumulator, a map entry and a result per group -- and 1.6 M accumulators threw
+                // here against a 160 MiB heap. Recorded, not hidden, should it come back.
                 out.put(
                         "fire",
                         "OutOfMemoryError-at-heap-" + Runtime.getRuntime().maxMemory() / MIB + "MiB");

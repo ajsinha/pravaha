@@ -377,9 +377,20 @@ accumulator's handle in an `ArrayList<Long>`, then a `HashMap` entry and a `Wind
 so its heap is the size of the *whole state*, not of the window: with a 160 MiB heap it threw
 `OutOfMemoryError` at every size measured, including 1.58 million accumulators, capped and uncapped
 alike. With a 1 GiB heap and the files cached it ran at 375,070 groups/s (394k groups) and 306,793/s
-(1.58M groups). A node running windowed aggregates with millions of live accumulators has to be given
-heap for the firing, whatever the spill tier does with the state itself — which is a separate finding
-from this ADR's subject, recorded here because the measurement is what found it.
+(1.58M groups). That was SPILL-3, recorded here because the measurement is what found it.
+
+*Since SPILL-3 was fixed:* `fire` walks the accumulators in place and streams each group out as it
+is combined — a group is emitted from its earliest slice in the window, after looking itself up in
+the later ones off-heap, and `COUNT(DISTINCT)` answers are counted first into an off-heap map of
+their own — so the heap a watermark advance needs is one result's, not the window's. Measured with
+`tools/spill-beyond-ram.sh` at 1x, 1,575,384 accumulators, 393,846 groups fired, load 1.2–2.1: the
+window fired with a **160 MiB** heap and again with a **32 MiB** heap, capped and uncapped, with no
+`OutOfMemoryError` at either. Uncapped it fired at 686,536 groups/s (160 MiB) and 653,921 groups/s
+(32 MiB). Capped at 512 MiB it fired at 915 and 899 groups/s, and read about 101 GiB from the device
+to do it (1.65 million major faults): each group's lookups into its later slices are random probes
+of a mapped index larger than the cap, and every fault reads far more than the probe needs. The
+heap is no longer the limit; firing a window whose state is on disk is disk-bound, like every other
+random access past the page cache below.
 
 **Where it degrades, and why.**
 

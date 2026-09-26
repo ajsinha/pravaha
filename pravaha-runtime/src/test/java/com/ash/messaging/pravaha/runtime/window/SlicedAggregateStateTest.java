@@ -322,4 +322,56 @@ class SlicedAggregateStateTest {
                 .hasMessageContaining("format version 2")
                 .hasMessageContaining("W8-14");
     }
+
+    @Test
+    void firingAWindowHoldsNoResultItHasAlreadyHandedOn() throws Exception {
+        // SPILL-3. fire() built the whole window on the heap and returned it, so a large window
+        // needed a heap the size of the state and died there whether the state had spilled or not.
+        // Streaming, a result is unreachable from the state once the consumer lets it go: this
+        // keeps only a weak reference to the first result and asks for a collection half way
+        // through. Built first and handed on afterwards, the first result is still in the list.
+        SlicedAggregateState state = state(
+                WindowSpec.hopping(30 * SECOND, 10 * SECOND),
+                100_000,
+                SlicedAggregateState.Kind.COUNT,
+                SlicedAggregateState.Kind.COUNT_DISTINCT,
+                SlicedAggregateState.Kind.SUM);
+        int groups = 20_000;
+        for (long g = 0; g < groups; g++) {
+            for (int slice = 0; slice < 3; slice++) {
+                state.update(
+                        g,
+                        g * 31,
+                        new Object[] {g},
+                        slice * 10 * SECOND + SECOND,
+                        new long[] {0, g % 7, 5},
+                        new boolean[] {true, true, true},
+                        new Object[] {null, "v" + (g + slice) % 5, null},
+                        1);
+            }
+        }
+
+        java.lang.ref.WeakReference<?>[] first = {null};
+        boolean[] collectedWhileFiring = {false};
+        long[] seen = {0};
+        long fired = state.fire(30 * SECOND, result -> {
+            assertThat(result.count()).isEqualTo(3);
+            assertThat(result.values()[1]).as("three values, one per slice").isEqualTo(3);
+            assertThat(result.values()[2]).isEqualTo(15);
+            if (seen[0] == 0) {
+                first[0] = new java.lang.ref.WeakReference<>(result);
+            } else if (seen[0] == groups / 2) {
+                for (int attempt = 0; attempt < 20 && first[0].get() != null; attempt++) {
+                    System.gc();
+                }
+                collectedWhileFiring[0] = first[0].get() == null;
+            }
+            seen[0]++;
+        });
+
+        assertThat(fired).isEqualTo(groups);
+        assertThat(collectedWhileFiring[0])
+                .as("the first result is collectable while the window is still firing: nothing holds the window")
+                .isTrue();
+    }
 }

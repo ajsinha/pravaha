@@ -41,7 +41,9 @@ final class OffHeapAccumulators implements AutoCloseable {
     private static final int INDEX_INITIAL_CAPACITY = 64;
     static final int STORE_SLAB_BYTES = 1 << 16;
     /** Where the group's key columns start in an entry's key, after the digest and the slice. */
-    private static final int GROUP_OFFSET = 3 * Long.BYTES;
+    static final int GROUP_OFFSET = 3 * Long.BYTES;
+
+    private static final int SLICE_OFFSET = 2 * Long.BYTES;
 
     /**
      * A deliberately generous per-accumulator estimate -- fixed header plus a modest {@code
@@ -114,6 +116,52 @@ final class OffHeapAccumulators implements AutoCloseable {
     long create(long keyHigh, long keyLow, long sliceStart, Object[] keyValues) {
         int length = writeKey(keyHigh, keyLow, sliceStart, keyValues);
         return map.getOrCreate(keyScratch, 0, length, fixedHeaderBytes);
+    }
+
+    /**
+     * The same group's accumulator in another slice, or {@link
+     * com.ash.messaging.pravaha.common.arena.ArenaHandle#NULL}: the entry's own key, copied with its
+     * slice replaced, looked up without allocating. Firing a window combines a group's slices this way
+     * instead of gathering every accumulator into an on-heap map first (SPILL-3).
+     */
+    long findInSlice(long handle, long otherSlice) {
+        int length = map.keyLengthOf(handle);
+        if (keyScratch.capacity() < length) {
+            keyScratch.close();
+            keyScratch = access.allocate(Math.max(length, keyScratch.capacity() * 2));
+        }
+        copyBytes(map.keyRegionOf(handle), map.keyOffsetOf(handle), keyScratch, 0, length);
+        keyScratch.putLong(SLICE_OFFSET, otherSlice);
+        return map.find(keyScratch, 0, length);
+    }
+
+    /**
+     * Copies bytes between two regions of any kinds, eight at a time where it can.
+     *
+     * <p>Not {@link MemoryRegion#copyFrom}, which accepts only a source of its own concrete type: an
+     * entry may sit in a mapped overflow slab while the scratch region is RAM.
+     */
+    static void copyBytes(MemoryRegion from, int fromOffset, MemoryRegion to, int toOffset, int length) {
+        int i = 0;
+        for (; i + Long.BYTES <= length; i += Long.BYTES) {
+            to.putLong(toOffset + i, from.getLong(fromOffset + i));
+        }
+        for (; i < length; i++) {
+            to.putByte(toOffset + i, from.getByte(fromOffset + i));
+        }
+    }
+
+    /** The region holding an entry's key, the offset it starts at and its length -- for building another store's key from it. */
+    MemoryRegion keyRegionOf(long handle) {
+        return map.keyRegionOf(handle);
+    }
+
+    int keyOffsetOf(long handle) {
+        return map.keyOffsetOf(handle);
+    }
+
+    int groupLengthOf(long handle) {
+        return map.keyLengthOf(handle) - GROUP_OFFSET;
     }
 
     Object[] keyValuesOf(long handle) {
