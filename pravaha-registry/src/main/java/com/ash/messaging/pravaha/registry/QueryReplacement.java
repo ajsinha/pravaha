@@ -83,13 +83,18 @@ public final class QueryReplacement {
             long lagNanos,
             String replacing,
             String candidate,
-            List<String> history,
+            List<ShadowDeployment.Segment> segments,
             String failureCode,
             String failure) {
 
         public Status {
             keyColumns = List.copyOf(keyColumns);
-            history = List.copyOf(history);
+            segments = List.copyOf(segments);
+        }
+
+        /** {@link #segments()}, each as its sentence: {@code "from 4471: <fingerprint>"}. */
+        public List<String> history() {
+            return segments.stream().map(ShadowDeployment.Segment::sentence).toList();
         }
 
         /** Whether this replacement is still doing something: neither ended nor confirmed. */
@@ -295,7 +300,7 @@ public final class QueryReplacement {
                 state == State.CUT_OVER || state == State.FINISHED
                         ? serving.fingerprint().shortForm()
                         : candidate.fingerprint().shortForm(),
-                deployment.history(),
+                deployment.segments(),
                 failure == null ? null : failure.errorCode().code(),
                 failure == null ? null : failure.getMessage());
     }

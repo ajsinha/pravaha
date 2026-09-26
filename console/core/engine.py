@@ -90,14 +90,16 @@ def _feed_of(query) -> dict:
     }
 
 
-def _replacement(status, history: list[str] | None = None) -> dict:
+def _replacement(status, history: list[dict] | None = None) -> dict:
     """An SDK :class:`pravaha.client.Replacement` as the shape the engine's REST API uses.
 
     One shape above this module whichever transport answered, and the names the API
     documents (``rollbackUntil``, ``backfill.historyRows``) rather than two spellings of
     each. ``history`` stays ``None`` -- not ``[]`` -- when the caller did not read one:
     "not known" and "nobody has served this name before" are different answers and the
-    screen shows them differently.
+    screen shows them differently. Each entry is ``{"fromFrontier", "version"}``, the
+    engine's ``historyEntries``: the position the version took over at (``None`` for the
+    first, which has served from the beginning) and its fingerprint.
     """
     lag_nanos = getattr(status, "lag_nanos", None)
     return {
@@ -484,8 +486,13 @@ class Engine:
             return None
         return _replacement(found, self._replacement_history(name))
 
-    def _replacement_history(self, name: str) -> list[str] | None:
-        """The versions that have served ``name``, oldest first, or ``None`` if unread."""
+    def _replacement_history(self, name: str) -> list[dict] | None:
+        """The versions that have served ``name``, oldest first, or ``None`` if unread.
+
+        Read from ``historyEntries``, the trail in parts (RPL-1), so the screen formats the
+        position and shows the fingerprint itself. An engine that answers only the sentences
+        in ``history`` has not given the parts, and that is "not carried" rather than a guess
+        at splitting its wording."""
         if not self._http:
             return None
         try:
@@ -493,8 +500,15 @@ class Engine:
         except Exception as exc:  # noqa: BLE001 -- reported as "not carried", never as a screen
             logger.info("the version history of '%s' was not answered: %s", name, exc)
             return None
-        carried = answer.get("history")
-        return None if carried is None else [str(entry) for entry in carried]
+        carried = answer.get("historyEntries")
+        if carried is None:
+            if answer.get("history") is not None:
+                logger.info("the engine answered the version history of '%s' without its "
+                            "historyEntries, so it is shown as not carried", name)
+            return None
+        return [{"fromFrontier": None if entry.get("fromFrontier") is None
+                 else int(entry["fromFrontier"]),
+                 "version": str(entry.get("version") or "")} for entry in carried]
 
     def start_replacement(self, name: str, sql: str, keys: Sequence[int], *,
                           backfill: str | None = None, rate_limit: int | None = None,

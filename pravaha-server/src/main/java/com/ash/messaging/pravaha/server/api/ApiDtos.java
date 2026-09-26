@@ -290,7 +290,8 @@ public final class ApiDtos {
      * @param candidate the fingerprint of the computation being prepared
      * @param replacing the fingerprint of the one serving the name
      * @param history who served this name from which seam, oldest first: the audit trail a cutover
-     *     leaves behind
+     *     leaves behind, each entry one sentence ({@code "from 4471: <fingerprint>"})
+     * @param historyEntries the same trail with its parts, one entry per sentence in {@code history}
      * @param rollbackAvailable whether the replaced version is still retained
      */
     public record ReplacementStatus(
@@ -308,7 +309,17 @@ public final class ApiDtos {
             boolean rollbackAvailable,
             BackfillProgress backfill,
             List<String> history,
+            List<HistoryEntry> historyEntries,
             Problem failure) {}
+
+    /**
+     * One version that has served a name, and where it took over.
+     *
+     * @param fromFrontier the input position the version took over at, or null for the first version,
+     *     which has served from the beginning
+     * @param version the version's fingerprint
+     */
+    public record HistoryEntry(Long fromFrontier, String version) {}
 
     /**
      * One registered query, as the caller may see it.

@@ -138,6 +138,8 @@ def test_the_replacement_over_http_carries_the_history_the_flight_row_cannot(eng
             "name": "orders",
             "state": "CUT_OVER",
             "history": ["from the beginning: abc123def456", "from 4471: 0f9e8d7c6b5a"],
+            "historyEntries": [{"fromFrontier": None, "version": "abc123def456"},
+                               {"fromFrontier": 4471, "version": "0f9e8d7c6b5a"}],
             "backfill": {"historyRows": 412000, "historyComplete": True},
         },
     )
@@ -147,6 +149,7 @@ def test_the_replacement_over_http_carries_the_history_the_flight_row_cannot(eng
 
     assert _Recorder.calls[0]["path"] == "/api/v1/queries/orders/replacement"
     assert status["history"] == ["from the beginning: abc123def456", "from 4471: 0f9e8d7c6b5a"]
+    assert status["historyEntries"][1] == {"fromFrontier": 4471, "version": "0f9e8d7c6b5a"}
     assert status["state"] == "CUT_OVER"
 
 

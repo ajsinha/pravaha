@@ -183,6 +183,10 @@ public class DtoMapper {
                         progress.paused(),
                         status.lagNanos() / 1_000_000_000.0),
                 status.history(),
+                status.segments().stream()
+                        .map(segment -> new ApiDtos.HistoryEntry(
+                                segment.fromTheBeginning() ? null : segment.fromFrontier(), segment.version()))
+                        .toList(),
                 status.failureCode() == null
                         ? null
                         // DOCX-21: through HelpUrls like every other help link, so an unset base

@@ -1028,6 +1028,9 @@ class Client(DebugCommands):
         frontier each took over at, oldest first, as the engine words them. The control wire
         lays a status out as a flat list of strings (ADR-046) and a variable-length list of
         sentences has no place in one, so the audit trail is answered where a list is a list.
+        ``historyEntries`` is the same trail in parts, one per sentence: ``fromFrontier`` (the
+        input position the version took over at, ``None`` for the first) and ``version`` (its
+        fingerprint), for a caller that formats them itself.
 
         Everything else is as :meth:`replacement`: ``state``, ``sql``, ``candidate``,
         ``replacing``, ``sink``, ``options``, ``owner``, ``startedAt``, ``cutOverAt``,

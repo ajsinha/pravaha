@@ -179,6 +179,13 @@ class ShadowDeploymentTest {
         deployment.cutOver(10);
 
         assertThat(deployment.history()).containsExactly("from the beginning: v1", "from 10: v2");
+        // RPL-1: the same trail with its parts, so a surface can format the position itself.
+        assertThat(deployment.segments())
+                .extracting(ShadowDeployment.Segment::fromTheBeginning, ShadowDeployment.Segment::version)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(true, "v1"),
+                        org.assertj.core.groups.Tuple.tuple(false, "v2"));
+        assertThat(deployment.segments().get(1).fromFrontier()).isEqualTo(10);
     }
 
     @Test

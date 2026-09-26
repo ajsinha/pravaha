@@ -63,8 +63,25 @@ public final class ShadowDeployment {
         ROLLED_BACK
     }
 
-    /** From this input position onward, this version's output is the one that counts. */
-    private record Segment(long fromFrontier, String version) {}
+    /**
+     * From this input position onward, this version's output is the one that counts.
+     *
+     * @param fromFrontier the input position the version took over at, or {@link Long#MIN_VALUE}
+     *     for the first version, which has owned the output from the beginning
+     * @param version the version's identifier (a fingerprint, where a registry supplies one)
+     */
+    public record Segment(long fromFrontier, String version) {
+
+        /** Whether this is the first version, which took over at no position at all. */
+        public boolean fromTheBeginning() {
+            return fromFrontier == Long.MIN_VALUE;
+        }
+
+        /** The segment as one sentence: {@code "from 4471: <version>"}. */
+        public String sentence() {
+            return (fromTheBeginning() ? "from the beginning" : "from " + fromFrontier) + ": " + version;
+        }
+    }
 
     private final String initialVersion;
     private final List<Segment> segments = new ArrayList<>();
@@ -221,13 +238,13 @@ public final class ShadowDeployment {
     }
 
     /** Who served what, oldest first. The audit trail a cutover has to leave behind. */
+    public List<Segment> segments() {
+        return List.copyOf(segments);
+    }
+
+    /** {@link #segments()}, each as its {@link Segment#sentence() sentence}. */
     public List<String> history() {
-        return segments.stream()
-                .map(segment -> (segment.fromFrontier() == Long.MIN_VALUE
-                                ? "from the beginning"
-                                : "from " + segment.fromFrontier())
-                        + ": " + segment.version())
-                .toList();
+        return segments.stream().map(Segment::sentence).toList();
     }
 
     @Override

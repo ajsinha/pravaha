@@ -1366,13 +1366,41 @@ def test_the_replacement_screen_lists_who_has_served_this_name(signed_in, engine
     _replacing(engine)
     page = signed_in.get("/queries/big_txn/replacement").text
     assert 'id="rep-history"' in page
-    assert "from the beginning: abc123def456" in page
+    trail = page.split('id="rep-history"', 1)[1].split("</ol>", 1)[0]
+    assert "From the beginning" in trail
+    assert '<code class="rep-history-version" title="The fingerprint of this version: abc123def456">abc123def456</code>' in trail
     assert 'id="rep-history-partial"' not in page
 
     engine.backfill_progress("big_txn", historyRows=412_000, historyComplete=True)
     engine.cut_over("big_txn")
     page = signed_in.get("/queries/big_txn/replacement").text
-    assert "from 412000: newfp" in page
+    trail = page.split('id="rep-history"', 1)[1].split("</ol>", 1)[0]
+    # RPL-1: the position is formatted and the fingerprint is its own element, and the one
+    # serving now says so, rather than one sentence per version as the engine words it.
+    assert "From input position 412,000" in trail
+    assert ">newfp</code>" in trail
+    assert trail.count("serving now") == 1 and trail.rindex("serving now") > trail.index(">newfp</code>")
+
+
+def test_the_version_history_is_read_from_the_engines_entries_and_not_its_sentences():
+    """RPL-1. ``historyEntries`` carries the position and the fingerprint apart; the sentences
+    in ``history`` are the engine's wording, and the console does not split them to guess."""
+    from core.engine import Engine
+
+    class Answering(Engine):
+        answer: dict = {}
+
+        def _rest(self, call):
+            return dict(self.answer)
+
+    engine = Answering("grpc://localhost:1", http_url="http://localhost:1")
+    engine.answer = {"history": ["from the beginning: abc", "from 4471: def"],
+                     "historyEntries": [{"fromFrontier": None, "version": "abc"},
+                                        {"fromFrontier": 4471, "version": "def"}]}
+    assert engine._replacement_history("orders") == [{"fromFrontier": None, "version": "abc"},
+                                                     {"fromFrontier": 4471, "version": "def"}]
+    engine.answer = {"history": ["from the beginning: abc"]}
+    assert engine._replacement_history("orders") is None
 
 
 def test_the_replacement_screen_says_when_it_could_not_read_the_version_history(signed_in, engine):
@@ -1393,7 +1421,7 @@ def test_the_replacement_json_answers_null_rather_than_404_for_a_query_without_o
     body = signed_in.get("/api/v1/queries/big_txn/replacement").json()
     assert body["replacement"]["state"] == "BACKFILLING"
     assert body["replacement"]["backfill"]["partitions"] == 4
-    assert body["replacement"]["history"] == ["from the beginning: abc123def456"]
+    assert body["replacement"]["history"] == [{"fromFrontier": None, "version": "abc123def456"}]
     assert signed_in.get("/api/v1/replacements").json()["items"][0]["name"] == "big_txn"
 
 

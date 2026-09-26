@@ -528,7 +528,8 @@ class FakeEngine:
                          "rateLimit": int(rate_limit or 0), "paused": False, "lagSeconds": None},
             # Oldest first, and a seam per entry: the running version has served the name
             # from the beginning, and a cutover adds the frontier the next one took over at.
-            "history": [f"from the beginning: {replacing}"] if self.history_carried else None,
+            "history": ([{"fromFrontier": None, "version": replacing}]
+                        if self.history_carried else None),
             "failure": None,
         }
         self.replacements_by_name[name] = made
@@ -559,7 +560,8 @@ class FakeEngine:
                      rollbackUntil="2026-09-19T15:30:00Z", rollbackAvailable=True)
         if found["history"] is not None:
             found["history"] = [*found["history"],
-                                f"from {found['backfill']['historyRows']}: {found['candidate']}"]
+                                {"fromFrontier": found["backfill"]["historyRows"],
+                                 "version": found["candidate"]}]
         return dict(found)
 
     def roll_back(self, name):

@@ -145,6 +145,16 @@ class ReplacementEndpointsTest {
                 .last()
                 .asString()
                 .contains(cut.candidate());
+        // RPL-1: the same trail in parts, so a screen formats the position and names the version.
+        assertThat(cut.historyEntries()).hasSize(2);
+        assertThat(cut.historyEntries().get(0).fromFrontier())
+                .as("the first version took over nowhere")
+                .isNull();
+        assertThat(cut.historyEntries().get(0).version()).isEqualTo(cut.replacing());
+        assertThat(cut.historyEntries().get(1).version()).isEqualTo(cut.candidate());
+        assertThat(cut.historyEntries().get(1).fromFrontier()).isNotNull();
+        assertThat(cut.history().get(1))
+                .isEqualTo("from " + cut.historyEntries().get(1).fromFrontier() + ": " + cut.candidate());
         assertThat(registry.require("orders").sql()).isEqualTo(V2);
 
         assertThat(controller.rollBack("orders", as(OPERATOR)).state()).isEqualTo("ROLLED_BACK");

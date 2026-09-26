@@ -253,7 +253,11 @@
   {{ states.empty(title=t('cutover.history.none_title'), body=t('cutover.history.none_body'),
                   id='rep-history-none', heading='h3') }}
 {% else %}
-<ol class="small" id="rep-history">{% for entry in replacement.history %}<li class="mono">{{ entry }}</li>{% endfor %}</ol>
+<ol class="small" id="rep-history">{% for entry in replacement.history %}
+  <li><span class="rep-history-from">{% if entry.fromFrontier is none %}{{ t('cutover.history.from_beginning') }}{% else %}{{ t('cutover.history.from_position', position=entry.fromFrontier | thousands) }}{% endif %}</span>:
+    <code class="rep-history-version" title="{{ t('cutover.history.version_title', id=entry.version) }}">{{ entry.version[:12] }}</code>{% if loop.last %}
+    <span class="chip mute">{{ t('cutover.history.serving') }}</span>{% endif %}</li>{% endfor %}
+</ol>
 {% endif %}
 </div>
 

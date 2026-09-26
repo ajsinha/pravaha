@@ -2096,7 +2096,11 @@
       "heading": "Who has served this name",
       "not_carried": "The engine records who served this name from which seam, and this console did not get an answer for it — the trail comes from the engine's HTTP surface rather than from the status above, and that call did not answer. An empty list here would read as “nobody has”, which is a different thing, so nothing is listed.",
       "none_title": "Nothing has served this name but the version running now",
-      "none_body": "A cutover adds an entry here: the fingerprint that took over, and the position it took over at."
+      "none_body": "A cutover adds an entry here: the fingerprint that took over, and the position it took over at.",
+      "from_beginning": "From the beginning",
+      "from_position": "From input position {position}",
+      "version_title": "The fingerprint of this version: {id}",
+      "serving": "serving now"
     },
     "done": {
       "cutover": "{name} now answers the new version. The replaced one is kept for the rollback window.",

@@ -243,7 +243,7 @@ def test_the_version_history_lists_who_has_served_this_name(tab, states_console)
     try:
         shows(tab, states_console, "/queries/big_txn/replacement", "#rep-history",
               "replacement · history")
-        assert "from the beginning" in tab.text("#rep-history")
+        assert "From the beginning" in tab.text("#rep-history")
         assert not tab.exists("#rep-history-partial")
     finally:
         leave_replacement(tab, states_console)
