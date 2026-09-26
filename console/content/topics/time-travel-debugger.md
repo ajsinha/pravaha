@@ -225,9 +225,15 @@ be reached by it.
 **DEBUG — sinks disabled** stays on the screen for as long as the session does, read from the
 engine's own answer rather than written into the page.
 
-The operator-state and view panels are a read of the fork at the position the page was loaded at.
-Stepping does not redraw them, and the screen says so rather than quietly rebuilding them from
-something else; reload to read them where you have stepped to.
+After a step, the panels below follow the fork. **The fork's view** is redrawn from the step's own
+report: the view read when the page loaded, plus the changes the step reports, is the view after
+the step. That sum is checked against the view size the step reports before it is drawn, and when
+the two disagree the panel says so and keeps what it had; reload to read the view again.
+**What the operators are holding** is read again from the engine after each step, because a step
+reports each operator's rows in and out, not how many entries it holds, and one cannot be worked
+out from the other: a window fires and evicts, a join keeps what it has seen. An open page of one
+operator's entries is not re-read; it says it is as the page loaded it. With scripting off, each
+step is a page of its own and every panel is read at the new position.
 
 Everything on the screen needs the **administer** permission, reading included. A reader sees the
 screen with the fork control disabled and the policy's own reason beside it.

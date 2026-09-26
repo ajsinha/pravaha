@@ -14,10 +14,17 @@
  * nothing to arrive that was not asked for. Design 23.11 reserves a WebSocket for this
  * screen and ADR-048 did not build one, for exactly that reason.
  *
- * The operator-state and view panels below are NOT redrawn from a step. They are a read of
- * the fork at the position the page was loaded at, and quietly re-rendering them from a
- * step's report would mean two panels claiming to be the same read when one of them had
- * been rebuilt from something else. The note says to reload for them instead.
+ * After a step the panels below follow the fork, each from the best source it has:
+ *
+ * - The view is redrawn from the step's own report. The page carries the whole view it read
+ *   (the engine's debug view is the whole view, not a page of it), and that view plus the
+ *   step's viewChanges, consolidated as a Z-set, is the view after the step. The result is
+ *   checked against the step's viewSize before it is drawn; a mismatch is said, not drawn.
+ * - Operator state cannot be: a step reports each operator's rows in and out, not how many
+ *   entries it holds, and those are not derivable from each other (a window fires and
+ *   evicts, a join retains). So the entry counts are read again from the engine after the
+ *   step, which reads the same position because a fork moves only when it is stepped.
+ * - An open page of one operator's entries is not re-read; it says it is as loaded.
  */
 (function () {
   "use strict";
@@ -28,7 +35,6 @@
   var session = root.getAttribute("data-session");
   var log = document.getElementById("dbg-log");
   var empty = document.getElementById("dbg-log-empty");
-  var stepped = 0;
 
   function esc(value) { return api.escapeHtml(value); }
   function num(value) { return Number(value || 0).toLocaleString(); }
@@ -121,17 +127,110 @@
       ? api.t("debug.no_watermark_chip") : api.t("debug.watermark", {n: step.watermarkNanos}));
   }
 
-  var note = null;
-  function staleBelow() {
-    /* Said once, the first time a step moves the fork past what the panels below were read
-       at. Repeating it per step would be noise about a thing that is true from step one. */
-    if (note || stepped !== 1) { return; }
-    note = document.createElement("p");
+  function say(id, anchor, text) {
+    /* One note per panel, replaced rather than stacked: it describes the latest step. */
+    var old = document.getElementById(id);
+    if (old) { old.remove(); }
+    if (!anchor || !text) { return; }
+    var note = document.createElement("p");
     note.className = "small text-muted";
-    note.id = "dbg-below-stale";
+    note.id = id;
     note.setAttribute("role", "status");
-    note.textContent = api.t("debug.reread");
-    log.parentNode.insertBefore(note, log.nextSibling);
+    note.textContent = text;
+    anchor.parentNode.insertBefore(note, anchor.nextSibling);
+  }
+
+  /* The view as the page read it, as a Z-set keyed by the row's values. Null when the page
+     has no view to start from (its read failed), which leaves nothing to add a step to. */
+  var view = (function () {
+    var data = document.getElementById("dbg-view-data");
+    if (!data) { return null; }
+    var rows;
+    try { rows = JSON.parse(data.textContent || "[]"); } catch (e) { return null; }
+    return applied([], rows);
+  }());
+
+  /* `rows` with `changes` added, as a consolidated Z-set: a row whose weight reaches zero leaves,
+     and a row new to the view takes the place of one this same step withdrew, so an update
+     (old row at −1, new row at +1) stays where the reader was looking rather than moving to
+     the bottom. Otherwise a new row is appended. */
+  function applied(rows, changes) {
+    var out = rows.slice();
+    var vacant = [];
+    changes.forEach(function (change) {
+      var key = JSON.stringify(change.values || []);
+      var by = Number(change.weight || 0);
+      var at = out.findIndex(function (row) { return row !== null && row.key === key; });
+      if (at >= 0) {
+        var weight = out[at].weight + by;
+        out[at] = weight === 0 ? null : {key: key, weight: weight, values: out[at].values};
+        if (weight === 0) { vacant.push(at); }
+      } else if (by !== 0) {
+        var entry = {key: key, weight: by, values: change.values || []};
+        if (vacant.length) { out[vacant.shift()] = entry; } else { out.push(entry); }
+      }
+    });
+    return out.filter(function (row) { return row !== null; });
+  }
+
+  function redrawView(step) {
+    var panel = document.getElementById("dbg-view-panel");
+    if (!panel || view === null) { return; }
+    var next = applied(view, step.viewChanges || []);
+    if (next.length !== Number(step.viewSize || 0)) {
+      /* The page's view plus this step's changes is not the view the engine reports. Drawing
+         it anyway would be a view nobody read; the reader is told, and reloading reads it. */
+      view = null;
+      say("dbg-view-stale", panel, api.t("debug.view_unredrawn", {got: num(next.length), want: num(step.viewSize)}));
+      return;
+    }
+    view = next;
+    var body = document.querySelector("#dbg-view tbody");
+    if (body) {
+      body.innerHTML = view.map(function (row) {
+        return '<tr><td class="num">' + esc(weight(row.weight)) + "</td><td>"
+          + esc(row.values.join(", ")) + "</td></tr>";
+      }).join("");
+    }
+    document.getElementById("dbg-view-wrap").hidden = view.length === 0;
+    document.getElementById("dbg-no-view-wrap").hidden = view.length !== 0;
+  }
+
+  async function rereadSlots() {
+    var table = document.getElementById("dbg-slots");
+    if (!table) { return; }
+    try {
+      var answer = await api.call("/debug/sessions/" + encodeURIComponent(session) + "/state");
+      var slots = answer.slots || [];
+      var rows = table.querySelectorAll("tbody tr[data-slot]");
+      var same = slots.length === rows.length && slots.every(function (slot) {
+        return table.querySelector('tr[data-slot="' + CSS.escape(String(slot.id)) + '"]');
+      });
+      if (!same) { throw new Error(api.t("debug.state_changed")); }
+      slots.forEach(function (slot) {
+        table.querySelector('tr[data-slot="' + CSS.escape(String(slot.id)) + '"] [data-field="entries"]')
+          .textContent = num(slot.entries);
+      });
+      say("dbg-slots-stale", table.parentNode, "");
+    } catch (error) {
+      say("dbg-slots-stale", table.parentNode,
+        api.t("debug.state_unread", {error: (error && error.message) || String(error)}));
+    }
+  }
+
+  function pageAsLoaded() {
+    /* Said once: a page of entries is a read at a position, and is not re-read per step. */
+    var page = document.getElementById("dbg-state-page") || document.getElementById("dbg-page-empty")
+      || document.getElementById("dbg-page-filtered");
+    if (!page || document.getElementById("dbg-page-stale")) { return; }
+    var operator = root.getAttribute("data-operator") || "";
+    say("dbg-page-stale", page.closest(".table-responsive") || page, api.t("debug.page_stale", {operator: operator}));
+  }
+
+  async function follow(step) {
+    redrawView(step);
+    pageAsLoaded();
+    await rereadSlots();
   }
 
   function failed(error) {
@@ -158,8 +257,7 @@
       if (empty) { empty.remove(); empty = null; }
       log.insertBefore(report(step), log.firstChild);
       summarise(step);
-      stepped += 1;
-      staleBelow();
+      await follow(step);
     } catch (error) {
       /* A refusal is the engine's, with its code: an unreadable step, a predicate naming a
          column the view does not have, a session that has expired. Shown and kept, because

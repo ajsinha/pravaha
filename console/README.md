@@ -290,7 +290,6 @@ Still open, and said so on the screens rather than drawn as zeroes:
 
 | What | Why |
 |---|---|
-| The operator state and the fork's view moving as you step (§23.9) | they are read when the page loads, and a step does not redraw them. The step's own report already carries the view's changes with their weights and how many rows the view holds, and rebuilding the two panels in the browser would be a second renderer of tables the server draws. The screen says to reload for them |
 | Commit-latency percentiles | the engine publishes a count and a total, so the mean is exact and a p99 would be invented |
 | The storage cluster's own p99 beside our ingest rate (§23.10) | the engine measures what it reads, not what it reads *from*: there is no meter for the source system's latency, so the panel it would go in shows the backfill's own rate alone |
 | Adaptive throttling, and an indicator for when it engaged (§23.10) | the engine throttles to the ceiling it was given and never lowers it by itself, so there is nothing to indicate |

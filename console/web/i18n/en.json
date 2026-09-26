@@ -689,7 +689,10 @@
       "rows": "rows consumed {n}",
       "view_size": "view size {n}",
       "watermark": "watermark {n}",
-      "reread": "The operator state and the fork's view below are as they were when this page loaded. Reload to read them at the position you have stepped to."
+      "view_unredrawn": "The fork's view could not be redrawn from this step's report: the view read when the page loaded plus this step's changes holds {got} rows, and the engine says the view holds {want}. Reload to read it at the position you have stepped to.",
+      "state_unread": "What the operators are holding could not be read again after this step ({error}), so the entry counts above are from before it. Reload to read them.",
+      "state_changed": "the engine reported different operators from the ones on this page",
+      "page_stale": "The entries of {operator} below are as they were when this page loaded. Read it again to see them at the position you have stepped to."
     }
   },
   "admin": {

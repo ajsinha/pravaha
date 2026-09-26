@@ -1197,3 +1197,58 @@ def test_journey_a_registration_over_quota_leads_to_the_tenants_use(page):
         public = page.text("#tenants-table tr[data-tenant=public]")
         assert "no limit" in public and "of 0" not in public
         assert page.exceptions == [], page.exceptions
+
+
+_VIEW_ROWS = ("[...document.querySelectorAll('#dbg-view tbody tr')]"
+              ".map(r => [...r.cells].map(c => c.textContent.trim()).join(' '))")
+_ENTRIES = "document.querySelector('#dbg-slots tr[data-slot=\"aggregate#0\"] [data-field=entries]').textContent"
+
+
+def _fork_hot(page, dbg) -> str:
+    sign_in(page, dbg, role="developer")
+    page.goto(dbg.url("/queries/hot/debug"))
+    settled(page)
+    page.wait_for_navigation(lambda: page.click("#dbg-fork"))
+    page.wait_for("document.getElementById('dbg-app')")
+    return page.eval("document.getElementById('dbg-app').dataset.session")
+
+
+def test_a_step_redraws_the_forks_view_from_its_report_and_rereads_the_operator_state(page):
+    """The debugger's lower panels follow the fork after a scripted step. The view is redrawn
+    from the step's own report -- the view read at load plus the step's viewChanges, checked
+    against its viewSize -- and the operator state's entry counts, which a step does not
+    report, are read again. Before this, both stayed as the page loaded them."""
+    with own_console(default_role="developer") as dbg:
+        _fork_hot(page, dbg)
+        assert page.eval(_VIEW_ROWS) == ["+1 u1, 1", "+1 u2, 1"]
+        assert page.eval(_ENTRIES) == "2"
+        # Nothing below may ask the engine for the view again: it comes from the reports.
+        dbg.engine.fail("debug_view")
+
+        # One row of u2: its count is withdrawn at 1 and inserted at 2, in place.
+        page.click("#dbg-step-row")
+        page.wait_for("document.querySelectorAll('#dbg-log .dbg-report').length === 1")
+        page.wait_for(f"JSON.stringify({_VIEW_ROWS}) === JSON.stringify(['+1 u1, 1', '+1 u2, 2'])")
+
+        # Three more: u2 again, u1, and u3 -- a group the aggregate did not hold before.
+        page.eval("document.getElementById('dbg-step').value = 'rows:3'")
+        page.click("#dbg-step-go")
+        page.wait_for("document.querySelectorAll('#dbg-log .dbg-report').length === 2")
+        page.wait_for(f"JSON.stringify({_VIEW_ROWS}) === JSON.stringify(['+1 u1, 2', '+1 u2, 3', '+1 u3, 1'])")
+        page.wait_for(f"{_ENTRIES} === '3'")
+        assert not page.exists("#dbg-view-stale") and not page.exists("#dbg-slots-stale")
+        assert page.exceptions == [], page.exceptions
+
+
+def test_a_view_a_step_report_does_not_add_up_to_is_said_and_not_drawn(page):
+    """If the view the page read plus a step's changes is not the size the engine reports, the
+    panel says so and asks for a reload rather than drawing a view nobody read."""
+    with own_console(default_role="developer") as dbg:
+        session = _fork_hot(page, dbg)
+        # The fork moves without this page seeing it, as a step from another tab would.
+        dbg.engine._debug_forks[session]["groups"]["u9"] = 4
+        page.click("#dbg-step-row")
+        page.wait_for("document.getElementById('dbg-view-stale')")
+        assert "holds 2 rows, and the engine says the view holds 3" in page.text("#dbg-view-stale")
+        assert page.eval(_VIEW_ROWS) == ["+1 u1, 1", "+1 u2, 1"], "the old view is left, not a guess"
+        assert page.exceptions == [], page.exceptions

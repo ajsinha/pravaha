@@ -106,7 +106,7 @@
 
 {% else %}
 {# ------------------------------------------------------------------ a session, open #}
-<div id="dbg-app" data-session="{{ session.id }}" data-query="{{ query.name }}">
+<div id="dbg-app" data-session="{{ session.id }}" data-query="{{ query.name }}" data-operator="{{ operator }}">
 
 {# Said permanently, on every surface, and read from the engine's own answer rather than
    written into this template: a fork has no sink attached because a sink is opened for a
@@ -235,9 +235,9 @@
   <th scope="col">{{ t('debug.state.operator') }}</th><th scope="col">{{ t('debug.state.kind') }}</th>
   <th scope="col">{{ t('debug.state.what') }}</th><th scope="col" class="num">{{ t('debug.state.entries') }}</th>
   <th scope="col"><span class="visually-hidden">{{ t('debug.state.read') }}</span></th></tr></thead><tbody>
-  {% for slot in slots %}<tr>
+  {% for slot in slots %}<tr data-slot="{{ slot.id }}">
     <td class="mono">{{ slot.id }}</td><td>{{ slot.kind }}</td><td>{{ slot.label }}</td>
-    <td class="num mono">{{ "{:,}".format(slot.entries) }}</td>
+    <td class="num mono" data-field="entries">{{ "{:,}".format(slot.entries) }}</td>
     <td><a class="btn btn-sm btn-outline-secondary" href="/queries/{{ query.name }}/debug?session={{ session.id }}&amp;operator={{ slot.id|urlencode }}">{{ t('debug.state.read') }}</a></td>
   </tr>{% endfor %}
 </tbody></table></div>
@@ -286,12 +286,18 @@
 {% endif %}
 
 <h2>{{ t('debug.view.heading') }}</h2>
+{# The panel is redrawn after a scripted step from that step's own report: the view read here
+   plus the step's viewChanges is the view after the step, checked against the step's viewSize
+   (debug.js). So the table and its empty state are both always in the page, one hidden. #}
+<div id="dbg-view-panel">
 {% if changes_error %}
   {{ states.error(changes_error, retry_href='/queries/' ~ query.name ~ '/debug?session=' ~ session.id, id='dbg-view-error') }}
-{% elif changes is not none and not changes %}
+{% elif changes is not none %}
+<div{% if changes %} hidden{% endif %} id="dbg-no-view-wrap">
   {{ states.empty(title=t('debug.view.none_title'), body=t('debug.view.none_body'),
                   id='dbg-no-view', heading='h3') }}
-{% elif changes %}
+</div>
+<div{% if not changes %} hidden{% endif %} id="dbg-view-wrap">
 <div class="table-responsive"><table class="table table-sm small mono" id="dbg-view"><thead><tr>
   <th scope="col" class="num">{{ t('debug.report.weight') }}</th><th scope="col">{{ t('debug.report.values') }}</th></tr></thead><tbody>
   {% for change in changes %}<tr>
@@ -299,7 +305,10 @@
     <td>{{ change['values']|join(', ') }}</td></tr>{% endfor %}
 </tbody></table></div>
 <p class="small text-muted" id="dbg-view-note">{{ t('debug.view.note') }}</p>
+</div>
+<script type="application/json" id="dbg-view-data">{{ changes|tojson }}</script>
 {% endif %}
+</div>
 
 <h2>{{ t('debug.fixture.heading') }}</h2>
 <form method="post" action="/queries/{{ query.name }}/debug/fixture" class="card mb-3" id="dbg-fixture-form">
