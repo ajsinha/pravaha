@@ -200,4 +200,32 @@ class ControlWireTest {
                         "pravaha:commit:soon".getBytes(java.nio.charset.StandardCharsets.UTF_8)))
                 .isNull();
     }
+
+    @Test
+    void aLoneSurrogateIsRefusedBeforeItIsEncodedRatherThanSentAsAQuestionMark() {
+        // String.getBytes substitutes '?' for half a surrogate pair, so a name or SQL holding one
+        // reached the server as different text. HTTP refuses it with PRV-1053; so does this now.
+        assertThatThrownBy(() -> ControlWire.encode("fraud_\ud800_hits", "SELECT 1"))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-1053")
+                .hasMessageContaining("field 0")
+                .hasMessageContaining("U+D800");
+        assertThatThrownBy(() -> ControlWire.encode("ok", "SELECT '\udc00'")).hasMessageContaining("field 1");
+        // A pair is a character, and survives.
+        assertThat(ControlWire.decode(ControlWire.encode("\ud83d\ude00"))).containsExactly("\ud83d\ude00");
+    }
+
+    @Test
+    void bytesThatAreNotUtf8AreRefusedRatherThanDecodedIntoReplacementCharacters() {
+        // What a client that does not use this class could send: a surrogate encoded as CESU-8.
+        byte[] field = {(byte) 0xED, (byte) 0xA0, (byte) 0x80};
+        ByteBuffer body = ByteBuffer.allocate(4 + 1 + 4 + 4 + field.length);
+        byte[] header = ControlWire.encode();
+        body.put(header, 0, 5).putInt(1).putInt(field.length).put(field);
+
+        assertThatThrownBy(() -> ControlWire.decode(body.array()))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-1053")
+                .hasMessageContaining("not UTF-8");
+    }
 }

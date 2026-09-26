@@ -77,7 +77,7 @@ public final class ApiErrors {
      * the same reason: nothing was planned and nothing could be, so a 2xxx would send the reader to
      * the SQL documentation for a request the SQL never saw.
      */
-    public static final ErrorCode MALFORMED_TEXT = new ErrorCode(1053, "API_MALFORMED_TEXT");
+    public static final ErrorCode MALFORMED_TEXT = com.ash.messaging.pravaha.api.wire.ControlWire.MALFORMED_TEXT;
 
     private ApiErrors() {}
 }

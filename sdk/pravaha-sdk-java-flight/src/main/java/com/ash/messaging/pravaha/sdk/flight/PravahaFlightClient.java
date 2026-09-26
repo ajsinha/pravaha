@@ -284,6 +284,8 @@ public final class PravahaFlightClient implements AutoCloseable {
     public QueryResult query(String sql) {
         requireOpen();
         try {
+            // Refused here, not sent: protobuf would put '?' where a lone surrogate was.
+            ControlWire.requireWellFormed(sql, "the SQL");
             FlightInfo info = client.execute(sql, callOptions);
             return new QueryResult(client.getStream(info.getEndpoints().get(0).getTicket(), callOptions), this);
         } catch (FlightRuntimeException e) {
@@ -314,6 +316,7 @@ public final class PravahaFlightClient implements AutoCloseable {
             return query(sql);
         }
         requireOpen();
+        ControlWire.requireWellFormed(sql, "the SQL");
         try (FlightSqlClient.PreparedStatement statement = client.prepare(sql, callOptions)) {
             try (VectorSchemaRoot bound = VectorSchemaRoot.create(statement.getParameterSchema(), allocator)) {
                 Parameters.write(bound, parameters);

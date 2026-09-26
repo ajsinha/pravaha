@@ -168,6 +168,19 @@ class JavaSdkQueryTest {
     }
 
     @Test
+    void aLoneSurrogateIsRefusedByNameRatherThanSentAsAQuestionMark() {
+        // Protobuf encodes half a surrogate pair as '?', so the server would plan different SQL
+        // from the SQL written and have no way to know. Over HTTP it is PRV-1053; over Flight the
+        // client is the last place it can still be seen, so the client refuses it the same way.
+        assertThatThrownBy(() -> client.query("SELECT user_id FROM user_volume WHERE user_id = '\ud800'"))
+                .isInstanceOf(com.ash.messaging.pravaha.api.PravahaException.class)
+                .hasMessageContaining("PRV-1053")
+                .hasMessageContaining("the SQL");
+        assertThatThrownBy(() -> client.register("bad_\udc00", "SELECT user_id FROM user_volume", List.of(0)))
+                .hasMessageContaining("PRV-1053");
+    }
+
+    @Test
     void anApplicationQueriesAndIterates() {
         List<String> seen = new ArrayList<>();
         try (QueryResult result = client.query("SELECT user_id, total FROM user_volume WHERE total > 40")) {

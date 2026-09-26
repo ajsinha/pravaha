@@ -49,6 +49,18 @@ public final class ControlWire {
     /** A request this server cannot read. Its own code, because both ends of the wire need it. */
     public static final ErrorCode BAD_REQUEST = new ErrorCode(6102, "FLIGHT_BAD_HANDLE");
 
+    /**
+     * Text that is not text: a lone UTF-16 surrogate, or bytes that are not UTF-8 (API-F10's
+     * refusal, reached from the Flight side).
+     *
+     * <p>Declared here, beside the wire both transports' Java code shares, and aliased by the HTTP
+     * API's {@code ApiErrors.MALFORMED_TEXT}, so one refusal has one code whichever way it arrives.
+     * HTTP refused a lone surrogate since API-F10; the Flight control path encoded it with {@link
+     * String#getBytes}, which substitutes {@code ?}, so the server received and stored a different
+     * name or SQL from the one that was sent.
+     */
+    public static final ErrorCode MALFORMED_TEXT = new ErrorCode(1053, "API_MALFORMED_TEXT");
+
     /** "PRVH" -- lets getStream recognise our tickets without parsing them as something else. */
     public static final int MAGIC = 0x50525648;
 
@@ -243,7 +255,9 @@ public final class ControlWire {
     public static byte[] encode(List<String> fields) {
         int size = 4 + 1 + 4;
         List<byte[]> encoded = new ArrayList<>(fields.size());
-        for (String field : fields) {
+        for (int index = 0; index < fields.size(); index++) {
+            String field = fields.get(index);
+            requireWellFormed(field, "field " + index + " of this request");
             byte[] bytes = (field == null ? "" : field).getBytes(StandardCharsets.UTF_8);
             encoded.add(bytes);
             size += 4 + bytes.length;
@@ -299,13 +313,60 @@ public final class ControlWire {
                 }
                 byte[] field = new byte[length];
                 buffer.get(field);
-                fields.add(new String(field, StandardCharsets.UTF_8));
+                fields.add(strictUtf8(field, i));
             }
             return fields;
         } catch (PravahaException e) {
             throw e;
         } catch (RuntimeException e) {
             throw new PravahaException(BAD_REQUEST, "this Pravaha request is malformed", e);
+        }
+    }
+
+    /**
+     * Refuses text with an unpaired UTF-16 surrogate, which has no UTF-8 encoding.
+     *
+     * <p>Java's encoders substitute {@code ?} for it rather than failing -- {@link String#getBytes}
+     * and protobuf's alike -- so text that reaches either arrives as different text, with nothing to
+     * say it changed. Refused before it is encoded, by position, so the caller learns which field.
+     */
+    public static void requireWellFormed(String text, String what) {
+        if (text == null) {
+            return;
+        }
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (Character.isHighSurrogate(c) && i + 1 < text.length() && Character.isLowSurrogate(text.charAt(i + 1))) {
+                i++;
+                continue;
+            }
+            if (Character.isSurrogate(c)) {
+                throw new PravahaException(
+                        MALFORMED_TEXT,
+                        what + " holds a lone UTF-16 surrogate (U+"
+                                + Integer.toHexString(c).toUpperCase(java.util.Locale.ROOT)
+                                + ") at character " + i + ". Half of a surrogate pair encodes no character and has no "
+                                + "UTF-8 form; sent anyway it would arrive as '?', which is not what was written. The "
+                                + "HTTP API refuses it the same way.");
+            }
+        }
+    }
+
+    /** One field's bytes as UTF-8, refusing bytes that are not -- rather than substituting U+FFFD. */
+    private static String strictUtf8(byte[] bytes, int index) {
+        try {
+            return StandardCharsets.UTF_8
+                    .newDecoder()
+                    .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes))
+                    .toString();
+        } catch (java.nio.charset.CharacterCodingException e) {
+            throw new PravahaException(
+                    MALFORMED_TEXT,
+                    "field " + index + " of this request is not UTF-8. Decoded leniently it would become "
+                            + "replacement characters, which is not what was sent.",
+                    e);
         }
     }
 
