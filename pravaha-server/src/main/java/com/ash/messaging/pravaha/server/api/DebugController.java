@@ -127,7 +127,16 @@ public class DebugController {
             int limit,
             long total,
             boolean hasMore,
-            List<Map<String, String>> entries) {}
+            List<StateEntry> entries) {}
+
+    /**
+     * One entry of an operator's state: its key, and its columns beside it rather than around it.
+     *
+     * <p>DBG-1. The entry was one flat map -- {@code "key"} and then every column -- so an operator
+     * with a column literally named {@code key} overwrote the entry's own key, and the caller could
+     * not tell which it had received. Flight and both SDKs already kept the two apart.
+     */
+    public record StateEntry(String key, Map<String, String> values) {}
 
     /** A generated JUnit fixture: where it belongs and what it says. */
     public record Fixture(String className, String path, Map<String, String> files) {}
@@ -199,16 +208,25 @@ public class DebugController {
             @PathVariable String id,
             @PathVariable String operator,
             @RequestParam(value = "key", required = false) String key,
-            @RequestParam(value = "offset", defaultValue = "0") int offset,
-            @RequestParam(value = "limit", defaultValue = "50") int limit,
+            @RequestParam(value = "offset", required = false) String offset,
+            @RequestParam(value = "limit", required = false) String limit,
             HttpServletRequest http) {
-        OperatorState.Page page = sessions().inspect(id, operator, key, offset, limit, principal(http));
-        List<Map<String, String>> entries = new ArrayList<>();
+        OperatorState.Page page = sessions()
+                .inspect(
+                        id,
+                        operator,
+                        key,
+                        PageParameters.intOrDefault("offset", offset, 0),
+                        PageParameters.intOrDefault("limit", limit, 50),
+                        principal(http));
+        return statePage(page);
+    }
+
+    /** A page as the REST surface answers it: each entry's key beside its columns, never among them. */
+    static StatePage statePage(OperatorState.Page page) {
+        List<StateEntry> entries = new ArrayList<>();
         for (OperatorState.Entry entry : page.entries()) {
-            Map<String, String> rendered = new LinkedHashMap<>();
-            rendered.put("key", entry.key());
-            rendered.putAll(entry.values());
-            entries.add(rendered);
+            entries.add(new StateEntry(entry.key(), new LinkedHashMap<>(entry.values())));
         }
         return new StatePage(
                 page.id(),

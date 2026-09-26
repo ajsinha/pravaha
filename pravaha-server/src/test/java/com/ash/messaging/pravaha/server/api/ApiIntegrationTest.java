@@ -325,6 +325,38 @@ class ApiIntegrationTest {
     }
 
     /**
+     * API-F8's mechanism in the two paging endpoints that still used it: {@code
+     * @RequestParam(defaultValue = ...)} made an empty {@code ?limit=} mean fifty. Present and empty,
+     * or present and not a number, is now refused before anything is looked up.
+     */
+    @Test
+    void anEmptyOrNonNumericPageParameterIsRefusedRatherThanDefaulted() throws Exception {
+        for (String query : new String[] {"?limit=", "?offset=", "?limit=ten"}) {
+            mvc.perform(get("/api/v1/queries/nothing_here/dead-letters" + query))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("PRV-0400"));
+            mvc.perform(get("/api/v1/debug/sessions/no-such-session/state/window%230" + query))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("PRV-0400"));
+        }
+        // The control: absent still takes the default, so the lookup runs and answers for itself.
+        mvc.perform(get("/api/v1/debug/sessions/no-such-session/state/window%230"))
+                .andExpect(jsonPath("$.code").value("PRV-8013"));
+    }
+
+    /**
+     * DBG-2. HTTP put every PRV-8xxx in the registry category and answered 400, where Flight answers
+     * a session that has ended NOT_FOUND (FLIGHT-1). A client that changes transport must see the
+     * same refusal the same way.
+     */
+    @Test
+    void anEndedDebugSessionIsNotFoundOverHttpAsItIsOverFlight() throws Exception {
+        mvc.perform(get("/api/v1/debug/sessions/no-such-session"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PRV-8013"));
+    }
+
+    /**
      * API-F10. A lone high surrogate is well-formed JSON and is not text: half of a surrogate pair
      * with no other half after it encodes no character.
      *

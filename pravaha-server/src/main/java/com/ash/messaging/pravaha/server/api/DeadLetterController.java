@@ -71,11 +71,14 @@ public class DeadLetterController {
     @Operation(summary = "A page of a query's dead letters, newest first")
     public DeadLetterDtos.Page list(
             @PathVariable String name,
-            @RequestParam(defaultValue = "0") int offset,
-            @RequestParam(defaultValue = "50") int limit,
+            @RequestParam(required = false) String offset,
+            @RequestParam(required = false) String limit,
             HttpServletRequest http) {
+        // Read before anything is looked up: a malformed request is refused as one whatever it names.
+        int from = PageParameters.intOrDefault("offset", offset, 0);
+        int size = PageParameters.intOrDefault("limit", limit, 50);
         DeadLetters access = access(http, name);
-        DeadLetters.View view = access.page(authorizer.principalOf(http), name, offset, limit);
+        DeadLetters.View view = access.page(authorizer.principalOf(http), name, from, size);
         List<DeadLetterDtos.DeadLetter> entries = new ArrayList<>(view.entries().size());
         for (DeadLetters.Visible visible : view.entries()) {
             entries.add(toDto(name, visible));

@@ -154,7 +154,7 @@ class DeadLetterSurfacesTest {
                 .isFalse();
 
         DeadLetterController api = api();
-        DeadLetterDtos.Page page = api.list("big_txn", 0, 50, as(DANA));
+        DeadLetterDtos.Page page = api.list("big_txn", "0", "50", as(DANA));
         assertThat(page.total()).isEqualTo(1);
         assertThat(page.configured()).isTrue();
         assertThat(page.retention()).contains("bytes");
@@ -206,7 +206,7 @@ class DeadLetterSurfacesTest {
         awaitDeadLetters("big_txn", 1);
 
         DeadLetterController api = api();
-        String id = api.list("big_txn", 0, 10, as(DANA)).entries().get(0).id();
+        String id = api.list("big_txn", "0", "10", as(DANA)).entries().get(0).id();
         DeadLetterDtos.ReplayResult again =
                 api.replay("big_txn", new DeadLetterDtos.ReplayRequest(List.of(id)), as(DANA));
 
@@ -237,7 +237,7 @@ class DeadLetterSurfacesTest {
         correct(dlqDirectory, "big_txn", "2,bob,not-a-number", "2,bob,250");
 
         DeadLetterController api = api();
-        String id = api.list("big_txn", 0, 10, as(DANA)).entries().get(0).id();
+        String id = api.list("big_txn", "0", "10", as(DANA)).entries().get(0).id();
         long before = query.view().size();
 
         DeadLetterDtos.ReplayResult replayed =
@@ -270,7 +270,7 @@ class DeadLetterSurfacesTest {
 
             DeadLetterController api = new DeadLetterController(
                     new HttpAuthorizer(ROW_FILTERED, audit), new RegistryAccess(registry, null, feeds, audit));
-            DeadLetterDtos.Page page = api.list("big_txn", 0, 50, as(SLICED));
+            DeadLetterDtos.Page page = api.list("big_txn", "0", "50", as(SLICED));
 
             assertThat(page.total()).as("the count is operational, not data").isEqualTo(1);
             DeadLetterDtos.DeadLetter entry = page.entries().get(0);
@@ -285,7 +285,7 @@ class DeadLetterSurfacesTest {
             assertThat(entry.code()).isEqualTo("PRV-5040");
             assertThat(entry.size()).as("a length is not a row").isPositive();
             assertThat(api.show("big_txn", entry.id(), as(SLICED)).raw()).isNull();
-            assertThat(api.list("big_txn", 0, 50, as(DANA)).entries().get(0).raw())
+            assertThat(api.list("big_txn", "0", "50", as(DANA)).entries().get(0).raw())
                     .as("the control: an unrestricted reader gets the record")
                     .isNotNull();
 
@@ -327,7 +327,7 @@ class DeadLetterSurfacesTest {
             DeadLetterController api = new DeadLetterController(
                     new HttpAuthorizer(denies, audit), new RegistryAccess(registry, null, feeds, audit));
 
-            assertThatThrownBy(() -> api.list("big_txn", 0, 10, as(DANA)))
+            assertThatThrownBy(() -> api.list("big_txn", "0", "10", as(DANA)))
                     .as("refused by name whether or not it exists: not an existence oracle")
                     .isInstanceOf(PravahaException.class)
                     .extracting(
