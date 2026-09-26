@@ -86,4 +86,21 @@ __all__ = [
     "help_url_for",
 ]
 
-__version__ = "0.1.0"
+def _installed_version() -> str:
+    """The version of the wheel that is installed, read from its own metadata.
+
+    It was a literal, "0.1.0", that deploy/release/set-version.sh never touched: the 0.1.1 wheel
+    said 0.1.0. Read from the package metadata it cannot disagree with the wheel it came in.
+    """
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+    except ImportError:  # pragma: no cover - Python < 3.8
+        return "unknown"
+    try:
+        return version("pravaha")
+    except PackageNotFoundError:
+        # Imported from a source tree that was never installed: say so rather than guess.
+        return "unknown"
+
+
+__version__ = _installed_version()

@@ -10,6 +10,7 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 | [Quickstart](QUICKSTART.md) | Clone to a running continuous query | First |
 | [Concepts](CONCEPTS.md) | The eight ideas everything follows from | Second, and it is the highest-value page here |
 | [User guide](USER_GUIDE.md) | The whole surface, task by task, in Java / Python / shell | When you start building |
+| [Python integration guide](PYTHON_API_GUIDE.md) | Every Python SDK call and every REST endpoint, with a verified sample each | When you connect an application |
 | [Case studies](../examples/case-studies/) | Five worked systems with stores, data and code to copy | When you want a template |
 
 ## Reference

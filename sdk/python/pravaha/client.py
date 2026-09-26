@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import base64
 import dataclasses
+import re
 import urllib.parse
 from dataclasses import dataclass
 from typing import Any, Iterator, Optional, Sequence
@@ -99,7 +100,36 @@ class QueryError(PravahaError):
     """
 
     def __init__(self, message: str) -> None:
-        super().__init__(1041, message)
+        server = _server_words(message)
+        super().__init__(1041, server)
+        #: The server's own words, without the ``PRV-1041`` prefix ``str()`` adds and without
+        #: the transport's wrapping -- pyarrow's "Flight returned ... with message:" in front and
+        #: gRPC's debug context behind, which name a peer address and say nothing to act on.
+        self.message = server
+        #: The engine's own code, ``"PRV-8002"`` for an unknown filter column, or ``None`` when the
+        #: failure carried none. The same attribute :class:`pravaha.rest.ApiError` has, so a caller
+        #: branches on the engine's diagnosis the same way whichever protocol refused: ``code`` is
+        #: this client's 1041 on both, because the Java SDK's ``QUERY_REFUSED`` is 1041 too.
+        self.engine_code = _engine_code_of(server)
+
+
+_FLIGHT_PREFIX = re.compile(r"^.*?Flight returned [^,]*, with message: ", re.S)
+_GRPC_CONTEXT = re.compile(r"\.? ?gRPC client debug context:.*$", re.S)
+_ENGINE_CODE = re.compile(r"\bPRV-(\d{4})\b")
+
+
+def _server_words(message: str) -> str:
+    """The server's sentence out of pyarrow's rendering of a Flight status."""
+    text = _GRPC_CONTEXT.sub("", _FLIGHT_PREFIX.sub("", message or "")).rstrip()
+    return text or (message or "")
+
+
+def _engine_code_of(text: str) -> "str | None":
+    """The first engine code in the server's words, other than this client's own 1041."""
+    for match in _ENGINE_CODE.finditer(text):
+        if match.group(1) != "1041":
+            return "PRV-" + match.group(1)
+    return None
 
 
 class ReadError(PravahaError):
@@ -425,9 +455,9 @@ class Client(DebugCommands):
             info = self._client.get_flight_info(descriptor, self._call_options)
             reader = self._client.do_get(info.endpoints[0].ticket, self._call_options)
         except _flight.FlightError as exc:
-            raise QueryError(_message_of(exc)) from exc
+            raise _failure(exc) from exc
         except Exception as exc:
-            raise QueryError(f"query failed: {exc}") from exc
+            raise _failure(exc) from exc
         return QueryResult(reader)
 
     def _query_with_parameters(self, sql: str, parameters: Sequence[object]) -> QueryResult:
@@ -451,9 +481,9 @@ class Client(DebugCommands):
         except (QueryError, ValueError):
             raise
         except _flight.FlightError as exc:
-            raise QueryError(_message_of(exc)) from exc
+            raise _failure(exc) from exc
         except Exception as exc:
-            raise QueryError(f"query failed: {exc}") from exc
+            raise _failure(exc) from exc
         return QueryResult(reader)
 
     def _prepare(self, sql: str) -> tuple[bytes, "pyarrow.Schema"]:
@@ -850,7 +880,7 @@ class Client(DebugCommands):
             # A refused subscription -- an unknown view, a filter naming a column the view does
             # not have -- surfaces here, before a single batch. Converted like every other
             # failure so callers catch one exception type rather than pyarrow's several.
-            raise QueryError(_message_of(exc)) from exc
+            raise _failure(exc) from exc
         try:
             parts: list = []
             for chunk in reader:
@@ -879,7 +909,7 @@ class Client(DebugCommands):
         except QueryError:
             raise
         except Exception as exc:
-            raise QueryError(_message_of(exc)) from exc
+            raise _failure(exc) from exc
 
     def _act(self, action: str, fields: Sequence[str]) -> "list[list[str]]":
         # Encoded before the try, so a lone surrogate is refused as PRV-1053 rather than wrapped.
@@ -894,7 +924,7 @@ class Client(DebugCommands):
             # all. pyarrow maps Flight statuses onto several of its own exception classes --
             # ArrowInvalid for INVALID_ARGUMENT, FlightError for others -- and which one a caller
             # sees should not depend on which status the server happened to choose.
-            raise QueryError(_message_of(exc)) from exc
+            raise _failure(exc) from exc
 
     # ---------------------------------------------------------------------------------
     # The engine's published HTTP API: the calls that have no Flight form.
@@ -1635,6 +1665,21 @@ def _varint(value: int) -> bytes:
         out.append(byte | (0x80 if value else 0))
         if not value:
             return bytes(out)
+
+
+def _failure(exc: Exception) -> PravahaError:
+    """What a failed Flight call becomes: :class:`ConnectError` when nothing answered, otherwise
+    :class:`QueryError` carrying the server's words.
+
+    The distinction is the one a retry policy needs. The Flight client connects lazily, so an
+    engine that is down or restarting surfaces at the first call as UNAVAILABLE -- and was reported
+    as a refusal, 1041 and not retryable, telling a caller to give up on an outage. UNAVAILABLE is
+    1040, retryable, as the constructor's own failure to connect already was.
+    """
+    unavailable = getattr(_flight, "FlightUnavailableError", None)
+    if unavailable is not None and isinstance(exc, unavailable):
+        return ConnectError(_server_words(_message_of(exc)))
+    return QueryError(_message_of(exc))
 
 
 def _message_of(exc: Exception) -> str:

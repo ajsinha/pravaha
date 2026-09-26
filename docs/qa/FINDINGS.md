@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **377 findings carrying a
-status — 354 FIXED, 9 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 9 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 7 POST-GA and 2 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **382 findings carrying a
+status — 357 FIXED, 11 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 11 open, **0 are
+GA-BLOCKER, 1 GA-REQUIRED, 8 POST-GA and 2 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -6864,3 +6864,30 @@ runs is how a default becomes folklore, and this project has already found two o
 ### FLIGHT-1 (MEDIUM) — a saturated node's debug refusal looked like a malformed query
 
 > **Status:** FIXED — the time-travel debugger's six codes reached `FlightErrors.statusFor` through its default arm, so all of them arrived at a gRPC client as `INVALID_ARGUMENT`, including `PRV-8013` (the session has ended or expired) and `PRV-8014` (the node already holds its ceiling of sessions). That is the shape the method's own javadoc says must not happen — a saturated node looking like a bad request — and it matters because a client retries one and not the other. 8013 and 8016 now answer `NOT_FOUND`, 8014 `RESOURCE_EXHAUSTED`; the other three stay `INVALID_ARGUMENT`, because a missing checkpoint, an unreplayable source and an unreadable step are all things the caller can correct. `DebugStatusMappingTest`. Found by the STRM/TIME cluster's agent during its rebase, in a file neither batch had reason to touch.
+
+## Found writing the Python integration guide (2026-09-26), 5 findings, 3 fixed
+
+Every sample in `docs/PYTHON_API_GUIDE.md` was run against a 0.1.1 node before it was written down.
+Five things the samples did were not what the SDK's or the engine's own descriptions said.
+
+### REPL-1 (MEDIUM) — a replacement whose backfill has stopped goes on reporting BACKFILLING, with no failure
+
+> **Status:** OPEN — `replace()` on a query whose source held a dead-lettered record at the seam: 30 seconds in, the node's log says `PumpingFeed ... stopped reading txn#0 with PRV-4013 and will not retry`, and `replacement()` over Flight and `GET /api/v1/queries/{name}/replacement` both kept answering `state: BACKFILLING`, `failure: null`, `failureCode: null`, with `lagSeconds` growing, for as long as they were polled (two minutes). `QueryReplacement.State` has a `FAILED` — "ended before the cutover because the backfill or the new version failed" — and this case never reaches it: the candidate's feed stopping is not carried to the replacement. An operator or an integration polling for `CAUGHT_UP` waits forever, told nothing; the guide tells integrators to bound their own wait until this is fixed. Inferred from the API's answers and the log; the path from the feed's stop to the replacement's state has not been traced in the code.
+> **Disposition:** GA-REQUIRED — the state the model has for exactly this is never reached, and a status surface that says a dead backfill is progressing is the defect this register's first table is about.
+
+### REPL-2 (MEDIUM) — a query cannot be replaced while the record at its current position is one that was dead-lettered
+
+> **Status:** OPEN — the running version's position was line 11 of a followed file, the line its feed had dead-lettered (`PRV-5040`, not a number). The candidate's backfill read the nine good rows before it and stopped with `PRV-4013  the backfill read all the history this source has and never reached the position the running version is at (11)`: the history reader does not deliver the undecodable record, so the position it sits at is never observed. The same replacement on the same data without the bad line reached `CAUGHT_UP` at once. The seam logic (ADR-046 §1, `OffsetSplicedReader`) assumes every position is a delivered record; a dead-letter queue makes that false exactly at the moment an operator is most likely to be changing the query.
+> **Disposition:** POST-GA — the condition clears when a good record moves the running version past the bad one, so a replacement can be retried; the fix is for the seam to count a dead-lettered position as reached.
+
+### PYSDK-1 (MEDIUM) — a refusal over Flight hid the engine's code inside the SDK's text
+
+> **Status:** FIXED — `pravaha.rest.ApiError` has always carried the engine's code as `engine_code`; `pravaha.client.QueryError`, which every Flight refusal becomes, carried only the client's own 1041, with the engine's `PRV-8002` somewhere inside a message that also held pyarrow's "Flight returned invalid argument error, with message:" and gRPC's debug context (a peer address and nothing to act on). A caller branching on the refusal — the idempotent-registration pattern in the guide, on `PRV-8001` — had to parse it. `QueryError` now has `engine_code` and `message` (the engine's sentence alone), exactly as `ApiError` does, and its text no longer carries the transport's wrapping; `code` stays 1041 to match the Java SDK's `QUERY_REFUSED`. `sdk/python/tests/test_query_error.py`, pinned to the string pyarrow produced against the live node.
+
+### PYSDK-2 (MEDIUM) — an engine that is down was reported as a refusal, not retryable
+
+> **Status:** FIXED — the Flight client connects lazily, so the constructor's `ConnectError` (1040, retryable) is never raised: an unreachable engine surfaced at the first call as UNAVAILABLE and was turned into `QueryError` 1041 with `retryable=False`. A retry policy written the way `PravahaError.retryable`'s own docstring invites gave up on an outage. Every Flight call site now goes through one mapping: UNAVAILABLE is `ConnectError`, retryable; anything else is `QueryError`. Verified against a closed port (`ConnectError 1040 True`); `test_query_error.py`.
+
+### PYSDK-3 (LOW) — the 0.1.1 wheel said it was 0.1.0
+
+> **Status:** FIXED — `pravaha.__version__` was the literal `"0.1.0"`, which `deploy/release/set-version.sh` does not touch, so the wheel `bundle.sh` put in the QA bundle reported the wrong version to anything that asked. It is now read from the installed package's own metadata (`"unknown"` from an uninstalled source tree), so it cannot disagree with the wheel it came in. `sdk/python/tests/test_version.py`.

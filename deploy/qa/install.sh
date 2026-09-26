@@ -59,10 +59,18 @@ done
 # ---------------------------------------------------------------- the tree
 mkdir -p "$home/conf" "$home/console/conf" "$home/logs"
 # data/ is the engine's once it has run (0750, uid 10001), so it is seeded only when it is new: the
-# one stream the configuration declares, with three rows to ask about.
+# one stream the configuration declares, with the six rows docs/PYTHON_API_GUIDE.md starts from.
 if [[ ! -d "$home/data" ]]; then
-  mkdir -p "$home/data/incoming"
-  printf '1,u1,150\n2,u2,90\n3,u1,300\n' > "$home/data/incoming/txn.csv"
+  mkdir -p "$home/data/incoming" "$home/data/outgoing"
+  cat > "$home/data/incoming/txn.csv" <<'CSV'
+txn_id,user_id,merchant,amount,currency,status,event_time
+1,u1,acme,150,USD,OK,2026-09-26T09:00:01Z
+2,u2,globex,90,USD,OK,2026-09-26T09:00:05Z
+3,u1,acme,3000,USD,OK,2026-09-26T09:00:30Z
+4,u3,initech,12000,EUR,,2026-09-26T09:01:10Z
+5,u2,globex,5000,USD,OK,2026-09-26T09:01:20Z
+6,u1,acme,7000,USD,OK,2026-09-26T09:01:25Z
+CSV
 fi
 sed "s/@@VERSION@@/$version/g" "$here/docker-compose.yml" > "$home/docker-compose.yml"
 echo "$version" > "$home/VERSION"

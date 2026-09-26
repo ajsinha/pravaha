@@ -79,10 +79,16 @@ To serve TLS instead, set `pravaha.flight.tls.certificate` and `.key` to files u
 ## A first question
 
 The engine starts with one stream, `txn`, following `/opt/pravaha/data/incoming/txn.csv`. Register
-`SELECT txn_id, user_id, amount FROM txn WHERE amount > 100` in the console's workbench, then:
+`SELECT txn_id, user_id, amount FROM txn WHERE amount > 1000` in the console's workbench, then:
 
 ```bash
-echo '4,u2,1000' | sudo tee -a /opt/pravaha/data/incoming/txn.csv
+echo '7,u4,hooli,8000,USD,OK,2026-09-26T09:01:26Z' | sudo tee -a /opt/pravaha/data/incoming/txn.csv
 ```
 
 The view changes. That was the whole product: you asked once, and it keeps answering.
+
+## Integrating
+
+[`docs/PYTHON_API_GUIDE.md`](docs/PYTHON_API_GUIDE.md) in this bundle is the integrator's guide: every
+call the Python SDK makes and every REST endpoint, each with a sample that runs against this host as
+installed.

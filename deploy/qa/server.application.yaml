@@ -100,19 +100,33 @@ pravaha:
     enabled: true
 
   # ---------------------------------------------------------------------------------- streams
-  # What a query can be asked about, and where its rows come from. One to start: append a CSV line
-  # to /opt/pravaha/data/incoming/txn.csv and every query over txn answers again. Add the QA
+  # What a query can be asked about, and where its rows come from. One to start -- the stream every
+  # sample in docs/PYTHON_API_GUIDE.md uses: append a CSV line to /opt/pravaha/data/incoming/txn.csv
+  # and every query over txn answers again. Add the QA
   # stores' streams below it; each connector's page in the console's Help has a worked binding.
   streams:
     txn:
-      schema: "txn_id:INT64,user_id:STRING,amount:INT64"
+      schema: "txn_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,currency:STRING,status:STRING?,event_time:TIMESTAMP"
+      event-time: event_time              # each row's own time: what windows are cut on
+      out-of-orderness: 10s               # how late a row may arrive and still count
   sources:
     txn:
       plugin: filesystem
       options:
         path: /opt/pravaha/data/incoming/txn.csv
+        schema: "txn_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,currency:STRING,status:STRING?,event_time:TIMESTAMP"
+        event.time: event_time
+        skip.header: "true"
+        follow: "true"
+
+  # Where a query's answer can be written as well as to its view. register(..., sink="large_payments")
+  sinks:
+    large_payments:
+      plugin: filesystem
+      options:
+        path: /opt/pravaha/data/outgoing/large_payments.csv
         schema: "txn_id:INT64,user_id:STRING,amount:INT64"
-        follow: true
+        append: "true"
 
   # Example bindings for the QA stores, left commented until their addresses are known.
   #

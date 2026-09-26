@@ -10,6 +10,23 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ---
 
+## Since 0.1.1 — unreleased
+
+- **`docs/PYTHON_API_GUIDE.md`**: an integrator's guide and reference for every call the Python SDK
+  makes and every REST endpoint, each sample run against a 0.1.1 node. It ships in the QA bundle.
+- **Python SDK:** a refusal over Flight carries the engine's code as `QueryError.engine_code`, as
+  `ApiError` always has (PYSDK-1); an engine that is down is `ConnectError`, retryable, not a
+  refusal (PYSDK-2); `pravaha.__version__` is the installed wheel's (PYSDK-3).
+- **The QA host's demonstration stream** is the seven-column `txn` with an event-time column and a
+  `large_payments` sink, so the guide's samples, windows included, run on a fresh install.
+- **Found, open:** a replacement whose backfill has stopped goes on reporting `BACKFILLING`
+  (REPL-1, GA-REQUIRED), and a query cannot be replaced while the record at its position was
+  dead-lettered (REPL-2).
+
+Register: **382 findings — 357 fixed, 11 open, 0 GA-BLOCKER, 1 GA-REQUIRED**.
+
+---
+
 ## 0.1.1 — QA, 2026-09-26
 
 **What this build is for.** The same as 0.1.0 — quality assurance on one node — now handed to a QA

@@ -15,7 +15,7 @@
 #   install.sh  docker-compose.yml  server.application.yaml  console.application.yaml  README.md
 #   VERSION     images/pravaha-server-<v>.tar  images/pravaha-console-<v>.tar
 #   dist/       the server fat jar, the CLI jar, the SDK and console wheels, the Helm chart
-#   docs/       RELEASE_NOTES.md, DEPLOYMENT.md, QUICKSTART.md
+#   docs/       RELEASE_NOTES.md, DEPLOYMENT.md, QUICKSTART.md, USER_GUIDE.md, PYTHON_API_GUIDE.md
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -49,13 +49,35 @@ done
 
 # What exists is copied; what does not is said, rather than a bundle quietly missing a piece.
 shopt -s nullglob
-take() { local found=("$@"); if (( ${#found[@]} )); then cp "${found[@]}" "$out/dist/"; else echo "bundle.sh: not built: $label" >&2; fi; }
+take() {
+  local present=() f
+  for f in "$@"; do [[ -e "$f" ]] && present+=("$f"); done
+  if (( ${#present[@]} )); then cp "${present[@]}" "$out/dist/"; else echo "bundle.sh: not built: $label" >&2; fi
+}
 label="server jar";  take "$root"/pravaha-server/target/pravaha-server-"$version"-app.jar
 label="cli jar";     take "$root"/pravaha-cli/target/pravaha-cli-"$version"-cli.jar
-label="sdk wheel";   take "$root"/sdk/python/dist/*-"$version"-*.whl
-label="console wheel"; take "$root"/console/dist/*-"$version"-*.whl
+# The wheels are built from the release's TAG, not the working tree, which release.sh has already
+# moved on to the next snapshot -- and in a python container, so the build needs nothing installed
+# on this machine beyond Docker.
+wheels="$root/target/wheels"
+if ! compgen -G "$wheels/pravaha-$version-*.whl" >/dev/null || ! compgen -G "$wheels/pravaha_console-$version-*.whl" >/dev/null; then
+  git -C "$root" rev-parse -q --verify "refs/tags/v$version" >/dev/null \
+    || { echo "bundle.sh: no tag v$version to build the wheels from" >&2; exit 1; }
+  echo "bundle.sh: building the $version wheels from v$version"
+  rm -rf "$root/target/release-src" && mkdir -p "$root/target/release-src" "$wheels"
+  git -C "$root" archive "v$version" sdk/python console | tar -x -C "$root/target/release-src"
+  "$docker_bin" run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$root/target:/w" python:3.13-slim sh -c \
+    'pip install -q --user hatchling && for p in sdk/python console; do python -m pip wheel -q --no-deps --no-build-isolation -w /w/wheels /w/release-src/$p || exit 1; done'
+fi
+label="sdk wheel";   take "$wheels"/pravaha-"$version"-*.whl
+label="console wheel"; take "$wheels"/pravaha_console-"$version"-*.whl
+# helm package's archive if release.sh had helm; otherwise the chart directory from the tag, which
+# `helm install pravaha pravaha-<v>.tgz` takes just the same.
+if [[ ! -e "$root/target/pravaha-$version.tgz" ]] && git -C "$root" rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+  git -C "$root" archive --format=tar.gz -o "$root/target/pravaha-$version.tgz" "v$version:deploy/helm" pravaha
+fi
 label="helm chart";  take "$root"/target/pravaha-"$version".tgz
-for doc in RELEASE_NOTES.md DEPLOYMENT.md QUICKSTART.md; do cp "$root/docs/$doc" "$out/docs/"; done
+for doc in RELEASE_NOTES.md DEPLOYMENT.md QUICKSTART.md USER_GUIDE.md PYTHON_API_GUIDE.md; do cp "$root/docs/$doc" "$out/docs/"; done
 
 (cd "$out" && sha256sum VERSION install.sh docker-compose.yml *.yaml images/* dist/* > SHA256SUMS)
 tar -C "$(dirname "$out")" -czf "$out.tar.gz" "$(basename "$out")"
