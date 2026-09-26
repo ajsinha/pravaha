@@ -47,7 +47,7 @@ import com.ash.messaging.pravaha.state.StateErrors;
  * that projects the number away still pays it, and the retraction and emission of an unchanged row
  * at a new number cancel downstream.
  */
-final class TopNRanking implements RowProcessor, InterpretedPipeline.HeldRows {
+final class TopNRanking implements RowProcessor, HeldRows {
 
     private final TopNOperator plan;
     private final StreamSchema inputSchema;

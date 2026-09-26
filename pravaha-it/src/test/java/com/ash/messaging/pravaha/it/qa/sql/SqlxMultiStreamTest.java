@@ -182,17 +182,18 @@ class SqlxMultiStreamTest {
     // ===========================================================================================
 
     @Test
-    void aCteReferencedOnceJoinsCleanlyButReferencedTwiceIsTheRefusedSelfJoin() {
+    void aCteJoinsCleanlyReferencedOnceAndReferencedTwiceAsASelfJoin() {
         // SQLX-139(a): one reference through a CTE, joined to a different stream -- must plan.
         assertThat(refusalOf("WITH a AS (SELECT user_id, amount FROM txn) "
                         + "SELECT x.amount FROM a x JOIN other o ON x.user_id = o.user_id"))
                 .isNull();
 
-        // SQLX-139(b): the same CTE joined to itself is the self-join, caught only at pipeline
-        // compile time with no PRV- code -- the one refusal in this area that carries none.
-        String message = refusalOf(
-                "WITH a AS (SELECT user_id FROM txn) " + "SELECT p.user_id FROM a p JOIN a q ON p.user_id = q.user_id");
-        assertThat(message).contains("appears on both sides of this plan").doesNotStartWith("PRV-");
+        // SQLX-139(b): the same CTE joined to itself is a self-join, which was refused at pipeline
+        // compile time with no PRV- code and now compiles.
+        assertThat(
+                        refusalOf(
+                                "WITH a AS (SELECT user_id FROM txn) SELECT p.user_id FROM a p JOIN a q ON p.user_id = q.user_id"))
+                .isNull();
     }
 
     @Test

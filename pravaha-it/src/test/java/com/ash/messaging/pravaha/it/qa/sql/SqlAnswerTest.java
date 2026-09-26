@@ -35,7 +35,6 @@ import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
 import com.ash.messaging.pravaha.testkit.CapturingRowWriter;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Authored QA cases from {@code docs/qa/cases/AGG.md}, {@code JOIN.md} and the windowed and
@@ -471,21 +470,16 @@ class SqlAnswerTest {
     }
 
     @Test
-    void aSelfJoinIsRefusedLateAndWithoutACode() {
-        // JOIN-060. It plans and builds perfectly -- a JoinOperator whose two sides are the same
-        // scan -- and is refused only when the pipeline is compiled, by an UnsupportedOperationException
-        // carrying no PRV code. That is recorded here rather than smoothed over: every refusal a
-        // user can reach should carry a code they can look up, and this one does not.
-        assertThatThrownBy(() -> joinAnswerOf(
+    void aSelfJoinPairsEveryMatchingRowOnBothSides() {
+        // JOIN-060 recorded this refused when the pipeline was compiled, with no PRV code. It runs:
+        // J1 joined to itself on user_id pairs o1 and o3 (u1) four ways, and o2 (u2) and o4 (u9)
+        // each with itself.
+        assertThat(joinAnswerOf(
                         "SELECT a.order_id, b.order_id FROM orders a JOIN orders b ON a.user_id = b.user_id",
-                        J2,
+                        new String[0][],
                         J1,
                         0L))
-                .isInstanceOf(UnsupportedOperationException.class)
-                .hasMessageContaining("appears on both sides of this plan")
-                .satisfies(thrown -> assertThat(thrown.getMessage())
-                        .as("JOIN-060: the one reachable refusal with no PRV code")
-                        .doesNotStartWith("PRV-"));
+                .containsExactlyInAnyOrder("1|1", "2|2", "3|1", "1|3", "3|3", "4|4");
     }
 
     // ===========================================================================================

@@ -175,15 +175,6 @@ public final class InterpretedPipeline implements AutoCloseable {
     /** Operators whose state is rows -- a top-N -- checkpointed after the aggregates. */
     private final List<HeldRows> heldRows = new ArrayList<>();
 
-    /** An operator whose state is a set of rows, and which writes and reads it for a checkpoint. */
-    interface HeldRows {
-        void writeTo(java.io.DataOutputStream out) throws java.io.IOException;
-
-        void readFrom(java.io.DataInputStream in) throws java.io.IOException;
-
-        long rowsHeld();
-    }
-
     /** Keyed aggregates, in build order, so a debug session can name one and read its groups. */
     private final List<KeyedAggregate> keyed = new ArrayList<>();
 
@@ -1321,14 +1312,9 @@ public final class InterpretedPipeline implements AutoCloseable {
         }
 
         /**
-         * Makes {@code entry} where rows of the scan's stream enter the pipeline.
-         *
-         * <p>A stream read twice -- a self-join, Nexmark q7 -- gets one entry point that hands each
-         * row to the first reader and then to the second. That order is the bilinear rule for a join
-         * of a stream with itself, {@code d(S join S) = dS join S + S' join dS}, where {@code S'}
-         * already holds {@code dS}: the first side's pass pairs the row with what the other side
-         * held before it, and the second side's pass pairs it with everything, itself included. The
-         * stream is listed once, so a caller opens one reader for it rather than two.
+         * A stream read twice (a self-join, Nexmark q7) gets one entry point handing each row to the
+         * first reader and then the second: the bilinear rule {@code d(S join S) = dS join S + S'
+         * join dS}, with {@code S'} already holding {@code dS}. The stream is listed once.
          */
         private void registerScan(ScanOperator scan, RowProcessor entry) {
             RowProcessor existing = heads.get(scan.streamName());
