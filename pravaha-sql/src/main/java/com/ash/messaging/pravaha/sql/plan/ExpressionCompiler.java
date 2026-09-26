@@ -200,7 +200,7 @@ final class ExpressionCompiler {
                                 "function '" + call.getOperator().getName() + "' in '" + call
                                         + "' is not supported in a projection. Supported: + - * / %, "
                                         + "ABS, FLOOR, CEIL, ROUND, CASE WHEN, UPPER, LOWER, TRIM, "
-                                        + "SUBSTRING and || .");
+                                        + "SUBSTRING, ||, DATE_FORMAT, REGEXP_EXTRACT and SPLIT_INDEX.");
                     }
                 };
         if (call.getOperands().size() == 1) {
@@ -431,8 +431,105 @@ final class ExpressionCompiler {
             case "TRIM" -> trim(call, operands);
             case "||", "CONCAT" -> concat(operands);
             case "SUBSTRING" -> substring(call, operands);
+            case "DATE_FORMAT" -> dateFormat(call, operands);
+            case "REGEXP_EXTRACT" -> regexpExtract(call, operands);
+            case "SPLIT_INDEX" -> splitIndex(call, operands);
             default -> null;
         };
+    }
+
+    /**
+     * {@code DATE_FORMAT(ts, 'pattern')}. The pattern must be a literal: it is compiled once, here, so
+     * a malformed one is refused at registration rather than sending every row to the dead-letter
+     * queue.
+     */
+    private Expression dateFormat(RexCall call, java.util.List<RexNode> operands) {
+        Expression source = compile(operands.get(0));
+        String pattern = textLiteral(call, operands.get(1), "pattern");
+        if (source.type() != TypeName.TIMESTAMP_LTZ) {
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_EXPRESSION,
+                    "'" + call + "' formats a " + source.type() + "; DATE_FORMAT formats a TIMESTAMP.");
+        }
+        try {
+            return Expression.DateFormat.of(source, pattern);
+        } catch (IllegalArgumentException malformed) {
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_EXPRESSION,
+                    "'" + call + "' has the pattern '" + pattern + "', which is not a date-time pattern: "
+                            + malformed.getMessage() + ". Patterns are java.time's, such as 'yyyy-MM-dd HH:mm:ss'.",
+                    malformed);
+        }
+    }
+
+    /** {@code REGEXP_EXTRACT(s, 'regex'[, group])}, the regex and the group both literals. */
+    private Expression regexpExtract(RexCall call, java.util.List<RexNode> operands) {
+        Expression source = compile(operands.get(0));
+        String regex = textLiteral(call, operands.get(1), "regular expression");
+        int group = operands.size() == 3 ? integerLiteral(call, operands.get(2), "group") : 0;
+        java.util.regex.Pattern compiled;
+        try {
+            compiled = java.util.regex.Pattern.compile(regex);
+        } catch (java.util.regex.PatternSyntaxException malformed) {
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_EXPRESSION,
+                    "'" + call + "' has a regular expression that does not compile: " + malformed.getDescription()
+                            + " near index " + malformed.getIndex() + ".",
+                    malformed);
+        }
+        try {
+            return new Expression.RegexpExtract(source, compiled, group);
+        } catch (IllegalArgumentException refused) {
+            throw new PravahaException(SqlErrors.UNSUPPORTED_EXPRESSION, "'" + call + "': " + refused.getMessage());
+        }
+    }
+
+    /** {@code SPLIT_INDEX(s, 'delimiter', n)}, the delimiter and the index both literals. */
+    private Expression splitIndex(RexCall call, java.util.List<RexNode> operands) {
+        Expression source = compile(operands.get(0));
+        String delimiter = textLiteral(call, operands.get(1), "delimiter");
+        int index = integerLiteral(call, operands.get(2), "index");
+        try {
+            return new Expression.SplitIndex(source, delimiter, index);
+        } catch (IllegalArgumentException refused) {
+            throw new PravahaException(SqlErrors.UNSUPPORTED_EXPRESSION, "'" + call + "': " + refused.getMessage());
+        }
+    }
+
+    /**
+     * A text argument that must be written as a literal, because it is compiled at registration.
+     * Calcite may have wrapped the literal in a cast to settle its type; that cast converts nothing
+     * and is looked through.
+     */
+    private static String textLiteral(RexCall call, RexNode operand, String role) {
+        RexNode bare = operand;
+        while (bare instanceof RexCall cast && cast.getKind() == org.apache.calcite.sql.SqlKind.CAST) {
+            bare = cast.getOperands().get(0);
+        }
+        if (bare instanceof RexLiteral literal && literal.getValue2() instanceof String text) {
+            return text;
+        }
+        throw new PravahaException(
+                SqlErrors.UNSUPPORTED_EXPRESSION,
+                "'" + call + "' takes its " + role + " as a text literal, and was given '" + operand
+                        + "'. It is compiled once when the query is registered, so it cannot vary by row.");
+    }
+
+    /** An integer argument that must be written as a literal, for the same reason. */
+    private static int integerLiteral(RexCall call, RexNode operand, String role) {
+        if (operand instanceof RexLiteral literal
+                && literal.getValue4() instanceof BigDecimal value
+                && value.stripTrailingZeros().scale() <= 0) {
+            try {
+                return value.intValueExact();
+            } catch (ArithmeticException tooLarge) {
+                // Falls through to the refusal, which names the value.
+            }
+        }
+        throw new PravahaException(
+                SqlErrors.UNSUPPORTED_EXPRESSION,
+                "'" + call + "' takes its " + role + " as an integer literal, and was given '" + operand
+                        + "'. It is checked once when the query is registered, so it cannot vary by row.");
     }
 
     /**

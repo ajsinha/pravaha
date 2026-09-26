@@ -416,6 +416,7 @@ public final class SqlPlanner {
                         .withQuotedCasing(org.apache.calcite.avatica.util.Casing.UNCHANGED)
                         .withConformance(SqlConformanceEnum.LENIENT))
                 .context(org.apache.calcite.plan.Contexts.of(new CalciteConnectionConfigImpl(properties)))
+                .operatorTable(PravahaFunctions.operatorTable())
                 .typeSystem(PravahaTypeSystem.INSTANCE)
                 .build();
     }
@@ -438,7 +439,7 @@ public final class SqlPlanner {
      */
     private static String guidanceFor(String message) {
         String functions = " Pravaha evaluates + - * / %, ABS, FLOOR, CEIL, ROUND, CASE WHEN, UPPER, LOWER, "
-                + "TRIM, SUBSTRING and ||, and the aggregates COUNT, SUM, MIN, MAX and AVG; each of the "
+                + "TRIM, SUBSTRING, ||, DATE_FORMAT, REGEXP_EXTRACT and SPLIT_INDEX, and the aggregates COUNT, SUM, MIN, MAX and AVG; each of the "
                 + "one-argument functions takes exactly one argument. See docs/CONTINUOUS_QUERIES.md.";
         if (message.contains("No match found for function signature")
                 || message.contains("Invalid number of arguments to function")) {

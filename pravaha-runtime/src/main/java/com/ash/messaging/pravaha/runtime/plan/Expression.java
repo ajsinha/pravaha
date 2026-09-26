@@ -672,6 +672,251 @@ public sealed interface Expression {
         }
     }
 
+    /**
+     * {@code DATE_FORMAT(ts, 'pattern')}: an instant rendered as text in UTC.
+     *
+     * <p>The pattern is a literal, compiled once at registration, so a malformed pattern is refused
+     * there rather than on the first row. Patterns are {@link java.time.format.DateTimeFormatter}'s,
+     * which agree with {@code SimpleDateFormat}'s for the letters Nexmark and Flink users write
+     * ({@code yyyy-MM-dd}, {@code HH:mm:ss}). Rendered in UTC because a timestamp here is an instant
+     * on the UTC timeline (design section 15.1) and there is no session time zone to render it in;
+     * choosing the JVM's zone instead would make the same query answer differently on two nodes.
+     *
+     * <p>Null in, null out.
+     */
+    record DateFormat(Expression source, String pattern, java.time.format.DateTimeFormatter formatter)
+            implements Expression {
+
+        public DateFormat {
+            if (source.type() != TypeName.TIMESTAMP_LTZ) {
+                throw new IllegalArgumentException(
+                        "DATE_FORMAT takes a timestamp, and this argument produces " + source.type());
+            }
+        }
+
+        /** Compiles the pattern, or throws {@link IllegalArgumentException} naming what is wrong. */
+        public static DateFormat of(Expression source, String pattern) {
+            java.time.format.DateTimeFormatter formatter = java.time.format.DateTimeFormatter.ofPattern(
+                            pattern, java.util.Locale.ROOT)
+                    .withZone(java.time.ZoneOffset.UTC);
+            // Formatting one instant proves the pattern asks for nothing an instant lacks. A pattern
+            // can parse and still name a field no instant carries, and that would otherwise fail on
+            // the first row instead of at registration.
+            try {
+                formatter.format(java.time.Instant.EPOCH);
+            } catch (java.time.DateTimeException unformattable) {
+                throw new IllegalArgumentException(unformattable.getMessage(), unformattable);
+            }
+            return new DateFormat(source, pattern, formatter);
+        }
+
+        @Override
+        public TypeName type() {
+            return TypeName.STRING;
+        }
+
+        @Override
+        public String evaluateString(RowView row) {
+            long nanos = source.evaluateLong(row);
+            return formatter.format(java.time.Instant.ofEpochSecond(
+                    Math.floorDiv(nanos, 1_000_000_000L), Math.floorMod(nanos, 1_000_000_000L)));
+        }
+
+        @Override
+        public long evaluateLong(RowView row) {
+            throw new IllegalStateException(describe() + " produces text, not a number");
+        }
+
+        @Override
+        public double evaluateDouble(RowView row) {
+            throw new IllegalStateException(describe() + " produces text, not a number");
+        }
+
+        @Override
+        public boolean isNull(RowView row) {
+            return source.isNull(row);
+        }
+
+        @Override
+        public String describe() {
+            return "DATE_FORMAT(" + source.describe() + ", '" + pattern + "')";
+        }
+
+        // Equality on the pattern text, not the formatter. DateTimeFormatter inherits identity
+        // equality, and two registrations of one query that compared unequal would be given
+        // separate computations -- the sharing this engine exists to do (see Predicate.Like).
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof DateFormat that && source.equals(that.source) && pattern.equals(that.pattern);
+        }
+
+        @Override
+        public int hashCode() {
+            return java.util.Objects.hash(source, pattern);
+        }
+    }
+
+    /**
+     * {@code REGEXP_EXTRACT(s, 'regex'[, group])}: the given group of the first match, or null.
+     *
+     * <p>Flink's semantics, which is where Nexmark's queries come from: the group defaults to 0, the
+     * whole match; a string with no match produces null; null in any argument produces null. The
+     * expression and the group are literals checked at registration, so a regex that does not
+     * compile, or a group the regex does not have, is refused there. A group that exists but took no
+     * part in the match is null, which is what {@link java.util.regex.Matcher#group(int)} says and
+     * what Flink returns.
+     *
+     * <p>Because a missing match is null, {@link #isNull} has to run the match, and a present value
+     * is matched twice. Caching the last row's result instead would be wrong the first time a caller
+     * evaluated two rows in a different order.
+     */
+    record RegexpExtract(Expression source, java.util.regex.Pattern regex, int group) implements Expression {
+
+        public RegexpExtract {
+            if (source.type() != TypeName.STRING) {
+                throw new IllegalArgumentException(
+                        "REGEXP_EXTRACT takes text, and this argument produces " + source.type());
+            }
+            int groups = regex.matcher("").groupCount();
+            if (group < 0 || group > groups) {
+                throw new IllegalArgumentException("REGEXP_EXTRACT asks for group " + group + " of '" + regex.pattern()
+                        + "', which has " + groups + " group(s) besides the whole match, 0");
+            }
+        }
+
+        private String extract(RowView row) {
+            if (source.isNull(row)) {
+                return null;
+            }
+            java.util.regex.Matcher matcher = regex.matcher(source.evaluateString(row));
+            return matcher.find() ? matcher.group(group) : null;
+        }
+
+        @Override
+        public TypeName type() {
+            return TypeName.STRING;
+        }
+
+        @Override
+        public String evaluateString(RowView row) {
+            return extract(row);
+        }
+
+        @Override
+        public long evaluateLong(RowView row) {
+            throw new IllegalStateException(describe() + " produces text, not a number");
+        }
+
+        @Override
+        public double evaluateDouble(RowView row) {
+            throw new IllegalStateException(describe() + " produces text, not a number");
+        }
+
+        @Override
+        public boolean isNull(RowView row) {
+            return extract(row) == null;
+        }
+
+        @Override
+        public String describe() {
+            return "REGEXP_EXTRACT(" + source.describe() + ", '" + regex.pattern() + "', " + group + ")";
+        }
+
+        // Equality on the expression's text, not the compiled Pattern, which inherits identity
+        // equality; see DateFormat.equals for why that matters.
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof RegexpExtract that
+                    && source.equals(that.source)
+                    && regex.pattern().equals(that.regex.pattern())
+                    && group == that.group;
+        }
+
+        @Override
+        public int hashCode() {
+            return java.util.Objects.hash(source, regex.pattern(), group);
+        }
+    }
+
+    /**
+     * {@code SPLIT_INDEX(s, 'delimiter', n)}: field {@code n}, counting from zero, of {@code s} split
+     * on the whole delimiter.
+     *
+     * <p>Flink's semantics: every field is kept, empty ones included, so {@code
+     * SPLIT_INDEX('http://a/b', '/', 2)} is {@code 'a'} -- field 1 is the empty string between the two
+     * slashes. An index past the last field produces null, as does null in any argument and an empty
+     * string, which has no fields. The delimiter and the index are literals checked at registration:
+     * an empty delimiter splits nothing and a negative index names no field, so both are refused
+     * there rather than answered with null on every row.
+     */
+    record SplitIndex(Expression source, String delimiter, int index) implements Expression {
+
+        public SplitIndex {
+            if (source.type() != TypeName.STRING) {
+                throw new IllegalArgumentException(
+                        "SPLIT_INDEX takes text, and this argument produces " + source.type());
+            }
+            if (delimiter.isEmpty()) {
+                throw new IllegalArgumentException("SPLIT_INDEX's delimiter is empty, which splits nothing");
+            }
+            if (index < 0) {
+                throw new IllegalArgumentException("SPLIT_INDEX's index is " + index
+                        + "; fields are counted from 0, so a negative index names none");
+            }
+        }
+
+        private String field(RowView row) {
+            if (source.isNull(row)) {
+                return null;
+            }
+            String value = source.evaluateString(row);
+            if (value.isEmpty()) {
+                return null;
+            }
+            int from = 0;
+            for (int field = 0; ; field++) {
+                int at = value.indexOf(delimiter, from);
+                if (field == index) {
+                    return at < 0 ? value.substring(from) : value.substring(from, at);
+                }
+                if (at < 0) {
+                    return null;
+                }
+                from = at + delimiter.length();
+            }
+        }
+
+        @Override
+        public TypeName type() {
+            return TypeName.STRING;
+        }
+
+        @Override
+        public String evaluateString(RowView row) {
+            return field(row);
+        }
+
+        @Override
+        public long evaluateLong(RowView row) {
+            throw new IllegalStateException(describe() + " produces text, not a number");
+        }
+
+        @Override
+        public double evaluateDouble(RowView row) {
+            throw new IllegalStateException(describe() + " produces text, not a number");
+        }
+
+        @Override
+        public boolean isNull(RowView row) {
+            return field(row) == null;
+        }
+
+        @Override
+        public String describe() {
+            return "SPLIT_INDEX(" + source.describe() + ", '" + delimiter + "', " + index + ")";
+        }
+    }
+
     /** Whether this expression produces a floating-point value. */
     default boolean isFloatingPoint() {
         return type() == TypeName.FLOAT32 || type() == TypeName.FLOAT64;

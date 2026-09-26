@@ -400,6 +400,13 @@ public sealed interface Predicate {
             if (left.isNull(row) || right.isNull(row)) {
                 return false;
             }
+            if (left.type() == com.ash.messaging.pravaha.api.data.TypeName.STRING) {
+                // Text is compared for equality only -- the compiler refuses an ordering, which
+                // would need a collation this engine does not have -- and by code point, which is
+                // what the column-against-literal fast path compares too.
+                boolean equal = left.evaluateString(row).equals(right.evaluateString(row));
+                return op == Op.EQ ? equal : !equal;
+            }
             if (left.isFloatingPoint() || right.isFloatingPoint()) {
                 return op.matchesDoubles(left.evaluateDouble(row), right.evaluateDouble(row));
             }

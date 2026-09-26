@@ -170,8 +170,8 @@ final class NexmarkCoverageIT {
                 "q10",
                 "log to file system",
                 null,
-                "the published query is an INSERT into a partitioned file sink and uses DATE_FORMAT; there is no way "
-                        + "to write either here, so there is nothing to refuse"));
+                "the published query is an INSERT into a partitioned file sink; DATE_FORMAT, which it also uses, is "
+                        + "built, and the sink has no way to be written here, so there is nothing to refuse"));
         all.add(new Nexmark(
                 "q11",
                 "user sessions",
@@ -294,6 +294,12 @@ final class NexmarkCoverageIT {
 
     private record Verdict(String id, String stage, String code, String detail) {}
 
+    /**
+     * What runs, as measured. 2026-09-20: q0, q2, q3, q8, q20. 2026-09-26: q21 and q22, once
+     * REGEXP_EXTRACT, SPLIT_INDEX and text equality inside an expression were built.
+     */
+    private static final List<String> EXPECTED_TO_RUN = List.of("q0", "q2", "q3", "q8", "q20", "q21", "q22");
+
     @Test
     void howManyOfNexmarkThisEngineCanRunAtAll() {
         List<Verdict> verdicts = new ArrayList<>();
@@ -335,8 +341,8 @@ final class NexmarkCoverageIT {
                 "%n    W5 asks for parity or better against Flink SQL on at least 18 of 22 queries and 2x on at%n"
                         + "    least 8. %d run. W5 is therefore NOT REACHED, and it is not reached by a margin that%n"
                         + "    has nothing to do with speed: the missing queries are missing SQL -- OVER windows,%n"
-                        + "    session windows in SQL, self-joins, DATE_FORMAT, SPLIT_INDEX, REGEXP_EXTRACT,%n"
-                        + "    processing time and user functions. No throughput figure changes that, and no%n"
+                        + "    session windows in SQL, self-joins, unwindowed grouping, processing time and%n"
+                        + "    user functions. No throughput figure changes that, and no%n"
                         + "    comparison should be published on the subset that happens to plan.%n",
                 runnable);
         System.out.printf(
@@ -356,6 +362,13 @@ final class NexmarkCoverageIT {
         // The harness itself must have done the work: every query got a verdict, and at least one
         // reached each of the three outcomes, or the classification is not being exercised.
         assertThat(verdicts).hasSize(23);
+        assertThat(verdicts.stream()
+                        .filter(v -> "RUNS".equals(v.stage()))
+                        .map(Verdict::id)
+                        .toList())
+                .as("the queries measured to run; a change to this list is a change to the coverage figure "
+                        + "docs/gates/measured-2026-09-20/README.md reports, and both move together")
+                .containsExactlyInAnyOrderElementsOf(EXPECTED_TO_RUN);
         assertThat(runnable)
                 .as("no Nexmark query runs at all, which would mean the harness never planned one")
                 .isPositive();

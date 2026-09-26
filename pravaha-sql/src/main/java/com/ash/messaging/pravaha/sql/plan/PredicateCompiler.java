@@ -236,17 +236,29 @@ public final class PredicateCompiler {
         ExpressionCompiler expressions = new ExpressionCompiler(schema);
         Expression left = expressions.compile(call.getOperands().get(0));
         Expression right = expressions.compile(call.getOperands().get(1));
-        rejectText(call, left);
-        rejectText(call, right);
+        rejectTextOrdering(call, op, left, right);
         return new Predicate.CompareExpressions(left, op, right);
     }
 
-    private void rejectText(RexCall call, Expression side) {
-        if (side.type() == TypeName.STRING) {
+    /**
+     * Text inside a larger expression -- {@code LOWER(channel) = 'apple'}, Nexmark q21 -- compares
+     * for equality, as a text column against a literal does. An ordering is refused: which of two
+     * strings sorts first is a collation's question, and this engine has none to answer it with.
+     * Text against a number is refused too; SQL's coercion would have inserted a cast, and a cast
+     * between text and a number is refused before it gets here.
+     */
+    private void rejectTextOrdering(RexCall call, Predicate.Op op, Expression left, Expression right) {
+        boolean leftText = left.type() == TypeName.STRING;
+        boolean rightText = right.type() == TypeName.STRING;
+        if (!leftText && !rightText) {
+            return;
+        }
+        if (leftText != rightText || (op != Predicate.Op.EQ && op != Predicate.Op.NE)) {
             throw new PravahaException(
                     SqlErrors.UNSUPPORTED_EXPRESSION,
-                    "'" + call + "' compares text inside a larger expression, which Pravaha cannot do; "
-                            + "only = and <> between a text column and a literal are supported");
+                    "'" + call + "' orders text, or compares it with something that is not text. Text inside "
+                            + "a larger expression is compared with = and <> only: ordering strings needs a "
+                            + "collation, and this engine has none.");
         }
     }
 
