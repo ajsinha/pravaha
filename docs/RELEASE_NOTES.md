@@ -38,7 +38,7 @@ and the current answer is a view that can be read, subscribed to, or written to 
 
 | Measurement | Result | Command |
 |---|---|---|
-| Java tests | **4,047 run, 0 failures, 183 skipped**, 37 reactor projects | `tools/verify-clean.sh` (offline, wipes the project from `~/.m2` first) |
+| Java tests | **4,067 run, 0 failures, 183 skipped**, 37 reactor projects | `tools/verify-clean.sh` (offline, wipes the project from `~/.m2` first) |
 | Console tests | **844 run, 842 passed** at the last full run; the two failures were a test-isolation defect and a load flake, both since fixed | `cd console && python -m pytest` |
 | Python SDK tests | **132 collected, 131 passed, 1 skipped** without the `tls-keystore` extra | `cd sdk/python && python -m pytest` |
 | Skips | 184, and every one of them names its reason: Docker, Cassandra, Aerospike or `psql` absent on the machine | in the surefire output |
@@ -83,7 +83,7 @@ part under load, several are too noisy to state as a figure, and the harness say
 The register is [`qa/FINDINGS.md`](qa/FINDINGS.md), and it is the honest list: every defect found,
 what happened to it, and what is still true of the build.
 
-At this cut: **368 findings — 335 fixed, 20 open, 0 GA-BLOCKER, 0 GA-REQUIRED**, 15 of the open ones
+At this cut: **369 findings — 335 fixed, 20 open, 0 GA-BLOCKER, 0 GA-REQUIRED**, 15 of the open ones
 triaged POST-GA and 2 recorded as notes rather than defects. The header's counts are enforced by
 `FindingsRegisterTest`, so this page and the register cannot drift apart silently.
 
