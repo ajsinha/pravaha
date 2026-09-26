@@ -207,6 +207,6 @@ public class StatusController {
 
     private static String version() {
         String implementation = StatusController.class.getPackage().getImplementationVersion();
-        return implementation == null ? "0.1.0-SNAPSHOT" : implementation;
+        return implementation == null ? "unknown" : implementation;
     }
 }

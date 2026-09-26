@@ -226,7 +226,7 @@ public class PravahaServerApplication {
                 "pravaha",
                 java.util.Map.of(
                         "name", environment.getProperty("spring.application.name", "pravaha"),
-                        "version", version == null ? "0.1.0-SNAPSHOT" : version,
+                        "version", version == null ? "unknown" : version,
                         "node", environment.getProperty("pravaha.node.id", "pravaha-node-01")));
     }
 

@@ -109,6 +109,19 @@ status="$(curl -s "http://localhost:$http_port/api/v1/status")"
 echo "      $status"
 grep -q '"engineState":"RUNNING"' <<<"$status" && ok "it says it is RUNNING" || bad "engineState is not RUNNING"
 
+# Every connector ships inside the server jar (2026-09-26), so the node in the image must be able to
+# load all of them. A plugin missing from this list is one a deployment cannot bind -- which is how
+# jdbc-lookup and aerospike-lookup went unreachable on every node without anything saying so.
+expected="aerospike aerospike-lookup aerospike-sink cassandra delta delta-sink feedfile filesystem jdbc jdbc-lookup jdbc-sink kafka kafka-sink postgres-cdc"
+loaded="$(curl -s "http://localhost:$http_port/api/v1/plugins" \
+  | python3 -c 'import sys,json; print(" ".join(sorted(p["name"] for p in json.load(sys.stdin) if p.get("loaded"))))')"
+missing=""
+for plugin in $expected; do
+  grep -qw -- "$plugin" <<<"$loaded" || missing="$missing $plugin"
+done
+if [[ -z "$missing" ]]; then ok "all 14 shipped plugins load inside the image"
+else bad "plugins the image cannot load:$missing"; fi
+
 step "the console, pointed at that node"
 if [[ ! -x "$root/console/.venv/bin/python" ]]; then
   bad "no console virtualenv at console/.venv -- see console/README.md"

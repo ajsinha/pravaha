@@ -2202,6 +2202,12 @@ def test_the_figure_carries_no_number_that_was_typed_into_it(anonymous):
     from core.i18n import Messages
 
     page = anonymous.get("/").text
-    assert Messages()("landing.instance.console", version="0.1.0") == "console 0.1.0"
-    assert "console 0.1.0" in page
+    # The version the page must show is the configured one, read here from the same file the
+    # console reads, rather than typed into the test: it said "0.1.0" and failed the day the
+    # release script moved the console to 0.1.1, in a test whose subject is not typing numbers in.
+    configured = re.search(r'^  version: "([^"]+)"', (CONSOLE_ROOT / "config" / "application.yaml").read_text(), re.M)
+    assert configured, "console/config/application.yaml declares app.version"
+    version = configured.group(1)
+    assert Messages()("landing.instance.console", version=version) == f"console {version}"
+    assert f"console {version}" in page
     assert "FIG. 01" in page

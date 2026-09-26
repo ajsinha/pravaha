@@ -125,6 +125,26 @@ for toml in sdk/python/pyproject.toml console/pyproject.toml; do
   note "$toml  $found -> $python_version"
 done
 
+# ---------------------------------------------------------------- the console's displayed version
+#
+# console/config/application.yaml's app.version is what the console shows on its landing page and
+# its About page. It was not in this list, so a release moved the wheel and left the page saying the
+# previous version: 0.1.0 on a 0.1.1 build.
+
+console_cfg="$root/console/config/application.yaml"
+if [[ -f "$console_cfg" ]]; then
+  found="$(awk -F'"' '/^  version: "/ { print $2; exit }' "$console_cfg")"
+  if [[ "$check_only" == 1 ]]; then
+    [[ "$found" == "$python_version" ]] || problem "console/config/application.yaml app.version is $found, not $python_version"
+  elif [[ "$found" != "$python_version" ]]; then
+    perl -0pi -e "s|^  version: \"\Q$found\E\"|  version: \"$python_version\"|m" -- "$console_cfg"
+    changed=$((changed + 1))
+    note "console/config/application.yaml app.version  $found -> $python_version"
+  fi
+else
+  problem "console/config/application.yaml is missing"
+fi
+
 # ---------------------------------------------------------------- the chart
 
 chart="$root/deploy/helm/pravaha/Chart.yaml"
