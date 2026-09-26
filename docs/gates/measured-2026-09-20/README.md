@@ -7,7 +7,7 @@ Copyright © 2026 Ashutosh Sinha. Proprietary and confidential; see `../../../LI
 | Date measured | **2026-09-20** |
 | Why now | There is no reference hardware and there is not going to be any. The owner's instruction on 2026-09-19 was to measure on the machine that exists and report every number with the machine named |
 | Harness | `pravaha-it/src/test/java/com/ash/messaging/pravaha/it/qa/perf/` — `ProfileAGateIT`, `ProfileBGateIT`, `NexmarkCoverageIT`, with `MachineState` and `GateReading` |
-| Verdict | **P2's throughput criterion is reached. P2's scaling criterion is not reached: 28–42 % against a target of 90 %. P3's throughput criterion is reached. W5's Nexmark comparison is not reached and cannot be run here: 5 of 23 queries run at all** |
+| Verdict | **P2's throughput criterion is reached. P2's scaling criterion is not reached: 28–42 % against a target of 90 %. P3's throughput criterion is reached. W5's Nexmark comparison is not reached and cannot be run here: 5 of 23 queries ran at all on 2026-09-20, and 12 of 23 on 2026-09-26 (below)** |
 
 ## The one thing a reader must not conclude
 
@@ -246,6 +246,62 @@ reads both sides of a comma join into the join's condition, where `ON` would hav
 join registers as Nexmark writes it (`NexmarkCommaJoinTest`); q4 and q6 now stop at `PRV-2050`
 without a rewrite, and q9 at `PRV-2021` for its `ROW_NUMBER`. The table above is the measurement
 of the day and is left as it was.
+
+### Coverage re-measured on 2026-09-26 — 12 of 23
+
+Everything above is the measurement of 2026-09-20 and is left as it was. The same harness, with the
+same transcriptions, was run again on 2026-09-26 after the SQL-coverage batch; `NexmarkCoverageIT`
+now pins the list of queries that run, so this table and that list move together.
+
+| Verdict | Count | Queries |
+|---|---|---|
+| **Runs** | **12** | q0, q1, q2, q3, q7, q8, q9, q18, q19, q20, q21, q22 |
+| Refused by the planner or the pipeline | 7 | q4, q5, q6, q11, q15, q16, q17 |
+| Cannot be written against this surface at all | 4 | q10 (partitioned file sink), q12 (`PROCTIME()`), q13 (no lookup source registered), q14 (a user-defined function) |
+
+| Code | Refuses | What it is |
+|---|---|---|
+| `PRV-2050` | 5 | q4, q5, q17 — unwindowed `GROUP BY`; q15, q16 — unwindowed `COUNT(DISTINCT)`. The same refusal every unbounded keyed aggregate gets |
+| `PRV-2021` | 1 | q6 — `AVG(...) OVER (... ROWS BETWEEN 10 PRECEDING AND CURRENT ROW)`, a window aggregate over a row frame |
+| `PRV-2020` | 1 | q11 — `GROUP BY SESSION` |
+
+What moved, and why:
+
+| Query | 2026-09-20 | 2026-09-26 | What was built |
+|---|---|---|---|
+| q1 | `PRV-2021` | **runs** | Exact `DECIMAL` `+ - *` at SQL's precision and scale |
+| q7 | uncoded | **runs** | A stream read on both sides of a join |
+| q9 | `PRV-2021` (after SQL-13) | **runs** | `ROW_NUMBER() OVER (...)` filtered to `rn <= N`, maintained as a top-N |
+| q18, q19 | `PRV-2021` | **runs** | The same top-N |
+| q21 | `PRV-2002` | **runs** | `REGEXP_EXTRACT`, and text equality inside an expression (`LOWER(channel) = 'apple'`) |
+| q22 | `PRV-2002` | **runs** | `SPLIT_INDEX` |
+| q15, q16, q17 | `PRV-2002` | `PRV-2050` | `DATE_FORMAT` is built; each then groups by it without a window, which is refused for unbounded state exactly as q4 and q5 are |
+| q6 | `PRV-2050` | `PRV-2021` | The comma join and the inner `GROUP BY` plan now; the `AVG ... OVER` row frame is the first thing refused |
+
+> **Verdict on 2026-09-26: W5 is still NOT REACHED.** 12 of 23 run. What remains is unwindowed
+> grouping (five queries, refused on purpose until a key space can be bounded), one window
+> aggregate over a row frame, session windows in SQL, processing time and user functions.
+
+Throughput of the twelve that run, 200,000 rows into each source stream, one run, load 2.53 on the
+same machine (a quieter afternoon than the one above; the two tables are not a comparison):
+
+| Query | rows/s | Rows taken |
+|---|---|---|
+| q0 | 1,230,811 | 200,000 |
+| q1 | 1,145,290 | 200,000 |
+| q2 | 6,934,430 | 200,000 |
+| q3 | 273,714 | 400,000 |
+| q7 | 690,912 | 200,000 |
+| q8 | 702,346 | 400,000 |
+| q9 | 362,318 | 400,000 |
+| q18 | 483,524 | 200,000 |
+| q19 | 162,515 | 200,000 |
+| q20 | 65,705 | 400,000 |
+| q21 | 1,127,131 | 200,000 |
+| q22 | 1,136,989 | 200,000 |
+
+q7 takes 200,000 rows although it reads `bid` twice: one reader feeds both sides. Everything said
+at the top of this document about what these numbers are not applies to this table unchanged.
 
 ### Throughput of the five that run
 

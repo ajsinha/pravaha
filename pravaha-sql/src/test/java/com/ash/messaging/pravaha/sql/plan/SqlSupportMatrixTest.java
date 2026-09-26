@@ -449,6 +449,21 @@ class SqlSupportMatrixTest {
                     "window function (OVER)",
                     "SELECT ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY event_time) FROM txn",
                     "PRV-2021"),
+            Case.ok(
+                    "top-N (ROW_NUMBER filtered to rn <= N)",
+                    "SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY amount DESC) AS rn "
+                            + "FROM txn) WHERE rn <= 3"),
+            Case.refused(
+                    "window aggregate over a row frame",
+                    "SELECT AVG(amount) OVER (PARTITION BY user_id ORDER BY event_time ROWS BETWEEN 3 PRECEDING "
+                            + "AND CURRENT ROW) FROM txn",
+                    "PRV-2021"),
+            Case.ok("DATE_FORMAT", "SELECT DATE_FORMAT(event_time, 'yyyy-MM-dd') FROM txn"),
+            Case.ok("REGEXP_EXTRACT", "SELECT REGEXP_EXTRACT(user_id, 'u([0-9]+)', 1) FROM txn"),
+            Case.ok("SPLIT_INDEX", "SELECT SPLIT_INDEX(user_id, '-', 0) FROM txn"),
+            Case.ok("text equality inside an expression", "SELECT txn_id FROM txn WHERE LOWER(user_id) = 'u1'"),
+            Case.ok("DECIMAL multiplication", "SELECT 0.908 * amount FROM txn"),
+            Case.refused("DECIMAL division", "SELECT amount / 1.5 FROM txn", "PRV-2021"),
             Case.refused("VALUES", "SELECT * FROM (VALUES (1), (2))", "PRV-2020"),
 
             // --- Not a query engine for writes ------------------------------------------------

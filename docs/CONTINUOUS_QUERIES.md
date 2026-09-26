@@ -15,9 +15,9 @@ plans each statement on this page, builds it, **and compiles it into a runnable 
 construct starts working, or stops, the build fails and names this file.
 
 That third step is there because the first version of this page got two rows wrong without it.
-Planning a statement and being able to run it are different things — a self-join plans perfectly and
-is refused when the pipeline is built — so a matrix that stopped at the planner reported it as
-supported and this page repeated the claim.
+Planning a statement and being able to run it are different things — a self-join planned perfectly
+and was refused when the pipeline was built, until it was made to run — so a matrix that stopped at
+the planner reported it as supported and this page repeated the claim.
 
 ---
 
@@ -298,8 +298,9 @@ pravaha:
         url: "jdbc:postgresql://db-1:5432/sales"
         user: pravaha
         password: "${PRAVAHA_DB_PASSWORD}"
-        # Joined and cast server-side. The engine refuses DECIMAL arithmetic (§16), so the
-        # conversion to integer cents happens where the decimal already lives.
+        # Joined and cast server-side. The engine computes DECIMAL + - * exactly but refuses
+        # division and narrowing casts (§11), so the conversion to integer cents happens where
+        # the decimal already lives.
         query: >
           SELECT o.order_id,
                  c.tier                          AS customer_tier,
@@ -1528,10 +1529,13 @@ engine. The PostgreSQL gateway is read-only and refuses all five with `PRV-6211`
 | Table aliases — `FROM txn AS t`, or `FROM txn t` | ✅ | With or without `AS` |
 | Qualified columns — `t.amount`, `t.*` | ✅ | In `SELECT`, `WHERE`, `GROUP BY` and join conditions |
 | Integer and floating arithmetic — `amount * 2 + 1`, `price / 2` | ✅ | |
+| `DECIMAL` arithmetic — `0.908 * price`, `fee + 0.05`, `fee - price`, `-fee` | ✅ | Exact. The result has the precision and scale SQL gives it — a sum keeps the larger scale, a product the sum of the scales, an integer is a decimal at scale 0 — so `0.908 * price` over a `BIGINT` is `DECIMAL(23, 3)` and `0.908 * 7` is `6.356`, never `6.356000000000001`. Where the 38-digit cap would force SQL to drop scale, the answer would need rounding, and the query is refused `PRV-2021` at registration. A row whose answer has more integer digits than its type holds goes to the dead-letter queue, as a 64-bit overflow does. A literal written with a decimal point beside a `DOUBLE` column is still a double, as SQL types it (Nexmark q1) |
+| `DECIMAL` division and remainder — `fee / 3`, `MOD(fee, 2)` | ❌ | `PRV-2021`. A quotient is exact at a fixed scale only by luck, so any result type rounds most rows. `CAST(fee AS DOUBLE) / 3` asks for the approximation by name |
+| `CAST(x AS DECIMAL(p, s))` | ✅ | From an integer or a decimal, when every value survives: the target must keep at least the source's scale and its integer digits (`BIGINT` has 19). A narrowing cast is refused `PRV-2021`, because rows that do not fit have no answer. `CAST(decimal AS DOUBLE)` is the approximation, by request |
 | Modulo — `amount % 3`, `MOD(price, 2)` | ✅ | Over integers and over floating point alike. The remainder takes the sign of the dividend, so `-50 % 3` is `-2` and `-50.0 % 1.0` is `-0.0` |
 | `CAST(x AS DOUBLE)` | ✅ | Between numeric types, and only between numeric types. A cast to or from text is refused `PRV-2021`, and that is now true of a literal as well as of a column: `CAST(5 AS VARCHAR)` used to be folded away by the optimiser before the refusal could fire (TY-23). `CAST(NULL AS VARCHAR)` is accepted — it converts nothing, and it is what the bare-`NULL` refusal tells you to write. A cast between the same type at the same width is a no-op and passes through |
 | Literals — `SELECT 1` | ✅ | |
-| `CASE WHEN … THEN … END` | ✅ | Any number of branches, with or without `ELSE`. Only the branch taken is evaluated, so `CASE WHEN n = 0 THEN 0 ELSE t / n END` does not divide by zero. **Every branch must produce the same type**, and the whole `CASE` is typed by SQL rather than by this engine: `CASE WHEN c THEN 1 ELSE 1.5 END` is `DECIMAL` to SQL and is refused `PRV-2021` exactly as `amount * 1.5` is, rather than being widened to a double behind your back. It used to throw an uncoded `IllegalArgumentException` (TY-4) |
+| `CASE WHEN … THEN … END` | ✅ | Any number of branches, with or without `ELSE`. Only the branch taken is evaluated, so `CASE WHEN n = 0 THEN 0 ELSE t / n END` does not divide by zero. **Every branch must produce the same type**, and the whole `CASE` is typed by SQL rather than by this engine: `CASE WHEN c THEN 1 ELSE 1.5 END` is `DECIMAL` to SQL, and a `CASE` choosing between decimals is refused `PRV-2021` rather than being widened to a double behind your back. It used to throw an uncoded `IllegalArgumentException` (TY-4) |
 | A boolean-valued expression — `CASE WHEN c THEN TRUE ELSE FALSE END`, `amount > 50`, `status IS NULL` | ✅ | Only where the result cannot be UNKNOWN. See below |
 | Scalar functions — `ABS`, `FLOOR`, `CEIL`, `ROUND` | ✅ | One argument. `ROUND(x, 2)` is refused: rounding to decimal places is not built |
 | Numeric functions beyond those four | ❌ | `PRV-2021` |
@@ -1540,6 +1544,9 @@ engine. The PostgreSQL gateway is read-only and refuses all five with `PRV-6211`
 | `TRIM(x)` | ✅ | Strips spaces from both ends. `TRIM(LEADING …)` and a trim character other than a space are refused |
 | String concatenation — `a \|\| b` | ✅ | Any length of chain. **Null concatenated with anything is null**, not an empty string. Both sides must be text: there is no conversion from a number, a boolean or a date to text anywhere in this engine, so `s \|\| 5`, `s \|\| CAST(5 AS VARCHAR)` and `s \|\| amount` are all refused `PRV-2021`. The first two used to succeed and the third did not, which made the rule depend on how the value was spelled (TY-23) |
 | `SUBSTRING(s FROM start)`, `… FOR length` | ✅ | Positions are 1-based and counted in code points, so a substring never splits an emoji in half |
+| `DATE_FORMAT(ts, 'yyyy-MM-dd')` | ✅ | Flink's function: the timestamp rendered as text **in UTC**, whatever the machine's zone, with a `java.time` pattern. The pattern is a literal, compiled when the query is registered, so a malformed one is refused `PRV-2021` there. Null in, null out (Nexmark q15–q17) |
+| `REGEXP_EXTRACT(s, 'regex'[, group])` | ✅ | Flink's function: the group of the first match, group 0 — the whole match — by default. **No match is null**, not an empty string, and so is a group that took no part. The regex and the group are literals; a regex that does not compile or a group it does not have is refused `PRV-2021` at registration (Nexmark q21) |
+| `SPLIT_INDEX(s, 'delimiter', n)` | ✅ | Flink's function: field `n`, counted from 0, of `s` split on the whole delimiter, **empty fields kept** — `SPLIT_INDEX('a//b', '/', 1)` is `''`. Past the last field, or over an empty string, it is null. An empty delimiter or a negative index is refused `PRV-2021` (Nexmark q22) |
 | Other string functions — `REPLACE`, `POSITION`, `LPAD` | ❌ | `PRV-2021`, or `PRV-2002` where SQL's own validator does not recognise the name first — `LTRIM`, `RTRIM` and `CONCAT` arrive that way. Either refusal now ends with what this engine does evaluate (TY-24) |
 | `SELECT DISTINCT` | ❌ | `PRV-2050` — it is a `GROUP BY` over an unbounded key space; see §13 |
 
@@ -1608,6 +1615,8 @@ worst time to meet it. If a query is this wide, split it into several narrower o
 | `LIKE`, `NOT LIKE` | ✅ | Against a literal pattern. The pattern is compiled once when the query is registered, not once per row — so `LIKE status` is refused |
 | `LIKE … ESCAPE` | ❌ | `PRV-2021`. Without it, `%` and `_` are always wildcards and cannot be matched literally |
 | Text ordering — `WHERE status > user_id` | ❌ | `PRV-2021`. `>` on text needs a collation, and assuming one gives wrong answers that look right. `=` and `<>` on text do work |
+| Text equality inside an expression — `LOWER(channel) = 'apple'`, `CASE WHEN LOWER(channel) = 'google' THEN …` | ✅ | `=` and `<>`, compared by code point, exactly as a text column against a literal is. An ordering is refused as above (Nexmark q21) |
+| A `DECIMAL` in a comparison — `WHERE fee * 3 = 0.30` | ✅ | Compared exactly as decimals, so `0.10 * 3 = 0.30` holds, which it does not in double |
 | Comparing text to a number | ❌ | `PRV-2021` |
 | Comparing a `BYTES`, `ARRAY`, `MAP` or `ROW` column | ❌ | `PRV-2021`, naming the column. A `BYTES` column can be selected, null-checked and used as a join key; comparing one in a predicate is not built. The `BYTES` refusal used to name only the implicit cast SQL inserted (TY-14) |
 
@@ -1637,7 +1646,7 @@ Rewrite the filter as a range comparison, or join against a table of values inst
 | `HAVING` on an aggregate | ✅ | |
 | `GROUP BY key` **without** a window, over a stream | ❌ | `PRV-2050` — unbounded state |
 | `GROUP BY key` **without** a window, over a view | ✅ | The scan ends, so the state is bounded by it |
-| `SESSION` windows | ❌ | `PRV-2020` — implemented in the runtime, no SQL surface yet |
+| `SESSION` windows | ❌ | `PRV-2020`. The runtime has the session-merging bookkeeping (`SessionWindows`) and no operator: an aggregate over sessions that retracts the old windows' answers when two merge, and splits one when a retraction removes the row joining it, is not built (Nexmark q11) |
 
 ### Should a continuous query aggregate at all?
 
@@ -1702,7 +1711,7 @@ meaningful, but an answer that shuffles is one somebody wastes an afternoon on.
 | Time bound with no equality | ❌ | `PRV-2020` — a window narrows which pairs count but still leaves every row a candidate for every other inside it |
 | Time bound in months or years | ❌ | A month has no fixed length; guessing 30 days is wrong twice a year |
 | Three-way and deeper | ✅ | Between *distinct* streams |
-| Self join — one stream on both sides | ❌ | Rows enter a join by stream name, which cannot say which side a row is for |
+| Self join — one stream on both sides | ✅ | One reader of the stream; each row is handed to both sides, the side registered first and then the other, which is the join's own delta rule applied to one stream. Nothing is pushed to the source for a stream read twice, because a filter for one side would drop the row for the other (Nexmark q7) |
 | Lookup join against a dimension table | ✅ | Async, on virtual threads, ordered output — §7 |
 | A filter on a looked-up column, over an inner lookup join — `JOIN users FOR SYSTEM_TIME AS OF … AS u … WHERE u.tier = 'gold'` | ❌ | `PRV-2020`, with a message about correlated subqueries that does not describe the query. Write the same join as `LEFT JOIN … WHERE u.tier = 'gold'`: the filter drops the null-padded rows, so it keeps exactly the rows the inner form would have, and it plans and runs (`LookupJoinTest`). A filter on the stream's own columns works with either |
 | A condition on a looked-up column in the `ON` clause — `ON u.user_id = t.user_id AND u.tier = 'gold'` | ❌ | `PRV-2020`. A lookup's `ON` is its key, and only equalities between a stream column and a lookup column are keys; filter in `WHERE`, as above |
@@ -1721,9 +1730,8 @@ made incremental at all.
 **In practice this covers the joins people write.** A stream joined to another stream on a key, and a
 stream enriched from a dimension table, are the two shapes that make up nearly all of it.
 
-A self-join is refused later than the rest — when the pipeline is built rather than when the query is
-planned — and it is the one refusal that arrives without a `PRV-` code. Both are worth fixing; until
-then, the message says plainly what is wrong.
+A self-join used to be refused when the pipeline was built, and was the one refusal in the engine
+without a `PRV-` code. It runs now, so every refusal on this page carries a code.
 
 ---
 
@@ -1739,7 +1747,9 @@ then, the message says plainly what is wrong.
 | `UNION`, `UNION ALL`, `INTERSECT`, `EXCEPT` | ❌ | `PRV-2020` |
 | `IN (subquery)`, uncorrelated `EXISTS`, uncorrelated scalar subqueries | ❌ | `PRV-2021` |
 | Correlated subqueries — an `EXISTS` or a scalar subquery naming a column of the outer row | ❌ | `PRV-2020`, and the refusal names the one correlated form that does run: `JOIN dim FOR SYSTEM_TIME AS OF <time>`. Until X-7 was fixed the two shapes anybody writes were answered by the expression compiler's generic arms instead, so the refusal that names the alternative was unreachable |
-| Window functions — `ROW_NUMBER() OVER (…)` | ❌ | `PRV-2021` |
+| Top-N — `SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY auction ORDER BY price DESC) AS rn FROM bid) WHERE rn <= 10` | ✅ | Maintained incrementally: a row entering a partition's first N is emitted with its number, the row it displaces is retracted, and every row between is re-numbered; a retraction promotes the row below. The bound may be `rn <= N`, `rn < N` or `rn = 1`, and other conditions beside it filter the numbered rows. Ties on the `ORDER BY` keys are numbered by the remaining columns, so the answer is the same on every run. Every row of a partition is held — retracting a top row needs the next one — up to 1,000,000 rows across partitions, past which the query stops with `PRV-4001` STATE_TOO_LARGE, as an unwindowed join does; bound it with a window column in the `PARTITION BY` (Nexmark q9, q18, q19) |
+| `ROW_NUMBER() OVER (…)` without a bound, with no `ORDER BY`, or with an expression as a key | ❌ | `PRV-2021`. Unbounded, every arrival that sorts ahead of a row changes that row's number, so one row would retract and re-emit its whole partition; the refusal shows the top-N form |
+| Other window functions — `AVG(x) OVER (… ROWS BETWEEN 10 PRECEDING AND CURRENT ROW)`, `RANK()` | ❌ | `PRV-2021` — a window aggregate over a row frame is not built (Nexmark q6) |
 | `VALUES` | ❌ | `PRV-2020` |
 | `INSERT`, `UPDATE`, `DELETE`, `MERGE` | ❌ | `PRV-2020` — Pravaha answers questions; sinks write results, and there is nothing here whose rows a statement may edit in place. `INSERT INTO <sink> SELECT` carries neither the query's name nor its key, so it is refused rather than read as a registration: write `CREATE CONTINUOUS QUERY <name> KEYED BY (...) WRITING TO <sink> AS <select>`, or `WITH (sink = '<sink>')`, or `pravaha register --sink` (§10.1) |
 
@@ -1780,8 +1790,8 @@ what windows use.
 `name:TYPE,name:TYPE`, and it used to be split on every comma before any type was parsed — so
 `amt:DECIMAL(10,2)` was cut at its own comma and failed as `unknown type 'DECIMAL(10'`, while the
 refusal went on listing `DECIMAL(p,s)` as supported. The split is paren-aware now. A decimal column
-is carried through scans, filters and projections correctly; what is still not built is arithmetic
-over it.
+is carried through scans, filters and projections, and `+ - *` over it are exact (§11); division, a
+`CASE` choosing between decimals, and aggregates over a decimal are not built and are refused.
 
 **A schema string that will not parse is `PRV-1028`, and it names the stream and the column.** It
 was `PRV-5040`, the filesystem plugin's decode code, because that is where the parser lives — which
@@ -1854,6 +1864,7 @@ as a JUnit test that compiles and passes.
 | `PRV-2041` | The query revises its answer and the sink it names can only append — §4 |
 | `PRV-2042` | The query's answer depends on how many times a row arrived — an aggregate, a join, a sink that cannot upsert — and its source repeats rows (`cassandra` or `aerospike` with `deletes: ignore`, a `jdbc` poll an update can re-read); set `deletes: detect` on the binding — §2.1 |
 | `PRV-2050` | The query's state would grow without bound |
+| `PRV-3024` | A top-N was handed a retraction of a row it does not hold — the input withdrew more than it inserted — §15 |
 | `PRV-2060`–`PRV-2063` | Parameter binding — see [ADR-032](adr/032-parameters-are-values-not-queries.md) |
 | `PRV-2070` | A `CREATE`/`DROP`/`PAUSE`/`RESUME CONTINUOUS QUERY` or `SHOW CONTINUOUS QUERIES` without that statement's shape — §10.1 |
 | `PRV-2071` | `KEYED BY` names a column the query does not produce, or one twice — §10.1 |

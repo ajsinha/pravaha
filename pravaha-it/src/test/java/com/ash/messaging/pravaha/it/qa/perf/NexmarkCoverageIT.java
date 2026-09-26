@@ -343,9 +343,9 @@ final class NexmarkCoverageIT {
         System.out.printf(
                 "%n    W5 asks for parity or better against Flink SQL on at least 18 of 22 queries and 2x on at%n"
                         + "    least 8. %d run. W5 is therefore NOT REACHED, and it is not reached by a margin that%n"
-                        + "    has nothing to do with speed: the missing queries are missing SQL -- OVER windows,%n"
-                        + "    session windows in SQL, self-joins, unwindowed grouping, processing time and%n"
-                        + "    user functions. No throughput figure changes that, and no%n"
+                        + "    has nothing to do with speed: the missing queries are missing SQL -- unwindowed%n"
+                        + "    grouping, a window aggregate over a row frame, session windows in SQL, processing%n"
+                        + "    time and user functions. No throughput figure changes that, and no%n"
                         + "    comparison should be published on the subset that happens to plan.%n",
                 runnable);
         System.out.printf(
