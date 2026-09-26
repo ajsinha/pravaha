@@ -385,8 +385,13 @@ public final class PravahaFlightServer implements AutoCloseable {
         // After the transport has stopped accepting, before the allocator: a call still unwinding
         // holds Arrow buffers, and awaitInFlightCalls below is what waits for it to let go.
         callThreads.shutdownNow();
+        // Whether or not this server owns the allocator. An owner closes it next, and so does a
+        // caller that lent it: either way the call threads must have let go of their buffers
+        // first. Waiting only when owning left the lent case racing -- SubscriptionOverflowTest
+        // shares one allocator between client and server, closed it the moment close() returned,
+        // and failed a loaded gate twice with a live 80 KiB subscription batch while passing alone.
+        awaitInFlightCalls();
         if (ownsAllocator) {
-            awaitInFlightCalls();
             allocator.close();
         }
     }
