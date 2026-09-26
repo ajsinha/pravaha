@@ -30,8 +30,33 @@ import com.ash.messaging.pravaha.runtime.lane.LaneProcessor;
  * package-private, still built only by {@code QueryExecution}, and still runs on the lane thread
  * and nowhere else.
  */
-record LanePipeline(InterpretedPipeline pipeline, BinaryRowView[] views, BinaryRowView[] partials, List<String> streams)
+record LanePipeline(
+        InterpretedPipeline pipeline,
+        BinaryRowView[] views,
+        BinaryRowView[] partials,
+        List<String> streams,
+        RowProcessor[] entries)
         implements LaneProcessor {
+
+    /**
+     * Resolves each input's entry point once, here, rather than by name for every row.
+     *
+     * <p>{@code pipeline.accept(stream, row)} looks the stream up in a map, and on a lane moving
+     * tens of millions of rows a second that lookup was a measurable share of the lane's time (gate
+     * P2, 2026-09-26). The map does not change after the pipeline is compiled, so the answer does not
+     * either.
+     */
+    LanePipeline(InterpretedPipeline pipeline, BinaryRowView[] views, BinaryRowView[] partials, List<String> streams) {
+        this(pipeline, views, partials, streams, entriesOf(pipeline, streams));
+    }
+
+    private static RowProcessor[] entriesOf(InterpretedPipeline pipeline, List<String> streams) {
+        RowProcessor[] entries = new RowProcessor[streams.size()];
+        for (int i = 0; i < entries.length; i++) {
+            entries[i] = pipeline.entry(streams.get(i));
+        }
+        return entries;
+    }
 
     LanePipeline {
         // A lane is a registered continuous query, and that is true by construction here: nothing
@@ -52,6 +77,7 @@ record LanePipeline(InterpretedPipeline pipeline, BinaryRowView[] views, BinaryR
         BinaryRowView view = views[input];
         BinaryRowView partial = partials == null ? null : partials[input];
         String stream = streams.get(input);
+        RowProcessor entry = entries[input];
         for (int i = 0; i < count; i++) {
             int at = (int) offsets[i];
             if (partial != null
@@ -64,7 +90,7 @@ record LanePipeline(InterpretedPipeline pipeline, BinaryRowView[] views, BinaryR
             }
             // A flyweight over the lane's own inbox cell: the row is read in place and never
             // copied, which is the entire reason the inbox holds bytes rather than objects.
-            pipeline.accept(stream, view.wrap(region, at));
+            entry.process(view.wrap(region, at));
         }
         // The batch is whole: what it wrote may now be seen, all of it at once (VIEW-1). A
         // checkpoint's marker cuts the batch before this runs, so the output its cut commits

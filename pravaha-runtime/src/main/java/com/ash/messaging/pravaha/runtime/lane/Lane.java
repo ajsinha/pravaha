@@ -724,6 +724,9 @@ public final class Lane implements AutoCloseable {
         // How far this iteration may go, per input, worked out before a single row is
         // taken. See the note on `room`.
         takeableRows(room);
+        if (workedLastStep && !hosted) {
+            coalesce();
+        }
         int count = 0;
         for (int input = 0; input < inboxes.length; input++) {
             RowInbox from = inboxes[input];
@@ -809,6 +812,44 @@ public final class Lane implements AutoCloseable {
         batches = localBatches;
         workedLastStep = true;
         return true;
+    }
+
+    /**
+     * How many spins a lane that has caught up with a busy producer waits for a batch worth taking.
+     *
+     * <p>Gate P2, 2026-09-26. A lane that processes rows faster than its producer writes them drains
+     * whatever has arrived -- six or seven rows -- and pays the whole per-batch cost for them: the
+     * frontier reads, the release, the output's end of batch, the arena reset. Worse, it reads each
+     * cell while the producer is still writing the cells beside it, so the cache lines of the inbox
+     * move between the two cores row by row. Measured on Profile A, the generated pipeline -- more
+     * than twice as fast as the interpreted one in isolation -- ran end to end at 0.58x of it, at 7
+     * rows a batch against the interpreter's 120 to 340.
+     *
+     * <p>So a lane whose last step worked, and which finds less than an eighth of a batch waiting,
+     * spins briefly for more before draining. Bounded at a few microseconds, and only while a
+     * producer is demonstrably writing: a lane whose last step found nothing does not wait, so a
+     * lone row on a quiet stream is taken at once. Not on a hosted lane, whose runner has other
+     * lanes to step, and not while a barrier is pending, whose task should run without delay.
+     */
+    static final int COALESCE_SPINS = 256;
+
+    /** The fraction of a batch below which a caught-up lane waits for more. */
+    static final int COALESCE_FRACTION = 8;
+
+    private void coalesce() {
+        int target = Math.max(1, batch.length / COALESCE_FRACTION);
+        for (int spin = 0; spin < COALESCE_SPINS && pendingCuts.get() == 0 && takeable() < target; spin++) {
+            Thread.onSpinWait();
+            takeableRows(room);
+        }
+    }
+
+    private long takeable() {
+        long total = 0;
+        for (long rows : room) {
+            total += Math.max(0, rows);
+        }
+        return total;
     }
 
     /** Publishes this lane's counters, which are read by other threads and written only here. */

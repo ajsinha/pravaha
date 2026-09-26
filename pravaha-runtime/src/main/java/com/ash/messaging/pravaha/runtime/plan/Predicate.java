@@ -204,8 +204,30 @@ public sealed interface Predicate {
             if (row.isNull(ordinal)) {
                 return false;
             }
-            boolean equal = row.getString(ordinal).equals(value);
+            // Compared in place, which is the same answer without a String per row. Decoded UTF-8
+            // is never longer in chars than it is in bytes -- a malformed sequence becomes one
+            // U+FFFD, a four-byte one two chars -- so fewer bytes than the literal has chars is
+            // unequal outright; an ASCII literal is then compared byte for byte (see
+            // BinaryRowView.asciiEquals); anything else is decoded, as it always was.
+            boolean equal;
+            if (row instanceof com.ash.messaging.pravaha.common.row.BinaryRowView binary) {
+                equal = binary.payloadLength(ordinal) >= value.length()
+                        && (isAscii(value)
+                                ? binary.asciiEquals(ordinal, value)
+                                : row.getString(ordinal).equals(value));
+            } else {
+                equal = row.getString(ordinal).equals(value);
+            }
             return op == Op.EQ == equal;
+        }
+
+        private static boolean isAscii(String text) {
+            for (int i = 0; i < text.length(); i++) {
+                if (text.charAt(i) >= 0x80) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         @Override

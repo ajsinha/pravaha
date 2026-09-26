@@ -168,6 +168,37 @@ public final class BinaryRowView implements RowView {
         return region.equalsBytes(offset + region.getInt(slot), literal);
     }
 
+    /**
+     * Whether a text column holds exactly {@code ascii}, compared in place with nothing allocated.
+     *
+     * <p>The caller guarantees every char of {@code ascii} is below {@code 0x80}. Under that
+     * condition this is the same answer as {@code getString(ordinal).equals(ascii)}: UTF-8 decodes
+     * an ASCII character only from the single byte of the same value -- an overlong or malformed
+     * sequence decodes to U+FFFD, never to ASCII -- so the decoded text equals {@code ascii} exactly
+     * when the stored bytes are its bytes. It exists because the interpreted {@code WHERE status =
+     * 'COMPLETED'} decoded a String for every row, and that allocation was half of a lane's time
+     * and most of its garbage (gate P2, 2026-09-26).
+     */
+    /** The byte length of a text or binary column's value, read from its slot. */
+    public int payloadLength(int ordinal) {
+        return region.getInt(offset + layout.offsetOf(ordinal) + 4);
+    }
+
+    public boolean asciiEquals(int ordinal, String ascii) {
+        int slot = offset + layout.offsetOf(ordinal);
+        int length = region.getInt(slot + 4);
+        if (length != ascii.length()) {
+            return false;
+        }
+        int at = offset + region.getInt(slot);
+        for (int i = 0; i < length; i++) {
+            if (region.getByte(at + i) != (byte) ascii.charAt(i)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     @Override
     public String getString(int ordinal) {
         int slot = offset + layout.offsetOf(ordinal);

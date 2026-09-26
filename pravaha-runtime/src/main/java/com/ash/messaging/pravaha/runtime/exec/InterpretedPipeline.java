@@ -477,12 +477,17 @@ public final class InterpretedPipeline implements AutoCloseable {
 
     /** Feeds one row in on a named stream. */
     public void accept(String streamName, RowView row) {
+        entry(streamName).process(row);
+    }
+
+    /** Where rows of a named stream enter, for a caller that feeds it many rows and resolves it once. */
+    RowProcessor entry(String streamName) {
         RowProcessor input = inputs.get(streamName);
         if (input == null) {
             throw new IllegalArgumentException(
                     "'" + streamName + "' is not an input of this pipeline; it reads " + sourceStreams());
         }
-        input.process(row);
+        return input;
     }
 
     /**
