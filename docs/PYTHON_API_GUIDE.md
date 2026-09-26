@@ -290,7 +290,8 @@ except QueryError as e:
 ```
 
 `ConnectError` (nothing answered — the engine is down or restarting) is retryable. A `QueryError`
-or an `ApiError` below 500 is the engine's considered refusal and will be refused again.
+or an `ApiError` below 500 is the engine's considered refusal and will be refused again. On the
+0.1.1 wheel, see the note in [§17](#17-errors).
 
 ### Permissions, as the built-in policies grant them
 
@@ -1045,6 +1046,12 @@ PravahaError                    code (int), retryable (bool), help_url
 ├── InvalidDocsBaseUrlError 1029 PRAVAHA_DOCS_BASE_URL is set to something that is not a URL
 └── MalformedTextError     1053 text that is not valid Unicode (a lone surrogate), refused before sending
 ```
+
+> **Which SDK has these.** `QueryError.engine_code` and `.message`, and `ConnectError` for an engine
+> that does not answer (PYSDK-1, PYSDK-2), are in the SDK **after** 0.1.1. The 0.1.1 wheel in the QA
+> bundle raises `QueryError` for both, not retryable, with the engine's code inside the text — read
+> it with `re.search(r"PRV-(?!1041)\d{4}", str(e))`, and treat a message containing
+> `failed to connect` as retryable.
 
 `QueryError` and `ApiError` both carry **`engine_code`** (`"PRV-8002"`) and **`message`** (the
 engine's own sentence). `str(error)` prefixes the client's code:
