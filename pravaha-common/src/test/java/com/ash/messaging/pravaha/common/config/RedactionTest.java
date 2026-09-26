@@ -58,6 +58,59 @@ class RedactionTest {
     }
 
     @Test
+    void bindingOptionValuesAreStruckByKeyAndByLength() {
+        java.util.Map<String, String> options = new java.util.LinkedHashMap<>();
+        options.put("password", "abc"); // a credential's key: struck at three characters
+        options.put("topic", "orders-events-v2"); // long enough to be one whatever its key
+        options.put("mode", "fast"); // short, and not a credential's key: kept
+        options.put("user", "ab"); // a credential's key, but too short to strike without gutting the text
+
+        String struck = Redaction.strikeOptionValues(
+                "login abc to orders-events-v2 in fast mode as ab", java.util.List.of(options));
+
+        assertThat(struck).isEqualTo("login [redacted password] to [redacted topic] in fast mode as ab");
+        assertThat(Redaction.strikeOptionValues(null, java.util.List.of(options)))
+                .isNull();
+    }
+
+    @Test
+    void theOptionRedactionRuleIsWrittenOnceInTheWholeTree() throws Exception {
+        // SINK-4: the rule was written out three times -- the sinks' resolver, the source feeds'
+        // redaction and the HTTP surface -- so a change to it would reach one of three. The
+        // pattern's text is the fingerprint of a copy.
+        String fingerprint = "pass|secret|token|key|credential";
+        java.nio.file.Path root = java.nio.file.Path.of("..").toRealPath();
+        java.util.List<String> copies = new java.util.ArrayList<>();
+        java.nio.file.Files.walkFileTree(root, new java.nio.file.SimpleFileVisitor<>() {
+            @Override
+            public java.nio.file.FileVisitResult preVisitDirectory(
+                    java.nio.file.Path dir, java.nio.file.attribute.BasicFileAttributes attributes) {
+                String name = dir.getFileName() == null ? "" : dir.getFileName().toString();
+                // Hidden directories hold other worktrees' copies of this tree; build output and
+                // the console's dependencies are not source.
+                boolean skip = !dir.equals(root)
+                        && (name.startsWith(".") || name.equals("target") || name.equals("node_modules"));
+                return skip ? java.nio.file.FileVisitResult.SKIP_SUBTREE : java.nio.file.FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public java.nio.file.FileVisitResult visitFile(
+                    java.nio.file.Path file, java.nio.file.attribute.BasicFileAttributes attributes)
+                    throws java.io.IOException {
+                String relative = root.relativize(file).toString();
+                if (relative.endsWith(".java")
+                        && relative.contains("src/main/java/")
+                        && java.nio.file.Files.readString(file).contains(fingerprint)) {
+                    copies.add(relative);
+                }
+                return java.nio.file.FileVisitResult.CONTINUE;
+            }
+        });
+        assertThat(copies)
+                .containsExactly("pravaha-common/src/main/java/com/ash/messaging/pravaha/common/config/Redaction.java");
+    }
+
+    @Test
     void configValueRetainsProvenanceWhenResolved() {
         ConfigValue v = new ConfigValue("k", "${a}", ConfigSource.FILE, "/etc/app.properties");
         ConfigValue resolved = v.withValue("expanded");

@@ -16,10 +16,9 @@
 package com.ash.messaging.pravaha.bindings.ingest;
 
 import java.util.Collection;
-import java.util.Map;
-import java.util.regex.Pattern;
 
 import com.ash.messaging.pravaha.api.PravahaException;
+import com.ash.messaging.pravaha.common.config.Redaction;
 
 /**
  * Strikes a source binding's option values out of the failure a stopped feed records.
@@ -30,15 +29,12 @@ import com.ash.messaging.pravaha.api.PravahaException;
  * common enough that the text cannot be trusted not to. Done once, where the failure is recorded,
  * so no surface can forget; the HTTP API's own redaction of sink options runs over it again.
  *
- * <p>The same rule as the server's sink redaction: every value of a key that names a credential, and
- * every value long enough to be one whatever its key. Over-redacting a diagnostic costs a word;
+ * <p>The rule is {@link Redaction#strikeOptionValues}, the one every surface uses: every value of a
+ * key that names a credential, and every value long enough to be one whatever its key. Over-redacting a diagnostic costs a word;
  * under-redacting costs a password. The stream and partition a stop reports say which binding it
  * was, which is what a redacted path would have said.
  */
 final class FeedRedaction {
-
-    private static final Pattern SENSITIVE_KEY =
-            Pattern.compile("(?i).*(pass|secret|token|key|credential|auth|url|uri|dsn|connection|user).*");
 
     private FeedRedaction() {}
 
@@ -55,22 +51,7 @@ final class FeedRedaction {
     }
 
     static String redact(String text, Collection<SourceBinding> bindings) {
-        if (text == null || text.isEmpty()) {
-            return text;
-        }
-        String out = text;
-        for (SourceBinding binding : bindings) {
-            for (Map.Entry<String, String> option : binding.options().entrySet()) {
-                String value = option.getValue();
-                if (value == null || value.isBlank()) {
-                    continue;
-                }
-                boolean sensitive = SENSITIVE_KEY.matcher(option.getKey()).matches();
-                if (value.length() >= 8 || (sensitive && value.length() >= 3)) {
-                    out = out.replace(value, "[redacted " + option.getKey() + "]");
-                }
-            }
-        }
-        return out;
+        return Redaction.strikeOptionValues(
+                text, bindings.stream().map(SourceBinding::options).toList());
     }
 }

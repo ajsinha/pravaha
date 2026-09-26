@@ -55,4 +55,46 @@ public final class Redaction {
     public static String mask(String key, String value) {
         return isSecret(key) ? MASK : value;
     }
+
+    /**
+     * Option keys whose values are credentials or carry them, whatever their length -- wider than
+     * {@link #isSecret}, because a connection option's URL, DSN or user name is itself the thing a
+     * plugin's exception text leaks.
+     */
+    private static final java.util.regex.Pattern SENSITIVE_OPTION = java.util.regex.Pattern.compile(
+            "(?i).*(pass|secret|token|key|credential|auth|url|uri|dsn|connection|user).*");
+
+    /**
+     * {@code text} with every value of every binding option in {@code optionSets} that could be a
+     * credential struck out, as {@code [redacted <key>]}.
+     *
+     * <p>The rule for a plugin's own failure text before it leaves the node (SINK-3, FEED-1): every
+     * value of a key that names a credential, at three characters or more, and every value of eight
+     * or more whatever its key. Over-redacting a diagnostic costs a word; under-redacting costs a
+     * password. Three characters at least, because a one-letter value would strike every occurrence of
+     * that letter from the message and leave nothing to read.
+     *
+     * <p>Written once (SINK-4). The sinks' resolver, the source feeds and the HTTP surface each
+     * carried their own copy of this pattern and these two lengths, so the next change to the rule
+     * would have reached one of three.
+     */
+    public static String strikeOptionValues(String text, Iterable<? extends java.util.Map<String, String>> optionSets) {
+        if (text == null || text.isEmpty()) {
+            return text;
+        }
+        String out = text;
+        for (java.util.Map<String, String> options : optionSets) {
+            for (java.util.Map.Entry<String, String> option : options.entrySet()) {
+                String value = option.getValue();
+                if (value == null || value.isBlank()) {
+                    continue;
+                }
+                boolean sensitive = SENSITIVE_OPTION.matcher(option.getKey()).matches();
+                if (value.length() >= 8 || (sensitive && value.length() >= 3)) {
+                    out = out.replace(value, "[redacted " + option.getKey() + "]");
+                }
+            }
+        }
+        return out;
+    }
 }
