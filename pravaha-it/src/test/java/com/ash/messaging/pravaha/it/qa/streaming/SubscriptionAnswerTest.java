@@ -195,7 +195,9 @@ class SubscriptionAnswerTest {
         try (QueryRegistry ownRegistry = new QueryRegistry(ownViews, TXN)) {
             RegisteredQuery total =
                     ownRegistry.register("total", "SELECT SUM(amount) AS total FROM txn", List.of(0), DANA);
-            List<List<ViewChange>> batches = new ArrayList<>();
+            // Appended to by the subscription's delivery thread and read by this one, so it must be
+            // safe to share; an ArrayList read while the other thread appends can show a stale size.
+            List<List<ViewChange>> batches = new java.util.concurrent.CopyOnWriteArrayList<>();
             try (Subscription subscription = total.subscribe(b -> batches.add(List.copyOf(b)))) {
                 feedInto(total, "u1", 300);
                 awaitPublished(total, 300L);
@@ -204,6 +206,11 @@ class SubscriptionAnswerTest {
                 // pass, so a caller may see the previous answer once. Commit until the new one has
                 // been published rather than guessing how many passes that takes.
                 awaitPublished(total, 350L);
+                // And then until the subscriber has been handed it. awaitPublished watches the VIEW;
+                // delivery runs on the subscription's own thread since STRM-8, so the view can hold
+                // 350 while the subscriber has not yet received the batch that says so -- which
+                // failed this case one run in three, on a quiet machine as well as a loaded one.
+                settle(subscription);
 
                 // A continuous aggregate publishes on commit and the emission is picked up on the
                 // following pass, so how many republished pairs appear is a function of how many
