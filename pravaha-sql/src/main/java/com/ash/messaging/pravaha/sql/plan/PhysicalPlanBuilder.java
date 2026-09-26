@@ -498,9 +498,65 @@ public final class PhysicalPlanBuilder {
     }
 
     private PhysicalOperator buildFilter(Filter filter) {
+        RelNode commaJoin = joinConditionFromWhere(filter);
+        if (commaJoin != null) {
+            return build(commaJoin);
+        }
         PhysicalOperator input = build(filter.getInput());
         Predicate predicate = new PredicateCompiler(input.outputSchema(), parameters).compile(filter.getCondition());
         return new FilterOperator(input, predicate);
+    }
+
+    /**
+     * A comma join -- {@code FROM a, b WHERE a.k = b.k AND b.t BETWEEN ...} -- rewritten as the {@code
+     * INNER JOIN ... ON} it means, or null when {@code filter} is not over one (SQL-13).
+     *
+     * <p>Calcite plans the comma form as a join whose condition is {@code true} with the whole
+     * {@code WHERE} in a filter above it, and {@link #buildJoin} then refused a join with no
+     * condition, though the same predicates written in {@code ON} planned. Here every conjunct that
+     * reads <em>both</em> sides moves into the join's condition, exactly where {@code ON} would have
+     * put it, and conjuncts that read one side or none stay in the filter above. The join is then
+     * judged by {@link #buildJoin} with the same rules as the {@code ON} form, refusals included: a
+     * cross-side condition that is neither an equality nor a time bound is refused there, by name,
+     * rather than evaluated as a filter over a cross product.
+     *
+     * <p>Only an inner join with a condition that is literally {@code true}; a join that already has
+     * an {@code ON} condition is left as written.
+     */
+    private static RelNode joinConditionFromWhere(Filter filter) {
+        if (!(filter.getInput() instanceof org.apache.calcite.rel.core.Join join)
+                || join.getJoinType() != org.apache.calcite.rel.core.JoinRelType.INNER
+                || !join.getCondition().isAlwaysTrue()) {
+            return null;
+        }
+        int leftWidth = join.getLeft().getRowType().getFieldCount();
+        List<RexNode> crossing = new ArrayList<>();
+        List<RexNode> remaining = new ArrayList<>();
+        for (RexNode conjunct : org.apache.calcite.plan.RelOptUtil.conjunctions(filter.getCondition())) {
+            org.apache.calcite.util.ImmutableBitSet fields =
+                    org.apache.calcite.plan.RelOptUtil.InputFinder.bits(conjunct);
+            boolean readsLeft = !fields.isEmpty() && fields.nextSetBit(0) < leftWidth;
+            boolean readsRight = fields.nextSetBit(leftWidth) >= 0;
+            (readsLeft && readsRight ? crossing : remaining).add(conjunct);
+        }
+        if (crossing.isEmpty()) {
+            // A genuine cross product with a filter on one side; buildJoin refuses it as it is.
+            return null;
+        }
+        org.apache.calcite.rex.RexBuilder rex = join.getCluster().getRexBuilder();
+        RelNode joined = join.copy(
+                join.getTraitSet(),
+                org.apache.calcite.rex.RexUtil.composeConjunction(rex, crossing),
+                join.getLeft(),
+                join.getRight(),
+                join.getJoinType(),
+                join.isSemiJoinDone());
+        return remaining.isEmpty()
+                ? joined
+                : filter.copy(
+                        filter.getTraitSet(),
+                        joined,
+                        org.apache.calcite.rex.RexUtil.composeConjunction(rex, remaining));
     }
 
     private PhysicalOperator buildProject(Project project) {

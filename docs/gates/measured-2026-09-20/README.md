@@ -241,6 +241,12 @@ So the interval join itself works; the planner does not derive it from a comma j
 narrow, fixable planner gap rather than a missing capability, and it is worth separating from the
 rest because it is the only one of the eighteen that is cheap.
 
+*Since this was measured:* SQL-13 closed that gap. The planner moves every `WHERE` condition that
+reads both sides of a comma join into the join's condition, where `ON` would have put it, so q9's
+join registers as Nexmark writes it (`NexmarkCommaJoinTest`); q4 and q6 now stop at `PRV-2050`
+without a rewrite, and q9 at `PRV-2021` for its `ROW_NUMBER`. The table above is the measurement
+of the day and is left as it was.
+
 ### Throughput of the five that run
 
 200,000 rows into each of the query's source streams; three runs; load 5.85–6.27. Rows taken is the

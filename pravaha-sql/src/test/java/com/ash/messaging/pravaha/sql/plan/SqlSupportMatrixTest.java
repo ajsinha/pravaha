@@ -400,6 +400,22 @@ class SqlSupportMatrixTest {
             Case.refused("CROSS join", "SELECT t.txn_id FROM txn t CROSS JOIN other o", "PRV-2020"),
             Case.refused(
                     "non-equi join", "SELECT t.txn_id FROM txn t JOIN other o ON t.user_id > o.user_id", "PRV-2020"),
+            // SQL-13: the comma form of the same joins. The conditions that read both sides are the
+            // join's, wherever they are written; the ones that read one side stay a filter.
+            Case.ok("comma join, equality in WHERE", "SELECT t.txn_id FROM txn t, other o WHERE t.user_id = o.user_id"),
+            Case.ok(
+                    "comma join, equality and time bound in WHERE, and a one-sided filter",
+                    "SELECT t.txn_id FROM txn t, other o WHERE t.user_id = o.user_id "
+                            + "AND t.event_time BETWEEN o.event_time - INTERVAL '5' MINUTE AND o.event_time "
+                            + "AND t.amount > 5"),
+            Case.refused(
+                    "comma join with only a one-sided filter",
+                    "SELECT t.txn_id FROM txn t, other o WHERE t.amount > 5",
+                    "PRV-2020"),
+            Case.refused(
+                    "comma join whose cross-side condition is neither an equality nor a time bound",
+                    "SELECT t.txn_id FROM txn t, other o WHERE t.user_id = o.user_id AND t.user_id > o.region",
+                    "PRV-2020"),
 
             // --- Sorting, sets, subqueries ----------------------------------------------------
             Case.answers(
