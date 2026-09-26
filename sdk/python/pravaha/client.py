@@ -33,7 +33,7 @@ from typing import Any, Iterator, Optional, Sequence
 
 from pravaha.debug import DebugCommands
 from pravaha.endpoint import Endpoint
-from pravaha.errors import PravahaError, configure_docs_base_from_environment
+from pravaha.errors import PravahaError, configure_docs_base_from_environment, require_well_formed
 from pravaha.options import ClientOptions
 from pravaha.rest import ApiError, RestClient
 from pravaha.tls import TlsOptions
@@ -416,6 +416,8 @@ class Client(DebugCommands):
         bound to ``None`` matches no rows, because a comparison with NULL is UNKNOWN.
         ``IS NULL`` is what finds the empty ones.
         """
+        # Refused here, not sent: the server would never see what was written (SDK-1).
+        require_well_formed(sql, "the SQL")
         if parameters:
             return self._query_with_parameters(sql, parameters)
         try:
@@ -880,10 +882,10 @@ class Client(DebugCommands):
             raise QueryError(_message_of(exc)) from exc
 
     def _act(self, action: str, fields: Sequence[str]) -> "list[list[str]]":
+        # Encoded before the try, so a lone surrogate is refused as PRV-1053 rather than wrapped.
+        payload = _wire_encode(fields)
         try:
-            results = self._client.do_action(
-                _flight.Action(action, _wire_encode(fields)), self._call_options
-            )
+            results = self._client.do_action(_flight.Action(action, payload), self._call_options)
             return [_wire_decode(bytes(r.body)) for r in results]
         except QueryError:
             raise
@@ -1189,7 +1191,8 @@ def _wire_encode(fields: Sequence[str]) -> bytes:
     out += _WIRE_MAGIC.to_bytes(4, "big")
     out.append(_WIRE_VERSION)
     out += len(fields).to_bytes(4, "big")
-    for field in fields:
+    for index, field in enumerate(fields):
+        require_well_formed(field, f"field {index} of this request")
         encoded = (field or "").encode("utf-8")
         out += len(encoded).to_bytes(4, "big")
         out += encoded

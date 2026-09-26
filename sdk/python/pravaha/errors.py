@@ -144,3 +144,36 @@ class InvalidTlsOptionsError(PravahaError):
 
     def __init__(self, message: str) -> None:
         super().__init__(1032, message)
+
+
+class MalformedTextError(PravahaError):
+    """Text holds a lone UTF-16 surrogate, which encodes no character and has no UTF-8 form.
+
+    ``PRV-1053``, the code the server's HTTP API and the Java SDK use for the same refusal,
+    so one mistake has one code whichever way it is made.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(1053, message)
+
+
+def require_well_formed(text: str | None, what: str) -> None:
+    """Refuses ``text`` by name when it holds a lone surrogate, before anything is sent.
+
+    Mirrors ``ControlWire.requireWellFormed``. A Python ``str`` holds a surrogate only as a
+    code point of its own (a pair written as two escapes stays two code points, as in Java),
+    so any code point in U+D800..U+DFFF is refused; its position is the Python index.
+
+    :raises MalformedTextError: PRV-1053, naming ``what``, the code point and its position.
+    """
+    if not text:
+        return
+    for index, char in enumerate(text):
+        point = ord(char)
+        if 0xD800 <= point <= 0xDFFF:
+            raise MalformedTextError(
+                f"{what} holds a lone UTF-16 surrogate (U+{point:04X}) at character {index}. "
+                "Half of a surrogate pair encodes no character and has no UTF-8 form, so it "
+                "cannot be sent as what was written. The HTTP API and the Java SDK refuse it "
+                "the same way."
+            )

@@ -25,7 +25,8 @@ import pytest
 pyarrow = pytest.importorskip("pyarrow", reason="the transport needs the 'flight' extra")
 
 from pravaha import connect  # noqa: E402
-from pravaha.client import QueryError, ReadError, _weighted_rows_of  # noqa: E402
+from pravaha.client import QueryError, ReadError, _weighted_rows_of, _wire_encode  # noqa: E402
+from pravaha.errors import MalformedTextError  # noqa: E402
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 FLIGHT_CLASSES = REPO_ROOT / "pravaha-flight" / "target" / "test-classes"
@@ -185,6 +186,24 @@ def test_a_refused_query_carries_the_servers_diagnosis(client):
     # is not.
     with pytest.raises(QueryError, match="nowhere"):
         client.query("SELECT * FROM nowhere")
+
+
+def test_a_lone_surrogate_is_refused_by_name_rather_than_sent(client):
+    # SDK-1: the Java SDK refuses half a surrogate pair before sending; so does this one, with
+    # the server's own PRV-1053, rather than a codec error or whatever the server makes of it.
+    with pytest.raises(MalformedTextError, match="PRV-1053.*the SQL.*U\\+D800"):
+        client.query("SELECT user_id FROM user_volume WHERE user_id = '\ud800'")
+    with pytest.raises(MalformedTextError, match="PRV-1053.*the SQL"):
+        client.query("SELECT total FROM user_volume WHERE user_id = ? AND '\udfff' = ''", ["u1"])
+    with pytest.raises(MalformedTextError, match="PRV-1053.*field 0 of this request.*U\\+DC00"):
+        client.register("bad_\udc00", "SELECT user_id FROM user_volume", [0])
+
+
+def test_every_control_field_is_checked_before_it_is_framed():
+    with pytest.raises(MalformedTextError, match="field 2 of this request.*at character 1"):
+        _wire_encode(["subscribe", "user_volume", "u\ud83d"])
+    # A character outside the BMP is one code point in Python, not a pair, and is sent.
+    assert "\U0001F600".encode("utf-8") in _wire_encode(["subscribe", "\U0001F600"])
 
 
 def test_a_result_spanning_many_batches_iterates_straight_through(client):
