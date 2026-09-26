@@ -365,6 +365,49 @@ permit, and what the other tenants report is "Pravaha is down".
 Refusals reach clients as `RESOURCE_EXHAUSTED`, which drivers retry with backoff — not as
 `INVALID_ARGUMENT`, which they give up on.
 
+## Tenant quotas
+
+Read admission shares out reads. Tenant quotas share out registrations: how many queries a tenant
+may hold, and how much view state it may already hold when it asks for another computation
+([ADR-050](adr/050-a-tenant-owns-names-and-state-and-shares-only-with-itself.md)).
+
+```yaml
+pravaha:
+  tenancy:
+    defaults:              # every tenant without an entry of its own
+      max-queries: 50      # names, including a second name on a computation the tenant runs
+      max-state-keys: 5000000   # keys held by the tenant's views
+    tenants:
+      globex:
+        max-queries: 5     # max-state-keys falls back to the default
+```
+
+A limit that is not set means no limit, and a node with no `pravaha.tenancy` behaves as it did
+before tenancy existed. `0` is a limit. A misspelt key stops the node from starting, and a
+negative limit is `PRV-8023`.
+
+**At the limit.** The registration is refused with `PRV-8020` (queries) or `PRV-8021` (state),
+HTTP `409`, and the message names the tenant, what it holds and its limit. Nothing is opened and
+nothing that is running changes. The refusal is audited and counted. **The state quota is checked
+at admission only.** A tenant whose admitted queries grow past it keeps running and is refused its
+next computation. Watch `pravaha.tenant.state.keys` against `pravaha.tenant.quota.state.keys` to see
+a tenant over its limit. A lowered quota also applies on restart: the journal is replayed in order,
+and entries beyond the limit are refused by name in the recovery log. They come back when the limit
+is raised.
+
+**Isolation.** Identical SQL from two tenants is two computations, and within a tenant it is one.
+Two groups that should share one computation belong in one tenant.
+
+| Meter (tag `tenant`) | Means |
+|---|---|
+| `pravaha_tenant_queries` | Names the tenant holds |
+| `pravaha_tenant_state_keys` | Keys its views hold |
+| `pravaha_tenant_quota_queries`, `pravaha_tenant_quota_state_keys` | Its limits. `NaN` means no limit, so an alert on use divided by limit cannot mistake it for zero |
+| `pravaha_tenant_refusals_total{quota="queries"\|"state"}` | Registrations refused since the node started |
+
+`GET /api/v1/tenants` returns the same numbers as JSON, for every tenant to a principal allowed to
+read the audit trail and for their own tenant to anybody else.
+
 ## Clustering: choosing a coordinator
 
 Pluggable, selected in configuration — and the mechanisms are **not interchangeable**, which is why

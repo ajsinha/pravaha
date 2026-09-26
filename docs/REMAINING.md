@@ -40,7 +40,7 @@ half-done and nothing needs unpicking; each is ready to start again as it stands
 
 | Batch | What | Owns |
 |---|---|---|
-| **B11** | **Tenancy and admission quotas.** What a tenant scopes, how many queries and how much state it may hold, what happens at the limit (a refusal by name, not a silent degradation), whether identical SQL still shares one computation across tenants, and what an operator sees. With its own ADR. | `pravaha-registry`, `pravaha-security`, then `console/` |
+| **B11** | **Engine built 2026-09-26** ([ADR-050](adr/050-a-tenant-owns-names-and-state-and-shares-only-with-itself.md)); the console's screen is left. **Tenancy and admission quotas.** What a tenant scopes, how many queries and how much state it may hold, what happens at the limit (a refusal by name, not a silent degradation), whether identical SQL still shares one computation across tenants, and what an operator sees. With its own ADR. | `pravaha-registry`, `pravaha-security`, then `console/` |
 | The three MEDIUM findings | `SPILL-3` (fire a large window in bounded batches, then re-run the beyond-RAM measurement), `SRC-7` (an Aerospike scan that buffers everything, so `maxRecords` is not a bound), `W8-14` (a windowed aggregate keyed by a digest, which makes a collision a silently wrong answer) | `pravaha-runtime`, `plugins/pravaha-plugin-aerospike` |
 | The LOW findings | `DBG-1`, `DBG-2`, `WIRE-1`, `SINK-4`, `CKPT-6`, `SQL-13`, and the fixed test bounds behind `PGW-1` and `CON-8` | `pravaha-server`, `pravaha-flight`, `pravaha-sql`, `pravaha-pgwire` |
 

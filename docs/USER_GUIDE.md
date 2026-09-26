@@ -89,7 +89,9 @@ pravaha register --name card_velocity --sql-file velocity.sql --keys 1
 
 **What you get back matters.** The `fingerprint` identifies the *computation*. Register the same
 question twice — even worded differently — and you get one computation with two names and one copy of
-the state. `pravaha queries` shows the fingerprint so you can see it holding.
+the state. `pravaha queries` shows the fingerprint so you can see it holding. Sharing applies within
+one tenant. The same question from a principal in another tenant is a separate computation, and it
+counts against that tenant's quotas (ADR-050).
 
 **The view needs a key.** A view with no key is a log, and a point read against it has nothing to look
 up. The ordinals are into the query's *output* columns.

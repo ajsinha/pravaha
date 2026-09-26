@@ -691,6 +691,23 @@ its lanes are its own — so a refusal here means the session did not start, nev
 query is in a strange state. If a session is open and the query looks wrong, the session is not the
 cause; end it and read `pravaha queries`.
 
+## A tenant's quota refuses a registration (`PRV-8020` … `PRV-8023`)
+
+Quotas are set in `pravaha.tenancy` and checked only at registration (ADR-050,
+[`OPERATIONS.md`](OPERATIONS.md#tenant-quotas)). A refusal never means that a running query
+changed.
+
+| Code | What happened | What to do |
+|---|---|---|
+| `PRV-8020` | The tenant already holds `max-queries` names. A second name on a computation the tenant already runs still counts, because a name is what the tenant holds | Drop one of the tenant's queries, or raise `max-queries` for the tenant. `GET /api/v1/tenants` lists what each tenant holds |
+| `PRV-8021` | The tenant's views already hold `max-state-keys` keys, and this registration would start another computation. A name attached to a computation the tenant already runs adds no state and is not refused by this | Drop or narrow one of the tenant's queries (for example with a shorter retention), or raise `max-state-keys`. The quota counts view keys, not bytes |
+| `PRV-8022` | A replacement from a principal in a different tenant from the one that registered the name | Replace the query from within the tenant that owns it. A new version is charged to that tenant and shared only within it |
+| `PRV-8023` | A negative limit, or a `pravaha.tenancy.tenants` entry with no tenant name. The node does not start | Leave a limit unset for no limit, or set `0` to allow none |
+
+On restart, a journal replayed under a lowered quota reports each entry beyond the limit in the
+recovery log with `PRV-8020` or `PRV-8021`. The journal entry stays live and comes back once the
+limit is raised.
+
 ## `PRV-1052` — an HTTP request that reached no endpoint
 
 Every non-2xx response on `/api/v1/**` is an `ApiError` — `code`, `message`, `helpUrl`,
@@ -912,6 +929,10 @@ client models the error rather than an empty object.
 | `PRV-8017` | REGISTRY_OPTION_UNKNOWN | registry |
 | `PRV-8018` | REGISTRY_QUERY_DROPPED | registry |
 | `PRV-8019` | REGISTRY_NODE_STOPPING | registry |
+| `PRV-8020` | REGISTRY_TENANT_QUERY_QUOTA | registry (tenancy) |
+| `PRV-8021` | REGISTRY_TENANT_STATE_QUOTA | registry (tenancy) |
+| `PRV-8022` | REGISTRY_TENANT_MISMATCH | registry (tenancy) |
+| `PRV-8023` | REGISTRY_TENANCY_MISCONFIGURED | registry (tenancy) |
 | `PRV-8101` | EMBEDDED_UNKNOWN_STREAM | registry (embedded engine) |
 | `PRV-8102` | EMBEDDED_ROW_REJECTED | registry (embedded engine) |
 | `PRV-8103` | EMBEDDED_BACKPRESSURE | registry (embedded engine) |

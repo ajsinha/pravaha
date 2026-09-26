@@ -113,6 +113,28 @@ to let them register.
 > `SecurityPolicy.PERMISSIVE` is written out explicitly for that reason; it once said "everyone sees
 > everything" and then refused registration.
 
+## Tenants: what they own, what they may hold, and whom they share with
+
+A principal's tenant (`Principal.tenant()`, `public` when the token does not name one) owns the
+names it registers, the computations behind those names, and the view keys those computations
+hold. It does **not** scope view names, which stay unique on the node. It does not scope reads,
+sources or sinks, which the policy decides, and it does not scope lanes, which every tenant shares
+([ADR-050](adr/050-a-tenant-owns-names-and-state-and-shares-only-with-itself.md)).
+
+- **Sharing stays inside a tenant.** The tenant is part of the fingerprint, so identical SQL from
+  two tenants is two computations. Within one tenant it is still one computation. Before this
+  change, one tenant's `pause` could stop another tenant's view, and one tenant's quota could pay
+  for another tenant's query.
+- **Quotas are refused by name at registration.** `pravaha.tenancy` sets `max-queries` and
+  `max-state-keys`, as defaults and per tenant. A registration over either limit is `PRV-8020` or
+  `PRV-8021` (HTTP `409`). It is refused before a sink is opened, audited as `register:quota`
+  `DENY`, and counted. A running query is never stopped by a quota.
+- **A replacement stays in its tenant.** Only a principal of the tenant that registered a name can
+  replace it (`PRV-8022`, HTTP `403`, audited as `replace:tenant`). `drop`, `pause` and `resume`
+  are still decided by `mayAdminister`, as the next section describes.
+- **Who sees the use.** `GET /api/v1/tenants` shows every tenant to a principal allowed to read the
+  audit trail. Any other principal sees only their own tenant.
+
 ## Drop, pause and resume are authorized as reads, not as ownership
 
 `mayAdminister` — the check behind `drop`, `pause` and `resume` — **defaults to `mayRead`**. The
@@ -121,7 +143,8 @@ path consults it (§25 records the intent; the code does not implement it). The 
 confirmed live in the SECX round: **any principal entitled to read any rows of a view may destroy or
 freeze it for every other reader**, even a principal entitled to only a filtered slice of it, and even
 one denied the view under the name it is registered against but who reaches it under a different,
-innocuous name that computation happens to share. A row-filtered principal who may read only the
+innocuous name that computation happens to share (within one tenant; a computation is never shared
+across tenants since ADR-050). A row-filtered principal who may read only the
 `region = 'EU'` rows of a view may `drop` the whole view out from under every other reader, or
 `pause` it and freeze the row count everyone else sees, not only their own filtered view of it. A
 deployment that needs drop/pause/resume gated on registration ownership, rather than read access,

@@ -140,7 +140,9 @@ overwrite by key from a change that changed nothing (STRM-1). `ViewChange.isRetr
 ## 5. Sharing is by fingerprint, not by name or text
 
 Two registrations whose plans normalise to the same thing are **one computation with two names**,
-holding one copy of the state.
+holding one copy of the state, **as long as both come from the same tenant**. The tenant is part of
+the fingerprint, as a principal's row filters are, so the same SQL from two tenants is two
+computations (ADR-050).
 
 ```sql
 SELECT user_id FROM txn WHERE amount > 10          -- these two are

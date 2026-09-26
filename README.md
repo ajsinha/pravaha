@@ -85,7 +85,7 @@ corrected by late data arrives as a retraction of the old answer followed by the
 | | |
 |---|---|
 | **SQL** | Calcite parses and optimises; the plan becomes Pravaha's own operator tree, run over off-heap binary rows. Whole-stage code generation runs roughly **10× the interpreted path**. Projections, expressions, `CASE`, string and numeric functions, `LIKE`, filters, aggregates. What is refused, and why, is in [`CONTINUOUS_QUERIES.md`](docs/CONTINUOUS_QUERIES.md), checked against the planner by a test |
-| **Continuous queries** | Registered with a name and a key; paused, resumed, dropped. Identical questions share one computation under many names, matched on the normalised plan, so ten desks asking the same thing cost one read of the source |
+| **Continuous queries** | Registered with a name and a key; paused, resumed, dropped. Identical questions from one tenant share one computation under many names, matched on the normalised plan, so ten desks asking the same thing cost one read of the source. Each tenant is admitted by quota (queries, view state) and refused by name at the limit ([ADR-050](docs/adr/050-a-tenant-owns-names-and-state-and-shares-only-with-itself.md)) |
 | **Windows and event time** | Tumbling, sliding and session windows, with slicing. A query derives its watermark from the event-time column its stream declares, a quiet partition stops holding the rest back, and a window publishes when time passes its end |
 | **Corrections** | Late data within a stream's declared allowed lateness (`pravaha.streams.<name>.allowed-lateness`, or `allowedLateness` on `POST /api/v1/streams`; zero by default) reopens a closed window as a retraction plus the corrected answer. Every change carries a Z-set weight, through the engine, across the wire and into both SDKs |
 | **Joins** | Stream-to-stream, and temporal lookup joins against a JDBC or Aerospike dimension table |
@@ -216,8 +216,9 @@ corrected by late data arrives as a retraction of the old answer followed by the
   densities, the measurable §23.15 budgets, the eight states of §23.12 screen by screen, and all
   eight journeys, all of them end to end. A component gallery the
   console renders itself stands in for Storybook, which is not adopted (it needs Node). Not done:
-  the manual WCAG 2.2 AA audit, plus cluster screens, tenants and quotas, and editing grants (the
-  engine is not where grants live).
+  the manual WCAG 2.2 AA audit, plus cluster screens, the tenants and quotas screen (the engine's
+  `GET /api/v1/tenants` exists; the screen does not), and editing grants (the engine is not where
+  grants live).
 
 ## Performance: what is measured, and what cannot be here
 
