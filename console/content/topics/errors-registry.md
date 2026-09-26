@@ -4,10 +4,10 @@ slug: errors-registry
 category: errors
 order: 90
 icon: journal-x
-summary: "PRV-8001 to PRV-8104: a query's name and lifecycle, its journal and its replay, sinks that fail or do not fit, an option the engine does not build, the time-travel debugger's six refusals, and the embedded engine's four."
+summary: "PRV-8001 to PRV-8104: a query's name and lifecycle, its journal and its replay, sinks that fail or do not fit, an option the engine does not build, the time-travel debugger's six refusals, a tenant's quotas, and the embedded engine's four."
 badge: PRV-8XXX
 audience: Analysts, operators, developers
-keywords: [registry, name in use, reserved word, no such query, drop, pause, resume, failed, journal, replay, sink detached, sink shape, keyed by, embedded, push, backpressure, row rejected, debug, debugger, debug session, fork, step, fixture, checkpoint, with, option, unknown option]
+keywords: [registry, name in use, reserved word, no such query, drop, pause, resume, failed, journal, replay, sink detached, sink shape, keyed by, embedded, push, backpressure, row rejected, debug, debugger, debug session, fork, step, fixture, checkpoint, with, option, unknown option, tenant, tenancy, quota, max-queries, max-state-keys, 409]
 guide: continuous-queries#8-the-life-of-a-query
 related: [query-lifecycle, create-continuous-query, sinks-overview, time-travel-debugger, embedded-engine, errors-overview]
 ---
@@ -38,6 +38,10 @@ inside an application's own process and adds the ways an application can push ro
 | PRV-8017 | REGISTRY_OPTION_UNKNOWN | A `WITH (...)` option this engine does not build, or one said twice |
 | PRV-8018 | REGISTRY_QUERY_DROPPED | The name a subscription was opened under has been dropped |
 | PRV-8019 | REGISTRY_NODE_STOPPING | The node is shutting down; the query is coming back, this stream is not |
+| PRV-8020 | REGISTRY_TENANT_QUERY_QUOTA | The tenant already holds as many query names as its quota allows |
+| PRV-8021 | REGISTRY_TENANT_STATE_QUOTA | The tenant's views already hold as many keys as its state quota allows |
+| PRV-8022 | REGISTRY_TENANT_MISMATCH | A replacement from a principal of another tenant than the name's |
+| PRV-8023 | REGISTRY_TENANCY_MISCONFIGURED | `pravaha.tenancy` sets a negative limit or a blank tenant name |
 | PRV-8101 | EMBEDDED_UNKNOWN_STREAM | A row pushed to an undeclared stream |
 | PRV-8102 | EMBEDDED_ROW_REJECTED | A pushed row does not fit its stream |
 | PRV-8103 | EMBEDDED_BACKPRESSURE | A push waited too long for room |
@@ -341,6 +345,38 @@ engine's to decide.
 The same code covers the same setting said twice — `RETAIN FOR` and `retention`, or `WRITING TO`
 and a different `sink` — because which of two answers wins is not something to leave to the order
 they were written in.
+
+## Tenancy quotas
+
+A tenant is admitted by two quotas set under `pravaha.tenancy` (ADR-050). Both are checked when a
+query registers, after authorization and planning and before a sink is opened; neither stops a query
+that is already running. A limit that is not set is no limit, and zero is a limit. Each refusal is
+audited as a denied `register:quota` (or `replace:quota`) decision with the tenant as its target,
+and counted per tenant. The console's **Admin → Tenants** screen shows each tenant's use against its
+limits and the refusals; the engine serves the same as `GET /api/v1/tenants`.
+
+### PRV-8020 — the tenant's query quota
+
+The tenant already holds `max-queries` names. Every name counts, including one that attaches to a
+computation the tenant already runs. Drop a name the tenant no longer needs, or raise the tenant's
+`max-queries`. A 409: the request is fine, and what the tenant already holds is the reason.
+
+### PRV-8021 — the tenant's state quota
+
+The tenant's views already hold `max-state-keys` keys, and the registration would start a new
+computation. A name that attaches to identical SQL the tenant already runs starts nothing and is not
+refused by this. Drop a query, shorten a retention so its view holds fewer keys, or raise the
+tenant's `max-state-keys`. A 409, like PRV-8020. A tenant whose views grew past the quota after they
+were admitted keeps running and is shown over the limit.
+
+### PRV-8022 — a replacement from another tenant
+
+Only a principal of the tenant that registered a name can replace it, because the new version is
+charged to that tenant and shared only within it. A 403.
+
+### PRV-8023 — tenancy configuration
+
+The node refuses to start with a negative limit or a blank tenant name under `pravaha.tenancy`.
 
 ## Where next
 
