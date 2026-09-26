@@ -85,6 +85,7 @@ class OrphanedClassTest {
             Map.entry("StreamController", "Spring @RestController"),
             Map.entry("SinkController", "Spring @RestController"),
             Map.entry("ViewController", "Spring @RestController"),
+            Map.entry("TenancyController", "Spring @RestController"),
             Map.entry("AuditController", "Spring @RestController"),
             Map.entry("PluginController", "Spring @RestController"),
             Map.entry("PermissionsController", "Spring @RestController"),
