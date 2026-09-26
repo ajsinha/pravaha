@@ -356,6 +356,7 @@ PAGES: list[tuple[str, str, bool, str]] = [
     ("admin-access", "/admin/access", True, "true"),
     ("admin-audit", "/admin/audit", True, "true"),
     ("admin-audit-filtered", "/admin/audit?principal=carol&decision=deny", True, "true"),
+    ("admin-tenants", "/admin/tenants", True, "true"),
     ("not-found", "/views/no_such_view", True, "true"),
     ("components", "/_components", True, "document.querySelector('#state-unauthorized button')"),
 ]

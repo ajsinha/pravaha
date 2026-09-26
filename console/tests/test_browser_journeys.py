@@ -1125,8 +1125,8 @@ def test_journey_a_grant_makes_the_affordance_appear(page):
     API changes one (SECURITY.md). The journey makes the grant where it would be made -- in the
     fake engine's policy, as other journeys have the engine commit a change -- and verifies all
     the console owns: the refusal on Access, the controls disabled with its reason, the palette
-    leaving the actions out, and each following the engine's next answer. Editing grants, and
-    tenants and quotas (screens 20, 21), wait on an engine API for them.
+    leaving the actions out, and each following the engine's next answer. Editing grants waits on
+    an engine API for them; tenants and quotas have theirs (ADR-050) and a journey of their own.
 
     Against the console before the change that came with it, this journey fails at its second
     step: the query page offered Pause, Resume and Drop whatever the policy said.
@@ -1160,4 +1160,40 @@ def test_journey_a_grant_makes_the_affordance_appear(page):
         assert "Pause hot" in _palette_titles(page, "Pause hot")
         page.wait_for_navigation(lambda: page.click("#pause"))
         assert ("pause", "hot") in adm.engine.lifecycle_calls
+        assert page.exceptions == [], page.exceptions
+
+
+def test_journey_a_registration_over_quota_leads_to_the_tenants_use(page):
+    """ADR-050, end to end: a registration the tenant's query quota refuses says which quota and
+    what to do, and its link opens the tenants screen, where the tenant is at its limit, its
+    refusals are counted, and a limit that is not set reads as no limit rather than zero."""
+    with own_console(default_role="analyst") as ten:
+        ten.engine.fail("register", status=0,
+                        message="PRV-8020: tenant 'risk' already holds 5 queries, its limit of 5")
+        sign_in(page, ten, role="analyst", next_path="/workbench?query=big_txn")
+        page.goto(ten.url("/workbench?query=big_txn"))
+        page.wait_for("document.querySelector('.monaco-editor .view-line') && document.querySelector('.validity.ok')",
+                      timeout=20)
+        page.eval("[...document.querySelectorAll('.wb-toolbar button')].find(b => b.textContent.includes('Register'))"
+                  ".setAttribute('data-test', 'register')")
+        page.click("[data-test=register]")
+        page.wait_for("document.querySelector('#reg-name')")
+        page.click("#reg-name")
+        page.type("big_txn_2")
+        page.click("#key-txn_id")
+        page.eval("[...document.querySelectorAll('form button[type=submit]')]"
+                  ".find(b => b.textContent.includes('Register continuous')).setAttribute('data-test', 'submit')")
+        page.wait_for("!document.querySelector('[data-test=submit]').disabled")
+        page.click("[data-test=submit]")
+        page.wait_for("document.querySelector('#register-quota')", timeout=10)
+        quota = page.text("#register-quota")
+        assert "as many queries as its quota allows" in quota and "max-queries" in quota
+        assert "its limit of 5" in page.text("main"), "the engine's own sentence is shown too"
+
+        page.wait_for_navigation(lambda: page.click("#register-quota a[href='/admin/tenants']"))
+        assert page.url().endswith("/admin/tenants")
+        risk = page.text("#tenants-table tr[data-tenant=risk]")
+        assert "5 of 5" in risk and "at the limit" in risk and "over the limit" in risk
+        public = page.text("#tenants-table tr[data-tenant=public]")
+        assert "no limit" in public and "of 0" not in public
         assert page.exceptions == [], page.exceptions

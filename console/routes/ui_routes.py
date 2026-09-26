@@ -23,7 +23,7 @@ from urllib.parse import quote
 from fastapi import Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from core.services import ServiceError
+from core.services import QUOTA_CODES, ServiceError
 from routes.auth_routes import current_user, login_required
 from routes.base import Routes, failure, status_for
 
@@ -651,8 +651,9 @@ class UIRoutes(Routes):
                 services.queries.register(name, sql, ordinals, sink=sink or None,
                                           retention=retention or None)
             except ServiceError as exc:
-                return self.page(request, "refused.html", http_status=400,
+                return self.page(request, "refused.html", http_status=exc.status or 400,
                                  current="/workbench", what=self.t("refused.what.register", name=name),
                                  detail=str(exc), code=exc.code or "",
+                                 quota=exc.code if exc.code in QUOTA_CODES else "",
                                  back_href="/workbench", back_label=self.t("not_found.back.workbench"))
             return RedirectResponse(f"/queries/{name}", status_code=303)

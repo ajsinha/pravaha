@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted; built — `TenantQuotas` and `QueryFingerprint` in `pravaha-registry`, `pravaha.tenancy.*`, `GET /api/v1/tenants` and `pravaha.tenant.*` in `pravaha-server`. The console's screens are not built |
+| Status | Accepted; built — `TenantQuotas` and `QueryFingerprint` in `pravaha-registry`, `pravaha.tenancy.*`, `GET /api/v1/tenants` and `pravaha.tenant.*` in `pravaha-server`. The console's tenants screen (`/admin/tenants`) and the register screen's quota refusals are built |
 | Date | 2026-09-26 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-025 (registration), ADR-031 (row filters), ADR-039 item 7, ADR-045 (cluster mode, on hold), ADR-046 (replacement) |

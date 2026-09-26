@@ -1,4 +1,5 @@
-"""The administrative screens' services: the audit trail and the console identity's permissions.
+"""The administrative screens' services: the audit trail, the console identity's permissions,
+and each tenant's use against its quotas.
 
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 Proprietary and confidential. See LICENSE at the repository root.
@@ -43,6 +44,45 @@ def instant(text: str) -> str | None:
                        status=400, code="PRV-1051")
 
 
+def _limit(value: Any) -> int | None:
+    """One limit as the engine sent it: None (no limit) stays None, and a number is a number,
+    zero included -- zero is a limit that admits nothing (ADR-050 section 2)."""
+    if value is None:
+        return None
+    return int(value)
+
+
+def _limits(raw: Any) -> dict:
+    raw = raw if isinstance(raw, dict) else {}
+    return {"maxQueries": _limit(raw.get("maxQueries")), "maxStateKeys": _limit(raw.get("maxStateKeys"))}
+
+
+#: The share of a limit from which the tenants screen warns that the limit is close.
+NEAR = 0.8
+
+
+def usage(used: int, limit: int | None) -> dict:
+    """What ``used`` against ``limit`` means for the tenant's next registration.
+
+    ``state`` is ``unlimited`` (no limit is set), ``ok``, ``near`` (at or past 80 per cent),
+    ``full`` (at the limit: the next registration that needs room is refused) or ``over``
+    (past it, which only state can be: a quota is checked at admission, and admitted
+    queries keep growing). ``percent`` is capped at 100 for drawing; ``used`` is not.
+    """
+    if limit is None:
+        return {"used": used, "limit": None, "state": "unlimited", "percent": None}
+    if used > limit:
+        state = "over"
+    elif used >= limit:
+        state = "full"
+    elif used >= NEAR * limit:
+        state = "near"
+    else:
+        state = "ok"
+    percent = 100 if limit == 0 else min(100, round(100 * used / limit))
+    return {"used": used, "limit": limit, "state": state, "percent": percent}
+
+
 class AdminService:
     """The audit trail and the permissions page, from the engine."""
 
@@ -83,6 +123,40 @@ class AdminService:
             raise _refusal(exc) from exc
         return {"permitted": True, "reason": None, "code": None, "filters": form,
                 "cursor": query["cursor"], "page": page}
+
+    def tenants(self) -> dict:
+        """Each tenant's use against its quotas and its refusals, as the tenants screen draws it.
+
+        The engine's page (``scope``, ``defaults``, ``tenants``) with one :func:`usage` per
+        quota added to each tenant. A limit the engine sends as ``null`` is **no limit**, and
+        stays None here: it is never read as zero, which would be a tenant that may hold
+        nothing. Anything the engine refused is raised, with its code and status.
+        """
+        try:
+            page = self._engine.tenants()
+        except Exception as exc:
+            raise _refusal(exc) from exc
+        defaults = _limits(page.get("defaults"))
+        tenants = []
+        for row in page.get("tenants") or []:
+            if not isinstance(row, dict):
+                continue
+            limits = _limits(row.get("limits"))
+            tenants.append({
+                "tenant": str(row.get("tenant") or ""),
+                "queries": int(row.get("queries") or 0),
+                "computations": int(row.get("computations") or 0),
+                "stateKeys": int(row.get("stateKeys") or 0),
+                "limits": limits,
+                "queryRefusals": int(row.get("queryRefusals") or 0),
+                "stateRefusals": int(row.get("stateRefusals") or 0),
+                "queryUse": usage(int(row.get("queries") or 0), limits["maxQueries"]),
+                "stateUse": usage(int(row.get("stateKeys") or 0), limits["maxStateKeys"]),
+            })
+        tenants.sort(key=lambda t: t["tenant"])
+        return {"scope": "all" if page.get("scope") == "all" else "own",
+                "defaults": defaults, "tenants": tenants,
+                "refusals": sum(t["queryRefusals"] + t["stateRefusals"] for t in tenants)}
 
     def permissions(self) -> dict:
         """What the engine's policy lets the console's identity do."""

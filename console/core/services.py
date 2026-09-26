@@ -121,6 +121,10 @@ class ServiceError(Exception):
         self.code = code
 
 
+#: The admission refusals ADR-050 answers with 409: the tenant's query quota and its state quota.
+QUOTA_CODES = frozenset({"PRV-8020", "PRV-8021"})
+
+
 def _code_in(message: str) -> str | None:
     """Pulls a PRV code out of an engine message, if it carries one."""
     marker = message.find("PRV-")
@@ -278,7 +282,11 @@ class QueryService:
                 extra["retention"] = retention.strip()
             row = self._engine.register(name.strip(), sql.strip(), keys, **extra)
         except Exception as exc:
-            raise ServiceError(str(exc), status=400, code=_code_in(str(exc))) from exc
+            code = getattr(exc, "code", None) or _code_in(str(exc))
+            # A quota refusal is a conflict with what the tenant already holds, not a fault in
+            # the request, so it is the engine's own 409 (ADR-050 section 4) here too.
+            status = 409 if code in QUOTA_CODES else 400
+            raise ServiceError(str(exc), status=status, code=code) from exc
         return self._of(row)
 
     def act(self, name: str, action: str) -> None:

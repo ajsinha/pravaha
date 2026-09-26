@@ -609,6 +609,16 @@ function Backpressure({ metrics }) {
     ${" · "}${t("wb.explain.inbox", { depth: fmtCount(metrics.inboxDepth), cells: fmtCount(metrics.inboxCells) })}</span>`;
 }
 
+/* ADR-050's two admission refusals, each a 409: which quota the tenant is at, and what to do
+   about it, above the engine's own words (which name the tenant, the count and the limit). */
+const QUOTA_CODES = ["PRV-8020", "PRV-8021"];
+function quotaView(code) {
+  return html`<div class="alert alert-warning py-2 small mb-2" id="register-quota" data-code=${code} role="note">
+    <div class="fw-semibold">${t(`wb.reg.quota.${code}.title`)}</div>
+    <p class="mb-1">${t(`wb.reg.quota.${code}.fix`)}</p>
+    <a href="/admin/tenants">${t("wb.reg.quota.see")}</a></div>`;
+}
+
 function RegisterPanel({ sql, validation, sinkRef, sink, setSink }) {
   const [name, setName] = useState("");
   const [retention, setRetention] = useState("");
@@ -687,6 +697,7 @@ function RegisterPanel({ sql, validation, sinkRef, sink, setSink }) {
           !nameOk ? t("wb.reg.needs_name") : "", !keys.length ? t("wb.reg.needs_key") : ""].filter(Boolean).join(" ")}</div>` : null}
     </div>
     <div class="col-12">
+      ${state.status === "error" && QUOTA_CODES.includes(state.err && state.err.code) ? quotaView(state.err.code) : null}
       ${state.status === "error" ? errorView(state.err, () => submit({ preventDefault() {} })) : null}
       ${state.status === "ok" ? registeredView(state.answer) : null}
     </div>

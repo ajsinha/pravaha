@@ -447,6 +447,7 @@ class ProductRoutes(Routes):
                 page("workbench", "/workbench"), page("catalog", "/catalog"), page("views", "/views"),
                 page("operations", "/operations"), page("queries", "/queries"), page("start", "/start"),
                 page("plugins", "/plugins"), page("access", "/admin/access"), page("audit", "/admin/audit"),
+                page("tenants", "/admin/tenants"),
                 {"kind": "action", "title": t("palette.action.new_query"), "href": "/workbench?new=1",
                  "hint": t("palette.hint.new_query")},
             ]

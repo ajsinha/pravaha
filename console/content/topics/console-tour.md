@@ -183,6 +183,7 @@ as the engine reports them to this identity, never with their options (which may
 |---|---|
 | `/admin/access` | What the engine's policy lets the console's identity do: register, read the audit trail, and for every view and stream, full or row-filtered reading and whether it may drop, pause or resume. Read-only — grants live in the deployment's own identity system |
 | `/admin/audit` | The engine's audit trail, newest first, 50 to a page, filtered by `principal`, `view`, `action`, `decision` and a UTC window (`since`, `until`) — all in the URL. When the engine refuses the console's identity, a designed **Not permitted** state with the engine's reason |
+| `/admin/tenants` | Each tenant's names, computations and view keys against its quotas, and the registrations refused for each quota since the node started. A limit that is not set reads *no limit*; zero is a limit. Every tenant when the console's identity may read the audit trail, otherwise its own |
 
 Reading the trail is itself audited.
 

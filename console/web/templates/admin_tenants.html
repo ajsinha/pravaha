@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% from "_admin_head.html" import admin_head %}
+{% from "_helpcards.html" import screenhelp, helplink %}
+{% import "_states.html" as states %}
+{#- ADR-050: each tenant's use against its admission quotas, and the registrations refused for
+    it. A limit the engine sends as null is no limit, never zero: it is drawn as "no limit" and
+    never as a bar, because a bar needs a denominator and there is none. -#}
+{% macro limit_text(value) -%}
+{% if value is none %}<span class="text-muted">{{ t('admin.tenants.no_limit') }}</span>{% else %}<span class="mono">{{ "{:,}".format(value) }}</span>{% endif %}
+{%- endmacro %}
+{% macro use(u, what) -%}
+<div class="tenant-use" data-state="{{ u.state }}">
+  {% if u.limit is none %}
+  <span>{{ "{:,}".format(u.used) }}</span> <span class="text-muted">· {{ t('admin.tenants.no_limit') }}</span>
+  {% else %}
+  <span>{{ t('admin.tenants.of', used="{:,}".format(u.used), limit="{:,}".format(u.limit)) }}</span>
+  <div class="tenant-bar" aria-hidden="true"><span style="width: {{ u.percent }}%"></span></div>
+  {% endif %}
+  {% if u.state == 'near' %}<span class="chip warn">{{ t('admin.tenants.state.near') }}</span>
+  {% elif u.state == 'full' %}<span class="chip bad">{{ t('admin.tenants.state.full') }}</span>
+  {% elif u.state == 'over' %}<span class="chip bad">{{ t('admin.tenants.state.over') }}</span>{% endif %}
+</div>
+{%- endmacro %}
+{% block title %}{{ t('admin.tenants.title') }} — {{ app_name }}{% endblock %}
+{% block content %}
+{{ admin_head('tenants', t('admin.tenants.heading')) }}
+<p class="lede">{{ t('admin.tenants.lede') }}</p>
+
+{% if tenants_error %}
+{{ states.error(tenants_error, retry_href='/admin/tenants', id='tenants-error', title=t('admin.tenants.error')) }}
+{% elif answer %}
+<div class="row g-3 mb-3">
+  <div class="col-lg-5"><section class="card h-100" aria-labelledby="tenants-defaults-title"><div class="card-body">
+    <h2 class="h6" id="tenants-defaults-title">{{ t('admin.tenants.defaults') }}</h2>
+    <dl class="plugin-facts small mb-2" id="tenants-defaults">
+      <dt>{{ t('admin.tenants.max_queries') }}</dt><dd>{{ limit_text(answer.defaults.maxQueries) }}</dd>
+      <dt>{{ t('admin.tenants.max_state_keys') }}</dt><dd>{{ limit_text(answer.defaults.maxStateKeys) }}</dd>
+    </dl>
+    <p class="small text-muted mb-0">{{ t('admin.tenants.defaults_note') }}</p>
+  </div></section></div>
+  <div class="col-lg-7"><section class="card h-100" aria-labelledby="tenants-scope-title"><div class="card-body">
+    <h2 class="h6" id="tenants-scope-title">{{ t('admin.tenants.scope') }}</h2>
+    <p class="small mb-0" id="tenants-scope" data-scope="{{ answer.scope }}">{% if answer.scope == 'all' %}{{ t('admin.tenants.scope_all') }}{% else %}{{ t('admin.tenants.scope_own') }}{% endif %}</p>
+  </div></section></div>
+</div>
+
+{% if not answer.tenants %}
+<div class="state" id="tenants-none"><h2>{{ t('admin.tenants.none.title') }}</h2><p>{{ t('admin.tenants.none.body') }}</p></div>
+{% else %}
+<div class="card"><div class="table-responsive" tabindex="0" role="region" aria-label="{{ t('admin.tenants.caption') }}"><table class="table table-sm mb-0 small" id="tenants-table">
+  <caption class="visually-hidden">{{ t('admin.tenants.caption') }}</caption>
+  <thead><tr>
+    <th scope="col">{{ t('admin.tenants.col.tenant') }}</th>
+    <th scope="col">{{ t('admin.tenants.col.queries') }}</th>
+    <th scope="col" class="num">{{ t('admin.tenants.col.computations') }}</th>
+    <th scope="col">{{ t('admin.tenants.col.state') }}</th>
+    <th scope="col" class="num">{{ t('admin.tenants.col.query_refusals') }}</th>
+    <th scope="col" class="num">{{ t('admin.tenants.col.state_refusals') }}</th>
+  </tr></thead>
+  <tbody>{% for row in answer.tenants %}<tr data-tenant="{{ row.tenant }}">
+    <th scope="row" class="mono fw-normal">{{ row.tenant }}</th>
+    <td data-field="queries">{{ use(row.queryUse, 'queries') }}</td>
+    <td class="num mono" data-field="computations">{{ "{:,}".format(row.computations) }}</td>
+    <td data-field="state">{{ use(row.stateUse, 'state') }}</td>
+    <td class="num mono" data-field="queryRefusals">{% if row.queryRefusals %}<span class="chip bad">{{ "{:,}".format(row.queryRefusals) }}</span>{% else %}0{% endif %}</td>
+    <td class="num mono" data-field="stateRefusals">{% if row.stateRefusals %}<span class="chip bad">{{ "{:,}".format(row.stateRefusals) }}</span>{% else %}0{% endif %}</td>
+  </tr>{% endfor %}</tbody>
+</table></div></div>
+{% if answer.refusals %}<p class="small mt-2 mb-0" id="tenants-refused">{{ t('admin.tenants.refused_note') }} <a href="/admin/audit?decision=deny&amp;action=register%3Aquota">{{ t('admin.tenants.refused_audit') }}</a></p>{% endif %}
+{% endif %}
+{% endif %}
+
+<h2 class="h5 mt-4">{{ t('admin.tenants.about_title') }}</h2>
+<ul class="small text-muted">
+  <li>{{ t('admin.tenants.about_counts') }}</li>
+  <li>{{ t('admin.tenants.about_state') }}</li>
+  <li>{{ t('admin.tenants.about_null') }}</li>
+  <li>{{ t('admin.tenants.about_sharing') }}</li>
+</ul>
+{{ screenhelp('admin') }}
+{% endblock %}

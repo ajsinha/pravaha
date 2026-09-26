@@ -232,3 +232,11 @@ tr.retracted td{text-decoration:line-through;color:var(--muted);}
 /* The "?" beside a screen heading: that screen's first help topic (core/help_catalog.py SCREEN_HELP). */
 .screen-help{font-size:.9rem;margin-left:.5rem;vertical-align:middle;text-decoration:none;color:var(--flow)}
 .screen-help:hover,.screen-help:focus{color:var(--flow-d)}
+
+/* The tenants screen (ADR-050): use against a limit, as a number and a thin bar. The bar is
+   decoration for the number beside it; a limit that is not set has no bar at all. */
+.tenant-use{display:flex;flex-wrap:wrap;align-items:center;gap:.25rem .5rem;min-width:9rem;}
+.tenant-bar{flex:0 0 5rem;height:6px;border-radius:3px;background:var(--rule);overflow:hidden;}
+.tenant-bar span{display:block;height:100%;background:var(--flow);}
+.tenant-use[data-state=near] .tenant-bar span{background:var(--warn);}
+.tenant-use[data-state=full] .tenant-bar span,.tenant-use[data-state=over] .tenant-bar span{background:var(--bad);}

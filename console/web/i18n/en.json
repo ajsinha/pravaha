@@ -589,7 +589,18 @@
         "what_may": "What this console may do",
         "needs_valid": "Needs a valid query.",
         "needs_name": "Needs a name.",
-        "needs_key": "Needs at least one key."
+        "needs_key": "Needs at least one key.",
+        "quota": {
+          "PRV-8020": {
+            "title": "The tenant holds as many queries as its quota allows",
+            "fix": "Drop a query this tenant no longer needs, or ask an operator to raise max-queries for the tenant under pravaha.tenancy. Registering the same SQL under a name the tenant already holds would still count as a name."
+          },
+          "PRV-8021": {
+            "title": "The tenant's views hold as many keys as its state quota allows",
+            "fix": "Drop or shorten the retention of a query this tenant no longer needs, so its views hold fewer keys, or ask an operator to raise max-state-keys for the tenant under pravaha.tenancy. Registering SQL identical to a query the tenant already runs shares that computation and needs no new state."
+          },
+          "see": "See each tenant's use"
+        }
       },
       "lib": {
         "name_prompt": "Name this snippet",
@@ -687,7 +698,8 @@
     "tab": {
       "access": "Access",
       "audit": "Audit trail",
-      "plugins": "Plugins"
+      "plugins": "Plugins",
+      "tenants": "Tenants"
     },
     "access": {
       "title": "Access",
@@ -788,6 +800,46 @@
         "title": "Nothing recorded yet",
         "body": "The engine is recording, and has no decision to show: none has been made on this node since it started, or every one has been evicted from the window it keeps. Each read, registration and lifecycle action appears here as it is decided."
       }
+    },
+    "tenants": {
+      "title": "Tenants",
+      "heading": "What each tenant holds, and what it was refused",
+      "lede": "The engine's admission quotas, each tenant's use against them, and the registrations refused for going over them since the node started. A quota is checked when a query is registered; nothing running is stopped by it.",
+      "error": "The engine's tenants endpoint is not answering, so each tenant's use is unknown",
+      "defaults": "Defaults",
+      "defaults_note": "A tenant with no entry of its own under pravaha.tenancy has these limits.",
+      "max_queries": "Queries per tenant",
+      "max_state_keys": "View keys per tenant",
+      "no_limit": "no limit",
+      "of": "{used} of {limit}",
+      "scope": "Which tenants are shown",
+      "scope_all": "Every tenant on this node. The console's identity may read the audit trail, so the engine shows it every tenant.",
+      "scope_own": "Only this console's own tenant. Seeing every tenant needs permission to read the audit trail; the engine hides other tenants from anyone else.",
+      "none": {
+        "title": "No tenant holds anything",
+        "body": "No tenant visible to this identity has registered a query or been refused one. A tenant appears here once it registers or is refused."
+      },
+      "caption": "Each tenant's use against its quotas, and the registrations refused for it",
+      "col": {
+        "tenant": "Tenant",
+        "queries": "Queries held",
+        "computations": "Computations",
+        "state": "View keys held",
+        "query_refusals": "Refused: query quota",
+        "state_refusals": "Refused: state quota"
+      },
+      "state": {
+        "near": "near the limit",
+        "full": "at the limit",
+        "over": "over the limit"
+      },
+      "refused_note": "Each refusal is also in the audit trail as a denied quota decision, with the tenant as its target.",
+      "refused_audit": "Open the refused registrations",
+      "about_title": "How the quotas are counted",
+      "about_counts": "Queries held counts names, including a name attached to a computation the tenant already runs. Computations counts the distinct computations behind those names: identical SQL shares one within a tenant, and never across tenants.",
+      "about_state": "View keys held counts the keys in the views of the tenant's computations. It is checked when a registration would start a computation; a tenant whose views grew past its quota keeps running and is shown over the limit.",
+      "about_null": "A limit that is not set is no limit. Zero is a limit: a tenant limited to zero queries can register none.",
+      "about_sharing": "The limits are set in the node's configuration under pravaha.tenancy and are read-only here. Refusal counts start from zero when the node restarts."
     }
   },
   "operations": {
@@ -1038,6 +1090,17 @@
     "what": {
       "action": "{action} '{name}'",
       "register": "register '{name}'"
+    },
+    "quota": {
+      "PRV-8020": {
+        "title": "The tenant holds as many queries as its quota allows",
+        "fix": "Drop a query this tenant no longer needs, or ask an operator to raise max-queries for the tenant under pravaha.tenancy. Registering the same SQL under a name the tenant already holds would still count as a name."
+      },
+      "PRV-8021": {
+        "title": "The tenant's views hold as many keys as its state quota allows",
+        "fix": "Drop or shorten the retention of a query this tenant no longer needs, so its views hold fewer keys, or ask an operator to raise max-state-keys for the tenant under pravaha.tenancy. Registering SQL identical to a query the tenant already runs shares that computation and needs no new state."
+      },
+      "see": "See each tenant's use"
     }
   },
   "not_found": {
@@ -1830,7 +1893,8 @@
       "start": "Get started",
       "plugins": "Plugins",
       "access": "Admin · Access",
-      "audit": "Admin · Audit trail"
+      "audit": "Admin · Audit trail",
+      "tenants": "Admin · Tenants"
     },
     "hint": {
       "landing": "what Pravaha is",
@@ -1855,7 +1919,8 @@
       "stream": "stream · {n} columns",
       "dead_letters": "records it could not decode",
       "replacement": "Backfill, cutover and rollback",
-      "debug": "fork it from a checkpoint and step it"
+      "debug": "fork it from a checkpoint and step it",
+      "tenants": "each tenant's use against its quotas"
     },
     "action": {
       "new_query": "New query in the workbench",

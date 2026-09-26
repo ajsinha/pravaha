@@ -1120,6 +1120,89 @@ def test_the_audit_screen_with_the_engine_down_names_the_failure(engine_down):
     assert page.status_code == 503 and "could not be read" in page.text
 
 
+# ============================================================ admin: tenants (ADR-050)
+
+def _tenant_row(page: str, tenant: str) -> str:
+    return page.split(f'data-tenant="{tenant}"')[1].split("</tr>")[0]
+
+
+def test_the_tenants_screen_shows_use_against_each_limit_and_the_refusals(signed_in, engine):
+    page = signed_in.get("/admin/tenants")
+    assert page.status_code == 200
+    body = page.text
+    assert 'aria-current="page">Tenants' in body
+    public, risk, ops = (_tenant_row(body, t) for t in ("public", "risk", "ops"))
+    # A limit the engine sent as null is no limit: said in words, with no bar and no "of".
+    assert "4 of 20" in public and "no limit" in public
+    assert public.count("tenant-bar") == 1, "only the query limit has a bar"
+    # At the query limit, and state grown past its quota after admission.
+    assert "5 of 5" in risk and "at the limit" in risk
+    assert "52,000 of 50,000" in risk and "over the limit" in risk
+    assert '<span class="chip bad">3</span>' in risk and '<span class="chip bad">1</span>' in risk
+    # Zero is a limit, not an absent one.
+    assert "0 of 0" in ops and "at the limit" in ops
+    assert 'data-scope="all"' in body and "Every tenant on this node" in body
+    defaults = body.split('id="tenants-defaults"')[1].split("</dl>")[0]
+    assert '<span class="mono">20</span>' in defaults and "no limit" in defaults
+    assert "register%3Aquota" in body
+
+
+def test_the_tenants_api_keeps_a_missing_limit_as_null_never_zero(signed_in):
+    body = signed_in.get("/api/v1/admin/tenants").json()
+    assert body["scope"] == "all" and body["defaults"] == {"maxQueries": 20, "maxStateKeys": None}
+    by_name = {t["tenant"]: t for t in body["tenants"]}
+    assert by_name["public"]["limits"]["maxStateKeys"] is None
+    assert by_name["public"]["stateUse"] == {"used": 1200, "limit": None, "state": "unlimited", "percent": None}
+    assert by_name["ops"]["queryUse"]["state"] == "full" and by_name["ops"]["limits"]["maxQueries"] == 0
+    assert by_name["risk"]["stateUse"]["state"] == "over" and body["refusals"] == 6
+
+
+def test_the_usage_of_a_limit_says_what_the_next_registration_meets():
+    from core.admin import usage
+
+    assert usage(3, None)["state"] == "unlimited"
+    assert usage(0, 0)["state"] == "full"
+    assert usage(7, 10)["state"] == "ok" and usage(8, 10)["state"] == "near"
+    assert usage(10, 10)["state"] == "full" and usage(11, 10) == {"used": 11, "limit": 10,
+                                                                   "state": "over", "percent": 100}
+
+
+def test_the_tenants_screen_says_when_it_shows_only_its_own_tenant(signed_in, engine):
+    engine.audit_allowed = False
+    body = signed_in.get("/admin/tenants").text
+    assert 'data-scope="own"' in body and "Only this console" in body
+    assert 'data-tenant="public"' in body and 'data-tenant="risk"' not in body
+
+
+def test_the_tenants_screen_with_no_tenant_and_with_the_endpoint_failing(signed_in, engine):
+    engine.tenant_rows = []
+    assert 'id="tenants-none"' in signed_in.get("/admin/tenants").text
+    engine.fail("tenants", status=404, message="no handler for GET /api/v1/tenants")
+    page = signed_in.get("/admin/tenants")
+    assert page.status_code == 404 and 'id="tenants-error"' in page.text
+    assert signed_in.get("/api/v1/admin/tenants").status_code == 404
+
+
+@pytest.mark.parametrize("code,which", [("PRV-8020", "as many queries as its quota allows"),
+                                        ("PRV-8021", "as many keys as its state quota allows")])
+def test_a_quota_refusal_is_a_409_that_names_the_quota_and_what_to_do(signed_in, engine, code, which):
+    engine.fail("register", status=0, message=f"{code}: tenant 'risk' holds 5 of 5 queries")
+    api = signed_in.post("/api/v1/queries", json={"name": "q9", "sql": "SELECT user_id FROM txn",
+                                                    "keys": [0]})
+    assert api.status_code == 409 and api.json()["code"] == code
+    form = signed_in.post("/queries", data={"name": "q9", "sql": "SELECT user_id FROM txn", "keys": "0"})
+    assert form.status_code == 409
+    quota = form.text.split('id="refused-quota"')[1].split("</div>\n</div>")[0]
+    assert f'data-code="{code}"' in form.text and which in quota and 'href="/admin/tenants"' in quota
+    assert "holds 5 of 5 queries" in form.text, "the engine's own words are still shown"
+
+
+def test_another_registry_refusal_is_not_dressed_as_a_quota(signed_in, engine):
+    engine.fail("register", status=0, message="PRV-8001: a view named 'q9' is already registered")
+    form = signed_in.post("/queries", data={"name": "q9", "sql": "SELECT user_id FROM txn", "keys": "0"})
+    assert form.status_code == 400 and 'id="refused-quota"' not in form.text
+
+
 def test_the_plugins_screen_is_reachable_from_the_account_menu_and_the_palette(signed_in):
     assert 'href="/plugins"' in signed_in.get("/catalog").text
     items = signed_in.get("/api/v1/palette").json()["items"]

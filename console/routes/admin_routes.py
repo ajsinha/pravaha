@@ -6,9 +6,11 @@ Proprietary and confidential. See LICENSE at the repository root.
     /admin                  the admin persona's landing: Access
     /admin/access           what the engine's policy lets this console's identity do (read-only)
     /admin/audit            the audit trail: filterable, paged, every filter in the URL
+    /admin/tenants          each tenant's use against its admission quotas, and its refusals
 
-Both screens are the engine's answers (``GET /api/v1/me/permissions``, ``GET /api/v1/audit``)
-through the SDK, and both are behind the sign-in gate like every screen that reaches the engine.
+Each screen is the engine's answer (``GET /api/v1/me/permissions``, ``GET /api/v1/audit``,
+``GET /api/v1/tenants``)
+through the SDK, and each is behind the sign-in gate like every screen that reaches the engine.
 Neither adds a permission of its own: the engine decides whether the console's identity may
 read the audit trail, and a refusal is rendered as the screen's "not permitted" state with the
 engine's reason. Grants are not edited here because the engine is not where grants live.
@@ -98,6 +100,27 @@ class AdminRoutes(Routes):
                 older_href=_link(filters, cursor=next_cursor) if next_cursor else None,
                 principal_href=lambda who: _link({**filters, "principal": who}),
                 view_href=lambda what: _link({**filters, "view": what}))
+
+        @self.app.get("/admin/tenants", response_class=HTMLResponse, tags=["ui"])
+        def tenants(request: Request):
+            """Quotas in force, each tenant's use against them, and the refusals (ADR-050). Which
+            tenants are listed is the engine's decision: every tenant for an identity that may
+            read the audit trail, its own tenant for any other, and the page says which."""
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            answer, error, http_status = None, None, 200
+            try:
+                answer = services.admin.tenants()
+            except ServiceError as exc:
+                error, http_status = failure(exc, request, "the tenants"), _problem(exc)[1]
+            return self.page(request, "admin_tenants.html", http_status=http_status,
+                             current="/admin", tab="tenants", answer=answer, tenants_error=error)
+
+        @self.app.get(f"{self.api}/admin/tenants", tags=["api"])
+        def api_tenants(request: Request):
+            if (refusal := _refuse_anonymous(request)) is not None:
+                return refusal
+            return self.json_guard(services.admin.tenants, request=request)
 
         @self.app.get(f"{self.api}/admin/audit", tags=["api"])
         def api_audit(request: Request, cursor: str = "", limit: int = 50):

@@ -13,6 +13,7 @@
 <nav class="tabs-bar" aria-label="{{ t('admin.sections') }}">
   <a href="/admin/access" {% if tab == 'access' %}aria-current="page"{% endif %}>{{ t('admin.tab.access') }}</a>
   <a href="/admin/audit" {% if tab == 'audit' %}aria-current="page"{% endif %}>{{ t('admin.tab.audit') }}</a>
+  <a href="/admin/tenants" {% if tab == 'tenants' %}aria-current="page"{% endif %}>{{ t('admin.tab.tenants') }}</a>
   <a href="/plugins">{{ t('admin.tab.plugins') }}</a>
 </nav>
 {% endmacro %}

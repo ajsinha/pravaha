@@ -128,6 +128,10 @@ class FakeEngine:
         #: identity system decides, and what a grant made there changes.
         self.administer_refused: dict[str, str] = {}
         self.register_refusal: str | None = None
+        #: ADR-050. Each tenant's use as ``GET /api/v1/tenants`` reports it. ``None`` in a limit
+        #: is no limit. Which tenants are shown follows ``audit_allowed``, as the engine's does.
+        self.tenant_defaults: dict = {"maxQueries": 20, "maxStateKeys": None}
+        self.tenant_rows: list[dict] = [dict(t) for t in TENANTS]
         #: Plans by exact SQL, for a test that needs a particular shape; any other SQL is planned
         #: by ``_shaped_plan``.
         self.plans: dict[str, dict] = {}
@@ -829,6 +833,14 @@ class FakeEngine:
                 "streams": [{"name": s["name"], "read": "full", "administer": {"allowed": True, "reason": None}}
                             for s in self.streams_list]}
 
+    def tenants(self):
+        self._check()
+        rows = [dict(t) for t in self.tenant_rows]
+        if not self.audit_allowed:
+            rows = [t for t in rows if t["tenant"] == "public"]
+        return {"scope": "all" if self.audit_allowed else "own", "defaults": dict(self.tenant_defaults),
+                "tenants": rows}
+
     def audit(self, since=None, until=None, principal=None, view=None, action=None, decision=None,
               limit=100, cursor=None):
         """The engine's page semantics: newest first, filtered, ``cursor`` continues below a sequence."""
@@ -854,6 +866,17 @@ class FakeEngine:
                 "note": "The most recent 10000 decisions on this node are readable here; none has been "
                         "evicted since it started."}
 
+
+#: Three tenants: one well within its limits, one at its query limit with state grown past its
+#: state quota (which only state can do, ADR-050 section 2), and one limited to zero queries.
+TENANTS = [
+    {"tenant": "public", "queries": 4, "computations": 3, "stateKeys": 1200,
+     "limits": {"maxQueries": 20, "maxStateKeys": None}, "queryRefusals": 0, "stateRefusals": 0},
+    {"tenant": "risk", "queries": 5, "computations": 5, "stateKeys": 52000,
+     "limits": {"maxQueries": 5, "maxStateKeys": 50000}, "queryRefusals": 3, "stateRefusals": 1},
+    {"tenant": "ops", "queries": 0, "computations": 0, "stateKeys": 0,
+     "limits": {"maxQueries": 0, "maxStateKeys": None}, "queryRefusals": 2, "stateRefusals": 0},
+]
 
 AUDIT_REFUSAL = "reading the audit trail needs one of the roles [admin]"
 

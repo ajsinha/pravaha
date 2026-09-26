@@ -8,6 +8,14 @@
 {# A refusal is normal operation and carries its reason. Shown whole rather than
    summarised: the engine's messages name the cause and the fix, and a console
    that paraphrases them loses both. #}
+{% if quota %}
+{# ADR-050: a quota refusal says which quota and what to do, above the engine's own words. #}
+<div class="alert alert-warning small" id="refused-quota" data-code="{{ quota }}">
+  <div class="fw-semibold">{{ t('refused.quota.' ~ quota ~ '.title') }}</div>
+  <p class="mb-1">{{ t('refused.quota.' ~ quota ~ '.fix') }}</p>
+  <a href="/admin/tenants">{{ t('refused.quota.see') }}</a>
+</div>
+{% endif %}
 <div class="card"><div class="card-body">
   <pre class="small mb-0">{{ detail }}</pre>
 </div></div>
