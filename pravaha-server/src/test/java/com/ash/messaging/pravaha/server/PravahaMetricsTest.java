@@ -99,6 +99,18 @@ class PravahaMetricsTest {
     }
 
     @Test
+    void aTenantThatRegistersGetsItsTenancyMeters() {
+        // ADR-050: the node's metrics publish each tenant's use, quotas and refusals.
+        node.registry().orElseThrow().register("by_user", "SELECT user_id, amount FROM txn", List.of(0), DANA);
+
+        metrics.sync();
+
+        assertThat(meters.find("pravaha.tenant.queries").tag("tenant", "acme").gauge())
+                .isNotNull()
+                .satisfies(gauge -> assertThat(gauge.value()).isEqualTo(1.0));
+    }
+
+    @Test
     void droppingAQueryRemovesItsMeters() {
         node.registry().orElseThrow().register("temporary", "SELECT user_id, amount FROM txn", List.of(0), DANA);
         metrics.sync();

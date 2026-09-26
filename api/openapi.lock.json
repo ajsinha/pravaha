@@ -258,6 +258,13 @@
         "responses" : [ "200", "default" ]
       }
     },
+    "/api/v1/tenants" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ ],
+        "responses" : [ "200", "default" ]
+      }
+    },
     "/api/v1/views/{name}" : {
       "get" : {
         "hasBody" : false,

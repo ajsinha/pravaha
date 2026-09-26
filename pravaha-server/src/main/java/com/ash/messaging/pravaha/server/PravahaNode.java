@@ -184,6 +184,19 @@ public class PravahaNode implements SmartLifecycle {
     /** The debugger's bounds, pravaha.debug.* (ADR-048). */
     private final Configuration debugConfiguration;
 
+    /** pravaha.tenancy.* (ADR-050); none until Spring sets it, which is no limit for any tenant. */
+    private com.ash.messaging.pravaha.registry.TenantQuotas tenantQuotas =
+            com.ash.messaging.pravaha.registry.TenantQuotas.unbounded();
+
+    /**
+     * The tenants' admission quotas. A setter rather than a constructor argument so the node's
+     * builder and its test call sites are unchanged; Spring calls it before the node starts.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setTenancy(com.ash.messaging.pravaha.server.tenancy.TenancyProperties tenancy) {
+        this.tenantQuotas = tenancy.quotas();
+    }
+
     /**
      * Kept whole, not only unpacked, so {@link PersistenceProperties#validate()} can be run from
      * {@link #startNow()} as well as by Spring (CFG-7, CFG-16). A node built through
@@ -904,6 +917,8 @@ public class PravahaNode implements SmartLifecycle {
         // The debugger's bounds (ADR-048): how many forks this node will hold, how long an
         // abandoned one lives, and how far a step will read. Given before anything can fork.
         registry.configuredWith(debugConfiguration);
+        // ADR-050. Before recovery, so a journal replayed under a lowered quota is refused by name.
+        registry.limitingTenants(tenantQuotas);
         // Said once at startup, because the ceiling it names is the one a node holding many sources
         // reaches first -- and reaches with an error that blames the network (SRC-4).
         com.ash.messaging.pravaha.common.io.FileDescriptors.usage()

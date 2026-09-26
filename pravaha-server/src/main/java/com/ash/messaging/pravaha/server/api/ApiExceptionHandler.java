@@ -78,6 +78,16 @@ public class ApiExceptionHandler {
         if (code.code().equals(com.ash.messaging.pravaha.state.StateErrors.DLQ_REPLAY_REFUSED.code())) {
             return HttpStatus.CONFLICT;
         }
+        // ADR-050. A tenant at its quota is 409 for the same reason: the body is fine and the
+        // tenant's holdings say no, so the fix is a drop or a raised quota, not a changed request.
+        // A replacement from another tenant is a refusal of the caller, so 403.
+        if (code.code().equals(com.ash.messaging.pravaha.registry.RegistryErrors.TENANT_QUERY_QUOTA.code())
+                || code.code().equals(com.ash.messaging.pravaha.registry.RegistryErrors.TENANT_STATE_QUOTA.code())) {
+            return HttpStatus.CONFLICT;
+        }
+        if (code.code().equals(com.ash.messaging.pravaha.registry.RegistryErrors.TENANT_MISMATCH.code())) {
+            return HttpStatus.FORBIDDEN;
+        }
         return switch (code.category()) {
             case CONFIGURATION, PLANNING -> HttpStatus.BAD_REQUEST;
             case SECURITY -> HttpStatus.FORBIDDEN;

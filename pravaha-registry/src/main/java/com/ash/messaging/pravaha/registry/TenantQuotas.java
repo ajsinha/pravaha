@@ -221,8 +221,8 @@ public final class TenantQuotas {
                         new PravahaException(
                                 RegistryErrors.TENANT_QUERY_QUOTA,
                                 "tenant '" + tenant + "' already holds " + held + " of its " + max + " queries, so '"
-                                        + name + "' is refused. Drop one of the tenant's queries, or raise "
-                                        + "pravaha.tenancy max-queries for it; nothing running was changed."));
+                                        + name + "' is refused. Drop one of the tenant's queries, or give it a "
+                                        + "higher max-queries under pravaha.tenancy; nothing running was changed."));
             }
         }
         if (startsComputation && limits.maxStateKeys().isPresent()) {
@@ -240,8 +240,8 @@ public final class TenantQuotas {
                                 RegistryErrors.TENANT_STATE_QUOTA,
                                 "tenant '" + tenant + "' already holds " + held + " view keys against its quota of "
                                         + max + ", so '" + name + "', which would start another computation, is "
-                                        + "refused. Drop or narrow one of the tenant's queries, or raise pravaha.tenancy "
-                                        + "max-state-keys for it; the queries already running keep running."));
+                                        + "refused. Drop or narrow one of the tenant's queries, or give it a "
+                                        + "higher max-state-keys under pravaha.tenancy; the queries already running keep running."));
             }
         }
         audit.record(AuditEvent.of(
