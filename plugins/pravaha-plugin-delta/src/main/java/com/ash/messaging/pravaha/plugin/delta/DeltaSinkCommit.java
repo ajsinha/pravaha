@@ -39,6 +39,7 @@ import io.delta.kernel.engine.Engine;
 import io.delta.kernel.exceptions.ConcurrentTransactionException;
 import io.delta.kernel.exceptions.ConcurrentWriteException;
 import io.delta.kernel.exceptions.TableNotFoundException;
+import io.delta.kernel.expressions.Literal;
 import io.delta.kernel.internal.InternalScanFileUtils;
 import io.delta.kernel.internal.SnapshotImpl;
 import io.delta.kernel.internal.actions.AddFile;
@@ -100,6 +101,14 @@ import com.ash.messaging.pravaha.plugin.delta.DeltaSinkRows.Change;
  *
  * <p>Both say the same thing about deployment: a Delta table maintained by a continuous query
  * should have no other writer.
+ *
+ * <p><strong>Partitioned tables.</strong> With {@code partition.columns} the table is partitioned,
+ * and a data file holds rows of one partition only, so the rows a commit adds are grouped by their
+ * partition values and each group becomes its own file, under its partition's directory, with its
+ * values recorded in the {@code add} action ({@link DeltaSinkPartitions}). A rewritten file goes
+ * back into the partition it came from. None of this changes the guarantees above: however many
+ * partitions it touches, a checkpoint is still one Delta commit carrying one {@code txn} action,
+ * refused whole on a conflict.
  */
 final class DeltaSinkCommit {
 
@@ -114,6 +123,7 @@ final class DeltaSinkCommit {
     private final DeltaSinkRows rows;
     private final int[] keyOrdinals;
     private final boolean changelog;
+    private final DeltaSinkPartitions partitions;
 
     private long rowsApplied;
     private long filesRewritten;
@@ -135,7 +145,8 @@ final class DeltaSinkCommit {
             StructType deltaSchema,
             DeltaSinkRows rows,
             int[] keyOrdinals,
-            boolean changelog) {
+            boolean changelog,
+            int[] partitionOrdinals) {
         this.engine = engine;
         this.table = Table.forPath(engine, path);
         this.instanceName = instanceName;
@@ -145,6 +156,7 @@ final class DeltaSinkCommit {
         this.rows = rows;
         this.keyOrdinals = keyOrdinals.clone();
         this.changelog = changelog;
+        this.partitions = new DeltaSinkPartitions(deltaSchema, partitionOrdinals);
     }
 
     /**
@@ -167,11 +179,13 @@ final class DeltaSinkCommit {
                                 + "and this sink will create it with the binding's schema.");
             }
             try {
-                table.createTransactionBuilder(engine, ENGINE_INFO, Operation.CREATE_TABLE)
+                TransactionBuilder builder = table.createTransactionBuilder(engine, ENGINE_INFO, Operation.CREATE_TABLE)
                         .withSchema(engine, deltaSchema)
-                        .withMaxRetries(0)
-                        .build(engine)
-                        .commit(engine, CloseableIterable.emptyIterable());
+                        .withMaxRetries(0);
+                if (partitions.partitioned()) {
+                    builder = builder.withPartitionColumns(engine, partitions.names());
+                }
+                builder.build(engine).commit(engine, CloseableIterable.emptyIterable());
             } catch (ConcurrentWriteException e) {
                 throw conflict("create the table at " + path, e);
             } catch (RuntimeException e) {
@@ -183,15 +197,34 @@ final class DeltaSinkCommit {
             return;
         }
         SnapshotImpl snapshot = existing.get();
-        if (!snapshot.getPartitionColumnNames().isEmpty()) {
+        DeltaSinkSchema.refuseMismatch(instanceName, path, deltaSchema, snapshot.getSchema());
+        refusePartitionMismatch(snapshot.getPartitionColumnNames());
+    }
+
+    /**
+     * Refuses a table partitioned otherwise than the binding says, in either direction.
+     *
+     * <p>Kernel files each row by the table's own partition columns, so writing a table partitioned
+     * by a column the binding does not name would still work -- and the binding would no longer say
+     * what the table is. A mismatch in order is a mismatch too: Delta's directory layout nests the
+     * columns in the order the table declares them.
+     */
+    private void refusePartitionMismatch(List<String> actual) {
+        List<String> wanted = partitions.names();
+        boolean same = wanted.size() == actual.size();
+        for (int i = 0; same && i < wanted.size(); i++) {
+            same = wanted.get(i).equalsIgnoreCase(actual.get(i));
+        }
+        if (!same) {
             throw new PravahaException(
                     DeltaErrors.SINK_TABLE_MISMATCH,
-                    "the Delta table at " + path + " is partitioned by " + snapshot.getPartitionColumnNames()
-                            + ", and this sink writes unpartitioned tables only. It would have to decide which "
-                            + "partition each row belongs to and rewrite whole partitions to delete from them, "
-                            + "and neither is something to do silently. Point the sink at an unpartitioned table.");
+                    "the Delta table at " + path + " is "
+                            + (actual.isEmpty() ? "not partitioned" : "partitioned by " + actual) + ", and plugin '"
+                            + instanceName + "' declares "
+                            + (wanted.isEmpty() ? "no partition.columns" : "partition.columns " + wanted)
+                            + ". This sink never repartitions a table; set partition.columns to the table's own, or "
+                            + "point the sink at a new path.");
         }
-        DeltaSinkSchema.refuseMismatch(instanceName, path, deltaSchema, snapshot.getSchema());
     }
 
     /** The table's latest version, for a message or a test. */
@@ -249,12 +282,11 @@ final class DeltaSinkCommit {
                     e);
         }
         Row txnState = txn.getTransactionState(engine);
-        DataWriteContext context = Transaction.getWriteContext(engine, txnState, Map.of());
         List<Row> actions = new ArrayList<>();
         if (changelog) {
-            appendChangelog(changes, txnState, context, actions);
+            appendChangelog(changes, txnState, actions);
         } else {
-            merge(changes, txn.getReadTableVersion(), txnState, context, actions);
+            merge(changes, txn.getReadTableVersion(), txnState, actions);
         }
         conflictWindow.run();
         try {
@@ -284,18 +316,25 @@ final class DeltaSinkCommit {
     }
 
     /** Changelog mode: every change becomes a row, and the commit adds the files. */
-    private void appendChangelog(List<Change> changes, Row txnState, DataWriteContext context, List<Row> actions) {
+    private void appendChangelog(List<Change> changes, Row txnState, List<Row> actions) {
         if (changes.isEmpty()) {
             return;
         }
-        ColumnarBatch batch = rows.batchOf(changes, deltaSchema, true);
-        actions.addAll(write(txnState, context, iterator(List.of(new FilteredColumnarBatch(batch, Optional.empty())))));
+        writeRows(txnState, changes, true, actions);
         rowsApplied += changes.size();
     }
 
+    /** Writes rows as one file per partition they fall in, adding the {@code add} actions naming them. */
+    private void writeRows(Row txnState, List<Change> changes, boolean changelogColumns, List<Row> actions) {
+        for (DeltaSinkPartitions.Group group : partitions.group(changes)) {
+            ColumnarBatch batch = rows.batchOf(group.changes(), deltaSchema, changelogColumns);
+            actions.addAll(write(
+                    txnState, group.values(), iterator(List.of(new FilteredColumnarBatch(batch, Optional.empty())))));
+        }
+    }
+
     /** Upsert mode: the copy-on-write merge described on this class. */
-    private void merge(
-            List<Change> changes, long readVersion, Row txnState, DataWriteContext context, List<Row> actions) {
+    private void merge(List<Change> changes, long readVersion, Row txnState, List<Row> actions) {
         Map<List<Object>, Change> last = collapse(changes);
         if (last.isEmpty()) {
             return;
@@ -308,7 +347,14 @@ final class DeltaSinkCommit {
             Row scanState = scan.getScanState(engine);
             List<DataType> types = DeltaTypes.columnTypes(deltaSchema);
             for (DeltaScanFiles.ScanFile file : touched) {
-                actions.addAll(write(txnState, context, survivors(scanState, file, affected, types)));
+                // A file is rewritten into the partition it came from: its survivors are filed under
+                // the values Kernel reads back for it, not under anything this commit computes.
+                Optional<DeltaSinkPartitions.Peeked> peeked =
+                        partitions.peek(survivors(scanState, file, affected, types));
+                if (peeked.isPresent()) {
+                    actions.addAll(
+                            write(txnState, peeked.get().values(), peeked.get().batches()));
+                }
                 actions.add(SingleAction.createRemoveFileSingleAction(
                         new AddFile(file.row().getStruct(InternalScanFileUtils.ADD_FILE_ORDINAL))
                                 .toRemoveFileRow(true, Optional.of(System.currentTimeMillis()))));
@@ -322,9 +368,7 @@ final class DeltaSinkCommit {
             }
         }
         if (!inserted.isEmpty()) {
-            ColumnarBatch batch = rows.batchOf(inserted, deltaSchema, false);
-            actions.addAll(
-                    write(txnState, context, iterator(List.of(new FilteredColumnarBatch(batch, Optional.empty())))));
+            writeRows(txnState, inserted, false, actions);
         }
         rowsApplied += last.size();
     }
@@ -430,10 +474,16 @@ final class DeltaSinkCommit {
         };
     }
 
-    /** Writes logical rows as Parquet and returns the {@code add} actions naming the files. */
-    private List<Row> write(Row txnState, DataWriteContext context, CloseableIterator<FilteredColumnarBatch> logical) {
+    /**
+     * Writes one partition's logical rows as Parquet and returns the {@code add} actions naming the
+     * files. Kernel strips the partition columns from the data, writes under the partition's
+     * directory, and records {@code partitionValues} in each action.
+     */
+    private List<Row> write(
+            Row txnState, Map<String, Literal> partitionValues, CloseableIterator<FilteredColumnarBatch> logical) {
+        DataWriteContext context = Transaction.getWriteContext(engine, txnState, partitionValues);
         try (CloseableIterator<FilteredColumnarBatch> physical =
-                Transaction.transformLogicalData(engine, txnState, logical, Map.of())) {
+                Transaction.transformLogicalData(engine, txnState, logical, partitionValues)) {
             CloseableIterator<DataFileStatus> written = engine.getParquetHandler()
                     .writeParquetFiles(context.getTargetDirectory(), physical, context.getStatisticsColumns());
             List<Row> actions = new ArrayList<>();

@@ -1206,9 +1206,9 @@ pravaha:
   that commits *while* a commit is being built makes it fail with `PRV-5059` — deliberately not
   retried, because replaying this commit's file removals over the other writer's version would undo
   their change. The sink is then detached (`PRV-8009`) with the checkpoint's changes still staged.
-- **Checked before a row moves:** a partitioned table, a table whose columns are not the binding's
-  (by position, name and type), and `create: false` with no table are each refused with `PRV-5057`,
-  naming the column. A `TIME` column is refused with `PRV-5051`, because Delta has no time-of-day
+- **Checked before a row moves:** a table partitioned otherwise than `partition.columns` says, a
+  table whose columns are not the binding's (by position, name and type), and `create: false` with
+  no table are each refused with `PRV-5057`, naming the column. A `TIME` column is refused with `PRV-5051`, because Delta has no time-of-day
   type. At write time, a null key column and a `TIMESTAMP` that is not a whole number of
   microseconds are refused with `PRV-5058` — Delta stores microseconds and the engine nanoseconds,
   and rounding would put a value in the table that reads as true and is not. `PRV-5056` is a binding

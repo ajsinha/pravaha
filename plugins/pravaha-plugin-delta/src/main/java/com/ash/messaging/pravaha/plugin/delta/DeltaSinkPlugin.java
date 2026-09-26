@@ -100,7 +100,8 @@ import com.ash.messaging.pravaha.plugin.delta.DeltaSinkRows.Change;
  * {@code name:TYPE,...}), {@code mode} ({@code upsert} | {@code changelog}), {@code key.columns}
  * (required in upsert mode), {@code transactional} (default {@code true}), {@code transaction.id}
  * (default the binding's name), {@code staging.dir} (default {@code <path>/_pravaha_sink}),
- * {@code create} (default {@code true}).
+ * {@code create} (default {@code true}), {@code partition.columns} (optional, the table's partition
+ * columns in order; each must be one of the declared columns, and not {@code BYTES}).
  */
 public final class DeltaSinkPlugin implements StreamSinkPlugin {
 
@@ -116,6 +117,7 @@ public final class DeltaSinkPlugin implements StreamSinkPlugin {
     private StructType deltaSchema;
     private List<String> keyNames = List.of();
     private int[] keyOrdinals = new int[0];
+    private int[] partitionOrdinals = new int[0];
     private boolean changelog;
     private boolean transactional;
     private boolean create;
@@ -159,6 +161,8 @@ public final class DeltaSinkPlugin implements StreamSinkPlugin {
         }
         this.deltaSchema = DeltaSinkSchema.toDeltaSchema(instanceName, schema, changelog);
         readKeyColumns(context.get("key.columns", "").strip());
+        this.partitionOrdinals =
+                DeltaSinkPartitions.ordinalsOf(instanceName, schema, namesIn(context.get("partition.columns", "")));
 
         this.transactional =
                 Boolean.parseBoolean(context.get("transactional", "true").strip());
@@ -188,17 +192,21 @@ public final class DeltaSinkPlugin implements StreamSinkPlugin {
                             + "its key names, and without one there is nothing to name. It must be the query's "
                             + "--keys.");
         }
-        List<String> names = new ArrayList<>();
-        for (String part : keys.split(",")) {
-            if (!part.isBlank()) {
-                names.add(part.strip());
-            }
-        }
-        this.keyNames = List.copyOf(names);
+        this.keyNames = namesIn(keys);
         this.keyOrdinals = new int[keyNames.size()];
         for (int k = 0; k < keyNames.size(); k++) {
             keyOrdinals[k] = keyOrdinal(keyNames.get(k));
         }
+    }
+
+    private static List<String> namesIn(String list) {
+        List<String> names = new ArrayList<>();
+        for (String part : list.split(",")) {
+            if (!part.isBlank()) {
+                names.add(part.strip());
+            }
+        }
+        return List.copyOf(names);
     }
 
     private int keyOrdinal(String key) {
@@ -240,8 +248,8 @@ public final class DeltaSinkPlugin implements StreamSinkPlugin {
         // plugin's isolated classpath rather than through the engine's.
         this.engine = DefaultEngine.create(new Configuration());
         this.rows = new DeltaSinkRows(schema);
-        this.commit =
-                new DeltaSinkCommit(engine, instanceName, path, schema, deltaSchema, rows, keyOrdinals, changelog);
+        this.commit = new DeltaSinkCommit(
+                engine, instanceName, path, schema, deltaSchema, rows, keyOrdinals, changelog, partitionOrdinals);
         commit.openTable(create);
         Path stagingRoot = (stagingDirectory.isEmpty()
                         ? Path.of(path).resolve(DEFAULT_STAGING_DIRECTORY)

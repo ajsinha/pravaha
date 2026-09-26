@@ -400,13 +400,16 @@ recorded, which are then lost to the topic: raise `staging.retention.ms` and re-
 - `PRV-5056` — the binding cannot be honoured as written: a `mode` that is neither `upsert` nor
   `changelog`, a missing `key.columns` in upsert mode or a pointless one in changelog mode, a key
   column that is floating point, nullable or not in the schema, a `transaction.id` that cannot also
-  be a directory name, or a changelog schema that already declares `_op` or `_weight`.
+  be a directory name, a changelog schema that already declares `_op` or `_weight`, or a
+  `partition.columns` entry that is not a declared column, is `BYTES`, is named twice, or leaves no
+  column unpartitioned.
 - `PRV-5051` — a column of a type Delta has no equivalent for. `TIME` is the one: Delta has `DATE`
   and `TIMESTAMP` and nothing for a time of day, and writing nanoseconds into a `BIGINT` that no
   Delta reader reads as a time is not a substitute. Project the column away or convert it.
 - `PRV-5057` — the table at `path` is not the one the binding describes: a column missing, renamed,
   retyped or in another position (named in the message), a `NOT NULL` table column under a nullable
-  declaration, a **partitioned** table, or `create: false` with no table there. The sink never
+  declaration, a table **partitioned otherwise** than `partition.columns` says (an unpartitioned
+  binding over a partitioned table included), or `create: false` with no table there. The sink never
   alters a table's schema; change the binding, evolve the table with the engine that owns it, or
   point the sink at a new path.
 - `PRV-5058` — staging, reading back or committing failed. Two cases are the sink refusing rather

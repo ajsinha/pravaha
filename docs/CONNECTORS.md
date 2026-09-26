@@ -1044,6 +1044,22 @@ therefore proportional to the table, not to the number of changes** — which is
 upsert semantics on a format whose files are immutable, and is why `mode: changelog`, which only
 appends, is what a high-volume query should be bound to.
 
+**Partitioned tables.** `partition.columns` names the table's partition columns, in order. Delta
+keeps a partition column's value out of the data file — the file sits in a directory named for its
+partition and its `add` action records the value in `partitionValues` — so one file holds one
+partition's rows. The sink groups a commit's rows by their partition values and writes one file per
+partition under that partition's directory, through Kernel, which strips the columns from the
+Parquet and records the values in the log; a rewritten file goes back into the partition it came
+from, and a file left with no surviving row is removed and not replaced by an empty one. None of it
+changes the guarantees: however many partitions a checkpoint touches, it is one Delta commit
+carrying one `txn` action, refused whole with `PRV-5059` on a conflict, in both modes. Refused at
+registration with `PRV-5056`: a partition column that is not one of the query's output columns
+(changelog mode's `_op` and `_weight` included), a `BYTES` column (Kernel writes a binary partition
+value as its bytes read as UTF-8, which does not round-trip), a column named twice, and partitioning
+by every column. An existing table partitioned otherwise than the binding says — including an
+unpartitioned binding over a partitioned table — is refused with `PRV-5057` when the sink opens.
+`DeltaSinkPartitionTest` holds this against real tables.
+
 **Concurrent writers, exactly.** A writer that finishes before this sink's commit begins is simply
 the snapshot the commit merges onto, and where it wrote a key the sink also holds, the sink's value
 wins — that key is the query's answer. A writer that commits *inside* the commit's window, after the

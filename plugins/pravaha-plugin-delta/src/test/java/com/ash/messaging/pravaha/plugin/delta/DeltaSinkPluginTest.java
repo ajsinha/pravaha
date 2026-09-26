@@ -24,9 +24,6 @@ import java.util.Map;
 import io.delta.kernel.Operation;
 import io.delta.kernel.Table;
 import io.delta.kernel.defaults.engine.DefaultEngine;
-import io.delta.kernel.types.LongType;
-import io.delta.kernel.types.StringType;
-import io.delta.kernel.types.StructType;
 import io.delta.kernel.utils.CloseableIterable;
 import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.AfterEach;
@@ -371,25 +368,6 @@ class DeltaSinkPluginTest {
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-5057")
                 .hasMessageContaining("column 0 of the table is 'id'");
-    }
-
-    @Test
-    void aPartitionedTableIsRefused() {
-        String path = table("spend");
-        io.delta.kernel.engine.Engine engine = DefaultEngine.create(new Configuration());
-        Table.forPath(engine, path)
-                .createTransactionBuilder(engine, "test", Operation.CREATE_TABLE)
-                .withSchema(
-                        engine,
-                        new StructType().add("user_id", StringType.STRING).add("total", LongType.LONG))
-                .withPartitionColumns(engine, List.of("user_id"))
-                .build(engine)
-                .commit(engine, CloseableIterable.emptyIterable());
-
-        assertThatThrownBy(() -> upsertSink(path, Map.of()))
-                .isInstanceOf(PravahaException.class)
-                .hasMessageContaining("PRV-5057")
-                .hasMessageContaining("is partitioned by [user_id]");
     }
 
     @Test

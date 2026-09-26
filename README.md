@@ -141,8 +141,8 @@ corrected by late data arrives as a retraction of the old answer followed by the
   on the local filesystem — so a machine without Docker skips those, by name, rather than passing.
   `kafka-sink` writes JSON only, and ships no lz4, snappy or zstd codec (they are native code):
   `none` and `gzip` compression work. **Delta is the only lakehouse format written**: there is no
-  Iceberg or Hudi sink, and `delta-sink` writes unpartitioned tables, creates no deletion vectors
-  and runs no compaction — `OPTIMIZE` and `VACUUM` belong to an engine that has them. Its upsert
+  Iceberg or Hudi sink, and `delta-sink` writes unpartitioned or partitioned tables
+  (`partition.columns`), creates no deletion vectors and runs no compaction — `OPTIMIZE` and `VACUUM` belong to an engine that has them. Its upsert
   mode rewrites the data files holding a changed key, so a commit costs in proportion to the table
   rather than to the change.
 - **The Kafka source reads JSON, Avro and Protobuf — with no library for any of them.** JSON rows or

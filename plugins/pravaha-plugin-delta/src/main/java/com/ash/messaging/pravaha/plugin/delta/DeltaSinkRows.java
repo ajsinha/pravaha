@@ -388,6 +388,46 @@ final class DeltaSinkRows {
                     ordinal,
                     false);
         }
+
+        /** Kernel's write path drops a partition column from the batch before it writes Parquet. */
+        @Override
+        public ColumnarBatch withDeletedColumnAt(int ordinal) {
+            return new WithoutColumn(this, ordinal);
+        }
+    }
+
+    /**
+     * A batch with one column left out, which is what a partition column is to the Parquet file: its
+     * value is in the directory name and the log, not in the file.
+     */
+    private record WithoutColumn(ColumnarBatch base, int dropped) implements ColumnarBatch {
+
+        @Override
+        public StructType getSchema() {
+            StructType schema = new StructType();
+            StructType all = base.getSchema();
+            for (int i = 0; i < all.length(); i++) {
+                if (i != dropped) {
+                    schema = schema.add(all.at(i));
+                }
+            }
+            return schema;
+        }
+
+        @Override
+        public ColumnVector getColumnVector(int ordinal) {
+            return base.getColumnVector(ordinal < dropped ? ordinal : ordinal + 1);
+        }
+
+        @Override
+        public int getSize() {
+            return base.getSize();
+        }
+
+        @Override
+        public ColumnarBatch withDeletedColumnAt(int ordinal) {
+            return new WithoutColumn(this, ordinal);
+        }
     }
 
     /**
