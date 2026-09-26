@@ -19,11 +19,10 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.ServiceLoader;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.plugin.LookupSourcePlugin;
-import com.ash.messaging.pravaha.connect.PluginErrors;
+import com.ash.messaging.pravaha.connect.PluginDiscovery;
 
 /**
  * Finds and opens the dimension tables a node's configuration names.
@@ -78,26 +77,18 @@ public final class PluginLookupSources implements AutoCloseable {
     }
 
     private LookupSourcePlugin discover(SourceBinding binding) {
-        List<String> available = new ArrayList<>();
-        try {
-            for (LookupSourcePlugin candidate : ServiceLoader.load(LookupSourcePlugin.class)) {
-                if (candidate.name().equalsIgnoreCase(binding.plugin())) {
-                    return candidate;
-                }
-                available.add(candidate.name());
-                closeQuietly(List.of(candidate));
-            }
-        } catch (java.util.ServiceConfigurationError e) {
-            // ERRC-059's mirror for lookup plugins: ServiceLoader raises this from inside the
-            // iteration, not as a RuntimeException, so it would otherwise leave every
-            // PravahaException handler on the way out as a bare, uncoded Error instead of a
-            // diagnosable, documented failure.
-            throw new PravahaException(
-                    PluginErrors.LOAD_FAILED,
-                    "a lookup plugin on the classpath could not be loaded while looking for '" + binding.plugin()
-                            + "': " + e.getMessage(),
-                    e);
+        // PKG-3: each provider is taken on its own, so one that cannot be loaded no longer ends
+        // discovery for every lookup plugin; it is refused by name, with its cause, only when it
+        // could be the one asked for.
+        PluginDiscovery.Found<LookupSourcePlugin> found =
+                PluginDiscovery.find(LookupSourcePlugin.class, binding.plugin());
+        if (found.plugin() != null) {
+            return found.plugin();
         }
+        if (!found.failures().isEmpty()) {
+            throw PluginDiscovery.loadFailed("lookup", binding.plugin(), found);
+        }
+        List<String> available = found.available();
         // CFG-4, the lookup half. The source side's message was rewritten to say what "available"
         // means, because a one-entry list read beside a document naming seven plugins looks like a
         // contradiction rather than an answer. This one was left as the bare list, and it has a

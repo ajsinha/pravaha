@@ -18,14 +18,13 @@ package com.ash.messaging.pravaha.bindings.egress;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.ServiceLoader;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
 import com.ash.messaging.pravaha.api.plugin.SinkCapabilities;
 import com.ash.messaging.pravaha.api.plugin.StreamSinkPlugin;
-import com.ash.messaging.pravaha.connect.PluginErrors;
+import com.ash.messaging.pravaha.connect.PluginDiscovery;
 import com.ash.messaging.pravaha.registry.SinkFactory;
 
 /**
@@ -270,25 +269,17 @@ public final class PluginSinks implements SinkFactory, AutoCloseable {
      * configure} is called once per instance.
      */
     private StreamSinkPlugin discover(SinkBinding binding) {
-        List<String> available = new ArrayList<>();
-        try {
-            for (StreamSinkPlugin candidate : ServiceLoader.load(StreamSinkPlugin.class)) {
-                if (candidate.name().equalsIgnoreCase(binding.plugin())) {
-                    return candidate;
-                }
-                available.add(candidate.name());
-                closeQuietly(candidate);
-            }
-        } catch (java.util.ServiceConfigurationError e) {
-            // ERRC-059's sibling on the egress side: ServiceLoader raises this, uncaught, from
-            // inside the iteration -- not a RuntimeException, so left alone it passes straight
-            // through every PravahaException handler as a bare, uncoded Error.
-            throw new PravahaException(
-                    PluginErrors.LOAD_FAILED,
-                    "a sink plugin on the classpath could not be loaded while looking for '" + binding.plugin() + "': "
-                            + e.getMessage(),
-                    e);
+        // PKG-3: each provider is taken on its own, so one that cannot be loaded no longer ends
+        // discovery for every sink plugin; it is refused by name, with its cause, only when it
+        // could be the one asked for.
+        PluginDiscovery.Found<StreamSinkPlugin> found = PluginDiscovery.find(StreamSinkPlugin.class, binding.plugin());
+        if (found.plugin() != null) {
+            return found.plugin();
         }
+        if (!found.failures().isEmpty()) {
+            throw PluginDiscovery.loadFailed("sink", binding.plugin(), found);
+        }
+        List<String> available = found.available();
         throw new PravahaException(
                 EgressErrors.NO_SUCH_SINK_PLUGIN,
                 "no sink plugin named '" + binding.plugin() + "' is on the classpath, so '" + binding.sinkName()

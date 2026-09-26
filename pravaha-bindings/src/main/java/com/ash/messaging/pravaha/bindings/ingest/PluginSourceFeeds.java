@@ -19,7 +19,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.ServiceLoader;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -31,7 +30,7 @@ import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 import com.ash.messaging.pravaha.api.plugin.SourcePartition;
 import com.ash.messaging.pravaha.api.plugin.StreamSourcePlugin;
 import com.ash.messaging.pravaha.backfill.OffsetSplicedReader;
-import com.ash.messaging.pravaha.connect.PluginErrors;
+import com.ash.messaging.pravaha.connect.PluginDiscovery;
 import com.ash.messaging.pravaha.registry.ReplaySource;
 import com.ash.messaging.pravaha.registry.SourceFeed;
 import com.ash.messaging.pravaha.registry.SourceFeedFactory;
@@ -49,7 +48,7 @@ import com.ash.messaging.pravaha.sql.plan.SourcePushdown;
  * run}, so a query registered on a server sat at zero rows indefinitely.
  *
  * <p><strong>Plugins are discovered, not compiled in.</strong> A binding names a plugin the way the
- * plugin names itself, and {@link ServiceLoader} finds it on the classpath -- so adding Delta or
+ * plugin names itself, and {@link java.util.ServiceLoader} finds it on the classpath -- so adding Delta or
  * JDBC to a deployment is dropping a jar in, not rebuilding the server. The alternative, a compile
  * time dependency per plugin, would drag Hadoop and Parquet into every server that only ever reads
  * a directory.
@@ -816,27 +815,18 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
      * per instance.
      */
     private StreamSourcePlugin discover(SourceBinding binding) {
-        List<String> available = new ArrayList<>();
-        try {
-            for (StreamSourcePlugin candidate : ServiceLoader.load(StreamSourcePlugin.class)) {
-                if (candidate.name().equalsIgnoreCase(binding.plugin())) {
-                    return candidate;
-                }
-                available.add(candidate.name());
-                closeQuietly(List.of(candidate));
-            }
-        } catch (java.util.ServiceConfigurationError e) {
-            // ERRC-059: ServiceLoader raises this, uncaught, from inside the iteration -- not a
-            // RuntimeException, so it would otherwise pass straight through every PravahaException
-            // handler on its way out as a bare, uncoded Error. A provider entry naming a class that
-            // is not on the classpath, or one whose constructor throws, ends the node's startup with
-            // a stack trace instead of a diagnosable, documented failure.
-            throw new PravahaException(
-                    PluginErrors.LOAD_FAILED,
-                    "a source plugin on the classpath could not be loaded while looking for '" + binding.plugin()
-                            + "': " + e.getMessage(),
-                    e);
+        // PKG-3: each provider is taken on its own, so one that cannot be loaded no longer ends
+        // discovery for every source plugin; it is refused by name, with its cause, only when it
+        // could be the one asked for.
+        PluginDiscovery.Found<StreamSourcePlugin> found =
+                PluginDiscovery.find(StreamSourcePlugin.class, binding.plugin());
+        if (found.plugin() != null) {
+            return found.plugin();
         }
+        if (!found.failures().isEmpty()) {
+            throw PluginDiscovery.loadFailed("source", binding.plugin(), found);
+        }
+        List<String> available = found.available();
         // CFG-4. The list used to be the whole message, and on a shipped server it has ONE entry --
         // so a well-formed error offered a remedy that was not one, beside documentation naming
         // seven plugins as though they were all reachable. What the operator actually needs to know
