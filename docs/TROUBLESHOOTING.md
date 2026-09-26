@@ -686,6 +686,11 @@ thing rather than the operation.
 | `PRV-8015` | A step, a predicate or a page this session cannot make sense of: an unreadable step verb, a predicate over a column the view does not have, a comparison that is not one of `= != < <= > >=`, a watermark that goes backwards, a page above the ceiling, a session past `pravaha.debug.session.max-rows`, or a fixture name that cannot be a Java class | The message says which and lists the legal values. A predicate is one column against one value on purpose (ADR-048); anything more is a query, so step to the row and read the view |
 | `PRV-8016` | The query this session forked from has been dropped, or replaced by a different computation (ADR-046), since the fork | Export what the session has if you still want it, then end it. Stepping on would report the old version's behaviour under a name that now answers a new one |
 
+Each refusal answers the same status on both transports (DBG-2): `PRV-8013` and `PRV-8016` are
+Flight `NOT_FOUND` and HTTP `404`, `PRV-8014` is Flight `RESOURCE_EXHAUSTED` and HTTP `429` — a node
+at its ceiling, worth retrying later — and the other three are Flight `INVALID_ARGUMENT` and HTTP
+`400`, because the caller can correct them.
+
 **A fork cannot make a query worse.** Its view is in no catalogue, no sink is attached to it, and
 its lanes are its own — so a refusal here means the session did not start, never that the live
 query is in a strange state. If a session is open and the query looks wrong, the session is not the

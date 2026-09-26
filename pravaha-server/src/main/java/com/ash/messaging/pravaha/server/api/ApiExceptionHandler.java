@@ -71,6 +71,17 @@ public class ApiExceptionHandler {
                 || code.code().equals(com.ash.messaging.pravaha.state.StateErrors.DLQ_NO_SUCH_LETTER.code())) {
             return HttpStatus.NOT_FOUND;
         }
+        // DBG-2: the debugger's refusals answer the status Flight gives them (FLIGHT-1), so a client
+        // that changes transport sees the same refusal the same way. A session that has ended and a
+        // query that has gone are things that are not there; a node at its ceiling of sessions is
+        // saturated, which a client may retry later and must not read as a malformed request.
+        if (code.code().equals(com.ash.messaging.pravaha.registry.DebugErrors.NO_SUCH_SESSION.code())
+                || code.code().equals(com.ash.messaging.pravaha.registry.DebugErrors.QUERY_GONE.code())) {
+            return HttpStatus.NOT_FOUND;
+        }
+        if (code.code().equals(com.ash.messaging.pravaha.registry.DebugErrors.TOO_MANY_SESSIONS.code())) {
+            return HttpStatus.TOO_MANY_REQUESTS;
+        }
         // A replay the engine will not perform because it could not be correct (B5). Not a 500: the
         // server is fine and the request was well formed. Not a 400 either -- there is nothing in the
         // body to fix, and a client retrying after correcting one would be looking for a mistake it
