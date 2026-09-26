@@ -81,7 +81,30 @@ public record QueryFingerprint(String value) {
      */
     public static QueryFingerprint of(
             PhysicalOperator plan, List<String> rowFilters, List<Integer> keyColumns, Retention retention) {
+        return of(plan, rowFilters, keyColumns, retention, null);
+    }
+
+    /**
+     * The identity of a computation within one tenant (ADR-050).
+     *
+     * <p>The tenant is in the fingerprint for the reason the row filters are: a computation shared
+     * across tenants could not be charged to either, and a pause, a replacement or a failure of one
+     * tenant's name would reach the other's. Identical SQL still shares one computation among the
+     * principals of one tenant. A null tenant is the caller declaring none, as the four-argument
+     * form does, and is distinct from every named tenant.
+     */
+    public static QueryFingerprint of(
+            PhysicalOperator plan,
+            List<String> rowFilters,
+            List<Integer> keyColumns,
+            Retention retention,
+            String tenant) {
         StringBuilder canonical = new StringBuilder(PhysicalPlanBuilder.explain(plan));
+        if (tenant != null) {
+            // Length-prefixed, because a tenant comes from an identity provider and could carry a
+            // newline: unprefixed, tenant "t\nsecurity:p" would hash as tenant "t" with row filter p.
+            canonical.append("\ntenant:").append(tenant.length()).append(':').append(tenant);
+        }
         for (String filter : rowFilters) {
             canonical.append("\nsecurity:").append(filter);
         }

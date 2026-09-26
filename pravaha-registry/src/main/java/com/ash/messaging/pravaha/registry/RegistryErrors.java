@@ -141,5 +141,41 @@ public final class RegistryErrors {
      */
     public static final ErrorCode NODE_STOPPING = new ErrorCode(8019, "REGISTRY_NODE_STOPPING");
 
+    /**
+     * A registration its tenant has no query left for (ADR-050).
+     *
+     * <p>Raised at registration, before a sink is opened or a row is read, and never later: a
+     * running query is not stopped because its tenant's quota was lowered. Every name counts,
+     * including a name that attaches to a computation its tenant already runs, because a name is
+     * what a tenant holds and what an operator sees listed against it.
+     */
+    public static final ErrorCode TENANT_QUERY_QUOTA = new ErrorCode(8020, "REGISTRY_TENANT_QUERY_QUOTA");
+
+    /**
+     * A registration that would start a computation for a tenant already holding its whole share of
+     * state (ADR-050).
+     *
+     * <p>State is counted in keys held by the tenant's views, which is the one measure each
+     * computation owns alone and can report exactly. The quota is an admission bound: it refuses the
+     * next computation, and does not shed or stop one that is running. A name attached to a
+     * computation that already exists adds no state and is not refused by this.
+     */
+    public static final ErrorCode TENANT_STATE_QUOTA = new ErrorCode(8021, "REGISTRY_TENANT_STATE_QUOTA");
+
+    /**
+     * A replacement by a principal of a different tenant from the one the name belongs to
+     * (ADR-050).
+     *
+     * <p>A name belongs to the tenant that registered it. A new version is a computation charged to
+     * that tenant's quotas and shared only within it, so a principal of another tenant putting one
+     * behind the name would either charge a tenant that did not ask for it or move the name out of
+     * the tenant whose readers use it. Neither is done; the replacement is refused before the new
+     * version is planned to run.
+     */
+    public static final ErrorCode TENANT_MISMATCH = new ErrorCode(8022, "REGISTRY_TENANT_MISMATCH");
+
+    /** A tenancy quota this node refuses to start with: a negative limit, or a blank tenant name (ADR-050). */
+    public static final ErrorCode TENANCY_MISCONFIGURED = new ErrorCode(8023, "REGISTRY_TENANCY_MISCONFIGURED");
+
     private RegistryErrors() {}
 }

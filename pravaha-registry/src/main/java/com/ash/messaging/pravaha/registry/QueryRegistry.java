@@ -35,7 +35,6 @@ import com.ash.messaging.pravaha.runtime.lane.LaneConfig;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.Principal;
-import com.ash.messaging.pravaha.security.SecurityErrors;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.serving.Retention;
 import com.ash.messaging.pravaha.serving.ServedView;
@@ -716,7 +715,8 @@ public final class QueryRegistry implements AutoCloseable {
         // I-3: the key columns and the retention are part of what makes a computation itself.
         // Without them `--keys 1` and `--keys 0,1` over identical SQL shared one view, keyed as the
         // first registrant asked and with the second one's retention dropped, silently.
-        return new Preparation(plan, placements, QueryFingerprint.of(plan, rowFilters, keyColumns, retention));
+        return new Preparation(
+                plan, placements, QueryFingerprint.of(plan, rowFilters, keyColumns, retention, principal.tenant()));
     }
 
     private synchronized RegisteredQuery register(
@@ -729,6 +729,16 @@ public final class QueryRegistry implements AutoCloseable {
             String sinkName) {
         QueryNames.require(name, byName.keySet());
         Preparation prepared = prepare(name, sql, keyColumns, principal, retention, parameters, sinkName, "register");
+        RegisteredQuery running = byFingerprint.get(prepared.fingerprint());
+        tenants.admit(
+                audit,
+                principal,
+                "register",
+                name,
+                sql,
+                byFingerprint.values(),
+                true,
+                running == null || running.state().isTerminal());
 
         // Opened after every refusal above and before anything runs, so a registration refused for
         // its SQL, its sink's changelog or its principal never opened a connection -- and a fresh
@@ -737,7 +747,7 @@ public final class QueryRegistry implements AutoCloseable {
                 ? null
                 : openDelivery(name, sinkName, prepared.plan().outputSchema());
         try {
-            return register(
+            RegisteredQuery registered = register(
                     name,
                     sql,
                     keyColumns,
@@ -750,6 +760,8 @@ public final class QueryRegistry implements AutoCloseable {
                     prepared.fingerprint(),
                     delivery,
                     recoveringInto == null ? QueryCheckpoints.directoryFor(name) : recoveringInto);
+            tenants.assign(name, principal.tenant());
+            return registered;
         } catch (RuntimeException e) {
             if (delivery != null) {
                 delivery.close();
@@ -778,6 +790,8 @@ public final class QueryRegistry implements AutoCloseable {
             com.ash.messaging.pravaha.backfill.BackfillPlan backfill) {
         Preparation prepared =
                 prepare(name, sql, keyColumns, principal, retention, BoundParameters.none(), sinkName, "replace");
+        tenants.requireSameTenant(audit, principal, name, sql);
+        tenants.admit(audit, principal, "replace", name, sql, byFingerprint.values(), false, true);
         RegisteredQuery existing = byFingerprint.get(prepared.fingerprint());
         if (existing != null && !existing.state().isTerminal()) {
             throw new PravahaException(
@@ -931,7 +945,7 @@ public final class QueryRegistry implements AutoCloseable {
     }
 
     /** Registration during recovery: the journal is being read, so nothing is written back to it. */
-    private RegisteredQuery registerWithoutJournalling(
+    RegisteredQuery registerWithoutJournalling(
             String name,
             String sql,
             List<Integer> keyColumns,
@@ -1175,6 +1189,28 @@ public final class QueryRegistry implements AutoCloseable {
      * an outage: the views are there immediately and fill as data arrives, and a windowed query's
      * first window or two are partial.
      */
+    /** The tenants' quotas (ADR-050), in force for every registration from now on, replays included. */
+    public synchronized QueryRegistry limitingTenants(TenantQuotas quotas) {
+        this.tenants = Objects.requireNonNull(quotas, "quotas");
+        return this;
+    }
+
+    public synchronized TenantQuotas tenantQuotas() {
+        return tenants;
+    }
+
+    /** Each tenant's use against its quotas and the refusals fired for it: what an operator reads. */
+    public synchronized List<TenantQuotas.Usage> tenantUsage() {
+        return tenants.usage(queries());
+    }
+
+    /** The tenant that registered {@code name}, or empty when no such name is registered. */
+    public synchronized Optional<String> tenantOf(String name) {
+        return tenants.tenantOf(name);
+    }
+
+    private TenantQuotas tenants = TenantQuotas.unbounded();
+
     public synchronized QueryRegistry journalTo(RegistryJournal journal) {
         this.journal = journal;
         return this;
@@ -1194,74 +1230,9 @@ public final class QueryRegistry implements AutoCloseable {
      *     come back is a view some client is about to ask for
      */
     public synchronized Recovery recover(java.util.function.Function<String, Optional<Principal>> principals) {
-        if (journal == null) {
-            return new Recovery(List.of(), List.of());
-        }
-        List<String> recovered = new ArrayList<>();
-        List<Recovery.Refusal> refused = new ArrayList<>();
-        RegistryJournal.Replayed replayed = journal.replayAll();
-        for (RegistryJournal.Entry entry : replayed.live()) {
-            Optional<Principal> owner = principals.apply(entry.owner());
-            if (owner.isEmpty()) {
-                refused.add(new Recovery.Refusal(
-                        entry.name(),
-                        Optional.of(RegistryErrors.REPLAY_UNAUTHORIZED),
-                        "its owner '" + entry.owner()
-                                + "' is not a principal this deployment knows, so there is nobody to authorize it "
-                                + "as"));
-                continue;
-            }
-            try {
-                List<Object> values = entry.parameters().stream()
-                        .map(RegistryJournal::decodeParameter)
-                        .toList();
-                registerWithoutJournalling(
-                        entry.name(),
-                        entry.sql(),
-                        entry.keyColumns(),
-                        owner.get(),
-                        entry.retention(),
-                        values.isEmpty() ? BoundParameters.none() : BoundParameters.of(values),
-                        entry.sink(),
-                        entry.checkpointDirectory());
-                recovered.add(entry.name());
-            } catch (RuntimeException failure) {
-                // One bad entry must not stop the rest. A deployment recovering forty queries should
-                // not lose thirty-nine because the fortieth names a stream that has since been removed.
-                refused.add(new Recovery.Refusal(entry.name(), replayRefusalCode(failure), failure.getMessage()));
-            }
-        }
-        // Every name the journal knows has now been registered or refused, so a sink a restored
-        // checkpoint recorded and nobody claimed belongs to a name that is not coming back.
-        byFingerprint.values().forEach(RegisteredQuery::forgetUnclaimedSinks);
-        // And then the replacements that were in flight, which need their names back first: a
-        // candidate is started beside the version serving the name, and there is no name to be
-        // beside until the registrations above have been replayed (ADR-046).
-        if (!replayed.pending().isEmpty()) {
-            refused.addAll(replacements().recover(replayed.pending(), principals));
-        }
-        return new Recovery(recovered, refused);
-    }
-
-    /**
-     * The code to record for a refusal raised while replaying one journalled entry.
-     *
-     * <p>{@code register} refuses a principal who no longer holds what the journal recorded by
-     * throwing {@link SecurityErrors#FORBIDDEN} -- the same code a live registration would raise for
-     * an unrelated caller. During replay that is not a caller being refused; it is the exact
-     * condition {@link RegistryErrors#REPLAY_UNAUTHORIZED} documents, so it is relabelled here rather
-     * than surfaced under the generic code. Any other coded failure (an unusable name, a stream the
-     * deployment no longer has) keeps its own code, and a bare {@link RuntimeException} carrying none
-     * is recorded without one rather than inventing a code it never raised.
-     */
-    private static Optional<ErrorCode> replayRefusalCode(RuntimeException failure) {
-        if (!(failure instanceof PravahaException coded)) {
-            return Optional.empty();
-        }
-        return Optional.of(
-                coded.errorCode().equals(SecurityErrors.FORBIDDEN)
-                        ? RegistryErrors.REPLAY_UNAUTHORIZED
-                        : coded.errorCode());
+        return journal == null
+                ? new Recovery(List.of(), List.of())
+                : RegistryRecovery.replay(this, journal, principals);
     }
 
     /**
@@ -1395,6 +1366,7 @@ public final class QueryRegistry implements AutoCloseable {
             journal.recordDrop(name);
         }
         byName.remove(name);
+        tenants.release(name);
         // This name's sink alone. Another name on the same computation may write to a sink of its
         // own, and keeps doing so. Finished rather than closed: nothing will restore this name, so a
         // transactional sink's open transaction is committed now or never.
