@@ -1,5 +1,5 @@
-"""Visual regression: every page, light and dark, narrow and wide, comfortable and compact,
-against committed baselines.
+"""Visual regression: every page, in light, dark and blue, narrow and wide, comfortable
+and compact, against committed baselines.
 
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 Proprietary and confidential. See LICENSE at the repository root.
@@ -55,7 +55,7 @@ BASELINES = VISUAL / "baselines"
 FAILURES = VISUAL / "failures"
 UPDATE = os.environ.get("PRAVAHA_UPDATE_BASELINES") == "1"
 
-THEMES = ["light", "dark"]
+THEMES = ["light", "dark", "blue"]
 VIEWPORTS = {"wide": (1280, 800), "narrow": (390, 844)}
 #: Design 23.4's two densities. Comfortable is the default and keeps the baselines' original
 #: names; compact's carry a ``-compact`` suffix.

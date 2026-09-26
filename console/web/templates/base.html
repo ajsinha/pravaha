@@ -17,7 +17,7 @@
    The full picker is /static/js/theme.js; this is only the part that cannot
    wait for it. */
 (function(){try{var t=localStorage.getItem("pravaha.theme");
-if(t==="light"||t==="dark"||t==="terminal"){document.documentElement.setAttribute("data-theme",t);}
+if(t==="light"||t==="dark"||t==="terminal"||t==="blue"){document.documentElement.setAttribute("data-theme",t);}
 var d=localStorage.getItem("pravaha.density");
 if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d);}
 }catch(e){}}());
@@ -169,10 +169,48 @@ if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d)
   --series-5:#d55181; --series-6:#008300; --series-7:#9085e9; --series-8:#e66767;
 }
 
+/* ── BLUE ──────────────────────────────────────────────────────────────────
+   The light theme's structure in the blue of the author's SAJHA server: accent #0079C1,
+   #00A3E0 beside it, navy #003168 for hover and depth, a cool #F0F5FA canvas, white cards,
+   #E2E8F0 rules, #1E293B and #475569 for text. Only the values change. The bar is the same
+   three-stop gradient at the same angle -- navy, blue, a deeper navy, where crimson runs
+   crimson-deep, crimson, indigo -- and a named palette, like terminal, so it redeclares
+   every token rather than inheriting half of them from `:root`.
+
+   #0079C1 is on the bar, where white sits on it at 4.66:1. As the TEXT accent it is 4.25 on
+   this canvas and 4.06 on a card header, so `--flow` is one step deeper in the same hue,
+   #006BAC, which holds 4.8 on every ground it may sit on. The same move the dark crimson
+   makes, in the other direction. #00A3E0 is `--flow-l`, the glow, which carries no text. */
+:root[data-theme="blue"]{
+  --flow:#006BAC; --flow-d:#003168; --flow-l:#00A3E0;
+  --on-bar:#fff; --on-bar-dim:rgba(255,255,255,.82);
+  --on-flow:#fff; --on-flow-dim:rgba(255,255,255,.86);
+
+  --canvas:#F0F5FA; --surface:#fff; --raised:#fff; --stripe:#E9F0F7;
+  --ink:#1E293B; --slate:#475569; --muted:#536578;
+  --rule:#E2E8F0; --edge:#64748B; --hairline:#E8EEF5;
+
+  --on-accent:#fff;
+  --ok:#1B6B3A; --ok-soft:#E6F2EA;
+  --warn:#8A5A12; --warn-soft:#F8F0E2;
+  --bad:#CC2200; --bad-soft:#FBE9E4;
+  --info:#293352; --info-soft:#E9ECF3;
+
+  --lift:0 1px 2px rgba(0,49,104,.06), 0 1px 3px rgba(0,49,104,.04);
+  --lift-2:0 2px 6px rgba(0,49,104,.08), 0 4px 14px rgba(0,49,104,.06);
+
+  --bar-from:#003168; --bar-via:#0079C1; --bar-to:#001F45;
+  --bar:linear-gradient(100deg, var(--bar-from) 0%, var(--bar-via) 48%, var(--bar-to) 100%);
+  --tint:linear-gradient(180deg, rgba(0,121,193,.045) 0%, rgba(0,121,193,0) 100%);
+  --focus-glow:rgba(0,121,193,.18);
+  --series-1:#2a78d6; --series-2:#eb6834; --series-3:#1baf7a; --series-4:#eda100;
+  --series-5:#e87ba4; --series-6:#008300; --series-7:#4a3aa7; --series-8:#e34948;
+}
+
 /* And for anybody who has never touched the picker: follow the machine. The
    toggle writes `data-theme`, which wins over this in both directions. */
 @media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]):not([data-theme="terminal"]){
+  :root:not([data-theme="light"]):not([data-theme="terminal"]):not([data-theme="blue"]){
     --flow:#E47F92; --flow-d:#DE6B81; --flow-l:#EC9EAC;
     --on-bar:#F6EDEF; --on-bar-dim:rgba(246,237,239,.74);
     --on-flow:#151517; --on-flow-dim:rgba(21,21,23,.78);

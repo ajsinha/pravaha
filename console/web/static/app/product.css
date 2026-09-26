@@ -4,14 +4,15 @@
  * Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
  * Proprietary and confidential. See LICENSE at the repository root.
  *
- * Every colour resolves through a token declared in base.html, so the three themes and
+ * Every colour resolves through a token declared in base.html, so the four themes and
  * "system" restyle all of this with no rule here knowing which one is active. Motion is
  * limited to state change and is switched off by prefers-reduced-motion (design 23.4).
  */
 
 /* Native controls -- scrollbars, date pickers -- follow the theme too. */
 :root[data-theme="dark"],:root[data-theme="terminal"]{color-scheme:dark;}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){color-scheme:dark;}}
+/* Blue is a light palette: an OS set to dark must not give it dark scrollbars. */
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]):not([data-theme="blue"]){color-scheme:dark;}}
 
 /* ------------------------------------------------------------ shared pieces */
 kbd{background:var(--stripe);color:var(--slate);border:1px solid var(--rule);border-bottom-width:2px;

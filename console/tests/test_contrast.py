@@ -37,6 +37,13 @@ PAIRS = [
     ("on-bar", "bar-from", 4.5), ("on-bar", "bar-via", 4.5), ("on-bar", "bar-to", 4.5),
 ]
 
+#: Every theme base.html declares. Blue is a named palette, like terminal: a complete block of
+#: its own, held to every rule below.
+THEMES = ["light", "dark", "terminal", "blue"]
+#: The themes whose accent is the product's own colour on a ground, rather than a palette whose
+#: accent is by design a step of a status colour (terminal's amber is `--warn`'s hue).
+BRAND_THEMES = ["light", "dark", "blue"]
+
 #: How far apart, in CIELAB, the accent has to be from each status colour. The accent says
 #: "this product" and the status colours say what is happening; a reader who has to compare
 #: two swatches to tell a brand link from a failure has been told nothing by either. The bar
@@ -51,6 +58,7 @@ def _themes() -> dict[str, dict[str, str]]:
         "light": re.search(r":root\{(.*?)\n\}", css, re.DOTALL),
         "dark": re.search(r':root\[data-theme="dark"\]\{(.*?)\n\}', css, re.DOTALL),
         "terminal": re.search(r':root\[data-theme="terminal"\]\{(.*?)\n\}', css, re.DOTALL),
+        "blue": re.search(r':root\[data-theme="blue"\]\{(.*?)\n\}', css, re.DOTALL),
     }
     themes: dict[str, dict[str, str]] = {}
     light: dict[str, str] = {}
@@ -81,7 +89,7 @@ def test_the_formula_matches_the_published_reference_points():
     assert contrast("#777777", "#FFFFFF") == pytest.approx(4.48, abs=0.01)
 
 
-@pytest.mark.parametrize("theme", ["light", "dark", "terminal"])
+@pytest.mark.parametrize("theme", THEMES)
 def test_every_allowed_token_pair_meets_wcag_aa(theme):
     tokens = _themes()[theme]
     failures = []
@@ -117,13 +125,13 @@ def difference(a: str, b: str) -> float:
     return ((la - lb) ** 2 + (aa - ab) ** 2 + (ba - bb) ** 2) ** 0.5
 
 
-@pytest.mark.parametrize("theme", ["light", "dark"])
+@pytest.mark.parametrize("theme", BRAND_THEMES)
 def test_the_accent_is_not_confusable_with_a_status_colour(theme):
     """The accent is the product; ok, warn, bad and info are what is happening. With a
     crimson accent `--bad` is the one that has to be moved out of its way, and this is what
     stops it drifting back.
 
-    Light and dark only. The terminal theme is not the product's colours on another ground,
+    Every theme but terminal: blue is held to it as light is. The terminal theme is not the product's colours on another ground,
     it is a named palette whose accent *is* its amber, and there `--warn` is a step of that
     same amber (14.9 apart, and the next test says so rather than leaving it unmeasured).
     """
@@ -135,7 +143,7 @@ def test_the_accent_is_not_confusable_with_a_status_colour(theme):
     assert not too_close, f"{theme} theme:\n  " + "\n  ".join(too_close)
 
 
-@pytest.mark.parametrize("theme", ["light", "dark", "terminal"])
+@pytest.mark.parametrize("theme", THEMES)
 def test_the_status_colours_are_not_confusable_with_each_other(theme):
     """The property that still has to hold in the terminal theme, where the accent shares
     its hue with `--warn`: "running", "watch this", "wrong" and "for information" have to be
@@ -157,7 +165,7 @@ def _grayscale(hex_colour: str) -> str:
     return "#" + f"{round(y * 255):02x}" * 3
 
 
-@pytest.mark.parametrize("theme", ["light", "dark", "terminal"])
+@pytest.mark.parametrize("theme", THEMES)
 def test_stale_data_keeps_its_contrast(theme):
     """Design 23.12's stale state greys out what it shows (``.stale``). It used to fade it to
     55% opacity instead, below 4.5:1 for every word; greyed, every allowed pair still passes."""
@@ -181,3 +189,43 @@ def test_the_dark_theme_the_os_selects_is_the_dark_theme_the_picker_selects():
     picked = _themes()["dark"]
     for name, value in re.findall(r"--([a-z0-9-]+):\s*(#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{3})\b", media.group(1)):
         assert picked.get(name, "").lower() == value.lower(), f"--{name}: {value} vs {picked.get(name)}"
+
+
+def test_every_named_palette_declares_every_token():
+    """A named palette that leaves a token out inherits it from `:root`, the crimson light
+    theme -- the "light island" bug, where a black page renders white chips. Every colour token
+    the light theme declares is declared again by each of the others, in its own block."""
+    css = BASE.read_text(encoding="utf-8")
+    light = set(re.findall(r"--([a-z0-9-]+):", re.search(r":root\{(.*?)\n\}", css, re.DOTALL).group(1)))
+    layout = ("sans", "serif", "code", "row-h", "cell-", "card-", "gutter", "section-", "state-")
+    colour = {name for name in light if not name.startswith(layout)}
+    for theme in THEMES[1:]:
+        block = re.search(r':root\[data-theme="%s"\]\{(.*?)\n\}' % theme, css, re.DOTALL).group(1)
+        missing = colour - set(re.findall(r"--([a-z0-9-]+):", block))
+        assert not missing, f"{theme} leaves {sorted(missing)} to the crimson light theme"
+
+
+def test_the_system_dark_theme_leaves_the_named_palettes_alone():
+    """The OS preference applies to somebody who has not chosen. A named palette is a choice,
+    so the media query must exclude every one of them -- or an OS set to dark repaints the blue
+    theme's cards dark under its light text tokens."""
+    css = BASE.read_text(encoding="utf-8")
+    selector = re.search(r"@media \(prefers-color-scheme: dark\)\{\s*(:root[^{]*)\{", css).group(1)
+    for theme in ("light", "terminal", "blue"):
+        assert f':not([data-theme="{theme}"])' in selector, theme
+    product = (BASE.parents[1] / "static" / "app" / "product.css").read_text(encoding="utf-8")
+    scheme = re.search(r"@media \(prefers-color-scheme: dark\)\{(:root[^{]*)\{color-scheme:dark;", product).group(1)
+    for theme in ("light", "blue"):
+        assert f':not([data-theme="{theme}"])' in scheme, theme
+
+
+def test_the_picker_offers_every_theme_the_stylesheet_declares():
+    """theme.js is the single source of truth for which themes exist, and the inline snippet in
+    base.html applies a stored one before the first paint; a theme either of them forgets is a
+    theme that flashes crimson on every navigation, or cannot be chosen at all."""
+    script = (BASE.parents[1] / "static" / "js" / "theme.js").read_text(encoding="utf-8")
+    order = re.search(r"var ORDER = \[([^\]]*)\]", script).group(1)
+    css = BASE.read_text(encoding="utf-8")
+    for theme in THEMES[1:]:
+        assert f'"{theme}"' in order, theme
+        assert f't==="{theme}"' in css, theme

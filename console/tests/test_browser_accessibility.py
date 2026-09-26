@@ -1,4 +1,4 @@
-"""Zero axe violations, on every page, in light and dark (design 23.14, 23.20).
+"""Zero axe violations, on every page, in light, dark and blue (design 23.14, 23.20).
 
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 Proprietary and confidential. See LICENSE at the repository root.
@@ -37,7 +37,7 @@ from cdp import Browser, Page
 
 pytestmark = pytest.mark.browser
 
-THEMES = ["light", "dark"]
+THEMES = ["light", "dark", "blue"]
 
 
 @pytest.fixture(scope="module")

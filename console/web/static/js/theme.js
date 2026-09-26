@@ -1,10 +1,10 @@
 /*
- * Pravaha console — light, dark, terminal, or whatever the machine says.
+ * Pravaha console — light, dark, terminal, blue, or whatever the machine says.
  *
  * Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
  * Proprietary and confidential. See LICENSE at the repository root.
  *
- * Four states rather than two. "System" is the default and is a POSITION, not
+ * Five states rather than two. "System" is the default and is a POSITION, not
  * the absence of a choice: somebody whose machine switches at dusk should not
  * have to correct this console twice a day, and a two-way toggle cannot express
  * that.
@@ -35,10 +35,13 @@
      palette — it is the absence of a choice, so it removes the attribute and
      lets the media query decide between light and dark.
 
-     `terminal` is a named palette and therefore always explicit: the machine
-     has no opinion about whether you want an amber screen. */
-  var CHOICES = {light: 1, dark: 1, terminal: 1, system: 1};
-  var ORDER = ["system", "light", "dark", "terminal"];
+     `terminal` and `blue` are named palettes and therefore always explicit: the
+     machine has no opinion about whether you want an amber screen, or the
+     console in blue. Blue is a light palette -- the light theme's structure in
+     other colours -- so it comes after the light and dark pair rather than
+     between them. */
+  var CHOICES = {light: 1, dark: 1, terminal: 1, blue: 1, system: 1};
+  var ORDER = ["system", "light", "dark", "terminal", "blue"];
   var DENSITY_KEY = "pravaha.density";
   var DENSITIES = ["comfortable", "compact"];
 
