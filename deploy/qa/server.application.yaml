@@ -1,0 +1,132 @@
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+#
+# THE ENGINE'S CONFIGURATION ON A QA HOST: /opt/pravaha/conf/application.yaml.
+#
+# This one file is how the node is run. Edit it, then `docker compose restart pravaha` in
+# /opt/pravaha. The same path on the host and in the container, so what you edit is what it reads.
+# The console has its own file, /opt/pravaha/console/conf/application.yaml; the two never share.
+#
+# install.sh writes this file once from deploy/qa/server.application.yaml, putting generated
+# secrets where the @@...@@ markers are, and never overwrites it afterwards -- your edits survive a
+# reinstall. It is mode 0600: it holds credentials.
+#
+# Every key the node reads can be set here; the full list, each with its default and what it does,
+# is the console's Help > Settings page, and the jar's own application.yaml. Only what a QA node
+# needs to differ from those defaults is written out below.
+
+server:
+  port: 8080                              # HTTP: operator pages, REST API, /actuator probes
+
+# The node's own log, in /opt/pravaha/logs as well as on `docker compose logs`. Rotated by size.
+logging:
+  file:
+    name: /opt/pravaha/logs/pravaha-server.log
+  logback:
+    rollingpolicy:
+      max-file-size: 50MB
+      max-history: 10
+  level:
+    root: INFO
+    com.ash.messaging.pravaha: INFO
+
+pravaha:
+  node:
+    id: pravaha-qa-01
+
+  flight:
+    host: 0.0.0.0
+    port: 9090                            # Flight SQL: the SDKs, the CLI and the console
+
+  # The PostgreSQL wire protocol, for psql and BI tools. Off; set enabled: true and publish 5432 in
+  # docker-compose.yml to try it.
+  pgwire:
+    enabled: false
+    port: 5432
+
+  # Every refusal is a PRV-nnnn code; a code in a log or an API answer links to its page here.
+  docs:
+    base-url: http://@@HOST@@:8090/help/codes/
+
+  # ---------------------------------------------------------------------------------- security
+  # Token authentication, and nothing for a caller without one. THE MAP KEY IS THE SECRET; `id`
+  # is who it stands for, and is what the audit trail and the registry record -- never the key.
+  # Add a person by adding an entry; remove one by deleting it and restarting.
+  security:
+    authentication: token
+    policy: authenticated
+    audit: file
+    audit-file: /opt/pravaha/logs/audit.jsonl
+    audit-rotate-bytes: 67108864
+    audit-keep: 5
+    allow-anonymous: false
+    tokens:
+      "@@CONSOLE_TOKEN@@":
+        id: console                       # the console, acting for whoever signed in to it
+        tenant: public
+        roles: [operator, admin]
+      "@@QA_TOKEN@@":
+        id: qa                            # for the CLI and the SDKs: PRAVAHA_TOKEN=<this key>
+        tenant: public
+        roles: [operator, admin]
+
+  # Admission quotas, per tenant (ADR-050). A misspelt key is refused at startup.
+  tenancy:
+    defaults:
+      max-queries: 50
+      max-state-keys: 5000000
+
+  # ---------------------------------------------------------------------------------- state
+  # All on the volume, /opt/pravaha/data. A restart resumes rather than starting over.
+  registry:
+    journal: /opt/pravaha/data/registry.journal
+  checkpoint:
+    directory: /opt/pravaha/data/checkpoints
+    interval: 1m
+    keep: 3
+  # A record no source can decode is set aside here and the source keeps reading. Remove the key
+  # to have the source stop instead.
+  dlq:
+    directory: /opt/pravaha/data/dlq
+    max-bytes: 268435456
+  # A query that outgrows memory slows down onto this disk rather than failing with PRV-4001.
+  state:
+    spill:
+      directory: /opt/pravaha/data/spill
+      max-bytes: 8589934592               # 8 GiB across every query on this node
+
+  codegen:
+    enabled: true
+
+  # ---------------------------------------------------------------------------------- streams
+  # What a query can be asked about, and where its rows come from. One to start: append a CSV line
+  # to /opt/pravaha/data/incoming/txn.csv and every query over txn answers again. Add the QA
+  # stores' streams below it; each connector's page in the console's Help has a worked binding.
+  streams:
+    txn:
+      schema: "txn_id:INT64,user_id:STRING,amount:INT64"
+  sources:
+    txn:
+      plugin: filesystem
+      options:
+        path: /opt/pravaha/data/incoming/txn.csv
+        schema: "txn_id:INT64,user_id:STRING,amount:INT64"
+        follow: true
+
+  # Example bindings for the QA stores, left commented until their addresses are known.
+  #
+  # sources:
+  #   orders:
+  #     plugin: kafka
+  #     options:
+  #       bootstrap.servers: kafka.qa.internal:9092
+  #       topic: orders
+  #       format: json
+  #   customers:
+  #     plugin: jdbc
+  #     options:
+  #       url: "jdbc:postgresql://pg.qa.internal:5432/crm"
+  #       user: pravaha
+  #       password: "..."
+  #       table: customers

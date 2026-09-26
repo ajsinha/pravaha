@@ -3,7 +3,7 @@ Project Pravaha -- Ask once. Answer always.
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 Proprietary and confidential; see the LICENSE file in the root of this repository.
 
-The node's application.yaml. Mounted at /etc/pravaha/application.yaml, which the image names
+The node's application.yaml. Mounted at /opt/pravaha/conf/application.yaml, which the image names
 second in spring.config.additional-location -- so it overrides the image's own defaults and is
 itself overridden by extraEnv.
 

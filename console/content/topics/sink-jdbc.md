@@ -85,7 +85,7 @@ create it yourself with the columns `sink_id VARCHAR(200)`, `label BIGINT`, `seq
 ```yaml
 pravaha:
   checkpoint:
-    directory: /var/lib/pravaha/checkpoints
+    directory: /opt/pravaha/data/checkpoints
     interval: 1m
     keep: 3
   streams:
@@ -97,7 +97,7 @@ pravaha:
     txn:
       plugin: filesystem
       options:
-        path: /var/lib/pravaha/incoming/txn.csv
+        path: /opt/pravaha/data/incoming/txn.csv
         schema: "txn_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,currency:STRING,status:STRING?,event_time:TIMESTAMP"
         event.time: event_time
         skip.header: "true"
@@ -106,7 +106,7 @@ pravaha:
     spend_table:
       plugin: jdbc-sink
       options:
-        url: "jdbc:postgresql://pg.internal:5432/analytics?sslmode=verify-full&sslrootcert=/etc/pravaha/tls/pg-ca.pem"
+        url: "jdbc:postgresql://pg.internal:5432/analytics?sslmode=verify-full&sslrootcert=/opt/pravaha/conf/tls/pg-ca.pem"
         user: pravaha
         password: "${PG_PASSWORD}"
         table: spend_by_user
@@ -234,7 +234,7 @@ pravaha:
     big_payments_log:
       plugin: jdbc-sink
       options:
-        url: "jdbc:postgresql://pg.internal:5432/analytics?sslmode=verify-full&sslrootcert=/etc/pravaha/tls/pg-ca.pem"
+        url: "jdbc:postgresql://pg.internal:5432/analytics?sslmode=verify-full&sslrootcert=/opt/pravaha/conf/tls/pg-ca.pem"
         user: pravaha
         password: "${PG_PASSWORD}"
         table: big_payments

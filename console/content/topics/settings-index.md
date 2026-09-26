@@ -18,7 +18,7 @@ engine's own — a node that sets nothing behaves exactly as described here.
 
 **How to set one.** The server is a Spring Boot application, so every key can be given in
 `application.yaml` (or an `application-<profile>.yaml`), as a command-line argument
-(`--pravaha.checkpoint.directory=/var/lib/pravaha/ckpt`), or as an environment variable in Spring's
+(`--pravaha.checkpoint.directory=/opt/pravaha/data/ckpt`), or as an environment variable in Spring's
 relaxed form (`PRAVAHA_CHECKPOINT_DIRECTORY`). Durations take a unit (`30s`, `1m`, `PT24H`); sizes
 take one too (`512MB`, `20GB`). See [Configuration](/help/topics/configuration).
 

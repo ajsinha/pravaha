@@ -40,8 +40,8 @@ pravaha:
     host: 0.0.0.0
     port: 9090
     tls:
-      certificate: /etc/pravaha/tls/server-chain.pem
-      key: /etc/pravaha/tls/server-key.pem
+      certificate: /opt/pravaha/conf/tls/server-chain.pem
+      key: /opt/pravaha/conf/tls/server-key.pem
 ```
 
 Both are PEM files: the certificate chain, and its private key **in PKCS#8** (`BEGIN PRIVATE KEY`).
@@ -72,15 +72,15 @@ pravaha:
     host: 0.0.0.0
     port: 5432
     tls:
-      certificate: /etc/pravaha/tls/server-chain.pem
-      key: /etc/pravaha/tls/server-key.pem
+      certificate: /opt/pravaha/conf/tls/server-chain.pem
+      key: /opt/pravaha/conf/tls/server-key.pem
 ```
 
 The gateway negotiates TLS on the same port, as PostgreSQL does, and authenticates **after** the
 handshake — so a configured certificate always covers the token a client sends as its password:
 
 ```bash
-PGPASSWORD="$PRAVAHA_TOKEN" psql "host=pravaha.internal port=5432 user=ann sslmode=verify-full sslrootcert=/etc/pravaha/tls/ca.pem"
+PGPASSWORD="$PRAVAHA_TOKEN" psql "host=pravaha.internal port=5432 user=ann sslmode=verify-full sslrootcert=/opt/pravaha/conf/tls/ca.pem"
 ```
 
 (With authentication on, the token is the password.)
@@ -120,7 +120,7 @@ already trusts.
 import os
 from pravaha import ClientOptions, TlsOptions, connect
 
-tls = TlsOptions.create(ca_certificate="/etc/pravaha/tls/ca.pem")
+tls = TlsOptions.create(ca_certificate="/opt/pravaha/conf/tls/ca.pem")
 options = ClientOptions.create("grpc+tls://pravaha.internal:9090",
                                token=os.environ["PRAVAHA_TOKEN"],
                                tls=tls,

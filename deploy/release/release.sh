@@ -13,7 +13,7 @@
 #   1. refuses unless the working tree is clean and on a branch that may be released from
 #   2. sets the version across 37 poms, 2 wheels and the chart (deploy/release/set-version.sh)
 #   3. `./mvnw -o clean verify` -- the whole reactor, offline, tests and all
-#   4. builds the container image and tags it with the release version
+#   4. builds the container images (engine and console) and tags them with the release version
 #   5. runs the image's smoke journey against the image it just built
 #   6. packages the Helm chart, if helm is available
 #   7. commits the version bump and writes an ANNOTATED TAG
@@ -114,6 +114,10 @@ run "$root/deploy/docker/build.sh" --tag "$image_repo:$version"
 step "smoke-test the image"
 run "$root/deploy/docker/smoke.sh" --image "$image_repo:$version"
 
+# The console is its own image (2026-09-26, the owner's decision): same version, same release.
+step "build the console image"
+run "$root/deploy/docker/console/build.sh" --tag "${image_repo%-server}-console:$version"
+
 # ---------------------------------------------------------------- 6. the chart
 
 step "package the chart"
@@ -129,7 +133,7 @@ fi
 # ---------------------------------------------------------------- 7. commit and tag
 
 step "commit and tag"
-run git -C "$root" add -A -- '*pom.xml' sdk/python/pyproject.toml console/pyproject.toml \
+run git -C "$root" add -A -- '*pom.xml' sdk/python/pyproject.toml console/pyproject.toml console/config/application.yaml \
     deploy/helm/pravaha/Chart.yaml
 run git -C "$root" commit -m "Release $version"
 run git -C "$root" tag -a "$tag" -m "Pravaha $version"
@@ -138,7 +142,7 @@ run git -C "$root" tag -a "$tag" -m "Pravaha $version"
 
 step "back to $next"
 run "$here/set-version.sh" "$next"
-run git -C "$root" add -A -- '*pom.xml' sdk/python/pyproject.toml console/pyproject.toml \
+run git -C "$root" add -A -- '*pom.xml' sdk/python/pyproject.toml console/pyproject.toml console/config/application.yaml \
     deploy/helm/pravaha/Chart.yaml
 run git -C "$root" commit -m "Back to $next"
 
@@ -150,6 +154,7 @@ cat <<EOF
 
   tag     $tag          (annotated, NOT pushed)
   image   $image_repo:$version   (built and smoke-tested, NOT pushed)
+  image   ${image_repo%-server}-console:$version   (built, NOT pushed)
   chart   target/pravaha-*.tgz   (if helm was available)
   jars    pravaha-*/target/*.jar
 

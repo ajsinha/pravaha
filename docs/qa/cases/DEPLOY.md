@@ -119,10 +119,10 @@ same failure as having no healthcheck plus an outage.
 **Expected:** `wget` is present. If missing, FAIL.
 
 ## DEPLOY-014 — the container runs as the non-root user and can write its volume
-**Intent:** The Dockerfile makes a point of `USER pravaha` and a `/var/lib/pravaha` volume. If the
+**Intent:** The Dockerfile makes a point of `USER pravaha` and a `/opt/pravaha/data` volume. If the
 volume is not writable by uid 10001 the journal cannot be written and the whole durability story
 fails inside a container.
-**Steps:** `docker run --rm --entrypoint sh <image> -c 'id; touch /var/lib/pravaha/probe && echo WRITABLE'`.
+**Steps:** `docker run --rm --entrypoint sh <image> -c 'id; touch /opt/pravaha/data/probe && echo WRITABLE'`.
 **Expected:** uid=10001(pravaha); `WRITABLE`.
 
 ## DEPLOY-015 — the container refuses to start open, and says why

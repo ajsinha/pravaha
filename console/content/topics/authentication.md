@@ -129,7 +129,7 @@ pravaha:
     authentication: token
     policy: authenticated
     audit: file
-    audit-file: /var/log/pravaha/audit.jsonl
+    audit-file: /opt/pravaha/logs/audit.jsonl
     tokens:
       "9f3c1d7a-analyst-2b8e4f6a1c5d":
         id: ann
@@ -141,8 +141,8 @@ pravaha:
         roles: [operator, admin]
   flight:
     tls:
-      certificate: /etc/pravaha/tls/server-chain.pem
-      key: /etc/pravaha/tls/server-key.pem
+      certificate: /opt/pravaha/conf/tls/server-chain.pem
+      key: /opt/pravaha/conf/tls/server-key.pem
 ```
 
 Tokens are long random strings; generate them (`openssl rand -hex 24`) rather than inventing them,

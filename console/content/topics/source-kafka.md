@@ -240,7 +240,7 @@ pravaha:
         topic: orders
         schema: "order_id:INT64,customer:STRING,amount:DECIMAL(12,2),placed_at:TIMESTAMP"
         format: avro
-        schema.file: /etc/pravaha/schemas/orders.avsc
+        schema.file: /opt/pravaha/conf/schemas/orders.avsc
 ```
 
 What a column accepts, and nothing else:
@@ -301,7 +301,7 @@ refusal exists to prevent. Without `schema.reader.file`, each writer schema is r
 ```yaml
         format: avro
         schema.registry.url: https://registry.internal:8081
-        schema.reader.file: /etc/pravaha/schemas/orders-reader.avsc
+        schema.reader.file: /opt/pravaha/conf/schemas/orders-reader.avsc
 ```
 
 ### `format: protobuf` — one message of a descriptor set
@@ -310,7 +310,7 @@ Protobuf's encoding carries field *numbers*, not names, so reading it needs the 
 `FileDescriptorSet` — what `protoc` writes:
 
 ```bash
-protoc --include_imports --descriptor_set_out=/etc/pravaha/schemas/orders.desc orders.proto
+protoc --include_imports --descriptor_set_out=/opt/pravaha/conf/schemas/orders.desc orders.proto
 ```
 
 ```yaml
@@ -323,7 +323,7 @@ pravaha:
         topic: orders
         schema: "order_id:INT64,customer:STRING,amount:DECIMAL(12,2),placed_at:TIMESTAMP"
         format: protobuf
-        schema.descriptor: /etc/pravaha/schemas/orders.desc
+        schema.descriptor: /opt/pravaha/conf/schemas/orders.desc
         schema.message: acme.orders.Order
 ```
 
@@ -427,10 +427,10 @@ A service produces one JSON object per order to the topic `orders`, six partitio
 ```yaml
 pravaha:
   checkpoint:
-    directory: /var/lib/pravaha/checkpoints     # the offsets live here: required for exactly once
+    directory: /opt/pravaha/data/checkpoints     # the offsets live here: required for exactly once
     interval: 1m
   dlq:
-    directory: /var/lib/pravaha/dlq             # a malformed record is set aside, not fatal
+    directory: /opt/pravaha/data/dlq             # a malformed record is set aside, not fatal
   streams:
     orders:
       schema: "order_id:INT64,customer_id:STRING,region:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP"
@@ -454,7 +454,7 @@ pravaha:
         user: pravaha
         password: "${KAFKA_PASSWORD}"
         sasl.mechanism: SCRAM-SHA-512
-        tls.ca: /etc/pravaha/tls/kafka-ca.pem
+        tls.ca: /opt/pravaha/conf/tls/kafka-ca.pem
         kafka.fetch.max.bytes: "52428800"
 ```
 
@@ -509,7 +509,7 @@ pravaha:
         user: pravaha
         password: "${KAFKA_PASSWORD}"
         sasl.mechanism: SCRAM-SHA-512
-        tls.ca: /etc/pravaha/tls/kafka-ca.pem
+        tls.ca: /opt/pravaha/conf/tls/kafka-ca.pem
 ```
 
 ```sql
@@ -539,7 +539,7 @@ On the same node or another one:
 ```yaml
 pravaha:
   checkpoint:
-    directory: /var/lib/pravaha/checkpoints
+    directory: /opt/pravaha/data/checkpoints
   streams:
     open_order_changes:
       schema: "order_id:INT64,customer_id:STRING,region:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP"
@@ -558,7 +558,7 @@ pravaha:
         user: pravaha
         password: "${KAFKA_PASSWORD}"
         sasl.mechanism: SCRAM-SHA-512
-        tls.ca: /etc/pravaha/tls/kafka-ca.pem
+        tls.ca: /opt/pravaha/conf/tls/kafka-ca.pem
 ```
 
 ```sql

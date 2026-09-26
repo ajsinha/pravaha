@@ -85,7 +85,7 @@ and the query keeps running, slower, instead of dying with PRV-4001.
 pravaha:
   state:
     spill:
-      directory: /var/lib/pravaha/spill   # a directory alone switches it on
+      directory: /opt/pravaha/data/spill   # a directory alone switches it on
       max-overflow-slabs: 512             # per state store: the most overflow slabs it holds at once
       compaction-threshold: 0.5           # compact a store once this much of its overflow is free
       max-bytes: 20GB                     # the node's disk budget for spilled state; 0 = none

@@ -131,7 +131,7 @@ The table `public.orders` holds the same columns as the stream, with `event_time
 ```yaml
 pravaha:
   checkpoint:
-    directory: /var/lib/pravaha/checkpoints     # required: the slot is confirmed only at checkpoints
+    directory: /opt/pravaha/data/checkpoints     # required: the slot is confirmed only at checkpoints
     interval: 1m
   streams:
     orders:
@@ -142,7 +142,7 @@ pravaha:
     orders:
       plugin: postgres-cdc
       options:
-        url: "jdbc:postgresql://db-1.internal:5432/sales?sslmode=verify-full&sslrootcert=/etc/pravaha/tls/pg-ca.pem"
+        url: "jdbc:postgresql://db-1.internal:5432/sales?sslmode=verify-full&sslrootcert=/opt/pravaha/conf/tls/pg-ca.pem"
         user: pravaha_cdc
         password: "${PRAVAHA_CDC_PASSWORD}"
         table: public.orders

@@ -114,7 +114,7 @@ pravaha:
     orders:
       plugin: jdbc
       options:
-        url: "jdbc:postgresql://db-1.internal:5432/sales?ssl=true&sslmode=verify-full&sslrootcert=/etc/pravaha/tls/pg-ca.pem"
+        url: "jdbc:postgresql://db-1.internal:5432/sales?ssl=true&sslmode=verify-full&sslrootcert=/opt/pravaha/conf/tls/pg-ca.pem"
         user: pravaha
         password: "${PRAVAHA_DB_PASSWORD}"
         query: >

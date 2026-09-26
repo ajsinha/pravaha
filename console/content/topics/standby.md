@@ -87,13 +87,13 @@ queries.
 Both hosts mount `/shared/pravaha`. The primary:
 
 ```bash
-pravaha-server --spring.config.additional-location=/etc/pravaha/node.yaml
+pravaha-server --spring.config.additional-location=/opt/pravaha/conf/node.yaml
 ```
 
 The standby, with the same file plus one setting:
 
 ```bash
-pravaha-server --spring.config.additional-location=/etc/pravaha/node.yaml --pravaha.standby.enabled=true
+pravaha-server --spring.config.additional-location=/opt/pravaha/conf/node.yaml --pravaha.standby.enabled=true
 ```
 
 Its readiness probe answers not-ready while it waits:

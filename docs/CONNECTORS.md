@@ -656,7 +656,7 @@ pravaha:
     customers:
       plugin: postgres-cdc
       options:
-        url: "jdbc:postgresql://db-1:5432/crm?sslmode=verify-full&sslrootcert=/etc/pravaha/db-ca.pem"
+        url: "jdbc:postgresql://db-1:5432/crm?sslmode=verify-full&sslrootcert=/opt/pravaha/conf/db-ca.pem"
         user: pravaha_cdc                # REPLICATION, and owner of the table to create the publication
         password: "${PRAVAHA_CDC_PASSWORD}"
         table: public.customers          # must be REPLICA IDENTITY FULL
@@ -781,7 +781,7 @@ pravaha:
     customers:
       plugin: filesystem
       options:
-        path: /var/lib/pravaha/incoming/customers.csv
+        path: /opt/pravaha/data/incoming/customers.csv
         schema: "user_id:STRING,tier:STRING,op:STRING"
         skip.header: "true"
         op.column: op

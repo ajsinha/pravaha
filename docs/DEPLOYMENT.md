@@ -37,6 +37,50 @@ been through it is an image nobody has run.
 
 ---
 
+## One root, /opt/pravaha
+
+Every path the product touches is under `/opt/pravaha`, in the image and on a host, and nothing
+outside it is the product's (the owner's decision, 2026-09-26):
+
+| Path | Holds | Written by |
+|---|---|---|
+| `bin/`, `lib/` | the launcher and the server jar | the image |
+| `defaults/application.yaml` | the image's own defaults: where the journal and checkpoints go | the image |
+| `conf/application.yaml` | **the deployment's engine configuration**, and `conf/tls/`, `conf/schemas/` beside it | the operator |
+| `secrets/` | key material a chart mounts (`secrets/tls`, `secrets/auth`) | Kubernetes |
+| `data/` | the volume: registry journal, checkpoints, dead letters, spill | the engine |
+| `logs/` | the engine's log file and the audit trail | the engine |
+| `console/` | the console, in its own image; `console/conf/application.yaml` is **the deployment's console configuration** | the operator |
+
+The image's defaults moved from `conf/` to `defaults/` so that `conf/` is entirely the operator's: a
+directory mounted there hides nothing the image needs. Mount each directory at the same path it
+has inside the container, so a path in a log line is a path on the host.
+
+## A QA host: two images, two files
+
+[`deploy/qa/`](../deploy/qa) runs one engine and one console on one Linux machine with Docker, from
+files, with no registry:
+
+```bash
+deploy/release/release.sh --version 0.1.1 --next 0.1.2-SNAPSHOT   # builds and tests both images
+deploy/qa/bundle.sh --version 0.1.1        # target/qa-bundle/pravaha-qa-0.1.1.tar.gz
+# on the host:
+sudo ./install.sh --host qa-vm.example && cd /opt/pravaha && sudo docker compose up -d
+```
+
+| Image | Built by | Configured by |
+|---|---|---|
+| `pravaha/pravaha-server:<v>` | `deploy/docker/build.sh` | `/opt/pravaha/conf/application.yaml` |
+| `pravaha/pravaha-console:<v>` | `deploy/docker/console/build.sh` (python:3.13-slim, uid 10001, 481 MB) | `/opt/pravaha/console/conf/application.yaml` |
+
+The console reads its product defaults from the image first and the deployment's file second, key
+by key, so the deployment's file names only what it changes and cannot pin a stale version.
+`install.sh` generates the console password, the session secret and two engine tokens into the two
+files (mode 0600, uid 10001), prints them once, and never overwrites either file on a re-run.
+[`deploy/qa/README.md`](../deploy/qa/README.md) is the page to hand the QA team.
+
+---
+
 ## The image
 
 | | |
@@ -47,7 +91,7 @@ been through it is an image nobody has run.
 | User | uid **10001**, non-root, numeric — a Kubernetes `runAsUser` and a `docker --user` both take a number |
 | Entrypoint | `/__cacert_entrypoint.sh bin/pravaha-server` |
 | Ports | 8080 HTTP, 9090 Flight SQL |
-| Volume | `/var/lib/pravaha` |
+| Volume | `/opt/pravaha/data` |
 | Healthcheck | `wget --spider /actuator/health/liveness`, every 30s after a 45s start period |
 
 It does **not** build the project. `build.sh` stages an ~80 MB context — the launcher, the jar and
@@ -86,8 +130,8 @@ The image's own `application.yaml` sets **two** keys, both of which are *locatio
 
 ```yaml
 pravaha:
-  registry:   { journal:   /var/lib/pravaha/registry.journal }
-  checkpoint: { directory: /var/lib/pravaha/checkpoints }
+  registry:   { journal:   /opt/pravaha/data/registry.journal }
+  checkpoint: { directory: /opt/pravaha/data/checkpoints }
 ```
 
 It deliberately leaves these unset although it creates the directories:
@@ -102,9 +146,9 @@ It deliberately leaves these unset although it creates the directories:
 ### Configuration: three layers, and which wins
 
 ```
-  /opt/pravaha/conf/application.yaml    the image's defaults          (lowest)
-  /etc/pravaha/application.yaml         a mounted file or a ConfigMap
-  PRAVAHA_* / SPRING_* in the environment                             (highest)
+  /opt/pravaha/defaults/application.yaml   the image's defaults           (lowest)
+  /opt/pravaha/conf/application.yaml       a mounted file or a ConfigMap
+  PRAVAHA_* / SPRING_* in the environment                                 (highest)
 ```
 
 Spring Boot gives a location named later in `spring.config.additional-location` precedence over one
@@ -120,8 +164,8 @@ Relaxed binding means every key has an environment spelling: `pravaha.flight.ena
 ```bash
 docker run -d --name pravaha \
   -p 8080:8080 -p 9090:9090 \
-  -v pravaha-data:/var/lib/pravaha \
-  -v "$PWD/application.yaml:/etc/pravaha/application.yaml:ro" \
+  -v pravaha-data:/opt/pravaha/data \
+  -v "$PWD/application.yaml:/opt/pravaha/conf/application.yaml:ro" \
   --read-only --tmpfs /tmp:rw,size=64m \
   pravaha/pravaha-server:0.1.0-SNAPSHOT
 ```
@@ -157,8 +201,8 @@ StatefulSet          the node; replicas is 1 and anything else is REFUSED at ren
 StatefulSet          the standby, when standby.enabled
 Service              the client one -- endpoints follow READINESS
 Service (headless)   stable per-pod DNS, published before the pod is ready
-ConfigMap            /etc/pravaha/application.yaml, from .Values.config
-volumeClaimTemplate  /var/lib/pravaha -- journal, checkpoints, DLQ, and spill unless separated
+ConfigMap            /opt/pravaha/conf/application.yaml, from .Values.config
+volumeClaimTemplate  /opt/pravaha/data -- journal, checkpoints, DLQ, and spill unless separated
 volumeClaimTemplate  the spill tier's own claim, when spill.separateVolume
 ServiceAccount       an identity for cloud IAM; no token mounted, the node calls no API
 PodDisruptionBudget  off by default, and read "What the chart does not do" before enabling it
@@ -234,7 +278,7 @@ pravaha:
 It is projected into the pod **as `application.yaml`** — a directory in
 `spring.config.additional-location` is searched for that name and nothing else, so the Secret's own
 key name would be ignored in silence — and its location is named **last**, so the ConfigMap cannot
-override the tokens. The TLS pair is mounted `0400` at `/etc/pravaha-tls` and the chart writes
+override the tokens. The TLS pair is mounted `0400` at `/opt/pravaha/secrets/tls` and the chart writes
 `pravaha.flight.tls.certificate` and `.key` to point at the mounted files. Both paths are asserted
 by `deploy/helm/test.sh`, along with the fact that no credential reaches the ConfigMap.
 

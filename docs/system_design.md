@@ -3649,7 +3649,7 @@ pravaha:
     metadata:
       type: RAFT                          # RAFT | ZOOKEEPER | ETCD
       peers: ["pravaha-01:9070","pravaha-02:9070","pravaha-03:9070"]
-      storage.dir: /var/lib/pravaha/raft
+      storage.dir: /opt/pravaha/data/raft
 
   runtime:
     lanes: ${PRAVAHA_LANES:14}            # cores - 2 on this 16-core reference box
@@ -3667,7 +3667,7 @@ pravaha:
     default.tier: HYBRID                  # HEAP | OFFHEAP | ROCKSDB | HYBRID
     offheap.max.per.lane: 1GB
     rocksdb:
-      dir: /var/lib/pravaha/state
+      dir: /opt/pravaha/data/state
       block.cache: 4GB                    # SHARED across all column families
       write.buffer.manager: 2GB           # SHARED — prevents per-CF memory blowup
       compaction.style: LEVEL

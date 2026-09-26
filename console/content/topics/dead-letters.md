@@ -22,7 +22,7 @@ its reason, and the source reads on.
 ```yaml
 pravaha:
   dlq:
-    directory: /var/lib/pravaha/dlq
+    directory: /opt/pravaha/data/dlq
 ```
 
 | Key | Default | What it decides |
@@ -35,7 +35,7 @@ pravaha:
 The node logs it at startup, with the bound:
 
 ```text
-dead-lettering undecodable records to /var/lib/pravaha/dlq (pravaha.dlq.directory), keeping 268435456 bytes
+dead-lettering undecodable records to /opt/pravaha/data/dlq (pravaha.dlq.directory), keeping 268435456 bytes
 ```
 
 The byte bound is **on by default**, and deliberately: a bound that defaults to off is not a bound,
@@ -64,7 +64,7 @@ A stopped source is not retried. This used to be the only
 behaviour a server had: one malformed field could take a whole file to zero rows with nothing in the
 query's state to show it (TIME-4).
 
-**With `pravaha.dlq.directory` set.** Line 812 is written to `/var/lib/pravaha/dlq/<query>.dlq`, the
+**With `pravaha.dlq.directory` set.** Line 812 is written to `/opt/pravaha/data/dlq/<query>.dlq`, the
 other 19,999 rows are ingested, and the query carries on.
 
 ## What a dead letter looks like
@@ -103,19 +103,19 @@ depends on that being true.
 Meant for `grep` and `jq`. How many, per query:
 
 ```bash
-wc -l /var/lib/pravaha/dlq/*.dlq
+wc -l /opt/pravaha/data/dlq/*.dlq
 ```
 
 The reasons, most common first:
 
 ```bash
-jq -r .reason /var/lib/pravaha/dlq/big_card_txn.dlq | sort | uniq -c | sort -rn | head
+jq -r .reason /opt/pravaha/data/dlq/big_card_txn.dlq | sort | uniq -c | sort -rn | head
 ```
 
 The original line of each rejected record:
 
 ```bash
-jq -r .raw /var/lib/pravaha/dlq/big_card_txn.dlq | while read -r b; do echo "$b" | base64 -d; echo; done
+jq -r .raw /opt/pravaha/data/dlq/big_card_txn.dlq | while read -r b; do echo "$b" | base64 -d; echo; done
 ```
 
 ```text
@@ -257,7 +257,7 @@ is refused with PRV-4090 when it opens — at registration, or when the journal 
 -- rather than running without the queue:
 
 ```text
-PRV-4090  pravaha.dlq.directory is /var/lib/pravaha/dlq and this node cannot write there: ... Fix the path or unset the key -- starting without the queue would give you the behaviour you configured it to avoid.
+PRV-4090  pravaha.dlq.directory is /opt/pravaha/data/dlq and this node cannot write there: ... Fix the path or unset the key -- starting without the queue would give you the behaviour you configured it to avoid.
 ```
 
 Deliberately fatal: an operator who configured a queue asked for bad records to be kept. Fix the

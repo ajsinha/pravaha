@@ -6,3 +6,9 @@ console/.venv/
 console/__pycache__/
 **/__pycache__/
 *.log
+# Never into an image: a developer's secrets overlay, and what only the tests need.
+**/application.local.yaml
+console/tests/
+sdk/python/.venv/
+sdk/python/tests/
+**/.pytest_cache/

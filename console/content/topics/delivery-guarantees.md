@@ -129,14 +129,14 @@ Give the node a checkpoint directory:
 ```yaml
 pravaha:
   checkpoint:
-    directory: /var/lib/pravaha/checkpoints
+    directory: /opt/pravaha/data/checkpoints
     interval: 1m
     keep: 3
   sinks:
     region_table:
       plugin: jdbc-sink
       options:
-        url: "jdbc:postgresql://pg.internal:5432/analytics?sslmode=verify-full&sslrootcert=/etc/pravaha/tls/pg-ca.pem"
+        url: "jdbc:postgresql://pg.internal:5432/analytics?sslmode=verify-full&sslrootcert=/opt/pravaha/conf/tls/pg-ca.pem"
         user: pravaha
         password: "${PG_PASSWORD}"
         table: region_revenue

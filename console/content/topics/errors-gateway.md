@@ -94,8 +94,8 @@ as a raw Java exception with no code at all, and now arrives here.
 pravaha:
   flight:
     tls:
-      certificate: /etc/pravaha/tls/server.crt
-      key: /etc/pravaha/tls/server.key
+      certificate: /opt/pravaha/conf/tls/server.crt
+      key: /opt/pravaha/conf/tls/server.key
 ```
 
 ### PRV-6105 — Flight subscriber behind

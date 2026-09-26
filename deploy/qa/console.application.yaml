@@ -1,0 +1,50 @@
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+#
+# THE CONSOLE'S CONFIGURATION ON A QA HOST: /opt/pravaha/console/conf/application.yaml.
+#
+# Separate from the engine's (/opt/pravaha/conf/application.yaml). Edit it, then
+# `docker compose restart console` in /opt/pravaha. The same path on the host and in the container.
+#
+# It is read AFTER the console's own defaults, which ship inside the image, and wins key by key --
+# so any key of console/config/application.yaml can be set here, and one that is not keeps the
+# product's value. Everything an operator would change is written out below.
+#
+# install.sh writes this file once, generating the password, the session secret and the engine
+# token into it, and never overwrites it afterwards. It is mode 0600: it holds credentials.
+
+console:
+  # The sign-in password for this console. Change it here and restart; empty means nobody can
+  # sign in, which is the safe failure, not an open door.
+  password: "@@CONSOLE_PASSWORD@@"
+  # Signs the session cookie. Fixed here so a restart does not sign everybody out.
+  session_secret: "@@SESSION_SECRET@@"
+
+server:
+  host: 0.0.0.0                            # inside the container; docker-compose.yml publishes it
+  port: 8090
+  reload: false
+
+engine:
+  # The engine, by its service name on the compose network. 9090 is Flight SQL, 8080 HTTP.
+  url: grpc://pravaha:9090
+  http_url: http://pravaha:8080
+  # The console's own credential with the engine: the key of the `id: console` entry under
+  # pravaha.security.tokens in /opt/pravaha/conf/application.yaml. Change both together.
+  token: "@@CONSOLE_TOKEN@@"
+  # Shown to users in psql snippets only; the console never connects to it.
+  pgwire: "@@HOST@@:5432"
+  health_cache_seconds: 1
+
+ui:
+  default_role: operator                   # analyst | operator | developer
+  tail_buffer: 256
+  query_row_limit: 500
+  page_size: 25
+  lag_warn_seconds: 300
+  language: en
+  component_gallery: false
+
+logging:
+  level: INFO

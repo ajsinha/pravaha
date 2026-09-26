@@ -99,7 +99,7 @@ containers:
       # Lowest precedence first, and a location named later wins. The image sets the first two;
       # this adds the mounted secret, which must therefore come last.
       - name: SPRING_CONFIG_ADDITIONAL_LOCATION
-        value: "optional:file:/opt/pravaha/conf/,optional:file:/etc/pravaha/{{ if $v.auth.existingSecret }},optional:file:/etc/pravaha-auth/{{ end }}{{ range $v.extraConfigMounts }},optional:file:{{ .mountPath }}/{{ end }}"
+        value: "optional:file:/opt/pravaha/defaults/,optional:file:/opt/pravaha/conf/{{ if $v.auth.existingSecret }},optional:file:/opt/pravaha/secrets/auth/{{ end }}{{ range $v.extraConfigMounts }},optional:file:{{ .mountPath }}/{{ end }}"
       {{- with $v.extraEnv }}
       {{- toYaml . | nindent 6 }}
       {{- end }}
@@ -144,11 +144,11 @@ containers:
       {{- end }}
     volumeMounts:
       - name: config
-        mountPath: /etc/pravaha
+        mountPath: /opt/pravaha/conf
         readOnly: true
       {{- if $v.auth.existingSecret }}
       - name: auth
-        mountPath: /etc/pravaha-auth
+        mountPath: /opt/pravaha/secrets/auth
         readOnly: true
       {{- end }}
       {{- if $v.tls.enabled }}

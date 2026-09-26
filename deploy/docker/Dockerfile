@@ -51,20 +51,27 @@ WORKDIR /opt/pravaha
 # than a name, because a Kubernetes runAsUser and a `docker run --user` both take a number, and a
 # chart that has to guess the image's uid gets it wrong once.
 #
+# Every path the node touches is under /opt/pravaha, and nothing else on the filesystem is the
+# node's: bin/ and lib/ (the launcher and the jar), defaults/ (this image's configuration),
+# conf/ (the deployment's, mounted), secrets/ (mounted key material), data/ (the volume: journal,
+# checkpoints, dead letters, spill) and logs/ (the audit file). One root to mount, back up and
+# reason about, and the same shape as the release tarball unpacked at /opt/pravaha.
+#
 # The data directories, 0750, owned by that uid. The engine narrows them again before its first
 # write; creating them wrong first would make the first run's failure a permissions puzzle.
 RUN apk add --no-cache bash \
  && addgroup -S -g 10001 pravaha \
  && adduser  -S -u 10001 -G pravaha -H -s /sbin/nologin pravaha \
- && mkdir -p /var/lib/pravaha/checkpoints /var/lib/pravaha/dlq /var/lib/pravaha/spill /etc/pravaha \
- && chown -R 10001:10001 /opt/pravaha /var/lib/pravaha \
- && chmod 0750 /var/lib/pravaha
+ && mkdir -p /opt/pravaha/data/checkpoints /opt/pravaha/data/dlq /opt/pravaha/data/spill \
+              /opt/pravaha/conf /opt/pravaha/defaults /opt/pravaha/logs /opt/pravaha/secrets \
+ && chown -R 10001:10001 /opt/pravaha \
+ && chmod 0750 /opt/pravaha/data /opt/pravaha/logs /opt/pravaha/secrets
 
 # The launcher, which is where the Arrow --add-opens live (see below), then the jar, then the
 # image's own configuration defaults. Ordered cheapest-changing first so a rebuild of the same
 # release reuses the layers above the jar.
 COPY --chown=10001:10001 bin/pravaha-server bin/pravaha-server
-COPY --chown=10001:10001 conf/application.yaml conf/application.yaml
+COPY --chown=10001:10001 conf/application.yaml defaults/application.yaml
 COPY --chown=10001:10001 lib/pravaha-server.jar lib/pravaha-server.jar
 RUN chmod 0755 bin/pravaha-server
 
@@ -72,13 +79,13 @@ RUN chmod 0755 bin/pravaha-server
 # in spring.config.additional-location precedence over one named earlier, and an OS environment
 # variable precedence over both -- so:
 #
-#   1. conf/application.yaml in this image  -- the container's data-directory defaults
-#   2. /etc/pravaha/application.yaml        -- a mounted file or a Kubernetes ConfigMap
+#   1. /opt/pravaha/defaults/application.yaml -- this image's data-directory defaults
+#   2. /opt/pravaha/conf/application.yaml     -- a mounted file or a Kubernetes ConfigMap
 #   3. PRAVAHA_* / SPRING_* in the environment -- a single override at `docker run -e`
 #
 # Both file locations are `optional:`, so an image run with neither still starts (on the jar's own
 # application.yaml) instead of failing on a missing file.
-ENV SPRING_CONFIG_ADDITIONAL_LOCATION="optional:file:/opt/pravaha/conf/,optional:file:/etc/pravaha/"
+ENV SPRING_CONFIG_ADDITIONAL_LOCATION="optional:file:/opt/pravaha/defaults/,optional:file:/opt/pravaha/conf/"
 
 # JDK 21 reads the cgroup limit, so the only question is what share of it the HEAP may take. 50%,
 # not the 75% a mostly-heap service would use: this engine's state is off-heap (inboxes, arenas,
@@ -113,7 +120,7 @@ EXPOSE 8080 9090
 # The registry journal, the checkpoints and the dead-letter queue all live under here. Without a
 # volume a restart loses every registered query -- which the node warns about at startup rather
 # than leaving to be discovered at the next restart.
-VOLUME ["/var/lib/pravaha"]
+VOLUME ["/opt/pravaha/data"]
 
 # Liveness only, deliberately. Docker has one health state, and pointing it at readiness would make
 # a node that is merely still restoring state look broken; Kubernetes gets both probes separately

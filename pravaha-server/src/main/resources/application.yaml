@@ -303,7 +303,7 @@ pravaha:
 #   txn:
 #     plugin: filesystem
 #     options:
-#       path: /var/lib/pravaha/incoming/txn.csv
+#       path: /opt/pravaha/data/incoming/txn.csv
 #       schema: "txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP"
 #       # Optional. Names a column saying whether a row inserts or retracts. Without one a file is
 #       # an append-only log of insertions, which is what it was before this existed -- and the
@@ -314,7 +314,7 @@ pravaha:
 #   customers:
 #     plugin: postgres-cdc
 #     options:
-#       url: "jdbc:postgresql://db-1:5432/crm?sslmode=verify-full&sslrootcert=/etc/pravaha/db-ca.pem"
+#       url: "jdbc:postgresql://db-1:5432/crm?sslmode=verify-full&sslrootcert=/opt/pravaha/conf/db-ca.pem"
 #       user: pravaha_cdc                 # REPLICATION role
 #       password: "${PRAVAHA_CDC_PASSWORD}"
 #       table: public.customers           # must be REPLICA IDENTITY FULL
@@ -355,7 +355,7 @@ pravaha:
 #   audit_trail:
 #     plugin: filesystem
 #     options:
-#       path: /var/lib/pravaha/outgoing/audit_trail.csv
+#       path: /opt/pravaha/data/outgoing/audit_trail.csv
 #       schema: "id:INT64,user_id:STRING,amount:INT64"
 
   registry:

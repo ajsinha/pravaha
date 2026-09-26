@@ -93,7 +93,7 @@ pravaha:
   streams:
     txn: { fields: "id INT64, user_id STRING, amount INT64, product_type STRING, ts TIMESTAMP", event-time: "ts" }
   sources:
-    txn: { plugin: feedfile, options: { path: /var/lib/pravaha/in/txn, schema: "..." } }
+    txn: { plugin: feedfile, options: { path: /opt/pravaha/data/in/txn, schema: "..." } }
   security: { authentication: none, policy: permissive, allow-anonymous: true }
 ```
 

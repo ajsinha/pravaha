@@ -88,7 +88,7 @@ pravaha:
     txn:
       plugin: filesystem
       options:
-        path: /var/lib/pravaha/incoming/txn.csv
+        path: /opt/pravaha/data/incoming/txn.csv
         schema: "txn_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,currency:STRING,status:STRING?,event_time:TIMESTAMP"
         event.time: event_time
         skip.header: "true"
@@ -197,7 +197,7 @@ pravaha:
     orders:
       plugin: filesystem
       options:
-        path: /var/lib/pravaha/incoming/orders.csv
+        path: /opt/pravaha/data/incoming/orders.csv
         schema: "order_id:INT64,customer_id:STRING,region:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP,op:STRING"
         event.time: event_time
         skip.header: "true"

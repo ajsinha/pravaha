@@ -48,7 +48,7 @@ is why TLS is the terse default and plaintext has to be asked for by name.
 ClientOptions options = ClientOptions.builder("grpc+tls://engine:9090")
         .token(System.getenv("PRAVAHA_TOKEN"))
         .requestTimeout(Duration.ofSeconds(10))
-        .tls(TlsOptions.builder().caCertificate(Path.of("/etc/pravaha/ca.pem")).build())
+        .tls(TlsOptions.builder().caCertificate(Path.of("/opt/pravaha/conf/ca.pem")).build())
         .build();
 try (PravahaFlightClient client = PravahaFlightClient.connect(options)) { /* ... */ }
 ```
@@ -61,7 +61,7 @@ options = ClientOptions.create(
     "grpc+tls://engine:9090",
     token=os.environ["PRAVAHA_TOKEN"],
     request_timeout_seconds=10,
-    tls=TlsOptions.create(ca_certificate="/etc/pravaha/ca.pem"),
+    tls=TlsOptions.create(ca_certificate="/opt/pravaha/conf/ca.pem"),
     http_url="https://engine:8080",
 )
 with connect(options=options) as client:

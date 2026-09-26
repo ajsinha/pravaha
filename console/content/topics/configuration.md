@@ -29,9 +29,9 @@ something you did not ask for. A node that starts is a node that is running what
 |---|---|---|
 | The shipped `application.yaml` inside the server jar | `pravaha.checkpoint.interval: 1m` | nothing — it is the floor |
 | A profile file, `application-<profile>.yaml` | `--spring.profiles.active=dev` | the shipped file |
-| Your own file, added to the search | `--spring.config.additional-location=/etc/pravaha/node.yaml` | the files above |
-| Environment variables | `PRAVAHA_CHECKPOINT_DIRECTORY=/var/lib/pravaha/checkpoints` | every file |
-| Command-line arguments | `--pravaha.checkpoint.directory=/var/lib/pravaha/checkpoints` | everything |
+| Your own file, added to the search | `--spring.config.additional-location=/opt/pravaha/conf/node.yaml` | the files above |
+| Environment variables | `PRAVAHA_CHECKPOINT_DIRECTORY=/opt/pravaha/data/checkpoints` | every file |
+| Command-line arguments | `--pravaha.checkpoint.directory=/opt/pravaha/data/checkpoints` | everything |
 
 Environment variables use Spring's relaxed binding: upper case, dots and dashes become
 underscores. `pravaha.lane.inbox.cell-bytes` is `PRAVAHA_LANE_INBOX_CELLBYTES` (Spring drops the
@@ -240,7 +240,7 @@ The default, `SINGLE` on `single`, is the only one a production node runs today.
 ## A production file, worked
 
 A node with real credentials, TLS on Flight, durable registrations and state, spill on a local
-disk, and one source bound. Save it as `/etc/pravaha/node.yaml`:
+disk, and one source bound. Save it as `/opt/pravaha/conf/node.yaml`:
 
 ```yaml
 pravaha:
@@ -248,22 +248,22 @@ pravaha:
     id: risk-node-01
   flight:
     tls:
-      certificate: /etc/pravaha/tls/node.crt
-      key: /etc/pravaha/tls/node.key
+      certificate: /opt/pravaha/conf/tls/node.crt
+      key: /opt/pravaha/conf/tls/node.key
   security:
     authentication: token
     policy: authenticated
     audit: file
-    audit-file: /var/log/pravaha/audit.jsonl
+    audit-file: /opt/pravaha/logs/audit.jsonl
   registry:
-    journal: /var/lib/pravaha/registry.journal
+    journal: /opt/pravaha/data/registry.journal
   checkpoint:
-    directory: /var/lib/pravaha/checkpoints
+    directory: /opt/pravaha/data/checkpoints
     interval: 30s
     keep: 3
   state:
     spill:
-      directory: /var/lib/pravaha/spill
+      directory: /opt/pravaha/data/spill
       max-bytes: 20GB
   streams:
     txn:
@@ -274,7 +274,7 @@ pravaha:
     txn:
       plugin: filesystem
       options:
-        path: /var/lib/pravaha/incoming/txn.csv
+        path: /opt/pravaha/data/incoming/txn.csv
         schema: "txn_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,currency:STRING,status:STRING?,event_time:TIMESTAMP"
         event.time: event_time
         skip.header: "true"
@@ -286,14 +286,14 @@ The credentials `authentication: token` checks against are configured as
 belong in a file only the service account can read, not in the node's main configuration. Start it:
 
 ```bash
-pravaha-server --spring.config.additional-location=/etc/pravaha/node.yaml
+pravaha-server --spring.config.additional-location=/opt/pravaha/conf/node.yaml
 ```
 
 What the startup log should now say, and what each line confirms:
 
 ```text
-... claimed the checkpoint directory /var/lib/pravaha/checkpoints for node 'risk-node-01'
-... checkpointing registered queries under /var/lib/pravaha/checkpoints
+... claimed the checkpoint directory /opt/pravaha/data/checkpoints for node 'risk-node-01'
+... checkpointing registered queries under /opt/pravaha/data/checkpoints
 ... security: authentication=token, policy=authenticated, audit=file, flight transport=TLS
 ... sources bound: [txn <- filesystem[path, schema, event.time, skip.header, follow]]
 ... Flight SQL listening on 0.0.0.0:9090

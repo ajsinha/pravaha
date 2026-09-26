@@ -47,7 +47,7 @@ javaOpts: ""
 # -- Configuration --------------------------------------------------------------------------
 
 config:
-  # The pravaha.* tree, rendered verbatim into a ConfigMap mounted at /etc/pravaha/application.yaml.
+  # The pravaha.* tree, rendered verbatim into a ConfigMap mounted at /opt/pravaha/conf/application.yaml.
   pravaha:
     # The wire protocol every client speaks; the HTTP port below is for operators, not for clients.
     flight:
@@ -59,13 +59,13 @@ config:
       authentication: token
       policy: authenticated
       audit: file
-      audit-file: /var/lib/pravaha/audit.jsonl
+      audit-file: /opt/pravaha/data/audit.jsonl
     # Registered queries, so a restart recovers the questions; on the volume because a pod is rescheduled for a living.
     registry:
-      journal: /var/lib/pravaha/registry.journal
+      journal: /opt/pravaha/data/registry.journal
     # What those queries had accumulated, so a restart is a resumption rather than a warm-up.
     checkpoint:
-      directory: /var/lib/pravaha/checkpoints
+      directory: /opt/pravaha/data/checkpoints
       interval: 1m
       keep: 3
   # Anything under spring.* -- logging, management, the server port -- merged into the same file.
@@ -91,8 +91,8 @@ tls:
   certKey: tls.crt
   # The Secret key holding the PEM private key.
   keyKey: tls.key
-  # Where the pair is mounted read-only; NOT under /etc/pravaha, which is the ConfigMap's own mount.
-  mountPath: /etc/pravaha-tls
+  # Where the pair is mounted read-only; NOT under /opt/pravaha/conf, which is the ConfigMap's own mount.
+  mountPath: /opt/pravaha/secrets/tls
 
 # -- Storage --------------------------------------------------------------------------------
 
@@ -109,7 +109,7 @@ persistence:
   # How much the claim asks for; the journal is tiny and the checkpoints are the whole state, three deep.
   size: 20Gi
   # Where it is mounted; the image puts checkpoints/, dlq/ and spill/ beneath this one path.
-  mountPath: /var/lib/pravaha
+  mountPath: /opt/pravaha/data
 
 spill:
   # Turns on the memory-mapped overflow tier; off by default, because it changes what a full query does (ADR-044).

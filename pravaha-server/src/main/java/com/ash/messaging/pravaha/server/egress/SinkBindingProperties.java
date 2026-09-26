@@ -34,7 +34,7 @@ import com.ash.messaging.pravaha.bindings.egress.SinkBinding;
  *     audit_trail:
  *       plugin: filesystem
  *       options:
- *         path: /var/lib/pravaha/outgoing/audit_trail.csv
+ *         path: /opt/pravaha/data/outgoing/audit_trail.csv
  *         schema: "id:INT64,user:STRING,amount:INT64"
  * </pre>
  *

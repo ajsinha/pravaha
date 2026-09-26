@@ -111,9 +111,9 @@ f="$(render pravaha --values "$chart/ci/full-values.yaml")"
 has "$f" 'secretName: pravaha-tokens'      "the token Secret is not mounted"
 has "$f" 'path: application.yaml'          "the token Secret is not projected as application.yaml, so Spring will not read it"
 has "$f" 'secretName: pravaha-flight-tls'  "the TLS Secret is not mounted"
-has "$f" '/etc/pravaha-tls/tls.crt'        "pravaha.flight.tls.certificate does not point at the mounted file"
-has "$f" '/etc/pravaha-tls/tls.key'        "pravaha.flight.tls.key does not point at the mounted file"
-has "$f" 'directory: /var/lib/pravaha/dlq' "dlq.enabled did not set pravaha.dlq.directory"
+has "$f" '/opt/pravaha/secrets/tls/tls.crt'        "pravaha.flight.tls.certificate does not point at the mounted file"
+has "$f" '/opt/pravaha/secrets/tls/tls.key'        "pravaha.flight.tls.key does not point at the mounted file"
+has "$f" 'directory: /opt/pravaha/data/dlq' "dlq.enabled did not set pravaha.dlq.directory"
 has "$f" 'max-bytes: 20GB'                 "spill.maxBytes did not reach pravaha.state.spill.max-bytes"
 has "$f" 'storageClassName: local-nvme'    "the separate spill claim did not take its StorageClass"
 has "$f" 'kind: PodDisruptionBudget'       "no PodDisruptionBudget"
@@ -127,9 +127,9 @@ has "$f" 'name: regcred'                   "the image pull secret was ignored"
 has "$f" 'event-time: event_time'          "a stream declared in config.pravaha did not reach the ConfigMap"
 ok "full scenario: secrets referenced, TLS paths wired, spill and DLQ on, PDB, ServiceMonitor"
 
-# The secret's config location must come AFTER /etc/pravaha, or the ConfigMap would win over it.
+# The secret's config location must come AFTER /opt/pravaha/conf, or the ConfigMap would win over it.
 loc="$(grep -A1 'SPRING_CONFIG_ADDITIONAL_LOCATION' <<<"$f" | grep 'value:' | head -1)"
-[[ "$loc" == *"/etc/pravaha/,optional:file:/etc/pravaha-auth/"* ]] \
+[[ "$loc" == *"/opt/pravaha/conf/,optional:file:/opt/pravaha/secrets/auth/"* ]] \
   || fail "the token Secret's location is not last, so the ConfigMap would override the tokens: $loc"
 ok "the mounted Secret has the last word in the config location list"
 

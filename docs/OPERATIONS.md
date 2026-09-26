@@ -68,7 +68,7 @@ and optionally a memory-mapped overflow tier, which is the on-disk tier:
 pravaha:
   state:
     spill:
-      directory: /var/lib/pravaha/spill   # a directory alone switches it on
+      directory: /opt/pravaha/data/spill   # a directory alone switches it on
       max-overflow-slabs: 512             # per state store: the most overflow slabs it holds at once
       compaction-threshold: 0.5           # compact a store once this much of its overflow is free
       max-bytes: 20GB                     # the node's disk budget for spilled state; 0 = none
@@ -1020,7 +1020,7 @@ pravaha:
     audit_trail:
       plugin: filesystem
       options:
-        path: /var/lib/pravaha/outgoing/audit_trail.csv
+        path: /opt/pravaha/data/outgoing/audit_trail.csv
         schema: "id:INT64,user:STRING,amount:INT64"
 ```
 
@@ -1058,7 +1058,7 @@ pravaha:
     spend_table:
       plugin: jdbc-sink
       options:
-        url: "jdbc:postgresql://pg.internal:5432/analytics?sslmode=verify-full&sslrootcert=/etc/pravaha/tls/pg-ca.pem"
+        url: "jdbc:postgresql://pg.internal:5432/analytics?sslmode=verify-full&sslrootcert=/opt/pravaha/conf/tls/pg-ca.pem"
         user: pravaha
         password: ${PG_PASSWORD}
         table: spend_by_user              # or schema.table; you create it, the sink never does
@@ -1120,7 +1120,7 @@ pravaha:
         # commit.group: pravaha-sink.spend_topic          # where each commit's receipt is kept
         user: pravaha                     # SASL; sasl.mechanism PLAIN (default, TLS required) or SCRAM-SHA-256/512
         password: ${KAFKA_PASSWORD}
-        tls.ca: /etc/pravaha/tls/kafka-ca.pem
+        tls.ca: /opt/pravaha/conf/tls/kafka-ca.pem
         # kafka.linger.ms: 20             # any other Kafka client property, with its kafka. prefix
 ```
 
@@ -1750,7 +1750,7 @@ Registered continuous queries are written to a journal, so a restart does not lo
 ```yaml
 pravaha:
   registry:
-    journal: /var/lib/pravaha/registry.journal
+    journal: /opt/pravaha/data/registry.journal
 ```
 
 **What is written down is the registration, not the state.** A registration — name, SQL, key
@@ -1790,7 +1790,7 @@ found during a recovery:
 ```yaml
 pravaha:
   checkpoint:
-    directory: /var/lib/pravaha/checkpoints
+    directory: /opt/pravaha/data/checkpoints
     interval: 1m
     keep: 3
     timeout: 30s
@@ -1803,7 +1803,7 @@ warning anywhere. A bare number is now refused at startup with `PRV-1023` (CFG-1
 `1m` and `PT2S` are all fine, and the effective settings are logged once when the node starts:
 
 ```
-checkpointing registered queries under /var/lib/pravaha/checkpoints every PT1M, keeping the newest 3, timing out at PT30S
+checkpointing registered queries under /opt/pravaha/data/checkpoints every PT1M, keeping the newest 3, timing out at PT30S
 ```
 
 Three more values in this block are checked when the node starts rather than when the first query
@@ -1857,7 +1857,7 @@ prune each other's checkpoints, and each replays the other's registrations and c
 queries it never registered (CFG-13, CFG-14). Now the second one refuses to start:
 
 ```
-PRV-4003  the state in /var/lib/pravaha/checkpoints belongs to node 'pravaha-node-01'
+PRV-4003  the state in /opt/pravaha/data/checkpoints belongs to node 'pravaha-node-01'
           (pravaha-node-01 at 10.0.0.4:9090 (pid 8123)), and this node is 'pravaha-node-02'.
           ... The other node refreshed its claim 3s ago, so it is running now.
 ```
@@ -1880,7 +1880,7 @@ pravaha:
   node:
     id: pravaha-node-01     # the SAME id as the primary, on purpose
   checkpoint:
-    directory: /var/lib/pravaha/checkpoints
+    directory: /opt/pravaha/data/checkpoints
   standby:
     enabled: true
 ```

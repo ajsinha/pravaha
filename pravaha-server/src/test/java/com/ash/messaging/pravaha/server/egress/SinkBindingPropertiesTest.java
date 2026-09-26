@@ -38,7 +38,7 @@ class SinkBindingPropertiesTest {
         SinkBindingProperties properties = new SinkBindingProperties();
         Spec audit = new Spec();
         audit.setPlugin("filesystem");
-        audit.setOptions(Map.of("path", "/var/lib/pravaha/outgoing/audit.csv", "schema", "id:INT64"));
+        audit.setOptions(Map.of("path", "/opt/pravaha/data/outgoing/audit.csv", "schema", "id:INT64"));
         properties.getSinks().put("audit_trail", audit);
 
         List<SinkBinding> bindings = properties.toBindings();
@@ -47,7 +47,7 @@ class SinkBindingPropertiesTest {
         SinkBinding binding = bindings.get(0);
         assertThat(binding.sinkName()).isEqualTo("audit_trail");
         assertThat(binding.plugin()).isEqualTo("filesystem");
-        assertThat(binding.options()).containsEntry("path", "/var/lib/pravaha/outgoing/audit.csv");
+        assertThat(binding.options()).containsEntry("path", "/opt/pravaha/data/outgoing/audit.csv");
     }
 
     @Test

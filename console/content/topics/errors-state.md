@@ -88,7 +88,7 @@ pravaha:
   state:
     spill:
       enabled: true
-      directory: /var/lib/pravaha/spill
+      directory: /opt/pravaha/data/spill
       max-bytes: 20GB
 ```
 

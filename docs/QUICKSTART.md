@@ -147,7 +147,7 @@ pravaha:
   flight:
     # Placeholders. Both paths must exist and be readable before the node will start:
     # a certificate that is not there is PRV-6104 and the process exits.
-    tls: { certificate: /etc/pravaha/tls.crt, key: /etc/pravaha/tls.key }
+    tls: { certificate: /opt/pravaha/conf/tls.crt, key: /opt/pravaha/conf/tls.key }
 ```
 
 **Declaring a stream, and where its rows come from.** Two separate things, and a query needs both.
@@ -169,7 +169,7 @@ pravaha:
                                     # delta, aerospike and cassandra are separate modules and must be
                                     # put on the classpath for a source to name them
       options:
-        path: /var/lib/pravaha/incoming/txn.csv
+        path: /opt/pravaha/data/incoming/txn.csv
         schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP"
 ```
 
@@ -183,7 +183,7 @@ without anything being restarted:
     txn:
       plugin: filesystem
       options:
-        path: /var/lib/pravaha/incoming/txn.csv
+        path: /opt/pravaha/data/incoming/txn.csv
         schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP"
         event.time: event_time      # which column holds the row's own time; on a node the
                                     # stream's own event-time is handed down as this option

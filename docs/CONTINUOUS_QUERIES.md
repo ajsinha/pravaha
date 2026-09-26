@@ -64,7 +64,7 @@ pravaha:
     txn:
       plugin: filesystem
       options:
-        path: /var/lib/pravaha/incoming/txn.csv
+        path: /opt/pravaha/data/incoming/txn.csv
         schema: "txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP"
         event.time: event_time
 ```
@@ -155,7 +155,7 @@ pravaha:
     txn:
       plugin: filesystem
       options:
-        path: /var/lib/pravaha/incoming/txn.csv
+        path: /opt/pravaha/data/incoming/txn.csv
         schema: "txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP"
         event.time: event_time
         skip.header: "true"
@@ -567,7 +567,7 @@ store with no change feed.
 ```yaml
       options:
         deletes: detect
-        deletes.state.dir: /var/lib/pravaha/scan-state   # durable local disk
+        deletes.state.dir: /opt/pravaha/data/scan-state   # durable local disk
         deletes.max.keys: "2000000"                       # per partition / token range
 ```
 
@@ -628,7 +628,7 @@ pravaha:
     customers:
       plugin: postgres-cdc
       options:
-        url: "jdbc:postgresql://db-1:5432/crm?sslmode=verify-full&sslrootcert=/etc/pravaha/db-ca.pem"
+        url: "jdbc:postgresql://db-1:5432/crm?sslmode=verify-full&sslrootcert=/opt/pravaha/conf/db-ca.pem"
         user: pravaha_cdc
         password: "${PRAVAHA_CDC_PASSWORD}"
         table: public.customers           # schema.table, or a bare name in public
@@ -734,13 +734,13 @@ pravaha:
         schema: "order_id:INT64,customer:STRING,amount:DECIMAL(12,2),placed_at:TIMESTAMP"
         format: json                   # json | changelog | avro | protobuf
         # format: avro, with the writer schema on disk:
-        # schema.file: /etc/pravaha/schemas/orders.avsc
+        # schema.file: /opt/pravaha/conf/schemas/orders.avsc
         # ...or from a schema registry, by the id in each record's five-byte prefix:
         # schema.registry.url: https://registry.internal:8081
         # schema.registry.user: pravaha
         # schema.registry.password: "${REGISTRY_PASSWORD}"   # or schema.registry.token for a bearer token
         # format: protobuf:
-        # schema.descriptor: /etc/pravaha/schemas/orders.desc   # protoc --include_imports --descriptor_set_out
+        # schema.descriptor: /opt/pravaha/conf/schemas/orders.desc   # protoc --include_imports --descriptor_set_out
         # schema.message: acme.orders.Order
         event.time: placed_at          # optional TIMESTAMP column; on a node, the stream's event-time
         start.from: earliest           # earliest | latest -- only when there is no checkpoint
@@ -750,7 +750,7 @@ pravaha:
         user: pravaha
         password: "${KAFKA_PASSWORD}"
         sasl.mechanism: SCRAM-SHA-512
-        tls.ca: /etc/pravaha/tls/kafka-ca.pem
+        tls.ca: /opt/pravaha/conf/tls/kafka-ca.pem
         # kafka.fetch.max.bytes: "52428800"   # any other Kafka consumer property, with its kafka. prefix
 ```
 

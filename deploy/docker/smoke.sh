@@ -10,7 +10,7 @@
 #
 # It runs the whole loop against a running container, end to end:
 #
-#   1. start it with a mounted /etc/pravaha/application.yaml and a mounted /var/lib/pravaha
+#   1. start it with a mounted /opt/pravaha/conf/application.yaml and a mounted /opt/pravaha/data
 #   2. wait for LIVENESS, then for READINESS -- and check readiness is not green before the
 #      engine is serving (a probe that is green early is worse than no probe)
 #   3. register a continuous query over the FLIGHT port, from outside the container
@@ -110,7 +110,7 @@ CSV
 chmod 0666 "$work/data/incoming/txn.csv"
 
 cat > "$work/conf/application.yaml" <<'YAML'
-# What a deployment mounts at /etc/pravaha/application.yaml. It overrides the image's own
+# What a deployment mounts at /opt/pravaha/conf/application.yaml. It overrides the image's own
 # defaults and is overridden by the environment.
 pravaha:
   node:
@@ -130,7 +130,7 @@ pravaha:
     txn:
       plugin: filesystem
       options:
-        path: /var/lib/pravaha/incoming/txn.csv
+        path: /opt/pravaha/data/incoming/txn.csv
         schema: "txn_id:INT64,user_id:STRING,amount:INT64"
         follow: true
 YAML
@@ -139,13 +139,13 @@ chmod 0644 "$work/conf/application.yaml"
 # ---------------------------------------------------------------- 1. start
 
 echo "smoke.sh: image   $image"
-echo "smoke.sh: volume  $work/data -> /var/lib/pravaha"
+echo "smoke.sh: volume  $work/data -> /opt/pravaha/data"
 
 "$docker_bin" run -d --name "$name" \
   -p "127.0.0.1:$http_port:8080" \
   -p "127.0.0.1:$flight_port:9090" \
-  -v "$work/data:/var/lib/pravaha" \
-  -v "$work/conf/application.yaml:/etc/pravaha/application.yaml:ro" \
+  -v "$work/data:/opt/pravaha/data" \
+  -v "$work/conf/application.yaml:/opt/pravaha/conf/application.yaml:ro" \
   "$image" >/dev/null
 
 # No -f: the status code IS the answer here, and a probe helper that swallows 503 into a
@@ -272,8 +272,8 @@ ok "the files that hold data are owner-only, written by uid 10001"
 "$docker_bin" run -d --name "$name-restart" \
   -p "127.0.0.1:$http_port:8080" \
   -p "127.0.0.1:$flight_port:9090" \
-  -v "$work/data:/var/lib/pravaha" \
-  -v "$work/conf/application.yaml:/etc/pravaha/application.yaml:ro" \
+  -v "$work/data:/opt/pravaha/data" \
+  -v "$work/conf/application.yaml:/opt/pravaha/conf/application.yaml:ro" \
   "$image" >/dev/null
 
 for _ in $(seq 1 120); do
@@ -308,7 +308,7 @@ ok "and its view"
 # If this step ever passes readiness, the chart's readinessProbe is decoration.
 "$docker_bin" run -d --name "$name-noflight" \
   -p "127.0.0.1:$http_port:8080" \
-  -v "$work/conf/application.yaml:/etc/pravaha/application.yaml:ro" \
+  -v "$work/conf/application.yaml:/opt/pravaha/conf/application.yaml:ro" \
   -e PRAVAHA_FLIGHT_ENABLED=false \
   -e PRAVAHA_REGISTRY_JOURNAL= \
   -e PRAVAHA_CHECKPOINT_DIRECTORY= \
@@ -341,8 +341,8 @@ ok "flightless node: readiness $code, not 200 (no client can reach it)"
   --read-only --tmpfs /tmp:rw,size=64m \
   -p "127.0.0.1:$http_port:8080" \
   -p "127.0.0.1:$flight_port:9090" \
-  -v "$work/data:/var/lib/pravaha" \
-  -v "$work/conf/application.yaml:/etc/pravaha/application.yaml:ro" \
+  -v "$work/data:/opt/pravaha/data" \
+  -v "$work/conf/application.yaml:/opt/pravaha/conf/application.yaml:ro" \
   "$image" >/dev/null
 
 for _ in $(seq 1 120); do

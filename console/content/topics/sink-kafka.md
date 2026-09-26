@@ -158,7 +158,7 @@ create topics.
 ```yaml
 pravaha:
   checkpoint:
-    directory: /var/lib/pravaha/checkpoints
+    directory: /opt/pravaha/data/checkpoints
     interval: 1m
   streams:
     orders:
@@ -169,7 +169,7 @@ pravaha:
     orders:
       plugin: postgres-cdc
       options:
-        url: "jdbc:postgresql://db-1.internal:5432/sales?sslmode=verify-full&sslrootcert=/etc/pravaha/tls/pg-ca.pem"
+        url: "jdbc:postgresql://db-1.internal:5432/sales?sslmode=verify-full&sslrootcert=/opt/pravaha/conf/tls/pg-ca.pem"
         user: pravaha_cdc
         password: "${PRAVAHA_CDC_PASSWORD}"
         table: public.orders
@@ -188,7 +188,7 @@ pravaha:
         password: "${KAFKA_PASSWORD}"
         sasl.mechanism: SCRAM-SHA-512
         tls.enabled: "true"
-        tls.ca: /etc/pravaha/tls/kafka-ca.pem
+        tls.ca: /opt/pravaha/conf/tls/kafka-ca.pem
         kafka.linger.ms: "20"
         kafka.compression.type: gzip
 ```

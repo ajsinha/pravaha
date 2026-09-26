@@ -34,7 +34,7 @@ import com.ash.messaging.pravaha.bindings.ingest.SourceBinding;
  *     txn:
  *       plugin: filesystem
  *       options:
- *         path: /var/lib/pravaha/incoming
+ *         path: /opt/pravaha/data/incoming
  *         schema: "id:INT64,user:STRING,amount:INT64"
  * </pre>
  *

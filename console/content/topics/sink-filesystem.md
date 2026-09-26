@@ -69,7 +69,7 @@ The node's configuration — a stream, its source, and the sink:
 ```yaml
 pravaha:
   checkpoint:
-    directory: /var/lib/pravaha/checkpoints
+    directory: /opt/pravaha/data/checkpoints
     interval: 1m
   streams:
     txn:
@@ -80,7 +80,7 @@ pravaha:
     txn:
       plugin: filesystem
       options:
-        path: /var/lib/pravaha/incoming/txn.csv
+        path: /opt/pravaha/data/incoming/txn.csv
         schema: "txn_id:INT64,user_id:STRING,merchant:STRING,amount:INT64,currency:STRING,status:STRING?,event_time:TIMESTAMP"
         event.time: event_time
         skip.header: "true"
@@ -89,7 +89,7 @@ pravaha:
     large_payments:
       plugin: filesystem
       options:
-        path: /var/lib/pravaha/outgoing/large_payments.csv
+        path: /opt/pravaha/data/outgoing/large_payments.csv
         schema: "txn_id:INT64,user_id:STRING,amount:INT64"
         append: "true"
         null.literal: ""
@@ -148,7 +148,7 @@ pravaha:
     merchant_minutes:
       plugin: filesystem
       options:
-        path: /var/lib/pravaha/outgoing/merchant_minutes.tsv
+        path: /opt/pravaha/data/outgoing/merchant_minutes.tsv
         schema: "merchant:STRING,window_start:TIMESTAMP,window_end:TIMESTAMP,payments:INT64,total:INT64"
         delimiter: "\t"
         append: "true"

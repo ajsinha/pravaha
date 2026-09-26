@@ -113,7 +113,7 @@ pravaha:
         schema: "position_id:INT64,book:STRING,quantity:INT64,as_of:TIMESTAMP"
         tls.enabled: true
         tls.name: aerospike-cluster        # the tls-name from aerospike.conf. Usually NOT a hostname.
-        tls.ca: /etc/pravaha/tls/aerospike-ca.pem
+        tls.ca: /opt/pravaha/conf/tls/aerospike-ca.pem
 ```
 
 Set `tls.enabled` without `tls.name` and Pravaha refuses at configuration time, saying which half
@@ -144,7 +144,7 @@ pravaha:
         user: pravaha
         password: ${CASSANDRA_PASSWORD}
         tls.enabled: true
-        tls.truststore: /etc/pravaha/tls/cassandra-truststore.p12
+        tls.truststore: /opt/pravaha/conf/tls/cassandra-truststore.p12
         tls.truststore.password: ${TRUSTSTORE_PASSWORD}
 ```
 
@@ -163,7 +163,7 @@ pravaha:
     orders:
       plugin: jdbc
       options:
-        url: "jdbc:postgresql://pg.internal:5432/sales?ssl=true&sslmode=verify-full&sslrootcert=/etc/pravaha/tls/pg-ca.pem"
+        url: "jdbc:postgresql://pg.internal:5432/sales?ssl=true&sslmode=verify-full&sslrootcert=/opt/pravaha/conf/tls/pg-ca.pem"
         table: orders
         watermark.column: updated_at
         user: pravaha
@@ -226,9 +226,9 @@ pravaha:
         topic: spend-by-user
         schema: "user_id:STRING,total:INT64"
         key.columns: user_id
-        tls.ca: /etc/pravaha/tls/kafka-ca.pem
-        tls.certificate: /etc/pravaha/tls/pravaha.crt   # mTLS, if the listener asks for a client certificate
-        tls.key: /etc/pravaha/tls/pravaha.key
+        tls.ca: /opt/pravaha/conf/tls/kafka-ca.pem
+        tls.certificate: /opt/pravaha/conf/tls/pravaha.crt   # mTLS, if the listener asks for a client certificate
+        tls.key: /opt/pravaha/conf/tls/pravaha.key
 ```
 
 The source takes the same options under its own binding:
@@ -245,7 +245,7 @@ pravaha:
         user: pravaha
         password: "${KAFKA_PASSWORD}"
         sasl.mechanism: SCRAM-SHA-512
-        tls.ca: /etc/pravaha/tls/kafka-ca.pem
+        tls.ca: /opt/pravaha/conf/tls/kafka-ca.pem
 ```
 
 Its consumers need `Describe` and `Read` on the topic, and `Read` on `monitoring.group` if one is set.
@@ -284,8 +284,8 @@ pravaha:
     host: 0.0.0.0
     port: 9090
     tls:
-      certificate: /etc/pravaha/tls/server-chain.pem
-      key: /etc/pravaha/tls/server-key.pem
+      certificate: /opt/pravaha/conf/tls/server-chain.pem
+      key: /opt/pravaha/conf/tls/server-key.pem
 ```
 
 Without those two the Arrow Flight transport is `grpc+tcp` and every row, credential and query

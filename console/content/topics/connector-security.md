@@ -45,7 +45,7 @@ pravaha:
     orders:
       plugin: jdbc
       options:
-        url: "jdbc:postgresql://db-1.internal:5432/sales?ssl=true&sslmode=verify-full&sslrootcert=/etc/pravaha/tls/pg-ca.pem"
+        url: "jdbc:postgresql://db-1.internal:5432/sales?ssl=true&sslmode=verify-full&sslrootcert=/opt/pravaha/conf/tls/pg-ca.pem"
         user: pravaha
         password: "${PRAVAHA_DB_PASSWORD}"
         table: orders
@@ -132,9 +132,9 @@ pravaha:
         password: "${AEROSPIKE_PASSWORD}"
         tls.enabled: "true"
         tls.name: aerospike-cluster
-        tls.ca: /etc/pravaha/tls/aerospike-ca.pem
-        tls.certificate: /etc/pravaha/tls/pravaha-client.pem
-        tls.key: /etc/pravaha/tls/pravaha-client-key.pem
+        tls.ca: /opt/pravaha/conf/tls/aerospike-ca.pem
+        tls.certificate: /opt/pravaha/conf/tls/pravaha-client.pem
+        tls.key: /opt/pravaha/conf/tls/pravaha-client-key.pem
 ```
 
 The last two make it mutual TLS: the cluster authenticates Pravaha by certificate.
@@ -160,7 +160,7 @@ pravaha:
         partition.key: order_id
         user: pravaha
         password: "${CASSANDRA_PASSWORD}"
-        tls.truststore: /etc/pravaha/tls/cassandra-truststore.p12
+        tls.truststore: /opt/pravaha/conf/tls/cassandra-truststore.p12
         tls.truststore.password: "${TRUSTSTORE_PASSWORD}"
 ```
 
@@ -190,7 +190,7 @@ pravaha:
         user: pravaha
         password: "${KAFKA_PASSWORD}"
         sasl.mechanism: SCRAM-SHA-512
-        tls.ca: /etc/pravaha/tls/kafka-ca.pem
+        tls.ca: /opt/pravaha/conf/tls/kafka-ca.pem
 ```
 
 The source takes the same options under its own binding:
@@ -207,7 +207,7 @@ pravaha:
         user: pravaha
         password: "${KAFKA_PASSWORD}"
         sasl.mechanism: SCRAM-SHA-512
-        tls.ca: /etc/pravaha/tls/kafka-ca.pem
+        tls.ca: /opt/pravaha/conf/tls/kafka-ca.pem
 ```
 
 Its consumers need `Describe` and `Read` on the topic, and `Read` on `monitoring.group` if one is
@@ -255,10 +255,10 @@ Configuration saying TLS is on is exactly what not to trust. Check the wire, and
 
 ```bash
 # What the database presents, and whether the chain validates against your CA.
-openssl s_client -connect db-1.internal:5432 -starttls postgres -CAfile /etc/pravaha/tls/pg-ca.pem
+openssl s_client -connect db-1.internal:5432 -starttls postgres -CAfile /opt/pravaha/conf/tls/pg-ca.pem
 
 # Aerospike's TLS port, with its tls-name as the expected name.
-openssl s_client -connect as-1.internal:4333 -CAfile /etc/pravaha/tls/aerospike-ca.pem -servername aerospike-cluster
+openssl s_client -connect as-1.internal:4333 -CAfile /opt/pravaha/conf/tls/aerospike-ca.pem -servername aerospike-cluster
 ```
 
 ```text

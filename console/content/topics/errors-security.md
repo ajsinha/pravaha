@@ -113,7 +113,7 @@ pravaha:
     authentication: token
     policy: authenticated
     audit: file
-    audit-file: /var/log/pravaha/audit.jsonl
+    audit-file: /opt/pravaha/logs/audit.jsonl
 ```
 
 ```yaml

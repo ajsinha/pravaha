@@ -194,7 +194,7 @@ pravaha:
         partition.key: customer_id
         consistency.level: LOCAL_QUORUM
         deletes: detect
-        deletes.state.dir: /var/lib/pravaha/scan-state
+        deletes.state.dir: /opt/pravaha/data/scan-state
         deletes.max.keys: "2000000"
 ```
 
@@ -244,7 +244,7 @@ pravaha:
         user: pravaha
         password: "${CASSANDRA_PASSWORD}"
         tls.enabled: "true"
-        tls.truststore: /etc/pravaha/tls/cassandra-truststore.p12
+        tls.truststore: /opt/pravaha/conf/tls/cassandra-truststore.p12
         tls.truststore.password: "${TRUSTSTORE_PASSWORD}"
 ```
 

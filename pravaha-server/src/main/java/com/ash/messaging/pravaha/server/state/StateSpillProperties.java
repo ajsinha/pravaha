@@ -29,7 +29,7 @@ import com.ash.messaging.pravaha.runtime.exec.SpillSettings;
  *   state:
  *     spill:
  *       enabled: true
- *       directory: /var/lib/pravaha/spill
+ *       directory: /opt/pravaha/data/spill
  *       max-overflow-slabs: 512
  *       compaction-threshold: 0.5
  *       max-bytes: 20GB

@@ -133,9 +133,9 @@ pravaha:
   streams:
     txn: { fields: "user_id STRING, amount INT64, ts TIMESTAMP", event-time: "ts" }
   registry:
-    journal: /var/lib/pravaha/registry.journal
+    journal: /opt/pravaha/data/registry.journal
   checkpoint:
-    directory: /var/lib/pravaha/checkpoints
+    directory: /opt/pravaha/data/checkpoints
     interval: 1s
     keep: 3
   security: { authentication: none, policy: permissive, allow-anonymous: true }
@@ -1184,16 +1184,16 @@ confirm it was called zero times.
 **Steps:** 1. Register `w` (windowed sum) and `agg` (keyed sum). 2. Push `("u1", 100)` at `t=1s` and
 `("u1", 102)` at `t=2s` into both. 3. `pravaha query --sql "SELECT * FROM agg"` → expect
 `u1, 100 + 102 = 202`. 4. Wait 3 s so checkpoints exist; confirm
-`ls /var/lib/pravaha/checkpoints/w` and `.../agg` both list `checkpoint-*.bin`, and record each
+`ls /opt/pravaha/data/checkpoints/w` and `.../agg` both list `checkpoint-*.bin`, and record each
 file's size. 5. `kill -9` the server. 6. Start it again on the same paths. 7. `pravaha queries`.
 8. `pravaha query --sql "SELECT * FROM agg"`. 9. Push `("u1", 5)` at `t=3s` and read again.
 **Expected:** step 4 — `w`'s files are larger than 60 bytes (real window state);
 `agg`'s are the 60-byte framing of STATE-051, because a keyed aggregate is not stateful. Step 7 —
 both `w` and `agg` are listed, `RUNNING`, with `rowsIn = 0`: the **journal** brought the definitions
 back (`PravahaNode.java:401`–`:402`) and the log line reads `registry recovered 2 of 2 queries from
-/var/lib/pravaha/registry.journal`. Step 8 — **zero rows**. Not `202`. Step 9 — `u1, 5`, not
+/opt/pravaha/data/registry.journal`. Step 8 — **zero rows**. Not `202`. Step 9 — `u1, 5`, not
 `100 + 102 + 5 = 207`. Also assert the startup log contains no line mentioning a restore, and that
-`/var/lib/pravaha/checkpoints/w` now contains a `checkpoint-N.bin` with `N` greater than the
+`/opt/pravaha/data/checkpoints/w` now contains a `checkpoint-N.bin` with `N` greater than the
 pre-restart maximum (ids resume, STATE-005) — so the node is writing checkpoints it will never read.
 **Vacuity:** step 3 establishes `202` really was computed and served before the restart, and step 4
 establishes the checkpoint files really existed, so `0` at step 8 is a lost answer and not an

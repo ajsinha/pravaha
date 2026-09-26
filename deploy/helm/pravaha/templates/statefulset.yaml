@@ -21,7 +21,7 @@ things follow, and a Deployment breaks both:
 
 And a rolling update must never overlap. Podmanagement is OrderedReady and the strategy is
 RollingUpdate with one replica, so the old pod is gone before the new one starts; if it were not,
-the new pod would meet PRV-4003 -- "the state in /var/lib/pravaha/checkpoints belongs to node X"
+the new pod would meet PRV-4003 -- "the state in /opt/pravaha/data/checkpoints belongs to node X"
 -- and refuse to start, which is the engine being right and the chart being wrong.
 
 replicas is 1 and the chart refuses anything else. Multi-node execution is on hold (ADR-045).

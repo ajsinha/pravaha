@@ -166,7 +166,7 @@ pravaha:
         set: transactions
         schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING?"
         deletes: detect
-        deletes.state.dir: /var/lib/pravaha/scan-state
+        deletes.state.dir: /opt/pravaha/data/scan-state
         deletes.max.keys: "2000000"
         scan.interval.ms: "30000"
 ```
@@ -278,7 +278,7 @@ pravaha:
         event.time: event_time
         tls.enabled: "true"
         tls.name: aerospike-cluster
-        tls.ca: /etc/pravaha/tls/aerospike-ca.pem
+        tls.ca: /opt/pravaha/conf/tls/aerospike-ca.pem
 ```
 
 `tls.enabled` without `tls.name` is refused at configuration (PRV-5083) saying which half is missing.

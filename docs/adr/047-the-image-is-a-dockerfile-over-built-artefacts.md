@@ -112,3 +112,17 @@ same family of reasons (ADR-044).
 | `eclipse-temurin:21-jre` (Ubuntu) | 172 MB more for `bash` that Alpine supplies for 2 MB |
 | A `pravaha-dist` module, as design §6.3 lists | It does not exist, and an image is not a Maven artefact. `deploy/` is where a deployment looks |
 | Extracting the Boot jar into layers | Better caching, at the cost of replacing `bin/pravaha-server` with a `JarLauncher` invocation. Worth revisiting when the image is published often enough for the caching to be felt |
+
+## Amendment, 2026-09-26: one root, and a second image
+
+By the owner's decision every path moved under `/opt/pravaha`: the volume from `/var/lib/pravaha`
+to `/opt/pravaha/data`, the deployment's configuration from `/etc/pravaha/` to `/opt/pravaha/conf/`,
+the audit log to `/opt/pravaha/logs/`, and the chart's secret mounts to `/opt/pravaha/secrets/`. The
+image's own defaults moved from `/opt/pravaha/conf/` to `/opt/pravaha/defaults/`, so the directory
+an operator mounts hides nothing the image needs. Where the body above names the old paths it
+records what was decided then.
+
+The console became its own image, `pravaha/pravaha-console`, built by
+`deploy/docker/console/build.sh` from the checkout. It follows the same rule as this one: it builds
+nothing the reactor or the SDK's own packaging has not already defined, it runs as uid 10001, and
+it is configured by one mounted YAML file, `/opt/pravaha/console/conf/application.yaml`.

@@ -23,8 +23,8 @@ WORKDIR /opt/pravaha
 # streaming engine that reads whatever a binding points it at is precisely the thing that should
 # not be able to read the rest of the filesystem.
 RUN useradd --system --create-home --uid 10001 pravaha \
- && mkdir -p /var/lib/pravaha \
- && chown -R pravaha:pravaha /opt/pravaha /var/lib/pravaha
+ && mkdir -p /opt/pravaha/data \
+ && chown -R pravaha:pravaha /opt/pravaha
 
 COPY --from=build /src/pravaha-server/target/pravaha-server-*-app.jar lib/pravaha-server.jar
 COPY --from=build /src/pravaha-cli/target/pravaha-cli-*-cli.jar       lib/pravaha-cli.jar
@@ -39,7 +39,7 @@ EXPOSE 8080 9090
 
 # The registry journal belongs on a volume. Without one, a restart loses every registered query --
 # which the node warns about at startup rather than leaving to be discovered at the next restart.
-VOLUME ["/var/lib/pravaha"]
+VOLUME ["/opt/pravaha/data"]
 
 # Liveness only. Readiness is deliberately separate: conflating them makes an orchestrator restart
 # a node that is merely still restoring state.

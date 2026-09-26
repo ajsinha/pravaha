@@ -1,0 +1,49 @@
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+#
+# A QA host: one engine node and its console, two images, two configuration files.
+# Installed at /opt/pravaha/docker-compose.yml by install.sh; run from there:
+#
+#   cd /opt/pravaha && docker compose up -d
+#   docker compose restart pravaha      # after editing conf/application.yaml
+#   docker compose restart console      # after editing console/conf/application.yaml
+#   docker compose logs -f pravaha
+#
+# Every path is under /opt/pravaha, mounted at the SAME path inside the container, so a path in a
+# config file, a log line or an error message is the path on this host. Nothing is configured
+# here that a YAML file can say instead: the files are the configuration.
+#
+# Set in /opt/pravaha/.env if they must differ: PRAVAHA_HOME moves the whole tree (install.sh --home);
+# PRAVAHA_VERSION picks the images; PRAVAHA_HTTP_PORT, PRAVAHA_FLIGHT_PORT and PRAVAHA_CONSOLE_PORT
+# move the ports this host publishes -- when 8080 is already somebody else's, say. They change
+# only the host's side: inside, the engine is on 8080 and 9090 and the console reaches it there.
+
+name: pravaha
+
+services:
+  pravaha:
+    image: pravaha/pravaha-server:${PRAVAHA_VERSION:-@@VERSION@@}
+    container_name: pravaha-server
+    restart: unless-stopped
+    ports:
+      - "${PRAVAHA_HTTP_PORT:-8080}:8080"   # HTTP: operator pages, REST API, probes
+      - "${PRAVAHA_FLIGHT_PORT:-9090}:9090" # Flight SQL: SDKs, CLI
+      # - "5432:5432"                      # PostgreSQL wire, once pravaha.pgwire.enabled is true
+    volumes:
+      - ${PRAVAHA_HOME:-/opt/pravaha}/conf:/opt/pravaha/conf:ro
+      - ${PRAVAHA_HOME:-/opt/pravaha}/data:/opt/pravaha/data
+      - ${PRAVAHA_HOME:-/opt/pravaha}/logs:/opt/pravaha/logs
+    stop_grace_period: 60s                 # a checkpoint and the sinks' commit, before SIGKILL
+
+  console:
+    image: pravaha/pravaha-console:${PRAVAHA_VERSION:-@@VERSION@@}
+    container_name: pravaha-console
+    restart: unless-stopped
+    depends_on:
+      pravaha:
+        condition: service_healthy
+    ports:
+      - "${PRAVAHA_CONSOLE_PORT:-8090}:8090"
+    volumes:
+      - ${PRAVAHA_HOME:-/opt/pravaha}/console/conf:/opt/pravaha/console/conf:ro

@@ -10,6 +10,74 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ---
 
+## 0.1.1 — QA, 2026-09-26
+
+**What this build is for.** The same as 0.1.0 — quality assurance on one node — now handed to a QA
+team as files: two container images, a compose file and two configuration files, installed on one
+Linux machine with Docker. 68 commits since `v0.1.0`; the tag is the only thing published.
+
+### How it is delivered
+
+| | |
+|---|---|
+| **Two images** | `pravaha/pravaha-server` (615 MB, every connector inside) and, new, `pravaha/pravaha-console` (481 MB). Built by `deploy/docker/build.sh` and `deploy/docker/console/build.sh`; both run as uid 10001 |
+| **One root** | Every path is under `/opt/pravaha`: `conf/` and `console/conf/` for the two configuration files, `data/` for state, `logs/` for the engine's log and the audit trail. `/var/lib/pravaha` and `/etc/pravaha` are gone — **a 0.1.0 deployment that mounted them must move its mounts** ([`DEPLOYMENT.md`](DEPLOYMENT.md), "One root") |
+| **Two files** | The engine and the console are each configured by their own YAML file, edited in place and read on restart |
+| **A bundle** | `deploy/qa/bundle.sh` writes `pravaha-qa-0.1.1.tar.gz`: both images as `docker save` archives, `install.sh`, the compose file, the jars, wheels and chart, and `SHA256SUMS`. [`deploy/qa/README.md`](../deploy/qa/README.md) is the page for the QA team |
+
+### What changed in behaviour
+
+A QA reader who tried 0.1.0 will meet these:
+
+- **Every connector is in the server jar.** Kafka, Delta, JDBC, PostgreSQL CDC, Aerospike and
+  Cassandra bind with nothing to install. Two lookups, `jdbc-lookup` and `aerospike-lookup`, had never
+  been declared to the plugin loader, so a lookup join on a real node was refused `PRV-5090`; they now
+  load. 14 plugins, checked by `ShippedConnectorsTest` and by the smoke run inside the image.
+- **A filter on a `TINYINT`, `SMALLINT` or `REAL` column gave wrong answers** in 0.1.0 (NARROW-1): the
+  comparison read the column's neighbour too. Fixed, and the reason 0.1.0 should not be used for
+  answers over narrow columns.
+- **Filters and projections run generated code** by default (`pravaha.codegen.enabled`); a query's
+  description says which path each chain is on.
+- **Tenants.** A tenant is charged for its queries and its state against quotas
+  (`pravaha.tenancy.*`, ADR-050), and **identical SQL from two tenants is now two computations** —
+  a tenant shares a computation only with itself. Refusals `PRV-8020`–`PRV-8023`.
+- **SQL that 0.1.0 refused and now runs:** a stream joined with itself; `ROW_NUMBER() ... rn <= N`
+  as a maintained top-N; exact `DECIMAL` arithmetic; `DATE_FORMAT`, `REGEXP_EXTRACT`, `SPLIT_INDEX`; a
+  comma join with its condition in `WHERE`. Nexmark: **12 of 23** queries run (5 at 0.1.0).
+- **Delta** reads deletion vectors (a deleted row arrives as a retraction) and `delta-sink` writes
+  partitioned tables. **Kafka** resolves Avro against a reader schema and fetches Protobuf
+  descriptors from the schema registry.
+- **Firing a large window streams its groups** instead of building the window on the heap (SPILL-3),
+  and an Aerospike `lut-scan` reads a page at a time (SRC-7) — the two defects 0.1.0 told QA to watch.
+- An empty paging parameter on the REST debug read is refused rather than read as the default, and a
+  lone surrogate over Flight is refused `PRV-1053`, as over HTTP.
+- The console has **blue** and **green** themes and a new landing page.
+
+### The numbers
+
+| Measurement | Result | Command |
+|---|---|---|
+| Java tests | **4,175 run, 0 failures, 189 skipped**, 37 reactor projects | `tools/verify-clean.sh` |
+| With the Docker integration tests | **4,185 run, 0 failures**, 18 skipped | `sg docker -c "./mvnw -o verify"` |
+| Console tests | **1,732 passed, 0 failed** (380 without a browser, 1,352 in Chrome: visual, accessibility, journeys, states, performance) | `cd console && python -m pytest` |
+| The images | `smoke.sh` **PASSED** (register, read, follow, restart, `--read-only`); `qa-smoke.sh` **PASSED** (the console against a real node, all 14 plugins); the QA compose stack installed, signed in to, queried and restarted | `deploy/docker/smoke.sh`, `tools/qa-smoke.sh` |
+
+The performance figures of 0.1.0 stand and have not been re-measured; PERF-1 below says why the
+default command's figures should be distrusted until they are.
+
+### Open defects
+
+At this cut: **377 findings — 354 fixed, 9 open, 0 GA-BLOCKER, 0 GA-REQUIRED**, 7 of the open ones
+triaged POST-GA and 2 recorded as notes rather than defects ([`qa/FINDINGS.md`](qa/FINDINGS.md)).
+Two worth knowing before starting:
+
+- **EMIT-1** — a fired window still holds heap per group for as long as its lateness lasts, and a
+  late row can fire it again. Size lateness with the group count in mind.
+- **PERF-1** — every performance figure taken with the default command ran under the coverage agent.
+  Treat 0.1.0's throughput table as an ordering, not as measurements.
+
+---
+
 ## 0.1.0 — QA, 2026-09-20
 
 **What this build is for.** Quality assurance on a single node. It is the first cut offered to
@@ -38,7 +106,7 @@ and the current answer is a view that can be read, subscribed to, or written to 
 
 | Measurement | Result | Command |
 |---|---|---|
-| Java tests | **4,175 run, 0 failures, 189 skipped**, 37 reactor projects | `tools/verify-clean.sh` (offline, wipes the project from `~/.m2` first) |
+| Java tests | **4,043 run, 0 failures, 183 skipped**, 37 reactor projects | `tools/verify-clean.sh` (offline, wipes the project from `~/.m2` first) |
 | Console tests | **844 run, 842 passed** at the last full run; the two failures were a test-isolation defect and a load flake, both since fixed | `cd console && python -m pytest` |
 | Python SDK tests | **132 collected, 131 passed, 1 skipped** without the `tls-keystore` extra | `cd sdk/python && python -m pytest` |
 | Skips | 184, and every one of them names its reason: Docker, Cassandra, Aerospike or `psql` absent on the machine | in the surefire output |
@@ -58,7 +126,7 @@ beside it.
 | P2, Profile A throughput | ≥ 1.2 M rows/s per lane | ~30 M warm, ~11 M cold; the worst pass, at load 77, was 1.04 M | **reached** |
 | P2, scaling 1 → 8 lanes | ≥ 90 % of linear | **28–42 %** | **not reached** |
 | P3, Profile B throughput | ≥ 350 k rows/s per lane | 2.5–2.8 M, worst pass 1.1 M | **reached**, and measured for the first time |
-| ADR-038's Nexmark comparison | head-to-head against Flink | **not run** — no Flink, no quiet machine, no reference generator. Of Nexmark's 23 queries, **12 run** on this engine as of 2026-09-26 (5 on 2026-09-20) | **not reached** |
+| ADR-038's Nexmark comparison | head-to-head against Flink | **not run** — no Flink, no quiet machine, no reference generator. Of Nexmark's 23 queries, **5 run** on this engine today | **not reached** |
 
 A QA reader should not quote the throughput figures as product numbers. They were taken on a laptop
 part under load, several are too noisy to state as a figure, and the harness says so where they are.
@@ -75,7 +143,7 @@ part under load, several are too noisy to state as a figure, and the harness say
   densities — is green; a person still has to do the rest.
 - **The console's design-system surface**, by decision.
 - Smaller refusals, each named and reasoned where it is raised: no secondary index over a non-key
-  column, no `INSERT INTO <sink> SELECT`, no Iceberg or Hudi sink, no deletion vectors written by `delta-sink`,
+  column, no `INSERT INTO <sink> SELECT`, no Iceberg or Hudi sink, no partitioned Delta tables,
   `COUNT(DISTINCT)` cannot spill.
 
 ### Open defects
@@ -83,7 +151,7 @@ part under load, several are too noisy to state as a figure, and the harness say
 The register is [`qa/FINDINGS.md`](qa/FINDINGS.md), and it is the honest list: every defect found,
 what happened to it, and what is still true of the build.
 
-At this cut: **377 findings — 354 fixed, 9 open, 0 GA-BLOCKER, 0 GA-REQUIRED**, 7 of the open ones
+At this cut: **362 findings — 332 fixed, 17 open, 0 GA-BLOCKER, 0 GA-REQUIRED**, 15 of the open ones
 triaged POST-GA and 2 recorded as notes rather than defects. The header's counts are enforced by
 `FindingsRegisterTest`, so this page and the register cannot drift apart silently.
 

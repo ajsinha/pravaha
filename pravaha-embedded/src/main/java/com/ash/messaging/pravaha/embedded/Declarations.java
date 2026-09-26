@@ -35,9 +35,9 @@ import com.ash.messaging.pravaha.common.config.Configuration;
  * pravaha.streams.txn.schema=user_id:STRING,amount:INT64,ts:TIMESTAMP
  * pravaha.streams.txn.event-time=ts
  * pravaha.sources.txn.plugin=filesystem
- * pravaha.sources.txn.options.path=/var/lib/pravaha/incoming
+ * pravaha.sources.txn.options.path=/opt/pravaha/data/incoming
  * pravaha.sinks.totals.plugin=filesystem
- * pravaha.sinks.totals.options.path=/var/lib/pravaha/out/totals.csv
+ * pravaha.sinks.totals.options.path=/opt/pravaha/data/out/totals.csv
  * pravaha.queries.spend.sql=SELECT user_id, SUM(amount) AS total FROM txn GROUP BY user_id
  * pravaha.queries.spend.keys=user_id
  * </pre>

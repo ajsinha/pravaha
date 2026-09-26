@@ -69,8 +69,8 @@ pravaha:
     host: 0.0.0.0
     port: 5432
     tls:
-      certificate: /etc/pravaha/tls/server-chain.pem
-      key: /etc/pravaha/tls/server-key.pem
+      certificate: /opt/pravaha/conf/tls/server-chain.pem
+      key: /opt/pravaha/conf/tls/server-key.pem
 ```
 
 ```text

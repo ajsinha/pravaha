@@ -90,7 +90,7 @@ step "a node, from the image"
 "$docker_bin" run -d --rm --name "$name" \
   -p "$http_port:8080" -p "$flight_port:9090" \
   -e PRAVAHA_SECURITY_ALLOWANONYMOUS=true \
-  -v "$work/data:/var/lib/pravaha" "$image" >/dev/null
+  -v "$work/data:/opt/pravaha/data" "$image" >/dev/null
 echo "      $image as $name, http $http_port, flight $flight_port"
 
 for _ in $(seq 1 60); do

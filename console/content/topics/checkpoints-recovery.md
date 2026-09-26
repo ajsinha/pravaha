@@ -28,9 +28,9 @@ pravaha:
   node:
     id: pravaha-node-01
   registry:
-    journal: /var/lib/pravaha/registry.journal
+    journal: /opt/pravaha/data/registry.journal
   checkpoint:
-    directory: /var/lib/pravaha/checkpoints
+    directory: /opt/pravaha/data/checkpoints
     interval: 1m
     keep: 3
     timeout: 30s
@@ -115,7 +115,7 @@ lease. Two nodes pointed at one root used to prune each other's checkpoints and 
 registrations, silently; now the second refuses to start:
 
 ```text
-PRV-4003  the state in /var/lib/pravaha/checkpoints belongs to node 'pravaha-node-01'
+PRV-4003  the state in /opt/pravaha/data/checkpoints belongs to node 'pravaha-node-01'
           (pravaha-node-01 at 10.0.0.4:9090 (pid 8123)), and this node is 'pravaha-node-02'.
           ... The other node refreshed its claim 3s ago, so it is running now.
 ```

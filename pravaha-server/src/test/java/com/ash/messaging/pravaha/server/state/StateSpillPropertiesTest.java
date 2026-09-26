@@ -38,11 +38,11 @@ class StateSpillPropertiesTest {
     @Test
     void aDirectoryWithNoExplicitFlagInfersEnabled() {
         StateSpillProperties properties = new StateSpillProperties();
-        properties.setDirectory("/var/lib/pravaha/spill");
+        properties.setDirectory("/opt/pravaha/data/spill");
 
         assertThat(properties.resolvedEnabled()).isTrue();
         assertThat(properties.toSpillSettings().enabled()).isTrue();
-        assertThat(properties.toSpillSettings().directory()).isEqualTo("/var/lib/pravaha/spill");
+        assertThat(properties.toSpillSettings().directory()).isEqualTo("/opt/pravaha/data/spill");
     }
 
     @Test
@@ -51,7 +51,7 @@ class StateSpillPropertiesTest {
         // from an earlier configuration must not turn spilling back on once an operator has
         // written enabled: false over it.
         StateSpillProperties properties = new StateSpillProperties();
-        properties.setDirectory("/var/lib/pravaha/spill");
+        properties.setDirectory("/opt/pravaha/data/spill");
         properties.setEnabled(false);
 
         assertThat(properties.resolvedEnabled()).isFalse();
@@ -61,7 +61,7 @@ class StateSpillPropertiesTest {
     @Test
     void anExplicitTrueWinsEvenWithoutInferenceNeeded() {
         StateSpillProperties properties = new StateSpillProperties();
-        properties.setDirectory("/var/lib/pravaha/spill");
+        properties.setDirectory("/opt/pravaha/data/spill");
         properties.setEnabled(true);
 
         assertThat(properties.resolvedEnabled()).isTrue();
@@ -93,7 +93,7 @@ class StateSpillPropertiesTest {
         // assumed to.
         var source =
                 new org.springframework.boot.context.properties.source.MapConfigurationPropertySource(java.util.Map.of(
-                        "pravaha.state.spill.directory", "/var/lib/pravaha/spill",
+                        "pravaha.state.spill.directory", "/opt/pravaha/data/spill",
                         "pravaha.state.spill.max-bytes", "20GB",
                         "pravaha.state.spill.max-overflow-slabs", "64"));
         StateSpillProperties properties = new org.springframework.boot.context.properties.bind.Binder(source)
@@ -110,14 +110,14 @@ class StateSpillPropertiesTest {
     @Test
     void noMaxBytesMeansNoQuota() {
         StateSpillProperties properties = new StateSpillProperties();
-        properties.setDirectory("/var/lib/pravaha/spill");
+        properties.setDirectory("/opt/pravaha/data/spill");
         assertThat(properties.toSpillSettings().maxBytes()).isZero();
     }
 
     @Test
     void theCompactionThresholdDefaultsToHalfAndReachesTheRuntime() {
         StateSpillProperties properties = new StateSpillProperties();
-        properties.setDirectory("/var/lib/pravaha/spill");
+        properties.setDirectory("/opt/pravaha/data/spill");
         assertThat(properties.toSpillSettings().compactionThreshold()).isEqualTo(0.5);
 
         properties.setCompactionThreshold(0.8);
