@@ -26,7 +26,7 @@ all digits becomes an integer, and the first row containing a letter fails at 3 
 | `STRING` | `VARCHAR` | — | `COUNT` | UTF-8; `=` and `<>` only |
 | `BYTES` | `VARBINARY` | — | — | Carried over Flight; refused by the PostgreSQL gateway |
 | `DATE`, `TIME`, `TIMESTAMP` | same | intervals | `COUNT` | `TIMESTAMP` carries event time, in nanoseconds |
-| `DECIMAL(p,s)` | `DECIMAL` | **refused** | — | Declarable only programmatically |
+| `DECIMAL(p,s)` | `DECIMAL` | exact `+ − ×`; `÷` refused | — | Declarable only programmatically |
 
 Year-month intervals (`INTERVAL '1' MONTH`) are refused, because a month is not a fixed length of
 time; day-time intervals (`SECOND` to `WEEK`) work, and are what windows use.
@@ -252,8 +252,10 @@ SELECT CAST(event_time AS DATE) AS event_date FROM txn
 
 ## DECIMAL
 
-`DECIMAL` is refused in arithmetic rather than evaluated as a floating-point number, because the
-rounding decision belongs to whoever owns the ledger and not to a serialiser:
+`DECIMAL` addition, subtraction and multiplication are computed **exactly**, at the precision and
+scale SQL derives, and a query whose result would need rounding past 38 digits is refused at
+registration. Division and remainder are still refused rather than rounded, because the rounding
+decision belongs to whoever owns the ledger and not to a serialiser:
 
 <!-- sql: refused PRV-2021 -->
 ```sql

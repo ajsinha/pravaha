@@ -204,11 +204,12 @@ SELECT SUM(user_id) AS total FROM txn
 ### PRV-2021 — unsupported expression
 
 An expression or function the engine will not compile: numeric functions beyond `ABS`, `FLOOR`,
-`CEIL` and one-argument `ROUND`; string functions beyond `UPPER`, `LOWER`, `TRIM`, `SUBSTRING` and
-`||`; `LIKE ... ESCAPE`; ordering comparisons between strings; comparing text to a number; casts into
-or out of text; subqueries (`IN (SELECT ...)`, `EXISTS`, scalar); window functions such as
-`ROW_NUMBER() OVER (...)`; and a projected comparison over a nullable column whose answer could be
-UNKNOWN.
+`CEIL` and one-argument `ROUND`; string functions beyond `UPPER`, `LOWER`, `TRIM`, `SUBSTRING`, `||`,
+`DATE_FORMAT`, `REGEXP_EXTRACT` and `SPLIT_INDEX`; `LIKE ... ESCAPE`; ordering comparisons between
+strings (`=` and `<>` work, inside an expression too); comparing text to a number; casts into or out
+of text; subqueries (`IN (SELECT ...)`, `EXISTS`, scalar); window functions other than
+`ROW_NUMBER() OVER (PARTITION BY ... ORDER BY ...)` filtered to `rn <= N`, which runs as a top-N; and
+a projected comparison over a nullable column whose answer could be UNKNOWN.
 
 <!-- sql: refused PRV-2021 -->
 ```sql
@@ -273,22 +274,14 @@ SELECT txn_id, (status = 'SETTLED') IS TRUE AS settled FROM txn
 Adding `status IS NOT NULL AND` to the comparison does **not**: the whole expression is still typed
 as possibly UNKNOWN, and is refused the same way.
 
-### The refusal with no code
+### Self-joins run
 
-A **self-join** — one stream on both sides of a join — plans, and is then refused when the pipeline
-is built, because rows enter a join by stream name and the name cannot say which side a row is for.
-It is the one refusal that still arrives without a PRV code; the message says plainly what is wrong.
-
-```text
-SELECT a.txn_id, b.txn_id AS other_txn
-FROM txn AS a
-JOIN txn AS b ON a.user_id = b.user_id
-```
-
-Because it is refused only when the pipeline is compiled, `pravaha validate` and the workbench's
-validation — which plan and build but do not compile — **accept it**, and the refusal arrives at
-registration. It is shown as text here for that reason: the build's check of this page's SQL plans
-each example the way validation does, and this one passes that step.
+A **self-join** — one stream on both sides of a join — runs. It used to be refused when the pipeline
+was built, the one refusal in the engine without a PRV code, because rows entered a join by stream
+name and a name could not say which side a row was for. Now one entry point hands each row to the
+first side and then the second, which is the join's own delta rule applied to one stream, and a
+stream scanned twice has nothing pushed down to its source, since a filter meant for one side would
+drop rows the other side needs. Every refusal the engine raises now carries a code.
 
 ## State that would grow for ever
 

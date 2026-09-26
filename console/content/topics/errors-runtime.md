@@ -29,6 +29,7 @@ console shows the code that stopped it.
 | PRV-3020 | RUNTIME_UNSUPPORTED_AGGREGATE | An aggregate the runtime cannot maintain for this input |
 | PRV-3021 | RUNTIME_UNSUPPORTED_JOIN | A join key of a type that cannot be compared exactly |
 | PRV-3022 | RUNTIME_WINDOW_SPAN_IMPLAUSIBLE | One row's event time is far from the rest |
+| PRV-3024 | RUNTIME_RETRACTED_UNHELD_ROW | A top-N was asked to retract a row it does not hold |
 | PRV-3030 | ROW_FIELD_LIMIT_EXCEEDED | A row with more than 64 columns |
 | PRV-3100 | CODEGEN_COMPILATION_FAILED | Generated code did not compile |
 | PRV-3101 | CODEGEN_UNSUPPORTED_OPERATOR | A stage the generator does not emit; the interpreter runs it |
@@ -96,6 +97,15 @@ then drop and register the query again. A failed query's rows were correct as of
 engine will not hand them over as though they were current.
 
 ## What the runtime will not maintain
+
+### PRV-3024 — a top-N asked to retract a row it does not hold
+
+A `ROW_NUMBER() OVER (PARTITION BY ... ORDER BY ...)` filtered to `rn <= N` is maintained as a top-N:
+it holds every row of each partition and emits a `-1` and a `+1` wherever the first N change. A
+retraction of a row it never received means the stream upstream sent a `-1` with no matching `+1`,
+which is a fault upstream and not something the top-N can repair — so it stops by name rather than
+emitting an answer it cannot vouch for. Look at the source feeding the query: a source that emits
+deletes must emit each row's insert first.
 
 ### PRV-3020 — unsupported aggregate
 

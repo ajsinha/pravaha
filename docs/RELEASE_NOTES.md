@@ -38,7 +38,7 @@ and the current answer is a view that can be read, subscribed to, or written to 
 
 | Measurement | Result | Command |
 |---|---|---|
-| Java tests | **4,128 run, 0 failures, 184 skipped**, 37 reactor projects | `tools/verify-clean.sh` (offline, wipes the project from `~/.m2` first) |
+| Java tests | **4,171 run, 0 failures, 184 skipped**, 37 reactor projects | `tools/verify-clean.sh` (offline, wipes the project from `~/.m2` first) |
 | Console tests | **844 run, 842 passed** at the last full run; the two failures were a test-isolation defect and a load flake, both since fixed | `cd console && python -m pytest` |
 | Python SDK tests | **132 collected, 131 passed, 1 skipped** without the `tls-keystore` extra | `cd sdk/python && python -m pytest` |
 | Skips | 184, and every one of them names its reason: Docker, Cassandra, Aerospike or `psql` absent on the machine | in the surefire output |
@@ -58,7 +58,7 @@ beside it.
 | P2, Profile A throughput | ≥ 1.2 M rows/s per lane | ~30 M warm, ~11 M cold; the worst pass, at load 77, was 1.04 M | **reached** |
 | P2, scaling 1 → 8 lanes | ≥ 90 % of linear | **28–42 %** | **not reached** |
 | P3, Profile B throughput | ≥ 350 k rows/s per lane | 2.5–2.8 M, worst pass 1.1 M | **reached**, and measured for the first time |
-| ADR-038's Nexmark comparison | head-to-head against Flink | **not run** — no Flink, no quiet machine, no reference generator. Of Nexmark's 23 queries, **5 run** on this engine today | **not reached** |
+| ADR-038's Nexmark comparison | head-to-head against Flink | **not run** — no Flink, no quiet machine, no reference generator. Of Nexmark's 23 queries, **12 run** on this engine as of 2026-09-26 (5 on 2026-09-20) | **not reached** |
 
 A QA reader should not quote the throughput figures as product numbers. They were taken on a laptop
 part under load, several are too noisy to state as a figure, and the harness says so where they are.

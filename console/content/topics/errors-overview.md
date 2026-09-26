@@ -178,9 +178,8 @@ approximating it. A refusal costs a developer five minutes; a query that runs an
 plausible wrong number costs whatever was decided on the strength of it. So most codes in the 2xxx
 range are the engine working, not the engine failing — and the few that are genuine defects say so.
 
-The one refusal that still arrives **without** a code is a self-join — one stream on both sides of a
-join — which is refused when the pipeline is built rather than when the query is planned. It is
-listed on the [SQL codes](/help/topics/errors-sql#the-refusal-with-no-code) page.
+Every refusal carries a code. The last one that did not — a self-join, one stream on both sides of a
+join — now runs; see [SQL codes](/help/topics/errors-sql#self-joins-run).
 
 ## Reporting a code
 

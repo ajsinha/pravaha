@@ -379,6 +379,11 @@ SELECT txn_id, (SELECT COUNT(*) FROM orders) AS orders FROM txn
 SELECT txn_id, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY event_time) AS rn FROM txn
 ```
 
+That `ROW_NUMBER` is refused because nothing bounds it: every row's number would change whenever an
+earlier row arrived. **Filtered to a top N it runs** — `SELECT * FROM (SELECT ..., ROW_NUMBER() OVER
+(PARTITION BY user_id ORDER BY amount DESC) AS rn FROM txn) WHERE rn <= 3` is maintained as a top-N
+that emits a `-1` and a `+1` wherever the first three change, and a retraction promotes the row below.
+
 **Rewrite:** a subquery that tests for a matching row is a join with a time bound; a lookup against
 reference data is a temporal join:
 
@@ -443,8 +448,8 @@ SELECT CAST(event_time AS DATE) AS txn_day FROM txn
 SELECT CAST(amount AS DECIMAL(10, 2)) AS amount_decimal FROM txn
 ```
 
-`DECIMAL` arithmetic is refused rather than evaluated in double, because the rounding decision
-belongs to whoever owns the ledger. **Rewrite:** integer minor units, which the samples here already
+`DECIMAL` division and remainder are refused rather than rounded, because the rounding decision
+belongs to whoever owns the ledger (addition, subtraction and multiplication are exact). **Rewrite:** integer minor units, which the samples here already
 use (`amount` is cents; `price_cents` says so in its name):
 
 ```sql

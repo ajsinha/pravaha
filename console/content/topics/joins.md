@@ -319,9 +319,9 @@ SELECT o.order_id FROM orders o JOIN shipments s ON s.order_id > o.order_id
 An inequality between **timestamps** is a time bound and is supported; between anything else it is a
 cross product and is not.
 
-A self join — the same stream on both sides — plans and is refused when the pipeline is built, with
-the message `stream 'orders' appears on both sides of this plan; self-joins are not supported yet`
-and no `PRV-` code. Rows enter a join by stream name, and a name cannot say which side a row is for.
+A self join — the same stream on both sides — runs: each row is handed to the first side and then
+the second, which is the join's own delta rule applied to one stream. Until 2026-09-26 it was refused
+when the pipeline was built, with no `PRV-` code.
 
 ```text
 SELECT a.order_id, b.order_id FROM orders a JOIN orders b ON a.customer_id = b.customer_id
