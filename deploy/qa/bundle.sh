@@ -49,13 +49,37 @@ done
 
 # What exists is copied; what does not is said, rather than a bundle quietly missing a piece.
 shopt -s nullglob
+# A bundle missing a piece is not a smaller bundle, it is a wrong one: every piece is required.
 take() {
   local present=() f
   for f in "$@"; do [[ -e "$f" ]] && present+=("$f"); done
-  if (( ${#present[@]} )); then cp "${present[@]}" "$out/dist/"; else echo "bundle.sh: not built: $label" >&2; fi
+  if (( ${#present[@]} )); then cp "${present[@]}" "$out/dist/"
+  else echo "bundle.sh: missing $label ($*)" >&2; exit 1; fi
 }
-label="server jar";  take "$root"/pravaha-server/target/pravaha-server-"$version"-app.jar
-label="cli jar";     take "$root"/pravaha-cli/target/pravaha-cli-"$version"-cli.jar
+
+# The jars, from the release's TAG when target/ no longer holds them: any build since the release
+# -- the gate's clean install among them -- has replaced them with the next snapshot's. Built in a
+# worktree of the tag, offline, so the working tree is not touched.
+jars_from_tag() {
+  local src="$root/target/release-build"
+  echo "bundle.sh: building the $version jars from v$version"
+  git -C "$root" worktree remove --force "$src" >/dev/null 2>&1 || rm -rf "$src"
+  git -C "$root" worktree add --detach "$src" "v$version" >/dev/null
+  (cd "$src" && ./mvnw -o -q -pl pravaha-server,pravaha-cli -am package -DskipTests) \
+    || { echo "bundle.sh: could not build the jars from v$version" >&2; exit 1; }
+  server_jar="$src/pravaha-server/target/pravaha-server-$version-app.jar"
+  cli_jar="$src/pravaha-cli/target/pravaha-cli-$version-cli.jar"
+}
+server_jar="$root/pravaha-server/target/pravaha-server-$version-app.jar"
+cli_jar="$root/pravaha-cli/target/pravaha-cli-$version-cli.jar"
+if [[ ! -e "$server_jar" || ! -e "$cli_jar" ]]; then
+  git -C "$root" rev-parse -q --verify "refs/tags/v$version" >/dev/null \
+    || { echo "bundle.sh: no $version jars in target/ and no tag v$version to build them from" >&2; exit 1; }
+  jars_from_tag
+fi
+label="server jar";  take "$server_jar"
+label="cli jar";     take "$cli_jar"
+git -C "$root" worktree remove --force "$root/target/release-build" >/dev/null 2>&1 || true
 # The wheels are built from the release's TAG, not the working tree, which release.sh has already
 # moved on to the next snapshot -- and in a python container, so the build needs nothing installed
 # on this machine beyond Docker.
