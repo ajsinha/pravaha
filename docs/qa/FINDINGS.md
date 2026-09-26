@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **374 findings carrying a
-status — 348 FIXED, 12 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 12 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 10 POST-GA and 2 are not defects at all** — see the triage below. Counted by the same pattern
+status — 352 FIXED, 8 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 8 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 6 POST-GA and 2 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -6753,8 +6753,7 @@ runs is how a default becomes folklore, and this project has already found two o
 
 ### SDK-1 (LOW) — the Python SDK does not refuse a lone surrogate itself
 
-> **Status:** OPEN — the Java SDK refuses one before sending; the Python SDK leaves it to the server, whose strict decode catches only what arrives as invalid UTF-8.
-> **Disposition:** POST-GA — mirror the Java SDK's check in `sdk/python`.
+> **Status:** FIXED — `96782fb2`: `require_well_formed` refuses any code point in U+D800..U+DFFF with `MalformedTextError` (`PRV-1053`) before the SQL or any control-wire field is sent; before, the caller saw a `QueryError` carrying a `UnicodeEncodeError`. Python refuses even an adjacent pair written as two escapes, because it stays two code points and cannot be encoded; Java accepts that pair, and the difference is deliberate and documented. Seed-proven, 2 of 138.
 
 ### TEN-1 (LOW) — a view name taken by one tenant is refused to another by name, which says it exists
 
@@ -6767,8 +6766,7 @@ runs is how a default becomes folklore, and this project has already found two o
 
 ### VIS-2 (LOW) — the terminal theme has contrast coverage and nothing else
 
-> **Status:** OPEN — `terminal` is in the contrast test but not in the axe or visual theme lists, and never was; compact density is audited by axe in the light theme only.
-> **Disposition:** POST-GA — both are gaps in coverage, not defects found; the fix is to add terminal to the axe and visual lists and compact to axe's other themes, at the cost of more baselines.
+> **Status:** FIXED — `1744731a`: `terminal` is in the axe and visual theme lists (156 new baselines, every one looked at), and compact density is audited by axe in all five themes. Seed-proven: a `--muted` below contrast fails 37 of 37 compact-terminal axe tests.
 
 ### PKG-1 (HIGH) — no node could ever find a lookup plugin, and the orphan check vouched for them
 
@@ -6787,7 +6785,7 @@ runs is how a default becomes folklore, and this project has already found two o
 ### PKG-4 (LOW) — Flight is tested on Netty 4.2 and ships on Netty 4.1
 
 > **Status:** OPEN — `pravaha-flight` resolves `netty-handler` 4.2.9 for its own tests, while `pravaha-server`, whose dependency versions Spring Boot's BOM manages, resolves and ships 4.1.135. So the module's test suite exercises a different Netty from the one the node runs on. Everything passes on both, including the container smoke journey, which runs the shipped one; this records that the two are not the same run.
-> **Disposition:** POST-GA — pin one Netty for the whole reactor, and make the Flight module's tests use the version the server ships.
+> **Disposition:** POST-GA — tried 2026-09-26 and not committed. Importing `netty-bom` 4.1.135 ahead of `arrow-bom` gives one Netty everywhere and the Flight suites pass on it (110 and 61, TLS included), but the enforcer's `requireUpperBoundDeps` refuses it in `pravaha-flight`, because Arrow 19's flight-core asks for 4.2.9. Two ways out: pin 4.1.135 and skip that rule in the Flight modules as the server already does, or pin 4.2.9 reactor-wide and move the server to Netty 4.2 beside Spring Boot 3.5, which needs the server suite and the container smoke journey. Also: `pravaha-server/pom.xml`'s Netty comments have the direction backwards, and its `netty.version` property does not govern what it resolves.
 
 ### CON-11 (MEDIUM) — the engine's address was on every page a stranger could open
 
@@ -6804,17 +6802,15 @@ runs is how a default becomes folklore, and this project has already found two o
 
 ### RPL-1 (LOW) — a replacement's history is flattened to sentences before it leaves the engine
 
-> **Status:** OPEN — `ShadowDeployment.Segment(fromFrontier, version)` is rendered to `"from 4471: <fingerprint>"` inside `history()`, so every surface past it can only print the sentence. The console's replacement screen would link the fingerprint and format the position if it had them. Also: `GET /api/v1/replacements` (the list) carries `history: null`, deliberately — nothing renders a version history from a list.
-> **Disposition:** POST-GA — a formatting loss rather than a missing fact; closing it means a structured entry on the wire.
+> **Status:** FIXED — `0c488b0c`: `ShadowDeployment.Segment` is public with `fromTheBeginning()` and `sentence()`; the REST `ReplacementStatus` keeps `history` and adds `historyEntries: [{fromFrontier, version}]`, null frontier for the first version; the console formats each entry and marks the one serving now, and shows an engine that sends only sentences as "not carried" rather than parsing its wording.
 
 ### CON-9 (LOW) — the console's own POST /api/v1/queries declares 201 and answers 200
 
-> **Status:** OPEN — `json_guard` returns its own `JSONResponse`, which carries the default status rather than the route's declared `status_code=201`, so the console's OpenAPI schema and its answer disagree. Pre-existing, found while building the debugger screen, and deliberately not copied into the new debug routes.
-> **Disposition:** POST-GA — the console's own API is read by its own islands, which do not switch on the status; a client generated from the schema would.
+> **Status:** FIXED — `4f99c996`: `json_guard` takes the success status as a parameter, and both `POST /api/v1/queries` and `POST /api/v1/catalog/streams` — which had the same defect — answer the 201 they declare. Seed-proven, 4 of 317.
 
 ### CON-10 (LOW) — the accent sits nearer a data series in dark than the blue did
 
-> **Status:** OPEN — measured while taking the crimson theme: the accent's nearest data series is 21 ΔE in light, where the old blue was 15 — an improvement — and **11 ΔE in dark against `--series-5` `#e87ba4`**, where the old blue was 29. The series are a validated categorical order and were deliberately not re-picked while changing the ground.
+> **Status:** OPEN — restated 2026-09-26: the first measurement was taken against the light theme's series, which the dark theme does not use. The dark theme declares its own; measured against them, the dark accent `#E47F92` is **19.9 ΔE** from both `--series-5` (`#d55181`) and `--series-8` (`#e66767`). The proposed `#D18BE0` would be 22.3 from the dark theme's own `--series-7` and leave `--series-8` where it is, so it closes nothing and was not adopted. No test measures accent against series; the contrast test covers text/ground pairs and status colours only.
 > **Disposition:** POST-GA — a chart mark next to an accent control in the dark theme reads as nearly the same colour. `#D18BE0` as the dark theme's own `--series-5` is 40 from the accent and at least 41 from every other series, if it is worth closing.
 
 ### CKPT-6 (LOW) — a continuous query dropped before its first publish tick still emits a zero at close
