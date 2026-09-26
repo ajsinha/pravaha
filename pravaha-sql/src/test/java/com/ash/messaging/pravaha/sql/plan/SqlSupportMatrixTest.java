@@ -376,12 +376,8 @@ class SqlSupportMatrixTest {
                     "three-way join, three distinct streams",
                     "SELECT t.txn_id FROM txn t JOIN other o ON t.user_id = o.user_id "
                             + "JOIN third d ON t.user_id = d.user_id"),
-            // Refused when the pipeline is built, not when the plan is: both sides read one stream,
-            // and rows enter a join by stream name, which cannot say which side a row is for.
-            Case.refused(
-                    "self join",
-                    "SELECT a.txn_id FROM txn a JOIN txn b ON a.user_id = b.user_id",
-                    "stream 'txn' appears on both sides of this plan; self-joins are not supported yet"),
+            // A stream read on both sides: one entry point hands each row to both (Nexmark q7).
+            Case.ok("self join", "SELECT a.txn_id FROM txn a JOIN txn b ON a.user_id = b.user_id"),
             Case.lookupOk(
                     "lookup join against a dimension",
                     "SELECT t.txn_id, d.tier FROM txn t JOIN dim d ON t.user_id = d.user_id"),
@@ -552,16 +548,11 @@ class SqlSupportMatrixTest {
                             "%s is in the matrix as refused with %s, and was accepted",
                             testCase.label(), testCase.expected())
                     .isNotNull();
-            if (!message.startsWith("PRV-")) {
-                // One refusal has no PRV code: the self-join check lives in the pipeline builder and
-                // throws UnsupportedOperationException. That is a gap worth naming rather than
-                // papering over -- every refusal a user can reach should carry a code they can look
-                // up -- so it is allowed here by name and nowhere else.
-                assertThat(testCase.label())
-                        .as("a refusal without a PRV code: '%s'", message)
-                        .isEqualTo("self join");
-                continue;
-            }
+            // Every one, with no exemption. The self-join refusal was the one without a code, and was
+            // allowed here by name until self-joins ran.
+            assertThat(message)
+                    .as("a refusal without a PRV code: '%s'", message)
+                    .startsWith("PRV-");
             // Not a bare code. A refusal a user cannot act on costs a support call, and the whole
             // point of refusing rather than approximating is that the message says what to do.
             assertThat(message.length())

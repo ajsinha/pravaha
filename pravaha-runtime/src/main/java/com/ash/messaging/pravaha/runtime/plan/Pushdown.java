@@ -60,6 +60,12 @@ public final class Pushdown {
         if (!accepted.contains(PushdownKind.FILTER)) {
             return ReadRequest.NOTHING;
         }
+        if (scansOf(plan, stream) > 1) {
+            // A self-join reads the stream once and hands each row to both sides. A filter above one
+            // side's scan must not reach the source, where it would drop the row for the other side
+            // too -- and readsOnly holds for the join itself, whose columns are not the source's.
+            return ReadRequest.NOTHING;
+        }
         List<ReadRequest.Filter> filters = new ArrayList<>();
         collect(plan, stream, filters);
         return filters.isEmpty() ? ReadRequest.NOTHING : new ReadRequest(filters);
@@ -80,6 +86,16 @@ public final class Pushdown {
             return;
         }
         operator.inputs().forEach(input -> collect(input, stream, into));
+    }
+
+    /** How many times the plan scans the named stream. */
+    static int scansOf(PhysicalOperator operator, String stream) {
+        if (operator instanceof ScanOperator scan) {
+            return scan.streamName().equals(stream) ? 1 : 0;
+        }
+        return operator.inputs().stream()
+                .mapToInt(input -> scansOf(input, stream))
+                .sum();
     }
 
     /** Whether an operator's whole subtree reads exactly the named stream and nothing else. */

@@ -93,7 +93,11 @@ final class PlanShape {
 
     static void collectStreams(PhysicalOperator operator, List<String> into) {
         if (operator instanceof com.ash.messaging.pravaha.runtime.plan.ScanOperator scan) {
-            into.add(scan.streamName());
+            // Once per stream. A self-join scans one stream twice and the pipeline hands each row to
+            // both sides itself; listing it twice would open two readers and feed every row twice.
+            if (!into.contains(scan.streamName())) {
+                into.add(scan.streamName());
+            }
             return;
         }
         operator.inputs().forEach(input -> collectStreams(input, into));

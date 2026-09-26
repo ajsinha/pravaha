@@ -194,11 +194,12 @@ class JoinReachabilityAgainstServerTest {
         assertThat(queried.out()).as("u9 matched nothing and must not appear").doesNotContain("u9");
     }
 
-    // ======================= JOIN-060(c): a self-join is refused at registration, wrapped by the SDK
-    // =======================
+    // ======================= JOIN-060(c): a self-join registers =======================
 
     @Test
-    void aSelfJoinIsRefusedAtRegistrationWithTheServersMessageButTheSdksOwnCode() {
+    void aSelfJoinRegistersAgainstTheServer() {
+        // JOIN-060(c) recorded this refused at registration with no server code of its own. A stream
+        // read on both sides now runs: one entry point hands each row to both sides.
         CliResult registered = cli(
                 "register",
                 "--url",
@@ -208,15 +209,8 @@ class JoinReachabilityAgainstServerTest {
                 "--sql",
                 "SELECT a.order_id, b.order_id FROM orders a JOIN orders b ON a.user_id = b.user_id",
                 "--keys",
-                "0");
+                "0,1");
 
-        assertThat(registered.code()).isNotZero();
-        // The server's own diagnosis survives the trip; the code that reaches the client is the
-        // SDK's own PRV-1041 CLIENT_QUERY_REFUSED, not a code the server's refusal carries -- it has
-        // none, at the point InterpretedPipeline throws it.
-        assertThat(registered.err())
-                .contains("appears on both sides of this plan")
-                .contains("self-joins are not supported yet")
-                .contains("PRV-1041");
+        assertThat(registered.code()).as(registered.err()).isZero();
     }
 }

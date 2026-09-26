@@ -546,29 +546,28 @@ class JoinPlanningAndReachabilityTest {
                 .hasMessageContaining("states a time bound but no equality");
     }
 
-    // ======================= JOIN-060: a self-join plans, and fails without a code of its own =======================
+    // ======================= JOIN-060: a self-join plans, compiles and joins =======================
 
     @Test
-    void aSelfJoinPlansSuccessfullyAndFailsWithoutACodeOnlyWhenThePipelineIsCompiled() {
+    void aSelfJoinPlansCompilesAndPairsEveryMatchingRowOnBothSides() {
+        // JOIN-060 recorded this failing without a code when the pipeline was built. A stream read
+        // twice now has one entry point that hands each row to both sides (SelfJoinTest proves the
+        // answer equals the self-join from scratch, retractions included).
         PhysicalOperator plan = new PhysicalPlanBuilder()
                 .build(SqlPlanner.withStreams(orders())
                         .plan("SELECT a.order_id, b.order_id FROM orders a JOIN orders b ON a.user_id = b.user_id"));
-        assertThat(plan)
-                .as("the planner has no reason to refuse two scans of the same stream")
-                .isNotNull();
-
-        assertThatThrownBy(() ->
-                        InterpretedPipeline.compile(plan, () -> new CapturingRowWriter(plan.outputSchema(), row -> {})))
-                .as("fails only when the pipeline is built -- a different moment from every other refusal here")
-                .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("appears on both sides of this plan")
-                .hasMessageContaining("self-joins are not supported yet")
-                .satisfies(e -> assertThat(e.getMessage()).doesNotContain("PRV-"));
+        List<CapturingRowWriter.Captured> out = new java.util.ArrayList<>();
+        try (InterpretedPipeline pipeline =
+                InterpretedPipeline.compile(plan, () -> new CapturingRowWriter(plan.outputSchema(), out::add))) {
+            assertThat(pipeline.sourceStreams())
+                    .as("the stream is listed once, so a caller opens one reader for it")
+                    .containsExactly("orders");
+        }
 
         // Control: the same shape query over two distinct streams plans, compiles and joins.
-        List<CapturingRowWriter.Captured> out =
+        List<CapturingRowWriter.Captured> joined =
                 runSimpleJoin("SELECT o.order_id, u.tier FROM orders o JOIN users u ON o.user_id = u.user_id");
-        assertThat(out).hasSize(1);
+        assertThat(joined).hasSize(1);
     }
 
     // ======================= shared fixtures =======================

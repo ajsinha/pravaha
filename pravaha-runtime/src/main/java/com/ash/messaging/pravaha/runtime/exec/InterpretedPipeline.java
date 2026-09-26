@@ -384,7 +384,10 @@ public final class InterpretedPipeline implements AutoCloseable {
         RowArena arena = new RowArena(MemoryAccess.best(), slabFor(plan), slabsFor(plan));
         Builder builder = new Builder(arena, sink, lookups, measured || measureOperators ? plan : null);
         RowProcessor built = builder.build(plan);
-        RowProcessor head = builder.joins.isEmpty() ? built : null;
+        // A self-join reads one stream on both sides and has one entry point, which is its head.
+        RowProcessor head = builder.joins.isEmpty()
+                ? built
+                : builder.heads.size() == 1 ? builder.heads.values().iterator().next() : null;
         InterpretedPipeline pipeline =
                 new InterpretedPipeline(arena, head, builder.scans, sink, builder.operatorsInPlanOrder());
         pipeline.finishers.addAll(builder.finishers);
@@ -1317,16 +1320,33 @@ public final class InterpretedPipeline implements AutoCloseable {
             return inputs.size() == 1 ? onlyStreamOf(inputs.get(0)) : java.util.Optional.empty();
         }
 
+        /**
+         * Makes {@code entry} where rows of the scan's stream enter the pipeline.
+         *
+         * <p>A stream read twice -- a self-join, Nexmark q7 -- gets one entry point that hands each
+         * row to the first reader and then to the second. That order is the bilinear rule for a join
+         * of a stream with itself, {@code d(S join S) = dS join S + S' join dS}, where {@code S'}
+         * already holds {@code dS}: the first side's pass pairs the row with what the other side
+         * held before it, and the second side's pass pairs it with everything, itself included. The
+         * stream is listed once, so a caller opens one reader for it rather than two.
+         */
         private void registerScan(ScanOperator scan, RowProcessor entry) {
-            scans.add(scan);
-            RowProcessor existing = heads.put(scan.streamName(), entry);
-            if (existing != null) {
-                // Both sides reading one stream is a self-join. It needs the same stream's rows fed
-                // into two different entry points, which a name cannot distinguish -- so it is
-                // refused here rather than silently feeding one side.
-                throw new UnsupportedOperationException("stream '" + scan.streamName()
-                        + "' appears on both sides of this plan; " + "self-joins are not supported yet");
+            RowProcessor existing = heads.get(scan.streamName());
+            if (existing == null) {
+                scans.add(scan);
+                heads.put(scan.streamName(), entry);
+                return;
             }
+            if (!scans.contains(scan)) {
+                throw new PravahaException(
+                        RuntimeErrors.UNSUPPORTED_JOIN,
+                        "stream '" + scan.streamName() + "' is read twice in this plan with different pushdowns, "
+                                + "so one row cannot be handed to both readers as it arrives.");
+            }
+            heads.put(scan.streamName(), row -> {
+                existing.process(row);
+                entry.process(row);
+            });
         }
 
         /**
