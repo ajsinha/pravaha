@@ -724,9 +724,19 @@ public final class Lane implements AutoCloseable {
         // How far this iteration may go, per input, worked out before a single row is
         // taken. See the note on `room`.
         takeableRows(room);
-        if (workedLastStep && !hosted) {
-            coalesce();
+        if (workedLastStep && running && worthWaiting()) {
+            if (!hosted) {
+                coalesce();
+            } else if (deferrals < COALESCE_SPINS) {
+                // A hosted lane does not spin on its runner's time: it gives the step back, after
+                // a pause, and looks again on its next turn. Still "worked", so the runner does not
+                // park while a producer is writing.
+                deferrals++;
+                pause();
+                return true;
+            }
         }
+        deferrals = 0;
         int count = 0;
         for (int input = 0; input < inboxes.length; input++) {
             RowInbox from = inboxes[input];
@@ -828,19 +838,40 @@ public final class Lane implements AutoCloseable {
      * <p>So a lane whose last step worked, and which finds less than an eighth of a batch waiting,
      * spins briefly for more before draining. Bounded at a few microseconds, and only while a
      * producer is demonstrably writing: a lane whose last step found nothing does not wait, so a
-     * lone row on a quiet stream is taken at once. Not on a hosted lane, whose runner has other
-     * lanes to step, and not while a barrier is pending, whose task should run without delay.
+     * lone row on a quiet stream is taken at once. Not while a barrier is pending, whose task
+     * should run without delay, nor once the lane is stopping. A hosted lane, whose runner has
+     * other lanes to step, gives its step back instead of spinning, the same number of times.
+     *
+     * <p>It looks at the producer's frontier only every {@link #COALESCE_PAUSES} pauses. Looking on
+     * every pause was measured to cost the producer more than the batching saved: the frontier is
+     * a line the producer writes on every row, and a consumer polling it takes that line away from
+     * the producer each time.
      */
-    static final int COALESCE_SPINS = 256;
+    static final int COALESCE_SPINS = 32;
+
+    /** Pauses between two looks at the producer frontier while waiting. */
+    static final int COALESCE_PAUSES = 16;
 
     /** The fraction of a batch below which a caught-up lane waits for more. */
     static final int COALESCE_FRACTION = 8;
 
+    /** Times a hosted lane has given its step back since it last drained. */
+    private int deferrals;
+
+    private boolean worthWaiting() {
+        return pendingCuts.get() == 0 && takeable() < Math.max(1, batch.length / COALESCE_FRACTION);
+    }
+
     private void coalesce() {
-        int target = Math.max(1, batch.length / COALESCE_FRACTION);
-        for (int spin = 0; spin < COALESCE_SPINS && pendingCuts.get() == 0 && takeable() < target; spin++) {
-            Thread.onSpinWait();
+        for (int spin = 0; spin < COALESCE_SPINS && worthWaiting(); spin++) {
+            pause();
             takeableRows(room);
+        }
+    }
+
+    private static void pause() {
+        for (int pause = 0; pause < COALESCE_PAUSES; pause++) {
+            Thread.onSpinWait();
         }
     }
 
