@@ -51,9 +51,22 @@ import com.ash.messaging.pravaha.api.plugin.SourceOffset;
  * point; a plugin that quietly chose the other direction would lose records at exactly the rate the
  * cluster is busy.
  *
- * <p>A scan is a batch, not a stream. Each poll runs one scan and buffers what it returns; when the
- * buffer empties, the next poll starts another. That is why the latency is the scan interval and not
- * the write latency, and why this strategy is a fallback rather than the recommendation.
+ * <p>A scan is a batch, not a stream. A pass over the partitions starts when the last one has been
+ * drained and the scan interval has passed. That is why the latency is the scan interval and not the
+ * write latency, and why this strategy is a fallback rather than the recommendation.
+ *
+ * <p><strong>A pass is read a page at a time, and a page is what one poll may emit</strong> (SRC-7).
+ * The pass used to be read whole into a list and then handed on {@code maxRecords} at a time, so the
+ * first pass of a fresh registration -- which matches every record in the set -- put the entire set
+ * on the heap before the first row reached a lane: ten million records, ten million {@code Record}s.
+ * Each page is now a {@code scanPartitions} call with {@link ScanPolicy#maxRecords} set to the poll's
+ * own {@code maxRecords}, over a {@link PartitionFilter} the client keeps its place in, so the next
+ * page resumes where this one stopped and the buffer never holds more than one poll can take.
+ *
+ * <p>Chosen over a bounded hand-over from a scanning thread because it has no thread: nothing blocks
+ * on a full queue, so {@link #close} has nothing to unblock and cannot deadlock, and a failure is
+ * thrown on the lane that polled rather than parked in another thread for someone to collect. What it
+ * costs is a round trip per page, which at a page of a poll's size is noise beside a scan.
  */
 final class LutScanReader implements PartitionReader {
 
@@ -83,6 +96,20 @@ final class LutScanReader implements PartitionReader {
     private final int totalTimeoutMillis;
     private final ReadRequest request;
     private final ArrayDeque<Record> buffered = new ArrayDeque<>();
+
+    /**
+     * The pass in progress, which the client updates as each page is read so the next page resumes
+     * from it; null between passes.
+     */
+    private PartitionFilter pass;
+
+    /** How many empty pages one poll reads before answering zero with the pass still open. */
+    private static final int EMPTY_PAGES_PER_POLL = 16;
+
+    /** The largest the buffer has been, for the test that holds it to one page. */
+    private int peakBuffered;
+
+    private long pages;
 
     private long watermarkNanos;
     private long scanStartedNanos;
@@ -213,14 +240,29 @@ final class LutScanReader implements PartitionReader {
         if (paused) {
             return 0;
         }
+        if (maxRecords <= 0) {
+            return 0;
+        }
         if (buffered.isEmpty()) {
-            if (!readyToScan()) {
-                // Nothing buffered and too soon to ask again. Zero means idle to the pump, which
-                // naps -- rather than this reader spinning a scan against the cluster per poll.
+            if (pass == null) {
+                if (!readyToScan()) {
+                    // Nothing buffered and too soon to ask again. Zero means idle to the pump, which
+                    // naps -- rather than this reader spinning a scan against the cluster per poll.
+                    return 0;
+                }
+                beginPass();
+            }
+            // A page can come back empty before the pass is done -- the partitions it reached held
+            // nothing that matched -- and an empty poll reads to the pump as "caught up". So a few
+            // more pages are tried in the same poll before answering zero; bounded, because a
+            // server that kept answering empty and not-done must not hold the lane.
+            for (int attempt = 0; attempt < EMPTY_PAGES_PER_POLL && buffered.isEmpty() && !pass.isDone(); attempt++) {
+                readPage(maxRecords);
+            }
+            if (buffered.isEmpty() && pass.isDone()) {
+                finishPass();
                 return 0;
             }
-            scan();
-            lastScanEndedNanos = System.nanoTime();
         }
         int emitted = 0;
         while (emitted < maxRecords && !buffered.isEmpty()) {
@@ -248,8 +290,8 @@ final class LutScanReader implements PartitionReader {
         // by re-scanning this window -- re-delivering the records already handed over, which is what
         // AT_LEAST_ONCE means and what the engine's weights absorb, instead of stepping over the
         // ones it never handed over at all.
-        if (buffered.isEmpty()) {
-            watermarkNanos = scanStartedNanos;
+        if (buffered.isEmpty() && pass != null && pass.isDone()) {
+            finishPass();
         }
         return emitted;
     }
@@ -275,16 +317,30 @@ final class LutScanReader implements PartitionReader {
     }
 
     /**
-     * Runs one scan and buffers what it returns.
+     * Starts a pass over this reader's partitions.
      *
-     * <p>The watermark advances to the newest record <em>this scan saw</em>, and only after the scan
-     * completes. Advancing it per record would mean a scan that failed halfway had already moved the
-     * offset past records it never delivered.
+     * <p>The watermark advances to when the pass <em>started</em>, and only after it has been read to
+     * the end and drained. Advancing it earlier would mean a pass that failed halfway, or a checkpoint
+     * taken mid-drain, had already moved the offset past records it never delivered.
      */
-    private void scan() {
+    private void beginPass() {
+        pass = PartitionFilter.range(firstPartition, partitionCount);
+        scanStartedNanos = System.currentTimeMillis() * 1_000_000L;
+        scans++;
+    }
+
+    /**
+     * Reads the pass's next page -- at most {@code maxRecords} records -- into the buffer.
+     *
+     * <p>The filter is the same for every page of a pass, because the watermark it reads does not
+     * move until the pass is finished; the client's {@link PartitionFilter} carries where each
+     * partition stopped.
+     */
+    private void readPage(int maxRecords) {
         ScanPolicy policy = new ScanPolicy();
         policy.filterExp = filter();
         policy.maxConcurrentNodes = 1;
+        policy.maxRecords = maxRecords;
         // Timeouts, because the client's defaults are "wait for ever". A scan that never returns
         // takes its lane thread with it and looks exactly like a hung engine: no log line, no
         // error, no progress, and the first useful diagnostic is a thread dump. Found by a test
@@ -296,41 +352,45 @@ final class LutScanReader implements PartitionReader {
             // strategy that is allowed to run in business hours and one that is not.
             policy.recordsPerSecond = recordsPerSecond;
         }
-        List<Record> found = new ArrayList<>();
-        long startedNanos = System.currentTimeMillis() * 1_000_000L;
         try {
             // binNames null reads every bin; otherwise only the projection's. The client's varargs
-            // treat an absent array and a null one alike.
+            // treat an absent array and a null one alike. The callback runs on this thread with
+            // maxConcurrentNodes = 1, so the buffer is filled here and nowhere else.
             client.scanPartitions(
-                    policy,
-                    PartitionFilter.range(firstPartition, partitionCount),
-                    namespace,
-                    set,
-                    (Key key, Record record) -> found.add(record),
-                    binNames);
+                    policy, pass, namespace, set, (Key key, Record record) -> buffered.add(record), binNames);
         } catch (AerospikeException e) {
+            // The pass is abandoned whole: the watermark has not moved, so the next pass re-reads
+            // from where this one began, which is a duplicate rather than a loss.
+            pass = null;
+            buffered.clear();
             throw new PravahaException(
                     AerospikeErrors.OPERATION_FAILED,
                     "scan of " + namespace + "." + set + " partitions [" + firstPartition + ", "
                             + (firstPartition + partitionCount) + ") failed: " + e.getMessage(),
                     e);
         }
-        buffered.addAll(found);
-        // The watermark moves to when this scan *started*, not to when it finished. A record written
-        // during the scan may or may not have been seen depending on which partition it landed in
-        // and when the scan reached it; taking the start time re-reads that window next time, which
-        // is a duplicate rather than a loss. Duplicates the engine survives; losses it cannot.
-        //
-        // But it moves only once the buffer is DRAINED, not here. Advancing it at the end of the
-        // scan made position() report "everything up to this scan" while records from that scan
-        // were still sitting unread in the buffer -- so a checkpoint taken mid-drain recorded an
-        // offset past rows nobody had been given, and a reader resumed from it filtered on a time
-        // strictly after them. They were not late and not duplicated: they were gone. Found by
-        // AerospikeSourceTckIT, which polls two of five records and then resumes; the three
-        // remaining came back as zero. AerospikePluginIT never saw it because it only ever takes
-        // position() after a full drain.
-        scanStartedNanos = startedNanos;
-        scans++;
+        pages++;
+        peakBuffered = Math.max(peakBuffered, buffered.size());
+    }
+
+    /**
+     * Ends a pass that has been read to the end and drained: only now may the offset move past it.
+     *
+     * <p>To when the pass <em>started</em>, not when it finished. A record written during the pass may
+     * or may not have been seen depending on which partition it landed in and when the pass reached
+     * it; taking the start time re-reads that window next time, which is a duplicate rather than a
+     * loss. Duplicates the engine survives; losses it cannot.
+     *
+     * <p>And not at the end of the read, either. Advancing it there made position() report
+     * "everything up to this scan" while records from that scan were still sitting unread in the
+     * buffer -- so a checkpoint taken mid-drain recorded an offset past rows nobody had been given,
+     * and a reader resumed from it filtered on a time strictly after them. Found by
+     * AerospikeSourceTckIT, which polls two of five records and then resumes.
+     */
+    private void finishPass() {
+        watermarkNanos = scanStartedNanos;
+        lastScanEndedNanos = System.nanoTime();
+        pass = null;
     }
 
     /**
@@ -389,12 +449,24 @@ final class LutScanReader implements PartitionReader {
         paused = false;
     }
 
+    /** Passes started -- what the scan interval bounds. */
     long scanCount() {
         return scans;
+    }
+
+    /** Pages read, across every pass. For tests. */
+    long pageCount() {
+        return pages;
+    }
+
+    /** The most records the buffer has held at once. For tests. */
+    int peakBuffered() {
+        return peakBuffered;
     }
 
     @Override
     public void close() {
         buffered.clear();
+        pass = null;
     }
 }

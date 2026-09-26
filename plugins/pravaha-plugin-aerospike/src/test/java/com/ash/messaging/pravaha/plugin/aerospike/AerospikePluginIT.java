@@ -402,6 +402,50 @@ class AerospikePluginIT {
     }
 
     @Test
+    void aPassIsReadAPageAtATimeAndBuffersNoMoreThanOnePollCanTake() {
+        // SRC-7. The first pass of a fresh registration matches every record in the set, and it
+        // used to be read whole into a list before the first row was handed on: the whole set on
+        // the heap, whatever maxRecords said. Now each poll's maxRecords is the page the server is
+        // asked for, and the client's partition filter resumes the pass where the page stopped.
+        int records = 2_000;
+        for (long id = 1; id <= records; id++) {
+            put(id, "NEW", id);
+        }
+        AerospikeSourcePlugin plugin = source(Map.of());
+        Collector out = new Collector(plugin.schema());
+        try (PartitionReader reader =
+                plugin.createReader(plugin.partitions("orders").get(0), null, ReadRequest.NOTHING)) {
+            LutScanReader lut = (LutScanReader) reader;
+            var before = reader.position();
+            while (reader.poll(out, 100) > 0) {
+                if (out.rows.size() < records) {
+                    assertThat(reader.position())
+                            .as("the offset stays put until the pass has been read to the end and drained")
+                            .isEqualTo(before);
+                }
+            }
+
+            assertThat(out.rows).hasSize(records);
+            assertThat(out.rows.stream().map(row -> (Long) row[0]).distinct().count())
+                    .as("a pass delivers each record once, across all its pages")
+                    .isEqualTo(records);
+            assertThat(lut.peakBuffered())
+                    .as("the buffer never holds more than one poll can emit")
+                    .isLessThanOrEqualTo(100);
+            assertThat(lut.pageCount()).isGreaterThanOrEqualTo(records / 100);
+            assertThat(lut.scanCount()).as("one pass, however many pages").isEqualTo(1);
+            assertThat(reader.position()).as("a drained pass moves the offset").isNotEqualTo(before);
+        }
+
+        // Closed half way through a pass: there is no scanning thread to stop, so nothing waits.
+        PartitionReader partial =
+                plugin.createReader(plugin.partitions("orders").get(0), null, ReadRequest.NOTHING);
+        assertThat(partial.poll(new Collector(plugin.schema()), 100)).isEqualTo(100);
+        partial.close();
+        plugin.close();
+    }
+
+    @Test
     void anAbsentBinArrivesAsNullRatherThanZero() {
         admin.put(
                 new WritePolicy(),

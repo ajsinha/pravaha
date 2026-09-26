@@ -572,6 +572,10 @@ names four ways to get changes out and implements one:
   the records is admitted. `deletes: detect` buys the deletes, the before-image and an exact
   changelog back at the price of a full scan each pass and the emitted rows kept in memory
   ([`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §2.1); the collapsed overwrites stay collapsed.
+  A pass is read a page at a time, each page no larger than what the engine asked one poll for, and
+  the client resumes the pass where the page stopped — so the first pass of a new query, which
+  matches every record in the set, never holds more than a page on the heap (SRC-7). The offset
+  moves once the whole pass has been read and handed on.
 - `xdr-kafka`, `xdr-http` — Enterprise, not built.
 - `write-intercept` — every writer goes through a Pravaha wrapper. Intrusive, not built.
 
