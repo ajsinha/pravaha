@@ -50,7 +50,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *
  * <p>Two behaviours are worth more than the arithmetic. Null propagates the way SQL says rather than
  * the way Java does, because writing a zero where a null belongs makes a downstream {@code SUM}
- * produce a number that looks entirely reasonable. And DECIMAL is refused rather than approximated
+ * produce a number that looks entirely reasonable. And DECIMAL is computed exactly or refused, never approximated
  * in {@code double}, which would pass every test anybody writes and be wrong in a ledger.
  */
 class ComputedProjectionTest {
@@ -262,19 +262,20 @@ class ComputedProjectionTest {
     }
 
     @Test
-    void decimalArithmeticIsRefusedRatherThanApproximated() {
+    void decimalDivisionIsRefusedRatherThanRounded() {
+        // amount * 2 is exact and computed (NexmarkDecimalTest). A quotient is exact at a fixed
+        // scale only by luck, so it is refused, and the refusal names the approximate rewrite.
         StreamSchema money = StreamSchema.builder("ledger")
                 .field("id", Types.int64())
                 .field("amount", Types.decimal(18, 4))
                 .build();
 
         assertThatThrownBy(() -> new PhysicalPlanBuilder()
-                        .build(SqlPlanner.withStreams(money).plan("SELECT amount * 2 FROM ledger")))
+                        .build(SqlPlanner.withStreams(money).plan("SELECT amount / 3 FROM ledger")))
                 .isInstanceOf(PravahaException.class)
-                .hasMessageContaining("rounding error in a ledger")
-                // Y-5: the advice now names both rewrites that work, because the refusal reaches
-                // queries that mention no decimal and the reader needs to know which part is one.
-                .hasMessageContaining("CAST(col AS DOUBLE)");
+                .hasMessageContaining("PRV-2021")
+                .hasMessageContaining("refuses rather than rounds")
+                .hasMessageContaining("CAST(x AS DOUBLE) / y");
     }
 
     @Test

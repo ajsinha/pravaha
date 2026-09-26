@@ -407,10 +407,19 @@ public sealed interface Predicate {
                 boolean equal = left.evaluateString(row).equals(right.evaluateString(row));
                 return op == Op.EQ ? equal : !equal;
             }
+            if (left.type() == com.ash.messaging.pravaha.api.data.TypeName.DECIMAL
+                    || right.type() == com.ash.messaging.pravaha.api.data.TypeName.DECIMAL) {
+                // Exactly, on the decimal values. The compiler refuses a decimal compared with a
+                // floating-point side, where SQL would have made the comparison approximate.
+                return matches(Expression.decimalOf(left, row).compareTo(Expression.decimalOf(right, row)));
+            }
             if (left.isFloatingPoint() || right.isFloatingPoint()) {
                 return op.matchesDoubles(left.evaluateDouble(row), right.evaluateDouble(row));
             }
-            int comparison = Long.compare(left.evaluateLong(row), right.evaluateLong(row));
+            return matches(Long.compare(left.evaluateLong(row), right.evaluateLong(row)));
+        }
+
+        private boolean matches(int comparison) {
             return switch (op) {
                 case EQ -> comparison == 0;
                 case NE -> comparison != 0;

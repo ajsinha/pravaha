@@ -175,6 +175,13 @@ public final class PredicateCompiler {
         refuseIncomparableColumn(call, left);
         refuseIncomparableColumn(call, right);
 
+        // A DECIMAL on either side is compared exactly, as decimals, by the general path: the
+        // column-against-literal shapes below read a fixed-width primitive, which a 128-bit
+        // decimal is not, and would read a decimal literal as a double.
+        if (isDecimal(left) || isDecimal(right)) {
+            return compareExpressions(call, op);
+        }
+
         // Column against literal, in either order, first: those are the shapes the code generator
         // turns into a single typed load and compare, and they are the overwhelming majority of
         // real predicates. Anything else -- `amount * 2 > 100`, `a > b` -- goes to the general
@@ -234,10 +241,21 @@ public final class PredicateCompiler {
      */
     private Predicate compareExpressions(RexCall call, Predicate.Op op) {
         ExpressionCompiler expressions = new ExpressionCompiler(schema);
-        Expression left = expressions.compile(call.getOperands().get(0));
-        Expression right = expressions.compile(call.getOperands().get(1));
+        boolean decimal = isDecimal(call.getOperands().get(0))
+                || isDecimal(call.getOperands().get(1));
+        DecimalCompiler decimals = new DecimalCompiler(expressions);
+        Expression left = decimal
+                ? decimals.operand(call.getOperands().get(0))
+                : expressions.compile(call.getOperands().get(0));
+        Expression right = decimal
+                ? decimals.operand(call.getOperands().get(1))
+                : expressions.compile(call.getOperands().get(1));
         rejectTextOrdering(call, op, left, right);
         return new Predicate.CompareExpressions(left, op, right);
+    }
+
+    private static boolean isDecimal(RexNode node) {
+        return node.getType().getSqlTypeName() == org.apache.calcite.sql.type.SqlTypeName.DECIMAL;
     }
 
     /**
@@ -248,6 +266,16 @@ public final class PredicateCompiler {
      * between text and a number is refused before it gets here.
      */
     private void rejectTextOrdering(RexCall call, Predicate.Op op, Expression left, Expression right) {
+        boolean decimal = left.type() == TypeName.DECIMAL || right.type() == TypeName.DECIMAL;
+        if (decimal && (left.isFloatingPoint() || right.isFloatingPoint())) {
+            // SQL makes this comparison approximate by casting the decimal to DOUBLE, and Calcite
+            // writes that cast out when it types the call -- so reaching here means a shape where it
+            // did not, and comparing a double as if it were exact would be a guess.
+            throw new PravahaException(
+                    SqlErrors.UNSUPPORTED_EXPRESSION,
+                    "'" + call + "' compares a DECIMAL with a floating-point value. Say which comparison is "
+                            + "meant: CAST(<decimal> AS DOUBLE) compares approximately.");
+        }
         boolean leftText = left.type() == TypeName.STRING;
         boolean rightText = right.type() == TypeName.STRING;
         if (!leftText && !rightText) {

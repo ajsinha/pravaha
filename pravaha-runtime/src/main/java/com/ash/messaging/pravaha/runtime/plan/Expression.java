@@ -917,6 +917,257 @@ public sealed interface Expression {
         }
     }
 
+    /**
+     * Evaluates over a row, for {@code DECIMAL}.
+     *
+     * <p>A default that throws, for the reason {@link #evaluateString} gives: only the decimal
+     * expressions have a decimal value, and the compiler guarantees nothing else is asked for one.
+     * This allocates a {@code BigDecimal} per call. Exactness is the requirement here and the
+     * two-limb arithmetic that would avoid the allocation is not built; the cost is paid only by a
+     * query that computes with decimals.
+     */
+    default java.math.BigDecimal evaluateDecimal(RowView row) {
+        throw new IllegalStateException(
+                describe() + " produces " + type() + ", not a decimal, and nothing should be asking it for one");
+    }
+
+    /** Any exact numeric expression's value as a decimal: a DECIMAL's own, or an integer's, widened. */
+    static java.math.BigDecimal decimalOf(Expression expression, RowView row) {
+        return expression.type() == TypeName.DECIMAL
+                ? expression.evaluateDecimal(row)
+                : java.math.BigDecimal.valueOf(expression.evaluateLong(row));
+    }
+
+    /** A DECIMAL column, read at the scale its schema declares. */
+    record DecimalColumn(int ordinal, String name, int scale) implements Expression {
+
+        @Override
+        public TypeName type() {
+            return TypeName.DECIMAL;
+        }
+
+        @Override
+        public java.math.BigDecimal evaluateDecimal(RowView row) {
+            return com.ash.messaging.pravaha.common.row.Decimals.toBigDecimal(
+                    row.getDecimalHigh(ordinal), row.getDecimalLow(ordinal), scale);
+        }
+
+        @Override
+        public long evaluateLong(RowView row) {
+            throw new IllegalStateException(describe() + " is a decimal; read it with evaluateDecimal");
+        }
+
+        @Override
+        public double evaluateDouble(RowView row) {
+            throw new IllegalStateException(describe() + " is a decimal; read it with evaluateDecimal");
+        }
+
+        @Override
+        public boolean isNull(RowView row) {
+            return row.isNull(ordinal);
+        }
+
+        @Override
+        public String describe() {
+            return name;
+        }
+    }
+
+    /** A DECIMAL literal, held exactly as it was written: {@code 0.908} is 908 at scale 3. */
+    record DecimalLiteral(java.math.BigDecimal value) implements Expression {
+
+        @Override
+        public TypeName type() {
+            return TypeName.DECIMAL;
+        }
+
+        @Override
+        public java.math.BigDecimal evaluateDecimal(RowView row) {
+            return value;
+        }
+
+        @Override
+        public long evaluateLong(RowView row) {
+            throw new IllegalStateException(describe() + " is a decimal; read it with evaluateDecimal");
+        }
+
+        @Override
+        public double evaluateDouble(RowView row) {
+            throw new IllegalStateException(describe() + " is a decimal; read it with evaluateDecimal");
+        }
+
+        @Override
+        public boolean isNull(RowView row) {
+            return false;
+        }
+
+        @Override
+        public String describe() {
+            return value.toPlainString();
+        }
+    }
+
+    /**
+     * Exact arithmetic on decimals: {@code +}, {@code -} and {@code *}, with the result held at the
+     * precision and scale SQL's rules give it.
+     *
+     * <p>The compiler admits a call here only when the result type's scale can hold the exact
+     * answer: {@code max(s1, s2)} for a sum or difference, {@code s1 + s2} for a product. So no row
+     * is ever rounded. What can still happen is that a row's answer has more integer digits than
+     * the type allows -- DECIMAL(5, 2) holds 999.99 -- and that row is refused with an {@link
+     * ArithmeticException}, which sends it to the dead-letter queue with the reason, exactly as a
+     * 64-bit integer overflow does. Division is not here: a quotient is rarely exact at any scale,
+     * so it cannot be computed without rounding, and the compiler refuses it by name.
+     *
+     * <p>Operands may be integers as well as decimals; an integer is widened exactly, at scale 0.
+     */
+    record DecimalArithmetic(Expression left, Operator operator, Expression right, int precision, int scale)
+            implements Expression {
+
+        public DecimalArithmetic {
+            if (operator != Operator.ADD && operator != Operator.SUBTRACT && operator != Operator.MULTIPLY) {
+                throw new IllegalArgumentException("decimal " + operator.symbol()
+                        + " cannot be computed exactly, so it is not a decimal arithmetic this evaluates");
+            }
+            for (Expression side : new Expression[] {left, right}) {
+                if (side.isFloatingPoint() || side.type() == TypeName.STRING) {
+                    throw new IllegalArgumentException(
+                            "decimal arithmetic takes decimals and integers, and one side produces " + side.type());
+                }
+            }
+        }
+
+        @Override
+        public TypeName type() {
+            return TypeName.DECIMAL;
+        }
+
+        @Override
+        public java.math.BigDecimal evaluateDecimal(RowView row) {
+            java.math.BigDecimal l = decimalOf(left, row);
+            java.math.BigDecimal r = decimalOf(right, row);
+            java.math.BigDecimal exact =
+                    switch (operator) {
+                        case ADD -> l.add(r);
+                        case SUBTRACT -> l.subtract(r);
+                        case MULTIPLY -> l.multiply(r);
+                        default -> throw new IllegalStateException("unreachable: " + operator);
+                    };
+            // UNNECESSARY: the compiler proved the scale suffices, and if that proof were ever wrong
+            // this throws rather than rounds.
+            java.math.BigDecimal held = exact.setScale(scale, java.math.RoundingMode.UNNECESSARY);
+            if (held.precision() - held.scale() > precision - scale) {
+                throw new ArithmeticException(
+                        describe() + " is " + held.toPlainString() + ", which does not fit DECIMAL("
+                                + precision + ", " + scale + "); the record is routed to the DLQ rather than given "
+                                + "a value that is not the answer");
+            }
+            return held;
+        }
+
+        @Override
+        public long evaluateLong(RowView row) {
+            throw new IllegalStateException(describe() + " is a decimal; read it with evaluateDecimal");
+        }
+
+        @Override
+        public double evaluateDouble(RowView row) {
+            throw new IllegalStateException(describe() + " is a decimal; read it with evaluateDecimal");
+        }
+
+        @Override
+        public boolean isNull(RowView row) {
+            return left.isNull(row) || right.isNull(row);
+        }
+
+        @Override
+        public String describe() {
+            return "(" + left.describe() + " " + operator.symbol() + " " + right.describe() + ")";
+        }
+    }
+
+    /**
+     * A cast to {@code DECIMAL(precision, scale)} from an integer or a decimal whose scale is no
+     * larger -- a conversion that never rounds, which the compiler checks. A value with more integer
+     * digits than the target allows is refused per row, as {@link DecimalArithmetic} refuses one.
+     */
+    record DecimalRescale(Expression source, int precision, int scale) implements Expression {
+
+        public DecimalRescale {
+            if (source.isFloatingPoint() || source.type() == TypeName.STRING) {
+                throw new IllegalArgumentException(
+                        "a cast to DECIMAL takes a decimal or an integer, and this produces " + source.type());
+            }
+        }
+
+        @Override
+        public TypeName type() {
+            return TypeName.DECIMAL;
+        }
+
+        @Override
+        public java.math.BigDecimal evaluateDecimal(RowView row) {
+            java.math.BigDecimal held = decimalOf(source, row).setScale(scale, java.math.RoundingMode.UNNECESSARY);
+            if (held.precision() - held.scale() > precision - scale) {
+                throw new ArithmeticException(held.toPlainString() + " does not fit DECIMAL(" + precision + ", " + scale
+                        + "); the record is routed to the DLQ rather than given a value that is not the answer");
+            }
+            return held;
+        }
+
+        @Override
+        public long evaluateLong(RowView row) {
+            throw new IllegalStateException(describe() + " is a decimal; read it with evaluateDecimal");
+        }
+
+        @Override
+        public double evaluateDouble(RowView row) {
+            throw new IllegalStateException(describe() + " is a decimal; read it with evaluateDecimal");
+        }
+
+        @Override
+        public boolean isNull(RowView row) {
+            return source.isNull(row);
+        }
+
+        @Override
+        public String describe() {
+            return "CAST(" + source.describe() + " AS DECIMAL(" + precision + ", " + scale + "))";
+        }
+    }
+
+    /**
+     * An explicit {@code CAST(decimal AS DOUBLE)}. Approximate by request: the query asked for a
+     * double, and a double is the nearest one to the decimal's exact value.
+     */
+    record DecimalToDouble(Expression source) implements Expression {
+
+        @Override
+        public TypeName type() {
+            return TypeName.FLOAT64;
+        }
+
+        @Override
+        public double evaluateDouble(RowView row) {
+            return source.evaluateDecimal(row).doubleValue();
+        }
+
+        @Override
+        public long evaluateLong(RowView row) {
+            throw new IllegalStateException(describe() + " produces a double");
+        }
+
+        @Override
+        public boolean isNull(RowView row) {
+            return source.isNull(row);
+        }
+
+        @Override
+        public String describe() {
+            return "CAST(" + source.describe() + " AS DOUBLE)";
+        }
+    }
+
     /** Whether this expression produces a floating-point value. */
     default boolean isFloatingPoint() {
         return type() == TypeName.FLOAT32 || type() == TypeName.FLOAT64;

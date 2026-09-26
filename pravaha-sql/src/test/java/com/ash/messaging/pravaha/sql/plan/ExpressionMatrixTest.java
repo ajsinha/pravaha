@@ -921,10 +921,13 @@ class ExpressionMatrixTest {
             Case.refused("TYPE-149 CAST from text is refused", "SELECT CAST(user_id AS BIGINT) FROM txn", "PRV-2021"),
             Case.refused(
                     "TYPE-149 CAST from a boolean is refused", "SELECT CAST(flagged AS INTEGER) FROM txn", "PRV-2002"),
-            // TYPE-110: Calcite types a written 1.5 as DECIMAL, and this engine has no decimal
-            // arithmetic. The refusal must say so rather than silently computing in doubles.
+            // TYPE-110: Calcite types a written 1.5 as DECIMAL. amount * 1.5 is exact decimal
+            // arithmetic now (NexmarkDecimalTest); a decimal quotient is not exact at any fixed
+            // scale, so it is still refused rather than computed in doubles or rounded.
             Case.refused(
-                    "TYPE-110 an integer column times a decimal literal", "SELECT amount * 1.5 FROM txn", "PRV-2021"),
+                    "TYPE-110 an integer column divided by a decimal literal",
+                    "SELECT amount / 1.5 FROM txn",
+                    "PRV-2021"),
 
             // --- TYPE §16, the arithmetic that has no exception -------------------------------
             // Floating division by zero is Infinity, not an error. price is never zero in D1, so

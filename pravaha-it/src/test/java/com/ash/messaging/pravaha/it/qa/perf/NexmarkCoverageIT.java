@@ -296,9 +296,10 @@ final class NexmarkCoverageIT {
 
     /**
      * What runs, as measured. 2026-09-20: q0, q2, q3, q8, q20. 2026-09-26: q21 and q22, once
-     * REGEXP_EXTRACT, SPLIT_INDEX and text equality inside an expression were built.
+     * REGEXP_EXTRACT, SPLIT_INDEX and text equality inside an expression were built; q1 once
+     * DECIMAL arithmetic was.
      */
-    private static final List<String> EXPECTED_TO_RUN = List.of("q0", "q2", "q3", "q8", "q20", "q21", "q22");
+    private static final List<String> EXPECTED_TO_RUN = List.of("q0", "q1", "q2", "q3", "q8", "q20", "q21", "q22");
 
     @Test
     void howManyOfNexmarkThisEngineCanRunAtAll() {

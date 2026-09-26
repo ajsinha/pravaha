@@ -1355,6 +1355,18 @@ public final class InterpretedPipeline implements AutoCloseable {
                 case FLOAT32 -> writer.setFloat(ordinal, (float) expression.evaluateDouble(row));
                 case FLOAT64 -> writer.setDouble(ordinal, expression.evaluateDouble(row));
                 case STRING -> writer.setString(ordinal, expression.evaluateString(row));
+                case DECIMAL -> {
+                    // At the column's declared scale, which never rounds: the expression already
+                    // holds its value at that scale, and Decimals refuses rather than rounds.
+                    int scale = ((com.ash.messaging.pravaha.api.data.DecimalType)
+                                    schema.field(ordinal).type())
+                            .scale();
+                    java.math.BigDecimal value = expression.evaluateDecimal(row);
+                    writer.setDecimal(
+                            ordinal,
+                            com.ash.messaging.pravaha.common.row.Decimals.high(value, scale),
+                            com.ash.messaging.pravaha.common.row.Decimals.low(value, scale));
+                }
                 default -> writer.setLong(ordinal, expression.evaluateLong(row));
             }
         }

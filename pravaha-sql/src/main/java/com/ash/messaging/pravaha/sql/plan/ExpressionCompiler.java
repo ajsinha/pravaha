@@ -39,11 +39,10 @@ import com.ash.messaging.pravaha.sql.SqlErrors;
  * the expression that could not be translated printed -- rather than at the first record that
  * reaches it.
  *
- * <p><strong>DECIMAL is refused rather than approximated.</strong> Calcite will happily hand over a
- * {@code DECIMAL} multiplication, and evaluating it in {@code double} would work for every test
- * anybody writes and produce a rounding error in somebody's ledger. The row layout already carries
- * 128-bit decimals; the arithmetic on them is work that has not been done, and saying so is the only
- * honest option.
+ * <p><strong>DECIMAL is computed exactly or refused, never approximated.</strong> Evaluating a
+ * {@code DECIMAL} multiplication in {@code double} would work for every test anybody writes and
+ * produce a rounding error in somebody's ledger. {@link DecimalCompiler} compiles {@code + - *} and
+ * exact casts at SQL's precision and scale; every other decimal position is refused by name.
  */
 final class ExpressionCompiler {
 
@@ -56,6 +55,11 @@ final class ExpressionCompiler {
     /** Compiles one expression, or refuses it by name. */
     Expression compile(RexNode node) {
         return switch (node) {
+            case RexInputRef ref
+            when inputSchema.field(ref.getIndex()).type()
+                    instanceof com.ash.messaging.pravaha.api.data.DecimalType decimal ->
+                new Expression.DecimalColumn(
+                        ref.getIndex(), inputSchema.field(ref.getIndex()).name(), decimal.scale());
             case RexInputRef ref ->
                 new Expression.Column(
                         ref.getIndex(),
@@ -150,6 +154,15 @@ final class ExpressionCompiler {
     }
 
     private Expression call(RexCall call) {
+        // Before anything else that might read a DECIMAL type and refuse it: floating modulo is
+        // dressed as decimal arithmetic and is not (TY-1), and genuine decimal arithmetic is exact.
+        Expression floatingModulo = floatingModulo(call);
+        if (floatingModulo != null) {
+            return floatingModulo;
+        }
+        if (DecimalCompiler.handles(call)) {
+            return new DecimalCompiler(this).compile(call);
+        }
         if (call.getKind() == org.apache.calcite.sql.SqlKind.CAST) {
             return cast(call);
         }
@@ -161,10 +174,6 @@ final class ExpressionCompiler {
             if (truth != null) {
                 return truth;
             }
-        }
-        Expression floatingModulo = floatingModulo(call);
-        if (floatingModulo != null) {
-            return floatingModulo;
         }
         Expression.Function function = unaryFunction(call.getOperator().getName());
         if (function != null) {
@@ -670,14 +679,13 @@ final class ExpressionCompiler {
     private TypeName refuseDecimalType(String context) {
         throw new PravahaException(
                 SqlErrors.UNSUPPORTED_EXPRESSION,
-                "'" + context + "' is DECIMAL arithmetic, which Pravaha refuses rather than approximates. "
-                        + "A query need not mention DECIMAL to be this: a literal written with a decimal point "
-                        + "-- 2.5, 0.01 -- is a DECIMAL literal in SQL, and an integer column beside one makes "
-                        + "the whole expression DECIMAL. (The same literal beside a DOUBLE column does not: "
-                        + "there the result is DOUBLE and the expression plans.) "
-                        + "Evaluating it in double would pass every test anybody writes and produce a rounding "
-                        + "error in a ledger. The row layout carries 128-bit decimals; the arithmetic over them "
-                        + "is not built. Write the literal as approximate -- 2.5e0 -- or cast the column with "
-                        + "CAST(col AS DOUBLE), if approximate is genuinely acceptable.");
+                "'" + context + "' is DECIMAL arithmetic in a position Pravaha does not compute exactly, and it "
+                        + "refuses rather than approximates. Decimal +, - and * and exact casts are computed at the "
+                        + "precision and scale SQL gives them; a CASE choosing between decimals, a decimal "
+                        + "function argument, and decimal division are not built. A query need not mention "
+                        + "DECIMAL to be this: a literal written with a decimal point -- 2.5, 0.01 -- is a DECIMAL "
+                        + "literal in SQL. Evaluating it in double would pass every test anybody writes and "
+                        + "produce a rounding error in a ledger. Write the literal as approximate -- 2.5e0 -- or "
+                        + "cast the column with CAST(col AS DOUBLE), if approximate is genuinely acceptable.");
     }
 }

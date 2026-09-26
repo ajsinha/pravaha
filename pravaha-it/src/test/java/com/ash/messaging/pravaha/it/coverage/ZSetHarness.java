@@ -29,6 +29,7 @@ import com.ash.messaging.pravaha.common.arena.RowArena;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.common.row.BinaryRowView;
 import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
+import com.ash.messaging.pravaha.common.row.Decimals;
 import com.ash.messaging.pravaha.common.row.RowLayout;
 import com.ash.messaging.pravaha.runtime.exec.InterpretedPipeline;
 import com.ash.messaging.pravaha.runtime.exec.RowOutput;
@@ -97,7 +98,7 @@ final class ZSetHarness {
             }
             pipeline.finish();
         }
-        return consolidate(out);
+        return consolidate(out, plan.outputSchema());
     }
 
     /** The answer from scratch: a fresh pipeline fed only the net input. */
@@ -127,12 +128,20 @@ final class ZSetHarness {
         return net;
     }
 
-    static Map<List<Object>, Long> consolidate(List<CapturingRowWriter.Captured> captured) {
+    /** Sums weights per row and drops zeros. A DECIMAL column is decoded at its declared scale. */
+    static Map<List<Object>, Long> consolidate(List<CapturingRowWriter.Captured> captured, StreamSchema output) {
         Map<List<Object>, Long> zset = new LinkedHashMap<>();
         for (CapturingRowWriter.Captured row : captured) {
             List<Object> values = new ArrayList<>(row.values().length);
-            for (Object value : row.values()) {
-                values.add(value instanceof long[] decimal ? Arrays.toString(decimal) : value);
+            for (int i = 0; i < row.values().length; i++) {
+                Object value = row.values()[i];
+                values.add(
+                        value instanceof long[] decimal
+                                ? Decimals.toBigDecimal(
+                                        decimal[0],
+                                        decimal[1],
+                                        ((DecimalType) output.field(i).type()).scale())
+                                : value);
             }
             zset.merge(values, row.weight(), Long::sum);
         }

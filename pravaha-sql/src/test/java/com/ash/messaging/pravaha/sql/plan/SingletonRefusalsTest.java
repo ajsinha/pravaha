@@ -168,18 +168,22 @@ class SingletonRefusalsTest {
     }
 
     /**
-     * Y-5. {@code amount * 2.5} is refused as DECIMAL arithmetic over a query that mentions no
-     * decimal, while {@code price * 2.5} plans. The asymmetry is SQL's own typing and is correct;
-     * the message has to explain it, and has to name a rewrite that works.
+     * Y-5. {@code amount * 2.5} is DECIMAL arithmetic over a query that mentions no decimal, while
+     * {@code price * 2.5} is DOUBLE. The asymmetry is SQL's own typing and is correct. The product
+     * is exact and computed; the quotient is not exact at any fixed scale, so it is refused, and the
+     * refusal has to explain that and name a rewrite that works.
      */
     @Test
     void y5_theDecimalRefusalNamesTheLiteralAndARewriteThatPlans() {
-        assertThatThrownBy(() -> plan("SELECT amount * 2.5 FROM txn"))
+        assertThatThrownBy(() -> plan("SELECT amount / 2.5 FROM txn"))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-2021")
-                .hasMessageContaining("DECIMAL literal in SQL")
-                .hasMessageContaining("2.5e0");
+                .hasMessageContaining("DECIMAL division")
+                .hasMessageContaining("CAST(x AS DOUBLE) / y");
 
+        assertThatCode(() -> plan("SELECT amount * 2.5 FROM txn"))
+                .as("the product is exact at SQL's scale, so it is computed rather than refused")
+                .doesNotThrowAnyException();
         assertThatCode(() -> plan("SELECT amount * 2.5e0 FROM txn"))
                 .as("the rewrite the message names has to plan")
                 .doesNotThrowAnyException();
