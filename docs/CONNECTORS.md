@@ -1060,6 +1060,20 @@ by every column. An existing table partitioned otherwise than the binding says �
 unpartitioned binding over a partitioned table — is refused with `PRV-5057` when the sink opens.
 `DeltaSinkPartitionTest` holds this against real tables.
 
+**Deletion vectors: read by the source, refused by the sink.** On a table with deletion vectors a
+`DELETE` rewrites no file; it replaces the file's log entry with one naming a vector that marks the
+deleted rows. The `delta` source identifies a file by its path *and* its vector, so that replaced
+entry is a removal of the file as the old vector left it and an addition of the file as the new one
+leaves it. Kernel applies each vector as it reads and the source emits only the rows it leaves live,
+so a row newly deleted reaches the view as one retraction — with every surviving row of the file
+emitted once each way and annihilating, the same over-emission a file rewrite costs. A resume
+inside such a file counts rows of the file, deleted ones included, so it repeats and misses
+nothing. `delta-sink` does not write deletion vectors, and its upsert mode refuses (`PRV-5055`) to
+rewrite a table whose files carry them: it would have to carry each vector through the rewrite, and
+the rows the vector deletes would otherwise come back. `DeltaDeletionVectorTest` holds both, against
+tables whose vectors are written in the protocol's own format and loaded, size and checksum
+checked, by Kernel's reader.
+
 **Concurrent writers, exactly.** A writer that finishes before this sink's commit begins is simply
 the snapshot the commit merges onto, and where it wrote a key the sink also holds, the sink's value
 wins — that key is the query's answer. A writer that commits *inside* the commit's window, after the

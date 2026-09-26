@@ -16,6 +16,8 @@
 package com.ash.messaging.pravaha.plugin.delta;
 
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import io.delta.kernel.Scan;
 import io.delta.kernel.Snapshot;
@@ -53,8 +55,17 @@ import com.ash.messaging.pravaha.api.plugin.SourceOffset;
  * reader and the change data feed is the right one; Kernel 4.0 exposes no public API for CDF, which
  * is said here rather than found out later.
  *
- * <p>Two situations are refused rather than approximated: deletion vectors, which hide row-level
- * deletes from file diffing ({@link DeltaScanFiles}), and a file the log still references that has
+ * <p><strong>Deletion vectors.</strong> A {@code DELETE} on a table with deletion vectors rewrites
+ * no file: it replaces the file's log entry with one naming a new vector that marks the deleted
+ * rows. So a file is identified by its path <em>and</em> its vector ({@link
+ * DeltaScanFiles.ScanFile#identity}), and the replaced entry is a removal of the file as its old
+ * vector left it and an addition of the file as its new one leaves it. Kernel applies each vector
+ * as it reads, and this reader emits only the rows it leaves selected -- so the removal retracts
+ * the rows that were live, the addition inserts the rows still live, and a row newly deleted nets
+ * to one retraction. It over-emits exactly as a rewrite does: every surviving row of the file
+ * appears once each way and annihilates.
+ *
+ * <p>One situation is refused rather than approximated: a file the log still references that has
  * been vacuumed away, whose retractions cannot be reconstructed from anywhere.
  */
 final class DeltaPartitionReader implements PartitionReader {
@@ -86,6 +97,9 @@ final class DeltaPartitionReader implements PartitionReader {
     private DeltaScanFiles.ScanFile openFileHandle;
 
     private ColumnarBatch batch;
+    /** Which rows of {@link #batch} a deletion vector leaves live, or null when all of them are. */
+    private ColumnVector selection;
+
     private int batchCursor;
     private long rowInFile;
 
@@ -125,7 +139,7 @@ final class DeltaPartitionReader implements PartitionReader {
                 return true;
             }
             if (openFile != null && hasNextRow()) {
-                batch = nextRow().getData();
+                use(nextRow());
                 batchCursor = 0;
                 continue;
             }
@@ -212,16 +226,19 @@ final class DeltaPartitionReader implements PartitionReader {
     }
 
     private List<DeltaScanFiles.ScanFile> addedFilesOf(long version) {
-        List<String> before = pathsAt(version - 1);
-        return filesAt(version).stream().filter(f -> !before.contains(f.path())).toList();
+        Set<String> before = identitiesAt(version - 1);
+        return filesAt(version).stream()
+                .filter(f -> !before.contains(f.identity()))
+                .toList();
     }
 
     private List<DeltaScanFiles.ScanFile> removedFilesOf(long version) {
-        List<String> after = pathsAt(version);
+        Set<String> after = identitiesAt(version);
         // Read through the previous version's listing: a removed file is not in this version's scan,
-        // so its rows -- and the log row describing it -- only exist there.
+        // so its rows -- and the log row describing it, with the deletion vector it had then -- only
+        // exist there.
         return filesAt(version - 1).stream()
-                .filter(f -> !after.contains(f.path()))
+                .filter(f -> !after.contains(f.identity()))
                 .toList();
     }
 
@@ -233,8 +250,8 @@ final class DeltaPartitionReader implements PartitionReader {
         return DeltaScanFiles.listFiles(engine, snapshot.getScanBuilder().build());
     }
 
-    private List<String> pathsAt(long version) {
-        return filesAt(version).stream().map(DeltaScanFiles.ScanFile::path).toList();
+    private Set<String> identitiesAt(long version) {
+        return filesAt(version).stream().map(DeltaScanFiles.ScanFile::identity).collect(Collectors.toSet());
     }
 
     /** Records the scan state and schema of a snapshot, and its files as the current list. */
@@ -256,15 +273,18 @@ final class DeltaPartitionReader implements PartitionReader {
         openFile = DeltaScanFiles.readFile(engine, scanState, file);
         rowInFile = 0;
         batch = null;
+        selection = null;
         batchCursor = 0;
+        // The offset counts rows of the file, deleted ones included, so a resume skips the same rows
+        // whichever of them a deletion vector hides.
         long skip = offset.rowIndex();
         while (skip > 0 && hasNextRow()) {
-            ColumnarBatch next = nextRow().getData();
-            if (skip >= next.getSize()) {
-                skip -= next.getSize();
-                rowInFile += next.getSize();
+            FilteredColumnarBatch next = nextRow();
+            if (skip >= next.getData().getSize()) {
+                skip -= next.getData().getSize();
+                rowInFile += next.getData().getSize();
             } else {
-                batch = next;
+                use(next);
                 batchCursor = (int) skip;
                 rowInFile += skip;
                 skip = 0;
@@ -313,11 +333,27 @@ final class DeltaPartitionReader implements PartitionReader {
         return new PravahaException(DeltaErrors.READ_FAILED, "cannot read data file " + path + ": " + e, e);
     }
 
-    /** Copies rows out of the open batch, up to {@code limit}. */
+    private void use(FilteredColumnarBatch filtered) {
+        batch = filtered.getData();
+        selection = filtered.getSelectionVector().orElse(null);
+    }
+
+    /** Whether the row at the cursor is live: not deleted by the file's deletion vector. */
+    private boolean selected() {
+        return selection == null || (!selection.isNullAt(batchCursor) && selection.getBoolean(batchCursor));
+    }
+
+    /** Copies rows out of the open batch, up to {@code limit}, passing over the deleted ones. */
     private int emitRows(RecordSink sink, int limit) {
         long weight = offset.phase() == DeltaOffset.Phase.REMOVES ? -1L : 1L;
         int emitted = 0;
         while (emitted < limit && batchCursor < batch.getSize()) {
+            if (!selected()) {
+                batchCursor++;
+                rowInFile++;
+                offset = offset.withRow(rowInFile);
+                continue;
+            }
             RowWriter writer = sink.beginRow();
             for (int column = 0; column < columnTypes.size(); column++) {
                 ColumnVector vector = batch.getColumnVector(column);
@@ -345,6 +381,7 @@ final class DeltaPartitionReader implements PartitionReader {
         }
         if (batchCursor >= batch.getSize()) {
             batch = null;
+            selection = null;
             if (openFile == null || !openFile.hasNext()) {
                 closeOpenFile();
                 offset = offset.nextFile();
@@ -364,6 +401,7 @@ final class DeltaPartitionReader implements PartitionReader {
                 openFile = null;
                 openFileHandle = null;
                 batch = null;
+                selection = null;
                 batchCursor = 0;
             }
         }

@@ -165,9 +165,8 @@ public final class DeltaSourcePlugin implements StreamSourcePlugin {
                 // Within a file, row order is the file's. Across the files of one commit there is no
                 // order Delta defines, and claiming one would be inventing it.
                 true,
-                // Deletes are visible, as retractions derived from removed files -- but only when
-                // the file was rewritten. Deletion vectors are refused outright at read time rather
-                // than silently unsupported.
+                // Deletes are visible, as retractions: of a removed file's rows, and of the rows a
+                // new deletion vector marks deleted in a file that stays.
                 true,
                 // The previous value arrives as a retraction of the whole old row, which is a
                 // before-image in the Z-set sense; it is not a paired before/after image on one

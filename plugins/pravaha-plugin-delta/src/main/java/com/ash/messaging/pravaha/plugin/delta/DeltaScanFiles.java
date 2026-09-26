@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.plugin.delta;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import io.delta.kernel.Scan;
 import io.delta.kernel.data.ColumnarBatch;
@@ -25,6 +26,7 @@ import io.delta.kernel.data.FilteredColumnarBatch;
 import io.delta.kernel.data.Row;
 import io.delta.kernel.engine.Engine;
 import io.delta.kernel.internal.InternalScanFileUtils;
+import io.delta.kernel.internal.actions.DeletionVectorDescriptor;
 import io.delta.kernel.internal.data.ScanStateRow;
 import io.delta.kernel.internal.util.Utils;
 import io.delta.kernel.types.StructType;
@@ -36,8 +38,8 @@ import com.ash.messaging.pravaha.api.PravahaException;
 /**
  * The one place that reaches into Delta Kernel's internals, quarantined on purpose.
  *
- * <p>Turning a scan file row into a {@code FileStatus}, and a scan state into the physical read
- * schema, has no public API in Kernel 4.0 -- Delta's own connector examples use
+ * <p>Turning a scan file row into a {@code FileStatus}, reading its deletion vector's descriptor,
+ * and turning a scan state into the physical read schema, have no public API in Kernel 4.0 -- Delta's own connector examples use
  * {@code InternalScanFileUtils} and {@code ScanStateRow} for exactly this. Rather than sprinkle
  * internal imports through the plugin, they live here, so the day Kernel publishes an API (or
  * changes these) there is one file to fix and a test that will say so.
@@ -49,12 +51,18 @@ final class DeltaScanFiles {
     /**
      * One file of a scan, with the log row that describes it.
      *
-     * <p>The row is carried rather than reconstructed. It holds the file's partition values, and
-     * Kernel needs those to rebuild the logical row -- a partition column lives in the directory
-     * name, not in the Parquet file. A synthesised row loses them, and the failure is not subtle:
-     * the transform dereferences a null map.
+     * <p>The row is carried rather than reconstructed. It holds the file's partition values and its
+     * deletion vector, and Kernel needs both to rebuild the logical rows -- a partition column lives
+     * in the directory name, not in the Parquet file, and a deleted row is only marked deleted in the
+     * vector. A synthesised row loses them, and the failure is not subtle: the transform
+     * dereferences a null map.
+     *
+     * @param identity what makes two versions' entries the same entry: the path, and the deletion
+     *     vector's unique id when the file has one. A {@code DELETE} on a table with deletion vectors
+     *     leaves the file where it is and replaces its entry with one naming a new vector, so the
+     *     path alone would see no change at all.
      */
-    record ScanFile(String path, FileStatus status, Row row) {}
+    record ScanFile(String path, FileStatus status, Row row, String identity) {}
 
     /**
      * The files a scan will read, in a stable order.
@@ -64,15 +72,35 @@ final class DeltaScanFiles {
      * time -- including after a restart, in a different JVM.
      */
     static List<ScanFile> listFiles(Engine engine, Scan scan) {
+        return listFiles(engine, scan, true);
+    }
+
+    /**
+     * The files a scan will read, refusing any that carries a deletion vector.
+     *
+     * <p>For {@code delta-sink}, whose copy-on-write merge rewrites whole files: it would have to
+     * carry a file's deletion vector through the rewrite and record it on the removal, and it does
+     * neither, so the rows the vector deletes would come back.
+     */
+    static List<ScanFile> listFilesWithoutDeletionVectors(Engine engine, Scan scan) {
+        return listFiles(engine, scan, false);
+    }
+
+    private static List<ScanFile> listFiles(Engine engine, Scan scan, boolean deletionVectorsRead) {
         List<ScanFile> files = new ArrayList<>();
         try (CloseableIterator<FilteredColumnarBatch> batches = scan.getScanFiles(engine)) {
             while (batches.hasNext()) {
                 try (CloseableIterator<Row> rows = batches.next().getRows()) {
                     while (rows.hasNext()) {
                         Row scanFileRow = rows.next();
-                        rejectDeletionVector(scanFileRow);
+                        Optional<DeletionVectorDescriptor> vector = deletionVectorOf(scanFileRow);
+                        if (vector.isPresent() && !deletionVectorsRead) {
+                            throw refusal();
+                        }
                         FileStatus status = InternalScanFileUtils.getAddFileStatus(scanFileRow);
-                        files.add(new ScanFile(status.getPath(), status, scanFileRow));
+                        String identity = vector.map(dv -> status.getPath() + "#" + dv.getUniqueId())
+                                .orElse(status.getPath());
+                        files.add(new ScanFile(status.getPath(), status, scanFileRow, identity));
                     }
                 }
             }
@@ -83,31 +111,32 @@ final class DeltaScanFiles {
         return files;
     }
 
-    /**
-     * Refuses a file carrying a deletion vector.
-     *
-     * <p>A deletion vector marks individual rows as deleted <em>without rewriting the file</em>.
-     * This plugin derives changes by diffing file lists between versions, so a deletion vector is
-     * invisible to it: the file is neither added nor removed, and the rows it hides would keep being
-     * emitted as though they were still there. Refusing is the only honest response -- a query would
-     * otherwise return rows the table says are deleted, indefinitely, with nothing to indicate it.
-     */
-    private static void rejectDeletionVector(Row scanFileRow) {
+    /** The file's deletion vector, when its {@code add} action names one. */
+    private static Optional<DeletionVectorDescriptor> deletionVectorOf(Row scanFileRow) {
         Row addFile = scanFileRow.getStruct(InternalScanFileUtils.ADD_FILE_ORDINAL);
         int ordinal = addFile.getSchema().indexOf("deletionVector");
-        if (ordinal >= 0 && !addFile.isNullAt(ordinal)) {
-            throw new PravahaException(
-                    DeltaErrors.UNSUPPORTED_FEATURE,
-                    "this table uses deletion vectors, which this plugin cannot read. Changes here are "
-                            + "derived by diffing each version's file list, and a deletion vector deletes rows "
-                            + "without rewriting the file -- so the deleted rows would keep being served as "
-                            + "live, silently. Set delta.enableDeletionVectors=false on the table, or wait for "
-                            + "the change-data-feed reader.");
+        if (ordinal < 0 || addFile.isNullAt(ordinal)) {
+            return Optional.empty();
         }
+        return Optional.of(DeletionVectorDescriptor.fromRow(addFile.getStruct(ordinal)));
+    }
+
+    private static PravahaException refusal() {
+        return new PravahaException(
+                DeltaErrors.UNSUPPORTED_FEATURE,
+                "this table's data files carry deletion vectors, and delta-sink does not write such a table. "
+                        + "Its upsert mode rewrites a file to remove rows from it, and it neither carries the file's "
+                        + "deletion vector through the rewrite nor records it on the removal, so the rows the vector "
+                        + "deletes would come back. Point the sink at a table without deletion vectors "
+                        + "(delta.enableDeletionVectors=false, with the existing vectors purged by REORG).");
     }
 
     /**
      * Reads one data file, already mapped back to the table's logical schema.
+     *
+     * <p>A file with a deletion vector comes back with a selection vector: Kernel loads the deletion
+     * vector named in the scan file row and marks the rows it deletes unselected. A reader must skip
+     * those rows; the batch still holds them.
      *
      * <p>The retraction path reads a file the current version has <em>removed</em>, using the scan
      * file row recorded by the version before it. That works because Delta keeps removed files on
@@ -120,9 +149,7 @@ final class DeltaScanFiles {
             StructType physicalSchema = ScanStateRow.getPhysicalDataReadSchema(engine, scanState);
             CloseableIterator<ColumnarBatch> physical = engine.getParquetHandler()
                     .readParquetFiles(
-                            Utils.singletonCloseableIterator(file.status()),
-                            physicalSchema,
-                            java.util.Optional.empty());
+                            Utils.singletonCloseableIterator(file.status()), physicalSchema, Optional.empty());
             // Applies column mapping and partition-value injection: what comes back is the logical
             // row the table's schema describes, not the file's physical layout.
             return Scan.transformPhysicalData(engine, scanState, file.row(), physical);

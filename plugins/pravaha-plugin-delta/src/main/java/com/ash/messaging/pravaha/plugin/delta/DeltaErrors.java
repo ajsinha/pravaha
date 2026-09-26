@@ -38,7 +38,10 @@ public final class DeltaErrors {
     /** Reading the table failed for a reason Kernel reported. */
     public static final ErrorCode READ_FAILED = new ErrorCode(5054, "DELTA_READ_FAILED");
 
-    /** A table feature whose semantics this plugin cannot honour, such as deletion vectors. */
+    /**
+     * A table feature whose semantics this plugin cannot honour: {@code delta-sink} rewriting a table
+     * whose files carry deletion vectors. The {@code delta} source reads deletion vectors.
+     */
     public static final ErrorCode UNSUPPORTED_FEATURE = new ErrorCode(5055, "DELTA_UNSUPPORTED_FEATURE");
 
     /** A {@code delta-sink} binding that cannot be honoured as written. */

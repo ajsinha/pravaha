@@ -397,8 +397,9 @@ final class DeltaSinkCommit {
      * The data files holding a key that is about to change, found by reading the key columns alone.
      *
      * <p>Two scans of one snapshot: one with a read schema of the key columns, to decide; the other
-     * with the whole schema, to rewrite. Both are listed by {@link DeltaScanFiles#listFiles}, which
-     * sorts by path, so the two lists are the same files in the same order and an index in one names
+     * with the whole schema, to rewrite. Both are listed by {@link
+     * DeltaScanFiles#listFilesWithoutDeletionVectors}, which sorts by path and refuses a file
+     * carrying a deletion vector (PRV-5055), so the two lists are the same files in the same order and an index in one names
      * the same file in the other.
      */
     private List<DeltaScanFiles.ScanFile> filesHolding(Snapshot snapshot, Set<List<Object>> affected) {
@@ -413,9 +414,9 @@ final class DeltaSinkCommit {
         List<DataType> keyTypes = DeltaTypes.columnTypes(keySchema);
         Scan keyScan = snapshot.getScanBuilder().withReadSchema(keySchema).build();
         Row keyState = keyScan.getScanState(engine);
-        List<DeltaScanFiles.ScanFile> keyFiles = DeltaScanFiles.listFiles(engine, keyScan);
-        List<DeltaScanFiles.ScanFile> full =
-                DeltaScanFiles.listFiles(engine, snapshot.getScanBuilder().build());
+        List<DeltaScanFiles.ScanFile> keyFiles = DeltaScanFiles.listFilesWithoutDeletionVectors(engine, keyScan);
+        List<DeltaScanFiles.ScanFile> full = DeltaScanFiles.listFilesWithoutDeletionVectors(
+                engine, snapshot.getScanBuilder().build());
         List<DeltaScanFiles.ScanFile> touched = new ArrayList<>();
         for (int i = 0; i < keyFiles.size(); i++) {
             if (holdsAffectedKey(keyState, keyFiles.get(i), affected, inKeyRead, keyTypes)) {

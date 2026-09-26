@@ -412,6 +412,11 @@ recorded, which are then lost to the topic: raise `staging.retention.ms` and re-
   binding over a partitioned table included), or `create: false` with no table there. The sink never
   alters a table's schema; change the binding, evolve the table with the engine that owns it, or
   point the sink at a new path.
+- `PRV-5055` — the sink's upsert mode found a data file carrying a **deletion vector**. It rewrites
+  whole files to remove rows and does not carry a vector through the rewrite, so the rows the vector
+  deletes would come back. Point the sink at a table without deletion vectors, or purge them with
+  the engine that owns the table (`REORG TABLE ... APPLY (PURGE)`) and disable
+  `delta.enableDeletionVectors`. The `delta` source reads deletion vectors and does not raise this.
 - `PRV-5058` — staging, reading back or committing failed. Two cases are the sink refusing rather
   than the filesystem failing: a **null key column**, and a `TIMESTAMP` that is not a whole number
   of microseconds — Delta stores microseconds, the engine nanoseconds, and a rounded timestamp is a

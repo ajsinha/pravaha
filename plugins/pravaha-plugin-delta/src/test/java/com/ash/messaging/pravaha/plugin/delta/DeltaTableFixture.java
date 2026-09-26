@@ -15,11 +15,22 @@
  */
 package com.ash.messaging.pravaha.plugin.delta;
 
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeSet;
+import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.zip.CRC32;
 
 import io.delta.kernel.DataWriteContext;
 import io.delta.kernel.Operation;
@@ -32,6 +43,7 @@ import io.delta.kernel.data.FilteredColumnarBatch;
 import io.delta.kernel.data.Row;
 import io.delta.kernel.defaults.engine.DefaultEngine;
 import io.delta.kernel.engine.Engine;
+import io.delta.kernel.internal.deletionvectors.Base85Codec;
 import io.delta.kernel.types.DataType;
 import io.delta.kernel.types.LongType;
 import io.delta.kernel.types.StringType;
@@ -64,6 +76,16 @@ final class DeltaTableFixture {
     private final Engine engine;
     private final String path;
     private boolean created;
+    private boolean deletionVectors;
+
+    /** Each file's add action as Kernel first wrote it, by path, for the deletion-vector commits. */
+    private final Map<String, String> addActions = new HashMap<>();
+
+    /** Each file's current deletion vector, as the log records it, by path. */
+    private final Map<String, String> vectors = new HashMap<>();
+
+    /** The row indexes each file's current deletion vector deletes, by path. */
+    private final Map<String, TreeSet<Long>> deleted = new HashMap<>();
 
     DeltaTableFixture(String path) {
         this.engine = DefaultEngine.create(new Configuration());
@@ -94,6 +116,9 @@ final class DeltaTableFixture {
                 engine, "Pravaha-Test", created ? Operation.WRITE : Operation.CREATE_TABLE);
         if (!created) {
             builder = builder.withSchema(engine, batch.getSchema());
+            if (deletionVectors) {
+                builder = builder.withTableProperties(engine, Map.of("delta.enableDeletionVectors", "true"));
+            }
         }
         Transaction txn = builder.build(engine);
         Row txnState = txn.getTransactionState(engine);
@@ -245,6 +270,109 @@ final class DeltaTableFixture {
                     .max()
                     .orElseThrow();
         }
+    }
+
+    /**
+     * Creates the table, on the first append, with the {@code deletionVectors} table feature: the
+     * protocol and property a table needs before a deletion vector may appear in its log.
+     */
+    DeltaTableFixture withDeletionVectors() {
+        this.deletionVectors = true;
+        return this;
+    }
+
+    /**
+     * Deletes rows from the file version {@code version} added, the way a {@code DELETE} does on a
+     * table with deletion vectors: the file stays, and a commit replaces its log entry with one
+     * naming a deletion vector that marks the rows deleted.
+     *
+     * <p>The vector is real, written to the Delta protocol's own format: a
+     * {@code deletion_vector_<uuid>.bin} file in the table root holding a format-version byte, the
+     * vector's size, a portable {@code RoaringBitmapArray} behind its magic number, and a CRC-32 of
+     * it. Kernel's own reader loads it and checks the size and the checksum. Kernel 4.0 has no API
+     * for writing one, which is why this is here; the {@code remove} and {@code add} pair is what
+     * Spark's {@code DELETE} commits, and each new vector replaces the last and holds every row
+     * deleted from the file so far.
+     *
+     * @param rowIndexes row positions within the file, counted from zero
+     * @return the version of the commit that performed the deletion
+     */
+    long deleteRows(long version, long... rowIndexes) {
+        try {
+            Path log = Path.of(path, "_delta_log");
+            String add = addActionOf(log, version);
+            String file = field(add, "path");
+            TreeSet<Long> rows = deleted.computeIfAbsent(file, k -> new TreeSet<>());
+            for (long row : rowIndexes) {
+                rows.add(row);
+            }
+            String vector = writeVector(rows);
+            String previous = vectors.put(file, vector);
+            long next = highestVersion(log) + 1;
+            String remove = "{\"remove\":{\"path\":\"" + file + "\",\"deletionTimestamp\":" + System.currentTimeMillis()
+                    + ",\"dataChange\":true,\"extendedFileMetadata\":true,\"partitionValues\":{},\"size\":"
+                    + field(add, "size") + (previous == null ? "" : ",\"deletionVector\":" + previous) + "}}\n";
+            String replaced = "{\"add\":{\"deletionVector\":" + vector + "," + add.substring("{\"add\":{".length());
+            Files.writeString(log.resolve(String.format("%020d.json", next)), remove + replaced + "\n");
+            return next;
+        } catch (IOException e) {
+            throw new IllegalStateException("could not write a deletion vector for " + path, e);
+        }
+    }
+
+    private String addActionOf(Path log, long version) throws IOException {
+        String commit = Files.readString(log.resolve(String.format("%020d.json", version)));
+        for (String line : commit.split("\n")) {
+            if (line.startsWith("{\"add\":{")) {
+                return addActions.computeIfAbsent(field(line, "path"), k -> line);
+            }
+        }
+        throw new IllegalStateException("version " + version + " added no file: " + commit);
+    }
+
+    private static String field(String action, String name) {
+        Matcher matcher =
+                Pattern.compile("\"" + name + "\":(\"([^\"]*)\"|([0-9]+))").matcher(action);
+        if (!matcher.find()) {
+            throw new IllegalStateException("no " + name + " in " + action);
+        }
+        return matcher.group(2) != null ? matcher.group(2) : matcher.group(3);
+    }
+
+    /** Writes the vector's file and returns its descriptor, as the log's JSON. */
+    private String writeVector(TreeSet<Long> rows) throws IOException {
+        byte[] data = portableBitmapArray(rows);
+        UUID uuid = UUID.randomUUID();
+        CRC32 crc = new CRC32();
+        crc.update(data);
+        ByteBuffer file = ByteBuffer.allocate(1 + 4 + data.length + 4);
+        file.put((byte) 1).putInt(data.length).put(data).putInt((int) crc.getValue());
+        Files.write(Path.of(path, "deletion_vector_" + uuid + ".bin"), file.array());
+        return "{\"storageType\":\"u\",\"pathOrInlineDv\":\"" + Base85Codec.encodeUUID(uuid)
+                + "\",\"offset\":1,\"sizeInBytes\":" + data.length + ",\"cardinality\":" + rows.size() + "}";
+    }
+
+    /**
+     * The protocol's serialised deletion vector: the portable format's magic number, then a
+     * {@code RoaringBitmapArray} of one 32-bit bitmap in RoaringBitmap's portable format, all
+     * little-endian. Row indexes below 65 536 fit one array container, which is all a test needs.
+     */
+    private static byte[] portableBitmapArray(TreeSet<Long> rows) {
+        if (rows.isEmpty() || rows.last() >= 65_536 || rows.size() > 4096) {
+            throw new IllegalArgumentException("the fixture writes one array container: " + rows);
+        }
+        ByteBuffer out = ByteBuffer.allocate(4 + 8 + 4 + 16 + 2 * rows.size()).order(ByteOrder.LITTLE_ENDIAN);
+        out.putInt(1681511377); // the portable RoaringBitmapArray's magic number
+        out.putLong(1L); // one bitmap
+        out.putInt(0); // for the row indexes whose high 32 bits are zero
+        out.putInt(12346); // RoaringBitmap's cookie for a bitmap with no run containers
+        out.putInt(1); // one container
+        out.putShort((short) 0).putShort((short) (rows.size() - 1)); // its key, and its cardinality less one
+        out.putInt(16); // its offset: past the cookie, the count, the one key pair and the one offset
+        for (long row : rows) {
+            out.putShort((short) row);
+        }
+        return out.array();
     }
 
     /** Convenience: {@code n} rows named {@code prefix-i}, starting at {@code from}. */
