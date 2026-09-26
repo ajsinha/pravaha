@@ -70,10 +70,10 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
  *
  * <p>With {@code schema.registry.url} set, the value carries the registry's five-byte prefix and
  * then Confluent's <em>message-index</em> array -- a zig-zag varint count and that many indexes, or
- * the single byte {@code 0} for the first message in the schema. Both are read past; the message is
- * the one {@code schema.message} names, because the registry's Protobuf schemas are {@code .proto}
- * source, which only {@code protoc} can turn into a descriptor. No request is made to the registry
- * for this format.
+ * the single byte {@code 0} for the first message in the schema. With a {@code schema.descriptor},
+ * both are read past and the message is the one {@code schema.message} names; no request is made to
+ * the registry. Without one, {@link ProtobufRegistryDecoder} asks the registry for each id's
+ * descriptor and makes one of these per id and message.
  */
 final class ProtobufValueDecoder implements KafkaValueDecoder {
 

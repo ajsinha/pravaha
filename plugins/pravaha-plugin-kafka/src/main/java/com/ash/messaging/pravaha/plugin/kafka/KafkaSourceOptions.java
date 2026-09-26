@@ -115,8 +115,14 @@ final class KafkaSourceOptions {
      */
     private final AvroSchema.Node avroReaderSchema;
 
-    /** {@code format: protobuf}: the message {@code schema.message} names in {@code schema.descriptor}. */
+    /**
+     * {@code format: protobuf}: the message {@code schema.message} names in {@code schema.descriptor},
+     * or null when the registry describes each record's message instead.
+     */
     private final Descriptor protobufMessage;
+
+    /** {@code schema.message}, or empty; with the registry's descriptors, what a record must select. */
+    private final String protobufMessageName;
 
     /** {@code schema.registry.url}, or empty; with what it takes to dial it, checked at configure. */
     private final String registryUrl;
@@ -221,7 +227,9 @@ final class KafkaSourceOptions {
         this.avroReader = format == Format.AVRO && registryUrl.isEmpty()
                 ? avroReader(context.get("schema.file", "").strip())
                 : null;
+        this.protobufMessageName = context.get("schema.message", "").strip();
         this.protobufMessage = format == Format.PROTOBUF
+                        && !context.get("schema.descriptor", "").strip().isEmpty()
                 ? protobufMessage(
                         context.get("schema.descriptor", "").strip(),
                         context.get("schema.message", "").strip())
@@ -267,10 +275,13 @@ final class KafkaSourceOptions {
             case PROTOBUF -> {
                 refuseUnless(schemaFile.isEmpty(), "schema.file", "avro");
                 refuseUnless(readerFile.isEmpty(), "schema.reader.file", "avro");
-                if (descriptor.isEmpty() || messageName.isEmpty()) {
+                // With a registry and no descriptor, each record's schema id names its descriptor.
+                if (!(descriptor.isEmpty() && !registryUrl.isEmpty())
+                        && (descriptor.isEmpty() || messageName.isEmpty())) {
                     throw refusal("format: protobuf needs schema.descriptor (a FileDescriptorSet, written with "
                             + "protoc --include_imports --descriptor_set_out=x.desc) and schema.message (the "
-                            + "message in it a record holds), and "
+                            + "message in it a record holds), or schema.registry.url alone (the registry "
+                            + "describes each record), and "
                             + (descriptor.isEmpty() ? "has no schema.descriptor" : "has no schema.message"));
                 }
             }
@@ -410,7 +421,9 @@ final class KafkaSourceOptions {
             case AVRO ->
                 new AvroValueDecoder(instanceName, schema, eventTimeOrdinal, avroReader, avroReaderSchema, registry());
             case PROTOBUF ->
-                ProtobufValueDecoder.map(schema, eventTimeOrdinal, protobufMessage, !registryUrl.isEmpty());
+                protobufMessage != null
+                        ? ProtobufValueDecoder.map(schema, eventTimeOrdinal, protobufMessage, !registryUrl.isEmpty())
+                        : new ProtobufRegistryDecoder(schema, eventTimeOrdinal, protobufMessageName, registry());
         };
     }
 

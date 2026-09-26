@@ -39,15 +39,15 @@ import com.google.protobuf.WrappersProto;
 import com.ash.messaging.pravaha.plugin.kafka.KafkaValueDecoder.Unmappable;
 
 /**
- * The {@code FileDescriptorSet} a deployment supplies ({@code schema.descriptor}), turned into the
- * {@link Descriptor} of one message.
+ * The {@code FileDescriptorSet} a deployment supplies ({@code schema.descriptor}), or the serialized
+ * descriptors a schema registry serves ({@link #registryMessage}), turned into the {@link Descriptor}
+ * of one message.
  *
  * <p>A descriptor set is what {@code protoc --descriptor_set_out=x.desc --include_imports} writes: the
  * parsed form of one or more {@code .proto} files, which is exactly what {@code DynamicMessage} needs
  * to read a message with no generated class. Protobuf's binary encoding carries field <em>numbers</em>
- * and wire types and no names at all, so there is no reading it without one -- which is why this
- * format takes the descriptor from the deployment rather than from the registry, whose Protobuf
- * schemas are {@code .proto} <em>source</em> that only {@code protoc} can turn into this.
+ * and wire types and no names at all, so there is no reading it without one. A registry's {@code .proto}
+ * <em>source</em> is never parsed here: the registry path asks for the serialized form instead.
  *
  * <p>Files import each other, so each is built after the files it depends on. An import the set does
  * not carry (a set written without {@code --include_imports}) is taken from protobuf-java's own
@@ -68,8 +68,50 @@ final class ProtobufSchemas {
     private final Map<String, FileDescriptorProto> sources = new LinkedHashMap<>();
     private final Map<String, FileDescriptor> built = new HashMap<>();
     private final Set<String> building = new LinkedHashSet<>();
+    /** Where the files came from, as a refusal names it. */
+    private final String origin;
+    /** What would have carried a missing import, said after the refusal. */
+    private final String fix;
 
-    private ProtobufSchemas() {}
+    private ProtobufSchemas() {
+        this("schema.descriptor", "Write the descriptor set with protoc --include_imports");
+    }
+
+    private ProtobufSchemas(String origin, String fix) {
+        this.origin = origin;
+        this.fix = fix;
+    }
+
+    /**
+     * The message a registry-framed record names: the file {@code root} of {@code files} (keyed by the
+     * name the importing files use), and in it the message the record's Confluent message-index array
+     * selects -- the first index into the file's top-level messages, each next one into the nested
+     * messages of the one before.
+     *
+     * @throws Unmappable if a file does not build, an import is missing, or the indexes select nothing
+     */
+    static Descriptor registryMessage(
+            Map<String, FileDescriptorProto> files, String root, List<Integer> indexes, String origin) {
+        ProtobufSchemas schemas = new ProtobufSchemas(
+                origin, "The registry lists every import as a reference; this one was not among them");
+        schemas.sources.putAll(files);
+        FileDescriptor file = schemas.build(root);
+        if (indexes.isEmpty()) {
+            throw new Unmappable(origin + ": the record's message-index array is empty");
+        }
+        List<Descriptor> level = file.getMessageTypes();
+        Descriptor selected = null;
+        for (int index : indexes) {
+            if (index < 0 || index >= level.size()) {
+                throw new Unmappable(origin + ": the record's message indexes " + indexes + " select nothing; the "
+                        + "level at " + index + " holds "
+                        + level.stream().map(Descriptor::getName).toList());
+            }
+            selected = level.get(index);
+            level = selected.getNestedTypes();
+        }
+        return selected;
+    }
 
     /**
      * The message called {@code messageName} in {@code descriptorSet} -- by full name, or by simple
@@ -137,11 +179,10 @@ final class ProtobufSchemas {
                 built.put(name, wellKnown);
                 return wellKnown;
             }
-            throw new Unmappable("schema.descriptor imports '" + name + "' and does not carry it. Write the "
-                    + "descriptor set with protoc --include_imports");
+            throw new Unmappable(origin + " imports '" + name + "' and does not carry it. " + fix);
         }
         if (!building.add(name)) {
-            throw new Unmappable("the .proto files in schema.descriptor import each other in a cycle: " + building);
+            throw new Unmappable("the .proto files in " + origin + " import each other in a cycle: " + building);
         }
         List<FileDescriptor> dependencies = new ArrayList<>();
         for (String dependency : proto.getDependencyList()) {
@@ -154,7 +195,7 @@ final class ProtobufSchemas {
             return file;
         } catch (DescriptorValidationException e) {
             throw new Unmappable(
-                    "the .proto file '" + name + "' in schema.descriptor does not validate: " + e.getMessage());
+                    "the .proto file '" + name + "' in " + origin + " does not validate: " + e.getMessage());
         }
     }
 }

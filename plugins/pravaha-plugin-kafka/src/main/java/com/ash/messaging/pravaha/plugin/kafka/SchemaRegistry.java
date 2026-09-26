@@ -17,17 +17,24 @@ package com.ash.messaging.pravaha.plugin.kafka;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.net.ssl.SSLContext;
+
+import com.google.protobuf.DescriptorProtos.FileDescriptorProto;
+import com.google.protobuf.InvalidProtocolBufferException;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 
@@ -52,6 +59,14 @@ import com.ash.messaging.pravaha.api.PravahaException;
  * topic with one schema costs one request per source. {@link #CACHE_LIMIT} ids are kept; past that
  * the cache stops growing rather than holding a producer's runaway ids.
  *
+ * <p><strong>Protobuf schemas</strong> are asked for with {@code ?format=serialized}, which Confluent
+ * Schema Registry answers with the schema as a base64 {@code FileDescriptorProto} instead of {@code
+ * .proto} source -- the parsed form {@code DynamicMessage} needs, with no {@code protoc} and no {@code
+ * .proto} parser here. Each of its {@code references} (an import, by the name the file imports it as)
+ * is fetched the same way from {@code GET <base>/subjects/{subject}/versions/{version}}. A registry
+ * that ignores the parameter answers with {@code .proto} source, and that is refused by name ({@code
+ * PRV-5109}) rather than guessed at: {@code schema.descriptor} is the way to read such a topic.
+ *
  * <p>A registry that cannot be reached, refuses the credentials, or answers with something that is
  * not a schema is {@code PRV-5109}, after {@link #ATTEMPTS} tries a short pause apart: it is an
  * infrastructure fault, not a bad record, so it stops the reader instead of dead-lettering a record
@@ -74,6 +89,14 @@ final class SchemaRegistry implements AutoCloseable {
     private final String authorization;
     private final Duration timeout;
     private final Map<Integer, String> cache = new ConcurrentHashMap<>();
+    private final Map<Integer, ProtobufSchema> protobufCache = new ConcurrentHashMap<>();
+
+    /** A Protobuf schema as its files: the root's name and every file by the name it is imported as. */
+    record ProtobufSchema(String root, Map<String, FileDescriptorProto> files) {}
+
+    /** How many files one Protobuf schema may reference, directly and through its references. */
+    private static final int MAX_FILES = 64;
+
     private final AtomicInteger requests = new AtomicInteger();
 
     SchemaRegistry(String instanceName, String base, SSLContext tls, String authorization, Duration timeout) {
@@ -107,8 +130,100 @@ final class SchemaRegistry implements AutoCloseable {
         return requests.get();
     }
 
+    /**
+     * The Protobuf schema registered under {@code id}, with every file it references; fetched once
+     * and then remembered.
+     */
+    ProtobufSchema protobufSchema(int id) {
+        ProtobufSchema cached = protobufCache.get(id);
+        if (cached != null) {
+            return cached;
+        }
+        Map<String, FileDescriptorProto> files = new LinkedHashMap<>();
+        URI uri = URI.create(base + "/schemas/ids/" + id + "?format=serialized");
+        String root = "schema-" + id + ".proto";
+        collect(uri, "no schema with id " + id, root, files);
+        ProtobufSchema schema = new ProtobufSchema(root, Map.copyOf(files));
+        if (protobufCache.size() < CACHE_LIMIT) {
+            protobufCache.putIfAbsent(id, schema);
+        }
+        return schema;
+    }
+
+    /** One serialized file from {@code uri}, stored under {@code name}, and then its references. */
+    private void collect(URI uri, String missing, String name, Map<String, FileDescriptorProto> files) {
+        if (files.containsKey(name)) {
+            return;
+        }
+        if (files.size() >= MAX_FILES) {
+            throw unreachable(uri, "the schema references more than " + MAX_FILES + " files", null);
+        }
+        Object parsed;
+        String body = get(uri, missing);
+        try {
+            parsed = AvroSchema.readJson(body);
+        } catch (AvroSchema.Invalid e) {
+            throw unreachable(uri, "it answered with something that is not JSON: " + shorten(body), null);
+        }
+        if (!(parsed instanceof Map<?, ?> envelope) || !(envelope.get("schema") instanceof String text)) {
+            throw unreachable(uri, "it answered 200 with " + shorten(body) + ", which has no 'schema' member", null);
+        }
+        Object type = envelope.get("schemaType");
+        if (!"PROTOBUF".equals(type)) {
+            throw unreachable(
+                    uri,
+                    "the schema there is " + (type == null ? "AVRO (no schemaType)" : type)
+                            + ", not PROTOBUF, so it cannot describe a protobuf record",
+                    null);
+        }
+        FileDescriptorProto file;
+        try {
+            file = FileDescriptorProto.parseFrom(Base64.getDecoder().decode(text.strip()));
+        } catch (IllegalArgumentException | InvalidProtocolBufferException e) {
+            throw unreachable(
+                    uri,
+                    "it answered with .proto source rather than a serialized descriptor: "
+                            + shorten(text)
+                            + ". It does not honour ?format=serialized (Confluent Schema Registry does); "
+                            + "read this topic with schema.descriptor instead",
+                    null);
+        }
+        files.put(name, file.toBuilder().setName(name).build());
+        Object references = envelope.get("references");
+        if (references == null) {
+            return;
+        }
+        if (!(references instanceof List<?> list)) {
+            throw unreachable(uri, "its 'references' is not an array", null);
+        }
+        List<Map<?, ?>> pending = new ArrayList<>();
+        for (Object reference : list) {
+            if (!(reference instanceof Map<?, ?> ref)
+                    || !(ref.get("name") instanceof String)
+                    || !(ref.get("subject") instanceof String)
+                    || !(ref.get("version") instanceof Number)) {
+                throw unreachable(uri, "a reference is not {name, subject, version}: " + reference, null);
+            }
+            pending.add(ref);
+        }
+        for (Map<?, ?> ref : pending) {
+            String subject = (String) ref.get("subject");
+            long version = ((Number) ref.get("version")).longValue();
+            URI next = URI.create(base + "/subjects/"
+                    + URLEncoder.encode(subject, StandardCharsets.UTF_8).replace("+", "%20") + "/versions/" + version
+                    + "?format=serialized");
+            collect(next, "no version " + version + " of subject '" + subject + "'", (String) ref.get("name"), files);
+        }
+    }
+
     private String fetch(int id) {
-        URI uri = URI.create(base + "/schemas/ids/" + id);
+        return schemaIn(
+                URI.create(base + "/schemas/ids/" + id),
+                get(URI.create(base + "/schemas/ids/" + id), "no schema with id " + id));
+    }
+
+    /** The body of a 200 from {@code uri}; {@code missing} is what a 404 means there. */
+    private String get(URI uri, String missing) {
         HttpRequest.Builder request = HttpRequest.newBuilder(uri)
                 .GET()
                 .timeout(timeout)
@@ -133,9 +248,9 @@ final class SchemaRegistry implements AutoCloseable {
                 throw unreachable(uri, "the fetch was interrupted", null);
             }
             if (response.statusCode() == 200) {
-                return schemaIn(uri, response.body());
+                return response.body();
             }
-            throw refused(uri, id, response);
+            throw refused(uri, missing, response);
         }
         throw unreachable(uri, lastFailure == null ? "it did not answer" : lastFailure.toString(), lastFailure);
     }
@@ -165,7 +280,7 @@ final class SchemaRegistry implements AutoCloseable {
                 null);
     }
 
-    private PravahaException refused(URI uri, int id, HttpResponse<String> response) {
+    private PravahaException refused(URI uri, String missing, HttpResponse<String> response) {
         int status = response.statusCode();
         String detail =
                 switch (status) {
@@ -173,8 +288,8 @@ final class SchemaRegistry implements AutoCloseable {
                         "it refused the credentials (" + status + "). Set schema.registry.user and "
                                 + "schema.registry.password, or schema.registry.token";
                     case 404 ->
-                        "it has no schema with id " + id + " (404). The records were written against another "
-                                + "registry, or the id's subject was hard-deleted";
+                        "it has " + missing + " (404). The records were written against another "
+                                + "registry, or the subject was hard-deleted";
                     default -> "it answered " + status + ": " + shorten(response.body());
                 };
         return new PravahaException(

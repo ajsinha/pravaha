@@ -62,8 +62,8 @@ The same Kafka plugin ships the sink, `kafka-sink`; this page is its source, nam
 | `schema.registry.user` / `schema.registry.password` | no | none | HTTP basic auth for the registry. Refused (PRV-5100) without `schema.registry.url` |
 | `schema.registry.token` | no | none | A bearer token instead of basic auth |
 | `schema.registry.timeout` | no | `10s` | Per attempt; three attempts a short pause apart, then PRV-5109 |
-| `schema.descriptor` | with `format: protobuf` | — | A `FileDescriptorSet` file: `protoc --include_imports --descriptor_set_out=x.desc your.proto` |
-| `schema.message` | with `format: protobuf` | — | The message in it a record holds, by full name (`acme.orders.Order`) or an unambiguous simple name |
+| `schema.descriptor` | with `format: protobuf`, unless `schema.registry.url` is set | — | A `FileDescriptorSet` file: `protoc --include_imports --descriptor_set_out=x.desc your.proto`. Left out with a registry, the registry describes each record |
+| `schema.message` | with `schema.descriptor` | — | The message in it a record holds, by full name (`acme.orders.Order`) or an unambiguous simple name. With the registry's descriptors it is optional, and a record whose message indexes select another message is a dead letter |
 | `tombstone` | no | `reject` | What a record with a null value is in `format: json`. `reject`: a dead letter, or the source stops. `skip`: stepped over, so an upsert topic reads as insertions only |
 | `event.time` | no | on a server, the stream's `event-time`; otherwise none | A `TIMESTAMP` column of `schema` whose value becomes each row's event time. Naming a column that is not there, or is not a `TIMESTAMP`, is PRV-5100. Without it, a row's event time is the record's Kafka timestamp |
 | `start.from` | no | `earliest` | Where a reader starts **when there is no checkpoint**: `earliest`, the first record the partition still holds, or `latest`, after what it holds now. A restore ignores it and resumes at the checkpoint's offsets |
@@ -382,10 +382,23 @@ What each failure does, deliberately differently:
 | A schema the registry serves that cannot be mapped to the columns | every record carrying that id is a dead letter naming the id; the mismatch is remembered, not re-fetched |
 | The registry unreachable, refusing the credentials, or answering nonsense | PRV-5109, and the reader **stops** — a registry being down is not a record's fault, and dead-lettering good records would lose them |
 
-For `format: protobuf` the registry is not consulted at all: its Protobuf schemas are `.proto`
-*source*, which only `protoc` can turn into a descriptor. Setting `schema.registry.url` there means
-only that the five-byte prefix and Confluent's message-index array are read past, and the message
-still comes from `schema.descriptor`.
+For `format: protobuf` with `schema.registry.url` and **no** `schema.descriptor`, the registry
+describes each record. The schema of the record's id is asked for with `?format=serialized`, which
+Confluent Schema Registry answers with a base64 `FileDescriptorProto` rather than `.proto` source, so
+nothing here parses `.proto` and no `protoc` runs; each of its `references` (an import) is fetched the
+same way from `GET <url>/subjects/{subject}/versions/{version}`. The record's Confluent message-index
+array then picks the message — the first index into the file's messages, each next one into the
+nested messages of the one before — and it is mapped to the columns once per id and message, with the
+same rules as a supplied descriptor. A registry that does not honour `format=serialized` answers with
+`.proto` source; that is PRV-5109 by name, and such a topic is read with `schema.descriptor`. With a
+`schema.descriptor` as well, the registry is not consulted: the prefix and the message indexes are
+read past and the message comes from the descriptor.
+
+```yaml
+        format: protobuf
+        schema.registry.url: https://registry.internal:8081
+        schema.message: acme.orders.Order   # optional: refuse any other message
+```
 
 ## Dead letters
 
@@ -637,7 +650,7 @@ SCRAM mechanisms are allowed either way. `security.protocol` follows from the tw
 | Not built | Instead |
 |---|---|
 | **An array or a map as a column** | Flatten it in the producer; a nested *record*'s fields are columns |
-| **A registry's Protobuf schemas** | They are `.proto` source; supply the descriptor set with `schema.descriptor` |
+| **A registry that serves Protobuf schemas only as `.proto` source** | Supply the descriptor set with `schema.descriptor`; Confluent Schema Registry's `?format=serialized` is what the registry path reads |
 | **Writing** Avro or Protobuf | `kafka-sink` writes JSON. See [the Kafka sink](/help/topics/sink-kafka) |
 | **The record key** as data | Only the value is read. Put every column in the value, as `kafka-sink` does |
 | **Tombstones as deletes** | `format: changelog`, or `tombstone: skip` to read an upsert topic as insertions |
