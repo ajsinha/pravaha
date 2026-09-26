@@ -56,7 +56,8 @@ and the second closed. None of them needs a key-value store.
 
 The per-group, per-slice sets are gone. `DistinctValueCounts` (`pravaha-runtime`, `window`) holds one
 entry per `(group, slice, column, value)` — the group's 128-bit digest, the slice start, the column,
-then the value's identity bytes — with the number of times the value is present, in a
+the group's own key columns (since W8-14, because a digest is not an identity), then the value's
+identity bytes — with the number of times the value is present, in a
 `VariableKeyStateMap` over a `RowStore` that takes the overflow tier like every other one. A count
 that reaches zero removes the entry, and a retraction of an absent value holds nothing, exactly as the
 on-heap `HashMap.merge` did. A window's distinct count is computed when it fires: each value is counted

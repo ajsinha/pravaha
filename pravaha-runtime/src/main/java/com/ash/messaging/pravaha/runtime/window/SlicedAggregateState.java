@@ -54,8 +54,11 @@ import com.ash.messaging.pravaha.runtime.state.VariableKeyStateMap;
  * <h2>Where the state lives: off-heap, and spillable, for every aggregate</h2>
  *
  * <p>Accumulators live in {@link OffHeapAccumulators}: a {@link VariableKeyStateMap} keyed by the
- * 128-bit digest ({@code keyHigh}, {@code keyLow}) and {@code sliceStart} this class has always used,
- * one {@link com.ash.messaging.pravaha.state.RowStore} block per accumulator. That is also where an
+ * 128-bit digest ({@code keyHigh}, {@code keyLow}), {@code sliceStart} and the group's own key
+ * columns, one {@link com.ash.messaging.pravaha.state.RowStore} block per accumulator. The columns are
+ * in the key because a digest is not an identity (W8-14): keyed by the digest alone, two groups whose
+ * digests collided were one accumulator, and the answer was their merged sum with nothing to show for
+ * it. The map compares the whole key against the arena byte for byte, without allocating. That is also where an
  * overflow tier attaches, exactly the way {@code RowStore} and {@code SymmetricHashJoin} accept one.
  *
  * <p>{@code COUNT(DISTINCT x)} used to be the exception. Its state is a set that grows with
@@ -68,12 +71,8 @@ import com.ash.messaging.pravaha.runtime.state.VariableKeyStateMap;
  * in the earliest slice of the window that holds it, which is a lookup per value rather than a set
  * built on the heap.
  *
- * <p>{@code keyValues} -- the group's own column values, carried so a fired window's output row can
- * be built without re-deriving them from a digest -- are encoded off-heap with the exact same {@link
- * TaggedValues#writeKeyValues} the checkpoint format uses, not a second encoding invented for this. A
- * group's {@code keyValues} are fixed at creation and never rewritten, which is what makes storing
- * them as one variable-length tail on the accumulator's own block enough: there is no later resize to
- * plan for.
+ * <p>{@code keyValues} -- the group's own column values -- are therefore stored once, as part of the
+ * key, and a fired window's output row reads them back from there.
  */
 public final class SlicedAggregateState implements AutoCloseable {
 
@@ -135,16 +134,17 @@ public final class SlicedAggregateState implements AutoCloseable {
     }
 
     /**
-     * One accumulator's identity: which group, and which slice.
+     * A group, while its slices are combined into a window: the digest and the key columns behind it.
      *
-     * <p>The group is a <strong>128-bit</strong> digest of the grouping columns, not a 64-bit one.
-     * With 64 bits and a million live groups the chance that two of them collide is about
-     * 3 x 10^-8 -- small enough to ignore in most systems and not in one whose entire claim is that
-     * its answers are right, because the failure is two unrelated groups silently merged into a
-     * number that looks perfectly reasonable. At 128 bits the same figure is around 10^-27, which is
-     * below the rate at which the hardware gets the arithmetic wrong.
+     * <p>The digest alone was this key until W8-14. However wide a digest is, two groups can share
+     * it, and when they did their slices were combined into one window result. The columns decide
+     * equality; the digest is carried because the result reports it.
      */
-    private record SliceKey(long keyHigh, long keyLow, long sliceStart) {}
+    private record Group(long keyHigh, long keyLow, List<Object> values) {
+        static Group of(long keyHigh, long keyLow, Object[] keyValues) {
+            return new Group(keyHigh, keyLow, keyValues == null ? null : java.util.Arrays.asList(keyValues));
+        }
+    }
 
     private final SlicedWindows windows;
     private final Kind[] kinds;
@@ -260,7 +260,7 @@ public final class SlicedAggregateState implements AutoCloseable {
             return;
         }
         long sliceStart = windows.sliceStartFor(eventTimeNanos);
-        long handle = offHeap.find(keyHigh, keyLow, sliceStart);
+        long handle = offHeap.find(keyHigh, keyLow, sliceStart, keyValues);
         if (handle == ArenaHandle.NULL) {
             if (!hasOverflow && offHeap.size() >= maxSlices) {
                 throw ceilingExceeded(keyHigh, keyLow, sliceStart, offHeap.size());
@@ -292,7 +292,7 @@ public final class SlicedAggregateState implements AutoCloseable {
                         // Counted, not flagged. A value seen three times and retracted once is
                         // still present, and a set would have said it had gone.
                         Object value = distinctValues == null ? (Object) values[i] : distinctValues[i];
-                        int change = distinct.add(keyHigh, keyLow, sliceStart, i, value, weight);
+                        int change = distinct.add(keyHigh, keyLow, sliceStart, i, keyValues, value, weight);
                         if (change != 0) {
                             // The slice's own distinct count, kept exact without recounting.
                             offHeap.setValue(handle, i, offHeap.value(handle, i) + change);
@@ -361,7 +361,7 @@ public final class SlicedAggregateState implements AutoCloseable {
      */
     public List<WindowResult> fire(long windowEndNanos) {
         List<Long> sliceStarts = windows.slicesOfWindowEnding(windowEndNanos);
-        Map<SliceKey, SliceAccumulator> combined = new HashMap<>();
+        Map<Group, SliceAccumulator> combined = new HashMap<>();
         List<Long> handles = new ArrayList<>();
         offHeap.forEach(handles::add);
         for (long sliceStart : sliceStarts) {
@@ -371,9 +371,10 @@ public final class SlicedAggregateState implements AutoCloseable {
                 }
                 // Keyed by the group alone -- slice zeroed -- because combining slices into a
                 // window is precisely the act of forgetting which slice a value came from.
-                SliceKey groupKey = new SliceKey(offHeap.keyHighOf(handle), offHeap.keyLowOf(handle), 0);
+                SliceAccumulator source = offHeap.read(handle);
+                Group groupKey = Group.of(offHeap.keyHighOf(handle), offHeap.keyLowOf(handle), source.keyValues);
                 SliceAccumulator target = combined.computeIfAbsent(groupKey, key -> new SliceAccumulator(kinds.length));
-                merge(target, offHeap.read(handle));
+                merge(target, source);
             }
         }
         if (distinct != null) {
@@ -417,15 +418,15 @@ public final class SlicedAggregateState implements AutoCloseable {
      * holds it -- decided by looking the same {@code (group, column, value)} up in each earlier slice,
      * off-heap, rather than by building the window's set on the heap.
      */
-    private void countDistinctValues(List<Long> sliceStarts, Map<SliceKey, SliceAccumulator> combined) {
+    private void countDistinctValues(List<Long> sliceStarts, Map<Group, SliceAccumulator> combined) {
         java.util.Set<Long> inWindow = new java.util.HashSet<>(sliceStarts);
         for (long handle : distinct.handles()) {
             long sliceStart = distinct.sliceStartOf(handle);
             if (!inWindow.contains(sliceStart)) {
                 continue;
             }
-            SliceAccumulator target =
-                    combined.get(new SliceKey(distinct.keyHighOf(handle), distinct.keyLowOf(handle), 0));
+            SliceAccumulator target = combined.get(
+                    Group.of(distinct.keyHighOf(handle), distinct.keyLowOf(handle), distinct.keyValuesOf(handle)));
             if (target == null || presentInAnEarlierSlice(handle, sliceStart, sliceStarts)) {
                 continue;
             }
@@ -501,7 +502,7 @@ public final class SlicedAggregateState implements AutoCloseable {
         for (long handle : handles) {
             long sliceStart = offHeap.sliceStartOf(handle);
             if (dead.test(sliceStart)) {
-                offHeap.remove(offHeap.keyHighOf(handle), offHeap.keyLowOf(handle), sliceStart);
+                offHeap.remove(handle);
             }
         }
         if (distinct != null) {
@@ -566,6 +567,13 @@ public final class SlicedAggregateState implements AutoCloseable {
                     + " and does not read version 1, which kept each distinct set inside its accumulator and "
                     + "did not carry the non-null counts AVG divides by. Refusing to guess at the difference.");
         }
+        if (version == 2) {
+            throw new java.io.IOException("this windowed aggregate's checkpoint is format version 2, written while "
+                    + "its COUNT(DISTINCT) values named their group by digest alone (W8-14); this engine writes "
+                    + "version " + FORMAT_VERSION + ", which names each value's group by its key columns, and "
+                    + "does not read version 2, whose values cannot be told apart between two groups sharing a "
+                    + "digest. Refusing to guess at the difference.");
+        }
         if (version != FORMAT_VERSION) {
             throw new java.io.IOException("checkpoint is format version " + version + ", this engine writes "
                     + FORMAT_VERSION + ". Refusing to guess at the difference.");
@@ -623,8 +631,11 @@ public final class SlicedAggregateState implements AutoCloseable {
      * divides by them, and a version 1 restore left them at zero, so a restored window's AVG came out
      * 0 -- and the distinct values follow every accumulator as one section of their own, instead of
      * one set inside each accumulator. Version 1 is refused by name.
+     *
+     * <p>Version 3 (W8-14): each distinct value carries its group's key columns after its column
+     * number, because the digest before it is not an identity. Version 2 is refused by name.
      */
-    private static final int FORMAT_VERSION = 2;
+    private static final int FORMAT_VERSION = 3;
 
     /** Live accumulators. The number bounded-state enforcement watches. */
     public int liveSlices() {

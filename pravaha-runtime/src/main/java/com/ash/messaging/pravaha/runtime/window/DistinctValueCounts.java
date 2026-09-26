@@ -39,8 +39,11 @@ import com.ash.messaging.pravaha.runtime.state.VariableKeyStateMap;
  * com.ash.messaging.pravaha.state.RowStore} that takes an overflow tier like every other one.
  *
  * <p>The key is {@code keyHigh}, {@code keyLow}, {@code sliceStart} (eight bytes each), the column
- * (four), then the value's {@linkplain TaggedValues#identityBytes identity bytes}. The value is the
- * count.
+ * (four), the length of the group's key columns (four) and the columns themselves as {@link
+ * TaggedValues#writeGroupIdentity} writes them, then the value's {@linkplain TaggedValues#identityBytes
+ * identity bytes}. The value is the count. The group's columns are in the key for W8-14's reason: with
+ * the digest alone, two groups whose digests collided shared every value they had in common, so the
+ * second group to see a value was told it was already present and its distinct count came out short.
  *
  * <p><strong>Counted, not flagged</strong>, as before: a value seen three times and retracted once is
  * still present. A count that reaches zero removes the entry, and a retraction of a value that is not
@@ -53,7 +56,8 @@ final class DistinctValueCounts implements AutoCloseable {
     private static final int OFFSET_KEY_LOW = Long.BYTES;
     private static final int OFFSET_SLICE = 2 * Long.BYTES;
     private static final int OFFSET_COLUMN = 3 * Long.BYTES;
-    private static final int OFFSET_VALUE = 3 * Long.BYTES + Integer.BYTES;
+    private static final int OFFSET_GROUP_LENGTH = 3 * Long.BYTES + Integer.BYTES;
+    private static final int OFFSET_GROUP = OFFSET_GROUP_LENGTH + Integer.BYTES;
 
     private final MemoryAccess access;
     private final MemoryAccess overflowAccess;
@@ -82,9 +86,10 @@ final class DistinctValueCounts implements AutoCloseable {
                 maxOverflowSlabs);
     }
 
-    /** Writes a key into the scratch region, growing it for a long string, and returns its length. */
-    private int writeKey(long keyHigh, long keyLow, long sliceStart, int column, byte[] identity) {
-        int length = OFFSET_VALUE + identity.length;
+    /** Writes a key into the scratch region, growing it for a long one, and returns its length. */
+    private int writeKey(long keyHigh, long keyLow, long sliceStart, int column, Object[] keyValues, byte[] identity) {
+        int groupLength = TaggedValues.groupIdentityLength(keyValues);
+        int length = OFFSET_GROUP + groupLength + identity.length;
         if (keyScratch.capacity() < length) {
             keyScratch.close();
             keyScratch = access.allocate(Math.max(length, keyScratch.capacity() * 2));
@@ -93,7 +98,9 @@ final class DistinctValueCounts implements AutoCloseable {
         keyScratch.putLong(OFFSET_KEY_LOW, keyLow);
         keyScratch.putLong(OFFSET_SLICE, sliceStart);
         keyScratch.putInt(OFFSET_COLUMN, column);
-        keyScratch.putBytes(OFFSET_VALUE, identity, 0, identity.length);
+        keyScratch.putInt(OFFSET_GROUP_LENGTH, groupLength);
+        TaggedValues.writeGroupIdentity(keyScratch, OFFSET_GROUP, keyValues);
+        keyScratch.putBytes(OFFSET_GROUP + groupLength, identity, 0, identity.length);
         return length;
     }
 
@@ -104,11 +111,11 @@ final class DistinctValueCounts implements AutoCloseable {
      *     0} if its presence did not change -- which is what keeps a slice's own distinct count exact
      *     without counting the entries again
      */
-    int add(long keyHigh, long keyLow, long sliceStart, int column, Object value, long weight) {
+    int add(long keyHigh, long keyLow, long sliceStart, int column, Object[] keyValues, Object value, long weight) {
         if (weight == 0) {
             return 0;
         }
-        int length = writeKey(keyHigh, keyLow, sliceStart, column, TaggedValues.identityBytes(value));
+        int length = writeKey(keyHigh, keyLow, sliceStart, column, keyValues, TaggedValues.identityBytes(value));
         if (weight > 0) {
             long handle = map.getOrCreate(keyScratch, 0, length, Long.BYTES);
             long before = countOf(handle);
@@ -172,10 +179,20 @@ final class DistinctValueCounts implements AutoCloseable {
         return map.keyRegionOf(handle).getInt(map.keyOffsetOf(handle) + OFFSET_COLUMN);
     }
 
+    private int groupLengthOf(long handle) {
+        return map.keyRegionOf(handle).getInt(map.keyOffsetOf(handle) + OFFSET_GROUP_LENGTH);
+    }
+
+    /** The group's own key columns, which name it where its digest might not. */
+    Object[] keyValuesOf(long handle) {
+        return TaggedValues.readGroupIdentity(map.keyRegionOf(handle), map.keyOffsetOf(handle) + OFFSET_GROUP);
+    }
+
     Object valueOf(long handle) {
-        int length = map.keyLengthOf(handle) - OFFSET_VALUE;
+        int valueOffset = OFFSET_GROUP + groupLengthOf(handle);
+        int length = map.keyLengthOf(handle) - valueOffset;
         byte[] identity = new byte[length];
-        map.keyRegionOf(handle).getBytes(map.keyOffsetOf(handle) + OFFSET_VALUE, identity, 0, length);
+        map.keyRegionOf(handle).getBytes(map.keyOffsetOf(handle) + valueOffset, identity, 0, length);
         return TaggedValues.fromIdentityBytes(identity);
     }
 
@@ -214,6 +231,7 @@ final class DistinctValueCounts implements AutoCloseable {
             out.writeLong(keyLowOf(handle));
             out.writeLong(sliceStartOf(handle));
             out.writeInt(columnOf(handle));
+            TaggedValues.writeKeyValues(out, keyValuesOf(handle));
             TaggedValues.writeTagged(out, valueOf(handle));
             out.writeLong(countOf(handle));
         }
@@ -228,13 +246,14 @@ final class DistinctValueCounts implements AutoCloseable {
             long keyLow = in.readLong();
             long sliceStart = in.readLong();
             int column = in.readInt();
+            Object[] keyValues = TaggedValues.readKeyValues(in);
             Object value = TaggedValues.readTagged(in);
             long count = in.readLong();
             if (column < 0 || column >= columns || count <= 0) {
                 throw new IOException("a distinct-value entry names column " + column + " with count " + count
                         + ", which this aggregate could not have written");
             }
-            add(keyHigh, keyLow, sliceStart, column, value, count);
+            add(keyHigh, keyLow, sliceStart, column, keyValues, value, count);
         }
     }
 

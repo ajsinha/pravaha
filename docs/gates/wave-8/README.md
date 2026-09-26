@@ -45,7 +45,8 @@ all still E7's and still deferred by [ADR-034](../../adr/034-distribution-deferr
 `DeduplicatingSink` is not wired, so output is effectively-once rather than exactly-once. The
 windowed aggregate still keys state by a 64-bit digest (W8-14, open, and no test can prove a fix).
 *Since this pack was written:* the 64-bit fold is gone and the key is a 128-bit digest (W8-14,
-narrowed and still open).
+narrowed); since then the key columns are part of the state key and compared byte for byte, so two
+groups sharing a digest stay two groups (W8-14, fixed).
 
 ## What closed this gate, and what it cost to find out
 

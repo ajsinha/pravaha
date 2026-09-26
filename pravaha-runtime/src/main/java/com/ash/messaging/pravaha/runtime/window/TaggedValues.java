@@ -23,6 +23,8 @@ import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
+import com.ash.messaging.pravaha.common.memory.MemoryRegion;
+
 /**
  * One value, tagged with its shape -- the encoding a windowed aggregate's group keys and distinct
  * values share, in a checkpoint and off-heap alike.
@@ -122,6 +124,117 @@ final class TaggedValues {
             // caller could have caused.
             throw new IllegalStateException("cannot decode key values this engine wrote itself", e);
         }
+    }
+
+    /**
+     * The number of bytes {@link #writeGroupIdentity} writes for {@code keyValues}.
+     *
+     * <p>Computed rather than discovered by writing, so a caller can size its scratch region before
+     * the write and the write itself never allocates.
+     */
+    static int groupIdentityLength(Object[] keyValues) {
+        if (keyValues == null) {
+            return Integer.BYTES;
+        }
+        int length = Integer.BYTES;
+        for (Object value : keyValues) {
+            length += 1;
+            if (value == null) {
+                continue;
+            }
+            if (value instanceof String string) {
+                length += Integer.BYTES + Character.BYTES * string.length();
+            } else if (value instanceof Boolean) {
+                length += 1;
+            } else {
+                length += Long.BYTES;
+            }
+        }
+        return length;
+    }
+
+    /**
+     * Writes a group's key columns as the bytes its identity is compared by, straight into an
+     * off-heap region, and returns the offset just past them (W8-14).
+     *
+     * <p>The layout is a count ({@code -1} for no key at all), then per value a tag and its payload:
+     * eight bytes for a whole number (widened, as {@link #writeTagged} widens it) or for a double's
+     * {@link Double#doubleToLongBits} (what {@link Double#equals} compares), one byte for a boolean,
+     * and for a string its UTF-16 length followed by its UTF-16 code units. Every field is either fixed
+     * or length-prefixed, so two different keys can never write the same bytes, and nothing on the way
+     * allocates: a string is read a character at a time, not encoded into a new array. That matters
+     * because this runs once per row, on the path a windowed aggregate folds every record through.
+     */
+    static int writeGroupIdentity(MemoryRegion region, int offset, Object[] keyValues) {
+        if (keyValues == null) {
+            region.putInt(offset, -1);
+            return offset + Integer.BYTES;
+        }
+        region.putInt(offset, keyValues.length);
+        int at = offset + Integer.BYTES;
+        for (Object value : keyValues) {
+            if (value == null) {
+                region.putByte(at++, NULL);
+            } else if (value instanceof String string) {
+                region.putByte(at++, STRING);
+                int chars = string.length();
+                region.putInt(at, chars);
+                at += Integer.BYTES;
+                for (int i = 0; i < chars; i++) {
+                    region.putShort(at, (short) string.charAt(i));
+                    at += Character.BYTES;
+                }
+            } else if (value instanceof Double || value instanceof Float) {
+                region.putByte(at++, DOUBLE);
+                region.putLong(at, Double.doubleToLongBits(((Number) value).doubleValue()));
+                at += Long.BYTES;
+            } else if (value instanceof Boolean flag) {
+                region.putByte(at++, BOOLEAN);
+                region.putByte(at++, (byte) (flag ? 1 : 0));
+            } else {
+                region.putByte(at++, LONG);
+                region.putLong(at, ((Number) value).longValue());
+                at += Long.BYTES;
+            }
+        }
+        return at;
+    }
+
+    /** The key columns {@link #writeGroupIdentity} wrote at {@code offset}, back as objects. */
+    static Object[] readGroupIdentity(MemoryRegion region, int offset) {
+        int count = region.getInt(offset);
+        if (count < 0) {
+            return null;
+        }
+        Object[] values = new Object[count];
+        int at = offset + Integer.BYTES;
+        for (int v = 0; v < count; v++) {
+            byte tag = region.getByte(at++);
+            switch (tag) {
+                case NULL -> values[v] = null;
+                case STRING -> {
+                    int chars = region.getInt(at);
+                    at += Integer.BYTES;
+                    char[] text = new char[chars];
+                    for (int i = 0; i < chars; i++) {
+                        text[i] = (char) region.getShort(at);
+                        at += Character.BYTES;
+                    }
+                    values[v] = new String(text);
+                }
+                case DOUBLE -> {
+                    values[v] = Double.longBitsToDouble(region.getLong(at));
+                    at += Long.BYTES;
+                }
+                case BOOLEAN -> values[v] = region.getByte(at++) != 0;
+                case LONG -> {
+                    values[v] = region.getLong(at);
+                    at += Long.BYTES;
+                }
+                default -> throw new IllegalStateException("unknown group-key tag " + tag + " in off-heap state");
+            }
+        }
+        return values;
     }
 
     /**

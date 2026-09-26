@@ -49,6 +49,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  * window's distinct count is the size of the union of its slices' maps. The state under test is built
  * with a two-slice ceiling and a mapped overflow tier, so nearly all of it is on disk.
  *
+ * <p>{@link #groupsSharingOneDigestAreNeverMerged} runs the same property with the digest
+ * <strong>constructed to collide</strong> (W8-14): the forty groups are given four digests between
+ * them, so every group shares its digest with nine others, and the answer must still be each group's
+ * own. A 128-bit collision cannot be found by search; it does not need to be, because the state takes
+ * the digest from its caller and so can be handed one.
+ *
  * <p>Seeded, and the seed is in every assertion's description: a failure names the run that produced
  * it. {@code -Dpravaha.distinct.seed=N} adds one more seed to the fixed ones.
  */
@@ -145,19 +151,21 @@ class DistinctValueCountsPropertyTest {
     }
 
     private static void update(
-            SlicedAggregateState state, long group, long slice, Object text, Long number, long amount, long weight) {
+            SlicedAggregateState state,
+            boolean collide,
+            long group,
+            long slice,
+            Object text,
+            Long number,
+            long amount,
+            long weight) {
         Object[] distinctValues = {null, text, number, null};
         boolean[] present = {true, text != null, number != null, true};
         long[] values = {0, 0, number == null ? 0 : number, amount};
-        state.update(
-                group,
-                group * 0x9E3779B97F4A7C15L,
-                new Object[] {group},
-                slice + SECOND,
-                values,
-                present,
-                distinctValues,
-                weight);
+        // Colliding: ten groups to a digest, so a state keyed by the digest alone merges them.
+        long keyHigh = collide ? group % 4 : group;
+        long keyLow = collide ? 0x5EED : group * 0x9E3779B97F4A7C15L;
+        state.update(keyHigh, keyLow, new Object[] {group}, slice + SECOND, values, present, distinctValues, weight);
     }
 
     private static List<Long> seeds() {
@@ -172,6 +180,16 @@ class DistinctValueCountsPropertyTest {
     @ParameterizedTest(name = "run {0}")
     @ValueSource(ints = {0, 1, 2, 3, 4})
     void offHeapSpilledDistinctCountsMatchTheOnHeapModel(int run, @TempDir Path dir) throws Exception {
+        property(run, dir, false);
+    }
+
+    @ParameterizedTest(name = "run {0}")
+    @ValueSource(ints = {0, 1, 2, 3, 4})
+    void groupsSharingOneDigestAreNeverMerged(int run, @TempDir Path dir) throws Exception {
+        property(run, dir, true);
+    }
+
+    private static void property(int run, Path dir, boolean collide) throws Exception {
         List<Long> seeds = seeds();
         if (run >= seeds.size()) {
             return;
@@ -204,15 +222,15 @@ class DistinctValueCountsPropertyTest {
                         slice = (Long) victim[1];
                         text = (String) victim[2];
                     }
-                    update(state, group, slice, text, number, amount, -1);
+                    update(state, collide, group, slice, text, number, amount, -1);
                     reference.apply(group, slice, text, number, amount, -1);
                 } else if (dice == 2) {
                     // A retraction of whatever was drawn, present or not.
-                    update(state, group, slice, text, number, amount, -1);
+                    update(state, collide, group, slice, text, number, amount, -1);
                     reference.apply(group, slice, text, number, amount, -1);
                 } else {
                     long weight = random.nextInt(8) == 0 ? 2 : 1;
-                    update(state, group, slice, text, number, amount, weight);
+                    update(state, collide, group, slice, text, number, amount, weight);
                     reference.apply(group, slice, text, number, amount, weight);
                 }
 

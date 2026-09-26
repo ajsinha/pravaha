@@ -283,4 +283,43 @@ class SlicedAggregateStateTest {
                 .as("and they are plainly different groups, which is the whole point")
                 .isNotEqualTo(second.keyValues());
     }
+
+    @Test
+    void twoGroupsSharingOneDigestKeepTheirOwnSums() {
+        // W8-14's constructed collision: the state is handed its digest, so two groups can be given
+        // the same one. Keyed by the digest alone they were one accumulator and both groups
+        // reported 300.
+        SlicedAggregateState state = state(
+                WindowSpec.tumbling(10 * SECOND), 100, SlicedAggregateState.Kind.COUNT, SlicedAggregateState.Kind.SUM);
+
+        state.update(7L, 7L, new Object[] {"ann"}, SECOND, new long[] {0, 100}, 1);
+        state.update(7L, 7L, new Object[] {"bob"}, 2 * SECOND, new long[] {0, 200}, 1);
+
+        assertThat(state.liveSlices())
+                .as("two groups, one digest, two accumulators")
+                .isEqualTo(2);
+        java.util.Map<Object, List<Long>> byGroup = new java.util.TreeMap<>();
+        for (SlicedAggregateState.WindowResult result : state.fire(10 * SECOND)) {
+            byGroup.put(result.keyValues()[0], List.of(result.values()[0], result.values()[1]));
+        }
+        assertThat(byGroup)
+                .containsExactly(
+                        java.util.Map.entry("ann", List.of(1L, 100L)), java.util.Map.entry("bob", List.of(1L, 200L)));
+    }
+
+    @Test
+    void aVersionTwoCheckpointIsRefusedByName() throws Exception {
+        // Version 2 named a distinct value's group by digest alone, so it cannot say which of two
+        // groups sharing a digest a value belonged to.
+        SlicedAggregateState state =
+                state(WindowSpec.tumbling(10 * SECOND), 100, SlicedAggregateState.Kind.COUNT_DISTINCT);
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        new java.io.DataOutputStream(bytes).writeInt(2);
+
+        assertThatThrownBy(() -> state.readFrom(
+                        new java.io.DataInputStream(new java.io.ByteArrayInputStream(bytes.toByteArray()))))
+                .isInstanceOf(java.io.IOException.class)
+                .hasMessageContaining("format version 2")
+                .hasMessageContaining("W8-14");
+    }
 }

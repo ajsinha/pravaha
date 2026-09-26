@@ -22,13 +22,16 @@ import com.ash.messaging.pravaha.runtime.state.VariableKeyStateMap;
 /**
  * Off-heap storage for every accumulator a {@link SlicedAggregateState} holds.
  *
- * <p>Indexed by {@link VariableKeyStateMap}, keyed by the same 24 fixed bytes -- {@code keyHigh},
- * {@code keyLow}, {@code sliceStart} -- the aggregate has always identified a slice by. The value is
- * one {@link com.ash.messaging.pravaha.state.RowStore} block per accumulator: a fixed header ({@code
- * count}, then {@code values[]}, then {@code nonNull[]}, all eight-byte longs) followed by {@code
- * keyValues} encoded exactly as {@link TaggedValues#writeKeyValues} writes it to a checkpoint -- reused
- * rather than re-invented, and safe to reuse because a group's {@code keyValues} are fixed at creation
- * and never rewritten, so the block never needs to grow.
+ * <p>Indexed by {@link VariableKeyStateMap}, keyed by {@code keyHigh}, {@code keyLow}, {@code
+ * sliceStart} and then <strong>the group's own key columns</strong>, written by {@link
+ * TaggedValues#writeGroupIdentity}. The digest alone was the key until W8-14, and a digest is not an
+ * identity: two groups whose 128 bits collided became one accumulator and one merged answer, with
+ * nothing anywhere to say so. The map compares the whole key byte for byte against the arena, so two
+ * groups sharing a digest are two entries, and the digest still leads the key so that a probe which
+ * meets a different group almost always fails on its first eight bytes. The value is one {@link
+ * com.ash.messaging.pravaha.state.RowStore} block per accumulator: {@code count}, then {@code
+ * values[]}, then {@code nonNull[]}, all eight-byte longs. The group's values are not repeated there;
+ * they are read back from the key.
  *
  * <p>{@code COUNT(DISTINCT)} columns keep their per-slice distinct count in the {@code values[]}
  * slot like any other column; the values themselves live beside this, in {@link DistinctValueCounts}.
@@ -37,7 +40,8 @@ final class OffHeapAccumulators implements AutoCloseable {
 
     private static final int INDEX_INITIAL_CAPACITY = 64;
     static final int STORE_SLAB_BYTES = 1 << 16;
-    private static final int KEY_BYTES = 3 * Long.BYTES;
+    /** Where the group's key columns start in an entry's key, after the digest and the slice. */
+    private static final int GROUP_OFFSET = 3 * Long.BYTES;
 
     /**
      * A deliberately generous per-accumulator estimate -- fixed header plus a modest {@code
@@ -54,7 +58,7 @@ final class OffHeapAccumulators implements AutoCloseable {
     private final MemoryAccess overflowAccess;
     private final int maxOverflowSlabs;
     private final int ramMaxSlabs;
-    private final MemoryRegion keyScratch;
+    private MemoryRegion keyScratch;
 
     private VariableKeyStateMap map;
 
@@ -71,7 +75,7 @@ final class OffHeapAccumulators implements AutoCloseable {
         this.overflowAccess = overflowAccess;
         this.maxOverflowSlabs = maxOverflowSlabs;
         this.ramMaxSlabs = ramMaxSlabs;
-        this.keyScratch = access.allocate(KEY_BYTES);
+        this.keyScratch = access.allocate(256);
         this.map = newMap();
     }
 
@@ -87,35 +91,33 @@ final class OffHeapAccumulators implements AutoCloseable {
                 access, INDEX_INITIAL_CAPACITY, STORE_SLAB_BYTES, ramMaxSlabs, overflowAccess, maxOverflowSlabs);
     }
 
-    private void writeKey(long keyHigh, long keyLow, long sliceStart) {
+    /** Writes a full key into the scratch region, growing it for a long key, and returns its length. */
+    private int writeKey(long keyHigh, long keyLow, long sliceStart, Object[] keyValues) {
+        int length = GROUP_OFFSET + TaggedValues.groupIdentityLength(keyValues);
+        if (keyScratch.capacity() < length) {
+            keyScratch.close();
+            keyScratch = access.allocate(Math.max(length, keyScratch.capacity() * 2));
+        }
         keyScratch.putLong(0, keyHigh);
         keyScratch.putLong(Long.BYTES, keyLow);
         keyScratch.putLong(2 * Long.BYTES, sliceStart);
+        TaggedValues.writeGroupIdentity(keyScratch, GROUP_OFFSET, keyValues);
+        return length;
     }
 
-    long find(long keyHigh, long keyLow, long sliceStart) {
-        writeKey(keyHigh, keyLow, sliceStart);
-        return map.find(keyScratch, 0, KEY_BYTES);
+    long find(long keyHigh, long keyLow, long sliceStart, Object[] keyValues) {
+        int length = writeKey(keyHigh, keyLow, sliceStart, keyValues);
+        return map.find(keyScratch, 0, length);
     }
 
-    /** Creates a new, zeroed accumulator (the store zeroes a fresh block's value bytes) with {@code
-     * keyValues} written into its variable tail. */
+    /** Creates a new, zeroed accumulator (the store zeroes a fresh block's value bytes). */
     long create(long keyHigh, long keyLow, long sliceStart, Object[] keyValues) {
-        writeKey(keyHigh, keyLow, sliceStart);
-        byte[] encodedKeyValues = TaggedValues.encodeKeyValues(keyValues);
-        long handle = map.getOrCreate(keyScratch, 0, KEY_BYTES, fixedHeaderBytes + encodedKeyValues.length);
-        map.valueRegionOf(handle)
-                .putBytes(map.valueOffsetOf(handle) + fixedHeaderBytes, encodedKeyValues, 0, encodedKeyValues.length);
-        return handle;
+        int length = writeKey(keyHigh, keyLow, sliceStart, keyValues);
+        return map.getOrCreate(keyScratch, 0, length, fixedHeaderBytes);
     }
 
     Object[] keyValuesOf(long handle) {
-        MemoryRegion region = map.valueRegionOf(handle);
-        int base = map.valueOffsetOf(handle);
-        int length = map.valueLengthOf(handle) - fixedHeaderBytes;
-        byte[] encoded = new byte[length];
-        region.getBytes(base + fixedHeaderBytes, encoded, 0, length);
-        return TaggedValues.decodeKeyValues(encoded);
+        return TaggedValues.readGroupIdentity(map.keyRegionOf(handle), map.keyOffsetOf(handle) + GROUP_OFFSET);
     }
 
     long count(long handle) {
@@ -168,9 +170,12 @@ final class OffHeapAccumulators implements AutoCloseable {
         return accumulator;
     }
 
-    void remove(long keyHigh, long keyLow, long sliceStart) {
-        writeKey(keyHigh, keyLow, sliceStart);
-        map.remove(keyScratch, 0, KEY_BYTES);
+    /**
+     * Removes an accumulator. The entry's own key is handed to the map as the key to remove: the map
+     * hashes and compares it before it releases the block, so nothing is read after it has gone.
+     */
+    void remove(long handle) {
+        map.remove(map.keyRegionOf(handle), map.keyOffsetOf(handle), map.keyLengthOf(handle));
     }
 
     void forEach(java.util.function.LongConsumer visitor) {
