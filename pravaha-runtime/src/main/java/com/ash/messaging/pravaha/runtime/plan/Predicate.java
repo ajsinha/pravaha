@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.runtime.plan;
 import java.util.List;
 
 import com.ash.messaging.pravaha.api.data.RowView;
+import com.ash.messaging.pravaha.api.data.TypeName;
 
 /**
  * A boolean test over a row, as <em>structure</em> rather than as a closure.
@@ -159,11 +160,36 @@ public sealed interface Predicate {
         }
     }
 
-    /** {@code column op <int literal>}, for the narrower integer widths. */
-    record CompareInt(int ordinal, String columnName, Op op, int value) implements Predicate {
+    /**
+     * {@code column op <int literal>}, for the integer widths up to 32 bits.
+     *
+     * <p>Reads the column at <em>its own</em> width. The row layout packs each fixed-width field at
+     * its width, so a {@code TINYINT} is one byte and a {@code SMALLINT} two, with the next field
+     * right behind; reading four bytes for either compared the column's value mixed with its
+     * neighbour's, so {@code WHERE small = 5} depended on the column after {@code small} -- a silent
+     * wrong answer that tests missed because their neighbouring bytes were zero.
+     *
+     * @param type the column's declared type; {@code INT8} and {@code INT16} read one and two bytes
+     */
+    record CompareInt(int ordinal, String columnName, Op op, int value, TypeName type) implements Predicate {
+
+        /** A 32-bit column, which is what every caller before the width was carried meant. */
+        public CompareInt(int ordinal, String columnName, Op op, int value) {
+            this(ordinal, columnName, op, value, TypeName.INT32);
+        }
+
         @Override
         public boolean test(RowView row) {
-            return !row.isNull(ordinal) && op.matches(Integer.compare(row.getInt(ordinal), value));
+            if (row.isNull(ordinal)) {
+                return false;
+            }
+            int read =
+                    switch (type) {
+                        case INT8 -> row.getByte(ordinal);
+                        case INT16 -> row.getShort(ordinal);
+                        default -> row.getInt(ordinal);
+                    };
+            return op.matches(Integer.compare(read, value));
         }
 
         @Override
@@ -172,10 +198,26 @@ public sealed interface Predicate {
         }
     }
 
-    record CompareDouble(int ordinal, String columnName, Op op, double value) implements Predicate {
+    /**
+     * {@code column op <floating-point literal>}, reading the column at its own width: a {@code REAL}
+     * is four bytes, and reading eight took its neighbour's bits as the low half of a double.
+     *
+     * @param type the column's declared type; {@code FLOAT32} reads four bytes and widens exactly
+     */
+    record CompareDouble(int ordinal, String columnName, Op op, double value, TypeName type) implements Predicate {
+
+        /** A 64-bit column, which is what every caller before the width was carried meant. */
+        public CompareDouble(int ordinal, String columnName, Op op, double value) {
+            this(ordinal, columnName, op, value, TypeName.FLOAT64);
+        }
+
         @Override
         public boolean test(RowView row) {
-            return !row.isNull(ordinal) && op.matchesDoubles(row.getDouble(ordinal), value);
+            if (row.isNull(ordinal)) {
+                return false;
+            }
+            double read = type == TypeName.FLOAT32 ? row.getFloat(ordinal) : row.getDouble(ordinal);
+            return op.matchesDoubles(read, value);
         }
 
         @Override

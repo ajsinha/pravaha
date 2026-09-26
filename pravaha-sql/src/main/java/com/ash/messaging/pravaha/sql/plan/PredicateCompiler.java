@@ -318,9 +318,10 @@ public final class PredicateCompiler {
         }
 
         return switch (type) {
-            case INT8, INT16, INT32, DATE -> new Predicate.CompareInt(ordinal, column, op, (int) constant.asLong());
+            case INT8, INT16, INT32, DATE ->
+                new Predicate.CompareInt(ordinal, column, op, (int) constant.asLong(), type);
             case INT64, TIME, TIMESTAMP_LTZ -> new Predicate.CompareLong(ordinal, column, op, constant.asLong());
-            case FLOAT32, FLOAT64 -> new Predicate.CompareDouble(ordinal, column, op, constant.asDouble());
+            case FLOAT32, FLOAT64 -> new Predicate.CompareDouble(ordinal, column, op, constant.asDouble(), type);
             case STRING -> {
                 if (op != Predicate.Op.EQ && op != Predicate.Op.NE) {
                     throw new PravahaException(
