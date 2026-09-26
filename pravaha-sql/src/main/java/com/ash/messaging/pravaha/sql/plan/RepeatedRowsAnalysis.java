@@ -129,6 +129,9 @@ public final class RepeatedRowsAnalysis {
             case JoinOperator join ->
                 "the join pairs every copy of a row again with each row it matches, and a copy keeps a pair "
                         + "alive after the other side retracts it";
+            case com.ash.messaging.pravaha.runtime.plan.TopNOperator topN ->
+                "the top-N numbers every copy of a row as another row, so a copy takes a place in the first N "
+                        + "that belongs to a different row";
             default -> null;
         };
     }

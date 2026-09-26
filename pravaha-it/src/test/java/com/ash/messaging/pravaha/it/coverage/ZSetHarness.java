@@ -70,33 +70,53 @@ final class ZSetHarness {
 
     /** The pipeline's answer: every emitted row, consolidated. */
     static Map<List<Object>, Long> maintained(StreamSchema schema, String sql, List<Change> changes, long watermark) {
+        return maintained(schema, sql, changes, watermark, -1);
+    }
+
+    /**
+     * As {@link #maintained(StreamSchema, String, List, long)}, with a checkpoint after the first
+     * {@code checkpointAfter} changes: the pipeline's state is snapshotted, the pipeline closed, and a
+     * fresh one restored from the snapshot is fed the rest. Negative for no checkpoint.
+     */
+    static Map<List<Object>, Long> maintained(
+            StreamSchema schema, String sql, List<Change> changes, long watermark, int checkpointAfter) {
         PhysicalOperator plan =
                 new PhysicalPlanBuilder().build(SqlPlanner.withStreams(schema).plan(sql));
         List<CapturingRowWriter.Captured> out = new ArrayList<>();
         RowLayout layout = RowLayout.of(schema);
-        try (RowArena arena = new RowArena(MemoryAccess.best(), 1 << 22, 8);
-                InterpretedPipeline pipeline = InterpretedPipeline.compile(
-                        plan, (RowOutput) () -> new CapturingRowWriter(plan.outputSchema(), out::add))) {
-            BinaryRowWriter writer = new BinaryRowWriter(layout);
-            BinaryRowView reader = new BinaryRowView(layout);
-            long sequence = 0;
-            for (Change change : changes) {
-                long handle = arena.allocate(layout.rowSize(512));
-                writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
-                for (int i = 0; i < change.values().size(); i++) {
-                    write(writer, schema, i, change.values().get(i));
+        RowOutput output = () -> new CapturingRowWriter(plan.outputSchema(), out::add);
+        try (RowArena arena = new RowArena(MemoryAccess.best(), 1 << 22, 8)) {
+            InterpretedPipeline pipeline = InterpretedPipeline.compile(plan, output);
+            try {
+                BinaryRowWriter writer = new BinaryRowWriter(layout);
+                BinaryRowView reader = new BinaryRowView(layout);
+                long sequence = 0;
+                for (Change change : changes) {
+                    if (sequence == checkpointAfter) {
+                        byte[] snapshot = pipeline.snapshotState();
+                        pipeline.close();
+                        pipeline = InterpretedPipeline.compile(plan, output);
+                        pipeline.restoreState(snapshot);
+                    }
+                    long handle = arena.allocate(layout.rowSize(512));
+                    writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
+                    for (int i = 0; i < change.values().size(); i++) {
+                        write(writer, schema, i, change.values().get(i));
+                    }
+                    writer.weight(change.weight())
+                            .eventTimestampNanos(change.eventTimeNanos())
+                            .sequence(++sequence)
+                            .commit();
+                    arena.trimTo(handle, writer.sizeSoFar());
+                    pipeline.accept(reader.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
                 }
-                writer.weight(change.weight())
-                        .eventTimestampNanos(change.eventTimeNanos())
-                        .sequence(++sequence)
-                        .commit();
-                arena.trimTo(handle, writer.sizeSoFar());
-                pipeline.accept(reader.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
+                if (watermark != Long.MIN_VALUE) {
+                    pipeline.advanceWatermark(watermark);
+                }
+                pipeline.finish();
+            } finally {
+                pipeline.close();
             }
-            if (watermark != Long.MIN_VALUE) {
-                pipeline.advanceWatermark(watermark);
-            }
-            pipeline.finish();
         }
         return consolidate(out, plan.outputSchema());
     }

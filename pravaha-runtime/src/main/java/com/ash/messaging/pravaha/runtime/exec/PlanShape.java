@@ -34,7 +34,10 @@ final class PlanShape {
         // Both shapes. A windowed aggregate keyed only by the window boundaries is still safe on
         // one lane and unsafe on several, because two lanes both holding the same window each keep
         // their own running total for it.
-        if (operator instanceof com.ash.messaging.pravaha.runtime.plan.WindowedAggregateOperator) {
+        // A top-N is keyed by its partition in the same way: two lanes would each number the rows
+        // of one partition they happen to see.
+        if (operator instanceof com.ash.messaging.pravaha.runtime.plan.WindowedAggregateOperator
+                || operator instanceof com.ash.messaging.pravaha.runtime.plan.TopNOperator) {
             return true;
         }
         if (operator instanceof com.ash.messaging.pravaha.runtime.plan.AggregateOperator aggregate

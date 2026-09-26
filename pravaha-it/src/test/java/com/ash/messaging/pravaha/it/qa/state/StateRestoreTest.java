@@ -218,7 +218,7 @@ class StateRestoreTest extends StateTestSupport {
             assertThat(c.operatorState().keySet()).containsExactly("lane-0");
             byte[] s = c.operatorState().get("lane-0");
             assertThat(intAt(s, 0)).isEqualTo(0x50565354);
-            assertThat(intAt(s, 4)).isEqualTo(5);
+            assertThat(intAt(s, 4)).isEqualTo(6);
         }
         // Filter.
         try (RawExecution filtered = raw(TXN, "SELECT user_id, amount FROM txn WHERE amount > 50")) {
@@ -253,7 +253,7 @@ class StateRestoreTest extends StateTestSupport {
             assertThat(s[1]).isEqualTo((byte) 0x56);
             assertThat(s[2]).isEqualTo((byte) 0x53);
             assertThat(s[3]).isEqualTo((byte) 0x54);
-            assertThat(intAt(s, 4)).isEqualTo(5); // SNAPSHOT_VERSION -- 5 since ADR-044 changed the windowed section
+            assertThat(intAt(s, 4)).isEqualTo(6); // SNAPSHOT_VERSION -- 6 since the top-N section was appended
             assertThat(intAt(s, 8)).isEqualTo(1); // windowed operator count
         }
     }
@@ -280,7 +280,7 @@ class StateRestoreTest extends StateTestSupport {
             assertThat(s).isNotNull();
             assertThat(s.length).isGreaterThan(0);
             assertThat(intAt(s, 0)).isEqualTo(0x50565354);
-            assertThat(intAt(s, 4)).isEqualTo(5);
+            assertThat(intAt(s, 4)).isEqualTo(6);
             assertThat(intAt(s, 8))
                     .as("windowed count is zero for a join-only plan")
                     .isEqualTo(0);
@@ -636,7 +636,7 @@ class StateRestoreTest extends StateTestSupport {
         try (RawExecution b = rawWindowed()) {
             assertThatThrownBy(() -> b.execution.restore(patched, Duration.ofSeconds(30)))
                     .isInstanceOf(PravahaException.class)
-                    .hasMessageContaining("this snapshot is version 1 and this engine writes version 5")
+                    .hasMessageContaining("this snapshot is version 1 and this engine writes version 6")
                     .hasMessageContaining("Replay the stream from a source offset instead.");
         }
     }
@@ -666,7 +666,7 @@ class StateRestoreTest extends StateTestSupport {
             try (RawExecution b = rawWindowed()) {
                 assertThatThrownBy(() -> b.execution.restore(patched, Duration.ofSeconds(30)))
                         .isInstanceOf(PravahaException.class)
-                        .hasMessageContaining("this snapshot is version " + old + " and this engine writes version 5");
+                        .hasMessageContaining("this snapshot is version " + old + " and this engine writes version 6");
             }
         }
     }
@@ -725,7 +725,7 @@ class StateRestoreTest extends StateTestSupport {
         try (RawExecution b = raw(TXN, "SELECT COUNT(*) AS n FROM txn")) {
             assertThatThrownBy(() -> b.execution.restore(old, Duration.ofSeconds(30)))
                     .isInstanceOf(PravahaException.class)
-                    .hasMessageContaining("this snapshot is version 3 and this engine writes version 5");
+                    .hasMessageContaining("this snapshot is version 3 and this engine writes version 6");
         }
     }
 

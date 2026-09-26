@@ -118,6 +118,11 @@ public final class ChangelogAnalysis {
                 // stating because it is the only aggregate shape that is.
                 yield new Result(EnumSet.of(EmitMode.APPEND, EmitMode.UPSERT, EmitMode.RETRACT), "");
             }
+            case com.ash.messaging.pravaha.runtime.plan.TopNOperator topN ->
+                new Result(
+                        EnumSet.of(EmitMode.RETRACT, EmitMode.UPSERT),
+                        "the top-N over " + topN.input().outputSchema().name() + " withdraws a row when a better "
+                                + "one displaces it, and re-emits every row whose number changes");
             case AggregateOperator aggregate ->
                 new Result(
                         EnumSet.of(EmitMode.RETRACT, EmitMode.UPSERT),

@@ -43,6 +43,7 @@ import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 import com.ash.messaging.pravaha.runtime.plan.ProjectOperator;
 import com.ash.messaging.pravaha.runtime.plan.ScanOperator;
 import com.ash.messaging.pravaha.runtime.plan.SinkOperator;
+import com.ash.messaging.pravaha.runtime.plan.TopNOperator;
 import com.ash.messaging.pravaha.runtime.plan.WindowAssignOperator;
 import com.ash.messaging.pravaha.runtime.plan.WindowedAggregateOperator;
 
@@ -170,6 +171,18 @@ public final class InterpretedPipeline implements AutoCloseable {
     private final List<SymmetricHashJoin> joins = new ArrayList<>();
     private final List<LookupJoin> lookupJoins = new ArrayList<>();
     private final List<GlobalAggregate> globals = new ArrayList<>();
+
+    /** Operators whose state is rows -- a top-N -- checkpointed after the aggregates. */
+    private final List<HeldRows> heldRows = new ArrayList<>();
+
+    /** An operator whose state is a set of rows, and which writes and reads it for a checkpoint. */
+    interface HeldRows {
+        void writeTo(java.io.DataOutputStream out) throws java.io.IOException;
+
+        void readFrom(java.io.DataInputStream in) throws java.io.IOException;
+
+        long rowsHeld();
+    }
 
     /** Keyed aggregates, in build order, so a debug session can name one and read its groups. */
     private final List<KeyedAggregate> keyed = new ArrayList<>();
@@ -381,6 +394,7 @@ public final class InterpretedPipeline implements AutoCloseable {
         pipeline.lookupJoins.addAll(builder.lookupJoins);
         pipeline.globals.addAll(builder.globals);
         pipeline.keyed.addAll(builder.keyed);
+        pipeline.heldRows.addAll(builder.heldRows);
         pipeline.inputs.putAll(builder.heads);
         pipeline.partialAggregateTargets.putAll(builder.partialAggregateTargets);
         pipeline.partialAggregateSchemas.putAll(builder.partialAggregateSchemas);
@@ -818,7 +832,10 @@ public final class InterpretedPipeline implements AutoCloseable {
      * the same bytes. Into a windowed plan it is refused here, by version, rather than further in by
      * the aggregate's own format check.
      */
-    private static final int SNAPSHOT_VERSION = 5;
+    private static final int SNAPSHOT_VERSION = 6;
+
+    /** Version 6 without the held-rows section, still read into a plan that has no top-N. */
+    private static final int SNAPSHOT_VERSION_WITHOUT_HELD_ROWS = 5;
 
     /** The last layout with the old windowed-aggregate section, readable into a plan with no windowed aggregate. */
     private static final int SNAPSHOT_VERSION_WITH_OLD_WINDOWS = 4;
@@ -842,6 +859,10 @@ public final class InterpretedPipeline implements AutoCloseable {
             out.writeInt(globals.size());
             for (GlobalAggregate aggregate : globals) {
                 aggregate.writeTo(out);
+            }
+            out.writeInt(heldRows.size());
+            for (HeldRows operator : heldRows) {
+                operator.writeTo(out);
             }
         } catch (java.io.IOException e) {
             throw new PravahaException(RuntimeErrors.LANE_FAILED, "cannot snapshot this pipeline's state: " + e, e);
@@ -870,7 +891,8 @@ public final class InterpretedPipeline implements AutoCloseable {
             boolean withoutGlobals =
                     version == SNAPSHOT_VERSION_WITHOUT_GLOBALS && globals.isEmpty() && windowed.isEmpty();
             boolean oldWindowsButNone = version == SNAPSHOT_VERSION_WITH_OLD_WINDOWS && windowed.isEmpty();
-            if (version != SNAPSHOT_VERSION && !withoutGlobals && !oldWindowsButNone) {
+            boolean withoutHeldRows = version == SNAPSHOT_VERSION_WITHOUT_HELD_ROWS && heldRows.isEmpty();
+            if (version != SNAPSHOT_VERSION && !withoutGlobals && !oldWindowsButNone && !withoutHeldRows) {
                 throw new PravahaException(
                         RuntimeErrors.LANE_FAILED,
                         "this snapshot is version " + version + " and this engine writes version " + SNAPSHOT_VERSION
@@ -914,6 +936,17 @@ public final class InterpretedPipeline implements AutoCloseable {
             }
             for (GlobalAggregate aggregate : globals) {
                 aggregate.readFrom(in);
+            }
+            int heldCount = version == SNAPSHOT_VERSION ? in.readInt() : 0;
+            if (heldCount != heldRows.size()) {
+                throw new PravahaException(
+                        RuntimeErrors.LANE_FAILED,
+                        "the checkpoint holds " + heldCount + " top-N operators and this plan has " + heldRows.size()
+                                + ": the query changed since the checkpoint was taken, and a top-N resumed empty "
+                                + "would number rows as if none had arrived before.");
+            }
+            for (HeldRows operator : heldRows) {
+                operator.readFrom(in);
             }
         } catch (java.io.IOException e) {
             throw new PravahaException(RuntimeErrors.LANE_FAILED, "cannot restore pipeline state: " + e, e);
@@ -970,7 +1003,7 @@ public final class InterpretedPipeline implements AutoCloseable {
 
     /** Whether this pipeline holds any state worth checkpointing. */
     public boolean isStateful() {
-        return !windowed.isEmpty() || !joins.isEmpty() || !globals.isEmpty();
+        return !windowed.isEmpty() || !joins.isEmpty() || !globals.isEmpty() || !heldRows.isEmpty();
     }
 
     /** Records dropped as too late, across every windowed operator in this pipeline. */
@@ -1031,6 +1064,7 @@ public final class InterpretedPipeline implements AutoCloseable {
         private final List<LookupJoin> lookupJoins = new ArrayList<>();
         private final List<GlobalAggregate> globals = new ArrayList<>();
         private final List<KeyedAggregate> keyed = new ArrayList<>();
+        private final List<HeldRows> heldRows = new ArrayList<>();
         private final List<ScanOperator> scans = new ArrayList<>();
         private final Map<String, RowProcessor> heads = new LinkedHashMap<>();
         private final Map<String, PartialAggregateSink> partialAggregateTargets = new LinkedHashMap<>();
@@ -1210,6 +1244,11 @@ public final class InterpretedPipeline implements AutoCloseable {
                     yield buildInput(w.input(), entering(w, aggregate));
                 }
                 case SinkOperator s -> buildInput(s.input(), entering(s, downstream));
+                case TopNOperator t -> {
+                    TopNRanking ranking = new TopNRanking(t, arena, downstream);
+                    heldRows.add(ranking);
+                    yield buildInput(t.input(), entering(t, ranking));
+                }
                 case LookupJoinOperator l -> {
                     LookupSourcePlugin table = lookups.get(l.lookupStream());
                     if (table == null) {

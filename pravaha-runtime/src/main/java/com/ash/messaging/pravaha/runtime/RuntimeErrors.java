@@ -38,6 +38,15 @@ public final class RuntimeErrors {
     /** A join Pravaha will not run: an unsupported key type, or a shape with no bounded execution. */
     public static final ErrorCode UNSUPPORTED_JOIN = new ErrorCode(3021, "RUNTIME_UNSUPPORTED_JOIN");
 
+    /**
+     * An operator that holds rows -- a top-N -- was asked to retract a row it does not hold.
+     *
+     * <p>The input then retracts more than it inserted, which has no answer as a set of rows: a
+     * computation from scratch over it is undefined, so the maintained one refuses rather than
+     * holding a row a negative number of times and numbering the rest around it.
+     */
+    public static final ErrorCode RETRACTED_UNHELD_ROW = new ErrorCode(3024, "RUNTIME_RETRACTED_UNHELD_ROW");
+
     // 3023 is retired, not free. It was RUNTIME_COUNT_DISTINCT_CANNOT_SPILL: an aggregate containing
     // COUNT(DISTINCT) kept its distinct sets on the heap and was refused when the overflow tier was
     // configured. ADR-044 moved those sets into RowStore, so they spill like every other state and

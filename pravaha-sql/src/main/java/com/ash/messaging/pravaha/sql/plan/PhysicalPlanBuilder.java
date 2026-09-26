@@ -502,6 +502,9 @@ public final class PhysicalPlanBuilder {
         if (commaJoin != null) {
             return build(commaJoin);
         }
+        if (TopNPlanner.ranks(filter)) {
+            return new TopNPlanner(this, parameters).build(filter);
+        }
         PhysicalOperator input = build(filter.getInput());
         Predicate predicate = new PredicateCompiler(input.outputSchema(), parameters).compile(filter.getCondition());
         return new FilterOperator(input, predicate);
@@ -560,6 +563,7 @@ public final class PhysicalPlanBuilder {
     }
 
     private PhysicalOperator buildProject(Project project) {
+        TopNPlanner.refuseUnbounded(project);
         PhysicalOperator input = build(project.getInput());
         StreamSchema output = schemaOf(project, input.outputSchema().name() + "_projected", input.outputSchema());
 
