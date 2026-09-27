@@ -118,6 +118,30 @@ else
   echo "install.sh: kept  $home/console/conf/application.yaml (exists; never overwritten)"
 fi
 
+# ---------------------------------------------------------------- a kept 0.1.1 configuration
+# 0.1.1's files named the old ports (8080, 9090, 8090) explicitly, and a kept file is never
+# rewritten -- but this compose file publishes the new ones (18080, 19090, 17070). Left alone the
+# engine would listen where nothing is published. Said here, with the one command that fixes it,
+# rather than discovered as a console that cannot reach its engine.
+old_ports=""
+for f in "$home/conf/application.yaml" "$home/console/conf/application.yaml"; do
+  if [[ -r "$f" ]] && grep -qE '(port: (8080|9090|8090)\b|:(8080|9090|8090)\b)' "$f"; then
+    old_ports+=" $f"
+  elif [[ ! -r "$f" && -e "$f" ]] && "$docker_bin" run --rm --user 0 --entrypoint /bin/sh -v "$(dirname "$f"):/c" \
+      "pravaha/pravaha-server:$version" -c "grep -qE '(port: (8080|9090|8090)\\b|:(8080|9090|8090)\\b)' /c/$(basename "$f")"; then
+    old_ports+=" $f"
+  fi
+done
+if [[ -n "$old_ports" ]]; then
+  echo
+  echo "install.sh: WARNING -- kept configuration names the 0.1.1 ports (8080, 9090, 8090):"
+  for f in $old_ports; do echo "              $f"; done
+  echo "            From 0.1.2 the engine is on 18080 (HTTP) and 19090 (Flight) and the console on 17070,"
+  echo "            and docker-compose.yml publishes those. Move the files to the new ports with:"
+  echo "              sudo sed -i -E 's/\\b8080\\b/18080/g; s/\\b9090\\b/19090/g; s/\\b8090\\b/17070/g'$old_ports"
+  echo "            then: cd $home && sudo docker compose up -d"
+fi
+
 # ---------------------------------------------------------------- ownership
 # Both containers run as uid 10001. The configurations hold credentials: 0600, theirs. data/ and
 # logs/ are the engine's to write. Without root, one throwaway container does the chown -- the

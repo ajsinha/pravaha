@@ -16,7 +16,8 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 shipped without the documentation its help pages include (IMG-1), and 0.1.1's query sharing could
 hand one query another's answer (FP-1). Both are fixed here. **The default ports change** — 18080,
 19090 and 17070 — so a QA host moving from 0.1.1 installs this bundle fresh or moves its published
-ports; its two configuration files are kept either way.
+ports. `install.sh` keeps a host's two configuration files, and 0.1.1's name the old ports
+explicitly: it detects that and prints the one `sed` that moves them.
 
 - **Default ports moved** (the owner's decision): the engine's HTTP port is **18080** (was 8080),
   Flight SQL **19090** (was 9090), the console **17070** (was 8090). Both SDKs' default port, the CLI's
