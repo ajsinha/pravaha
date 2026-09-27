@@ -47,7 +47,7 @@ The findings register tracks anything found along the way.
 
 | # | Item | Size | Why this order |
 |---|---|---|---|
-| B1 | **One read of an exactly-once source for every query on it.** *In progress: the engine's exact seam and the filesystem source are built ([ADR-054](adr/054-an-ordered-source-is-shared-at-an-exact-seam.md)); Kafka follows tranche A.* A shared reader for Kafka first, then files and Delta, whose offsets become one checkpoint cut for every query it feeds, as the barrier already cuts every lane at one point (ADR-008). Lane sharing already writes each row once per shared lane. This removes the last "read it N times" | L | The biggest runtime win left: 1,000 queries over one topic read it once, not 1,000 times |
+| B1 | **One read of an exactly-once source for every query on it.** *Built for Kafka and files read once through (ADR-054); Delta and JDBC remain.* A shared reader for Kafka first, then files and Delta, whose offsets become one checkpoint cut for every query it feeds, as the barrier already cuts every lane at one point (ADR-008). Lane sharing already writes each row once per shared lane. This removes the last "read it N times" | L | The biggest runtime win left: 1,000 queries over one topic read it once, not 1,000 times |
 | B2 | A secondary index on a column outside the view's key: value to keys, maintained in the view's own commit, used by a point read's predicate | M | Turns the last documented full scan in serving into a probe |
 | B3 | The snapshot-and-change-feed splice wired: a snapshot read exposed from `jdbc` and `postgres-cdc`, `SplicedReader` used for a replacement's backfill, then `backfill.adaptive` | M | Built and tested code that nothing reaches is a liability until it is wired |
 

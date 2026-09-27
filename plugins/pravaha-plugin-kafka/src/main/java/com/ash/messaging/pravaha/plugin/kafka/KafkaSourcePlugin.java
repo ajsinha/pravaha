@@ -424,4 +424,21 @@ public final class KafkaSourcePlugin implements StreamSourcePlugin {
             throw new IllegalStateException("kafka source '" + options.instanceName + "' is not open");
         }
     }
+
+    /**
+     * Offsets within a partition are totally ordered, so one reader can serve every query on a partition
+     * at an exact seam (ADR-054). {@link SourceOffset#BEGINNING} comes first.
+     */
+    @Override
+    public com.ash.messaging.pravaha.api.plugin.OrderedPositions orderedPositions() {
+        return (a, b) -> Long.compare(nextOf(a), nextOf(b));
+    }
+
+    private static long nextOf(SourceOffset offset) {
+        if (offset == null || offset.isBeginning()) {
+            return -1;
+        }
+        String token = offset.token();
+        return Long.parseLong(token.substring(token.lastIndexOf('@') + 1));
+    }
 }

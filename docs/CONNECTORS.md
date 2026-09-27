@@ -178,7 +178,7 @@ int pollBefore(RecordSink sink, int maxRecords, SourceOffset bound);   // stop e
 With both, a query that joins, resumes or restores behind the shared reader reads only the gap, up to
 exactly where the shared reader stands, and then joins the fan-out. One that restores ahead of it
 waits until the shared reader lands on its position. Each record reaches each query once, in order.
-Implemented today by `filesystem` (files read once through); Kafka is next.
+Implemented by `kafka` and by `filesystem` for a file read once through. A shared Kafka reader also picks up partitions the topic gains while it runs, and every query on it joins them.
 
 ---
 

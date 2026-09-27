@@ -204,6 +204,9 @@ final class SharedPartitionFeed {
 
     private final ReentrantLock lock = new ReentrantLock(true);
 
+    /** Where a partition gained while queries ran was first opened: its beginning. Lock held. */
+    private SourceOffset gainedFrom;
+
     /** How this source orders its positions, or null for the at-least-once sharing above. */
     private final OrderedPositions order;
 
@@ -308,14 +311,23 @@ final class SharedPartitionFeed {
             if (closed) {
                 throw new IllegalStateException("this shared reader has been closed");
             }
+            if (from == null && reader != null) {
+                // A partition gained while queries ran, which another of them opened a moment ago: from
+                // where that reader started, so a record it has already read is caught up, not missed.
+                from = gainedFrom == null ? reader.position() : gainedFrom;
+            }
             Member member = new Member(queryName, wanted.withoutAggregates(), afterDelivery);
             member.feed = this;
             SourceOffset catchUpFrom = null;
             if (reader == null) {
                 // The first consumer decides where the reader starts and what it pushes down. A
-                // group of one therefore keeps every optimisation a private reader had.
+                // group of one therefore keeps every optimisation a private reader had. No position
+                // at all means a partition the source gained while the query ran: from its first record.
                 request = SharedReadRequest.union(List.of(member.request));
-                reader = plugin.createReader(partition, from, request);
+                reader = from == null
+                        ? plugin.createReaderForNewPartition(partition, request)
+                        : plugin.createReader(partition, from, request);
+                gainedFrom = from == null ? reader.position() : null;
                 readerIdle = true;
             } else {
                 // Two questions, two WHERE clauses, one reader: it must return every row either

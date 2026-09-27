@@ -276,7 +276,10 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         List<FeedInput> inputs = new ArrayList<>();
         List<AutoCloseable> resources = new ArrayList<>();
         List<AutoCloseable> sharedResources = new ArrayList<>();
-        List<SharedPartitionFeed.Member> members = new ArrayList<>();
+        // Copy-on-write: a group that gains a partition adds this query's member for it from its own
+        // thread, while the feed may be reading the list.
+        List<SharedPartitionFeed.Member> members = new java.util.concurrent.CopyOnWriteArrayList<>();
+        List<AutoCloseable> watches = new ArrayList<>();
         List<SharedSourceGroup> joined = new ArrayList<>();
         Map<String, Integer> partitionCounts = new LinkedHashMap<>();
         // What each stream's reader was asked to do, for describe(): an operator asking why a query
@@ -308,30 +311,42 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                                     execution.plan(), stream, group.plugin().capabilities())
                             .withoutAggregates();
                     pushed.put(stream, summarise(shared) + ", shared" + sourceSays(group.plugin(), shared));
+                    java.util.function.BiFunction<SharedPartitionFeed, Integer, SharedPartitionFeed.Member> joinAt =
+                            (feed, partition) -> feed.join(
+                                    queryName,
+                                    null,
+                                    shared,
+                                    publish,
+                                    reader -> sharedPump(
+                                            execution, queryName, stream, partition, reader, group, sharedResources),
+                                    execution.sharedLaneInput(stream));
                     for (int index = 0; index < group.partitionCount(); index++) {
                         int partition = index;
                         String token = positions.tokenFor(stream, partition);
-                        SourceOffset from = token == null ? SourceOffset.BEGINNING : new SourceOffset(token);
-                        // LANE-2: a query hosted on a shared lane takes the one copy the reader writes
-                        // into that lane for every member on it, rather than a copy of its own.
+                        // No offset for a partition this restore has never seen: the source gained it
+                        // after the checkpoint, so it is read from its first record (null), like any
+                        // partition gained while running.
+                        SourceOffset from = positions.isNew(token)
+                                ? null
+                                : token == null ? SourceOffset.BEGINNING : new SourceOffset(token);
                         members.add(group.feed(index)
                                 .join(
                                         queryName,
                                         from,
                                         shared,
                                         publish,
-                                        reader -> {
-                                            IngestPump pump = execution.pumpInto(0, stream, partition, reader, policy);
-                                            attachDeadLetters(pump, queryName, sharedResources);
-                                            // What the source promises, so a replay can refuse where
-                                            // re-feeding a record would count it twice (B5).
-                                            pump.sourceGuarantee(group.plugin()
-                                                    .capabilities()
-                                                    .guarantee());
-                                            return pump;
-                                        },
+                                        reader -> sharedPump(
+                                                execution,
+                                                queryName,
+                                                stream,
+                                                partition,
+                                                reader,
+                                                group,
+                                                sharedResources),
                                         execution.sharedLaneInput(stream)));
                     }
+                    // A2 for shared readers: a partition the source gains later is joined as it appears.
+                    watches.add(group.watch((feed, partition) -> members.add(joinAt.apply(feed, partition))));
                     continue;
                 }
 
@@ -423,7 +438,8 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                         .growing(growth);
         List<AutoCloseable> owned = new ArrayList<>(sharedResources);
         List<SharedSourceGroup> held = List.copyOf(joined);
-        SharedFeed feed = new SharedFeed(members, held, () -> release(held), unshared, owned, description);
+        SharedFeed feed =
+                new SharedFeed(members, held, () -> release(held), unshared, owned, description).watching(watches);
         feed.start();
         return feed;
     }
@@ -894,6 +910,23 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         // What the source promises, so a replay can refuse where re-feeding a record would count it
         // twice (B5).
         pump.sourceGuarantee(plugin.capabilities().guarantee());
+        return pump;
+    }
+
+    /** The pump a shared reader feeds one partition of one query through. */
+    private IngestPump sharedPump(
+            QueryExecution execution,
+            String queryName,
+            String stream,
+            int partition,
+            PartitionReader reader,
+            SharedSourceGroup group,
+            List<AutoCloseable> sharedResources) {
+        IngestPump pump = execution.pumpInto(0, stream, partition, reader, policy);
+        attachDeadLetters(pump, queryName, sharedResources);
+        // What the source promises, so a replay can refuse where re-feeding a record would count it
+        // twice (B5).
+        pump.sourceGuarantee(group.plugin().capabilities().guarantee());
         return pump;
     }
 

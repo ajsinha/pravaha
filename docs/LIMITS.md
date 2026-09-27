@@ -31,7 +31,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   the shared inbox, so a thousand queries over one topic share eight inboxes and still read the topic
   a thousand times.
 
-  **Being built** ([ADR-054](adr/054-an-ordered-source-is-shared-at-an-exact-seam.md)). The engine now shares any source that declares ordered positions and bounded reads, at an exact seam; files read once through are the first such source. Kafka follows tranche A, then Delta and JDBC. postgres-cdc stays per query, because its slot can be confirmed only up to the slowest member's checkpoint. See [`REMAINING.md`](REMAINING.md) tranche B.
+  **Built for Kafka and for files read once through** ([ADR-054](adr/054-an-ordered-source-is-shared-at-an-exact-seam.md)): one reader per binding, each record to each query once and in order, and partitions a topic gains joined by every query sharing its reader. **Buildable:** Delta and JDBC, once their positions are shown to be totally ordered. postgres-cdc stays per query: its slot can be confirmed only up to the slowest member's checkpoint.
 
 - **A secondary index over a column that is not in a view's key.** The rest of the design's
   `CREATE CONTINUOUS QUERY` grammar is built: `RANGE (column)` keeps an ordered index over the

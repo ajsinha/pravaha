@@ -36,7 +36,6 @@ import org.apache.kafka.common.errors.WakeupException;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
-import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 import com.ash.messaging.pravaha.common.row.Decimals;
 
@@ -59,7 +58,7 @@ import com.ash.messaging.pravaha.common.row.Decimals;
  * offset is never read; with {@code monitoring.group} set, the offset a durable checkpoint recorded is
  * committed there from {@link #checkpointed}, for lag dashboards, and nothing reads it back.
  */
-final class KafkaPartitionReader implements PartitionReader {
+final class KafkaPartitionReader implements com.ash.messaging.pravaha.api.plugin.BoundedPartitionReader {
 
     private static final Duration FETCH_WAIT = Duration.ofMillis(100);
     private static final Duration CLOSE_TIMEOUT = Duration.ofSeconds(5);
@@ -143,16 +142,43 @@ final class KafkaPartitionReader implements PartitionReader {
 
     @Override
     public int poll(RecordSink sink, int maxRecords) {
-        if (paused || closed || maxRecords <= 0) {
+        return read(sink, maxRecords, Long.MAX_VALUE);
+    }
+
+    /**
+     * Only records at offsets before {@code bound}'s next offset (ADR-054). A record at or past it stays
+     * at the head of the queue for the next poll. A run of control records that spans the bound moves the
+     * position to exactly the bound: nothing before it remains, which is what the seam asks.
+     */
+    @Override
+    public int pollBefore(RecordSink sink, int maxRecords, SourceOffset bound) {
+        KafkaSourceOffset limit = KafkaSourceOffset.parse(bound, partition);
+        return read(sink, maxRecords, limit == null ? 0 : limit.next());
+    }
+
+    private int read(RecordSink sink, int maxRecords, long before) {
+        if (paused || closed || maxRecords <= 0 || position >= before) {
             return 0;
         }
         int written = 0;
         // Records consumed, delivered or rejected: what maxRecords bounds (PartitionReader#poll). A
         // skipped control record is not a record of the topic's and does not count.
         int consumed = 0;
-        while (consumed < maxRecords) {
+        while (consumed < maxRecords && position < before) {
             Item item = queue.peek();
             if (item == null) {
+                break;
+            }
+            if (item instanceof Decoded d && d.offset() >= before
+                    || item instanceof Rejected r && r.offset() >= before) {
+                // The next record is at or past the bound, so nothing before the bound remains.
+                position = before;
+                break;
+            }
+            if (item instanceof Skipped skipped && skipped.next() > before) {
+                // Control records reaching past the bound: none of them is a record, so the bound is
+                // reached exactly, and the rest of the skip is taken by the next poll.
+                position = before;
                 break;
             }
             switch (item) {

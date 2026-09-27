@@ -120,7 +120,7 @@ text of each is in [`LIMITS.md`](docs/LIMITS.md). The order they get built in is
 
 | Gap | What building it means |
 |---|---|
-| One read of an exactly-once source per query | **Being built** ([ADR-054](docs/adr/054-an-ordered-source-is-shared-at-an-exact-seam.md)): a source that declares ordered positions is shared at an exact seam, each query still receiving each record once and in order. Built in the engine and for files read once through; Kafka next, then Delta and JDBC. CDC stays per query |
+| One read of an ordered source per query, beyond Kafka and files | Kafka and files read once through are shared at an exact seam ([ADR-054](docs/adr/054-an-ordered-source-is-shared-at-an-exact-seam.md)). Delta and JDBC need their positions shown to be totally ordered; CDC stays one reader per query (its slot acknowledgement) |
 | A secondary index on a non-key column | A value-to-keys index maintained in the view's own commit. `RANGE` and whole-key lookups are already built ([ADR-049](docs/adr/049-an-ordered-index-over-the-keys-last-column.md)) |
 | The snapshot-and-change-feed splice | `SplicedReader` is built and tested and reached by nothing. Wiring it needs a snapshot read exposed from `jdbc` and `postgres-cdc`; `backfill.adaptive` follows |
 | More sinks and formats | Avro and Protobuf output for `kafka-sink`; an Iceberg sink without Spark |

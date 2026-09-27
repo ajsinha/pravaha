@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted; being built (tranche B1 of `../REMAINING.md`) |
+| Status | Accepted; built for Kafka and for files read once through (tranche B1 of `../REMAINING.md`) |
 | Date | 2026-09-27 |
 | Deciders | Ashutosh Sinha |
 | Relates to | SRC-3 (one reader per binding), LANE-2 (one copy per shared lane), ADR-008 (a checkpoint is one cut), ADR-046 (a replacement meets the running version at a position) |
@@ -65,7 +65,9 @@ otherwise a reader per query.
 - **filesystem**: its position is the count of lines consumed (rejected lines included), so both
   declarations are exact and cheap. First, because it can be tested end to end without a broker.
 - **kafka**: offsets are ordered per partition, and `pollBefore` compares each record's offset with the
-  bound. Built after tranche A, which is changing the Kafka reader.
+  bound; control records that span it move the position to exactly the bound. A shared group also
+  watches the topic's partitions (tranche A2) and joins every member to a partition it gains, from
+  that partition's first record.
 - **delta, jdbc**: to follow, each once its position's order is shown to be total.
 - **postgres-cdc stays a reader per query.** Its slot is confirmed at each checkpoint
   (`PartitionReader.checkpointed`). A shared slot could only be confirmed up to the slowest member's

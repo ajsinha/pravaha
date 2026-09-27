@@ -179,6 +179,12 @@ final class SharedFeed implements SourceFeed {
         for (SharedSourceGroup group : groups) {
             sharing = Math.max(sharing, group.queryCount());
         }
+        for (SharedSourceGroup group : groups) {
+            String growth = group.describeGrowth();
+            if (!growth.isEmpty()) {
+                text.append("; ").append(growth);
+            }
+        }
         if (sharing > 1) {
             // The number an operator needs when asking why a source is slower than they expected:
             // the poll is sized to the smallest free inbox among these, so a stalled one of them
@@ -190,8 +196,23 @@ final class SharedFeed implements SourceFeed {
         return text.toString();
     }
 
+    /** Stops this query being joined to partitions its groups gain; closed before its members. */
+    private List<AutoCloseable> watches = List.of();
+
+    SharedFeed watching(List<AutoCloseable> watches) {
+        this.watches = watches;
+        return this;
+    }
+
     @Override
     public void close() {
+        for (AutoCloseable watch : watches) {
+            try {
+                watch.close();
+            } catch (Exception e) {
+                // Unregistering a callback cannot meaningfully fail; nothing to do if it does.
+            }
+        }
         if (unshared != null) {
             unshared.close();
         }

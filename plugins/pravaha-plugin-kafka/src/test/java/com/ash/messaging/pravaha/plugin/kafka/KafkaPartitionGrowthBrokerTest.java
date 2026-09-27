@@ -111,6 +111,33 @@ class KafkaPartitionGrowthBrokerTest {
 
     // ---------------------------------------------------------------------------------------
 
+    /**
+     * ADR-054 against a real broker: two different questions about one topic share one reader, and the
+     * one registered late, while records keep arriving, still counts each record exactly once.
+     */
+    @Test
+    void aLateQueryOnTheSameTopicSharesItsReaderAndCountsEachRecordOnce() throws Exception {
+        String topic = KafkaBroker.topic("shared", 2, false);
+        write(topic, 0, 1, 500);
+        write(topic, 1, 501, 1000);
+        QueryRegistry registry = registry(topic);
+        RegisteredQuery first = registry.register("totals", TOTALS, List.of(0), Principal.ANONYMOUS);
+        awaitTotals(first, 1000, total(1, 1000));
+
+        RegisteredQuery late = registry.register(
+                "big_totals",
+                "SELECT COUNT(*) AS n, SUM(amount) AS total FROM txn WHERE amount > 0",
+                List.of(0),
+                Principal.ANONYMOUS);
+        write(topic, 0, 1001, 1500);
+        write(topic, 1, 1501, 2000);
+        awaitTotals(first, 2000, total(1, 2000));
+        awaitTotals(late, 2000, total(1, 2000));
+        Thread.sleep(2_000);
+        assertThat(totals(late)).as("nothing twice across the seam").isEqualTo(List.of(2000L, total(1, 2000)));
+        assertThat(late.feed().describe()).contains("shared").contains("one reader shared with 1 other query");
+    }
+
     private QueryRegistry registry(String topic) {
         Map<String, String> options = new HashMap<>();
         options.put("bootstrap.servers", KafkaBroker.bootstrap());

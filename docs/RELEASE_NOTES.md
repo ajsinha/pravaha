@@ -21,7 +21,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   ([ADR-054](adr/054-an-ordered-source-is-shared-at-an-exact-seam.md)). A source declaring ordered
   positions and bounded reads is shared at an exact seam: a query joining, resuming or restoring
   behind the reader catches up to exactly where it stands, and one restored ahead waits for it. The
-  filesystem source (files read once through) is the first. Kafka is next.
+  Kafka source and the filesystem source (files read once through) implement it, so a thousand queries over one topic read it once, and partitions the topic gains are joined by every query sharing its reader.
 - **Users, passwords, API keys and sessions kept by the engine**
   ([ADR-052](adr/052-the-engine-is-the-identity-authority.md), stage 1 of 6). The core is built and off
   by default (`pravaha.identity.enabled`). New codes PRV-7010 to PRV-7021.

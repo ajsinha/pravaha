@@ -53,6 +53,22 @@ final class SharedSourceGroup {
     private final StreamSourcePlugin plugin;
     private final List<SourcePartition> partitions;
     private final List<SharedPartitionFeed> feeds;
+    private final BackpressurePolicy policy;
+
+    /** How each query joins a partition this group gains while it runs. Guarded by {@code this}. */
+    private final List<Joiner> joiners = new ArrayList<>();
+
+    /** Partitions gained while running, in the order they appeared. */
+    private final List<Integer> gained = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    private Thread watcher;
+    private volatile boolean closed;
+
+    /** Joins one query to a partition the source gained after the query registered. */
+    @FunctionalInterface
+    interface Joiner {
+        void join(SharedPartitionFeed feed, int partition);
+    }
 
     /** Queries holding this group. Guarded by the owning {@link PluginSourceFeeds}'s monitor. */
     private int holders;
@@ -60,13 +76,78 @@ final class SharedSourceGroup {
     SharedSourceGroup(Key key, StreamSourcePlugin plugin, List<SourcePartition> partitions, BackpressurePolicy policy) {
         this.key = key;
         this.plugin = plugin;
-        this.partitions = List.copyOf(partitions);
+        this.policy = policy;
+        this.partitions = new java.util.concurrent.CopyOnWriteArrayList<>(partitions);
         List<SharedPartitionFeed> built = new ArrayList<>(partitions.size());
         for (SourcePartition partition : this.partitions) {
-            built.add(new SharedPartitionFeed(
-                    key.stream(), partition, plugin, key.binding(), policy, plugin.orderedPositions()));
+            built.add(feedFor(partition));
         }
-        this.feeds = List.copyOf(built);
+        this.feeds = new java.util.concurrent.CopyOnWriteArrayList<>(built);
+    }
+
+    private SharedPartitionFeed feedFor(SourcePartition partition) {
+        return new SharedPartitionFeed(
+                key.stream(), partition, plugin, key.binding(), policy, plugin.orderedPositions());
+    }
+
+    /**
+     * Registers how a query joins partitions this group gains, and starts watching the source for them
+     * when it says it may gain any (A2's {@code partitionRefreshInterval}). The returned handle stops
+     * this query being joined to anything more; the query closes it before it closes its members.
+     */
+    synchronized AutoCloseable watch(Joiner joiner) {
+        joiners.add(joiner);
+        java.time.Duration interval = plugin.partitionRefreshInterval();
+        if (watcher == null && interval != null && !interval.isZero() && !interval.isNegative()) {
+            watcher = Thread.ofVirtual()
+                    .name("pravaha-shared-partitions-" + key.stream())
+                    .start(() -> watchLoop(interval));
+        }
+        return () -> {
+            synchronized (this) {
+                joiners.remove(joiner);
+            }
+        };
+    }
+
+    private void watchLoop(java.time.Duration interval) {
+        while (!closed) {
+            try {
+                Thread.sleep(interval);
+                grow();
+            } catch (InterruptedException e) {
+                return;
+            } catch (RuntimeException e) {
+                // Listing partitions failed this round: the source may be briefly unreachable. The
+                // partitions already read carry on; the next round asks again.
+                System.getLogger(SharedSourceGroup.class.getName())
+                        .log(
+                                System.Logger.Level.WARNING,
+                                "listing the partitions of " + key.stream() + " failed: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Opens a feed for every partition the source has gained and joins every query to it, each from the
+     * partition's first record, since it has no history anybody chose to skip. Package-private for the
+     * test that grows a group without waiting a refresh interval.
+     */
+    synchronized void grow() {
+        java.util.Set<Integer> known = new java.util.HashSet<>();
+        partitions.forEach(p -> known.add(p.index()));
+        for (SourcePartition partition : plugin.partitions(key.stream())) {
+            if (closed || known.contains(partition.index())) {
+                continue;
+            }
+            SharedPartitionFeed feed = feedFor(partition);
+            partitions.add(partition);
+            feeds.add(feed);
+            gained.add(partition.index());
+            for (Joiner joiner : List.copyOf(joiners)) {
+                joiner.join(feed, partition.index());
+            }
+        }
     }
 
     /**
@@ -151,6 +232,19 @@ final class SharedSourceGroup {
         return feeds.get(partition);
     }
 
+    /** What a status line says about growth, in {@link PartitionGrowth}'s words, or empty. */
+    String describeGrowth() {
+        return gained.isEmpty()
+                ? ""
+                : key.stream() + " gained " + gained.size() + (gained.size() == 1 ? " partition" : " partitions")
+                        + " while running " + gained;
+    }
+
+    /** The partitions this group reads, in the order its feeds were made. */
+    List<SourcePartition> partitions() {
+        return List.copyOf(partitions);
+    }
+
     StreamSourcePlugin plugin() {
         return plugin;
     }
@@ -186,6 +280,15 @@ final class SharedSourceGroup {
     }
 
     void close() {
+        closed = true;
+        Thread stopping;
+        synchronized (this) {
+            stopping = watcher;
+            watcher = null;
+        }
+        if (stopping != null) {
+            stopping.interrupt();
+        }
         // Readers first: a registration that failed part way through joining can leave one created
         // with nobody holding it, and closing the plugin under it would be the wrong order anyway.
         feeds.forEach(SharedPartitionFeed::closeReader);
