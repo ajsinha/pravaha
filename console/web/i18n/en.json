@@ -1533,7 +1533,7 @@
         "kicker": "TUTORIALS",
         "heading": "Working through Pravaha",
         "title": "Tutorials",
-        "blurb": "Worked walkthroughs, end to end and with real calls: registering a continuous query and watching it maintained, joining two streams with a time bound, subscribing from both SDKs, and reading the case studies the engine ships with."
+        "blurb": "Worked walkthroughs, end to end and with real calls. Four lessons first, each run against a fresh install's demonstration stream: your first maintained view, following a view, changing a running query safely, and investigating an incident. Then ten worked systems across finance, biology, manufacturing, retail, advertising, telecoms and logistics — windows, joins with a time bound, top-N, late data and sinks."
       }
     },
     "decision_records": "Decision records"

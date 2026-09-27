@@ -34,6 +34,7 @@ import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 import com.ash.messaging.pravaha.serving.ServedView;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 import com.ash.messaging.pravaha.serving.ViewQuery;
+import com.ash.messaging.pravaha.sql.PravahaSchema;
 import com.ash.messaging.pravaha.sql.SqlPlanner;
 import com.ash.messaging.pravaha.sql.plan.ParameterMetadata;
 import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
@@ -66,7 +67,12 @@ class CaseStudySqlTest {
             "finance-counterparty-exposure",
             "trading-order-flow",
             "biology-sequencing-qc",
-            "trade-processing");
+            "trade-processing",
+            "manufacturing-sensor-anomalies",
+            "ecommerce-checkout-funnel",
+            "adtech-click-attribution",
+            "telecom-cdr-fraud",
+            "logistics-delivery-sla");
 
     private static Path studies() {
         return repoRoot().resolve("examples/case-studies");
@@ -115,7 +121,7 @@ class CaseStudySqlTest {
         ViewCatalog catalog = new ViewCatalog();
         for (Map.Entry<String, String> view : viewsOf(study).entrySet()) {
             PhysicalOperator plan = new PhysicalPlanBuilder()
-                    .build(SqlPlanner.withLookups(schemas.source(), schemas.lookups())
+                    .build(schemas.planner()
                             .plan(read(studies().resolve(study).resolve("sql").resolve(view.getValue()))));
             catalog.register(
                     new ServedView(view.getKey(), rename(plan.outputSchema(), view.getKey()), List.of(0), 1_000));
@@ -130,9 +136,8 @@ class CaseStudySqlTest {
             Schemas schemas = schemasOf(study);
             for (Path sql : sqlFiles(study, "continuous")) {
                 try {
-                    PhysicalOperator plan = new PhysicalPlanBuilder()
-                            .build(SqlPlanner.withLookups(schemas.source(), schemas.lookups())
-                                    .plan(read(sql)));
+                    PhysicalOperator plan =
+                            new PhysicalPlanBuilder().build(schemas.planner().plan(read(sql)));
                     assertThat(plan.outputSchema().fieldCount()).isPositive();
                 } catch (RuntimeException e) {
                     failures.add(study + "/" + sql.getFileName() + ": " + firstLine(e));
@@ -314,7 +319,22 @@ class CaseStudySqlTest {
         return builder.build();
     }
 
-    private record Schemas(StreamSchema source, StreamSchema[] lookups) {}
+    /**
+     * What a study's node would have in its catalogue: the streams it consumes and the dimension
+     * tables it asks. Two of the studies join one stream to another, so there may be more than one
+     * source -- each registered as a stream, as a node with two {@code pravaha.sources} bindings
+     * registers them. Planning the second as a lookup would refuse the join those studies run.
+     */
+    private record Schemas(List<StreamSchema> sources, StreamSchema[] lookups) {
+        SqlPlanner planner() {
+            PravahaSchema catalog = new PravahaSchema();
+            sources.forEach(catalog::register);
+            for (StreamSchema lookup : lookups) {
+                catalog.registerLookup(lookup);
+            }
+            return new SqlPlanner(catalog);
+        }
+    }
 
     private static Properties streamsOf(String study) throws IOException {
         Properties properties = new Properties();
@@ -354,20 +374,20 @@ class CaseStudySqlTest {
                 }
             }
         }
-        StreamSchema source = null;
+        List<StreamSchema> sources = new ArrayList<>();
         List<StreamSchema> lookups = new ArrayList<>();
         for (Map.Entry<String, String> entry : fields.entrySet()) {
             StreamSchema schema = schemaOf(study, entry.getKey(), entry.getValue(), eventTimes.get(entry.getKey()));
             if ("source".equals(roles.get(entry.getKey()))) {
-                source = schema;
+                sources.add(schema);
             } else {
                 lookups.add(schema);
             }
         }
-        if (source == null) {
+        if (sources.isEmpty()) {
             throw new IllegalStateException(study + " declares no source stream");
         }
-        return new Schemas(source, lookups.toArray(new StreamSchema[0]));
+        return new Schemas(sources, lookups.toArray(new StreamSchema[0]));
     }
 
     /**

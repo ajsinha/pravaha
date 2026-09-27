@@ -3,9 +3,13 @@
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
 
-Every case study needs somewhere for data to live. Two stores cover all five: **Aerospike** for the
-studies that read a hot key-value store, **PostgreSQL** for the one that reads a ledger. You do not
-need both — each case study says which it uses.
+Five of the case studies need somewhere for data to live. Two stores cover them: **Aerospike** for
+the studies that read a hot key-value store, **PostgreSQL** for the one that reads a ledger. You do
+not need both — each case study says which it uses.
+
+The other five — sensor anomalies, checkout funnel, click attribution, CDR fraud and delivery SLAs —
+need no store at all: their sources are CSV files the node follows, and each README says how to
+generate them. For those, only Java 21, the Python client and the node below apply.
 
 This page is the part that is identical everywhere. Each case study has its own section for the
 namespaces, tables and rows *it* needs, and you should read that after this.
