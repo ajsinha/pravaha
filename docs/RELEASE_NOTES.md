@@ -10,7 +10,12 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ---
 
-## Since 0.1.2 — unreleased
+## 0.1.3 — QA, 2026-09-27
+
+**What this build is for.** 0.1.2 with one fix QA would otherwise meet in its first week: a
+replacement over a source that had just dead-lettered a record failed. Nothing else changes -- the
+ports, the configuration files and the images' layout are 0.1.2's, so a 0.1.2 host upgrades by
+installing this bundle over it.
 
 - **Replacing a query whose latest record was dead-lettered works** (REPL-2). The backfill counts a
   record its source rejected as read, and `PartitionReader#poll`'s `maxRecords` now bounds records
