@@ -18,12 +18,11 @@ package com.ash.messaging.pravaha.security;
 /**
  * Turning a bearer credential into a {@link Principal}, or refusing to.
  *
- * <p>This is the authentication boundary, and it is deliberately the whole of it. Pravaha does not
- * store passwords, does not run an identity provider, and does not want to: the deployments this
- * engine is built for already have one, and a second copy of the user list is a second copy to keep
- * correct. An implementation validates a JWT against the issuer's keys, or calls an introspection
- * endpoint, or -- in a test, or a single-tenant deployment behind its own wall -- consults a static
- * table.
+ * <p>This is the authentication boundary, and it is deliberately the whole of it: every credential a
+ * transport receives passes through one verifier. A node that keeps its own users and API keys
+ * (ADR-052, {@code pravaha-identity}) supplies one that resolves sessions and keys; a deployment
+ * with its own identity provider supplies one that validates a JWT or calls an introspection
+ * endpoint; a test, or a single-tenant deployment behind its own wall, consults a static table.
  *
  * <p>The contract is narrow on purpose. A verifier is given an opaque credential and returns who it
  * belongs to. It is <em>not</em> asked what that principal may read; that is {@link SecurityPolicy},

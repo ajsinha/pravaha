@@ -83,11 +83,10 @@ public class PravahaServerApplication {
     @Bean
     public org.springframework.boot.web.servlet.FilterRegistrationBean<
                     com.ash.messaging.pravaha.server.security.BearerTokenFilter>
-            pravahaAuthentication(
-                    com.ash.messaging.pravaha.server.security.SecurityProperties security, Environment environment) {
+            pravahaAuthentication(PravahaNode node, Environment environment) {
         var registration = new org.springframework.boot.web.servlet.FilterRegistrationBean<
                 com.ash.messaging.pravaha.server.security.BearerTokenFilter>();
-        com.ash.messaging.pravaha.security.TokenVerifier verifier = security.verifier();
+        com.ash.messaging.pravaha.security.TokenVerifier verifier = node.verifier();
         // Disabled rather than absent, and with a filter instance either way: a
         // FilterRegistrationBean holding no filter fails the servlet container at context refresh
         // with "'filter' must not be null", which MockMvc never reaches because it does not start

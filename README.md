@@ -99,128 +99,50 @@ corrected by late data arrives as a retraction of the old answer followed by the
 | **Recovery** | Checkpoints hold operator state, source offsets and the served view, cut at one point across every input (ADR-008), so a restart resumes rather than replaying from scratch or starting empty. The registry journal brings back every registration, and its sink |
 | **Survival** | A node claims the directories it writes, so two nodes cannot silently share state (`PRV-4003`). A standby takes over when the claim goes stale and reports what the takeover cost. Undecodable input goes to a dead-letter directory instead of ending the query |
 | **Many queries on one node** | A fixed pool of one thread per core drives every lane, and the watermark and checkpoint clocks are one timer for the process: **200 queries add 24 platform threads** on 24 cores, where they once added 400. About **1 MiB off-heap per idle query** on a lane of its own, and every component reports its own bytes. With lane sharing on, **1,000 queries over one source run on 8 lanes, and each row is written into them 8 times instead of 1,000** |
-| **Security** | Authentication, authorization on what a query reads rather than what it is called, row filters, prepared statements, audit. The node refuses to start open unless told to |
+| **Security** | Authentication through one verifier for every transport, authorization on what a query reads rather than what it is called, row filters, prepared statements, audit. The node refuses to start open unless told to. Users, passwords (Argon2id), API keys and sessions kept by the engine itself are being built ([ADR-052](docs/adr/052-the-engine-is-the-identity-authority.md)): the core is in `pravaha-identity`, off by default until the migration stage |
 | **Embedding** | `PravahaEngine` runs the whole loop inside an application — streams, plugin bindings, continuous queries, pushed rows, SQL reads, change subscriptions, journal and checkpoints — with no Spring and no network. `pravaha-spring-boot-starter` makes it a bean, with `PravahaTemplate` and `@PravahaListener` delivering committed changes, retractions included, to a method, a `@PravahaTest` slice for testing it, and an actuator endpoint and health contribution when Actuator is present. See [the user guide](docs/USER_GUIDE.md) |
 
 ## What is not built, or not finished
 
-- **Multi-node execution.** Membership produces a real partition assignment, and partition ownership
-  is a fenced lease proved against a real ZooKeeper ensemble — but no node consumes it yet, so
-  execution is single-node and a node refuses `PARTITIONED` mode (`PRV-9002`) rather than serve every
-  partition while claiming to own some. Rebalance and handoff are built as a library and wired to
-  nothing ([ADR-039](docs/adr/039-ga-includes-the-known-gaps-and-clustering.md) item 8).
-- **One read of a source per query, for sources that promise exactly-once or order.** With
-  `pravaha.lane.multiplex.enabled` (off by default) any registered query shares a lane — inbox,
-  arena and thread — whatever it reads, joins included, and a reader shared by several queries
-  writes each row into a shared lane once for all of them (LANE-2). But only a source that
-  declares at-least-once and no order gets a shared reader (SRC-3; Aerospike and Cassandra today):
-  a file, Kafka, JDBC, CDC or Delta source keeps a reader per query, each writing its own copy into
-  the shared inbox, so a thousand queries over one topic share eight inboxes and still read the topic
-  a thousand times.
-- **Pushdown past what the stores can say exactly.** Projection is pushed into JDBC, Aerospike and
-  Cassandra, and a continuous `COUNT`/`SUM` into JDBC as one partial per polled page — but only
-  there: Aerospike would need Lua UDFs on the cluster and Cassandra re-reads its whole table each
-  pass, so neither claims a partial. A windowed aggregate is never pre-combined, nor a `MIN`/`MAX`
-  (not retractable), nor anything filtered by a predicate SQL cannot carry. Cassandra pushes no
-  filter (it would need `ALLOW FILTERING`). `EXPLAIN` shows the plan, not what a source was asked
-  for; a query's feed description does (`feed.description` on `GET /api/v1/queries/{name}`)
-  ([ADR-039](docs/adr/039-ga-includes-the-known-gaps-and-clustering.md) item 6).
-- **Transactional sinks cost a second write.** `jdbc-sink`, `kafka-sink` and `delta-sink` are
-  transactional, and none uses its store's own two-phase commit: `jdbc-sink` stages each
-  checkpoint's changes in a staging table, `kafka-sink` in a staging topic, `delta-sink` in a
-  staging directory inside the table, and each applies them in one transaction once the
-  checkpoint is durable (Kafka has no prepare a restarted producer could commit, and a Delta commit
-  is visible the instant its log entry lands; see [`CONNECTORS.md`](docs/CONNECTORS.md)). So every
-  change is written twice and the output trails the view by up to a checkpoint interval.
-  `kafka-sink` is exactly once to a `read_committed` consumer only. `aerospike-sink` stays effectively once and `filesystem` at least once, whose repeats after a
-  restart stay in the file. End to end is still capped by the source: one that cannot rewind to a
-  checkpoint's offsets (ADR-029) is at least once whatever the sink does.
-- **Sinks: five, and one lakehouse format.** `filesystem`, `aerospike-sink`, `jdbc-sink`,
-  `kafka-sink` and `delta-sink`, and no others. Each is unit-tested without a server and again
-  against a real one — Aerospike, PostgreSQL and a Kafka broker under Testcontainers, Delta tables
-  on the local filesystem — so a machine without Docker skips those, by name, rather than passing.
-  `kafka-sink` writes JSON only, and ships no lz4, snappy or zstd codec (they are native code):
-  `none` and `gzip` compression work. **Delta is the only lakehouse format written**: there is no
-  Iceberg or Hudi sink, and `delta-sink` writes unpartitioned or partitioned tables
-  (`partition.columns`), creates no deletion vectors — and refuses to rewrite a table whose files
-  carry them (`PRV-5055`) — and runs no compaction: `OPTIMIZE` and `VACUUM` belong to an engine that
-  has them. The `delta` source reads deletion vectors, so a row a `DELETE` marks deleted reaches a
-  view as a retraction. Its upsert mode rewrites the data files holding a changed key, so a commit costs in proportion to the table
-  rather than to the change.
-- **The Kafka source reads JSON, Avro and Protobuf — with no library for any of them.** JSON rows or
-  `kafka-sink`'s changelog; Avro's binary encoding through a reader written here from the
-  specification, against `schema.file` or a schema id fetched from a Confluent-compatible registry
-  over its REST API (Karapace and Apicurio included); and Protobuf through `DynamicMessage` over a
-  descriptor set the deployment supplies. No `org.apache.avro`, and no Confluent client. Columns are
-  matched by name and a schema that cannot be mapped is refused at registration (`PRV-5108`). A
-  proto3 scalar without `optional` has no presence, so it reads as its type's default and never as
-  NULL. An upsert topic's tombstones cannot be retractions (a tombstone does not say what row it
-  deletes), so they are refused or, with `tombstone: skip`, ignored. The partition list is read at
-  registration: partitions added later are read after a restart. Its broker tests, like the sink's,
-  need Docker.
-- **Change data capture, beyond one PostgreSQL table's changes.** `postgres-cdc`
-  ([ADR-041](docs/adr/041-change-data-capture-without-debezium.md)) streams one table per binding
-  from PostgreSQL 14 or later, with a slot per registration. Rows already in the table are delivered
-  only with `snapshot.mode: initial` (it needs a primary key; `never`, changes only, is the default),
-  and that snapshot is exact across a restart half-way through it. A `TRUNCATE` of the captured
-  table stops it (`PRV-5116`) rather than being guessed into retractions, and no other database has a change
-  feed here — the other sources poll or scan. Aerospike and Cassandra scans see deletes only with
-  `deletes: detect`, which compares each full pass with the rows already emitted and retracts what is
-  gone: a delete arrives up to a scan interval late, two writes between passes are still one, and
-  every emitted row is held in memory (about 150 bytes plus the row), bounded by `deletes.max.keys`.
-  Its replication slot retains WAL on the database until a checkpoint confirms it
-  ([`OPERATIONS.md`](docs/OPERATIONS.md)).
-  Without it (the default) a scan repeats rows — Cassandra every pass, Aerospike on an update — and
-  so, where a `jdbc` update moves the watermark column, does a poll: a keyed view of the rows is
-  right, and an aggregate, a join or an append-only sink over such a stream is refused at
-  registration with `PRV-2042` naming the fix, rather than counting a row again (SCAN-1).
-- **The spill tier is survival, not capacity.** There is no RocksDB, by decision
-  ([ADR-044](docs/adr/044-no-rocksdb-the-mapped-tier-is-l1.md)): the memory-mapped overflow tier is
-  the on-disk tier, and it is finished — `COUNT(DISTINCT)` spills, churned slabs are compacted away,
-  the disk is budgeted in bytes (`max-bytes`, refusing by code before it fills), and a key index
-  spills whole, its slot table included, so a spilled query's memory no longer grows with its keys.
-  It stays off by default. Both measurements are in the ADR: while the page cache holds the files,
-  spilled state runs within about 2x of RAM; with the process capped below its state (cgroup v2,
-  swap off), uniformly random access falls to 1,000–2,500 operations a second on an NVMe — two or
-  three page faults each, and 124 KiB read per fault from the kernel's read-around — with a tail of
-  seconds while the kernel reclaims. Size the page cache for the index.
-- **A secondary index over a column that is not in a view's key.** The rest of the design's
-  `CREATE CONTINUOUS QUERY` grammar is built: `RANGE (column)` keeps an ordered index over the
-  key's last column, so a prefix-and-bounds read walks a run rather than the view, and a lookup by
-  the whole key is a hash probe on any view at all; `WITH (...)` on a plain `CREATE` takes
-  `retention`, `sink` and `keys`, the arguments a registration already had. What is not built is
-  design §17.2's other row — a predicate on a column outside the key, which is still a scan and a
-  filter, as that row itself says it is. `RANGE` over a column this engine has no total order for
-  (text, `FLOAT`, `DECIMAL`, `BYTES`, `BOOLEAN`) is refused at registration by name (`PRV-2073`),
-  as is a `WITH` option that does not exist (`PRV-8017`), `EMIT CHANGES WITH (...)` (`PRV-2072`),
-  and `INSERT INTO <sink> SELECT` (`PRV-2020`) — which carries neither the query's name nor its
-  key, so the refusal names `WRITING TO`, `WITH (sink = ...)` and `--sink` instead
-  ([ADR-049](docs/adr/049-an-ordered-index-over-the-keys-last-column.md)).
-- **The Spring Boot starter on Boot versions other than 3.5.** The starter (ADR-020) has its
-  `@PravahaTest` slice, a read-only `pravaha` actuator endpoint and health contribution, and a
-  listener error handler. Its Boot matrix is Maven profiles (`-Pboot-3.2` to `-Pboot-3.5`) with a
-  test that fails a leg running a Boot other than the one it names; only the 3.5 leg (3.5.16) has
-  been run, and no CI job runs the others.
-- **The snapshot-and-change-feed splice.** Design §16.1's other backfill — a table snapshot joined
-  to a change feed, deduplicated by the store's own version — is built and tested as
-  `SplicedReader` in `pravaha-backfill`, and is reachable from no running path: no source plugin
-  here exposes a snapshot read separately from its change feed, and `postgres-cdc` does its own
-  initial snapshot behind its own offset. What a replacement's backfill uses instead is the seam
-  these sources do have, an offset ([ADR-046](docs/adr/046-a-replacement-meets-the-running-version-at-a-position.md)).
-  The design's `backfill.parallelism`, `backfill.window` and `backfill.adaptive` are refused by name
-  (`PRV-4018`): a backfill reads each partition once, from the beginning, at the rate an operator
-  sets, and nothing probes the store's own latency to adapt to.
-- **The console has its persona surfaces but not the §23.20 release gate** — workbench, catalog,
-  views, live results, operations with lane backpressure and per-operator numbers on the plan, a
-  dead-letter screen, a backfill and cutover screen, a plugins screen built on the engine's
-  manifest listing, and admin screens for access and the audit trail are built, and a
-  headless-Chrome suite holds zero axe violations, visual baselines in light and dark at both
-  densities, the measurable §23.15 budgets, the eight states of §23.12 screen by screen, and all
-  eight journeys, all of them end to end. A component gallery the
-  console renders itself stands in for Storybook, which is not adopted (it needs Node). Not done:
-  the manual WCAG 2.2 AA audit, plus cluster screens, the tenants and quotas screen (the engine's
-  `GET /api/v1/tenants` exists; the screen does not), and editing grants (the engine is not where
-  grants live).
+Twelve entries used to sit here as one list, and they are three different kinds of thing. The full
+text of each is in [`LIMITS.md`](docs/LIMITS.md). The order they get built in is in
+[`REMAINING.md`](docs/REMAINING.md).
+
+**Deferred by decision.** One entry.
+
+- **Multi-node execution.** Membership, fenced partition leases (proved against a real ZooKeeper
+  ensemble), and rebalance and handoff are built as libraries, and no node consumes them. A node
+  refuses `PARTITIONED` mode (`PRV-9002`) rather than pretend. The owner put this on hold. The
+  console's cluster screens wait for it.
+
+**Buildable: work that is not done yet, with nothing in the way.**
+
+| Gap | What building it means |
+|---|---|
+| One read of an exactly-once source per query | A shared reader for Kafka, files, JDBC, CDC and Delta, as Aerospike and Cassandra already have. Its offsets become one checkpoint cut for every query it feeds |
+| A secondary index on a non-key column | A value-to-keys index maintained in the view's own commit. `RANGE` and whole-key lookups are already built ([ADR-049](docs/adr/049-an-ordered-index-over-the-keys-last-column.md)) |
+| The snapshot-and-change-feed splice | `SplicedReader` is built and tested and reached by nothing. Wiring it needs a snapshot read exposed from `jdbc` and `postgres-cdc`; `backfill.adaptive` follows |
+| More sinks and formats | lz4, snappy and zstd for `kafka-sink` in pure Java; Avro and Protobuf output; an Iceberg sink without Spark |
+| More sources | A MySQL binlog CDC source. Kafka partitions added after registration, picked up without a restart. Cassandra filter pushdown on key columns |
+| Native two-phase commit for PostgreSQL | `jdbc-sink` over PostgreSQL through `PREPARE TRANSACTION`, without the staging table's second write |
+| Spring Boot 3.2 to 3.4 | The profiles exist. Run the legs and add them to CI |
+| Console | The tenants and quotas screen (the engine's API exists), and per-user sign-in with API keys ([ADR-052](docs/adr/052-the-engine-is-the-identity-authority.md), being built) |
+
+**Boundaries: limits of a store, a format or a recorded decision.** More code would not remove these.
+
+- `MIN` and `MAX` cannot be retracted incrementally, so they are never pre-combined at a source.
+  An Aerospike partial aggregate would need UDFs installed on the customer's cluster.
+- Transactional sinks stage each checkpoint and apply it once the checkpoint is durable. Kafka and
+  Delta have no prepare that a restarted writer could commit. End-to-end delivery is still capped by
+  whether the source can rewind.
+- There is no RocksDB, by decision ([ADR-044](docs/adr/044-no-rocksdb-the-mapped-tier-is-l1.md)).
+  The memory-mapped tier is for surviving state larger than memory, not for capacity; both
+  measurements are in the ADR.
+- Formats and stores: a proto3 scalar without `optional` has no NULL; an upsert tombstone does not say
+  which row it deletes; a `TRUNCATE` names no rows to retract; Delta `OPTIMIZE` and `VACUUM` belong
+  to an engine that has them.
+- Grants live in the deployment's policy, not in the engine, so the console shows them and does not
+  edit them. The manual WCAG 2.2 AA audit is a person's task, not code.
 
 ## Performance: what is measured, and what cannot be here
 
@@ -279,9 +201,11 @@ changing view in about ten minutes.
 | **Correctness** | Exactly-once **state**: a checkpoint holds every source between rows, cuts every lane at one point and records the offsets of that same point (ADR-008). Output is cut at that point too: exactly once to a transactional sink, effectively once to an idempotent one, at least once to a plain append |
 | **Deployment** | Three ways to run one engine. In process with no Spring and no network (`pravaha-embedded`: declare streams, register, push rows, read, subscribe, persist); in a Spring Boot application of your own (`pravaha-spring-boot-starter`: an engine bean from `pravaha.*`, `PravahaTemplate`, `@PravahaListener`); or as a server — `pravaha-server`, a Spring Boot node with the engine, Flight SQL, the PostgreSQL gateway and a plain `/status` page — with the console as a separate Python process built on the published SDK, so it cannot reach past the public API (ADR-024). The engine core contains no Spring, enforced by the build (ADR-019). Packaged: a non-root container image on a JDK 21 Alpine base, built from the reactor's own artefacts (`deploy/docker/`, ADR-047), and a Helm chart that installs **one** node as a StatefulSet -- because a node claims its state directories by node id, and multi-node is on hold (`deploy/helm/pravaha/`, ADR-045). [Deployment →](docs/DEPLOYMENT.md) |
 
-Queries are registered, listed, paused, dropped and subscribed to over Flight, not REST. The HTTP
-surface is deliberately small: `/status`, `/api/v1/streams`, and `/api/v1/queries/validate` and
-`/explain`.
+Rows are read and subscribed to over Flight SQL or the PostgreSQL wire protocol. Everything that
+manages the engine is also on REST under `/api/v1`: status, streams, queries (validate, explain,
+plan, replacement, backfill, dead letters), views, sinks, plugins, tenants, the debugger and the
+audit trail. It is described by the OpenAPI document the server publishes, and the
+[Python API guide](docs/PYTHON_API_GUIDE.md) has a worked call for each.
 
 ## The console
 
@@ -301,7 +225,8 @@ An operator gets **Operations**: the engine's metrics read into a verdict — is
 and if not, where — with per-query throughput, state against ceiling and watermark lag. Any view can
 be watched **live**, every committed change shown with its `+1`/`−1` weight. A **catalog**, a Ctrl-K
 command palette, a first-run guide from a stream to a live view, and every `PRV` code resolved to
-its documentation complete it. Everything but the landing page, the documentation and the health
+its documentation complete it. A **help centre** served from the engine's documentation has
+tutorials, case studies, a FAQ, the About page and the competitive landscape. Everything but the landing page, the documentation and the health
 probes needs a session. An administrator gets **Admin**: what the engine's policy lets the console's
 identity do, and the **audit trail** — filterable, paged, every filter in the URL — which the engine
 serves only to a principal its policy lets read it (`SecurityPolicy.mayReadAudit`), recording every
@@ -323,6 +248,8 @@ density are photographed and audited by axe. The manual WCAG 2.2 AA audit is not
 | [Concepts](docs/CONCEPTS.md) | The ideas everything follows from; most surprises are one of these working correctly |
 | [User guide](docs/USER_GUIDE.md) | The whole surface, task by task, in Java, Python and the shell |
 | [Case studies](examples/case-studies/) | Five worked systems: a store to stand up, a data model, a continuous query and the app code |
+| [Python API guide](docs/PYTHON_API_GUIDE.md) | Every REST and SDK call with a Python sample, for integration |
+| [Running from an IDE](docs/DEVELOPING_IN_AN_IDE.md) | The server in IntelliJ IDEA and the console in PyCharm |
 
 | Reference | |
 |---|---|
@@ -332,6 +259,7 @@ density are photographed and audited by axe. The manual WCAG 2.2 AA audit is not
 | [Deployment](docs/DEPLOYMENT.md) | The container image and the Helm chart: volumes, ports, environment, probes, upgrading a node, the release procedure, and what the chart deliberately does not do |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Every `PRV-` code |
 | [Security](docs/SECURITY.md) | Authentication, authorization, row filters, audit |
+| [Known limits](docs/LIMITS.md) | What is not built, whether it could be, and what is a boundary |
 
 | How and why | |
 |---|---|
@@ -339,6 +267,8 @@ density are photographed and audited by axe. The manual WCAG 2.2 AA audit is not
 | [System design](docs/system_design.md) | The full specification |
 | [Decision records](docs/adr/) | Every architectural decision, including the ones later reversed |
 | [Handover](docs/HANDOVER.md) | Current state, and what to pick up next |
+| [What is left](docs/REMAINING.md) | The build strategy for the gaps, in tranches |
+| [Release notes](docs/RELEASE_NOTES.md) | What each tagged release contains |
 | [Findings](docs/qa/FINDINGS.md) | Every defect found, and what happened to it |
 | [Gate records](docs/gates/) | Evidence packs, wave by wave |
 | [Implementation plan](docs/implementation_plan.md) · [Original SRS](docs/initial_req.md) | The plan, and the draft this design supersedes |
@@ -357,7 +287,7 @@ short.
 ```xml
 <groupId>com.ash.messaging</groupId>
 <artifactId>pravaha</artifactId>
-<version>0.1.0-SNAPSHOT</version>
+<version>0.1.4-SNAPSHOT</version>
 ```
 
 Base package `com.ash.messaging.pravaha`. Requires **JDK 21+**; the Maven wrapper is vendored.
@@ -372,7 +302,7 @@ tools/verify-clean.sh                                # the gate: offline, no sta
 **Modules**, in build order — checked against `pom.xml` by `DocumentationFreshnessTest`:
 `pravaha-bom`, `pravaha-api`, `pravaha-common`, `pravaha-algebra`, `pravaha-catalog`,
 `pravaha-sql`, `pravaha-runtime`, `pravaha-codegen`, `pravaha-state`, `pravaha-backfill`,
-`pravaha-security`, `pravaha-serving`, `pravaha-cluster`, `pravaha-registry`, `pravaha-flight`,
+`pravaha-security`, `pravaha-identity`, `pravaha-serving`, `pravaha-cluster`, `pravaha-registry`, `pravaha-flight`,
 `pravaha-pgwire`, `pravaha-connect`, `pravaha-testkit`, `pravaha-benchmarks`, `pravaha-it`,
 `pravaha-bindings`, `pravaha-embedded`, `pravaha-cli`, `pravaha-server`, `pravaha-spring-boot-starter`.
 
@@ -409,8 +339,10 @@ screen included. Most of the gap work has landed as the unfinished part of waves
 why the counter still reads 9. "Built" means the code is there and tested; it does not mean a
 performance gate passed.
 
-Work happens on `develop`; `main` is merged from it on request and is normally behind. `M7` is the
-newest tag. [Full roadmap with acceptance gates →](docs/system_design.md#31-delivery-roadmap)
+Work happens on `develop`, and `main` is fast-forwarded to it after each gated change. The newest
+release is `v0.1.3`, a QA build: `deploy/release/release.sh` cuts a release, and `deploy/qa/bundle.sh`
+packs the server and console images and their YAML files into one files-only bundle for a QA host,
+everything under `/opt/pravaha` ([Deployment](docs/DEPLOYMENT.md)). [Full roadmap with acceptance gates →](docs/system_design.md#31-delivery-roadmap)
 
 ## Contributing
 

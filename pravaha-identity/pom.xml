@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.ash.messaging</groupId>
+    <artifactId>pravaha</artifactId>
+    <version>0.1.4-SNAPSHOT</version>
+  </parent>
+  <artifactId>pravaha-identity</artifactId>
+  <name>Pravaha :: identity</name>
+  <description>Who a caller is, proven by something the engine stores only in a form it cannot reverse
+    (ADR-052): users with Argon2id passwords, API keys shown once and stored hashed, sessions, lockout
+    and the password policy, in an append-only journal on the data volume. Resolves every credential to
+    the security module's Principal through its TokenVerifier seam. No framework: the server wires it.</description>
+  <dependencies>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-security</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-common</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <!-- Argon2id. The JDK has PBKDF2 and scrypt-free SHA-2 only; Argon2id is the password hash
+           ADR-052 and MAYA use, and BouncyCastle is the standard Java implementation. -->
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bcprov-jdk18on</artifactId>
+    </dependency>
+  </dependencies>
+</project>

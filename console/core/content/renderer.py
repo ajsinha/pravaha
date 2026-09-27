@@ -71,6 +71,7 @@ class MarkdownRenderer:
         "04-investigating-an-incident.md": "/tutorials/investigating-an-incident",
         "RELEASE_NOTES.md": "/help/whats-new",
         "REMAINING.md": "/help/roadmap",
+        "LIMITS.md": "/help/limits",
         "DEPLOYMENT.md": "/help/deploying",
         "COMPETITIVE_LANDSCAPE.md": "/about/competitive",
     }

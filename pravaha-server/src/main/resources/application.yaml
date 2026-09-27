@@ -274,6 +274,52 @@ pravaha:
   #     tenant: acme
   #     roles: [reader]
 
+  # Users, passwords, API keys and sessions kept by this node (ADR-052). With it on, the console signs
+  # each person in against this node and acts as them, and programs use API keys
+  # (prv_<environment>_<keyid>_<secret>, shown once, stored only as a hash). Needs
+  # security.authentication: token. Static tokens above still work, logged as deprecated.
+  #
+  # When the store is empty the node creates `admin` with the published password pravaha-dev-admin,
+  # and refuses to start (PRV-7019) outside the dev profile until it is changed, unless
+  # allow-default-admin-password is set.
+  identity:
+    enabled: false
+    # The append-only file every user, key hash and session is kept in. Owner-readable only; it holds
+    # no reversible secret, but put it on the volume that is backed up.
+    store: ""
+    # This deployment's name, part of every key it issues: a qa key is refused by prod (PRV-7014).
+    environment: dev
+    # password | sso | hybrid. SSO is used only when an identity provider is configured; with none,
+    # people sign in with passwords whatever this says.
+    mode: password
+    allow-default-admin-password: false
+    password:
+      min-length: 12
+      # of lower case, upper case, digits and symbols
+      require-classes: 3
+      # a new password may not be any of the last this many
+      history: 5
+      # past this, the next sign-in must change the password; 0s for never
+      max-age: 90d
+      # true: a new account, the bootstrap admin and an administrator's reset must change the password
+      # at the first sign-in (PRV-7018). Off unless configured.
+      force-change: false
+    lockout:
+      failures: 5
+      window: 15m
+      duration: 30m
+    session:
+      idle: 30m
+      absolute: 12h
+      # the oldest is ended when a person signs in once more
+      per-user: 3
+    key:
+      default-days: 90
+      max-days: 365
+      # how long a rotated key keeps working beside its successor
+      rotation-overlap: 7d
+    reset-token-life: 60m
+
   # Where each stream's rows come from. Without a binding a registered query runs and receives
   # nothing -- correct for an engine an application pushes rows into, and a silent surprise for a
   # server, which is why the node logs which streams are bound at startup.

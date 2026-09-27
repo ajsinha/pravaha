@@ -8,3 +8,6 @@
 pravaha:
   security:
     allow-anonymous: true
+  # The dev profile may keep the bootstrap admin's published password (ADR-052); no other profile starts with it.
+  identity:
+    dev: true

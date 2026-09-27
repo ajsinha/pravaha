@@ -653,7 +653,8 @@ parameter schema when a statement is prepared, so neither SDK guesses.
 | `pravaha-serving` | Reading a query's answer directly, with consistency declared per read and staleness returned with it. Also SQL over a maintained view, planned and executed by the same engine a continuous query uses. |
 | `pravaha-pgwire` | The PostgreSQL wire protocol, read half: simple and extended query protocol, `psql`'s catalogue queries, TLS on `SSLRequest`. Off by default (`pravaha.pgwire.enabled`); answered by the same `ViewQuery` and authorization as Flight. |
 | `pravaha-flight` | The client gateway: Arrow Flight SQL, serving request/response over the same views (ADR-030). One protocol, and its JDBC, Python and Go clients are maintained upstream. |
-| `pravaha-security` | Who is asking, what they may read, and a record of both (ADR-031). Three SPIs and no implementation of an identity provider: deployments already have one. |
+| `pravaha-security` | Who is asking, what they may read, and a record of both (ADR-031). Three SPIs: a verifier turns a credential into a principal, a policy decides, an audit sink records. |
+| `pravaha-identity` | Users, passwords, API keys and sessions kept by the engine (ADR-052), behind the same verifier SPI: Argon2id hashes, lockout, key scopes, rotation and revocation, all in an append-only journal holding nothing reversible. No Spring. Off unless `pravaha.identity.enabled`. |
 | `pravaha-registry` | Where SQL becomes a computation with a name, a state and an end (ADR-025). Sharing is by fingerprint, so the same question asked twice is one computation with two names. |
 | [`sdk/pravaha-sdk-java`](../sdk/pravaha-sdk-java) | The Java client's types and connection strings. Dependency-free by enforcer rule: it is embedded in somebody else's application. |
 | [`sdk/pravaha-sdk-java-flight`](../sdk/pravaha-sdk-java-flight) | The Java client's transport, kept separate so an application that only wants the types never sees Netty. |

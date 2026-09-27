@@ -200,6 +200,50 @@ public class PravahaNode implements SmartLifecycle {
         this.tenantQuotas = tenancy.quotas();
     }
 
+    /** pravaha.identity.* (ADR-052); none until Spring sets it, which is identity off. */
+    private com.ash.messaging.pravaha.server.identity.IdentityProperties identity;
+
+    private TokenVerifier verifier;
+
+    /** Users, keys and sessions. A setter for the same reason as {@link #setTenancy}. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setIdentity(com.ash.messaging.pravaha.server.identity.IdentityProperties identity) {
+        this.identity = identity;
+    }
+
+    /** This node's identity service, when {@code pravaha.identity.enabled} is set. */
+    public Optional<com.ash.messaging.pravaha.identity.IdentityService> identity() {
+        return identity == null ? Optional.empty() : identity.service(auditSink());
+    }
+
+    /**
+     * The one verifier every transport authenticates with -- HTTP, Flight and the PostgreSQL wire -- or
+     * null when authentication is off. With identity on, a session or API key resolves through the
+     * identity service and a static token is still accepted, logged as deprecated (ADR-052).
+     */
+    public synchronized TokenVerifier verifier() {
+        if (verifier != null) {
+            return verifier;
+        }
+        Optional<com.ash.messaging.pravaha.identity.IdentityService> users = identity();
+        if (users.isEmpty()) {
+            return verifier = security.verifier();
+        }
+        if (!security.authenticates()) {
+            throw new PravahaException(
+                    SecurityErrors.MISCONFIGURED,
+                    "pravaha.identity.enabled is true and "
+                            + "pravaha.security.authentication is not token, so nothing would ever ask for the users "
+                            + "and keys it keeps. Set authentication: token, or turn identity off.");
+        }
+        TokenVerifier legacy = security.getTokens().isEmpty()
+                ? token -> {
+                    throw new PravahaException(SecurityErrors.UNAUTHENTICATED, "the credential was rejected");
+                }
+                : security.verifier();
+        return verifier = new com.ash.messaging.pravaha.identity.IdentityTokenVerifier(users.get(), legacy);
+    }
+
     /**
      * Kept whole, not only unpacked, so {@link PersistenceProperties#validate()} can be run from
      * {@link #startNow()} as well as by Spring (CFG-7, CFG-16). A node built through
@@ -953,7 +997,29 @@ public class PravahaNode implements SmartLifecycle {
         // "rather than in a support ticket about 401s" -- and then said it nowhere until the first
         // call. A node that refuses every caller looked identical, in the log, to one that accepts
         // the right ones.
-        security.unusableTokenTable().ifPresent(log::warn);
+        Optional<com.ash.messaging.pravaha.identity.IdentityService> users = identity();
+        if (users.isPresent()) {
+            users.get().requireStartable();
+            log.info(
+                    "identity: users, API keys and sessions kept in {} (environment {}, sign-in by {}, forced "
+                            + "password change {})",
+                    identity.getStore(),
+                    identity.getEnvironment(),
+                    identity.effectiveMode(),
+                    identity.getPassword().isForceChange() ? "on" : "off");
+            if (!"password".equals(identity.getMode().trim())) {
+                log.warn(
+                        "pravaha.identity.mode is {} and no identity provider is configured, so people sign in "
+                                + "with passwords",
+                        identity.getMode());
+            }
+            if (users.get().defaultAdminPasswordInUse()) {
+                log.warn("identity: the user 'admin' still has the default password; change it before anyone else "
+                        + "can reach this node");
+            }
+        } else {
+            security.unusableTokenTable().ifPresent(log::warn);
+        }
 
         // Before recovery, and that ordering is the point: a recovered query is registered the same
         // way a fresh one is, so a factory attached afterwards would feed everything registered
@@ -1175,9 +1241,9 @@ public class PravahaNode implements SmartLifecycle {
                     // API cannot disagree about what is in the queue.
                     .withDeadLetters(feeds.deadLetters())
                     .hosting(registry);
-            TokenVerifier verifier = security.verifier();
-            if (verifier != null) {
-                server.authenticatedBy(verifier);
+            TokenVerifier flightVerifier = verifier();
+            if (flightVerifier != null) {
+                server.authenticatedBy(flightVerifier);
             }
             // CFG-6(a). This was `if (tlsCertificate != null)`, which handled the two halves of one
             // setting asymmetrically: a key configured without a certificate was read into a File,
@@ -1216,7 +1282,7 @@ public class PravahaNode implements SmartLifecycle {
             com.ash.messaging.pravaha.pgwire.PravahaPgWireServer server =
                     new com.ash.messaging.pravaha.pgwire.PravahaPgWireServer(views)
                             .authorizedBy(securityPolicyOf(registry), auditSink());
-            TokenVerifier pgVerifier = security.verifier();
+            TokenVerifier pgVerifier = verifier();
             if (pgVerifier != null) {
                 server.authenticatedBy(pgVerifier);
             }

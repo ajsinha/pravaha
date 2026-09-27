@@ -38,6 +38,7 @@
     <module>pravaha-state</module>
     <module>pravaha-backfill</module>
     <module>pravaha-security</module>
+    <module>pravaha-identity</module>
     <module>pravaha-serving</module>
     <module>pravaha-cluster</module>
     <module>pravaha-registry</module>
@@ -150,6 +151,12 @@
 
   <dependencyManagement>
     <dependencies>
+      <!-- Argon2id for pravaha-identity (ADR-052). -->
+      <dependency>
+        <groupId>org.bouncycastle</groupId>
+        <artifactId>bcprov-jdk18on</artifactId>
+        <version>1.82</version>
+      </dependency>
       <!--
         Pinned up, not down. Calcite reaches commons-logging twice: 1.1.3 through
         aggdesigner-algorithm and 1.2 through commons-dbcp2. Maven's nearest-wins picked the

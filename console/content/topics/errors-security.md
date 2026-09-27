@@ -4,10 +4,10 @@ slug: errors-security
 category: errors
 order: 80
 icon: shield-exclamation
-summary: "PRV-7001 to PRV-7005, told apart deliberately: not authenticated (present a credential), not authorized (ask for a grant), a row filter that cannot be enforced, a security setting the node will not start with, and a sink write the policy allowed only in part."
+summary: "Not authenticated, not authorized, an unenforceable row filter, a setting the node will not start with, a sink write allowed only in part (PRV-7001 to 7005), and the node's own users, keys and sessions (PRV-7010 to 7021)."
 badge: PRV-7XXX
 audience: Everyone
-keywords: [unauthenticated, forbidden, unauthorized, 401, 403, token, bearer, credential, grant, row filter, policy, permissive, authenticated, allow-anonymous, audit, misconfigured]
+keywords: [password, lockout, api key, session, reset token, identity, unauthenticated, forbidden, unauthorized, 401, 403, token, bearer, credential, grant, row filter, policy, permissive, authenticated, allow-anonymous, audit, misconfigured]
 guide: security
 related: [authentication, authorization, row-filters, audit, errors-overview]
 ---
@@ -156,3 +156,26 @@ would send the right person nowhere. See [Authorization](/help/topics/authorizat
 - [Authentication](/help/topics/authentication), [Authorization](/help/topics/authorization),
   [Row filters](/help/topics/row-filters), [Audit](/help/topics/audit)
 - [Security (long form)](/help/security)
+
+## PRV-7010 to PRV-7021 — users, passwords, API keys and sessions
+
+These come from the identity the node keeps itself (`pravaha.identity.enabled`, ADR-052). A
+transport never tells a caller why a credential was refused: Flight, the PostgreSQL gateway and
+REST answer `PRV-7001` for every refused session or key, and the specific code below is in the
+audit trail. The sign-in, password and administration endpoints answer with the specific code,
+because the person using them needs it to act.
+
+| Code | Name | What happened | What to do |
+|---|---|---|---|
+| PRV-7010 | IDENTITY_CREDENTIALS_REFUSED | User name and password do not match. The answer is the same for an unknown user and a wrong password | Try again; each failure counts towards the lockout |
+| PRV-7011 | IDENTITY_LOCKED | Five failures within 15 minutes locked the account for 30 | Wait until the stated time, or ask an administrator for a reset |
+| PRV-7012 | IDENTITY_PASSWORD_POLICY | A new password breaks a rule; the message names it | At least 12 characters from 3 of lower, upper, digits and symbols, and none of the last 5 |
+| PRV-7013 | IDENTITY_KEY_NOT_VALID | An API key that is unknown, expired, revoked, past its rotation overlap, or had the wrong secret | Issue a new key, or use the rotated successor |
+| PRV-7014 | IDENTITY_KEY_WRONG_ENVIRONMENT | A key minted by another deployment, such as `prv_qa_…` presented to `prod` | Issue a key on this deployment |
+| PRV-7015 | IDENTITY_WOULD_WIDEN | A key asked for a role its holder does not have, or an administrator tried to drop their own admin role | Ask for a subset of your roles; another administrator changes yours |
+| PRV-7016 | IDENTITY_SESSION_EXPIRED | Idle 30 minutes, 12 hours in all, logged out, or ended by a password change, reset or disable | Sign in again |
+| PRV-7017 | IDENTITY_RESET_TOKEN_INVALID | A reset token that is unknown, used, or older than 60 minutes | Ask an administrator for another |
+| PRV-7018 | IDENTITY_MUST_CHANGE_PASSWORD | Only with `pravaha.identity.password.force-change: true`: the password was set by an administrator | Change the password; the session can do nothing else until then |
+| PRV-7019 | IDENTITY_DEFAULT_ADMIN_PASSWORD | `admin` still has its published default password on a node outside the dev profile, which refuses to start | Change the password, or set `pravaha.identity.allow-default-admin-password` on purpose |
+| PRV-7020 | IDENTITY_INVALID_REQUEST | A user name outside the allowed form, a user that exists, an unknown status, or a key life outside 1 to 365 days | Correct the request |
+| PRV-7021 | IDENTITY_NOT_FOUND | No user, or no session, by that name | Check the name |

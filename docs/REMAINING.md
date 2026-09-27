@@ -1,7 +1,80 @@
-# What is left, in batches that can be built at once
+# What is left, and the order it gets built in
 
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 Proprietary and confidential; see [`../LICENSE`](../LICENSE).
+
+> **Revised 2026-09-27.** [`LIMITS.md`](LIMITS.md) sorts every entry of the README's "What is not built"
+> into one of three kinds: deferred by decision (multi-node only), buildable, or a boundary of a store,
+> a format or a decision. This page is the strategy for the buildable ones. The owner's constraints
+> shape it: every gap except multi-node gets built; at most two agents besides the lead; each piece is
+> gated and drilled before the next starts; and no RocksDB.
+
+## The strategy
+
+**Two slots, so the order matters more than the width.** One slot is the *engine* slot. It is serial,
+because `QueryRegistry`, `QueryExecution` and the feed wiring sit next to one another and a second
+agent there means merging into a moving tree. The other is the *isolated* slot: one plugin, the
+console, or build configuration at a time, each in its own tree, so it never merges into the engine
+slot's work.
+
+**Value first, within each slot.** The engine slot starts with the gap that changes what the product
+can do at scale. The isolated slot starts with small, contained items that each close a README entry
+outright. Larger connectors come after both.
+
+**Each piece closes its README entry in the same commit.** It moves the entry out of `LIMITS.md`'s
+buildable list, updates the README table, and adds a test that would fail if the claim became untrue.
+The findings register tracks anything found along the way.
+
+### Tranche 0: in flight
+
+| Item | Slot | Size |
+|---|---|---|
+| Users, passwords, API keys, sessions, MFA and SSO, the way MAYA does them ([ADR-052](adr/052-the-engine-is-the-identity-authority.md)): the engine core, then admin REST and CLI, the console signing each person in against the engine, TOTP and WebAuthn, OIDC and SAML, then migration and 0.2.0 | both | six stages |
+
+### Tranche A: small, contained, each closes an entry (isolated slot)
+
+| # | Item | Size | Why this order |
+|---|---|---|---|
+| A1 | `kafka-sink` lz4, snappy and zstd in pure Java (aircompressor: no native code, so the no-native rule holds) | S | Producers in the field default to these codecs |
+| A2 | The Kafka source picks up partitions added after registration, through a periodic metadata refresh with the new partition's offsets entering the next checkpoint | S | A topic scaled out today is silently half-read until a restart |
+| A3 | Cassandra filter pushdown on partition-key and clustering columns, which needs no `ALLOW FILTERING` | S | Stops a full-table re-read each pass when the filter is on the key |
+| A4 | The console's tenants and quotas screen, on `GET /api/v1/tenants` | S | The API already exists |
+| A5 | Spring Boot 3.2, 3.3 and 3.4 legs run, and added to CI | S | The profiles exist; only running them is missing |
+
+### Tranche B: the engine (engine slot, serial)
+
+| # | Item | Size | Why this order |
+|---|---|---|---|
+| B1 | **One read of an exactly-once source for every query on it.** A shared reader for Kafka first, then files and Delta, whose offsets become one checkpoint cut for every query it feeds, as the barrier already cuts every lane at one point (ADR-008). Lane sharing already writes each row once per shared lane. This removes the last "read it N times" | L | The biggest runtime win left: 1,000 queries over one topic read it once, not 1,000 times |
+| B2 | A secondary index on a column outside the view's key: value to keys, maintained in the view's own commit, used by a point read's predicate | M | Turns the last documented full scan in serving into a probe |
+| B3 | The snapshot-and-change-feed splice wired: a snapshot read exposed from `jdbc` and `postgres-cdc`, `SplicedReader` used for a replacement's backfill, then `backfill.adaptive` | M | Built and tested code that nothing reaches is a liability until it is wired |
+
+### Tranche C: larger connectors (isolated slot, after A)
+
+| # | Item | Size | Note |
+|---|---|---|---|
+| C1 | `jdbc-sink` over PostgreSQL through `PREPARE TRANSACTION`: a real two-phase commit, without the staging table's second write | M | Other databases keep staging |
+| C2 | `kafka-sink` writing Avro and Protobuf, reusing the source's specification-level encoders | M | Pairs with the source's formats |
+| C3 | A MySQL binlog CDC source, on ADR-041's model (no Debezium) | L | Build when a deployment needs MySQL |
+| C4 | An Iceberg sink on iceberg-core, without Spark | L | Its dependency tree is large; build when a deployment asks for Iceberg |
+
+### What does not get built
+
+Multi-node execution is on hold by the owner's decision, and the console's cluster screens wait for
+it. The boundaries in `LIMITS.md` stay boundaries. Examples: retracting `MIN`/`MAX` incrementally,
+Aerospike partials (they need UDFs on the customer's cluster), Delta `OPTIMIZE`/`VACUUM`, editing
+grants in the console, RocksDB. The manual WCAG audit is a person's work, scheduled with the QA team.
+
+### The estimate
+
+With two slots, tranche A and B1 run side by side once identity is done. A is five small items; B1
+is the one large engine change. B2, B3 and C1 to C2 follow in the same two slots. C3 and C4 are
+built on demand, not speculatively.
+
+## History: the 2026-09-19 batches
+
+The plan this page carried before the revision. It is kept because other documents cite its batch
+names, such as B12 and "Not scheduled".
 
 > **Everything still to build, drawn from the code rather than from a plan.** Its sources are
 > [`../README.md`](../README.md)'s "What is not built",
@@ -21,7 +94,7 @@ minutes). The slots: the engine's core, serial, because `QueryRegistry`, `QueryE
 `ViewSink` are one another's neighbours; two isolated lanes (a plugin, `pravaha-state`,
 `pravaha-sql`); the console; and the findings clusters.
 
-## Built on 2026-09-20, after the waves
+### Built on 2026-09-20, after the waves
 
 Everything the five slots carried that day landed, was gated and was drilled: the console's
 debugger screen (journey 7, so all eight journeys now run end to end), `ReplacementStatus.history`,
@@ -32,7 +105,7 @@ maintained — `DOCX-21`'s help URLs (the console's help, configurable, no link 
 (`API-F2`/`F6`/`F7`/`F8`/`F10`/`F11`, `E-8`, `E-15`, `SX-19`), and thirty singleton findings.
 The register went from 103 open in the morning to **17**, none of them GA-blocking.
 
-## Queued, and why they are not running
+### Queued, and why they are not running
 
 Scheduled on 2026-09-20 and stopped before any of them wrote a line: all three agents failed to
 start against the account's monthly spend limit (HTTP 429, weekly reset 2026-09-26). Nothing was
@@ -44,7 +117,7 @@ half-done and nothing needs unpicking; each is ready to start again as it stands
 | The three MEDIUM findings | `SPILL-3` (fire a large window in bounded batches, then re-run the beyond-RAM measurement), `SRC-7` (an Aerospike scan that buffers everything, so `maxRecords` is not a bound), `W8-14` (a windowed aggregate keyed by a digest, which makes a collision a silently wrong answer) | `pravaha-runtime`, `plugins/pravaha-plugin-aerospike` |
 | The LOW findings | `DBG-1`, `DBG-2`, `WIRE-1`, `SINK-4`, `CKPT-6`, `SQL-13`, and the fixed test bounds behind `PGW-1` and `CON-8` | `pravaha-server`, `pravaha-flight`, `pravaha-sql`, `pravaha-pgwire` |
 
-## Wave 1 — built
+### Wave 1 — built
 
 | Batch | What | Owns |
 |---|---|---|
@@ -52,7 +125,7 @@ half-done and nothing needs unpicking; each is ready to start again as it stands
 | **B2** | **Built 2026-09-19.** The spill tier past the page cache. Measure it with state larger than the memory the process may use; spill a join key index's slot table. `SPILL-2` (the slot table stopped at 2^26 slots and the next doubling went negative) is fixed: segmented `SlotTable`, ceiling 2^30 slots, refused by name rather than overflowed. `SPILL-3` stays open and POST-GA — firing a large window builds it on the heap, which is the operator's own sizing rather than the spill tier's promise. | `pravaha-state`, the join index in `pravaha-runtime`, `tools/` |
 | **B3** | **Built 2026-09-19.** The console's strings and its eight states. Every user-visible string through the catalog with a test that keeps it there; the §23.12 states audited screen by screen, each driven in a browser. | `console/` |
 
-## Wave 2 — startable as each slot frees
+### Wave 2 — startable as each slot frees
 
 | Batch | What | Owns | After |
 |---|---|---|---|
@@ -64,7 +137,7 @@ half-done and nothing needs unpicking; each is ready to start again as it stands
 
 | **B15** | **Built 2026-09-20**, asked for by the owner outside the waves. `delta-sink`: a continuous query's answer maintained in a Delta Lake table, on Delta Kernel and not Spark. `mode: upsert` (the default) keeps the table equal to the view by `key.columns` — a copy-on-write merge, since Delta has no delete, reading the data files through their key columns alone to find the ones to rewrite; `mode: changelog` appends every change with `_op` and `_weight`. Transactional per checkpoint through a staging directory inside the table, applied as one Delta commit carrying a Delta `txn` action, which is what makes a repeated commit a no-op: exactly once on a node that checkpoints. A concurrent writer inside the commit's window is `PRV-5059`, refused and never retried. New codes `PRV-5056`–`PRV-5059`. Partitioned tables in `delta-sink` and deletion vectors in the `delta` source were added on 2026-09-26. **Left, by decision**: writing deletion vectors, schema evolution and compaction (`OPTIMIZE` and `VACUUM` are Delta's, and Kernel exposes neither). | `plugins/pravaha-plugin-delta` | — |
 
-## Wave 3 — needs wave 2's engine work
+### Wave 3 — needs wave 2's engine work
 
 | Batch | What | Owns | After |
 |---|---|---|---|
@@ -72,7 +145,7 @@ half-done and nothing needs unpicking; each is ready to start again as it stands
 | **B10** | **Built 2026-09-20.** ADR-039 item 5's leftovers. `CKPT-3` (a closed continuous aggregate re-emits its answer with no retraction), `SINK-3` (no per-sink authorization, and the audit does not record the sink), `pravaha queries` showing a query's sink and a detached sink's `PRV-8009`. | `pravaha-registry`, `pravaha-security`, CLI | — |
 | **B11** | **Tenancy and quotas.** Per-tenant isolation and admission quotas in the engine, then the admin screens. Editing grants stays out: grants live in the deployment's identity system. | `pravaha-registry`, `pravaha-security`, then `console/` | B10 |
 
-## Wave 4 — release engineering, and the long tail
+### Wave 4 — release engineering, and the long tail
 
 | Batch | What | Owns |
 |---|---|---|
@@ -80,7 +153,7 @@ half-done and nothing needs unpicking; each is ready to start again as it stands
 | **B13** | **Built 2026-09-20.** The performance gates, on the machine we have. P2's throughput target is reached (about 30 M rows/s warm, 11 M cold, against 1.2 M); **P2's scaling target is not** — eight-lane efficiency measured 28-42 % of linear against a 90 % target, recorded as not reached; P3 is reached and was measured for the first time; ADR-038's Nexmark head-to-head cannot be run here at all, and of its 23 queries **5 run**. `docs/gates/measured-2026-09-20/` carries every number with the machine's load beside it. There is no reference hardware, so P2, P3 and ADR-038's Nexmark comparison are measured on the development machine and reported with it named (owner, 2026-09-19). A target the machine cannot reach is recorded as not reached, with the number, rather than restated as passed. | `pravaha-it` performance packs, `pravaha-benchmarks`, `docs/gates/` |
 | **B14** | **The open post-GA findings** — 95 when this was written, 41 on 2026-09-20, which cluster and can be split three ways: `CFG-*` (17, configuration), `STRM-*` and `TIME-*` (24, streams and event time), `API-F*` and `SX-19` (12, API shape and disclosure), `DOCX-*`/`DOCR-*` (8, documentation), `PF-*` (4, performance), `SRC-*`/`SINK-*` (4). The `STRM`/`TIME` cluster ran on 2026-09-19 and `CASE-1`+`TIME-6` followed on 2026-09-20: a windowed query over a stream with no declared event time is now refused at plan time (`PRV-2002`), which is a query that planned before and does not plan now. | by cluster, mostly disjoint |
 
-## Not scheduled
+### Not scheduled
 
 - **Multi-node execution** (ADR-039 item 8) — designed in
   [ADR-045](adr/045-cluster-mode-assigns-queries-not-rows.md), **on hold by the owner**. A node
@@ -89,7 +162,7 @@ half-done and nothing needs unpicking; each is ready to start again as it stands
   in both themes and both densities) is green.
 - **The console's design-system surface** (§23.20) — not built, by decision.
 
-## How this gets built quickly
+### How this gets built quickly
 
 **Three batches at a time, and the lead never builds.** The lead reviews, merges, runs the gate,
 records findings and drills; an agent that finishes hands back and its slot takes the next batch

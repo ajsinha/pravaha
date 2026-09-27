@@ -4,7 +4,7 @@ slug: roadmap
 section: About Pravaha
 order: 91
 icon: map
-summary: Everything still to build, drawn from the code rather than from a plan — what each batch owns, what is built, what is queued and why, and what is deliberately not scheduled.
+summary: The strategy for every buildable gap — two slots, three tranches, value first — and, below it, the earlier batches and what they built.
 audience: Everyone
 include: docs/REMAINING.md
 ---

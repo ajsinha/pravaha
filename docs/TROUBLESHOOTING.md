@@ -110,6 +110,18 @@ unknown **column** of a view that does exist is still `PRV-2002`, which is the r
 | `PRV-7002` | Authenticated, not authorized | Ask for access — a new credential will not help |
 | `PRV-7004` security misconfigured | A **security setting** this node refuses to start with — not a caller being denied. The message names the key and the value. Split from `PRV-7002` by E-3, which had accumulated four unrelated meanings across twenty sites: an authorization denial, the open-server refusal, the policy/authentication contradiction, and a bad configuration value. The advice for `7002` ("ask for access; a new credential will not help") is right for a denial and useless for a typo — an operator who wrote `policy: permisive` was being told to go and ask somebody for permission. One is about a caller and is answered by a grant; this one is about a file and is answered by an edit Also raised when `pravaha.security.audit: file` names a path this node cannot write (`pravaha.security.audit-file`) — refused at startup rather than at the first decision nobody sees, because a node that starts believing it is auditing and writes nowhere has no record at all (CFG-23). And when `pravaha.security.audit-recent`, the number of recent decisions kept readable over `GET /api/v1/audit`, is below 1 |
 | `PRV-7005` sink write not filterable | The policy answered `mayWriteTo` for a sink with **allow plus a row filter**, and a sink takes a query's whole changelog or none of it — there is no row of it the engine could withhold and still leave the destination equal to the view. Refused at registration, before the sink is opened, rather than written unfiltered. Not `PRV-7002`: nothing was denied, so it is the policy that has to change and not the caller's entitlement. Answer `mayWriteTo` with `allow()` or `deny()` |
+| `PRV-7010` credentials refused | A sign-in whose user name and password do not match. The answer is the same for an unknown user and a wrong password, and takes as long, so it does not say which (ADR-052). Each failure counts towards the lockout |
+| `PRV-7011` account locked | Five failed sign-ins within 15 minutes lock the account for 30 minutes (`pravaha.identity.lockout.*`). Wait until the time in the message, or ask an administrator to reset the password, which clears it |
+| `PRV-7012` password refused by policy | A new password breaks a rule of `pravaha.identity.password.*`, named in the message: at least 12 characters, from 3 of lower case, upper case, digits and symbols, and none of the last 5. The same check covers creation, change, an administrator's reset and a reset token |
+| `PRV-7013` key not valid | An API key that is unknown, expired, revoked, past its rotation overlap or presented with the wrong secret. The caller of a transport sees `PRV-7001`; this code is in the audit trail and on the identity API. Issue a new key |
+| `PRV-7014` key for another environment | A key minted by another deployment: `prv_qa_...` is refused by a node whose `pravaha.identity.environment` is `prod`. Issue a key on this deployment |
+| `PRV-7015` would widen | A key asked for a role its holder does not have, or an administrator tried to remove their own admin role. A key can narrow its holder, never widen them |
+| `PRV-7016` session expired | A console or API session past 30 minutes idle or 12 hours in all (`pravaha.identity.session.*`), ended by logout, a password change or reset, or its user being disabled. Sign in again |
+| `PRV-7017` reset token invalid | A password-reset token that is unknown, already used or older than `pravaha.identity.reset-token-life`. Ask an administrator for another |
+| `PRV-7018` must change password | Only with `pravaha.identity.password.force-change: true`: this account was created or reset by an administrator, and its session can do nothing but change the password |
+| `PRV-7019` default admin password | The bootstrap user `admin` still has its published default password (ADR-052), and this node is not the dev profile, so it refuses to start. Change the password, or set `pravaha.identity.allow-default-admin-password` to run like this on purpose |
+| `PRV-7020` identity request invalid | An identity request that cannot be carried out as written: a user name outside `[a-z][a-z0-9._-]{1,63}`, a user that exists, a status other than `active` or `disabled`, a key life outside 1 to `pravaha.identity.key.max-days` |
+| `PRV-7021` identity not found | No user, or no session, by that name |
 | `PRV-1050` missing field | A JSON request body left out a field the endpoint requires — today a null `sql` on `/validate` or `/explain`. Returned as **400**, not as a 200 with `valid:false`: a malformed request is not a query that failed to validate, and the distinction matters to anything reading the response programmatically. It used to surface as a raw `NullPointerException` message dressed in a `PRV-` code (API-F9). Deliberately 1xxx rather than 2xxx — a `PRV-2xxx` would send the reader to the SQL documentation for a request that carried no SQL. An *empty* `sql` is not this: the console sends one between keystrokes and the lexer already refuses it precisely |
 | `PRV-1053` malformed text | A string in a request body that is not well-formed text — today an unpaired UTF-16 surrogate, half of a character, which no UTF-8 encoder can carry: every one substitutes U+FFFD, so the name or the SQL the server would store, log and quote back is not the one that was sent. Refused as **400** in the deserializer, before the body becomes an argument, because a stream registered under such a name is a key no later request can address — not by URL, not in SQL, and over Flight only as `?`. Over Flight the same text is refused with the same code: the Java SDK refuses it before sending, because protobuf and `String.getBytes` would deliver `?` in its place, and the server refuses a control request whose bytes are not UTF-8 rather than decoding them into replacement characters |
 | `PRV-1051` invalid parameter | A query parameter the endpoint could not read — today on `GET /api/v1/audit`: a `since` or `until` that is not an ISO-8601 instant (`2026-09-19T08:00:00Z`), a `decision` that is neither `allow` nor `deny`, a `cursor` that is not a previous page's `nextCursor`. Returned as **400** naming the parameter rather than the filter being dropped: an audit search that ignored a malformed `since` would answer a different question and look right |
@@ -925,6 +937,18 @@ client models the error rather than an empty object.
 | `PRV-7003` | SECURITY_FILTER_NOT_ENFORCEABLE | security |
 | `PRV-7004` | SECURITY_MISCONFIGURED | security |
 | `PRV-7005` | SECURITY_SINK_WRITE_NOT_FILTERABLE | security |
+| `PRV-7010` | IDENTITY_CREDENTIALS_REFUSED | security |
+| `PRV-7011` | IDENTITY_LOCKED | security |
+| `PRV-7012` | IDENTITY_PASSWORD_POLICY | security |
+| `PRV-7013` | IDENTITY_KEY_NOT_VALID | security |
+| `PRV-7014` | IDENTITY_KEY_WRONG_ENVIRONMENT | security |
+| `PRV-7015` | IDENTITY_WOULD_WIDEN | security |
+| `PRV-7016` | IDENTITY_SESSION_EXPIRED | security |
+| `PRV-7017` | IDENTITY_RESET_TOKEN_INVALID | security |
+| `PRV-7018` | IDENTITY_MUST_CHANGE_PASSWORD | security |
+| `PRV-7019` | IDENTITY_DEFAULT_ADMIN_PASSWORD | security |
+| `PRV-7020` | IDENTITY_INVALID_REQUEST | security |
+| `PRV-7021` | IDENTITY_NOT_FOUND | security |
 | `PRV-8001` | REGISTRY_NAME_IN_USE | registry |
 | `PRV-8002` | REGISTRY_NO_SUCH_QUERY | registry |
 | `PRV-8003` | REGISTRY_ILLEGAL_TRANSITION | registry |

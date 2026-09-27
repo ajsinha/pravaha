@@ -1,0 +1,215 @@
+/*
+ * Project Pravaha -- Ask once. Answer always.
+ *
+ * Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>.
+ * All rights reserved.
+ *
+ * PROPRIETARY AND CONFIDENTIAL.
+ *
+ * This file is the confidential and proprietary property of Ashutosh Sinha.
+ * Unauthorised copying, use, modification, distribution or disclosure of this
+ * file, via any medium, is strictly prohibited except with the express prior
+ * written permission of the copyright holder.
+ *
+ * See the LICENSE file in the root of this repository for the full terms.
+ */
+package com.ash.messaging.pravaha.identity;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Set;
+
+/**
+ * What the engine knows about the people and programs that may call it (ADR-052). Immutable: a change
+ * is a new value, written whole to the journal, so replay is last-writer-wins and needs no diffing.
+ */
+public final class Identities {
+
+    private Identities() {}
+
+    /** A person or a service account. Disabled, never deleted: the audit trail names owners by id. */
+    public record User(
+            String username,
+            String displayName,
+            String email,
+            String tenant,
+            Set<String> roles,
+            String status,
+            boolean service,
+            String passwordHash,
+            List<String> previousHashes,
+            boolean mustChangePassword,
+            Instant passwordChangedAt,
+            int failedAttempts,
+            Instant firstFailedAt,
+            Instant lockedUntil,
+            Instant lastLoginAt,
+            Instant createdAt) {
+
+        public User {
+            roles = Set.copyOf(roles);
+            previousHashes = List.copyOf(previousHashes);
+        }
+
+        public boolean active() {
+            return "active".equals(status);
+        }
+
+        User withPassword(String hash, List<String> previous, boolean mustChange, Instant at) {
+            return new User(
+                    username,
+                    displayName,
+                    email,
+                    tenant,
+                    roles,
+                    status,
+                    service,
+                    hash,
+                    previous,
+                    mustChange,
+                    at,
+                    0,
+                    null,
+                    null,
+                    lastLoginAt,
+                    createdAt);
+        }
+
+        User withFailures(int failed, Instant first, Instant locked) {
+            return new User(
+                    username,
+                    displayName,
+                    email,
+                    tenant,
+                    roles,
+                    status,
+                    service,
+                    passwordHash,
+                    previousHashes,
+                    mustChangePassword,
+                    passwordChangedAt,
+                    failed,
+                    first,
+                    locked,
+                    lastLoginAt,
+                    createdAt);
+        }
+
+        User withLogin(Instant at, String rehashed, boolean mustChange) {
+            return new User(
+                    username,
+                    displayName,
+                    email,
+                    tenant,
+                    roles,
+                    status,
+                    service,
+                    rehashed,
+                    previousHashes,
+                    mustChange,
+                    passwordChangedAt,
+                    0,
+                    null,
+                    null,
+                    at,
+                    createdAt);
+        }
+
+        User withProfile(String display, String mail, String tenantName, String newStatus) {
+            return new User(
+                    username,
+                    display,
+                    mail,
+                    tenantName,
+                    roles,
+                    newStatus,
+                    service,
+                    passwordHash,
+                    previousHashes,
+                    mustChangePassword,
+                    passwordChangedAt,
+                    failedAttempts,
+                    firstFailedAt,
+                    lockedUntil,
+                    lastLoginAt,
+                    createdAt);
+        }
+
+        User withRoles(Set<String> newRoles) {
+            return new User(
+                    username,
+                    displayName,
+                    email,
+                    tenant,
+                    newRoles,
+                    status,
+                    service,
+                    passwordHash,
+                    previousHashes,
+                    mustChangePassword,
+                    passwordChangedAt,
+                    failedAttempts,
+                    firstFailedAt,
+                    lockedUntil,
+                    lastLoginAt,
+                    createdAt);
+        }
+    }
+
+    /**
+     * An API key, {@code prv_<env>_<keyId>_<secret>}. The secret is never stored, only {@code secretHash};
+     * {@code keyId} is the lookup index and what an administrator and the audit trail see.
+     */
+    public record ApiKey(
+            String keyId,
+            String name,
+            String holder,
+            Set<String> roles,
+            String secretHash,
+            Instant createdAt,
+            String createdBy,
+            Instant expiresAt,
+            Instant revokedAt,
+            String rotatedTo,
+            Instant lastUsedAt) {
+
+        public ApiKey {
+            roles = Set.copyOf(roles);
+        }
+
+        public boolean usableAt(Instant now) {
+            return revokedAt == null && now.isBefore(expiresAt);
+        }
+
+        ApiKey revoked(Instant at) {
+            return new ApiKey(
+                    keyId, name, holder, roles, secretHash, createdAt, createdBy, expiresAt, at, rotatedTo, lastUsedAt);
+        }
+
+        ApiKey rotated(String successor, Instant newExpiry) {
+            return new ApiKey(
+                    keyId,
+                    name,
+                    holder,
+                    roles,
+                    secretHash,
+                    createdAt,
+                    createdBy,
+                    newExpiry,
+                    revokedAt,
+                    successor,
+                    lastUsedAt);
+        }
+
+        ApiKey used(Instant at) {
+            return new ApiKey(
+                    keyId, name, holder, roles, secretHash, createdAt, createdBy, expiresAt, revokedAt, rotatedTo, at);
+        }
+    }
+
+    /** A signed-in person's session. {@code id} is public (listable, endable); the token is not stored. */
+    public record Session(String id, String tokenHash, String username, Instant createdAt, Instant absoluteExpiry) {}
+
+    /** An administrator-issued reset token, stored as its hash, single use. */
+    public record ResetToken(String tokenHash, String username, Instant expiresAt, String issuedBy) {}
+}
