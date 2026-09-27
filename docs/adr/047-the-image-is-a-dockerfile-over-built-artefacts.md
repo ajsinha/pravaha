@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted — **built**, and **supersedes the packaging rows of design §6.3, §22.6 and §27.3**, which say Jib and distroless. `deploy/docker/` builds the image; `deploy/docker/smoke.sh` runs the whole journey against a real container on it. There is no `pravaha-dist` module (design §6.3 lists one; it does not exist) |
+| Status | Accepted — **built**; its choice of Alpine as the base is **superseded by [ADR-053](053-native-code-only-where-java-cannot.md)** (a glibc-only codec, PORT-1), and **supersedes the packaging rows of design §6.3, §22.6 and §27.3**, which say Jib and distroless. `deploy/docker/` builds the image; `deploy/docker/smoke.sh` runs the whole journey against a real container on it. There is no `pravaha-dist` module (design §6.3 lists one; it does not exist) |
 | Date | 2026-09-19 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-035 (a node claims its state), ADR-045 (cluster mode on hold), design §6.3, §22.6, §27.3, `../DEPLOYMENT.md` |

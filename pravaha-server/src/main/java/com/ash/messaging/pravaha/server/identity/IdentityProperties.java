@@ -198,6 +198,31 @@ public class IdentityProperties {
         return java.util.Optional.of(service);
     }
 
+    /**
+     * Refuses a node still on the bootstrap admin's published password outside dev (PRV-7019), then says
+     * once at startup how this node signs people in.
+     */
+    public void announce(IdentityService users, org.slf4j.Logger log) {
+        users.requireStartable();
+        log.info(
+                "identity: users, API keys and sessions kept in {} (environment {}, sign-in by {}, forced "
+                        + "password change {})",
+                store,
+                environment,
+                effectiveMode(),
+                password.isForceChange() ? "on" : "off");
+        if (!"password".equals(mode.trim())) {
+            log.warn(
+                    "pravaha.identity.mode is {} and no identity provider is configured, so people sign in with "
+                            + "passwords",
+                    mode);
+        }
+        if (users.defaultAdminPasswordInUse()) {
+            log.warn("identity: the user 'admin' still has the default password; change it before anyone else can "
+                    + "reach this node");
+        }
+    }
+
     /** {@code pravaha.identity.password.*}. */
     public static class Password {
         private int minLength = 12;

@@ -7,7 +7,9 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 > into one of three kinds: deferred by decision (multi-node only), buildable, or a boundary of a store,
 > a format or a decision. This page is the strategy for the buildable ones. The owner's constraints
 > shape it: every gap except multi-node gets built; at most two agents besides the lead; each piece is
-> gated and drilled before the next starts; and no RocksDB.
+> gated and drilled before the next starts; no RocksDB; and native code only where Java cannot do
+> the job ([ADR-053](adr/053-native-code-only-where-java-cannot.md)). The owner set the order on
+> 2026-09-27: A, then B, then C.
 
 ## The strategy
 
@@ -35,7 +37,7 @@ The findings register tracks anything found along the way.
 
 | # | Item | Size | Why this order |
 |---|---|---|---|
-| A1 | `kafka-sink` lz4, snappy and zstd in pure Java (aircompressor: no native code, so the no-native rule holds) | S | Producers in the field default to these codecs |
+| A1 | Compressed Kafka under [ADR-053](adr/053-native-code-only-where-java-cannot.md): the source consumes, and `kafka-sink` writes, snappy and zstd through the two native codecs the build already allows, on the platforms documented there. lz4 stays refused, because it would need a third native library, and allowing one is an ADR | S | Producers in the field compress, and a topic the source cannot decompress is a topic it cannot read |
 | A2 | The Kafka source picks up partitions added after registration, through a periodic metadata refresh with the new partition's offsets entering the next checkpoint | S | A topic scaled out today is silently half-read until a restart |
 | A3 | Cassandra filter pushdown on partition-key and clustering columns, which needs no `ALLOW FILTERING` | S | Stops a full-table re-read each pass when the filter is on the key |
 | A4 | The console's tenants and quotas screen, on `GET /api/v1/tenants` | S | The API already exists |

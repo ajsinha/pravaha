@@ -1908,7 +1908,7 @@ No consensus, no membership protocol, no Ratis (ADR-035, ADR-034). Two processes
 |---|---|---|
 | Embedded | `pravaha-embedded` | Inside a Java application. A lifecycle seam only: it starts, stops and reports state, and cannot register or read a query. The CLI does **not** use it |
 | Server | `pravaha-server` + `pravaha-flight` | Standard deployment |
-| Container | `deploy/docker/` | The same server, packaged: a non-root image on a JDK 21 Alpine base, built from artefacts the reactor already produced ([ADR-047](adr/047-the-image-is-a-dockerfile-over-built-artefacts.md)) |
+| Container | `deploy/docker/` | The same server, packaged: a non-root image on a JDK 21 glibc base, built from artefacts the reactor already produced ([ADR-047](adr/047-the-image-is-a-dockerfile-over-built-artefacts.md)) |
 | Kubernetes | `deploy/helm/pravaha/` | **One** node as a StatefulSet, because of the state claim below. More replicas are refused at render time |
 | Console | `console/`, separate process | Operator UI, talks only to the public API |
 

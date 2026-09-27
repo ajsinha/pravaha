@@ -19,10 +19,12 @@
 # The root `Dockerfile` remains the from-source convenience build (clone, `docker build .`, wait).
 # This one is what a release publishes. docs/DEPLOYMENT.md says which to reach for.
 
-# Alpine, not the Ubuntu-based tag: 287 MB against 459 MB for the same JRE, and busybox brings a
-# `wget` the HEALTHCHECK below can use without installing a package. Measured, not assumed --
-# ADR-047 records the musl question and how it was answered (the smoke journey runs on this image).
-FROM eclipse-temurin:21-jre-alpine
+# glibc, not Alpine (ADR-053, superseding ADR-047's choice of base). Alpine saved 172 MB and cost
+# musl, and ADR-047 said what would end it: "if a connector ever brings a glibc-only native library,
+# the base changes". One had: snappy-java arrives with Parquet (feedfile, delta), is built for glibc
+# only, and failed to load on the Alpine image, so the commonest Parquet file could not be read in
+# the container (PORT-1). smoke.sh now loads both Parquet codecs on this image.
+FROM eclipse-temurin:21-jre
 
 # A deployment wants to know what it is running without starting it.
 ARG PRAVAHA_VERSION=0.0.0-unset
@@ -39,11 +41,9 @@ LABEL org.opencontainers.image.title="Pravaha engine node" \
 
 WORKDIR /opt/pravaha
 
-# One layer, three things.
+# One layer, two things.
 #
-# bash, because bin/pravaha-server is a bash script and Alpine ships only busybox ash. ~2 MB, and
-# the alternative -- rewriting the shipped launcher to POSIX sh so one base image is happier --
-# would change the thing every other way of running this server goes through. Paid here, once.
+# bash, which bin/pravaha-server needs, and wget, which the HEALTHCHECK uses, are in the base.
 #
 # Not root, and not a shell account either. The engine needs no privileged port -- 18080 and 19090
 # are both above 1024 -- and a streaming engine that reads whatever a binding points it at is
@@ -59,9 +59,8 @@ WORKDIR /opt/pravaha
 #
 # The data directories, 0750, owned by that uid. The engine narrows them again before its first
 # write; creating them wrong first would make the first run's failure a permissions puzzle.
-RUN apk add --no-cache bash \
- && addgroup -S -g 10001 pravaha \
- && adduser  -S -u 10001 -G pravaha -H -s /sbin/nologin pravaha \
+RUN groupadd --system --gid 10001 pravaha \
+ && useradd --system --uid 10001 --gid pravaha --no-create-home --shell /usr/sbin/nologin pravaha \
  && mkdir -p /opt/pravaha/data/checkpoints /opt/pravaha/data/dlq /opt/pravaha/data/spill \
               /opt/pravaha/conf /opt/pravaha/defaults /opt/pravaha/logs /opt/pravaha/secrets \
  && chown -R 10001:10001 /opt/pravaha \
@@ -124,7 +123,7 @@ VOLUME ["/opt/pravaha/data"]
 
 # Liveness only, deliberately. Docker has one health state, and pointing it at readiness would make
 # a node that is merely still restoring state look broken; Kubernetes gets both probes separately
-# (deploy/helm/pravaha). --spider because busybox wget writes the body to stdout otherwise.
+# (deploy/helm/pravaha). --spider because wget writes the body to stdout otherwise.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=45s --retries=3 \
   CMD wget -q --spider http://127.0.0.1:18080/actuator/health/liveness || exit 1
 

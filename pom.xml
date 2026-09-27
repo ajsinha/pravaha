@@ -542,6 +542,67 @@
               </rules>
             </configuration>
           </execution>
+          <execution>
+            <!--
+              ADR-053: Pravaha runs on any platform a JDK 21 runs on. A native library is platform
+              code. It loads on the builds its publisher made (usually glibc, on a handful of CPUs)
+              and fails everywhere else, at the first use rather than at startup. snappy-java
+              reached the Alpine image through Parquet and could not load there (PORT-1).
+
+              So native code on a compile or runtime path is refused here, family by family. A
+              library with a Java equivalent is excluded where it enters (TLS on the JDK's engine,
+              NIO instead of epoll). The two that stay, snappy-java and zstd-jni, are not listed
+              because Parquet has no other way to read the files every writer produces; their
+              platforms are in docs/DEPLOYMENT.md, and deploy/docker/smoke.sh loads both on the
+              image. Adding a family to the allowed set is an ADR, not an edit here.
+
+              Test scope is exempt: Testcontainers brings JNA to talk to Docker, which never ships.
+            -->
+            <id>enforce-portable-native-code</id>
+            <goals>
+              <goal>enforce</goal>
+            </goals>
+            <configuration>
+              <rules>
+                <bannedDependencies>
+                  <searchTransitive>true</searchTransitive>
+                  <excludes>
+                    <exclude>io.netty:netty-tcnative-boringssl-static:*:*:compile</exclude>
+                    <exclude>io.netty:netty-tcnative-boringssl-static:*:*:runtime</exclude>
+                    <exclude>io.netty:netty-tcnative:*:*:compile</exclude>
+                    <exclude>io.netty:netty-tcnative:*:*:runtime</exclude>
+                    <exclude>io.netty:netty-transport-native-epoll:*:*:compile</exclude>
+                    <exclude>io.netty:netty-transport-native-epoll:*:*:runtime</exclude>
+                    <exclude>io.netty:netty-transport-native-kqueue:*:*:compile</exclude>
+                    <exclude>io.netty:netty-transport-native-kqueue:*:*:runtime</exclude>
+                    <exclude>io.netty:netty-transport-native-io_uring:*:*:compile</exclude>
+                    <exclude>io.netty:netty-transport-native-io_uring:*:*:runtime</exclude>
+                    <exclude>io.netty:netty-resolver-dns-native-macos:*:*:compile</exclude>
+                    <exclude>io.netty:netty-resolver-dns-native-macos:*:*:runtime</exclude>
+                    <exclude>io.netty.incubator:*:*:*:compile</exclude>
+                    <exclude>io.netty.incubator:*:*:*:runtime</exclude>
+                    <exclude>net.java.dev.jna:*:*:*:compile</exclude>
+                    <exclude>net.java.dev.jna:*:*:*:runtime</exclude>
+                    <exclude>com.github.jnr:*:*:*:compile</exclude>
+                    <exclude>com.github.jnr:*:*:*:runtime</exclude>
+                    <exclude>org.lz4:*:*:*:compile</exclude>
+                    <exclude>org.lz4:*:*:*:runtime</exclude>
+                    <exclude>at.yawk.lz4:*:*:*:compile</exclude>
+                    <exclude>at.yawk.lz4:*:*:*:runtime</exclude>
+                    <exclude>org.rocksdb:*:*:*:compile</exclude>
+                    <exclude>org.rocksdb:*:*:*:runtime</exclude>
+                    <exclude>org.conscrypt:*:*:*:compile</exclude>
+                    <exclude>org.conscrypt:*:*:*:runtime</exclude>
+                    <exclude>com.aayushatharva.brotli4j:*:*:*:compile</exclude>
+                    <exclude>com.aayushatharva.brotli4j:*:*:*:runtime</exclude>
+                    <exclude>org.xerial:sqlite-jdbc:*:*:compile</exclude>
+                    <exclude>org.xerial:sqlite-jdbc:*:*:runtime</exclude>
+                  </excludes>
+                  <message>ADR-053: this dependency carries native code for a fixed set of platforms. Exclude it where it enters and use the Java path; or, if there is none, record the platforms in an ADR and allow it there.</message>
+                </bannedDependencies>
+              </rules>
+            </configuration>
+          </execution>
         </executions>
       </plugin>
 

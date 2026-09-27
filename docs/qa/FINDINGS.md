@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **399 findings carrying a
-status — 370 FIXED, 15 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 15 open, **0 are
+only part that is kept current. Counting the register as it stands: **400 findings carrying a
+status — 371 FIXED, 15 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 15 open, **0 are
 GA-BLOCKER, 0 GA-REQUIRED, 11 POST-GA and 4 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -6984,3 +6984,14 @@ triaged by the lead.
 
 > **Status:** OPEN — one fresh telecom node gave `9b5a430dc639` against `4a2655cf6ed1` for identical SQL; later runs were stable. Observed on a build before FP-1, when the fingerprint was a hash of the explain text; since FP-1 it hashes each operator's identity, built from records, and `PlanIdentityTest`'s sharing cases hold. Not reproduced.
 > **Disposition:** NOTE — not a defect -- a reconfirmation, correction or coverage observation
+
+## Found making the build portable (2026-09-27), 1 finding, 1 fixed
+
+The owner asked that the POM keep Pravaha portable and use JNI carefully. An inventory of every
+compile and runtime dependency found four native families (ADR-053). Each was loaded in the shipped
+image's base, not reasoned about.
+
+### PORT-1 (HIGH) — Parquet's Snappy codec could not load in the container image, so an ordinary Parquet file could not be read there
+
+> **Status:** FIXED — `snappy-java` reaches the server through Parquet (the `feedfile` and `delta` plugins). Its Linux libraries are built for glibc, and the image was `eclipse-temurin:21-jre-alpine` (musl): loading it failed with `Error loading shared library ld-linux-x86-64.so.2`. Snappy is Parquet's default codec. ADR-047 had named this exact case as the reason to change the base, and nothing checked it, because the smoke journey reads CSV. The base is now `eclipse-temurin:21-jre` (glibc). The node round-trips bytes through both Parquet codecs at startup and warns by name when one does not load (`NativeCodecs`; `NativeCodecsTest`). `deploy/docker/smoke.sh` step 11 loads both inside the image with a read-only root, with `/tmp` mounted `exec`: Docker's tmpfs is `noexec` by default, and the codecs load from `java.io.tmpdir`. With it, the build now refuses native libraries on any compile or runtime path except those two (`enforce-portable-native-code`, proved by re-adding epoll and watching it fail). BoringSSL and epoll are excluded, so TLS runs on the JDK's engine, and the Flight and SDK TLS end-to-end tests pass without them. **Images up to 0.1.3 have the defect.**
+

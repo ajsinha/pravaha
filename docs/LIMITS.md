@@ -73,7 +73,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   view as a retraction. Its upsert mode rewrites the data files holding a changed key, so a commit costs in proportion to the table
   rather than to the change.
 
-  **Buildable:** pure-Java lz4, snappy and zstd for `kafka-sink`; Avro and Protobuf output reusing the source's writers; an Iceberg sink without Spark. Compaction stays with the table's own engine.
+  **Buildable:** snappy and zstd for `kafka-sink`, through the two native codecs [ADR-053](adr/053-native-code-only-where-java-cannot.md) allows (lz4 would need a third, and stays refused); Avro and Protobuf output reusing the source's writers; an Iceberg sink without Spark. Compaction stays with the table's own engine.
 
 - **The Kafka source reads JSON, Avro and Protobuf — with no library for any of them.** JSON rows or
   `kafka-sink`'s changelog; Avro's binary encoding through a reader written here from the
