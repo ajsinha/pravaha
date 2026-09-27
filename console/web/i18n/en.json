@@ -1120,7 +1120,8 @@
       "stream": "stream",
       "view": "view",
       "query": "query",
-      "page": "page"
+      "page": "page",
+      "case_study": "case study"
     },
     "back": {
       "area": "Back to {area}",
@@ -1132,7 +1133,8 @@
       "queries": "Back to queries",
       "query": "Back to the query",
       "start": "Back to the start",
-      "workbench": "Back to the workbench"
+      "workbench": "Back to the workbench",
+      "case_studies": "All case studies"
     }
   },
   "workbench": {
@@ -1536,7 +1538,18 @@
         "blurb": "Worked walkthroughs, end to end and with real calls: registering a continuous query and watching it maintained, joining two streams with a time bound, subscribing from both SDKs, and reading the case studies the engine ships with."
       }
     },
-    "decision_records": "Decision records"
+    "decision_records": "Decision records",
+    "case_studies": {
+      "title": "Case studies",
+      "lede": "Worked systems, one domain each, carried from their data to their continuous queries: what each query shows, the output of a real run, and the mistakes worth avoiding. Each is a folder in examples/case-studies/ that runs as it is.",
+      "open": "Open the case study",
+      "store": "Source: {store}",
+      "domain": "Domain: {domain}",
+      "facts": "This study",
+      "run_note": "Every study runs from its folder in examples/case-studies/; what has to be running first is in",
+      "setup": "Setting up",
+      "none": "This installation does not carry the case studies. They are in the examples/case-studies/ folder of the Pravaha source tree."
+    }
   },
   "login": {
     "kicker": "CONSOLE",

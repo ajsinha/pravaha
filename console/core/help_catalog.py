@@ -92,7 +92,14 @@ CATEGORIES: list[Category] = [
                      _page("/tutorials", "Tutorials: five worked systems", "journal-code",
                            "Five end-to-end case studies — trade processing, counterparty exposure, "
                            "card velocity, order flow, sequencing QC — with SQL the build plans.",
-                           "TUTORIALS", "case study example tutorial banking trading biology")]),
+                           "TUTORIALS", "case study example tutorial banking trading biology"),
+                     _page("/help/case-studies", "Case studies", "journal-code",
+                           "Worked systems, one domain each, from their data to their continuous queries — "
+                           "each study's README, with the output of a real run.",
+                           "CASE STUDIES", "case study worked example domain banking trading biology"),
+                     _guide("developing-in-an-ide", "Running from an IDE", "laptop",
+                            "The engine in IntelliJ IDEA and the console in PyCharm: run configurations, "
+                            "the JVM flags Flight needs, debugging and tests.")]),
     Category("concepts", "Concepts", "lightbulb",
              "The ideas the engine is built on: streams, continuous queries, views and keys, "
              "weights and retractions, windows, event time, corrections and sharing.",

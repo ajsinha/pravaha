@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{# One case study: its README, rendered, with the studies before and after it. #}
+{% block title %}{{ topic.title }} — {{ app_name }}{% endblock %}
+{% block head %}<link href="/static/app/help.css?v={{ asset_version }}" rel="stylesheet"><style>
+.doc h1{font-size:1.5rem;margin-bottom:.6rem}
+.doc h2{font-size:1.12rem;margin:1.7rem 0 .6rem;padding-top:.3rem}
+.doc h3{font-size:.98rem;margin:1.2rem 0 .4rem}
+.doc p,.doc li{line-height:1.68;color:var(--slate)}
+.doc table{width:100%;margin:1rem 0}
+.doc pre{margin:.8rem 0}
+.doc blockquote{border-left:3px solid var(--flow);padding-left:.9rem;color:var(--muted);margin:1rem 0}
+.toc a{display:block;padding:.18rem 0;font-size:.82rem;color:var(--muted);text-decoration:none}
+.toc a:hover{color:var(--flow)}
+.study-nav{display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-top:1.2rem}
+</style>{% endblock %}
+{% block content %}
+<nav class="crumbs" aria-label="{{ t('help.topic.breadcrumb') }}"><a href="/help">{{ t('help.index.title') }}</a>
+  <a href="/help/case-studies">{{ t('help.case_studies.title') }}</a></nav>
+<div class="row g-4 mt-1">
+  <div class="col-lg-9">
+    <article class="card"><div class="card-body doc">{{ topic.html|safe }}</div></article>
+    <nav class="study-nav" aria-label="{{ t('help.case_studies.title') }}">
+      {% if before %}<a class="btn btn-sm btn-outline-secondary" href="/help/case-studies/{{ before.slug }}">&larr; {{ before.title }}</a>{% else %}<span></span>{% endif %}
+      {% if after %}<a class="btn btn-sm btn-primary" href="/help/case-studies/{{ after.slug }}">{{ after.title }} &rarr;</a>{% endif %}
+    </nav>
+  </div>
+  <div class="col-lg-3">
+    <div class="section-label mt-0">{{ t('help.case_studies.facts') }}</div>
+    <p class="small text-muted mb-1">{{ t('help.case_studies.domain', domain=study.domain) }}</p>
+    <p class="small text-muted">{{ t('help.case_studies.store', store=study.store) }}</p>
+    {% if topic.anchors %}
+    <div class="section-label">{{ t('help.on_this_page') }}</div>
+    <nav class="toc" aria-label="{{ t('help.on_this_page') }}">
+      {% for h in topic.anchors %}<a href="#{{ h.id }}">{{ h.name }}</a>{% endfor %}
+    </nav>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

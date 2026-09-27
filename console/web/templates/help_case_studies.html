@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{# Every case study the index in examples/case-studies/README.md lists, a card each: a worked
+   system in one domain, carried from its data to its continuous queries. #}
+{% block title %}{{ t('help.case_studies.title') }} — {{ app_name }}{% endblock %}
+{% block head %}<link href="/static/app/help.css?v={{ asset_version }}" rel="stylesheet">{% endblock %}
+{% block content %}
+<nav class="crumbs" aria-label="{{ t('help.topic.breadcrumb') }}"><a href="/help">{{ t('help.index.title') }}</a></nav>
+<div class="accent"></div>
+<p class="kicker mt-2 mb-1">{{ t('help.index.kicker') }}</p>
+<h1>{{ t('help.case_studies.title') }}</h1>
+<div class="rule"></div>
+<p class="text-muted" style="max-width:48rem;line-height:1.6">{{ t('help.case_studies.lede') }}</p>
+{% if studies %}
+<div class="row g-3 mb-2">
+  {% for s in studies %}
+  <div class="col-md-6 col-xl-4">
+    <a class="help-card" href="/help/case-studies/{{ s.slug }}">
+      <span class="t"><i class="bi bi-journal-code" aria-hidden="true"></i>{{ s.title }}
+        <span class="badge-help">{{ s.domain|upper }}</span></span>
+      <span class="s">{{ s.shows }}</span>
+      <span class="s small">{{ t('help.case_studies.store', store=s.store) }}</span>
+      <span class="go">{{ t('help.case_studies.open') }} &rarr;</span>
+    </a>
+  </div>
+  {% endfor %}
+</div>
+<p class="text-muted small mt-3">{{ t('help.case_studies.run_note') }} <a href="/tutorials/setup">{{ t('help.case_studies.setup') }}</a></p>
+{% else %}
+<p class="text-muted">{{ t('help.case_studies.none') }}</p>
+{% endif %}
+{% endblock %}

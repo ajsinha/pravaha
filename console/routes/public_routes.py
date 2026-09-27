@@ -195,6 +195,38 @@ class PublicRoutes(Routes):
                              sections=sections, mentions=mentions,
                              family_topic=family if catalog.topic(family) else "")
 
+        @self.app.get("/help/case-studies", response_class=HTMLResponse, tags=["public"])
+        def help_case_studies(request: Request):
+            """Every case study, a card each, in the order examples/case-studies/README.md lists them."""
+            from core.content.case_studies import catalog as studies
+
+            return self.page(request, "help_case_studies.html", current="/help",
+                             studies=studies(content.include_root))
+
+        @self.app.get("/help/case-studies/{slug}", response_class=HTMLResponse, tags=["public"])
+        def help_case_study(request: Request, slug: str):
+            """One case study's README, rendered in place. Allow-listed by the index table, so the
+            name reaches a path only once the table has named it."""
+            from core.content import case_studies
+            from core.content.library import Topic
+
+            study = case_studies.find(content.include_root, slug)
+            if study is None:
+                return self.page(request, "not_found.html", http_status=404, current="/help",
+                                 what=self.t("not_found.what.case_study"), identifier=slug,
+                                 back_href="/help/case-studies", back_label=self.t("not_found.back.case_studies"))
+            readme = (content.include_root / "examples" / "case-studies" / study.slug / "README.md").read_text(
+                encoding="utf-8")
+            html, headings = content.renderer.render(
+                case_studies.relink(readme, study.slug, content.include_root))
+            page = Topic(slug=study.slug, title=case_studies.title_of(readme, study.title),
+                         section=self.t("help.case_studies.title"),
+                         html=html,
+                         headings=headings, source=f"examples/case-studies/{study.slug}/README.md")
+            before, after = case_studies.neighbours(content.include_root, study)
+            return self.page(request, "help_case_study.html", current="/help", topic=page, study=study,
+                             before=before, after=after)
+
         @self.app.get("/help/{slug}", response_class=HTMLResponse, tags=["public"])
         def help_topic(request: Request, slug: str):
             return topic(request, "help", slug)
