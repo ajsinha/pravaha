@@ -215,25 +215,29 @@ class PravahaListenerTest {
     void closingTheContextDetachesListenersStopsTheirThreadsAndClosesTheEngine() {
         PravahaEngine[] engine = new PravahaEngine[1];
         PravahaListenerProcessor[] processor = new PravahaListenerProcessor[1];
+        // Only the listener threads this context starts. Counting every one in the JVM made the test
+        // wait on threads another test's context left behind, which a slow CI runner then failed.
+        java.util.Set<Thread> before = java.util.Set.copyOf(listenerThreads());
+        List<Thread> ours = new java.util.ArrayList<>();
         runner.withUserConfiguration(ChangeListenersConfiguration.class).run(context -> {
             engine[0] = context.getBean(PravahaEngine.class);
             processor[0] = context.getBean(PravahaListenerProcessor.class);
             context.getBean(PravahaTemplate.class).push("txn", new Object[] {"u1", 1L});
             await(() -> context.getBean(ChangeListeners.class).changes.size() == 1, "a change");
-            assertThat(listenerThreads()).isNotEmpty();
+            listenerThreads().stream().filter(t -> !before.contains(t)).forEach(ours::add);
+            assertThat(ours).isNotEmpty();
             assertThat(engine[0].find("totals").orElseThrow().subscriberCount()).isEqualTo(3);
         });
         assertThat(engine[0].state()).isEqualTo(EngineState.STOPPED);
         assertThat(processor[0].isRunning()).isFalse();
         assertThat(processor[0].containers()).noneMatch(ListenerContainer::isRunning);
-        await(() -> listenerThreads().isEmpty(), "listener threads to end");
+        await(() -> ours.stream().noneMatch(Thread::isAlive), "this context's listener threads to end");
     }
 
-    private static List<String> listenerThreads() {
+    private static List<Thread> listenerThreads() {
         return Thread.getAllStackTraces().keySet().stream()
                 .filter(Thread::isAlive)
-                .map(Thread::getName)
-                .filter(name -> name.startsWith("pravaha-listener-"))
+                .filter(thread -> thread.getName().startsWith("pravaha-listener-"))
                 .toList();
     }
 
