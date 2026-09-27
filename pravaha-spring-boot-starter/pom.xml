@@ -4,7 +4,7 @@
   <parent>
     <groupId>com.ash.messaging</groupId>
     <artifactId>pravaha</artifactId>
-    <version>0.2.0</version>
+    <version>0.2.1-SNAPSHOT</version>
   </parent>
   <artifactId>pravaha-spring-boot-starter</artifactId>
   <name>Pravaha :: spring boot starter</name>
