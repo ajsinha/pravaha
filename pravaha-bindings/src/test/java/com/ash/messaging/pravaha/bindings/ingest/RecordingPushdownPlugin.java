@@ -126,6 +126,12 @@ public final class RecordingPushdownPlugin implements StreamSourcePlugin {
         };
     }
 
+    /** What a store would be asked for, as a source that honours part of an offer says it. */
+    @Override
+    public String describePushdown(ReadRequest request) {
+        return "the store applies " + request.filters().size() + " of them";
+    }
+
     /** What this plugin was offered, oldest first. */
     static List<ReadRequest> offered() {
         return new ArrayList<>(OFFERED);

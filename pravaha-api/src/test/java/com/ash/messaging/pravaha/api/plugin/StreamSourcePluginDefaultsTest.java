@@ -92,5 +92,8 @@ class StreamSourcePluginDefaultsTest {
         source.createReaderForNewPartition(new SourcePartition("s", 3, java.util.Map.of()), ReadRequest.NOTHING);
 
         assertThat(source.asked).containsExactly("3 from SourceOffset[beginning]");
+        assertThat(source.describePushdown(ReadRequest.NOTHING))
+                .as("nothing beyond the offer, which the engine reports itself")
+                .isEmpty();
     }
 }

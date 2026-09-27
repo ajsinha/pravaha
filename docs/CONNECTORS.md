@@ -870,7 +870,7 @@ What the shipped plugins claim, and why not more (ADR-039 item 6):
 |---|---|---|---|
 | `jdbc` | yes — bound `WHERE`, `alternatives` as an `OR` | yes — the `SELECT` list, plus the watermark and key columns | with `key.column` only: one `GROUP BY` per keyset page, `COUNT` and `SUM` over `BIGINT`; declined for a filter SQL cannot carry, and for text comparisons or text group keys unless `collation.binary: true`, since a case-insensitive collation groups `'DONE'` with `'done'` |
 | `aerospike` | yes — server-side expressions, `alternatives` as `Exp.or` (with `deletes: detect` too, where a record leaving the filter is retracted) | yes — the scan's bin names | no — server-side aggregation needs Lua stream UDFs registered on the cluster, and a last-update-time scan has no retraction for an overwritten record |
-| `cassandra` | no — anything but the partition key needs `ALLOW FILTERING` | yes — the CQL `SELECT` list | no — every pass re-reads the whole range, so no partial could cover "new rows only" |
+| `cassandra` | on the key only — the whole partition key by equality (or an OR of such keys, up to 256), then clustering restrictions in their declared order; anything else needs `ALLOW FILTERING` and stays with the engine. The feed description says what was pushed | yes — the CQL `SELECT` list | no — every pass re-reads what it reads, so no partial could cover "new rows only" |
 | `filesystem`, `feedfile`, `delta` | no | no | no |
 | `kafka` | no — a broker has no server-side filter; every record is fetched whole | no | no |
 

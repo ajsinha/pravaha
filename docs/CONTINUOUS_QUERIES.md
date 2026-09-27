@@ -493,10 +493,13 @@ says what it is beats an incremental one that quietly misses rows.**
 
 `partition.key` names the table's partition-key columns, in CQL's own order, so this plugin can page
 by `token()` instead of reading through `ALLOW FILTERING`. The columns a query reads become the CQL
-`SELECT` list (ADR-039 item 6); its `WHERE` clause stays in the engine, because a predicate on
-anything but the partition key needs `ALLOW FILTERING`. Every pass reads the whole range assigned
-to each of the `partitions` readers, then waits out `scan.interval.ms` before reading it again — so a
-short interval on a large table is a scan that never stops running.
+`SELECT` list (ADR-039 item 6). A `WHERE` that pins the whole partition key by equality is pushed:
+each pass reads those partitions rather than the range, sliced by any restrictions on the clustering
+columns in their declared order (equality down a prefix, then a range). Any other predicate needs
+`ALLOW FILTERING` and stays in the engine, and then every pass reads the whole range assigned to
+each of the `partitions` readers, then waits out `scan.interval.ms` before reading it again — so a
+short interval on a large table is a scan that never stops running. The query's feed description
+says which it was.
 
 ##### What a table scan cannot do
 

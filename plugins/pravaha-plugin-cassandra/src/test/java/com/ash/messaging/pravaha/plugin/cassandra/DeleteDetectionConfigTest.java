@@ -66,7 +66,7 @@ class DeleteDetectionConfigTest {
                 .isTrue();
         assertThat(caps.emitsBeforeImage()).isTrue();
         assertThat(caps.guarantee()).isEqualTo(DeliveryGuarantee.EXACTLY_ONCE);
-        assertThat(caps.pushdown()).containsExactly(PushdownKind.PROJECT);
+        assertThat(caps.pushdown()).containsExactlyInAnyOrder(PushdownKind.PROJECT, PushdownKind.FILTER);
         assertThat(caps.typicalLatency()).hasMillis(5000);
     }
 

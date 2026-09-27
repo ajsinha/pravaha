@@ -595,7 +595,7 @@ class PluginSourceFeedsTest {
 
         ViewCatalog views = new ViewCatalog();
         try (QueryRegistry registry = new QueryRegistry(views, RecordingPushdownPlugin.SCHEMA).feedingFrom(feeds)) {
-            registry.register(
+            RegisteredQuery filtered = registry.register(
                     "filtered",
                     "SELECT id, amount FROM pushed WHERE user_id = 'ann' AND amount > 100",
                     List.of(0),
@@ -608,7 +608,28 @@ class PluginSourceFeedsTest {
                     .as("both conjuncts belong to the source; neither is over a computed column")
                     .extracting(f -> f.column() + " " + f.comparison() + " " + f.value())
                     .containsExactlyInAnyOrder("user_id EQ ann", "amount GT 100");
+            assertThat(filtered.feed().describe())
+                    .as("the offer, and what the source says it asks its store for")
+                    .contains("pushed 2 filters")
+                    .contains("; the store applies 2 of them");
         }
+    }
+
+    @Test
+    void aSourceThatCannotDescribeItsPushdownSaysSoRatherThanFailingTheRegistration() {
+        com.ash.messaging.pravaha.api.plugin.StreamSourcePlugin broken = new GrowingPartitionsPlugin() {
+            @Override
+            public String describePushdown(com.ash.messaging.pravaha.api.plugin.ReadRequest request) {
+                throw new IllegalStateException("no table metadata");
+            }
+        };
+
+        assertThat(PluginSourceFeeds.sourceSays(broken, com.ash.messaging.pravaha.api.plugin.ReadRequest.NOTHING))
+                .isEqualTo("; the source could not describe its pushdown: no table metadata");
+        assertThat(PluginSourceFeeds.sourceSays(
+                        new GrowingPartitionsPlugin(), com.ash.messaging.pravaha.api.plugin.ReadRequest.NOTHING))
+                .as("a source with nothing to add adds nothing")
+                .isEmpty();
     }
 
     @Test

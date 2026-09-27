@@ -114,7 +114,7 @@ final class TokenRangeScanReader implements PartitionReader {
         this.lastConsumedToken = parse(resumeFrom);
     }
 
-    private static Long parse(SourceOffset offset) {
+    static Long parse(SourceOffset offset) {
         if (offset == null || offset.isBeginning()) {
             return null;
         }

@@ -137,12 +137,14 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   Cassandra, and a continuous `COUNT`/`SUM` into JDBC as one partial per polled page — but only
   there: Aerospike would need Lua UDFs on the cluster and Cassandra re-reads its whole table each
   pass, so neither claims a partial. A windowed aggregate is never pre-combined, nor a `MIN`/`MAX`
-  (not retractable), nor anything filtered by a predicate SQL cannot carry. Cassandra pushes no
-  filter (it would need `ALLOW FILTERING`). `EXPLAIN` shows the plan, not what a source was asked
-  for; a query's feed description does (`feed.description` on `GET /api/v1/queries/{name}`)
+  (not retractable), nor anything filtered by a predicate SQL cannot carry. Cassandra pushes a
+  filter only on the key: the whole partition key by equality, then clustering restrictions in their
+  declared order; anything else would need `ALLOW FILTERING`, which reads every partition anyway.
+  `EXPLAIN` shows the plan, not what a source was asked for; a query's feed description does
+  (`feed.description` on `GET /api/v1/queries/{name}`), including what Cassandra was asked for
   ([ADR-039](adr/039-ga-includes-the-known-gaps-and-clustering.md) item 6).
 
-  **Mostly a boundary of the stores.** `MIN`/`MAX` cannot be retracted incrementally, and an Aerospike partial needs UDFs installed on the cluster. **Buildable:** Cassandra filter pushdown on partition-key and clustering columns, which needs no `ALLOW FILTERING`.
+  **A boundary of the stores.** `MIN`/`MAX` cannot be retracted incrementally, an Aerospike partial needs UDFs installed on the cluster, and a Cassandra filter off the key needs `ALLOW FILTERING`.
 
 - **Transactional sinks cost a second write.** `jdbc-sink`, `kafka-sink` and `delta-sink` are
   transactional, and none uses its store's own two-phase commit: `jdbc-sink` stages each

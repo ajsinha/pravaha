@@ -63,6 +63,17 @@ public interface StreamSourcePlugin extends PravahaPlugin {
     }
 
     /**
+     * What this source asks its store for when a reader is created with {@code request}, in words:
+     * which filters it applies itself and which it leaves with the engine. Shown in a query's feed
+     * description beside the offer, because a source may honour part of a request and "offered two
+     * filters" does not say whether the store was asked for a key or read whole. Empty by default:
+     * the description then reports the offer alone.
+     */
+    default String describePushdown(ReadRequest request) {
+        return "";
+    }
+
+    /**
      * How often the engine asks {@link #partitions} again while a query reads this source, to pick
      * up partitions added since it began: a Kafka topic scaled out, say. {@link Duration#ZERO}, the
      * default, means the list read when the query registered is the list for as long as it runs.

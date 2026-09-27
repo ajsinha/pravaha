@@ -307,7 +307,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                     ReadRequest shared = SourcePushdown.requestFor(
                                     execution.plan(), stream, group.plugin().capabilities())
                             .withoutAggregates();
-                    pushed.put(stream, summarise(shared) + ", shared");
+                    pushed.put(stream, summarise(shared) + ", shared" + sourceSays(group.plugin(), shared));
                     for (int index = 0; index < group.partitionCount(); index++) {
                         int partition = index;
                         String token = positions.tokenFor(stream, partition);
@@ -379,7 +379,11 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                     pumps.add(pump);
                     inputs.add(new FeedInput(stream, partition.index()));
                 }
-                pushed.put(stream, summarise(request.withoutAggregates()) + (partials ? ", partial aggregate" : ""));
+                pushed.put(
+                        stream,
+                        summarise(request.withoutAggregates())
+                                + (partials ? ", partial aggregate" : "")
+                                + sourceSays(plugin, request));
                 ReadRequest asked = request;
                 watch(
                         plugin,
@@ -489,7 +493,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                         .withoutAggregates();
                 List<SourcePartition> partitions = plugin.partitions(stream);
                 partitionCounts.put(stream, partitions.size());
-                pushed.put(stream, summarise(request) + ", backfilling");
+                pushed.put(stream, summarise(request) + ", backfilling" + sourceSays(plugin, request));
                 for (int index = 0; index < partitions.size(); index++) {
                     SourcePartition partition = partitions.get(index);
                     inputs.add(new FeedInput(stream, index));
@@ -926,6 +930,21 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
      * when nothing was pushed. What the source actually honoured is its own business -- a filter it
      * could not express is simply not applied there -- so this reports the offer.
      */
+    /**
+     * "; pushed to Cassandra: partition key id = 7": what the source says it asks its store for,
+     * beside the offer, or nothing when it says nothing. A source that fails to say is not a reason to
+     * fail a registration, so its failure is reported in the text instead.
+     */
+    static String sourceSays(StreamSourcePlugin plugin, ReadRequest request) {
+        String said;
+        try {
+            said = plugin.describePushdown(request);
+        } catch (RuntimeException e) {
+            said = "the source could not describe its pushdown: " + e.getMessage();
+        }
+        return said == null || said.isBlank() ? "" : "; " + said;
+    }
+
     static String summarise(ReadRequest request) {
         List<String> parts = new ArrayList<>(3);
         if (!request.filters().isEmpty()) {
