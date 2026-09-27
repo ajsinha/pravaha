@@ -550,6 +550,16 @@ connector should check at configuration rather than let a table be silently abse
 longer than `binlog_expire_logs_seconds` cannot resume and needs a new snapshot, which is the same
 shape as an invalidated slot.
 
+**`mysql-cdc` is built on exactly that.** It registers as a replica through
+`mysql-binlog-connector-java` (pure Java; no JDBC driver, no Debezium), refuses at open a server whose
+`binlog_format` is not `ROW` or whose `binlog_row_image` is not `FULL`, and a user without `REPLICATION
+SLAVE` and `REPLICATION CLIENT` (`PRV-5152`). Its offset is `binlog=FILE:POSITION` at a transaction
+boundary, with `;partial=N` when a transaction larger than any poll was handed over in parts; a
+restore whose file has expired is refused (`PRV-5155`) rather than resumed from wherever the log now
+starts. Options: `host`, `port` (3306), `user`, `password`, `table` (`database.table`), `stream`,
+`server.id` (unique among the server's replicas; derived from the binding by default), `event.time`,
+`buffer.rows`, `start.timeout`, `heartbeat.interval`, `snapshot.mode` (`never` only in this version).
+
 **The offset is the LSN, and it belongs in the checkpoint.** Resuming means telling the server the
 last LSN durably applied. Confirm too early and a crash loses changes the server will never resend;
 confirm only at a Pravaha checkpoint and the two recover to the same point. That is what
@@ -918,10 +928,10 @@ plugins' container ITs against Postgres, Aerospike and Cassandra).
 | Connector | Kind | Proves |
 |---|---|---|
 | **Kafka** | streaming | replayable offsets and real exactly-once resumption — **built, both ways**, `plugins/pravaha-plugin-kafka`: the source `kafka` (one reader per partition, its offsets in the checkpoint; below) and the sink `kafka-sink` (its transactional mapping is below) |
-| **Debezium CDC** | changelog | deletes, before-images, Z-sets end to end — the engine's own model. **Proved for PostgreSQL by `postgres-cdc`**, built natively ([ADR-041](adr/041-change-data-capture-without-debezium.md)); Debezium is the route for a second database |
+| **Debezium CDC** | changelog | deletes, before-images, Z-sets end to end — the engine's own model. **Proved for PostgreSQL by `postgres-cdc` and for MySQL by `mysql-cdc`**, both built natively ([ADR-041](adr/041-change-data-capture-without-debezium.md)); Debezium is the route for a third database |
 | **Cassandra** | table scan | the scan path generalises beyond Aerospike — **built**, ADR-039 item 6: a full `token()`-range scan with projection pushdown, `plugins/pravaha-plugin-cassandra` |
 | **ScyllaDB** | table scan | speaks the same CQL wire protocol as Cassandra; not built or tested against — the `cassandra` plugin has not been run against it |
-| **MySQL / Postgres** | table or CDC | direct; CDC is the better form. Postgres CDC is built (`postgres-cdc`); MySQL's binlog is not |
+| **MySQL / Postgres** | table or CDC | direct; CDC is the better form. Both are built: `postgres-cdc`, and `mysql-cdc` from the row-based binlog (changes only; no initial snapshot yet) |
 | **RabbitMQ / ActiveMQ / SQS / NATS** | queue | **at-least-once only** — acknowledgement is not an offset, so there is nothing to rewind to |
 | **Pulsar / Kinesis / Redpanda** | streaming | as Kafka |
 | **Iceberg / Hudi** | table format | as Delta, which exists **both ways** (`delta`, `delta-sink`, `plugins/pravaha-plugin-delta`). **Iceberg: the sink `iceberg-sink` is built**, `plugins/pravaha-plugin-iceberg` (below); no Iceberg source, no Hudi |

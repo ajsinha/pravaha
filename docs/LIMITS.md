@@ -100,8 +100,8 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   from PostgreSQL 14 or later, with a slot per registration. Rows already in the table are delivered
   only with `snapshot.mode: initial` (it needs a primary key; `never`, changes only, is the default),
   and that snapshot is exact across a restart half-way through it. A `TRUNCATE` of the captured
-  table stops it (`PRV-5116`) rather than being guessed into retractions, and no other database has a change
-  feed here — the other sources poll or scan. Aerospike and Cassandra scans see deletes only with
+  table stops it (`PRV-5116`) rather than being guessed into retractions, and only MySQL (`mysql-cdc`, below) has a change
+  feed besides — the other sources poll or scan. Aerospike and Cassandra scans see deletes only with
   `deletes: detect`, which compares each full pass with the rows already emitted and retracts what is
   gone: a delete arrives up to a scan interval late, two writes between passes are still one, and
   every emitted row is held in memory (about 150 bytes plus the row), bounded by `deletes.max.keys`.
@@ -112,7 +112,17 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   right, and an aggregate, a join or an append-only sink over such a stream is refused at
   registration with `PRV-2042` naming the fix, rather than counting a row again (SCAN-1).
 
-  **Buildable:** a MySQL binlog source, on the same model as ADR-041. `TRUNCATE` stays a refusal: it names no rows to retract.
+  `mysql-cdc` streams one MySQL table per binding from the row-based binary log
+  (`binlog_format = ROW`, `binlog_row_image = FULL`, both refused otherwise, by name). This version
+  reads changes only: `snapshot.mode: initial` is refused (`PRV-5150`), so rows already in the table
+  must come another way. It connects in plaintext (`tls.*` is refused), positions by binlog file and
+  offset rather than GTID (a failover to another server cannot resume a checkpoint), takes no
+  declared `schema`, and maps no `JSON`, `ENUM`, `SET`, `BIT`, `TIME`, `YEAR` or spatial column.
+  MySQL keeps binlog files by time, not by what a replica has read, so a checkpoint older than
+  `binlog_expire_logs_seconds` cannot be resumed (`PRV-5155`). `TRUNCATE`, `ALTER`, `DROP` or `RENAME`
+  of the captured table stops it (`PRV-5156`).
+
+  **Buildable:** `mysql-cdc`'s initial snapshot, TLS and GTID positions. `TRUNCATE` stays a refusal: it names no rows to retract.
 
 
 ## Boundaries: limits of the stores, the formats or a decision

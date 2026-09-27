@@ -330,7 +330,7 @@ pravaha:
   #
   # The plugin name is the one the plugin reports for itself, found on the classpath by
   # ServiceLoader. filesystem is inside the server jar; feedfile, jdbc, delta, aerospike, cassandra
-  # and postgres-cdc ship as plugin modules in this repository. Options are passed to the plugin
+  # postgres-cdc and mysql-cdc ship as plugin modules in this repository. Options are passed to the plugin
   # untouched.
   #
   # postgres-cdc is the one that is a changelog: a delete arrives as a retraction of the whole old

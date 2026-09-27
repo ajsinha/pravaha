@@ -65,6 +65,8 @@ class OrphanedClassTest {
             Map.entry("JdbcLookupPlugin", "ServiceLoader / plugin registry"),
             Map.entry("DeltaSourcePlugin", "ServiceLoader / plugin registry"),
             Map.entry("DeltaSinkPlugin", "ServiceLoader / plugin registry"),
+            Map.entry("IcebergSinkPlugin", "ServiceLoader / plugin registry"),
+            Map.entry("MySqlCdcSourcePlugin", "ServiceLoader / plugin registry"),
             // Declared in plugins/pravaha-cluster-zookeeper/src/main/resources/META-INF/services/
             // com.ash.messaging.pravaha.cluster.CoordinatorProvider. It became visible to this scan
             // only when the scan stopped counting the QA agents' worktrees: each running agent held

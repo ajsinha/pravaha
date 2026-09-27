@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **417 findings carrying a
-status — 377 FIXED, 26 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 26 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 22 POST-GA and 4 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **425 findings carrying a
+status — 377 FIXED, 34 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 34 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 30 POST-GA and 4 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7086,3 +7086,44 @@ the lead.
 > **Status:** OPEN — PRV-5102 at the first such value, which detaches the sink, because the sink's schema string cannot declare a timestamp precision to compare at configuration.
 > **Disposition:** POST-GA — let the schema declare the precision and refuse at configuration.
 
+## Found building C3 and C4, mysql-cdc and iceberg-sink (2026-09-27), 8 findings
+
+### ICE-1 (LOW) — iceberg-sink runs against Caffeine 3 on the server, built against Caffeine 2
+
+> **Status:** OPEN — Spring Boot pins Caffeine 3.2.4, and Iceberg 1.2.1 was built with 2.9.3. The server test loads the plugin; no write has been run on that combination.
+> **Disposition:** POST-GA — run a write through the server's own classpath.
+
+### ICE-2 (LOW) — iceberg-sink's upsert mode holds a checkpoint's changes in memory without a bound
+
+> **Status:** OPEN — The collapsed changes of one checkpoint interval are held until prepare.
+> **Disposition:** POST-GA — spill or refuse past a configured size.
+
+### ICE-3 (LOW) — a repeated Iceberg commit may go undetected if another writer commits and the sink's snapshot is expired
+
+> **Status:** OPEN — The skip-on-repeat check reads the table's history; documented as "no other writer".
+> **Disposition:** POST-GA — record the label in a table property as well.
+
+### ICE-4 (LOW) — Iceberg 1.2.1 brings old avro (1.11.1) and commons-compress (1.21)
+
+> **Status:** OPEN — Chosen to share Delta Kernel's Parquet 1.12.3.
+> **Disposition:** POST-GA — move both when Delta Kernel moves Parquet.
+
+### MYC-1 (LOW) — an idle mysql-cdc table's offset does not advance, so a purged binlog file refuses a restart that missed nothing
+
+> **Status:** OPEN — The offset moves only when a transaction on the table commits; PRV-5155 then refuses a restart after the file is expired.
+> **Disposition:** POST-GA — advance on heartbeat events.
+
+### MYC-2 (LOW) — mysql-cdc positions are file and offset, not GTID
+
+> **Status:** OPEN — A checkpoint cannot survive a failover to another server.
+> **Disposition:** POST-GA — GTID positions.
+
+### MYC-3 (LOW) — a MySQL user granted replication through a role is refused
+
+> **Status:** OPEN — SHOW GRANTS does not expand roles.
+> **Disposition:** POST-GA — expand roles in the privilege check.
+
+### MYC-4 (LOW) — a MySQL type change that keeps the column count is not detected as DDL
+
+> **Status:** OPEN — It surfaces as rows rejected per value, to the dead-letter queue, or a stopped stream.
+> **Disposition:** POST-GA — compare column types, not only their count.

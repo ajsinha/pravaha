@@ -20,6 +20,19 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   transaction id and label, so a commit repeated after a restore is skipped. New codes `PRV-5140`
   (binding), `PRV-5141` (table not the binding's) and `PRV-5142` (write). Not built: object stores,
   catalog services, partitioned tables. `IcebergSinkPluginTest`, 10 tests.
+- **`mysql-cdc`, change data capture from MySQL** (REMAINING C3). One table per binding, read from the
+  row-based binary log with the plugin registered as a replica, on ADR-041's model and without
+  Debezium: an insert at +1, a delete as the whole old row at −1, an update as both, whole
+  transactions, `EXACTLY_ONCE` from a binlog file and offset. `binlog_format` other than `ROW`,
+  `binlog_row_image` other than `FULL`, and a user without `REPLICATION SLAVE` and `REPLICATION
+  CLIENT` are refused by name (`PRV-5152`); a purged resume file is `PRV-5155`. Changes only:
+  `snapshot.mode: initial` is refused. New codes `PRV-5150` to `PRV-5157`. Tested against a real
+  MySQL 8 (`MySqlCdcIT`, `./mvnw -Pit -pl plugins/pravaha-plugin-mysql-cdc -am verify`).
+
+
+Register: **425 findings — 377 fixed, 34 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+
+---
 
 ## 0.2.0 — QA, 2026-09-27
 

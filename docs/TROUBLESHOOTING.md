@@ -546,6 +546,21 @@ The slot is confirmed only at Pravaha checkpoints: check the node is running, th
 quiet table. A slot nothing will read again has to be dropped by hand —
 `SELECT pg_drop_replication_slot('<slot>');` — because nothing else ever will.
 
+**A `mysql-cdc` source is refused at registration with `PRV-5152`.** The server cannot support
+change capture, and the message names the statement that fixes it: binary logging off (`log_bin`),
+`binlog_format` not `ROW` (`SET PERSIST binlog_format = 'ROW';` — sessions already connected keep
+the old format until they reconnect), `binlog_row_image` not `FULL` (`SET PERSIST binlog_row_image =
+'FULL';`, without which a delete could retract only part of the row), `binlog_transaction_compression`
+on, or the user without `REPLICATION SLAVE` and `REPLICATION CLIENT` granted directly (`SHOW GRANTS`
+does not expand roles). `PRV-5153` is the table missing, the user without `SELECT` on it, or a column
+type with no mapping (`JSON`, `ENUM`, `SET`, `BIT`, `TIME`, `YEAR`, spatial types, `DECIMAL` wider than
+38 digits). `PRV-5150` includes `snapshot.mode: initial`, which is not built for MySQL yet.
+`PRV-5155` at a restart is the checkpoint's binlog file purged by `binlog_expire_logs_seconds`; the
+changes in between are gone. `PRV-5156` is a `TRUNCATE`, `ALTER`, `DROP` or `RENAME` of the captured
+table, or an event that cannot be decoded; everything before it was delivered. `PRV-5157` is the
+binlog connection failing ten times in a row. For `PRV-5155`, `5156` and `5157`: drop the registration
+and its checkpoint directory, and register again.
+
 **An `aerospike` or `cassandra` source with `deletes: detect` stopped with `PRV-5120` or
 `PRV-5122`.** A partition (Aerospike) or token range (Cassandra) would hold more rows than
 `deletes.max.keys` (default 1,000,000 each). Every row the source has emitted is remembered so that
@@ -941,6 +956,14 @@ client models the error rather than an empty object.
 | `PRV-5140` | ICEBERG_SINK_BAD_CONFIGURATION | plugins |
 | `PRV-5141` | ICEBERG_SINK_TABLE_MISMATCH | plugins |
 | `PRV-5142` | ICEBERG_SINK_WRITE_FAILED | plugins |
+| `PRV-5150` | MYCDC_BAD_CONFIGURATION | plugins |
+| `PRV-5151` | MYCDC_CONNECT_FAILED | plugins |
+| `PRV-5152` | MYCDC_NOT_CAPTURABLE | plugins |
+| `PRV-5153` | MYCDC_SCHEMA_MISMATCH | plugins |
+| `PRV-5154` | MYCDC_MALFORMED_OFFSET | plugins |
+| `PRV-5155` | MYCDC_RESUME_POINT_PURGED | plugins |
+| `PRV-5156` | MYCDC_UNREPRESENTABLE_CHANGE | plugins |
+| `PRV-5157` | MYCDC_STREAM_FAILED | plugins |
 | `PRV-6100` | FLIGHT_UNSUPPORTED_TYPE | gateway |
 | `PRV-6101` | FLIGHT_UNSUPPORTED_REQUEST | gateway |
 | `PRV-6102` | FLIGHT_BAD_HANDLE | gateway |

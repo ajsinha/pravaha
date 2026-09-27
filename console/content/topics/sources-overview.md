@@ -9,7 +9,7 @@ badge: START HERE
 audience: Operators
 keywords: [source, binding, plugin, connector, pravaha.sources, pravaha.streams, pravaha.lookups, options, classpath, serviceloader, capabilities, delivery guarantee, share.reader, pushdown, projection, partial aggregate, cdc, kafka]
 guide: continuous-queries#2-declaring-a-stream
-related: [streams, source-filesystem, source-jdbc, source-postgres-cdc, source-kafka, lookups, connector-security]
+related: [streams, source-filesystem, source-jdbc, source-postgres-cdc, source-mysql-cdc, source-kafka, lookups, connector-security]
 ---
 
 A **source** is what feeds a stream: a plugin, and the options that tell it where to read. Pravaha
@@ -101,6 +101,7 @@ PostgreSQL JDBC driver. `java -jar pravaha-server.jar` can bind any of them.
 | `aerospike`, `aerospike-lookup`, `aerospike-sink` | `plugins/pravaha-plugin-aerospike` | yes |
 | `cassandra` | `plugins/pravaha-plugin-cassandra` | yes |
 | `postgres-cdc` | `plugins/pravaha-plugin-postgres-cdc` | yes, driver included |
+| `mysql-cdc` | `plugins/pravaha-plugin-mysql-cdc` | yes, no driver needed |
 | `kafka` (source), `kafka-sink` | `plugins/pravaha-plugin-kafka` | yes |
 
 **One limit worth knowing.** The launcher still reads only what is inside the jar: there is no
@@ -123,6 +124,7 @@ a source that cannot see a delete gives a view that keeps serving deleted rows.
 | [feedfile](/help/topics/source-feedfile) | a directory of CSV/Parquet files | no | no | yes (new files) | exactly-once *or* at-least-once, by configuration | none | no |
 | [jdbc](/help/topics/source-jdbc) | a table or `SELECT`, polled on a monotonic column | no | no | yes (beyond the watermark) | at-least-once | filter, columns, and `COUNT`/`SUM` partials with `key.column` | no |
 | [postgres-cdc](/help/topics/source-postgres-cdc) | a PostgreSQL table's changes, from its write-ahead log | **yes** (the whole old row at `−1`) | **yes** — an update is `−1` then `+1` | yes (every commit) | exactly-once | none | no |
+| [mysql-cdc](/help/topics/source-mysql-cdc) | a MySQL table's changes, from its row-based binary log | **yes** (the whole old row at `−1`) | **yes** — an update is `−1` then `+1` | yes (every commit) | exactly-once | none | no |
 | [kafka](/help/topics/source-kafka) | a Kafka topic, one reader per partition | only with `format: changelog` (`kafka-sink`'s envelope, weights and all) | with `format: changelog` | yes (new records) | exactly-once | none | no |
 | [delta](/help/topics/source-delta) | a Delta table: snapshot, then each commit | **yes** (removed files at `−1`) | as a retraction of the old row | yes (new commits) | exactly-once | none | no |
 | [aerospike](/help/topics/source-aerospike) | a set, scanned by last-update time | no | no | yes (server-side filter) | at-least-once | filter, columns | **yes** |
