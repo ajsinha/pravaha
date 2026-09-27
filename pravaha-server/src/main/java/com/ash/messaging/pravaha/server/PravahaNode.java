@@ -203,45 +203,35 @@ public class PravahaNode implements SmartLifecycle {
     /** pravaha.identity.* (ADR-052); none until Spring sets it, which is identity off. */
     private com.ash.messaging.pravaha.server.identity.IdentityProperties identity;
 
-    private TokenVerifier verifier;
+    private com.ash.messaging.pravaha.server.identity.NodeCredentials credentials;
 
     /** Users, keys and sessions. A setter for the same reason as {@link #setTenancy}. */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setIdentity(com.ash.messaging.pravaha.server.identity.IdentityProperties identity) {
         this.identity = identity;
+        this.credentials = null;
+    }
+
+    private synchronized com.ash.messaging.pravaha.server.identity.NodeCredentials credentials() {
+        if (credentials == null) {
+            credentials =
+                    new com.ash.messaging.pravaha.server.identity.NodeCredentials(security, identity, this::auditSink);
+        }
+        return credentials;
     }
 
     /** This node's identity service, when {@code pravaha.identity.enabled} is set. */
     public Optional<com.ash.messaging.pravaha.identity.IdentityService> identity() {
-        return identity == null ? Optional.empty() : identity.service(auditSink());
+        return credentials().identity();
     }
 
-    /**
-     * The one verifier every transport authenticates with -- HTTP, Flight and the PostgreSQL wire -- or
-     * null when authentication is off. With identity on, a session or API key resolves through the
-     * identity service and a static token is still accepted, logged as deprecated (ADR-052).
-     */
-    public synchronized TokenVerifier verifier() {
-        if (verifier != null) {
-            return verifier;
-        }
-        Optional<com.ash.messaging.pravaha.identity.IdentityService> users = identity();
-        if (users.isEmpty()) {
-            return verifier = security.verifier();
-        }
-        if (!security.authenticates()) {
-            throw new PravahaException(
-                    SecurityErrors.MISCONFIGURED,
-                    "pravaha.identity.enabled is true and "
-                            + "pravaha.security.authentication is not token, so nothing would ever ask for the users "
-                            + "and keys it keeps. Set authentication: token, or turn identity off.");
-        }
-        TokenVerifier legacy = security.getTokens().isEmpty()
-                ? token -> {
-                    throw new PravahaException(SecurityErrors.UNAUTHENTICATED, "the credential was rejected");
-                }
-                : security.verifier();
-        return verifier = new com.ash.messaging.pravaha.identity.IdentityTokenVerifier(users.get(), legacy);
+    /** The one verifier every transport authenticates with, or null when authentication is off. */
+    public TokenVerifier verifier() {
+        return credentials().verifier();
+    }
+
+    private TokenVerifier transportVerifier() {
+        return credentials().transportVerifier();
     }
 
     /**
@@ -1227,7 +1217,7 @@ public class PravahaNode implements SmartLifecycle {
                     // API cannot disagree about what is in the queue.
                     .withDeadLetters(feeds.deadLetters())
                     .hosting(registry);
-            TokenVerifier flightVerifier = verifier();
+            TokenVerifier flightVerifier = transportVerifier();
             if (flightVerifier != null) {
                 server.authenticatedBy(flightVerifier);
             }
@@ -1268,7 +1258,7 @@ public class PravahaNode implements SmartLifecycle {
             com.ash.messaging.pravaha.pgwire.PravahaPgWireServer server =
                     new com.ash.messaging.pravaha.pgwire.PravahaPgWireServer(views)
                             .authorizedBy(securityPolicyOf(registry), auditSink());
-            TokenVerifier pgVerifier = verifier();
+            TokenVerifier pgVerifier = transportVerifier();
             if (pgVerifier != null) {
                 server.authenticatedBy(pgVerifier);
             }

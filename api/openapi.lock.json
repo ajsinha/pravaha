@@ -7,6 +7,41 @@
         "responses" : [ "200", "default" ]
       }
     },
+    "/api/v1/auth/login" : {
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ ],
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/auth/logout" : {
+      "post" : {
+        "hasBody" : false,
+        "parameters" : [ ],
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/auth/me" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ ],
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/auth/password" : {
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ ],
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/auth/reset/redeem" : {
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ ],
+        "responses" : [ "200", "default" ]
+      }
+    },
     "/api/v1/debug/sessions" : {
       "get" : {
         "hasBody" : false,
@@ -58,6 +93,39 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:id" ],
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/keys" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ "query:all" ],
+        "responses" : [ "200", "default" ]
+      },
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ ],
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/keys/report" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ ],
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/keys/{keyId}" : {
+      "delete" : {
+        "hasBody" : false,
+        "parameters" : [ "path:keyId" ],
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/keys/{keyId}/rotate" : {
+      "post" : {
+        "hasBody" : false,
+        "parameters" : [ "path:keyId" ],
         "responses" : [ "200", "default" ]
       }
     },
@@ -225,6 +293,20 @@
         "responses" : [ "200", "default" ]
       }
     },
+    "/api/v1/sessions" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ "query:all" ],
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/sessions/{id}" : {
+      "delete" : {
+        "hasBody" : false,
+        "parameters" : [ "path:id" ],
+        "responses" : [ "200", "default" ]
+      }
+    },
     "/api/v1/sinks" : {
       "get" : {
         "hasBody" : false,
@@ -262,6 +344,39 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/users" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ ],
+        "responses" : [ "200", "default" ]
+      },
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ ],
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/users/{username}" : {
+      "patch" : {
+        "hasBody" : true,
+        "parameters" : [ "path:username" ],
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/users/{username}/password-reset" : {
+      "post" : {
+        "hasBody" : false,
+        "parameters" : [ "path:username" ],
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/users/{username}/roles" : {
+      "put" : {
+        "hasBody" : true,
+        "parameters" : [ "path:username" ],
         "responses" : [ "200", "default" ]
       }
     },

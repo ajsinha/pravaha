@@ -55,7 +55,16 @@ public final class BearerTokenFilter extends OncePerRequestFilter {
      * identity source is down, and takes the node out of rotation for a fault that has nothing to
      * do with it.
      */
-    private static final Set<String> ALWAYS_OPEN = Set.of("/actuator/health", "/actuator/info");
+    /**
+     * Health, and the two identity calls a person makes before they hold a credential: signing in, and
+     * redeeming a reset token an administrator gave them (ADR-052). Each answers for itself.
+     */
+    private static final Set<String> ALWAYS_OPEN =
+            Set.of("/actuator/health", "/actuator/info", "/api/v1/auth/login", "/api/v1/auth/reset/redeem");
+
+    /** What a session that must change its password may still call (PRV-7018). */
+    private static final Set<String> BEFORE_A_CHANGE =
+            Set.of("/api/v1/auth/password", "/api/v1/auth/me", "/api/v1/auth/logout");
 
     /** springdoc's own default, used when {@code springdoc.api-docs.path} is not configured. */
     public static final String DEFAULT_API_DOCS_PATH = "/v3/api-docs";
@@ -173,8 +182,25 @@ public final class BearerTokenFilter extends OncePerRequestFilter {
             refuse(response, request.getRequestURI(), e.getMessage());
             return;
         }
+        if (mustChangePassword(principal) && !BEFORE_A_CHANGE.contains(request.getRequestURI())) {
+            // Only when forced change is configured does a session carry this (ADR-052): it may change
+            // its password, ask who it is and sign out, and nothing else.
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            response.setContentType("application/json");
+            response.getWriter()
+                    .write("{\"code\":\"PRV-7018\",\"message\":\"this account must change its password before "
+                            + "anything else: POST /api/v1/auth/password\",\"helpUrl\":\""
+                            + com.ash.messaging.pravaha.api.HelpUrls.forCode("PRV-7018") + "\",\"path\":\""
+                            + request.getRequestURI().replace("\"", "") + "\"}");
+            return;
+        }
         request.setAttribute(PRINCIPAL_ATTRIBUTE, principal);
         chain.doFilter(request, response);
+    }
+
+    /** A session that forced change has held back from everything but changing its password. */
+    public static boolean mustChangePassword(Principal principal) {
+        return "true".equals(principal.claims().get("mustChangePassword"));
     }
 
     /**

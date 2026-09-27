@@ -99,6 +99,10 @@ public class ApiExceptionHandler {
         if (code.code().equals(com.ash.messaging.pravaha.registry.RegistryErrors.TENANT_MISMATCH.code())) {
             return HttpStatus.FORBIDDEN;
         }
+        HttpStatus identity = identityStatus(code.code());
+        if (identity != null) {
+            return identity;
+        }
         return switch (code.category()) {
             case CONFIGURATION, PLANNING -> HttpStatus.BAD_REQUEST;
             case SECURITY -> HttpStatus.FORBIDDEN;
@@ -107,6 +111,22 @@ public class ApiExceptionHandler {
             // IllegalStateException from inside this very handler while it built an error response.
             case REGISTRY -> HttpStatus.BAD_REQUEST;
             case PLUGIN, RUNTIME, STATE, CLUSTER, FLIGHT -> HttpStatus.INTERNAL_SERVER_ERROR;
+        };
+    }
+
+    /**
+     * ADR-052's codes, which share the security range and mean different things to a client: a refused
+     * sign-in is 401 and a locked account 423, where the range's default, 403, would say "you may not"
+     * to somebody who has not been identified yet.
+     */
+    private static HttpStatus identityStatus(String code) {
+        return switch (code) {
+            case "PRV-7010", "PRV-7013", "PRV-7014", "PRV-7016" -> HttpStatus.UNAUTHORIZED;
+            case "PRV-7011" -> HttpStatus.LOCKED;
+            case "PRV-7012", "PRV-7017", "PRV-7020" -> HttpStatus.BAD_REQUEST;
+            case "PRV-7015", "PRV-7018" -> HttpStatus.FORBIDDEN;
+            case "PRV-7021" -> HttpStatus.NOT_FOUND;
+            default -> null;
         };
     }
 }
