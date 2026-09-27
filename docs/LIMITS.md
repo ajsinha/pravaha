@@ -83,11 +83,11 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   matched by name and a schema that cannot be mapped is refused at registration (`PRV-5108`). A
   proto3 scalar without `optional` has no presence, so it reads as its type's default and never as
   NULL. An upsert topic's tombstones cannot be retractions (a tombstone does not say what row it
-  deletes), so they are refused or, with `tombstone: skip`, ignored. The partition list is read at
-  registration: partitions added later are read after a restart. Its broker tests, like the sink's,
-  need Docker.
+  deletes), so they are refused or, with `tombstone: skip`, ignored. Partitions added to the topic
+  while a query runs are found every `partitions.refresh` and read from their first record. Its broker
+  tests, like the sink's, need Docker.
 
-  **Buildable:** partitions added after registration, picked up by a periodic metadata refresh. The proto3 presence rule and tombstones are properties of the formats, not gaps.
+  The proto3 presence rule and tombstones are properties of the formats, not gaps.
 
 - **Change data capture, beyond one PostgreSQL table's changes.** `postgres-cdc`
   ([ADR-041](adr/041-change-data-capture-without-debezium.md)) streams one table per binding

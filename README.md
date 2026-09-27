@@ -123,7 +123,7 @@ text of each is in [`LIMITS.md`](docs/LIMITS.md). The order they get built in is
 | A secondary index on a non-key column | A value-to-keys index maintained in the view's own commit. `RANGE` and whole-key lookups are already built ([ADR-049](docs/adr/049-an-ordered-index-over-the-keys-last-column.md)) |
 | The snapshot-and-change-feed splice | `SplicedReader` is built and tested and reached by nothing. Wiring it needs a snapshot read exposed from `jdbc` and `postgres-cdc`; `backfill.adaptive` follows |
 | More sinks and formats | Avro and Protobuf output for `kafka-sink`; an Iceberg sink without Spark |
-| More sources | A MySQL binlog CDC source. Kafka partitions added after registration, picked up without a restart. Cassandra filter pushdown on key columns |
+| More sources | A MySQL binlog CDC source. Cassandra filter pushdown on key columns |
 | Native two-phase commit for PostgreSQL | `jdbc-sink` over PostgreSQL through `PREPARE TRANSACTION`, without the staging table's second write |
 | Spring Boot 3.2 to 3.4 | The profiles exist. Run the legs and add them to CI |
 | Console | The tenants and quotas screen (the engine's API exists), and per-user sign-in with API keys ([ADR-052](docs/adr/052-the-engine-is-the-identity-authority.md), being built) |

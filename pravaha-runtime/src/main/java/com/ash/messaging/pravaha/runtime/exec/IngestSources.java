@@ -20,6 +20,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.locks.ReentrantLock;
 
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 import com.ash.messaging.pravaha.runtime.ingest.IngestPump;
@@ -39,13 +41,29 @@ import com.ash.messaging.pravaha.state.checkpoint.Checkpoint;
  *
  * <p>Confinement is unchanged: a pump is still driven by one thread, and this only ever takes the
  * lock {@code pumpOnce} holds for the length of its poll.
+ *
+ * <p><strong>A pump can join while the query runs</strong>: a source partition added after
+ * registration (a Kafka topic scaled out) gets a pump of its own from the feed's thread. The lists
+ * are copy-on-write so a reader iterating them never sees one half-added, and {@link #membership}
+ * keeps a pump from joining between a {@link #freeze} and its {@link #thaw}: a cut taken over some
+ * of the sources is exactly what freezing exists to prevent, and a pump that joined inside the
+ * window would be read without having been held.
  */
 final class IngestSources {
 
     /** The key a shuffling pump's source offset travels under. Keeps "partition-N" for the plain ones. */
     static final String SHUFFLED_OFFSET_PREFIX = "shuffled-partition-";
 
-    private final List<IngestPump> pumps = new ArrayList<>();
+    /**
+     * The key under which a checkpoint records which source partition the pump at an index reads,
+     * as {@code partition/stream}. Beside {@code partition-N}, so a restore matches each token to its
+     * partition rather than trusting that the pumps will be created in the same order: a partition
+     * added while the query ran was given the next index, which after a restart may belong to
+     * another stream's partition.
+     */
+    static final String SOURCE_OF_PREFIX = "source-of-partition-";
+
+    private final List<IngestPump> pumps = new CopyOnWriteArrayList<>();
 
     /**
      * Which stream each pump reads, in the order the pumps were created.
@@ -55,17 +73,42 @@ final class IngestSources {
      * the position it has reached <em>in each stream</em>, and two plans may read the same streams
      * in a different order.
      */
-    private final List<String> pumpStreams = new ArrayList<>();
+    private final List<String> pumpStreams = new CopyOnWriteArrayList<>();
 
-    private final List<PartitionedIngestPump> partitionedPumps = new ArrayList<>();
+    /** The source partition each pump reads, or -1 where its creator did not say. */
+    private final List<Integer> pumpPartitions = new CopyOnWriteArrayList<>();
+
+    private final List<PartitionedIngestPump> partitionedPumps = new CopyOnWriteArrayList<>();
+
+    /** Held from a {@link #freeze} to its {@link #thaw}, and by a pump joining. */
+    private final ReentrantLock membership = new ReentrantLock();
 
     void add(IngestPump pump, String streamName) {
-        pumps.add(pump);
-        pumpStreams.add(streamName);
+        add(pump, streamName, -1);
+    }
+
+    /**
+     * @param sourcePartition the index of the source partition the pump reads, or -1 when unknown;
+     *     recorded in each checkpoint only when every pump has one
+     */
+    void add(IngestPump pump, String streamName, int sourcePartition) {
+        membership.lock();
+        try {
+            pumps.add(pump);
+            pumpStreams.add(streamName);
+            pumpPartitions.add(sourcePartition);
+        } finally {
+            membership.unlock();
+        }
     }
 
     void add(PartitionedIngestPump pump) {
-        partitionedPumps.add(pump);
+        membership.lock();
+        try {
+            partitionedPumps.add(pump);
+        } finally {
+            membership.unlock();
+        }
     }
 
     boolean isEmpty() {
@@ -108,6 +151,11 @@ final class IngestSources {
     void offsetsInto(Map<String, String> offsets) {
         for (int index = 0; index < pumps.size(); index++) {
             offsets.put("partition-" + index, pumps.get(index).position().token());
+        }
+        if (!pumpPartitions.contains(-1)) {
+            for (int index = 0; index < pumps.size(); index++) {
+                offsets.put(SOURCE_OF_PREFIX + index, pumpPartitions.get(index) + "/" + pumpStreams.get(index));
+            }
         }
         for (int index = 0; index < partitionedPumps.size(); index++) {
             // Recorded at all, which they were not: a shuffling pump's offset was left out of
@@ -157,6 +205,9 @@ final class IngestSources {
      * @return how many pumps were frozen, to pass to {@link #thaw}
      */
     long freeze(Duration timeout) {
+        // Released by thaw, which every caller runs in a finally -- and which the catch below runs
+        // when this fails part-way.
+        membership.lock();
         long deadline = System.nanoTime() + timeout.toNanos();
         int frozen = 0;
         try {
@@ -187,11 +238,17 @@ final class IngestSources {
     }
 
     void thaw(long frozen) {
-        for (long i = frozen - 1; i >= 0; i--) {
-            if (i < pumps.size()) {
-                pumps.get((int) i).thawIngest();
-            } else {
-                partitionedPumps.get((int) (i - pumps.size())).thawIngest();
+        try {
+            for (long i = frozen - 1; i >= 0; i--) {
+                if (i < pumps.size()) {
+                    pumps.get((int) i).thawIngest();
+                } else {
+                    partitionedPumps.get((int) (i - pumps.size())).thawIngest();
+                }
+            }
+        } finally {
+            if (membership.isHeldByCurrentThread()) {
+                membership.unlock();
             }
         }
     }

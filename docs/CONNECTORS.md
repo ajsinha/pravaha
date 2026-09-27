@@ -82,6 +82,16 @@ PartitionReader      createReader(SourcePartition partition, SourceOffset resume
 delivered to the lane that owns its key range. A source with no natural split returns one partition;
 Kafka returns one per topic-partition.
 
+**A source can gain partitions.** `partitionRefreshInterval()` defaults to zero: the list read at
+registration is the list for as long as the query runs. A source answering more (Kafka, every
+`partitions.refresh`) is asked for `partitions()` again that often, on the query's feed thread, and a
+partition not seen before is opened with `createReaderForNewPartition()`, which reads it from its
+first record because it has no history the query chose to skip. Its pump joins the running query and
+its offset enters the next checkpoint. Each checkpoint records, beside every `partition-N` offset, the
+partition it belongs to (`source-of-partition-N`), so a restore matches offsets by partition rather
+than by the order the pumps were created in; a restore with no offset for a partition treats it as
+one gained after the checkpoint and opens it the same way.
+
 ### `PartitionReader`
 
 ```java
@@ -914,6 +924,12 @@ What it deliberately does not do:
   has not yet read, or a checkpoint's offset is past the partition's end (the topic was deleted and
   recreated), the reader refuses with `PRV-5106` rather than reading on from wherever the log now
   starts. `auto.offset.reset` is `none` and cannot be passed through.
+- **A partition added to the topic is read without a restart.** The partition list is read again
+  every `partitions.refresh` (30 seconds by default); a new partition's reader starts at its earliest
+  offset, whatever `start.from` says, and its offset is checkpointed like any other. Proved against a
+  real broker by `KafkaPartitionGrowthBrokerTest`: a partition added under a running query reaches the
+  view, is in the next checkpoint, and after a restart (with another partition added while the node
+  was down) every record is counted once.
 - **Aborted transactions are never delivered.** `isolation.level` defaults to `read_committed`, so a
   topic written transactionally — `kafka-sink`'s, or any exactly-once producer's — reads back exactly
   once too. The position steps over commit markers and aborted records only once everything before

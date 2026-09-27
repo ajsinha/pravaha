@@ -103,6 +103,12 @@ final class KafkaSourceOptions {
     final Duration startTimeout;
     final long lagWarnRecords;
 
+    /**
+     * How often the partition list is read again while a query runs, so a partition added to the
+     * topic is read without a restart. At least a second: each refresh is a metadata request.
+     */
+    final Duration partitionsRefresh;
+
     /** Security and pass-through properties. */
     private final Map<String, Object> shared;
 
@@ -208,6 +214,11 @@ final class KafkaSourceOptions {
         this.bufferRecords = (int) positive(context, "buffer.records", 10_000L, Integer.MAX_VALUE);
         this.startTimeout = duration(context, "start.timeout", Duration.ofSeconds(30));
         this.lagWarnRecords = positive(context, "lag.warn.records", 100_000L, Long.MAX_VALUE);
+        this.partitionsRefresh = duration(context, "partitions.refresh", Duration.ofSeconds(30));
+        if (partitionsRefresh.compareTo(Duration.ofSeconds(1)) < 0) {
+            throw refusal("partitions.refresh must be at least 1s: each refresh asks the brokers for the topic's "
+                    + "metadata, got '" + context.get("partitions.refresh", "") + "'");
+        }
 
         Map<String, Object> merged = new LinkedHashMap<>(passThrough(context));
         merged.putAll(new KafkaSecurity(this::refusal).properties(context));

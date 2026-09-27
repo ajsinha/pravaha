@@ -36,6 +36,7 @@ import com.ash.messaging.pravaha.api.plugin.HealthStatus;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
 import com.ash.messaging.pravaha.api.plugin.PushdownKind;
+import com.ash.messaging.pravaha.api.plugin.ReadRequest;
 import com.ash.messaging.pravaha.api.plugin.SourceCapabilities;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 import com.ash.messaging.pravaha.api.plugin.SourcePartition;
@@ -48,8 +49,11 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  * <p><strong>The partitions are the topic's.</strong> {@link #partitions} returns one per Kafka
  * partition, in partition order, and {@link #createReader} opens a {@link KafkaPartitionReader} on
  * exactly that partition -- assigned, never subscribed, so no consumer group moves partitions between
- * readers behind the engine's back. The partition list is read when a query registers; a partition
- * added to the topic later is read from the next registration or restart.
+ * readers behind the engine's back. The list is read again every {@code partitions.refresh} (30s by
+ * default, {@link #partitionRefreshInterval}) while a query runs, and a partition added to the topic
+ * meanwhile is opened by the engine through {@link #createReaderForNewPartition}: from its earliest
+ * offset whatever {@code start.from} says, because a partition that did not exist has no history the
+ * query chose to skip. Its offset enters the next checkpoint like any other.
  *
  * <p><strong>The guarantee is {@code EXACTLY_ONCE}, and the checkpoint is the only position.</strong>
  * A reader's position is a Kafka offset, and a restore seeks to the offset the checkpoint recorded:
@@ -175,19 +179,47 @@ public final class KafkaSourcePlugin implements StreamSourcePlugin {
     public List<SourcePartition> partitions(String stream) {
         requireOpen();
         List<SourcePartition> partitions = new ArrayList<>();
-        synchronized (metadataLock) {
-            for (PartitionInfo info : partitionsOf(metadata, options.startTimeout)) {
+        // A consumer of its own for each listing. A consumer answers partitionsFor from the metadata
+        // it already holds, and the long-lived one never polls, so it would go on listing the
+        // partitions the topic had when it first asked: a partition added later was never found
+        // (the engine asks again every partitions.refresh). A new client has no metadata to reuse.
+        Consumer<byte[], byte[]> fresh = clients.consumer(options.metadataConsumer());
+        try {
+            for (PartitionInfo info : partitionsOf(fresh, options.startTimeout)) {
                 partitions.add(new SourcePartition(
                         stream,
                         info.partition(),
                         Map.of("topic", options.topic, "partition", Integer.toString(info.partition()))));
             }
+        } finally {
+            closeQuietly(fresh);
         }
         return partitions;
     }
 
     @Override
+    public Duration partitionRefreshInterval() {
+        requireConfigured();
+        return options.partitionsRefresh;
+    }
+
+    /**
+     * A reader for a partition added to the topic after the query began reading it: from the
+     * partition's earliest offset, whatever {@code start.from} says. {@code start.from: latest} means
+     * "not the history the topic had when I registered", and a partition that did not exist then has
+     * none -- every record in it arrived while the query was running.
+     */
+    @Override
+    public PartitionReader createReaderForNewPartition(SourcePartition partition, ReadRequest request) {
+        return open(partition, null, true);
+    }
+
+    @Override
     public PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom) {
+        return open(partition, resumeFrom, false);
+    }
+
+    private PartitionReader open(SourcePartition partition, SourceOffset resumeFrom, boolean fromEarliest) {
         requireOpen();
         TopicPartition topicPartition = new TopicPartition(options.topic, partition.index());
         KafkaSourceOffset resume = KafkaSourceOffset.parse(resumeFrom, topicPartition);
@@ -209,7 +241,7 @@ public final class KafkaSourcePlugin implements StreamSourcePlugin {
         }
         long start;
         if (resume == null) {
-            start = options.startAtLatest ? end : beginning;
+            start = options.startAtLatest && !fromEarliest ? end : beginning;
         } else {
             start = resume.next();
             if (start < beginning) {

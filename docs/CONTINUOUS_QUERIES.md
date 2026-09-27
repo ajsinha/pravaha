@@ -773,6 +773,7 @@ pravaha:
 | `buffer.records` | no | `10000` decoded records per partition waiting for the engine before fetching pauses |
 | `start.timeout` | no | `30s`: opening waits this long for the brokers, and for a reader to queue what the partition already holds |
 | `lag.warn.records` | no | `100000`: health is `DEGRADED` when a partition is this far behind |
+| `partitions.refresh` | no | `30s`, at least `1s`: how often the partition list is read again. A partition added meanwhile is read from its first record, whatever `start.from` says, and checkpointed like the others |
 | `user` / `password` / `sasl.mechanism` | no | SASL `PLAIN` (refused without TLS), `SCRAM-SHA-256` or `SCRAM-SHA-512` |
 | `tls.*` | no | the shared options ([`CONNECTOR_TLS.md`](CONNECTOR_TLS.md) §3.4) |
 | `kafka.<property>` | no | any consumer property, except the ones that would move the position or that the source sets: `group.id`, `enable.auto.commit`, `auto.offset.reset`, `isolation.level`, the deserializers, `allow.auto.create.topics`, and security, which have options of their own |

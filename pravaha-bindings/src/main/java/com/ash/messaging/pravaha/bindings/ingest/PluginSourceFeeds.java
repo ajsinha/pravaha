@@ -286,10 +286,12 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         // unshared one is now published by two threads -- the group's and its own feed's -- and
         // committing a frontier was only ever done by one.
         Runnable publish = serialised(afterDelivery);
-        // Counts partitions across every stream, shared and not, because that is what keys the
-        // resume tokens a checkpoint wrote. It used to be pumps.size(), which counted the same
-        // thing only while every partition had a pump of this query's own.
-        int[] partitionOrdinal = {0};
+        // Matches each recorded offset to its partition: by the partition a checkpoint names beside
+        // it, or -- for a checkpoint written before those names -- by counting partitions across
+        // every stream, shared and not, which is the order the pumps were created in.
+        ResumePositions positions = ResumePositions.of(resumeFrom);
+        // The streams whose source may gain partitions while this query runs.
+        List<PartitionGrowth> growth = new ArrayList<>();
         try {
             for (String stream : bound) {
                 SourceBinding binding = bindings.get(stream);
@@ -307,7 +309,8 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                             .withoutAggregates();
                     pushed.put(stream, summarise(shared) + ", shared");
                     for (int index = 0; index < group.partitionCount(); index++) {
-                        String token = resumeFrom.get("partition-" + partitionOrdinal[0]++);
+                        int partition = index;
+                        String token = positions.tokenFor(stream, partition);
                         SourceOffset from = token == null ? SourceOffset.BEGINNING : new SourceOffset(token);
                         // LANE-2: a query hosted on a shared lane takes the one copy the reader writes
                         // into that lane for every member on it, rather than a copy of its own.
@@ -318,7 +321,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                                         shared,
                                         publish,
                                         reader -> {
-                                            IngestPump pump = execution.pumpInto(0, stream, reader, policy);
+                                            IngestPump pump = execution.pumpInto(0, stream, partition, reader, policy);
                                             attachDeadLetters(pump, queryName, sharedResources);
                                             // What the source promises, so a replay can refuse where
                                             // re-feeding a record would count it twice (B5).
@@ -357,9 +360,13 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                     // Resume where the checkpoint left off, when there is one. Reading from the
                     // beginning after a restore would replay every record between the checkpoint and
                     // the failure on top of the state that already counted them.
-                    String token = resumeFrom.get("partition-" + partitionOrdinal[0]++);
+                    String token = positions.tokenFor(stream, partition.index());
                     SourceOffset from = token == null ? SourceOffset.BEGINNING : new SourceOffset(token);
-                    PartitionReader reader = plugin.createReader(partition, from, request);
+                    // A restore with no offset for this partition: the source gained it after the
+                    // checkpoint, so it has no history the query chose to skip.
+                    PartitionReader reader = positions.isNew(token)
+                            ? plugin.createReaderForNewPartition(partition, request)
+                            : plugin.createReader(partition, from, request);
                     resources.add(reader);
                     // The reader decides, because only it knows whether it could express every
                     // filter the partial depends on; the pump routes by its answer.
@@ -367,16 +374,21 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                     // Lane 0: a registered query is compiled onto one lane today. When that
                     // changes, the partition index is what chooses the lane -- it is already the
                     // unit the source split itself into.
-                    com.ash.messaging.pravaha.runtime.ingest.IngestPump pump =
-                            execution.pumpInto(0, stream, reader, policy);
-                    attachDeadLetters(pump, queryName, resources);
-                    // What the source promises, so a replay can refuse where re-feeding a record
-                    // would count it twice (B5).
-                    pump.sourceGuarantee(plugin.capabilities().guarantee());
+                    IngestPump pump =
+                            unsharedPump(execution, queryName, stream, plugin, partition.index(), reader, resources);
                     pumps.add(pump);
                     inputs.add(new FeedInput(stream, partition.index()));
                 }
                 pushed.put(stream, summarise(request.withoutAggregates()) + (partials ? ", partial aggregate" : ""));
+                ReadRequest asked = request;
+                watch(
+                        plugin,
+                        stream,
+                        asked,
+                        partitions,
+                        growth,
+                        (index, reader, opened) ->
+                                unsharedPump(execution, queryName, stream, plugin, index, reader, opened));
             }
         } catch (RuntimeException e) {
             // Nothing half-open survives a failed binding. Without this, a query that failed to
@@ -393,7 +405,8 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         if (members.isEmpty()) {
             // Nothing shared: exactly the feed this returned before SRC-3, including the thread.
             PumpingFeed feed = new PumpingFeed(queryName, pumps, inputs, resources, description, publish)
-                    .redacting(boundTo(bound));
+                    .redacting(boundTo(bound))
+                    .growing(growth);
             feed.start();
             return feed;
         }
@@ -401,7 +414,9 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         // are all shared has none at all, which is the other half of what sharing buys.
         PumpingFeed unshared = pumps.isEmpty()
                 ? null
-                : new PumpingFeed(queryName, pumps, inputs, resources, description, publish).redacting(boundTo(bound));
+                : new PumpingFeed(queryName, pumps, inputs, resources, description, publish)
+                        .redacting(boundTo(bound))
+                        .growing(growth);
         List<AutoCloseable> owned = new ArrayList<>(sharedResources);
         List<SharedSourceGroup> held = List.copyOf(joined);
         SharedFeed feed = new SharedFeed(members, held, () -> release(held), unshared, owned, description);
@@ -460,7 +475,8 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         Map<String, Integer> partitionCounts = new LinkedHashMap<>();
         Map<String, String> pushed = new LinkedHashMap<>();
         Runnable publish = serialised(afterDelivery);
-        int ordinal = 0;
+        ResumePositions positions = ResumePositions.of(resumeFrom);
+        List<PartitionGrowth> growth = new ArrayList<>();
         try {
             for (String stream : bound) {
                 SourceBinding binding = bindings.get(stream);
@@ -477,7 +493,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                 for (int index = 0; index < partitions.size(); index++) {
                     SourcePartition partition = partitions.get(index);
                     inputs.add(new FeedInput(stream, index));
-                    String token = resumeFrom.get("partition-" + ordinal++);
+                    String token = positions.tokenFor(stream, partition.index());
                     SourceOffset splice = plan.spliceFor(stream, index).orElse(null);
                     SourceOffset from = SourceOffset.BEGINNING;
                     boolean historyDone = false;
@@ -494,7 +510,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                     PartitionReader reader = new OffsetSplicedReader(
                             at -> plugin.createReader(partition, at, request), from, splice, plan.job(), historyDone);
                     resources.add(reader);
-                    IngestPump pump = execution.pumpInto(0, stream, reader, policy);
+                    IngestPump pump = execution.pumpInto(0, stream, partition.index(), reader, policy);
                     attachDeadLetters(pump, queryName, resources);
                     // B5, on the backfill path too. A spliced reader does not answer hasReadPast --
                     // it is mid-history by construction -- so for an exactly-once source this makes
@@ -503,13 +519,24 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                     pump.sourceGuarantee(plugin.capabilities().guarantee());
                     pumps.add(pump);
                 }
+                // A partition gained mid-backfill has no history from before the replacement began,
+                // and is read live from its first record, as the running version reads it.
+                watch(
+                        plugin,
+                        stream,
+                        request,
+                        partitions,
+                        growth,
+                        (index, reader, opened) ->
+                                unsharedPump(execution, queryName, stream, plugin, index, reader, opened));
             }
         } catch (RuntimeException e) {
             closeQuietly(resources);
             throw e;
         }
-        PumpingFeed feed =
-                new PumpingFeed(queryName, pumps, inputs, resources, describe(partitionCounts, pushed), publish);
+        PumpingFeed feed = new PumpingFeed(
+                        queryName, pumps, inputs, resources, describe(partitionCounts, pushed), publish)
+                .growing(growth);
         feed.start();
         return feed;
     }
@@ -541,7 +568,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         }
         List<PluginReplaySource.PartitionSpec> specs = new ArrayList<>();
         List<AutoCloseable> opened = new ArrayList<>();
-        int ordinal = 0;
+        ResumePositions positions = ResumePositions.of(from);
         try {
             for (String stream : wanted) {
                 SourceBinding binding = bindings.get(stream);
@@ -553,7 +580,8 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                         .orElseGet(() -> plugin.discoverSchemas().get(0));
                 List<SourcePartition> partitions = plugin.partitions(stream);
                 for (int index = 0; index < partitions.size(); index++) {
-                    String token = from.get("partition-" + ordinal++);
+                    String token =
+                            positions.tokenFor(stream, partitions.get(index).index());
                     SourceOffset at =
                             token == null || token.isBlank() ? SourceOffset.BEGINNING : new SourceOffset(token);
                     // No pushdown: a debugger shows the row as the source has it. See
@@ -843,6 +871,42 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                         + "classpath: the server jar carries filesystem alone, and feedfile, jdbc, delta, "
                         + "aerospike, cassandra, kafka and postgres-cdc are separate modules that have to "
                         + "be added to it. docs/CONNECTORS.md says which module ships which name.");
+    }
+
+    /** A pump of this query's own on {@code reader}, with its dead letters and its source's promise. */
+    private IngestPump unsharedPump(
+            QueryExecution execution,
+            String queryName,
+            String stream,
+            StreamSourcePlugin plugin,
+            int partition,
+            PartitionReader reader,
+            List<AutoCloseable> resources) {
+        // Lane 0: a registered query is compiled onto one lane today. When that changes, the
+        // partition index is what chooses the lane -- it is already the unit the source split
+        // itself into.
+        IngestPump pump = execution.pumpInto(0, stream, partition, reader, policy);
+        attachDeadLetters(pump, queryName, resources);
+        // What the source promises, so a replay can refuse where re-feeding a record would count it
+        // twice (B5).
+        pump.sourceGuarantee(plugin.capabilities().guarantee());
+        return pump;
+    }
+
+    /** Adds a watch for partitions {@code plugin} gains, when it says it may gain any. */
+    private static void watch(
+            StreamSourcePlugin plugin,
+            String stream,
+            ReadRequest request,
+            List<SourcePartition> partitions,
+            List<PartitionGrowth> growth,
+            PartitionGrowth.PumpFactory factory) {
+        java.time.Duration interval = plugin.partitionRefreshInterval();
+        if (interval == null || interval.isZero() || interval.isNegative()) {
+            return;
+        }
+        List<Integer> known = partitions.stream().map(SourcePartition::index).toList();
+        growth.add(new PartitionGrowth(stream, plugin, request, known, interval, factory, System.nanoTime()));
     }
 
     private static String describe(Map<String, Integer> partitionCounts, Map<String, String> pushed) {

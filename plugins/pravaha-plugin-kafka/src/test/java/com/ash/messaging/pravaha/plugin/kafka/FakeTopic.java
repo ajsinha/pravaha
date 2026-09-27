@@ -48,7 +48,7 @@ import org.apache.kafka.common.record.TimestampType;
 final class FakeTopic implements KafkaClients {
 
     final String name;
-    private final int partitionCount;
+    private volatile int partitionCount;
     private final Map<Integer, List<ConsumerRecord<byte[], byte[]>>> log = new HashMap<>();
     private final Map<Integer, Long> logStart = new HashMap<>();
     private final Map<Integer, Long> next = new HashMap<>();
@@ -105,6 +105,16 @@ final class FakeTopic implements KafkaClients {
 
     void unreachable(RuntimeException failure) {
         unreachable = failure;
+    }
+
+    /** Adds a partition, as {@code kafka-topics --alter --partitions} does; returns its index. */
+    synchronized int addPartition() {
+        int added = partitionCount;
+        log.put(added, new ArrayList<>());
+        logStart.put(added, 0L);
+        next.put(added, 0L);
+        partitionCount = added + 1;
+        return added;
     }
 
     /** Every poll throws {@code error}, as the client does when a batch's codec cannot load. */

@@ -113,7 +113,8 @@ public final class QueryExecution implements AutoCloseable {
 
     private Supplier<WatermarkGenerator> generator;
 
-    private final Map<String, AtomicLong> partitionHighWater = new LinkedHashMap<>();
+    /** Concurrent, because a partition added while the query runs joins while the tick walks it. */
+    private final Map<String, AtomicLong> partitionHighWater = new java.util.concurrent.ConcurrentHashMap<>();
 
     /**
      * What each partition's high-water mark was at the last tick that reported it.
@@ -449,6 +450,22 @@ public final class QueryExecution implements AutoCloseable {
      * ingest layer to reproduce it is asking it to be wrong eventually.
      */
     public IngestPump pumpInto(int laneIndex, String streamName, PartitionReader reader, BackpressurePolicy policy) {
+        return pumpInto(laneIndex, streamName, -1, reader, policy);
+    }
+
+    /**
+     * Feeds one lane's named input from a source partition, naming the partition.
+     *
+     * <p>The partition's index is what lets a checkpoint say which source partition each of its
+     * offsets belongs to, so a restore matches them by partition rather than by the order the pumps
+     * were created in. It also makes this safe to call while the query runs, from the feed's thread:
+     * a partition added to the source after registration joins here, and its offset enters the next
+     * checkpoint like any other (see {@link IngestSources}).
+     *
+     * @param sourcePartition the source partition's index, or -1 when the caller has none
+     */
+    public IngestPump pumpInto(
+            int laneIndex, String streamName, int sourcePartition, PartitionReader reader, BackpressurePolicy policy) {
         refuseUnpartitionedJoin();
         refuseUnpartitionedAggregate();
         int input = streams.indexOf(streamName);
@@ -481,7 +498,7 @@ public final class QueryExecution implements AutoCloseable {
         // unnamed entry on a shared lane is the shared route writer that belongs to no one query.
         pump.attributedTo(hostedQueryId);
         trackEventTimeOf(streamName, laneIndex, pump::observeEventTimeWith);
-        sources.add(pump, streamName);
+        sources.add(pump, streamName, sourcePartition);
         return pump;
     }
 
@@ -513,10 +530,15 @@ public final class QueryExecution implements AutoCloseable {
         // mobile clients and a scan of data already at rest have nothing in common here, and
         // whichever single value were chosen would be wrong for one of them.
         Duration lateness = pipelines.get(laneIndex).inputSchema(streamName).outOfOrderness();
-        watermarks.addPartition(
-                partition,
-                generator == null ? WatermarkGenerator.boundedOutOfOrderness(lateness.toNanos()) : generator.get(),
-                System.nanoTime());
+        // Under the tracker's own monitor, as the tick reads it: a pump may now join while the
+        // clock is running (a source partition added after registration), and the tracker is a
+        // plain list the tick walks.
+        synchronized (watermarks) {
+            watermarks.addPartition(
+                    partition,
+                    generator == null ? WatermarkGenerator.boundedOutOfOrderness(lateness.toNanos()) : generator.get(),
+                    System.nanoTime());
+        }
 
         // The pump stores its highest event time and nothing more; the tracker is read and
         // written only by the watermark thread.
@@ -638,22 +660,25 @@ public final class QueryExecution implements AutoCloseable {
     private void advanceWatermarkQuietly() {
         try {
             long now = System.nanoTime();
-            // Feed the tracker what each partition has seen since the last tick, on this thread.
-            // A partition that produced nothing contributes nothing and, after the idle timeout,
-            // stops holding the watermark back.
-            partitionHighWater.forEach((partition, highest) -> {
-                long seen = highest.get();
-                if (seen == Long.MIN_VALUE) {
-                    return;
-                }
-                // Reported only when it has moved. Re-reporting an unchanged mark is not news, and
-                // the tracker reads every report as a sign of life.
-                Long previous = lastReportedHighWater.put(partition, seen);
-                if (previous == null || previous != seen) {
-                    watermarks.observe(partition, seen, now);
-                }
-            });
-            long watermark = watermarks.advance(now);
+            long watermark;
+            synchronized (watermarks) {
+                // Feed the tracker what each partition has seen since the last tick, on this thread.
+                // A partition that produced nothing contributes nothing and, after the idle timeout,
+                // stops holding the watermark back.
+                partitionHighWater.forEach((partition, highest) -> {
+                    long seen = highest.get();
+                    if (seen == Long.MIN_VALUE) {
+                        return;
+                    }
+                    // Reported only when it has moved. Re-reporting an unchanged mark is not news,
+                    // and the tracker reads every report as a sign of life.
+                    Long previous = lastReportedHighWater.put(partition, seen);
+                    if (previous == null || previous != seen) {
+                        watermarks.observe(partition, seen, now);
+                    }
+                });
+                watermark = watermarks.advance(now);
+            }
             if (watermark != Long.MIN_VALUE) {
                 advanceWatermark(watermark);
             }
@@ -697,9 +722,12 @@ public final class QueryExecution implements AutoCloseable {
      */
     public com.ash.messaging.pravaha.runtime.time.WatermarkTracker.Diagnostics watermarkDiagnostics() {
         WatermarkTracker tracker = watermarks;
-        return tracker == null
-                ? com.ash.messaging.pravaha.runtime.time.WatermarkTracker.Diagnostics.NONE
-                : tracker.diagnostics();
+        if (tracker == null) {
+            return com.ash.messaging.pravaha.runtime.time.WatermarkTracker.Diagnostics.NONE;
+        }
+        synchronized (tracker) {
+            return tracker.diagnostics();
+        }
     }
 
     /**
@@ -1085,6 +1113,13 @@ public final class QueryExecution implements AutoCloseable {
      */
     /** The key a served view's contents travel under inside a checkpoint's operator state. */
     public static final String SERVED_VIEW_STATE = "served-view";
+
+    /**
+     * Beside each {@code partition-N} offset in a checkpoint, when every pump was created with its
+     * source partition: {@code source-of-partition-N} holds {@code partition/stream}, the source
+     * partition that offset belongs to.
+     */
+    public static final String SOURCE_OF_PARTITION_PREFIX = IngestSources.SOURCE_OF_PREFIX;
 
     private java.util.function.Supplier<byte[]> viewSnapshot;
 
