@@ -62,7 +62,7 @@ def test_a_stranger_arrives_at_the_landing_page_and_can_read_the_product(page, c
     # The figure is drawn, is decorative, and says the same thing in words beside it. This
     # browser has not asked for reduced motion, so the figure is moving: its loop runs, and
     # stops when the page is hidden.
-    assert page.exists("#figure canvas[aria-hidden=true]")
+    assert page.exists("#figure svg[aria-hidden=true]")
     page.wait_for("window.PravahaLanding && window.PravahaLanding.frames() > 10")
     assert page.eval("window.PravahaLanding.running()") is True
     page.eval("""(() => { Object.defineProperty(document, 'hidden', {value: true, configurable: true});
@@ -71,10 +71,10 @@ def test_a_stranger_arrives_at_the_landing_page_and_can_read_the_product(page, c
     stopped = page.eval("window.PravahaLanding.frames()")
     page.eval("new Promise(r => setTimeout(() => r(true), 300))")
     assert page.eval("window.PravahaLanding.frames()") == stopped
-    assert "+1" in page.text("#net-legend") and "−1" in page.text("#net-legend")
+    assert "+1" in page.text("#flow-legend") and "−1" in page.text("#flow-legend")
     assert "steps back to 90" in page.text("#how-it-works")
-    # A figure is not a deployment fact: its labels are the product's connector names.
-    assert "postgres-cdc" in page.eval("document.getElementById('hero-net').dataset.net")
+    # A figure is not a deployment fact: its labels are the catalog's, an illustration.
+    assert "Answer always." in page.eval("document.getElementById('hero-flow').dataset.flow")
 
     # Nothing about this deployment: reachability, and not the address.
     assert "engine.test" not in page.text("body")

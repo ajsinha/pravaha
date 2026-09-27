@@ -1,395 +1,339 @@
 /*
- * Pravaha console — the landing page's figure: sources in, one engine, every reader kept answered.
+ * Pravaha console — the landing page's three figures: Ask once. Answer always.
  *
  * Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
  * Proprietary and confidential. See LICENSE at the repository root.
  *
- * One <canvas> and plain script: no library, nothing fetched. On the left, the sources a query
- * reads, named the way the product names its connectors. In the middle, the engine. On the
- * right, what reads the answer. Rows travel as weights -- an insert is a +1 in the accent, a
- * retraction a −1 in `--retract` -- into the engine, which applies them a commit at a time and
- * pulses once per commit, and the same weights travel on to the readers. The −1 is the point:
- * the answer is maintained, and a retraction is how it is corrected.
+ * Three <svg> figures and plain script: no library, nothing fetched.
  *
- * Every colour and font is a design token, read with getComputedStyle when the figure starts
- * and again whenever the theme changes, so the figure is crimson in crimson, blue in blue,
- * green in green and legible in dark. Every word on it comes from the string catalog, through
- * the canvas's data-net attribute.
+ *   #hero-flow     The hero. A continuous query types itself once, and a stone carrying it drops into a
+ *                  river of rows ("Ask once."). Where the river pools, the answer card never stops
+ *                  changing ("Answer always."): totals move as rows pass, and a late row corrects one --
+ *                  its old value leaves as a −1 and the new one arrives as a +1.
+ *   #windows-flow  One-minute windows fill; a watermark sweeps across and seals each one; a late event
+ *                  reopens a sealed window, as −1 old total and +1 new.
+ *   #diyas-flow    Events as lamps carried downstream; the board on the bank updates as each passes.
  *
- * `prefers-reduced-motion` gets one still frame that still says the sentence -- weights on the
- * edges, an update drawn as its −1 and its +1 -- and no loop at all. That is also the frame the
- * visual baselines photograph, because the harness emulates reduced motion; the still frame is
- * a pure function of the canvas's size and the theme, with nothing random and nothing timed.
- * The loop stops whenever the page is hidden or the figure is scrolled out of view.
+ * Every colour is a design token used as var(--…) on the drawn shapes, so a figure follows the theme
+ * the moment it changes, and every word comes from the string catalog, through the hero's data-flow
+ * attribute. Every number is an illustration from a seeded generator, the same on every load.
  *
- * The canvas is aria-hidden; the section under it says everything the figure says, in words.
+ * `prefers-reduced-motion` gets one still frame per figure that still says the sentence -- the question
+ * typed, the stone in the river, an answer with a −1 and a +1 beside it, a sealed window reopened -- and
+ * no loop. That is the frame the visual baselines photograph. The loop stops whenever the page is hidden
+ * or no figure is in view.
+ *
+ * The figures are aria-hidden; the captions and "How it works" say everything they say, in words.
  */
 (function () {
   "use strict";
 
-  var canvas = document.getElementById("hero-net");
-  if (!canvas || !canvas.getContext) { return; }
-  var ctx = canvas.getContext("2d");
-  var words;
-  try { words = JSON.parse(canvas.getAttribute("data-net") || "{}"); } catch (e) { words = {}; }
-  var SOURCES = words.sources || [];
-  var READERS = words.readers || [];
-  var PLUS = words.plus || "+1";
-  var MINUS = words.minus || "−1";
-
+  var NS = "http://www.w3.org/2000/svg";
+  var hero = document.getElementById("hero-flow");
+  if (!hero) { return; }
+  var L = JSON.parse(hero.getAttribute("data-flow"));
+  // The catalog holds lists as comma-separated strings.
+  L.users = String(L.users).split(",");
+  L.cities = String(L.cities).split(",");
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)");
-  var scheme = window.matchMedia("(prefers-color-scheme: dark)");
 
-  /* ------------------------------------------------------------------ the theme */
-  var C = {}, F = {};
+  /* A seeded generator: the same illustration on every load, which the baselines rely on. */
+  var seed = 7;
+  function rand() { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }
 
-  function readTheme() {
-    var css = getComputedStyle(document.documentElement);
-    var fallback = getComputedStyle(canvas).color;
-    function token(name) { return css.getPropertyValue(name).trim() || fallback; }
-    C.plus = token("--flow");
-    C.glow = token("--flow-l");
-    C.minus = token("--retract");
-    C.onChip = token("--on-flow");
-    C.ink = token("--ink");
-    C.label = token("--slate");
-    C.muted = token("--muted");
-    C.edge = token("--edge");
-    C.ground = token("--surface");
-    F.code = token("--code");
-    F.serif = token("--serif");
+  function el(parent, tag, attrs, text) {
+    var e = document.createElementNS(NS, tag);
+    for (var k in attrs) { if (Object.prototype.hasOwnProperty.call(attrs, k)) { e.setAttribute(k, attrs[k]); } }
+    if (text !== undefined) { e.textContent = text; }
+    parent.appendChild(e);
+    return e;
   }
+  function style(fill, size, family, weight) {
+    return "fill:" + fill + ";font:" + (weight || 500) + " " + size + "px " + (family || "var(--code)");
+  }
+  function fmt(n) { return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
+  function wave(x, t) { return Math.sin((x + t * 30) / 48) * 6; }
 
-  /* A token with an alpha, for glows and fading edges. The palette's colours are hex; rgb() is
-     handled too, and anything else is returned as it is and drawn opaque. */
-  function alpha(colour, a) {
-    var hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(colour);
-    var r, g, b;
-    if (hex) {
-      var h = hex[1].length === 3 ? hex[1].replace(/(.)/g, "$1$1") : hex[1];
-      r = parseInt(h.slice(0, 2), 16); g = parseInt(h.slice(2, 4), 16); b = parseInt(h.slice(4, 6), 16);
-    } else {
-      var rgb = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i.exec(colour);
-      if (!rgb) { return colour; }
-      r = +rgb[1]; g = +rgb[2]; b = +rgb[3];
+  /* ------------------------------------------------------------------ the hero: river and live answer */
+  function heroFigure(svg) {
+    svg.innerHTML = "";
+    var riverY = 262;
+    el(svg, "path", { d: "M0 " + riverY + " C170 212 330 264 470 " + riverY + " S560 232 640 244 L640 330 L0 330Z",
+      style: "fill:var(--flow);opacity:.08" });
+    el(svg, "path", { d: "M0 " + (riverY - 6) + " C170 206 330 258 470 " + (riverY - 6) + " S560 226 640 238",
+      style: "fill:none;stroke:var(--flow);stroke-width:1.2;opacity:.35" });
+
+    /* The question, typed once. */
+    el(svg, "rect", { x: 16, y: 22, width: 386, height: 52, rx: 8, style: "fill:var(--surface);stroke:var(--edge)" });
+    var typed = el(svg, "text", { x: 28, y: 53, style: style("var(--ink)", 10.5) }, "");
+    var caret = el(svg, "rect", { width: 6, height: 13, y: 43, style: "fill:var(--flow)" });
+    var ask = el(svg, "text", { x: 22, y: 104, style: style("var(--ink)", 20, "var(--serif)", 400) }, L.ask);
+
+    /* The stone that carries it into the river. */
+    var stone = el(svg, "g", {});
+    el(stone, "rect", { x: -64, y: -13, width: 128, height: 26, rx: 13, style: "fill:var(--flow)" });
+    el(stone, "text", { x: 0, y: 4, "text-anchor": "middle", style: style("var(--on-flow)", 10) }, L.stone);
+    var ripple = el(svg, "ellipse", { cx: 220, cy: riverY, rx: 0, ry: 0, style: "fill:none;stroke:var(--flow);stroke-width:1.4" });
+
+    /* The answer card where the river pools. */
+    var cx = 418, cy = 16;
+    el(svg, "rect", { x: cx, y: cy, width: 206, height: 178, rx: 8, style: "fill:var(--surface);stroke:var(--edge)" });
+    el(svg, "text", { x: cx + 14, y: cy + 22, style: style("var(--muted)", 9.5) }, L.answer_title);
+    var count = el(svg, "text", { x: cx + 14, y: cy + 166, style: style("var(--muted)", 9.5) }, "");
+    var totals = [], cells = [];
+    for (var i = 0; i < L.users.length; i++) {
+      totals.push(200 + Math.floor(rand() * 9000));
+      el(svg, "text", { x: cx + 14, y: cy + 54 + i * 30, style: style("var(--ink)", 13) }, L.users[i]);
+      cells.push(el(svg, "text", { x: cx + 140, y: cy + 54 + i * 30, "text-anchor": "end", style: style("var(--ink)", 13) }, ""));
     }
-    return "rgba(" + r + "," + g + "," + b + "," + Math.max(0, Math.min(1, a)).toFixed(3) + ")";
-  }
+    var chip = el(svg, "g", { opacity: 0 });
+    var chipMinus = el(chip, "text", { x: 0, y: 0, style: style("var(--retract)", 10) }, "");
+    var chipPlus = el(chip, "text", { x: 0, y: 13, style: style("var(--flow)", 10) }, "");
+    var answer = el(svg, "text", { x: cx + 2, y: cy + 208, style: style("var(--ink)", 20, "var(--serif)", 400) }, L.answer);
 
-  /* ------------------------------------------------------------------ the layout */
-  var W = 0, H = 0, narrow = false, hub = {x: 0, y: 0, r: 24}, left = [], right = [];
-
-  function column(names, x, side) {
-    return names.map(function (label, i) {
-      var f = names.length === 1 ? 0.5 : i / (names.length - 1);
-      var bow = Math.sin(f * Math.PI) * W * (narrow ? 0.02 : 0.035);
-      var y = H * 0.1 + (H * 0.8) * f;
-      var node = {x: x + side * bow, y: y, label: label, side: side, glow: 0, tone: "plus"};
-      /* The curve every weight travels: out of the node level, and into the hub. */
-      node.c = {x: (node.x + hub.x) / 2, y: node.y};
-      return node;
-    });
-  }
-
-  function layout() {
-    var box = canvas.getBoundingClientRect();
-    W = Math.max(1, box.width);
-    H = Math.max(1, box.height);
-    var ratio = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.round(W * ratio);
-    canvas.height = Math.round(H * ratio);
-    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    narrow = W < 560;
-    hub = {x: W / 2, y: H * 0.42, r: narrow ? 19 : 25};
-    var inset = Math.max(narrow ? 90 : 136, W * 0.2);
-    left = column(SOURCES, inset, -1);
-    right = column(READERS, W - inset, 1);
-  }
-
-  function along(node, t, inbound) {
-    /* A point on the quadratic from the node to the hub (inbound) or back out to it. */
-    var a = inbound ? node : hub, b = inbound ? hub : node, u = 1 - t;
-    return {x: u * u * a.x + 2 * u * t * node.c.x + t * t * b.x,
-            y: u * u * a.y + 2 * u * t * node.c.y + t * t * b.y};
-  }
-
-  /* ------------------------------------------------------------------ drawing */
-  function font(weight, size, family) { return weight + " " + size + "px " + family; }
-
-  function drawEdges() {
-    ctx.lineWidth = 1;
-    left.concat(right).forEach(function (n) {
-      ctx.strokeStyle = alpha(C.edge, 0.22 + n.glow * 0.4);
-      ctx.beginPath();
-      ctx.moveTo(n.x, n.y);
-      ctx.quadraticCurveTo(n.c.x, n.c.y, hub.x, hub.y);
-      ctx.stroke();
-    });
-  }
-
-  function drawNode(n) {
-    var colour = n.tone === "minus" ? C.minus : C.plus;
-    var halo = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, 18);
-    halo.addColorStop(0, alpha(colour, 0.16 + n.glow * 0.42));
-    halo.addColorStop(1, alpha(colour, 0));
-    ctx.fillStyle = halo;
-    ctx.beginPath(); ctx.arc(n.x, n.y, 18, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = colour;
-    ctx.beginPath(); ctx.arc(n.x, n.y, 3.6 + n.glow * 2.4, 0, Math.PI * 2); ctx.fill();
-    ctx.font = font(600, narrow ? 10 : 11.5, F.code);
-    ctx.textBaseline = "middle";
-    ctx.textAlign = n.side < 0 ? "right" : "left";
-    ctx.fillStyle = n.glow > 0.35 ? C.ink : C.label;
-    ctx.fillText(n.label, n.x + (n.side < 0 ? -12 : 12), n.y);
-  }
-
-  function drawHub(beat, ring, breathe) {
-    var R = hub.r;
-    var reach = R * 3.4 + beat * R * 0.8;
-    var aura = ctx.createRadialGradient(hub.x, hub.y, 0, hub.x, hub.y, reach);
-    aura.addColorStop(0, alpha(C.glow, 0.26 + beat * 0.22));
-    aura.addColorStop(0.45, alpha(C.glow, 0.08));
-    aura.addColorStop(1, alpha(C.glow, 0));
-    ctx.fillStyle = aura;
-    ctx.beginPath(); ctx.arc(hub.x, hub.y, reach, 0, Math.PI * 2); ctx.fill();
-    /* The ring: born at the core on each commit, widening and fading until the next. */
-    if (ring < 1) {
-      ctx.strokeStyle = alpha(C.plus, 0.55 * (1 - ring));
-      ctx.lineWidth = 1.6;
-      ctx.beginPath(); ctx.arc(hub.x, hub.y, R * 0.9 + ring * R * 1.9, 0, Math.PI * 2); ctx.stroke();
+    var rows = [];
+    for (var r = 0; r < 20; r++) {
+      rows.push({ x: rand() * 400, y: riverY + 8 + rand() * 40, v: 38 + rand() * 30,
+        c: el(svg, "circle", { r: 3.2, style: "fill:var(--flow);opacity:.8" }) });
     }
-    ctx.strokeStyle = alpha(C.plus, 0.35);
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(hub.x, hub.y, R, 0, Math.PI * 2); ctx.stroke();
-    ctx.fillStyle = C.plus;
-    ctx.beginPath(); ctx.arc(hub.x, hub.y, R * 0.52 + breathe * 2.2 + beat * 2.5, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = C.onChip;
-    ctx.beginPath(); ctx.arc(hub.x, hub.y, 3, 0, Math.PI * 2); ctx.fill();
-  }
+    var t = 0, events = 0, lastFix = -9, fixAt = 4;
+    var dropAt = L.question.length / 34;
 
-  function drawWordmark() {
-    var y = hub.y + hub.r + 14;
-    var mark = words.hub || "";
-    var slogan = words.slogan || "";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
-    ctx.font = font(700, narrow ? 13 : 15, F.serif);
-    if ("letterSpacing" in ctx) { ctx.letterSpacing = narrow ? "2px" : "3px"; }
-    var wide = ctx.measureText(mark).width;
-    ctx.font = font("italic 400", narrow ? 11.5 : 13, F.serif);
-    if ("letterSpacing" in ctx) { ctx.letterSpacing = "0px"; }
-    wide = Math.max(wide, ctx.measureText(slogan).width) + 16;
-    /* A knockout in the ground's own colour, drawn last, so neither an edge nor a weight
-       passing under the wordmark runs through its letters. */
-    ctx.fillStyle = alpha(C.ground, 0.9);
-    ctx.fillRect(hub.x - wide / 2, y - 4, wide, (narrow ? 40 : 46));
-    ctx.fillStyle = C.ink;
-    ctx.font = font(700, narrow ? 13 : 15, F.serif);
-    if ("letterSpacing" in ctx) { ctx.letterSpacing = narrow ? "2px" : "3px"; }
-    ctx.fillText(mark, hub.x, y);
-    if ("letterSpacing" in ctx) { ctx.letterSpacing = "0px"; }
-    ctx.fillStyle = C.muted;
-    ctx.font = font("italic 400", narrow ? 11.5 : 13, F.serif);
-    ctx.fillText(slogan, hub.x, y + (narrow ? 19 : 22));
-  }
-
-  /* A weight in flight: a filled disc in its colour with its sign written on it. */
-  function drawChip(x, y, weight, size) {
-    var colour = weight > 0 ? C.plus : C.minus;
-    var trail = ctx.createRadialGradient(x, y, 0, x, y, size * 2);
-    trail.addColorStop(0, alpha(colour, 0.3));
-    trail.addColorStop(1, alpha(colour, 0));
-    ctx.fillStyle = trail;
-    ctx.beginPath(); ctx.arc(x, y, size * 2, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = colour;
-    ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = C.onChip;
-    ctx.font = font(700, size < 8.5 ? 8 : 9, F.code);
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(weight > 0 ? PLUS : MINUS, x, y + 0.5);
-  }
-
-  /* ------------------------------------------------------------------ the still frame */
-  /* What a reader who asked for no motion sees, and what the visual baselines photograph: an
-     insert and an update on their way in -- the update as its −1 and its +1 on one edge -- and
-     the same weights on their way out to the readers. Positions are fractions of the edges, so
-     the frame is the same picture at every width. */
-  var STILL_IN = [[0, 0.58, -1], [0, 0.36, 1], [1, 0.55, 1], [4, 0.5, -1], [5, 0.62, 1]];
-  var STILL_OUT = [[0, 0.5, 1], [0, 0.72, -1], [2, 0.55, 1], [3, 0.86, -1], [5, 0.6, 1]];
-
-  function drawStill() {
-    stills += 1;
-    ctx.clearRect(0, 0, W, H);
-    left.concat(right).forEach(function (n) { n.glow = 0; n.tone = "plus"; });
-    STILL_IN.forEach(function (s) { var n = left[s[0]]; if (n) { n.glow = 0.7; n.tone = s[2] < 0 ? "minus" : n.tone; } });
-    STILL_OUT.forEach(function (s) { var n = right[s[0]]; if (n) { n.glow = 0.7; n.tone = s[2] < 0 ? "minus" : n.tone; } });
-    drawEdges();
-    drawHub(0.5, 0.45, 0.5);
-    STILL_IN.forEach(function (s) {
-      var n = left[s[0]]; if (!n) { return; }
-      var p = along(n, s[1], true); drawChip(p.x, p.y, s[2], 9);
-    });
-    STILL_OUT.forEach(function (s) {
-      var n = right[s[0]]; if (!n) { return; }
-      var p = along(n, s[1], false); drawChip(p.x, p.y, s[2], 8);
-    });
-    left.concat(right).forEach(drawNode);
-    drawWordmark();
-  }
-
-  /* ------------------------------------------------------------------ the motion */
-  /* The commits, in order, forever: [source, weight] pairs. An update is a −1 and a +1 from
-     one source in one commit; a delete is a lone −1. Scripted rather than random, so what the
-     figure says is the same every time it says it. */
-  var SCRIPT = [
-    [[1, 1]],
-    [[0, -1], [0, 1]],
-    [[2, 1], [5, 1]],
-    [[4, -1]],
-    [[3, 1]],
-    [[2, -1], [2, 1]],
-    [[1, 1], [4, 1]],
-    [[5, -1]]
-  ];
-  var COMMIT_MS = 1900, TRAVEL_MS = 1150, STAGGER = 0.16;
-  var packets = [], pending = {}, commitNo = 0, sinceCommit = COMMIT_MS - 300;
-  var beatAt = -1e9, clock = 0, frame = 0, last = 0, frames = 0, stills = 0;
-
-  function ease(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
-
-  function spawnCommit() {
-    var id = commitNo, changes = SCRIPT[commitNo % SCRIPT.length];
-    commitNo += 1;
-    pending[id] = changes.length;
-    changes.forEach(function (change, i) {
-      var node = left[change[0] % Math.max(1, left.length)];
-      if (!node) { return; }
-      packets.push({node: node, inbound: true, weight: change[1], t: -i * STAGGER, commit: id, changes: changes});
-    });
-  }
-
-  function arrive(p) {
-    pending[p.commit] -= 1;
-    if (pending[p.commit] > 0) { return; }
-    delete pending[p.commit];
-    /* The commit is applied: one pulse, and its changes go out to three readers in turn. */
-    beatAt = clock;
-    if (!right.length) { return; }
-    for (var k = 0; k < 3; k += 1) {
-      var reader = right[(p.commit + k * 2) % right.length];
-      p.changes.forEach(function (change, i) {
-        packets.push({node: reader, inbound: false, weight: change[1], t: -i * STAGGER - k * 0.05, commit: p.commit});
-      });
+    function show() { for (var j = 0; j < cells.length; j++) { cells[j].textContent = fmt(totals[j]); } }
+    function correct(at) {
+      var j = Math.floor(rand() * totals.length);
+      var old = totals[j];
+      totals[j] = Math.max(0, old - 40 - Math.floor(rand() * 200));
+      chipMinus.textContent = L.minus + " " + fmt(old);
+      chipPlus.textContent = L.plus + " " + fmt(totals[j]);
+      chip.setAttribute("transform", "translate(" + (cx + 146) + " " + (cy + 49 + j * 30) + ")");
+      lastFix = at;
     }
+    function draw() {
+      var n = Math.min(L.question.length, Math.floor(t * 34));
+      typed.textContent = L.question.slice(0, n);
+      caret.setAttribute("x", 28 + n * 6.3);
+      caret.setAttribute("opacity", n < L.question.length && Math.floor(t * 3) % 2 === 0 ? 1 : 0);
+      var fall = Math.max(0, Math.min(1, (t - dropAt) / 0.9));
+      stone.setAttribute("transform", "translate(220 " + (74 + fall * (riverY - 74)) + ")");
+      stone.setAttribute("opacity", t < dropAt ? 0 : 1);
+      ask.setAttribute("opacity", Math.min(1, t / 1.2));
+      answer.setAttribute("opacity", Math.max(0, Math.min(1, (t - dropAt - 1) / 1)));
+      var since = t - (dropAt + 0.9);
+      var rs = since > 0 && since < 1.4 ? since : 0;
+      ripple.setAttribute("rx", rs * 80);
+      ripple.setAttribute("ry", rs * 16);
+      ripple.setAttribute("opacity", rs ? 0.8 - rs / 1.8 : 0);
+      for (var k = 0; k < rows.length; k++) {
+        rows[k].c.setAttribute("cx", rows[k].x);
+        rows[k].c.setAttribute("cy", rows[k].y + wave(rows[k].x, t));
+      }
+      chip.setAttribute("opacity", t - lastFix < 1.8 ? 1 : 0);
+      count.textContent = events + " " + L.events;
+      show();
+    }
+    return {
+      step: function (dt) {
+        t += dt;
+        var flowing = t > dropAt + 0.9;
+        for (var k = 0; k < rows.length; k++) {
+          rows[k].x += rows[k].v * dt;
+          if (rows[k].x > 420) {
+            rows[k].x = -8;
+            if (flowing) { events++; var j = Math.floor(rand() * totals.length); totals[j] += 5 + Math.floor(rand() * 60); }
+          }
+        }
+        if (flowing && t > fixAt) { fixAt = t + 4 + rand() * 2; correct(t); }
+        draw();
+      },
+      still: function () {
+        t = dropAt + 3; events = 128; correct(t); draw();
+      }
+    };
   }
 
-  function tick(now) {
-    var dt = Math.min(48, now - last || 16);
-    last = now;
-    clock += dt;
-    frames += 1;
-    sinceCommit += dt;
-    if (sinceCommit >= COMMIT_MS) { sinceCommit = 0; spawnCommit(); }
+  /* ------------------------------------------------------------------ windows filling */
+  function windowsFigure(svg) {
+    svg.innerHTML = "";
+    var W = [], labels = ["09:00", "09:01", "09:02"];
+    for (var i = 0; i < 3; i++) {
+      var x = 70 + i * 180;
+      var w = { x: x, n: 0, sealed: false, reopened: false };
+      w.box = el(svg, "rect", { x: x, y: 70, width: 150, height: 150, rx: 6, style: "fill:var(--surface);stroke:var(--edge)" });
+      w.sum = el(svg, "text", { x: x + 75, y: 104, "text-anchor": "middle", style: style("var(--ink)", 20) }, "0");
+      w.state = el(svg, "text", { x: x + 75, y: 206, "text-anchor": "middle", style: style("var(--muted)", 10) }, L.open);
+      el(svg, "text", { x: x + 75, y: 240, "text-anchor": "middle", style: style("var(--muted)", 10) }, labels[i] + " " + L.window);
+      W.push(w);
+    }
+    var mark = el(svg, "line", { y1: 54, y2: 226, style: "stroke:var(--retract);stroke-width:2;stroke-dasharray:4 4" });
+    var markLabel = el(svg, "text", { y: 48, style: style("var(--retract)", 10) }, L.watermark);
+    var chip = el(svg, "text", { y: 140, "text-anchor": "middle", style: style("var(--retract)", 10), opacity: 0 }, "");
+    var drops = [], t = 0, spawn = 0, flash = -9;
 
-    ctx.clearRect(0, 0, W, H);
-    left.concat(right).forEach(function (n) { n.glow *= 0.94; });
-    for (var i = packets.length - 1; i >= 0; i -= 1) {
-      var p = packets[i];
-      p.t += dt / TRAVEL_MS;
-      if (p.t >= 1) {
-        packets.splice(i, 1);
-        if (p.inbound) { arrive(p); } else { p.node.glow = 1; p.node.tone = p.weight < 0 ? "minus" : "plus"; }
-      } else if (p.t > 0 && p.inbound && p.t < 0.2) {
-        p.node.glow = 1; p.node.tone = p.weight < 0 ? "minus" : "plus";
+    function reset() {
+      for (var j = 0; j < W.length; j++) {
+        W[j].n = 0; W[j].sealed = false; W[j].reopened = false;
+        W[j].sum.textContent = "0"; W[j].state.textContent = L.open;
+        W[j].box.setAttribute("style", "fill:var(--surface);stroke:var(--edge)");
       }
     }
-    var since = clock - beatAt;
-    var beat = Math.max(0, 1 - since / 700);
-    var ring = Math.min(1, since / 1400);
-    var breathe = (Math.sin(clock / 850) + 1) / 2;
+    function land(w, late) {
+      var add = 5 + Math.floor(rand() * 45);
+      if (late && w.sealed) {
+        chip.textContent = L.minus + " " + w.n + "  " + L.plus + " " + (w.n + add);
+        chip.setAttribute("x", w.x + 75);
+        w.state.textContent = L.reopened;
+        flash = t;
+      }
+      w.n += add;
+      w.sum.textContent = w.n;
+    }
+    function markAt(x) {
+      mark.setAttribute("x1", x); mark.setAttribute("x2", x); markLabel.setAttribute("x", x + 4);
+      for (var j = 0; j < W.length; j++) {
+        if (!W[j].sealed && x > W[j].x + 150) {
+          W[j].sealed = true; W[j].state.textContent = L.sealed;
+          W[j].box.setAttribute("style", "fill:var(--surface);stroke:var(--flow)");
+        }
+      }
+    }
+    return {
+      step: function (dt) {
+        t += dt;
+        var cycle = t % 12;
+        if (cycle < dt * 1.5) { reset(); }
+        var x = 50 + cycle * 48;
+        markAt(x);
+        spawn -= dt;
+        if (spawn < 0) {
+          spawn = 0.35;
+          var late = cycle > 8 && rand() < 0.25;
+          var target = W[2];
+          for (var j = 0; j < W.length; j++) { if (!W[j].sealed && W[j].x + 150 > x) { target = W[j]; break; } }
+          if (late) { target = W[0]; }
+          drops.push({ w: target, late: late, x: target.x + 16 + rand() * 118, y: 20,
+            c: el(svg, "circle", { r: 4, style: "fill:" + (late ? "var(--retract)" : "var(--flow)") }) });
+        }
+        for (var k = drops.length - 1; k >= 0; k--) {
+          var d = drops[k];
+          d.y += 150 * dt;
+          d.c.setAttribute("cx", d.x); d.c.setAttribute("cy", d.y);
+          if (d.y > 196) { svg.removeChild(d.c); drops.splice(k, 1); land(d.w, d.late); }
+        }
+        chip.setAttribute("opacity", t - flash < 1.8 ? 1 : 0);
+      },
+      still: function () {
+        reset();
+        for (var j = 0; j < 14; j++) { land(W[j % 3], false); }
+        markAt(430);
+        t = 1; land(W[0], true); chip.setAttribute("opacity", 1);
+      }
+    };
+  }
 
-    drawEdges();
-    drawHub(beat, ring, breathe);
-    packets.forEach(function (p) {
-      if (p.t <= 0) { return; }
-      var at = along(p.node, ease(p.t), p.inbound);
-      drawChip(at.x, at.y, p.weight, p.inbound ? 9 : 8);
-    });
-    left.concat(right).forEach(drawNode);
-    drawWordmark();
+  /* ------------------------------------------------------------------ diyas on the river */
+  function diyasFigure(svg) {
+    svg.innerHTML = "";
+    el(svg, "rect", { x: 0, y: 0, width: 640, height: 220, style: "fill:var(--surface)" });
+    el(svg, "rect", { x: 0, y: 120, width: 640, height: 100, style: "fill:var(--flow);opacity:.1" });
+    var board = { x: 470 };
+    el(svg, "rect", { x: 470, y: 22, width: 150, height: 120, rx: 8, style: "fill:var(--surface);stroke:var(--edge)" });
+    el(svg, "text", { x: 484, y: 44, style: style("var(--muted)", 9.5) }, L.diyas_board);
+    var rows = [];
+    for (var i = 0; i < L.cities.length; i++) {
+      el(svg, "text", { x: 484, y: 72 + i * 24, style: style("var(--ink)", 12) }, L.cities[i]);
+      rows.push({ n: 0, v: el(svg, "text", { x: 606, y: 72 + i * 24, "text-anchor": "end", style: style("var(--ink)", 12) }, "0") });
+    }
+    el(svg, "text", { x: 22, y: 48, style: style("var(--ink)", 18, "var(--serif)", 400) }, L.ask);
+    el(svg, "text", { x: 22, y: 72, style: style("var(--ink)", 18, "var(--serif)", 400) }, L.answer);
+    var lamps = [];
+    for (var j = 0; j < 7; j++) {
+      var g = el(svg, "g", {});
+      el(g, "ellipse", { cx: 0, cy: 6, rx: 15, ry: 3, style: "fill:var(--flow-l);opacity:.35" });
+      el(g, "path", { d: "M-11 0 Q0 10 11 0 Z", style: "fill:var(--flow)" });
+      var flame = el(g, "path", { d: "M0 -2 Q-4 -9 0 -16 Q4 -9 0 -2Z", style: "fill:var(--flow-l)" });
+      lamps.push({ g: g, flame: flame, x: -40 - j * 92, y: 150 + (j % 3) * 22, city: j % 3 });
+    }
+    var t = 0;
+    function place() {
+      for (var k = 0; k < lamps.length; k++) {
+        var l = lamps[k];
+        l.g.setAttribute("transform", "translate(" + l.x + " " + (l.y + Math.sin(t * 1.5 + l.x / 40) * 2.5) + ")");
+        l.flame.setAttribute("transform", "scale(1 " + (1 + Math.sin(t * 9 + l.y) * 0.12) + ")");
+      }
+    }
+    return {
+      step: function (dt) {
+        t += dt;
+        for (var k = 0; k < lamps.length; k++) {
+          var l = lamps[k], before = l.x;
+          l.x += 36 * dt;
+          if (before < board.x && l.x >= board.x) { rows[l.city].n++; rows[l.city].v.textContent = rows[l.city].n; }
+          if (l.x > 680) { l.x = -40; }
+        }
+        place();
+      },
+      still: function () {
+        for (var k = 0; k < lamps.length; k++) { lamps[k].x = 40 + k * 60; }
+        for (var r = 0; r < rows.length; r++) { rows[r].n = 12 + r * 7; rows[r].v.textContent = rows[r].n; }
+        t = 1; place();
+      }
+    };
+  }
+
+  /* ------------------------------------------------------------------ one loop for all three */
+  var figures = [heroFigure(hero)];
+  var windows = document.getElementById("windows-flow");
+  if (windows) { figures.push(windowsFigure(windows)); }
+  var diyas = document.getElementById("diyas-flow");
+  if (diyas) { figures.push(diyasFigure(diyas)); }
+
+  var frame = null, frames = 0, stills = 0, last = 0, inView = true;
+
+  function drawStill() {
+    for (var i = 0; i < figures.length; i++) { figures[i].still(); }
+    stills++;
+  }
+  function tick(now) {
+    var dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    for (var i = 0; i < figures.length; i++) { figures[i].step(dt); }
+    frames++;
     frame = window.requestAnimationFrame(tick);
   }
-
-  /* ------------------------------------------------------------------ running, or not */
-  var onscreen = true;
-
-  function wanted() { return !reduce.matches && !document.hidden && onscreen; }
-
-  function stop() {
-    if (frame) { window.cancelAnimationFrame(frame); frame = 0; }
-  }
-
   function start() {
-    if (frame || !wanted()) { return; }
+    if (frame !== null || reduce.matches || document.hidden || !inView) { return; }
     last = performance.now();
     frame = window.requestAnimationFrame(tick);
   }
-
-  function refresh() {
-    stop();
-    if (reduce.matches) { drawStill(); } else { start(); }
+  function stop() {
+    if (frame !== null) { window.cancelAnimationFrame(frame); frame = null; }
   }
 
-  function restyle() { readTheme(); if (!frame) { refresh(); } }
-
-  function begin() {
-    readTheme();
-    layout();
-    refresh();
-    document.addEventListener("visibilitychange", function () { if (document.hidden) { stop(); } else { start(); } });
-    reduce.addEventListener("change", refresh);
-    scheme.addEventListener("change", restyle);
-    new MutationObserver(restyle).observe(document.documentElement, {attributes: true, attributeFilter: ["data-theme"]});
-    if (window.ResizeObserver) {
-      var queued = 0;
-      new ResizeObserver(function () {
-        if (queued) { return; }
-        queued = window.requestAnimationFrame(function () { queued = 0; layout(); if (!frame) { refresh(); } });
-      }).observe(canvas);
-    }
-    if (window.IntersectionObserver) {
-      new IntersectionObserver(function (entries) {
-        onscreen = entries[entries.length - 1].isIntersecting;
-        if (onscreen) { start(); } else { stop(); }
-      }).observe(canvas);
-    }
-    if (document.fonts && document.fonts.addEventListener) {
-      document.fonts.addEventListener("loadingdone", function () { if (!frame) { refresh(); } });
-    }
+  document.addEventListener("visibilitychange", function () { if (document.hidden) { stop(); } else { start(); } });
+  reduce.addEventListener("change", function () { if (reduce.matches) { stop(); drawStill(); } else { start(); } });
+  if ("IntersectionObserver" in window) {
+    var visible = new Set();
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { if (e.isIntersecting) { visible.add(e.target); } else { visible.delete(e.target); } });
+      inView = visible.size > 0;
+      if (inView) { start(); } else { stop(); }
+    });
+    [hero, windows, diyas].forEach(function (s) { if (s) { observer.observe(s); } });
   }
 
-  /* Canvas text does not wait for a web font, so the fonts it draws in are loaded first; a
-     still frame drawn in a fallback face would be a different picture from one drawn a moment
-     later, and the screenshots would catch whichever came first. */
-  function ready() {
-    readTheme();
-    if (!document.fonts || !document.fonts.load) { return Promise.resolve(); }
-    return Promise.all([
-      document.fonts.load(font(600, 11.5, F.code)),
-      document.fonts.load(font(700, 9, F.code)),
-      document.fonts.load(font(700, 15, F.serif)),
-      document.fonts.load(font("italic 400", 13, F.serif))
-    ]).catch(function () {});
-  }
-
-  ready().then(begin);
-
-  /* For the browser tests: whether the loop is running, how many frames it has drawn, and how
-     many times the still frame has been drawn. */
+  /* For the browser tests: what was drawn, and whether a loop is running. */
   window.PravahaLanding = {
-    running: function () { return frame !== 0; },
+    stills: function () { return stills; },
     frames: function () { return frames; },
-    stills: function () { return stills; }
+    running: function () { return frame !== null; }
   };
-}());
+
+  if (reduce.matches) {
+    drawStill();
+  } else {
+    // From the beginning, so the question types itself; the first frame is drawn now, not a frame later.
+    for (var f = 0; f < figures.length; f++) { figures[f].step(0); }
+    start();
+  }
+})();

@@ -1410,6 +1410,26 @@
       "sink_proto": "delta · jdbc · kafka",
       "sink": "Write it out",
       "sink_body": "A sink writes the same changes to a Delta table, a JDBC database or a Kafka topic."
+    },
+    "flow": {
+      "question": "SELECT user_id, SUM(amount) FROM txn GROUP BY user_id",
+      "stone": "SUM(amount) BY user",
+      "ask": "Ask once.",
+      "answer": "Answer always.",
+      "answer_title": "total by user · live",
+      "users": "u1,u2,u3,u4",
+      "events": "events",
+      "still": "still answering",
+      "windows_title": "One-minute windows",
+      "window": "window",
+      "open": "open",
+      "sealed": "sealed · final",
+      "reopened": "reopened · corrected",
+      "watermark": "watermark",
+      "windows_caption": "FIG. 02 — A WINDOW SEALS WHEN EVENT TIME PASSES IT, AND A LATE EVENT REOPENS IT AS A CORRECTION",
+      "diyas_board": "orders · last minute",
+      "cities": "delhi,pune,kochi",
+      "diyas_caption": "FIG. 03 — EVERY EVENT CARRIED DOWNSTREAM, EVERY ANSWER KEPT CURRENT"
     }
   },
   "about": {

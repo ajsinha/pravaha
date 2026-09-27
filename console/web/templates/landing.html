@@ -45,8 +45,7 @@
 .hero-sub{font-size:1.06rem;line-height:1.6;color:var(--slate);max-width:34rem;margin-bottom:1.6rem;}
 .hero-actions{display:flex;flex-wrap:wrap;gap:.6rem;}
 .hero-actions .btn{padding:.55rem 1.2rem;font-weight:600;}
-.net{position:relative;margin:0;min-width:0;}
-.net canvas{display:block;width:100%;height:clamp(330px,34vw,410px);}
+.flow{position:relative;margin:0;min-width:0;}
 .net-legend{display:flex;flex-wrap:wrap;gap:.4rem 1.2rem;justify-content:center;font-size:.78rem;
   color:var(--slate);padding:0 1rem;}
 .net-legend .w{display:inline-flex;align-items:center;justify-content:center;min-width:1.9rem;
@@ -59,7 +58,6 @@
 @media (max-width:991.98px){
   .hero{grid-template-columns:minmax(0,1fr);padding:1.8rem 0 1.4rem;}
   .hero-copy{padding:0 1.2rem;}
-  .net canvas{height:370px;}
 }
 
 /* The code sample: what registering a question looks like, from any SQL client. */
@@ -101,6 +99,11 @@
 .closing h2{font-size:1.9rem;margin:0 0 .6rem;}
 .closing p{color:var(--slate);max-width:38rem;margin:0 auto 1.4rem;}
 @media (prefers-reduced-motion:reduce){.feature,.feature::after{transition:none;}.feature:hover{transform:none;}}
+/* The three flow figures (landing.js): drawn at their viewBox's shape, never wider than the column. */
+.flow svg { display: block; width: 100%; height: auto; max-width: 100%; }
+.flow-wide { margin: 8px 0 40px; border: 1px solid var(--rule); border-radius: 10px; overflow: hidden;
+  background: var(--surface); }
+.flow-wide figcaption { padding: 10px 14px; }
 </style>{% endblock %}
 {% block content %}
 
@@ -145,23 +148,26 @@
     </div>
   </div>
 
-  {# The figure. Decorative, and aria-hidden: everything it draws is said in words in the
-     legend under it and in "How it works" below, so a screen reader is handed the sentence
-     rather than a canvas. Its labels come from the catalog, through data-net. #}
-  {% set net = {
-       "sources": [t('landing.net.kafka'), t('landing.net.postgres_cdc'), t('landing.net.aerospike'),
-                   t('landing.net.delta'), t('landing.net.jdbc'), t('landing.net.filesystem')],
-       "readers": [t('landing.net.subscriber'), t('landing.net.point_read'), t('landing.net.delta_sink'),
-                   t('landing.net.jdbc_sink'), t('landing.net.kafka_sink'), t('landing.net.console')],
-       "hub": t('landing.net.hub'), "slogan": t('shell.slogan'),
+  {# The figure: the question typed once and dropped into a river of rows, and the answer where the
+     river pools, which never stops changing. Decorative, and aria-hidden: the legend under it and
+     "How it works" say the same in words. Its labels come from the catalog, through data-flow. #}
+  {% set flow = {
+       "question": t('landing.flow.question'), "stone": t('landing.flow.stone'),
+       "ask": t('landing.flow.ask'), "answer": t('landing.flow.answer'),
+       "answer_title": t('landing.flow.answer_title'), "users": t('landing.flow.users'),
+       "events": t('landing.flow.events'), "still": t('landing.flow.still'),
+       "open": t('landing.flow.open'), "sealed": t('landing.flow.sealed'),
+       "reopened": t('landing.flow.reopened'), "watermark": t('landing.flow.watermark'),
+       "window": t('landing.flow.window'), "diyas_board": t('landing.flow.diyas_board'),
+       "cities": t('landing.flow.cities'),
        "plus": t('landing.net.plus'), "minus": t('landing.net.minus')} %}
-  <figure class="net" id="figure">
-    <canvas id="hero-net" aria-hidden="true" data-net="{{ net|tojson|forceescape }}"></canvas>
+  <figure class="flow" id="figure">
+    <svg id="hero-flow" viewBox="0 0 640 330" aria-hidden="true" focusable="false"
+         data-flow="{{ flow|tojson|forceescape }}"></svg>
     <figcaption>
-      <span class="net-legend" id="net-legend">
+      <span class="net-legend" id="flow-legend">
         <span><span class="w plus">{{ t('landing.net.plus') }}</span>{{ t('landing.net.legend_plus') }}</span>
         <span><span class="w minus">{{ t('landing.net.minus') }}</span>{{ t('landing.net.legend_minus') }}</span>
-        <span>{{ t('landing.net.legend_commit') }}</span>
       </span>
       <span class="fig-caption">{{ t('landing.figure.caption') }}</span>
     </figcaption>
@@ -184,6 +190,11 @@
     </div>
   </div>
 </div>
+
+<figure class="flow flow-wide" id="windows">
+  <svg id="windows-flow" viewBox="0 0 640 250" aria-hidden="true" focusable="false"></svg>
+  <figcaption><span class="fig-caption">{{ t('landing.flow.windows_caption') }}</span></figcaption>
+</figure>
 
 <div class="stats" id="stats">
   <div><div class="num">{{ t('landing.stats.weights') }}</div><div class="lbl">{{ t('landing.stats.weights_label') }}</div></div>
@@ -318,6 +329,11 @@
     </div>
   </div>
 </div>
+
+<figure class="flow flow-wide" id="diyas">
+  <svg id="diyas-flow" viewBox="0 0 640 220" aria-hidden="true" focusable="false"></svg>
+  <figcaption><span class="fig-caption">{{ t('landing.flow.diyas_caption') }}</span></figcaption>
+</figure>
 
 <div class="closing">
   <h2 class="serif">{{ t('landing.closing.heading') }}</h2>

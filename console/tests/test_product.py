@@ -2195,41 +2195,42 @@ def test_the_landing_page_tells_a_stranger_nothing_about_this_deployment(anonymo
 
 
 def test_the_figure_is_an_island_that_says_in_words_what_it_draws(anonymous):
-    """The figure is a canvas drawn by the page's own script: decorative and aria-hidden, its
-    labels from the catalog, and everything it draws said in text beside it -- the +1 and the
-    −1 in the legend, the correction in "How it works"."""
+    """Three figures drawn by the page's own script: decorative and aria-hidden, their labels from
+    the catalog, and everything they draw said in text beside them -- the +1 and the −1 in the
+    legend, the correction in "How it works", the windows and the lamps in their captions."""
     from html import unescape
 
     page = anonymous.get("/").text
-    canvas = re.search(r'<canvas id="hero-net" aria-hidden="true" data-net="([^"]*)"', page)
-    assert canvas, "no aria-hidden figure canvas"
-    net = json.loads(unescape(canvas.group(1)))
-    assert net["sources"] == ["kafka", "postgres-cdc", "aerospike", "delta", "jdbc", "filesystem"]
-    assert net["readers"] == ["subscriber", "point read", "delta-sink", "jdbc-sink", "kafka-sink", "console"]
-    assert net["hub"] == "PRAVAHA" and net["slogan"] == "Ask once. Answer always."
-    assert (net["plus"], net["minus"]) == ("+1", "−1")
-    # Said in words: the legend under the canvas, and the section the rail calls How it works.
+    svg = re.search(r'<svg id="hero-flow" viewBox="[^"]*" aria-hidden="true" focusable="false"\s+data-flow="([^"]*)"', page)
+    assert svg, "no aria-hidden hero figure"
+    flow = json.loads(unescape(svg.group(1)))
+    assert (flow["ask"], flow["answer"]) == ("Ask once.", "Answer always.")
+    assert flow["question"].startswith("SELECT ") and flow["users"] == "u1,u2,u3,u4"
+    assert (flow["plus"], flow["minus"]) == ("+1", "−1")
+    for figure in ('id="windows-flow"', 'id="diyas-flow"'):
+        assert figure in page, figure
+    # Said in words: the legend under the hero, "How it works", and each figure's caption.
     assert 'class="w plus">+1<' in page and 'class="w minus">−1<' in page
-    assert "a row taken back" in page and "once per commit" in page
-    assert "steps back to 90 without" in page
+    assert "a row taken back" in page and "steps back to 90 without" in page
+    assert "A LATE EVENT REOPENS IT AS A CORRECTION" in page
     assert '<script src="/static/js/landing.js' in page
 
 
 def test_the_figure_script_is_plain_themed_and_stops_when_it_should():
-    """An island: plain script from this server, no library and no network. Its colours are the
-    theme's tokens, read at start and again when the theme changes; reduced motion gets a still
-    frame and no loop; a hidden page or an off-screen figure stops the loop."""
+    """An island: plain script from this server, no library and no network. Every colour is a theme
+    token used as var(--…), so the figures follow a theme change at once; reduced motion gets a still
+    frame and no loop; a hidden page or figures scrolled out of view stop the loop."""
     script = (CONSOLE_ROOT / "web" / "static" / "js" / "landing.js").read_text(encoding="utf-8")
-    assert not re.search(r"https?://|import\s|require\(", script)
-    assert "getComputedStyle(document.documentElement)" in script
-    for token in ("--flow", "--retract", "--on-flow", "--surface", "--code", "--serif"):
-        assert f'"{token}"' in script, token
-    # No colour of its own: every hex in it is inside the alpha() parser's pattern.
-    assert not re.search(r"['\"]#[0-9a-fA-F]{3,6}['\"]", script)
-    assert 'attributeFilter: ["data-theme"]' in script and "prefers-color-scheme: dark" in script
+    assert not re.search(r"https?://(?!www\.w3\.org/2000/svg)|import\s|require\(", script)
+    for token in ("var(--flow)", "var(--retract)", "var(--on-flow)", "var(--surface)", "var(--code)", "var(--serif)"):
+        assert token in script, token
+    # No colour of its own.
+    assert not re.search(r"#[0-9a-fA-F]{3,6}\b", script)
     assert "prefers-reduced-motion: reduce" in script and "drawStill()" in script
     assert "visibilitychange" in script and "cancelAnimationFrame" in script
     assert "IntersectionObserver" in script
+    # The same illustration on every load: a seeded generator, never Math.random.
+    assert "Math.random" not in script
 
 
 def test_the_figure_carries_no_number_that_was_typed_into_it(anonymous):
