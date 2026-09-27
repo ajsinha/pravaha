@@ -26,7 +26,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   ([ADR-052](adr/052-the-engine-is-the-identity-authority.md), stage 1 of 6). The core is built and off
   by default (`pravaha.identity.enabled`). New codes PRV-7010 to PRV-7021.
 
-Register: **408 findings — 377 fixed, 17 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **409 findings — 377 fixed, 18 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ---
 

@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **408 findings carrying a
-status — 377 FIXED, 17 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 17 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 13 POST-GA and 4 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **409 findings carrying a
+status — 377 FIXED, 18 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 18 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 14 POST-GA and 4 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7034,3 +7034,11 @@ the lead.
 
 > **Status:** OPEN — `Pushdown.flatten` handles comparisons, AND and IS NULL; an `IN` on a Cassandra partition key reaches the plugin only as a shared reader's OR of several queries' equalities.
 > **Disposition:** POST-GA — flatten `IN` into an OR of equalities where the list is short.
+
+## Found by the gate (2026-09-27), 1 finding
+
+### LIFE-067 (LOW) — once, under the full gate's load, a query dropped mid-ingest left its feeder thread alive past the test's wait
+
+> **Status:** OPEN — `LifeDropTest.life067_droppingMidIngestDoesNotCorruptTheShutdownOrdering` failed once in `tools/verify-clean.sh` ("the drop must not hang the feeder thread") and passed three runs of its own immediately after. Either the wait is too short for a loaded machine or a drop can rarely leave the feeder parked; not yet told apart.
+> **Disposition:** POST-GA — record the feeder's stack when the wait expires, so the next occurrence says which.
+

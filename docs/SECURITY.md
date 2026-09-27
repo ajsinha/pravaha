@@ -476,7 +476,8 @@ of secrets:
 | An API key (`prv_<env>_<keyid>_<secret>`) | the password KDF | shown once; roles a subset of its holder's; expires (90 days by default, at most 365); rotation keeps the old key for 7 days; revocation is immediate; a key from another environment is refused |
 | A reset token | SHA-256 | single use, 60 minutes, issued by an administrator |
 
-Sign-in and administration are REST calls under `/api/v1/auth`, `/users`, `/keys` and `/sessions`.
+Sign-in and administration are REST calls under `/api/v1/auth`, `/users`, `/keys` and `/sessions`, and
+the same from a shell: `pravaha login`, `pravaha user`, `pravaha key`, `pravaha session` and `pravaha password`.
 The codes are `PRV-7010` to `PRV-7021` ([`TROUBLESHOOTING.md`](TROUBLESHOOTING.md)). Forcing a change
 of password at first sign-in is configuration (`pravaha.identity.password.force-change`), off unless
 set. So is single sign-on, which is used only when a provider is configured. `admin` is created on

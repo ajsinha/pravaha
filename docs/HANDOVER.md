@@ -33,7 +33,7 @@ otherwise have to rediscover the hard way.
 - **Tranche A:** compressed Kafka, Kafka partition growth, Cassandra key pushdown, Boot 3.2 to 3.5.
 
 What is left, in order, is [`REMAINING.md`](REMAINING.md). Identity still has stages 4 to 6 open (MFA,
-SSO, then the rest of migration and 0.2.0), and its CLI (`pravaha user|key|session`) is not built.
+SSO, then the rest of migration and 0.2.0); its REST API and CLI (`pravaha login|user|key|session|password`) are built.
 
 **Where it stood, 2026-09-19 (history).** **No GA-BLOCKER is open**, and one GA-REQUIRED: `CASE-1`, four of the five case studies window
 over a stream with no declared event time, and their READMEs explain the silence away. `SUB-1` (a subscribe-and-read gap) and

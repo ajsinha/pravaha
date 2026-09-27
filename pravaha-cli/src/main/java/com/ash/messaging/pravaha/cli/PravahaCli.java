@@ -109,6 +109,7 @@ public final class PravahaCli {
                 case "replacements" -> new ServerCommand(out, err).replacements(rest);
                 case "subscribe" -> new ServerCommand(out, err).subscribe(rest);
                 case "dlq" -> new DlqCommand(out, err).run(rest);
+                case "login", "password", "user", "key", "session" -> new IdentityCommand(out, err).run(command, rest);
                 // The time-travel debugger (ADR-048). Its own command with verbs of its own,
                 // because a session is a conversation rather than a single call.
                 case "debug" -> new DebugCommand(out, err).run(rest);
@@ -201,6 +202,33 @@ public final class PravahaCli {
                         "            Parse, validate and plan without running anything.",
                         "            --event-time marks the stream's event-time column; a windowed",
                         "            query over a stream without one is refused, as a node refuses it."));
+        commands.put(
+                "login",
+                List.of(
+                        "  login     --user <name> --password <p> [--http http://host:18080]",
+                        "            Sign in to the engine's users (ADR-052) and print a session token, for --token."));
+        commands.put(
+                "user",
+                List.of(
+                        "  user      list | create <name> --roles a,b --password <p> | disable <name> | enable <name>",
+                        "            | roles <name> --roles a,b | reset <name>     [--token t] [--http ...]",
+                        "            Administer the engine's users (needs the admin role)."));
+        commands.put(
+                "key",
+                List.of(
+                        "  key       list [--all] | create <name> [--roles a,b] [--days N] [--for <service>]",
+                        "            | rotate <keyId> | revoke <keyId> | report      [--token t] [--http ...]",
+                        "            API keys: shown once, scoped to a subset of the holder's roles."));
+        commands.put(
+                "session",
+                List.of(
+                        "  session   list [--all] | end <id>   [--token t] [--http ...]",
+                        "            Sessions: your own, or everyone's with admin."));
+        commands.put(
+                "password",
+                List.of(
+                        "  password  --current <p> --new <p> [--token t] [--http ...]",
+                        "            Change your own password; your other sessions end."));
         commands.put(
                 "query",
                 List.of(
