@@ -12,6 +12,10 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased (0.1.4-SNAPSHOT)
 
+- **The snapshot-and-change-feed splice is a documented boundary.** `SplicedReader` stays
+  unwired: its newest-row-per-key rule would double-retract on a weighted changelog such as
+  `postgres-cdc`'s, whose own `snapshot.mode: initial` is already exact. A replacement still splices
+  at an offset (ADR-046), and `backfill.adaptive` is still refused (`PRV-4018`).
 - **The server image runs on glibc, and Parquet's Snappy codec loads in it** (PORT-1,
   [ADR-053](adr/053-native-code-only-where-java-cannot.md)). Up to 0.1.3 the image was Alpine, where
   snappy-java cannot load, so the `feedfile` and `delta` plugins could not read a Snappy-compressed

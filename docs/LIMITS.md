@@ -48,17 +48,25 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
   **Buildable:** a maintained secondary index (value → keys) declared on the view, updated with the view in the same commit.
 
-- **The snapshot-and-change-feed splice.** Design §16.1's other backfill — a table snapshot joined
-  to a change feed, deduplicated by the store's own version — is built and tested as
-  `SplicedReader` in `pravaha-backfill`, and is reachable from no running path: no source plugin
-  here exposes a snapshot read separately from its change feed, and `postgres-cdc` does its own
-  initial snapshot behind its own offset. What a replacement's backfill uses instead is the seam
-  these sources do have, an offset ([ADR-046](adr/046-a-replacement-meets-the-running-version-at-a-position.md)).
+- **The snapshot-and-change-feed splice: a boundary, not a gap.** Design §16.1's other backfill — a
+  table snapshot joined to a change feed, deduplicated by the store's own version — is built and
+  tested as `SplicedReader` in `pravaha-backfill`, and deliberately reachable from no running path.
+  Its rule (drop a snapshot row when the feed holds a change to its key at or after the row's
+  version, then replay the feed) is right for a feed of whole rows where the newest wins, and wrong
+  for the weighted changelog this engine reads. `postgres-cdc` sends an update as the old row at
+  `-1` and the new at `+1`: the splice drops the old row from the snapshot, then replays its `-1`,
+  which retracts a row that was never added — `SUM` over one row updated from 5 to 7 reads 2. Nor
+  does `postgres-cdc` need it: its `snapshot.mode: initial` is already exact, at one consistent LSN,
+  with no deduplication at all, and it has no per-row version comparable with its feed. A
+  replacement's backfill meets the running version at an offset
+  ([ADR-046](adr/046-a-replacement-meets-the-running-version-at-a-position.md)) instead.
   The design's `backfill.parallelism`, `backfill.window` and `backfill.adaptive` are refused by name
   (`PRV-4018`): a backfill reads each partition once, from the beginning, at the rate an operator
   sets, and nothing probes the store's own latency to adapt to.
 
-  **Buildable:** expose a snapshot read from `jdbc` and `postgres-cdc` and use `SplicedReader` for a replacement's backfill. `backfill.adaptive` follows from that.
+  **Buildable:** a splice for a weighted feed would drop a snapshot row only when the feed holds the
+  `+1` of that exact row version, and needs a source whose snapshot rows carry a version the feed
+  also carries; no source here has one. `backfill.adaptive` would need a latency probe per store.
 
 - **Sinks: five, and one lakehouse format.** `filesystem`, `aerospike-sink`, `jdbc-sink`,
   `kafka-sink` and `delta-sink`, and no others. Each is unit-tested without a server and again
