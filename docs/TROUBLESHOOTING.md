@@ -441,6 +441,22 @@ recorded, which are then lost to the topic: raise `staging.retention.ms` and re-
   continuous query must have no other writer; stop the other one, then drop and re-register the
   query.
 
+**An `iceberg-sink` was refused, or detached.** The code says which:
+
+- `PRV-5140` — the binding cannot be honoured as written: no `path` (or a URI such as `s3://`, since
+  the sink writes local-filesystem tables only), no `schema` or an unknown type in it, a `mode` that
+  is neither `upsert` nor `changelog`, a missing or pointless `key.columns`, a key column that is
+  floating point, nullable or not in the schema, a changelog schema declaring `_op` or `_weight`, or
+  a `transaction.id` that cannot also be a directory name.
+- `PRV-5141` — the Iceberg table at `path` is not the one the binding describes: a column missing,
+  renamed, retyped or in another position, a required table column under a nullable declaration, a
+  format-version 1 table in upsert mode (equality deletes need version 2), or `create: false` with
+  no table there. Checked at configuration when the table exists. The sink never alters a table's
+  schema.
+- `PRV-5142` — writing or committing failed; the message carries the reason. Refusals rather than
+  failures: a `TIMESTAMP` or `TIME` that is not a whole number of microseconds, a decimal that does
+  not fit its declared scale, a null key, or a handle from another `transaction.id`.
+
 **A `delta-sink` table is full of small files.** Expected, and not something the sink fixes. Each
 checkpoint is one Delta commit writing at least one Parquet file, plus one for every file an upsert
 had to rewrite. Run Delta's `OPTIMIZE`, and `VACUUM` for the files the rewrites superseded, from an
@@ -922,6 +938,9 @@ client models the error rather than an empty object.
 | `PRV-5121` | AEROSPIKE_DELETE_STATE_FAILED | plugins |
 | `PRV-5122` | CASSANDRA_DELETE_STATE_FULL | plugins |
 | `PRV-5123` | CASSANDRA_DELETE_STATE_FAILED | plugins |
+| `PRV-5140` | ICEBERG_SINK_BAD_CONFIGURATION | plugins |
+| `PRV-5141` | ICEBERG_SINK_TABLE_MISMATCH | plugins |
+| `PRV-5142` | ICEBERG_SINK_WRITE_FAILED | plugins |
 | `PRV-6100` | FLIGHT_UNSUPPORTED_TYPE | gateway |
 | `PRV-6101` | FLIGHT_UNSUPPORTED_REQUEST | gateway |
 | `PRV-6102` | FLIGHT_BAD_HANDLE | gateway |

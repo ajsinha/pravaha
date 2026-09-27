@@ -9,7 +9,7 @@ badge: SINKS
 audience: Engineers
 keywords: [sink, WRITING TO, "--sink", pravaha.sinks, shape check, emit mode, append, upsert, retract, detached, /api/v1/sinks, kafka, delta]
 guide: operations#one-engine-and-what-the-server-still-lacks
-related: [delivery-guarantees, sink-jdbc, sink-kafka, sink-delta, sink-aerospike, sink-filesystem, create-continuous-query, zset-weights]
+related: [delivery-guarantees, sink-jdbc, sink-kafka, sink-delta, sink-iceberg, sink-aerospike, sink-filesystem, create-continuous-query, zset-weights]
 ---
 
 A continuous query always maintains its **view** — the answer clients read and subscribe to. A
@@ -63,7 +63,7 @@ pravaha:
 | Key | What it is |
 |---|---|
 | `pravaha.sinks.<name>` | The binding's name. It is what a registration names, what `GET /api/v1/sinks` lists, and (for `jdbc-sink`, `kafka-sink` and `delta-sink`) the default transaction id |
-| `plugin` | The plugin's own name: `filesystem`, `jdbc-sink`, `aerospike-sink`, `kafka-sink` and `delta-sink` ship today |
+| `plugin` | The plugin's own name: `filesystem`, `jdbc-sink`, `aerospike-sink`, `kafka-sink`, `delta-sink` and `iceberg-sink` ship today |
 | `options` | Passed to the plugin untouched. **Nested under `options:`** — a key written one level too high is not read |
 | `options.schema` | The row shape the sink writes, `name:TYPE,...`. Every shipped sink requires one, and the registration is checked against it |
 
@@ -192,6 +192,8 @@ A sink declares what it accepts:
 | `kafka-sink`, `mode: changelog` | `APPEND`, `RETRACT` — a retraction is an `"op":"delete"` record | yes |
 | `delta-sink`, `mode: upsert` (default) | `UPSERT`, `RETRACT` — a retraction rewrites the Delta file without the row | yes |
 | `delta-sink`, `mode: changelog` | `APPEND`, `RETRACT` — a retraction is a row with `_op` `delete` | yes |
+| `iceberg-sink`, `mode: upsert` (default) | `UPSERT`, `RETRACT` — a retraction is an equality delete of the key | yes |
+| `iceberg-sink`, `mode: changelog` | `APPEND`, `RETRACT` — a retraction is a row with `_op` `delete` | yes |
 
 A revising query pointed at an append-only sink is refused with PRV-2041 at registration. This
 query plans, and registering it `WRITING TO large_payments` is refused:

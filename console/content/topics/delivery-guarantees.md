@@ -45,7 +45,7 @@ What the sink does with that second copy is the guarantee.
 
 | Sink declares | Example | With `pravaha.checkpoint.directory` set | Without it |
 |---|---|---|---|
-| **transactional** | [`jdbc-sink`](/help/topics/sink-jdbc), [`kafka-sink`](/help/topics/sink-kafka) and [`delta-sink`](/help/topics/sink-delta) (all by default) | **exactly once** (for `kafka-sink`, to a `read_committed` consumer) | no checkpoint to tie a transaction to, so each commit is its own and a restart repeats it: **effectively once** in upsert mode (the default — a repeated upsert rewrites the value already there), at least once in `mode: append` or `mode: changelog` |
+| **transactional** | [`jdbc-sink`](/help/topics/sink-jdbc), [`kafka-sink`](/help/topics/sink-kafka), [`delta-sink`](/help/topics/sink-delta) and [`iceberg-sink`](/help/topics/sink-iceberg) (all by default) | **exactly once** (for `kafka-sink`, to a `read_committed` consumer) | no checkpoint to tie a transaction to, so each commit is its own and a restart repeats it: **effectively once** in upsert mode (the default — a repeated upsert rewrites the value already there), at least once in `mode: append` or `mode: changelog` |
 | **idempotent upsert** | [`aerospike-sink`](/help/topics/sink-aerospike); `jdbc-sink`, `kafka-sink` or `delta-sink` with `transactional: false`, `mode: upsert` (Kafka on a compacted topic) | effectively once | effectively once |
 | **neither** | [`filesystem`](/help/topics/sink-filesystem); `jdbc-sink` with `transactional: false`, `mode: append`; `kafka-sink` with `transactional: false`, `mode: changelog` | at least once | at least once |
 

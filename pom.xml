@@ -50,6 +50,7 @@
     <module>pravaha-it</module>
     <module>plugins/pravaha-plugin-filesystem</module>
     <module>plugins/pravaha-plugin-delta</module>
+    <module>plugins/pravaha-plugin-iceberg</module>
     <module>plugins/pravaha-plugin-feedfile</module>
     <module>plugins/pravaha-plugin-jdbc</module>
     <module>plugins/pravaha-plugin-aerospike</module>

@@ -140,6 +140,11 @@
     </dependency>
     <dependency>
       <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-plugin-iceberg</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
       <artifactId>pravaha-plugin-jdbc</artifactId>
       <version>${project.version}</version>
     </dependency>

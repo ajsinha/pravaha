@@ -4,10 +4,10 @@ slug: errors-plugins
 category: errors
 order: 60
 icon: plug
-summary: "PRV-5001 to PRV-5123: loading and naming plugins, then every connector's own refusals — filesystem, Delta, feedfile, JDBC, Aerospike, Cassandra, Kafka, PostgreSQL CDC — and attaching a source or a sink to a registered query."
+summary: "PRV-5001 to PRV-5142: loading and naming plugins, then every connector's own refusals — filesystem, Delta, Iceberg, feedfile, JDBC, Aerospike, Cassandra, Kafka, PostgreSQL CDC — and attaching a source or a sink to a registered query."
 badge: PRV-5XXX
 audience: Operators
-keywords: [plugin, classpath, deletes, detect, deletes.max.keys, deletes.state.dir, serviceloader, binding, options, filesystem, decode, delta, vacuum, deletion vectors, feedfile, jdbc, aerospike, cassandra, kafka, fenced, staging topic, retention, resume point, tombstone, undecodable record, postgres-cdc, replication slot, wal_level, replica identity, truncate, offset, sink, source, connect failed, schema]
+keywords: [plugin, iceberg, equality deletes, classpath, deletes, detect, deletes.max.keys, deletes.state.dir, serviceloader, binding, options, filesystem, decode, delta, vacuum, deletion vectors, feedfile, jdbc, aerospike, cassandra, kafka, fenced, staging topic, retention, resume point, tombstone, undecodable record, postgres-cdc, replication slot, wal_level, replica identity, truncate, offset, sink, source, connect failed, schema]
 guide: connectors
 related: [sources-overview, sinks-overview, source-jdbc, source-postgres-cdc, source-kafka, sink-kafka, source-delta, connector-security, errors-overview]
 ---
@@ -43,6 +43,7 @@ a support conversation should have to start with.
 | PRV-5110 – PRV-5118 | `postgres-cdc` |
 | PRV-5120 – PRV-5121 | `aerospike` with `deletes: detect` (5080 – 5084 was full) |
 | PRV-5122 – PRV-5123 | `cassandra` with `deletes: detect` (5085 – 5089 was full) |
+| PRV-5140 – PRV-5142 | `iceberg-sink` |
 
 ## Loading and naming plugins
 
@@ -383,6 +384,31 @@ With `deletes: detect`, the rows the source has emitted could not be written und
 `deletes.state.dir`, or a restore could not read them back — the directory gone, a checksum failed,
 or the table's `schema` changed. The restore is refused rather than guessed at; restore the
 directory, or drop and re-register.
+
+## iceberg-sink
+
+### PRV-5140 — Iceberg sink bad configuration
+
+The binding cannot be honoured as written: no `path` (or a URI such as `s3://` — the sink writes
+tables on the local filesystem only), no `schema` or an unknown type in it, a `mode` that is neither
+`upsert` nor `changelog`, a missing `key.columns` in upsert mode or one in changelog mode, a key
+column that is floating point, nullable or not declared, a changelog schema declaring `_op` or
+`_weight`, or a `transaction.id` that cannot be a directory name.
+
+### PRV-5141 — Iceberg sink table mismatch
+
+The table at `path` is not the one the binding describes: a column missing, renamed, retyped or out
+of place, a required table column under a nullable declaration, a format-version 1 table in upsert
+mode (equality deletes need version 2), or `create: false` with no table there. Checked at
+configuration when the table exists. The sink never alters a table's schema — change the binding,
+evolve the table with the engine that owns it, or point the sink at a new path.
+
+### PRV-5142 — Iceberg sink write failed
+
+Writing a Parquet file or committing a snapshot failed; the message carries the reason. Also raised
+for values the sink will not round: a `TIMESTAMP` or `TIME` that is not a whole number of
+microseconds, or a decimal that does not fit its declared scale. A null key and a handle from
+another `transaction.id` are refused with it too. See [iceberg-sink](/help/topics/sink-iceberg).
 
 ## Attaching sources and sinks to a query
 

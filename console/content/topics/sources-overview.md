@@ -97,6 +97,7 @@ PostgreSQL JDBC driver. `java -jar pravaha-server.jar` can bind any of them.
 | `feedfile` | `plugins/pravaha-plugin-feedfile` | yes |
 | `jdbc`, `jdbc-lookup`, `jdbc-sink` | `plugins/pravaha-plugin-jdbc` | yes — with the PostgreSQL driver; another database's driver is not bundled |
 | `delta`, `delta-sink` | `plugins/pravaha-plugin-delta` | yes |
+| `iceberg-sink` | `plugins/pravaha-plugin-iceberg` | yes |
 | `aerospike`, `aerospike-lookup`, `aerospike-sink` | `plugins/pravaha-plugin-aerospike` | yes |
 | `cassandra` | `plugins/pravaha-plugin-cassandra` | yes |
 | `postgres-cdc` | `plugins/pravaha-plugin-postgres-cdc` | yes, driver included |
