@@ -3,7 +3,7 @@
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 Proprietary and confidential; see [`LICENSE`](../LICENSE).
 
-**Written 2026-09-09; last swept 2026-09-16.** Everything the design says lives in
+**Written 2026-09-09; last swept 2026-09-27.** Everything the design says lives in
 [`system_design.md`](system_design.md) and the [ADRs](adr/) — this file deliberately does *not*
 repeat it. What is here is the state, the working practices, and the things a fresh session would
 otherwise have to rediscover the hard way.
@@ -14,15 +14,28 @@ otherwise have to rediscover the hard way.
 
 | | |
 |---|---|
-| `main` | Whatever the last drill put there. **Normally behind `develop`, on purpose**: work happens on `develop`, and `main` is merged from it when the owner asks — "drill" means both branches, "drill to develop" and "drill to main" one each. The earlier habit of fast-forwarding `main` after every change is retired |
-| `develop` | Pushed after every verified change ("drill to develop"). Waves 8 and 9 are here; neither is tagged |
-| Modules | **36** Maven modules (37 reactor projects with the root), plus `sdk/python` and `console`, which are not Maven |
-| Java tests | **4,175** tests, 0 failures, 189 skipped (the Kafka broker and PostgreSQL CDC tests among them, which run under Docker), across 37 reactor projects — `tools/verify-clean.sh` over the whole reactor on 2026-09-20, offline, the skips being the Docker, Cassandra, Aerospike and `psql` tests this machine cannot run. **Say which command a count came from**: `-Pit` adds the Docker integration tests against real Aerospike and PostgreSQL, and a bare number from one profile quoted against another is how this row reached 1101 and stayed there. Count the **per-module summary lines only** — summing those and the per-class `-- in Class` lines together is how a report came to quote 4,408 for a run of 2,207 (DOCR-22) |
-| Python tests | **132** collected in `sdk/python` — 131 passed, 1 skipped without the `tls-keystore` extra, from `pytest tests` in `sdk/python` on 2026-09-19; the row read 121 before that and was already three stale, so this one is measured rather than incremented — including the client driving a real Java Flight SQL server, plus **709** for the console — its product tests against a faked engine, its tests against a real server built from the Maven tree, and the headless-Chrome journeys, axe audit, visual baselines and performance budgets, which skip by name without Chrome |
+| `main` | Fast-forwarded to `develop` after every gated change ("drill"), so normally equal to it |
+| `develop` | Pushed after every verified change. Releases are tagged `v0.1.0` to `v0.1.3` (QA builds); the next is 0.2.0 |
+| Modules | **37** Maven modules (38 reactor projects with the root), plus `sdk/python` and `console`, which are not Maven |
+| Java tests | **4,263** tests, 0 failures, 200 skipped (Docker-only broker and database tests among them) -- `tools/verify-clean.sh`, 2026-09-27 |
+| Python tests | **146** in `sdk/python`, and **2,061** in `console` (browser suites included), all passing on 2026-09-27 |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **54** |
 
-**Where it stands, 2026-09-19.** **No GA-BLOCKER is open**, and one GA-REQUIRED: `CASE-1`, four of the five case studies window
+**Where it stands, 2026-09-27.** No GA-BLOCKER or GA-REQUIRED finding is open (408 findings,
+377 fixed). This week added:
+
+- **Identity (ADR-052):** users, passwords, API keys and sessions kept by the engine, the way MAYA
+  does. It covers the core, the REST API, and a console that signs each person in against the engine.
+  QA installs and the `users` profile run with it.
+- **Portability (ADR-053):** native code only where Java cannot do the job, and a glibc image.
+- **One reader per ordered source for every query (ADR-054):** Kafka and files.
+- **Tranche A:** compressed Kafka, Kafka partition growth, Cassandra key pushdown, Boot 3.2 to 3.5.
+
+What is left, in order, is [`REMAINING.md`](REMAINING.md). Identity still has stages 4 to 6 open (MFA,
+SSO, then the rest of migration and 0.2.0), and its CLI (`pravaha user|key|session`) is not built.
+
+**Where it stood, 2026-09-19 (history).** **No GA-BLOCKER is open**, and one GA-REQUIRED: `CASE-1`, four of the five case studies window
 over a stream with no declared event time, and their READMEs explain the silence away. `SUB-1` (a subscribe-and-read gap) and
 `SCAN-1` (aggregates over scans that repeat rows), both found this day, are fixed. No GA-REQUIRED finding is open: `FEED-1`
 (a stopped source feed shown nowhere) is fixed. `S-3` was
