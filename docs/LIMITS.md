@@ -75,20 +75,6 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
   **Buildable:** Avro and Protobuf output reusing the source's writers; an Iceberg sink without Spark. Compaction stays with the table's own engine.
 
-- **The Kafka source reads JSON, Avro and Protobuf — with no library for any of them.** JSON rows or
-  `kafka-sink`'s changelog; Avro's binary encoding through a reader written here from the
-  specification, against `schema.file` or a schema id fetched from a Confluent-compatible registry
-  over its REST API (Karapace and Apicurio included); and Protobuf through `DynamicMessage` over a
-  descriptor set the deployment supplies. No `org.apache.avro`, and no Confluent client. Columns are
-  matched by name and a schema that cannot be mapped is refused at registration (`PRV-5108`). A
-  proto3 scalar without `optional` has no presence, so it reads as its type's default and never as
-  NULL. An upsert topic's tombstones cannot be retractions (a tombstone does not say what row it
-  deletes), so they are refused or, with `tombstone: skip`, ignored. Partitions added to the topic
-  while a query runs are found every `partitions.refresh` and read from their first record. Its broker
-  tests, like the sink's, need Docker.
-
-  The proto3 presence rule and tombstones are properties of the formats, not gaps.
-
 - **Change data capture, beyond one PostgreSQL table's changes.** `postgres-cdc`
   ([ADR-041](adr/041-change-data-capture-without-debezium.md)) streams one table per binding
   from PostgreSQL 14 or later, with a slot per registration. Rows already in the table are delivered
@@ -107,20 +93,6 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   registration with `PRV-2042` naming the fix, rather than counting a row again (SCAN-1).
 
   **Buildable:** a MySQL binlog source, on the same model as ADR-041. `TRUNCATE` stays a refusal: it names no rows to retract.
-
-- **The console has its persona surfaces but not the §23.20 release gate** — workbench, catalog,
-  views, live results, operations with lane backpressure and per-operator numbers on the plan, a
-  dead-letter screen, a backfill and cutover screen, a plugins screen built on the engine's
-  manifest listing, and admin screens for access and the audit trail are built, and a
-  headless-Chrome suite holds zero axe violations, visual baselines in light and dark at both
-  densities, the measurable §23.15 budgets, the eight states of §23.12 screen by screen, and all
-  eight journeys, all of them end to end. A component gallery the
-  console renders itself stands in for Storybook, which is not adopted (it needs Node). Not done:
-  the manual WCAG 2.2 AA audit, plus cluster screens, the tenants and quotas screen (the engine's
-  `GET /api/v1/tenants` exists; the screen does not), and editing grants (the engine is not where
-  grants live).
-
-  **Buildable:** the tenants and quotas screen (the API exists). The manual WCAG audit is a person's task. Cluster screens wait for multi-node, and grants live outside the engine by design.
 
 
 ## Boundaries: limits of the stores, the formats or a decision
@@ -150,6 +122,35 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   checkpoint's offsets (ADR-029) is at least once whatever the sink does.
 
   **A deliberate trade.** **Buildable for PostgreSQL:** `PREPARE TRANSACTION` is a real two-phase commit, so `jdbc-sink` could skip staging there. Kafka and Delta have no equivalent.
+
+- **The console has its persona surfaces but not the §23.20 release gate** — workbench, catalog,
+  views, live results, operations with lane backpressure and per-operator numbers on the plan, a
+  dead-letter screen, a backfill and cutover screen, a plugins screen built on the engine's
+  manifest listing, and admin screens for access, the audit trail and tenants are built — the
+  tenants screen shows each tenant's queries and state keys against its admission quotas, and the
+  registrations refused for it, from the engine's `GET /api/v1/tenants` (ADR-050) — and a
+  headless-Chrome suite holds zero axe violations, visual baselines in light and dark at both
+  densities, the measurable §23.15 budgets, the eight states of §23.12 screen by screen, and all
+  eight journeys, all of them end to end. A component gallery the
+  console renders itself stands in for Storybook, which is not adopted (it needs Node). Not done:
+  the manual WCAG 2.2 AA audit, plus cluster screens, and editing grants or quotas (the engine is
+  not where grants live, and quotas are the node's configuration).
+
+  **Not code, deferred, or a boundary:** the manual WCAG audit is a person's task, cluster screens wait for multi-node, and grants live outside the engine by design.
+
+- **The Kafka source reads JSON, Avro and Protobuf — with no library for any of them.** JSON rows or
+  `kafka-sink`'s changelog; Avro's binary encoding through a reader written here from the
+  specification, against `schema.file` or a schema id fetched from a Confluent-compatible registry
+  over its REST API (Karapace and Apicurio included); and Protobuf through `DynamicMessage` over a
+  descriptor set the deployment supplies. No `org.apache.avro`, and no Confluent client. Columns are
+  matched by name and a schema that cannot be mapped is refused at registration (`PRV-5108`). A
+  proto3 scalar without `optional` has no presence, so it reads as its type's default and never as
+  NULL. An upsert topic's tombstones cannot be retractions (a tombstone does not say what row it
+  deletes), so they are refused or, with `tombstone: skip`, ignored. Partitions added to the topic
+  while a query runs are found every `partitions.refresh` and read from their first record. Its broker
+  tests, like the sink's, need Docker.
+
+  **A boundary of the formats:** the proto3 presence rule and tombstones are properties of the formats, not gaps.
 
 - **Kafka's `lz4` codec.** The `kafka` source and `kafka-sink` read and write `none`, `gzip`, `snappy`
   and `zstd`. `snappy` and `zstd` are snappy-java and zstd-jni, the two native libraries the build

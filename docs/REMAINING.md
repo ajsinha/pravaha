@@ -40,7 +40,7 @@ The findings register tracks anything found along the way.
 | A1 | **Built 2026-09-27.** Compressed Kafka under [ADR-053](adr/053-native-code-only-where-java-cannot.md): `kafka-sink` and the `kafka` source read and write snappy and zstd through snappy-java and zstd-jni, the two native families it allows; lz4 is refused by name on both sides | S | Producers in the field default to these codecs |
 | A2 | **Built 2026-09-27.** The Kafka source picks up partitions added after registration, through a periodic metadata refresh (`partitions.refresh`) with the new partition's offsets entering the next checkpoint, and a checkpoint that names each offset's partition so a restore matches them across streams | S | A topic scaled out today is silently half-read until a restart |
 | A3 | **Built 2026-09-27.** Cassandra filter pushdown on partition-key and clustering columns, which needs no `ALLOW FILTERING`, shown in the feed description | S | Stops a full-table re-read each pass when the filter is on the key |
-| A4 | The console's tenants and quotas screen, on `GET /api/v1/tenants` | S | The API already exists |
+| A4 | **Built 2026-09-26, confirmed 2026-09-27.** The console's tenants and quotas screen, on `GET /api/v1/tenants` (`/admin/tenants`, with B11): the README and LIMITS still listed it as missing | S | The API already exists |
 | A5 | **Built 2026-09-27.** Spring Boot 3.2, 3.3 and 3.4 legs run (41 tests each, green, after pinning four runtime libraries the older BOMs downgrade), and in CI's `matrix` workflow | S | The profiles exist; only running them is missing |
 
 ### Tranche B: the engine (engine slot, serial)

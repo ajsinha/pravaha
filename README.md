@@ -125,7 +125,7 @@ text of each is in [`LIMITS.md`](docs/LIMITS.md). The order they get built in is
 | More sinks and formats | Avro and Protobuf output for `kafka-sink`; an Iceberg sink without Spark |
 | More sources | A MySQL binlog CDC source |
 | Native two-phase commit for PostgreSQL | `jdbc-sink` over PostgreSQL through `PREPARE TRANSACTION`, without the staging table's second write |
-| Console | The tenants and quotas screen (the engine's API exists), and per-user sign-in with API keys ([ADR-052](docs/adr/052-the-engine-is-the-identity-authority.md), being built) |
+| Console | Per-user sign-in with API keys ([ADR-052](docs/adr/052-the-engine-is-the-identity-authority.md), being built) |
 
 **Boundaries: limits of a store, a format or a recorded decision.** More code would not remove these.
 
