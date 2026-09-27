@@ -11,6 +11,11 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 > the job ([ADR-053](adr/053-native-code-only-where-java-cannot.md)). The owner set the order on
 > 2026-09-27: A, then B, then C.
 
+**Done, 2026-09-27.** Tranches A, B and C are built or closed as boundaries (B3). Identity is
+built as the owner scoped it; MFA and SSO were dropped. Pravaha is feature-complete for one node, and
+what follows is the record of how it got there. What remains is hardening: the open findings, the
+scaling gate, the manual accessibility audit, and multi-node when the owner takes it off hold.
+
 ## The strategy
 
 **Two slots, so the order matters more than the width.** One slot is the *engine* slot. It is serial,

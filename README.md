@@ -24,9 +24,10 @@
 > restart, at a thread and memory cost that stops following the query count. **Clustering is not
 > built**, and a node refuses to start in `PARTITIONED` mode rather than pretend to be.
 >
-> The road to GA is [ADR-039](docs/adr/039-ga-includes-the-known-gaps-and-clustering.md): close the
-> known gaps, then cluster mode, then GA. Its progress note says item by item what is closed and what
-> remains; [`HANDOVER.md`](docs/HANDOVER.md) has the detail. This file says what is true now, and the
+> **Feature-complete for one node as of 2026-09-27:** ADR-039's known gaps are closed or decided, and
+> cluster mode is on hold by the owner's decision ([ADR-039](docs/adr/039-ga-includes-the-known-gaps-and-clustering.md)).
+> What remains before GA is hardening: the open findings, the scaling gate, and the manual
+> accessibility audit; [`HANDOVER.md`](docs/HANDOVER.md) has the detail. This file says what is true now, and the
 > build checks the parts of it that can be checked.
 
 ## What it is
@@ -100,31 +101,40 @@ corrected by late data arrives as a retraction of the old answer followed by the
 - **Recovery** — Checkpoints hold operator state, source offsets and the served view, cut at one point across every input (ADR-008), so a restart resumes rather than replaying from scratch or starting empty. The registry journal brings back every registration, and its sink
 - **Survival** — A node claims the directories it writes, so two nodes cannot silently share state (`PRV-4003`). A standby takes over when the claim goes stale and reports what the takeover cost. Undecodable input goes to a dead-letter directory instead of ending the query
 - **Many queries on one node** — A fixed pool of one thread per core drives every lane, and the watermark and checkpoint clocks are one timer for the process: **200 queries add 24 platform threads** on 24 cores, where they once added 400. About **1 MiB off-heap per idle query** on a lane of its own, and every component reports its own bytes. With lane sharing on, **1,000 queries over one source run on 8 lanes, and each row is written into them 8 times instead of 1,000**
-- **Security** — Authentication through one verifier for every transport, authorization on what a query reads rather than what it is called, row filters, prepared statements, audit. The node refuses to start open unless told to. Users, passwords (Argon2id), API keys and sessions kept by the engine itself are being built ([ADR-052](docs/adr/052-the-engine-is-the-identity-authority.md)): the core is in `pravaha-identity`, off by default until the migration stage
+- **Security** — Authentication through one verifier for every transport, authorization on what a query reads rather than what it is called, row filters, prepared statements, audit, and a node that refuses to start open unless told to. The engine keeps its own users, passwords (Argon2id), API keys (shown once, scoped, expiring, rotatable) and sessions ([ADR-052](docs/adr/052-the-engine-is-the-identity-authority.md)); the console signs each person in against it and holds no credential of its own, and the CLI has `pravaha login`, `user`, `key` and `session`. The build refuses a secret written into shipped configuration
 - **Embedding** — `PravahaEngine` runs the whole loop inside an application — streams, plugin bindings, continuous queries, pushed rows, SQL reads, change subscriptions, journal and checkpoints — with no Spring and no network. `pravaha-spring-boot-starter` makes it a bean, with `PravahaTemplate` and `@PravahaListener` delivering committed changes, retractions included, to a method, a `@PravahaTest` slice for testing it, and an actuator endpoint and health contribution when Actuator is present. See [the user guide](docs/USER_GUIDE.md)
 
 ## What is not built, or not finished
 
-Twelve entries used to sit here as one list, and they are three different kinds of thing. The full
-text of each is in [`LIMITS.md`](docs/LIMITS.md). The order they get built in is in
-[`REMAINING.md`](docs/REMAINING.md).
+**Feature-complete for one node** (2026-09-27). Every gap the plan listed is built or has been
+decided: tranches A to C in [`REMAINING.md`](docs/REMAINING.md) are done, and each entry's full text is
+in [`LIMITS.md`](docs/LIMITS.md). What is left is below.
 
-**Deferred by decision.** One entry.
+**Deferred or dropped by decision.**
 
 - **Multi-node execution.** Membership, fenced partition leases (proved against a real ZooKeeper
   ensemble), and rebalance and handoff are built as libraries, and no node consumes them. A node
-  refuses `PARTITIONED` mode (`PRV-9002`) rather than pretend. The owner put this on hold. The
+  refuses `PARTITIONED` mode (`PRV-9002`) rather than pretend. The owner put this on hold; the
   console's cluster screens wait for it.
+- **MFA and single sign-on.** Dropped by the owner: users, passwords, API keys and sessions are the
+  authentication Pravaha keeps ([ADR-052](docs/adr/052-the-engine-is-the-identity-authority.md)).
 
-**Buildable: work that is not done yet, with nothing in the way.**
+**First versions: what the newest pieces do not do yet.**
 
-| Gap | What building it means |
+| Piece | Not yet |
 |---|---|
-| One read of an ordered source per query, beyond Kafka and files | Kafka and files read once through are shared at an exact seam ([ADR-054](docs/adr/054-an-ordered-source-is-shared-at-an-exact-seam.md)). Delta and JDBC need their positions shown to be totally ordered; CDC stays one reader per query (its slot acknowledgement) |
-| The snapshot-and-change-feed splice | A boundary: `SplicedReader` keeps the newest row per key, which double-retracts on a weighted changelog such as `postgres-cdc`'s, whose own `snapshot.mode: initial` is already exact. A replacement splices at an offset (ADR-046); `backfill.adaptive` stays refused |
-| More sinks | `iceberg-sink` on an object store or a catalog service (it writes local-filesystem tables only), and Hudi |
-| More sources | `mysql-cdc` is built without an initial snapshot (`snapshot.mode: initial` is refused) and without TLS or GTID positions |
-| Console | Per-user sign-in with API keys ([ADR-052](docs/adr/052-the-engine-is-the-identity-authority.md), being built) |
+| `mysql-cdc` | An initial snapshot (`snapshot.mode: initial` is refused), TLS, GTID positions that survive a failover |
+| `iceberg-sink` | Object stores, catalog services, partitioned tables, schema evolution; it writes local-filesystem tables |
+| One reader per ordered source ([ADR-054](docs/adr/054-an-ordered-source-is-shared-at-an-exact-seam.md)) | Delta and JDBC, until their positions are shown to be totally ordered; CDC sources keep a reader per query (a slot or binlog client each) |
+| Equality index ([ADR-055](docs/adr/055-an-equality-index-over-a-column-outside-the-key.md)) | A way for a user to see which access path a read took |
+
+**Not yet proven.**
+
+- The eight-lane scaling target: measured at 28–42 % of linear against 90 %, on a laptop, with no
+  reference hardware (below).
+- The manual WCAG 2.2 AA audit, which is a person's task.
+- The [findings register](docs/qa/FINDINGS.md) holds open findings, none GA-blocking; a few are worth
+  closing before a customer sees them, among them `VIEWW-1` and `CDCREPL-1`.
 
 **Boundaries: limits of a store, a format or a recorded decision.** More code would not remove these.
 
@@ -143,7 +153,10 @@ text of each is in [`LIMITS.md`](docs/LIMITS.md). The order they get built in is
   which row it deletes; a `TRUNCATE` names no rows to retract; Delta `OPTIMIZE` and `VACUUM` belong
   to an engine that has them.
 - Grants live in the deployment's policy, not in the engine, so the console shows them and does not
-  edit them. The manual WCAG 2.2 AA audit is a person's task, not code.
+  edit them.
+- The snapshot-and-change-feed splice (`SplicedReader`) stays unwired: it keeps the newest row per key,
+  which double-retracts on a weighted changelog, and `postgres-cdc`'s own `snapshot.mode: initial` is
+  already exact. A replacement splices at an offset (ADR-046); `backfill.adaptive` stays refused.
 
 ## Performance: what is measured, and what cannot be here
 

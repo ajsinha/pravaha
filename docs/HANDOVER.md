@@ -31,6 +31,13 @@ otherwise have to rediscover the hard way.
 - **Portability (ADR-053):** native code only where Java cannot do the job, and a glibc image.
 - **One reader per ordered source for every query (ADR-054):** Kafka and files.
 - **Tranche A:** compressed Kafka, Kafka partition growth, Cassandra key pushdown, Boot 3.2 to 3.5.
+- **Tranche B:** one reader per Kafka partition for every query (ADR-054), an equality index outside a
+  view's key (ADR-055); the snapshot splice closed as a boundary.
+- **Tranche C:** `jdbc-sink` over PostgreSQL's prepared transactions, Avro and Protobuf out of
+  `kafka-sink`, `mysql-cdc`, `iceberg-sink`.
+
+**Feature-complete for one node.** What remains is hardening: the open findings, the scaling gate,
+the manual accessibility audit, and multi-node, which is on hold.
 
 What is left, in order, is [`REMAINING.md`](REMAINING.md). Identity is complete as the owner wants it (stages 1-3 and 6; MFA and SSO dropped 2026-09-27); its REST API and CLI (`pravaha login|user|key|session|password`) are built.
 
