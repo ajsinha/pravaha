@@ -3,13 +3,13 @@
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
 
-Five worked systems, each one a template you can copy into a real application. Every study has a
-business problem, a data model, the commands to stand up its store, data to load, the continuous
-query, and the SQL an application uses to read the answers — in **both Java and Python**.
+Ten worked systems, each one a template you can copy into a real application. Every study has a
+business problem, a data model, the data to load, the continuous queries, and the SQL an application
+uses to read the answers — in **both Java and Python**.
 
-**Read [`SETUP.md`](SETUP.md) first.** It covers Java, Docker, the two stores and the Python
-virtualenv, and it explains the one Aerospike networking flag that otherwise costs people an
-afternoon.
+New to Pravaha? The four lessons in [`docs/tutorials/`](../../docs/tutorials/) teach the product
+itself — registering, following, replacing and debugging a query — against a fresh install's
+demonstration stream. These studies assume you have seen that much.
 
 | Study | Domain | Store | Shows |
 |---|---|---|---|
@@ -18,6 +18,20 @@ afternoon.
 | [Intraday counterparty exposure](finance-counterparty-exposure/) | Finance | PostgreSQL | A relational source, incremental polling, money as minor units, value-time vs insert-time |
 | [Order flow surveillance](trading-order-flow/) | Trading | Aerospike | **Hopping** windows, and what to do when you want `CASE` and cannot have it |
 | [Sequencing run QC](biology-sequencing-qc/) | Biology | Aerospike | The same engine on a non-financial domain; integer `AVG`; breadth as well as depth |
+| [Machine sensor anomalies](manufacturing-sensor-anomalies/) | Manufacturing / IoT | none (CSV) | Tumbling windows, a filter writing to a **sink**, **late data**: allowed lateness and the correction it publishes |
+| [Checkout funnel](ecommerce-checkout-funnel/) | E-commerce | none (CSV) | Windows over several keys, `COUNT(DISTINCT)`, `HAVING` as an alert, conversion without `CASE` |
+| [Click attribution](adtech-click-attribution/) | Advertising | none (CSV) | A **join between two streams** with a time bound, a window over a join, joining two views in the reader |
+| [Call-detail-record fraud](telecom-cdr-fraud/) | Telecommunications | none (CSV) | **Sliding** windows, an `IN` filter, a maintained **top-N** (`ROW_NUMBER … rn <= 3`) |
+| [Delivery SLA breaches](logistics-delivery-sla/) | Logistics | none (CSV) | An interval join to a **sink**, and a **`LEFT JOIN` with a time bound** that reports what did not happen |
+
+**The first five need a store.** Read [`SETUP.md`](SETUP.md) first: it covers Java, Docker, the two
+stores and the Python virtualenv, and it explains the one Aerospike networking flag that otherwise
+costs people an afternoon.
+
+**The last five need nothing but the node.** Their sources are CSV files the `filesystem` plugin
+follows as they grow, and their sinks are CSV files it appends to — both inside the server jar. Each
+generates its data with a script, starts a node from its own directory, and prints what the README
+shows: every output in those five READMEs was taken from a real run.
 
 ## What they have in common
 
@@ -50,9 +64,11 @@ pravaha subscribe --view card_velocity --filter risk_band=HIGH
 pravaha drop      --name card_velocity
 ```
 
-They also share a shape that is worth copying: a high-volume **stream**, a slow-moving **lookup
-table** joined with `FOR SYSTEM_TIME AS OF`, a **window** to bound the state, and a `WHERE` that gets
-**pushed into the store** so filtered rows never cross the network.
+The store-backed studies share a shape worth copying: a high-volume **stream**, a slow-moving
+**lookup table** joined with `FOR SYSTEM_TIME AS OF`, a **window** to bound the state, and a `WHERE`
+that gets **pushed into the store** so filtered rows never cross the network. The file-backed ones
+add the other half: **two streams joined to each other** with a time bound, what happens to a
+**late** row, a **top-N**, and answers written to a **sink**.
 
 ## Every statement here is checked by the build
 
@@ -73,11 +89,16 @@ broken.
 Stated up front so you can decide before investing an afternoon. The complete list is
 [`docs/CONTINUOUS_QUERIES.md`](../../docs/CONTINUOUS_QUERIES.md).
 
-- **No `CASE`**, so conditional aggregation is two registrations. The trading study needs exactly
-  this and shows the shape.
-- **No `ORDER BY` or `LIMIT`.** "Top ten" is sorted by your application over a narrowed result.
-- **No outer joins between two streams**, and no self-joins. A lookup join —
-  `LEFT JOIN … FOR SYSTEM_TIME AS OF` — is supported and is what the studies with a dimension table use.
+- **No `CASE`**, so conditional aggregation is two registrations, or rows the reader divides. The
+  trading and checkout-funnel studies show both shapes.
+- **No `ORDER BY` or `LIMIT` over a stream.** A maintained **top-N** —
+  `ROW_NUMBER() OVER (PARTITION BY … ORDER BY …) … WHERE rn <= N` — is supported, and the telecom
+  study uses it; anything else is sorted by your application.
+- **No `RIGHT` or `FULL` outer join, and no join between two streams without a time bound.** A
+  `LEFT JOIN` between streams *with* a time bound runs (the logistics study), and so does a lookup
+  join — `LEFT JOIN … FOR SYSTEM_TIME AS OF` — which is what the studies with a dimension table use.
+- **No join of two views in one read** (`PRV-4025`). A read names one view;
+  the click-attribution study joins two in the reader, on a key they share.
 - **No unwindowed keyed `GROUP BY` over a stream.** It is refused, deliberately, because its state
   would grow with the number of distinct keys forever. Over a *view* it works, and the studies use it
   for their summary queries.

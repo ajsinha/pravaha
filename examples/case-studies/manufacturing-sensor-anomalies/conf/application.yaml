@@ -1,0 +1,44 @@
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+#
+# The node for the sensor-anomaly study. Start it from the study's directory, so the relative paths
+# below resolve there:
+#
+#   pravaha-server --spring.profiles.active=dev \
+#                  --spring.config.additional-location=file:./conf/application.yaml
+#
+# Nothing else is needed: the source is a CSV file the node follows as it grows, and the sink is a
+# CSV file it appends to. Both plugins ship inside the server jar.
+pravaha:
+  streams:
+    sensor_reading:
+      schema: "reading_id:STRING,machine_id:STRING,line_id:STRING,temperature_dc:INT64,vibration_um:INT64,reading_time:TIMESTAMP"
+      # Each reading's own time. Without it no watermark advances and no minute ever closes, so the
+      # engine refuses the windowed query at registration.
+      event-time: reading_time
+      # Readings from three machines interleave; one may arrive five seconds behind another.
+      out-of-orderness: 5s
+      # A minute already published is kept for thirty seconds more of event time. A reading that
+      # arrives in that time corrects it (a -1 of the old row, a +1 of the new); after it, a
+      # reading for that minute is dropped. Zero, the default, makes every window final on close.
+      allowed-lateness: 30s
+  sources:
+    sensor_reading:
+      plugin: filesystem
+      options:
+        path: ./data/sensor_readings.csv
+        schema: "reading_id:STRING,machine_id:STRING,line_id:STRING,temperature_dc:INT64,vibration_um:INT64,reading_time:TIMESTAMP"
+        event.time: reading_time
+        skip.header: "true"
+        follow: "true"
+  sinks:
+    # Where the overheat query writes each alarm as well as to its view: the file a maintenance
+    # system, or `tail -f`, reads. A filter's answer only ever grows, so an append-only file can
+    # hold it; a windowed answer, which a late reading can revise, could not.
+    overheat_alerts:
+      plugin: filesystem
+      options:
+        path: ./data/overheat_alerts.csv
+        schema: "reading_id:STRING,machine_id:STRING,line_id:STRING,temperature_dc:INT64,reading_time:TIMESTAMP"
+        append: "true"

@@ -1,0 +1,40 @@
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+#
+# The node for the click-attribution study. Start it from the study's directory, so the relative
+# paths below resolve there:
+#
+#   pravaha-server --spring.profiles.active=dev \
+#                  --spring.config.additional-location=file:./conf/application.yaml
+#
+# Two streams, each fed by its own CSV file. An ad server would write impressions to one Kafka
+# topic and a click tracker clicks to another; the join does not care which connector feeds which
+# side.
+pravaha:
+  streams:
+    ad_impression:
+      schema: "impression_id:STRING,campaign_id:STRING,user_id:STRING,placement:STRING,cost_micros:INT64,impression_time:TIMESTAMP"
+      event-time: impression_time
+      out-of-orderness: 5s
+    ad_click:
+      schema: "click_id:STRING,impression_id:STRING,user_id:STRING,click_time:TIMESTAMP"
+      event-time: click_time
+      out-of-orderness: 5s
+  sources:
+    ad_impression:
+      plugin: filesystem
+      options:
+        path: ./data/impressions.csv
+        schema: "impression_id:STRING,campaign_id:STRING,user_id:STRING,placement:STRING,cost_micros:INT64,impression_time:TIMESTAMP"
+        event.time: impression_time
+        skip.header: "true"
+        follow: "true"
+    ad_click:
+      plugin: filesystem
+      options:
+        path: ./data/clicks.csv
+        schema: "click_id:STRING,impression_id:STRING,user_id:STRING,click_time:TIMESTAMP"
+        event.time: click_time
+        skip.header: "true"
+        follow: "true"

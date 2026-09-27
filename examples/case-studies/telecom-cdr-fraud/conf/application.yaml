@@ -1,0 +1,29 @@
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+#
+# The node for the call-detail-record fraud study. Start it from the study's directory, so the
+# relative path below resolves there:
+#
+#   pravaha-server --spring.profiles.active=dev \
+#                  --spring.config.additional-location=file:./conf/application.yaml
+#
+# In production the switch's mediation layer writes CDRs to Kafka or drops a file every few
+# minutes (the `feedfile` source); here a CSV file the node follows stands in for either.
+pravaha:
+  streams:
+    call_record:
+      schema: "cdr_id:STRING,caller:STRING,callee:STRING,callee_country:STRING,duration_s:INT64,cell_id:STRING,start_time:TIMESTAMP"
+      # When the call started, by the switch's clock. Every window below is cut on it.
+      event-time: start_time
+      # Records from different switches interleave; one may be written ten seconds behind another.
+      out-of-orderness: 10s
+  sources:
+    call_record:
+      plugin: filesystem
+      options:
+        path: ./data/call_records.csv
+        schema: "cdr_id:STRING,caller:STRING,callee:STRING,callee_country:STRING,duration_s:INT64,cell_id:STRING,start_time:TIMESTAMP"
+        event.time: start_time
+        skip.header: "true"
+        follow: "true"

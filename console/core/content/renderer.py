@@ -62,6 +62,13 @@ class MarkdownRenderer:
         "TROUBLESHOOTING.md": "/help/troubleshooting",
         "CONNECTOR_TLS.md": "/help/connector-tls",
         "system_design.md": "/help/system-design",
+        "PYTHON_API_GUIDE.md": "/help/python-api-guide",
+        # The four lessons in docs/tutorials/, which link to each other and are linked from the
+        # case studies by file name.
+        "01-your-first-maintained-view.md": "/tutorials/first-maintained-view",
+        "02-following-a-view.md": "/tutorials/following-a-view",
+        "03-changing-a-running-query.md": "/tutorials/changing-a-running-query",
+        "04-investigating-an-incident.md": "/tutorials/investigating-an-incident",
     }
 
     #: An ADR, linked as ``adr/043-how-a-continuous-query-names-its-sink.md`` from docs/ or

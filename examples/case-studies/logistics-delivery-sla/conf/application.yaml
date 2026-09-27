@@ -1,0 +1,49 @@
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+#
+# The node for the delivery-SLA study. Start it from the study's directory, so the relative paths
+# below resolve there:
+#
+#   pravaha-server --spring.profiles.active=dev \
+#                  --spring.config.additional-location=file:./conf/application.yaml
+#
+# Two streams of scans -- a parcel leaving a depot, a parcel handed over at the door -- each from its
+# own CSV file, and a CSV sink the customer-service system reads breaches from.
+pravaha:
+  streams:
+    dispatch:
+      schema: "shipment_id:STRING,depot:STRING,service:STRING,dispatch_time:TIMESTAMP"
+      event-time: dispatch_time
+      # Handheld scanners sync when they find signal; a scan may reach us half a minute late.
+      out-of-orderness: 30s
+    delivery:
+      schema: "shipment_id:STRING,courier:STRING,delivered_time:TIMESTAMP"
+      event-time: delivered_time
+      out-of-orderness: 30s
+  sources:
+    dispatch:
+      plugin: filesystem
+      options:
+        path: ./data/dispatches.csv
+        schema: "shipment_id:STRING,depot:STRING,service:STRING,dispatch_time:TIMESTAMP"
+        event.time: dispatch_time
+        skip.header: "true"
+        follow: "true"
+    delivery:
+      plugin: filesystem
+      options:
+        path: ./data/deliveries.csv
+        schema: "shipment_id:STRING,courier:STRING,delivered_time:TIMESTAMP"
+        event.time: delivered_time
+        skip.header: "true"
+        follow: "true"
+  sinks:
+    # Every late delivery, appended as it is matched. A join of two append-only streams only ever
+    # adds rows, so an append-only file can hold its answer.
+    sla_breaches:
+      plugin: filesystem
+      options:
+        path: ./data/sla_breaches.csv
+        schema: "shipment_id:STRING,depot:STRING,courier:STRING,dispatch_time:TIMESTAMP,delivered_time:TIMESTAMP"
+        append: "true"

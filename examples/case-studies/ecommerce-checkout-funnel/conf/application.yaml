@@ -1,0 +1,28 @@
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+#
+# The node for the checkout-funnel study. Start it from the study's directory, so the relative path
+# below resolves there:
+#
+#   pravaha-server --spring.profiles.active=dev \
+#                  --spring.config.additional-location=file:./conf/application.yaml
+#
+# A storefront would publish these events to Kafka; a CSV file the node follows stands in for it.
+pravaha:
+  streams:
+    checkout_event:
+      schema: "event_id:STRING,session_id:STRING,step:STRING,device:STRING,basket_minor:INT64,event_time:TIMESTAMP"
+      # When the shopper took the step, by the storefront's clock.
+      event-time: event_time
+      # Events from the web and the app arrive by different paths; allow ten seconds between them.
+      out-of-orderness: 10s
+  sources:
+    checkout_event:
+      plugin: filesystem
+      options:
+        path: ./data/checkout_events.csv
+        schema: "event_id:STRING,session_id:STRING,step:STRING,device:STRING,basket_minor:INT64,event_time:TIMESTAMP"
+        event.time: event_time
+        skip.header: "true"
+        follow: "true"
