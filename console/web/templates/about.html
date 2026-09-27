@@ -3,8 +3,10 @@
 
    Where the repository already states a thing, it is read from there (core/about.py): what is
    built and what is not (README), the decision summaries (docs/adr/README.md), the legal
-   wording (README "Legal", LICENSE). The measured numbers each carry where and on what they were
+   wording (README "Legal", LICENSE), the newest release (docs/RELEASE_NOTES.md) and the
+   competitive landscape (docs/COMPETITIVE_LANDSCAPE.md). The measured numbers each carry where and on what they were
    taken. Nothing about the running node beyond its version and state is shown here. #}
+{% from "_compete.html" import scored_table with context %}
 {% block title %}{{ t('about.title') }} — {{ app_name }}{% endblock %}
 {% block head %}<link href="/static/app/help.css?v={{ asset_version }}" rel="stylesheet">{% endblock %}
 {% block content %}
@@ -13,20 +15,25 @@
   <p class="kicker mt-2 mb-1">{{ t('about.kicker') }}</p>
   <h1>{{ app_name }} <span class="text-muted" lang="sa" style="font-weight:400">· प्रवाह</span></h1>
   <p class="lede">{{ t('about.lede') }}</p>
+  {# data-volatile: the screenshots mask it, so a version bump is not a pixel change #}
+  {% if console_version %}<p class="mb-0"><span class="chip info" data-volatile>{{ t('about.version', v=console_version) }}</span></p>{% endif %}
   <div class="d-flex flex-wrap gap-2 mt-3">
     <a class="btn btn-primary btn-sm px-3" href="/help/topics/start-here">{{ t('about.nav.start') }}</a>
     <a class="btn btn-outline-secondary btn-sm px-3" href="/help/topics/first-view">{{ t('about.nav.first_view') }}</a>
     <a class="btn btn-outline-secondary btn-sm px-3" href="/help">{{ t('about.docs.open') }}</a>
     <a class="btn btn-outline-secondary btn-sm px-3" href="/help/decisions">{{ t('about.nav.decisions') }}</a>
     <a class="btn btn-outline-secondary btn-sm px-3" href="/tutorials">{{ t('about.nav.tutorials') }}</a>
+    <a class="btn btn-outline-secondary btn-sm px-3" href="/about/competitive">{{ t('about.nav.competitive') }}</a>
   </div>
 </div>
 
 <nav class="card mt-3" aria-label="{{ t('about.contents') }}"><div class="card-body py-2">
   <ul class="chip-links mb-0">
-    {% for id, label in [('what', t('about.s.what')), ('problem', t('about.s.problem')), ('how', t('about.s.how')),
-       ('built', t('about.s.built')), ('numbers', t('about.s.numbers')), ('decisions', t('about.s.decisions')),
-       ('principles', t('about.s.principles')), ('uses', t('about.s.uses')), ('stack', t('about.s.stack')),
+    {% for id, label in [('what', t('about.s.what')), ('problem', t('about.s.problem')),
+       ('different', t('about.s.different')), ('how', t('about.s.how')),
+       ('built', t('about.s.built')), ('release', t('about.s.release')), ('numbers', t('about.s.numbers')),
+       ('decisions', t('about.s.decisions')), ('principles', t('about.s.principles')),
+       ('landscape', t('about.s.landscape')), ('uses', t('about.s.uses')), ('stack', t('about.s.stack')),
        ('name', t('about.s.name')), ('console', t('about.s.console')), ('install', t('about.s.install')),
        ('author', t('about.s.author'))] %}
     <li><a href="#{{ id }}">{{ label }}</a></li>
@@ -44,6 +51,34 @@
 <section class="mt-4" id="problem" aria-labelledby="h-problem">
   <h2 id="h-problem">{{ t('about.s.problem') }}</h2>
   {% if topics['the-problem'] %}<div class="card"><div class="card-body doc">{{ topics['the-problem'].html|safe }}</div></div>{% endif %}
+  <div class="row g-3 mt-1">
+    {% for p in problems %}
+    <div class="col-md-6"><div class="stat problem-pair">
+      <p class="mb-2"><i class="bi bi-x-circle" aria-hidden="true"></i> {{ p.problem }}</p>
+      <p class="fix mb-0"><i class="bi bi-arrow-return-right" aria-hidden="true"></i> {{ p.fix }}
+        <a href="{{ p.href }}" class="small">{{ t('about.problem.more') }}</a></p>
+    </div></div>
+    {% endfor %}
+  </div>
+</section>
+
+{# ---------------------------------------------------------------- what makes it different
+   One card per row where docs/COMPETITIVE_LANDSCAPE.md scores Pravaha Yes: its title and its
+   "Why it matters", word for word, and a link to the whole card on /about/competitive. The claim
+   and the comparison it is a claim against have one home. #}
+<section class="mt-4" id="different" aria-labelledby="h-different">
+  <h2 id="h-different">{{ t('about.s.different') }}</h2>
+  <p class="text-muted small">{{ t('about.different.lede') }}</p>
+  <div class="row g-3">
+    {% for c in landscape.shine %}
+    <div class="col-md-6 col-xl-4"><div class="stat about-feature">
+      <div class="fi"><i class="bi bi-{{ c.icon }}" aria-hidden="true"></i></div>
+      <h3>{{ c.title }}</h3>
+      <p class="small mb-1">{{ c.why|safe }}</p>
+      <a class="small" href="/about/competitive#{{ c.id }}">{{ t('about.different.how') }} &rarr;</a>
+    </div></div>
+    {% endfor %}
+  </div>
 </section>
 
 {# ---------------------------------------------------------------- how it works #}
@@ -146,6 +181,20 @@
     <div class="card-body pt-0 doc small">{{ not_built|safe }}</div></details>
 </section>
 
+{# ---------------------------------------------------------------- in this release
+   The newest entry of docs/RELEASE_NOTES.md, read on each request -- never typed here. #}
+<section class="mt-4" id="release" aria-labelledby="h-release">
+  <h2 id="h-release">{{ t('about.s.release') }}</h2>
+  <div class="card"><div class="card-body">
+    {% if release %}
+    <h3 class="h6 mb-2">{{ release.title }}</h3>
+    <div class="doc small">{{ release.html|safe }}</div>
+    {% endif %}
+    <p class="small text-muted mb-0 mt-2">{{ t('about.release.source') }}
+      <a href="/help/whats-new">{{ t('about.release.all') }} &rarr;</a></p>
+  </div></div>
+</section>
+
 {# ---------------------------------------------------------------- measured #}
 <section class="mt-4" id="numbers" aria-labelledby="h-numbers">
   <h2 id="h-numbers">{{ t('about.s.numbers') }}</h2>
@@ -191,6 +240,26 @@
     </div></div>
     {% endfor %}
   </div>
+</section>
+
+{# ---------------------------------------------------------------- competitive landscape
+   Condensed from docs/COMPETITIVE_LANDSCAPE.md: the scored table and where Pravaha loses.
+   Categories, not vendors; the full page names the products and the notes behind each score. #}
+<section class="mt-4" id="landscape" aria-labelledby="h-landscape">
+  <h2 id="h-landscape">{{ t('about.s.landscape') }}</h2>
+  <p class="text-muted small" style="max-width:52rem">{{ t('about.landscape.lede') }}</p>
+  {% if landscape.rows %}
+  <div class="card"><div class="card-body">
+    {{ scored_table(landscape.columns, landscape.rows, '/about/competitive', 'about-compete') }}
+    <div class="small mt-2 doc">{{ landscape.disclaimer|safe }}</div>
+    <a class="btn btn-primary btn-sm px-3 mt-1" href="/about/competitive"><i class="bi bi-bar-chart-steps" aria-hidden="true"></i>
+      {{ t('about.landscape.full') }}</a>
+  </div></div>
+  <div class="card mt-3"><div class="card-body">
+    <h3 class="h6">{{ t('about.landscape.loses') }}</h3>
+    <div class="doc small">{{ landscape.loses|safe }}</div>
+  </div></div>
+  {% endif %}
 </section>
 
 {# ---------------------------------------------------------------- use cases #}

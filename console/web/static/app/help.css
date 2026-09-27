@@ -128,4 +128,28 @@
 .principle-card h3{font-size:1rem;margin-bottom:.25rem}
 .principle-card p{color:var(--slate);font-size:.9rem;margin:0;line-height:1.6}
 .built-list li{margin-bottom:.35rem;color:var(--slate)}
+.problem-pair p{color:var(--slate);font-size:.9rem;line-height:1.6}
+.problem-pair .fix{color:var(--ink)}
+.problem-pair .bi-x-circle{color:var(--bad)}
+.problem-pair .bi-arrow-return-right{color:var(--flow)}
+.about-feature .fi{font-size:1.35rem;color:var(--flow);line-height:1;margin-bottom:.45rem}
+.about-feature h3{font-size:1rem;margin-bottom:.3rem;color:var(--ink)}
+.about-feature .doc p{margin:0;font-size:.86rem}
+.compete{width:100%;border-collapse:collapse;font-size:.84rem;margin:0}
+.compete caption{caption-side:top;color:var(--slate);padding:0 0 .5rem;font-size:.82rem}
+.compete thead th{text-align:center;white-space:nowrap}
+.compete thead th:first-child{text-align:left}
+.compete tbody th{font-weight:600;color:var(--ink);background:var(--surface);min-width:13rem}
+.compete td{text-align:center;white-space:nowrap}
+.compete .own{box-shadow:inset 2px 0 0 var(--flow),inset -2px 0 0 var(--flow)}
+.compete tbody th,.compete thead th:first-child{position:sticky;left:0;z-index:1}
+.compete thead th:first-child{background:var(--stripe)}
+@media (max-width:576px){.compete tbody th{min-width:9.5rem}}
+.cmp-note{scroll-margin-top:1rem}
+.cmp-note h3 .bi{color:var(--flow)}
+.cmp-scores{display:flex;flex-wrap:wrap;gap:.3rem;list-style:none;padding:0;margin:0}
+.cmp-scores .chip{font-size:.72rem}
+.cmp-scores .chip.own{font-weight:700;box-shadow:0 0 0 1px currentColor}
+.cmp-body p{margin-bottom:.55rem}
+.cmp-body ul{margin-bottom:.6rem}
 .legal{font-size:.88rem;color:var(--slate);line-height:1.6}

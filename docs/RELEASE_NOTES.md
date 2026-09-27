@@ -24,6 +24,11 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 - **Console image:** it carries the documentation its help pages include; the 0.1.1 image did not,
   so its tutorials, guides and code browser were empty (IMG-1). The build now checks every include.
   The Python guide has a help card (`/help/python-api-guide`).
+- **Console help:** `docs/COMPETITIVE_LANDSCAPE.md` scores Pravaha against five categories of
+  product, with a card per row and where it loses, and is its own page (`/about/competitive`). The
+  About page gains problem-and-fix pairs, "What makes it different", this list ("In this release",
+  read from this file) and a condensed landscape; the help gains an FAQ, and guides for these
+  notes, the roadmap (`REMAINING.md`) and `DEPLOYMENT.md`.
 - **Found, open:** a query cannot be replaced while the record at its position was dead-lettered
   (REPL-2, POST-GA); since REPL-1 it fails as `FAILED` `PRV-4013` rather than silently.
 

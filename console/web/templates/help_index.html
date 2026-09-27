@@ -10,6 +10,14 @@
   <p class="kicker mt-2 mb-1">{{ t('help.index.kicker') }}</p>
   <h1>{{ t('help.index.heading') }}</h1>
   <p class="lede">{{ t('help.index.lede', topics=topic_count, guides=guide_count) }}</p>
+  <div class="d-flex flex-wrap gap-2 mt-2">
+    <a class="btn btn-outline-secondary btn-sm px-3" href="/about"><i class="bi bi-info-circle" aria-hidden="true"></i>
+      {{ t('help.index.about') }}</a>
+    <a class="btn btn-outline-secondary btn-sm px-3" href="/about/competitive"><i class="bi bi-bar-chart-steps" aria-hidden="true"></i>
+      {{ t('help.index.competitive') }}</a>
+    <a class="btn btn-outline-secondary btn-sm px-3" href="/help/topics/faq"><i class="bi bi-question-circle" aria-hidden="true"></i>
+      {{ t('help.index.faq') }}</a>
+  </div>
 </div>
 
 <div class="help-toolbar">

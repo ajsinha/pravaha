@@ -16,7 +16,8 @@ import time
 from fastapi import Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from core.about import MEASURED, PRINCIPLES, AboutSource
+from core.about import MEASURED, PRINCIPLES, PROBLEMS, AboutSource
+from core.competitive import BEHIND, SHINE
 from core.help_catalog import ERROR_FAMILIES, HelpCatalog
 from routes.base import Routes
 
@@ -49,14 +50,34 @@ class PublicRoutes(Routes):
             source = AboutSource(content.include_root, content.renderer)
             topics = {t.slug: t for t in content.topics("about")}
             case_studies = [t for _section, ts in content.sections("tutorials") for t in ts if t.slug != "setup"]
+            land = source.landscape()
+            columns, rows = land.table()
+            landscape = {"columns": columns, "rows": rows, "shine": land.cards(SHINE),
+                         "loses": land.loses(), "disclaimer": land.disclaimer()}
             return self.page(request, "about.html", current="/about", topics=topics,
                              engine_status=engine_status(), built=source.built(),
                              not_built=source.not_built(), how_built=source.how_built(),
                              status_line=source.status_line(), decisions=source.decisions(),
-                             measured=MEASURED, principles=PRINCIPLES, legal=source.legal(),
+                             measured=MEASURED, principles=PRINCIPLES, problems=PROBLEMS,
+                             release=source.release(), landscape=landscape,
+                             legal=source.legal(),
                              licence=source.licence(), case_studies=case_studies,
                              console_version=self.ctx["config"].get("app.version"),
                              topic_count=len(catalog.topics()))
+
+        @self.app.get("/about/competitive", response_class=HTMLResponse, tags=["public"])
+        def competitive(request: Request):
+            """Where Pravaha stands against the product categories that do part of its job.
+
+            Drawn whole from docs/COMPETITIVE_LANDSCAPE.md, which is canonical: the scored table,
+            a card per row -- where Pravaha shines, where it is partial or behind -- and the
+            sections after. Public, like About.
+            """
+            land = AboutSource(content.include_root, content.renderer).landscape()
+            columns, rows = land.table()
+            return self.page(request, "competitive.html", current="/about", columns=columns, rows=rows,
+                             notes=land.table_notes(), intro=land.intro(), shine=land.cards(SHINE),
+                             behind=land.cards(BEHIND), sections=land.sections())
 
         def engine_status() -> dict:
             try:
