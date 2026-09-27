@@ -146,7 +146,7 @@ answer, such as the windowed one above once lateness is allowed.
 questions in Step 4:
 
 ```bash
-python3 python/run.py --url grpc://localhost:9090
+python3 python/run.py --url grpc://localhost:19090
 ```
 
 The registration inside it is two calls:
@@ -154,7 +154,7 @@ The registration inside it is two calls:
 ```python
 from pravaha import connect
 
-with connect("grpc://localhost:9090") as client:
+with connect("grpc://localhost:19090") as client:
     client.register("machine_health", open("sql/01-continuous-machine-health.sql").read(), [0, 1])
     client.register("overheat_alerts", open("sql/02-continuous-overheat-alerts.sql").read(), [0],
                     sink="overheat_alerts")
@@ -263,7 +263,7 @@ while the minute they sit in was still open. Only the windowed query waits for t
 Follow `press-02` in one terminal:
 
 ```bash
-python3 python/run.py --url grpc://localhost:9090 --watch
+python3 python/run.py --url grpc://localhost:19090 --watch
 ```
 
 and in another, deliver what the gateway had buffered:

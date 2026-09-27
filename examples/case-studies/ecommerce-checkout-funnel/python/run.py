@@ -6,8 +6,8 @@ Proprietary and confidential. See LICENSE at the repository root.
 #!/usr/bin/env python3
 """The checkout-funnel study, end to end, through the published SDK.
 
-    python3 python/run.py --url grpc://localhost:9090            # register, wait, read
-    python3 python/run.py --url grpc://localhost:9090 --watch    # then follow payment_failure_spikes
+    python3 python/run.py --url grpc://localhost:19090            # register, wait, read
+    python3 python/run.py --url grpc://localhost:19090 --watch    # then follow payment_failure_spikes
 
 Run from the study's directory against a node started with conf/application.yaml. The client holds
 no schemas and no engine: it sends SQL and reads answers.
@@ -48,7 +48,7 @@ def show(client, title: str, sql: str, parameters=None) -> list:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--url", default="grpc://localhost:9090")
+    parser.add_argument("--url", default="grpc://localhost:19090")
     parser.add_argument("--watch", action="store_true", help="follow payment_failure_spikes after reading")
     args = parser.parse_args()
 

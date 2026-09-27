@@ -243,7 +243,7 @@ what to do with it.
 ## The same thing without Python
 
 ```bash
-P="--url grpc://qa-vm:9090 --token $PRAVAHA_TOKEN --insecure-token"
+P="--url grpc://qa-vm:19090 --token $PRAVAHA_TOKEN --insecure-token"
 pravaha replace      $P --name big_payments --sql-file new.sql --keys 0 --cutover manual --wait
 pravaha replacements $P --name big_payments
 pravaha cutover      $P --name big_payments      # or: rollback, finish, abandon

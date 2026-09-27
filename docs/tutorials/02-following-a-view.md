@@ -251,7 +251,7 @@ cutover or an overflow, stop after a drop, retry after a `ConnectError`.
 The `pravaha` CLI prints each change with its weight, and closes each commit with a `-- commit` line:
 
 ```bash
-pravaha subscribe --url grpc://qa-vm:9090 --token "$PRAVAHA_TOKEN" --insecure-token \
+pravaha subscribe --url grpc://qa-vm:19090 --token "$PRAVAHA_TOKEN" --insecure-token \
                   --view big_payments --snapshot --filter user_id=u1 --limit 2
 ```
 

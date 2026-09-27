@@ -6,8 +6,8 @@ Proprietary and confidential. See LICENSE at the repository root.
 #!/usr/bin/env python3
 """The sensor-anomaly study, end to end, through the published SDK.
 
-    python3 python/run.py --url grpc://localhost:9090            # register, wait, read
-    python3 python/run.py --url grpc://localhost:9090 --watch    # then follow machine_health
+    python3 python/run.py --url grpc://localhost:19090            # register, wait, read
+    python3 python/run.py --url grpc://localhost:19090 --watch    # then follow machine_health
 
 Run from the study's directory against a node started with conf/application.yaml. The client holds
 no schemas and no engine: it sends SQL and reads answers.
@@ -45,7 +45,7 @@ def show(client, title: str, sql_file: str, parameters=None) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--url", default="grpc://localhost:9090")
+    parser.add_argument("--url", default="grpc://localhost:19090")
     parser.add_argument("--machine", default="press-02")
     parser.add_argument("--watch", action="store_true", help="follow the machine in machine_health after reading")
     args = parser.parse_args()

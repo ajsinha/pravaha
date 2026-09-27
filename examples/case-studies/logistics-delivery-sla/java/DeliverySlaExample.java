@@ -32,7 +32,7 @@ import com.ash.messaging.pravaha.sdk.flight.Subscription;
  * then, from {@code java/}:
  *
  * <pre>
- *   java DeliverySlaExample grpc://localhost:9090
+ *   java DeliverySlaExample grpc://localhost:19090
  * </pre>
  */
 public final class DeliverySlaExample {
@@ -42,7 +42,7 @@ public final class DeliverySlaExample {
     private DeliverySlaExample() {}
 
     public static void main(String[] args) throws Exception {
-        String url = args.length > 0 ? args[0] : "grpc://localhost:9090";
+        String url = args.length > 0 ? args[0] : "grpc://localhost:19090";
 
         try (PravahaFlightClient client = PravahaFlightClient.connect(url)) {
             // 1. Late deliveries (a join with a two-to-four-hour bound), written to the

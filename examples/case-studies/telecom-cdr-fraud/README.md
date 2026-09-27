@@ -146,7 +146,7 @@ what bounds it: each window's partition is finished when the window closes.
 ### Register them
 
 ```bash
-python3 python/run.py --url grpc://localhost:9090
+python3 python/run.py --url grpc://localhost:19090
 ```
 
 [`python/run.py`](python/run.py) registers all three — `client.register(name, sql, keys)` — waits
@@ -248,7 +248,7 @@ ties are numbered by the remaining columns, so the ranks are the same on every r
 ## Step 5 — follow the leader board
 
 ```bash
-python3 python/run.py --url grpc://localhost:9090 --watch
+python3 python/run.py --url grpc://localhost:19090 --watch
 ```
 
 In another terminal, append 21:10 to 21:15 — the SIM box, moved to another cell and slowed down,

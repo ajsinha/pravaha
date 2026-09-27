@@ -141,7 +141,7 @@ GROUP BY TUMBLE(dispatch_time, INTERVAL '1' HOUR), depot
 ### Register them
 
 ```bash
-python3 python/run.py --url grpc://localhost:9090
+python3 python/run.py --url grpc://localhost:19090
 ```
 
 [`python/run.py`](python/run.py) registers the three — the first with `sink="sla_breaches"` —
@@ -244,7 +244,7 @@ Bristol dispatches no more than the others. Its problem is not volume.
 ## Step 5 — follow missing parcels
 
 ```bash
-python3 python/run.py --url grpc://localhost:9090 --watch
+python3 python/run.py --url grpc://localhost:19090 --watch
 ```
 
 In another terminal: `P1020`'s delivery scan finally syncs at 12:40, a new parcel `P2000` leaves

@@ -31,7 +31,7 @@ import com.ash.messaging.pravaha.sdk.flight.Subscription;
  * then, from {@code java/}:
  *
  * <pre>
- *   java CdrFraudExample grpc://localhost:9090
+ *   java CdrFraudExample grpc://localhost:19090
  * </pre>
  */
 public final class CdrFraudExample {
@@ -41,7 +41,7 @@ public final class CdrFraudExample {
     private CdrFraudExample() {}
 
     public static void main(String[] args) throws Exception {
-        String url = args.length > 0 ? args[0] : "grpc://localhost:9090";
+        String url = args.length > 0 ? args[0] : "grpc://localhost:19090";
 
         try (PravahaFlightClient client = PravahaFlightClient.connect(url)) {
             // 1. Three questions over one stream of call records: a sliding five-minute profile per

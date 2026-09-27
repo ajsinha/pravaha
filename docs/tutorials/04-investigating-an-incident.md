@@ -282,7 +282,7 @@ source, and the node allows only a few at once (`PRV-8014` past the limit) — e
 ## The same thing without Python
 
 ```bash
-P="--url grpc://qa-vm:9090 --token $PRAVAHA_TOKEN --insecure-token"
+P="--url grpc://qa-vm:19090 --token $PRAVAHA_TOKEN --insecure-token"
 pravaha dlq list          $P --name spend_per_minute
 pravaha dlq show          $P --name spend_per_minute --id <id>
 pravaha debug checkpoints $P --name spend_per_minute

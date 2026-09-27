@@ -33,7 +33,7 @@ import com.ash.messaging.pravaha.sdk.flight.Subscription;
  * then, from {@code java/}:
  *
  * <pre>
- *   java ClickAttributionExample grpc://localhost:9090
+ *   java ClickAttributionExample grpc://localhost:19090
  * </pre>
  */
 public final class ClickAttributionExample {
@@ -43,7 +43,7 @@ public final class ClickAttributionExample {
     private ClickAttributionExample() {}
 
     public static void main(String[] args) throws Exception {
-        String url = args.length > 0 ? args[0] : "grpc://localhost:9090";
+        String url = args.length > 0 ? args[0] : "grpc://localhost:19090";
 
         try (PravahaFlightClient client = PravahaFlightClient.connect(url)) {
             // 1. The join of two streams -- a click counts if it follows its impression within ten

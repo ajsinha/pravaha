@@ -33,7 +33,7 @@ import com.ash.messaging.pravaha.sdk.flight.Subscription;
  * then, from {@code java/}:
  *
  * <pre>
- *   java CheckoutFunnelExample grpc://localhost:9090
+ *   java CheckoutFunnelExample grpc://localhost:19090
  * </pre>
  */
 public final class CheckoutFunnelExample {
@@ -43,7 +43,7 @@ public final class CheckoutFunnelExample {
     private CheckoutFunnelExample() {}
 
     public static void main(String[] args) throws Exception {
-        String url = args.length > 0 ? args[0] : "grpc://localhost:9090";
+        String url = args.length > 0 ? args[0] : "grpc://localhost:19090";
 
         try (PravahaFlightClient client = PravahaFlightClient.connect(url)) {
             // 1. The funnel, per five minutes, step and device; and the windows in which one device's

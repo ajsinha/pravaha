@@ -157,7 +157,7 @@ GROUP BY TUMBLE(impression_time, INTERVAL '5' MINUTE), campaign_id
 ### Register them
 
 ```bash
-python3 python/run.py --url grpc://localhost:9090
+python3 python/run.py --url grpc://localhost:19090
 ```
 
 [`python/run.py`](python/run.py) registers the three — keys `[0]`, `[0, 1]`, `[0, 1]` — waits for
@@ -258,7 +258,7 @@ the reader's, which is where the server design (ADR-030) puts it.
 ## Step 5 — follow attribution live
 
 ```bash
-python3 python/run.py --url grpc://localhost:9090 --watch
+python3 python/run.py --url grpc://localhost:19090 --watch
 ```
 
 and in another terminal, serve an impression and click it forty seconds later:

@@ -33,7 +33,7 @@ import com.ash.messaging.pravaha.sdk.flight.Subscription;
  * then, from {@code java/}:
  *
  * <pre>
- *   java SensorAnomalyExample grpc://localhost:9090
+ *   java SensorAnomalyExample grpc://localhost:19090
  * </pre>
  *
  * The client holds no schemas and no engine: it sends SQL and reads answers.
@@ -45,7 +45,7 @@ public final class SensorAnomalyExample {
     private SensorAnomalyExample() {}
 
     public static void main(String[] args) throws Exception {
-        String url = args.length > 0 ? args[0] : "grpc://localhost:9090";
+        String url = args.length > 0 ? args[0] : "grpc://localhost:19090";
 
         try (PravahaFlightClient client = PravahaFlightClient.connect(url)) {
             // 1. Two questions, registered once. The first keeps one row per machine per minute,

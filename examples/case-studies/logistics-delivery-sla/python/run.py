@@ -6,8 +6,8 @@ Proprietary and confidential. See LICENSE at the repository root.
 #!/usr/bin/env python3
 """The delivery-SLA study, end to end, through the published SDK.
 
-    python3 python/run.py --url grpc://localhost:9090            # register, wait, read
-    python3 python/run.py --url grpc://localhost:9090 --watch    # then follow undelivered
+    python3 python/run.py --url grpc://localhost:19090            # register, wait, read
+    python3 python/run.py --url grpc://localhost:19090 --watch    # then follow undelivered
 
 Run from the study's directory against a node started with conf/application.yaml. The client holds
 no schemas and no engine: it sends SQL and reads answers.
@@ -46,7 +46,7 @@ def show(client, title: str, sql: str, parameters=None) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--url", default="grpc://localhost:9090")
+    parser.add_argument("--url", default="grpc://localhost:19090")
     parser.add_argument("--shipment", default="P1009")
     parser.add_argument("--watch", action="store_true", help="follow undelivered after reading")
     args = parser.parse_args()

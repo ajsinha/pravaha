@@ -119,7 +119,7 @@ to filter on its side.
 ### Register them
 
 ```bash
-python3 python/run.py --url grpc://localhost:9090
+python3 python/run.py --url grpc://localhost:19090
 ```
 
 [`python/run.py`](python/run.py) registers both — keys `[0, 1, 2]` and `[0, 1]` — waits for the
@@ -234,7 +234,7 @@ Five of the app's twelve payments failed.
 ```
 
 One row: the 10:05–10:10 window, the app, five failures, 433.43 in baskets turned away. A
-subscriber — `python3 python/run.py --url grpc://localhost:9090 --watch` — receives it the moment
+subscriber — `python3 python/run.py --url grpc://localhost:19090 --watch` — receives it the moment
 the window closes:
 
 ```text

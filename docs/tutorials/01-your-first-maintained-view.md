@@ -24,7 +24,7 @@ Fingerprints, frontiers and timestamps of your own run may differ; the rows will
 
 ```bash
 export PRAVAHA_TOKEN=<the qa token>
-export PRAVAHA_URL=grpc://qa-vm:9090 PRAVAHA_HTTP_URL=http://qa-vm:8080
+export PRAVAHA_URL=grpc://qa-vm:19090 PRAVAHA_HTTP_URL=http://qa-vm:18080
 ```
 
 Every step uses one `client`, created once in a Python shell and kept:
@@ -34,9 +34,9 @@ import os
 from pravaha import connect, ClientOptions
 
 client = connect(options=ClientOptions.create(
-    os.environ.get("PRAVAHA_URL", "grpc://qa-vm:9090"),        # Flight: queries, views, subscriptions
+    os.environ.get("PRAVAHA_URL", "grpc://qa-vm:19090"),        # Flight: queries, views, subscriptions
     token=os.environ["PRAVAHA_TOKEN"],
-    http_url=os.environ.get("PRAVAHA_HTTP_URL", "http://qa-vm:8080"),   # HTTP: the catalogue, plans
+    http_url=os.environ.get("PRAVAHA_HTTP_URL", "http://qa-vm:18080"),   # HTTP: the catalogue, plans
     allow_insecure_token=True,     # the QA host serves plaintext; remove this once it serves TLS
 ))
 ```
@@ -271,8 +271,8 @@ is refused is [`CONTINUOUS_QUERIES.md`](../CONTINUOUS_QUERIES.md).
   host, `--insecure-token`:
 
 ```bash
-pravaha queries --url grpc://qa-vm:9090 --token "$PRAVAHA_TOKEN" --insecure-token
-pravaha query   --url grpc://qa-vm:9090 --token "$PRAVAHA_TOKEN" --insecure-token \
+pravaha queries --url grpc://qa-vm:19090 --token "$PRAVAHA_TOKEN" --insecure-token
+pravaha query   --url grpc://qa-vm:19090 --token "$PRAVAHA_TOKEN" --insecure-token \
                 --sql "SELECT user_id, total, txns FROM spend_per_minute WHERE user_id = 'u2'"
 ```
 
