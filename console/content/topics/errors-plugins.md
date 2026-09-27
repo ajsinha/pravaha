@@ -4,12 +4,12 @@ slug: errors-plugins
 category: errors
 order: 60
 icon: plug
-summary: "PRV-5001 to PRV-5123: loading and naming plugins, then every connector's own refusals — filesystem, Delta, feedfile, JDBC, Aerospike, Cassandra, Kafka, PostgreSQL CDC — and attaching a source or a sink to a registered query."
+summary: "PRV-5001 to PRV-5157: loading and naming plugins, then every connector's own refusals — filesystem, Delta, feedfile, JDBC, Aerospike, Cassandra, Kafka, PostgreSQL CDC, MySQL CDC — and attaching a source or a sink to a registered query."
 badge: PRV-5XXX
 audience: Operators
-keywords: [plugin, classpath, deletes, detect, deletes.max.keys, deletes.state.dir, serviceloader, binding, options, filesystem, decode, delta, vacuum, deletion vectors, feedfile, jdbc, aerospike, cassandra, kafka, fenced, staging topic, retention, resume point, tombstone, undecodable record, postgres-cdc, replication slot, wal_level, replica identity, truncate, offset, sink, source, connect failed, schema]
+keywords: [plugin, classpath, deletes, detect, deletes.max.keys, deletes.state.dir, serviceloader, binding, options, filesystem, decode, delta, vacuum, deletion vectors, feedfile, jdbc, aerospike, cassandra, kafka, fenced, staging topic, retention, resume point, tombstone, undecodable record, postgres-cdc, mysql-cdc, binlog, binlog_format, binlog_row_image, replication slot, wal_level, replica identity, truncate, offset, sink, source, connect failed, schema]
 guide: connectors
-related: [sources-overview, sinks-overview, source-jdbc, source-postgres-cdc, source-kafka, sink-kafka, source-delta, connector-security, errors-overview]
+related: [sources-overview, sinks-overview, source-jdbc, source-postgres-cdc, source-mysql-cdc, source-kafka, sink-kafka, source-delta, connector-security, errors-overview]
 ---
 
 Every source, lookup and sink is a **plugin**, found on the classpath by its name
@@ -43,6 +43,7 @@ a support conversation should have to start with.
 | PRV-5110 – PRV-5118 | `postgres-cdc` |
 | PRV-5120 – PRV-5121 | `aerospike` with `deletes: detect` (5080 – 5084 was full) |
 | PRV-5122 – PRV-5123 | `cassandra` with `deletes: detect` (5085 – 5089 was full) |
+| PRV-5150 – PRV-5157 | `mysql-cdc` |
 
 ## Loading and naming plugins
 
@@ -621,10 +622,62 @@ pg_stat_activity WHERE backend_xid IS NOT NULL ORDER BY xact_start;`. Otherwise
 mid-read — which a restart from the last checkpoint recovers from exactly, after the last key
 delivered.
 
+## mysql-cdc
+
+The prerequisites, every option and the recoveries are on
+[the mysql-cdc source](/help/topics/source-mysql-cdc).
+
+### PRV-5150 — MySQL CDC: bad configuration
+
+The binding's options are wrong: a required option missing, `table` not `database.table`, a value out
+of range, a shared `tls.*` option (this version connects in plaintext), a declared `schema`, or
+`snapshot.mode: initial`, which is not built for MySQL yet.
+
+### PRV-5151 — MySQL CDC: connect failed
+
+The server unreachable, the credentials refused, or no binlog connection within `start.timeout`.
+
+### PRV-5152 — MySQL CDC: not capturable
+
+The server cannot support change capture, and the message names the fix: binary logging off,
+`binlog_format` not `ROW`, `binlog_row_image` not `FULL` (a delete could otherwise retract only part of
+the row), `binlog_transaction_compression` on, or the user without `REPLICATION SLAVE` and
+`REPLICATION CLIENT` granted directly.
+
+### PRV-5153 — MySQL CDC: schema mismatch
+
+The table does not exist or the user has no `SELECT` on it, or a column's type has no mapping (`JSON`,
+`ENUM`, `SET`, `BIT`, `TIME`, `YEAR`, spatial types, or a character set other than utf8mb4, utf8mb3,
+latin1 or ascii).
+
+### PRV-5154 — MySQL CDC: malformed offset
+
+A checkpoint holds an offset this plugin did not write. It is refused rather than guessed at.
+
+### PRV-5155 — MySQL CDC: resume point purged
+
+At a restart: the binlog file the checkpoint names has been purged by the server
+(`binlog_expire_logs_seconds`), so the changes in between are gone. Starting anyway would skip them
+silently.
+
+### PRV-5156 — MySQL CDC: unrepresentable change
+
+The binary log carried something that cannot become rows: a `TRUNCATE` of the captured table (it names
+no rows to retract), an `ALTER`, `DROP` or `RENAME` of it, or an event the plugin cannot decode.
+Everything before it was delivered.
+
+### PRV-5157 — MySQL CDC: stream failed
+
+The binlog connection failed ten times in a row, or the reader stopped on an internal error.
+
+For PRV-5155, 5156 and 5157 the recovery is the same: stop the registration, delete its checkpoint
+directory, register again.
+
 ## Where next
 
 - [Sources](/help/topics/sources-overview) and [Sinks](/help/topics/sinks-overview), and each
   connector's own page — among them [postgres-cdc](/help/topics/source-postgres-cdc),
+  [mysql-cdc](/help/topics/source-mysql-cdc),
   [the kafka source](/help/topics/source-kafka) and [kafka-sink](/help/topics/sink-kafka)
 - [Connector security](/help/topics/connector-security) — credentials and TLS per connector
 - [Dead letters](/help/topics/dead-letters)

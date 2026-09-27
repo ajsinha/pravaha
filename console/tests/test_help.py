@@ -425,6 +425,7 @@ PLUGINS = {
     "aerospike-sink": "plugins/pravaha-plugin-aerospike",
     "cassandra": "plugins/pravaha-plugin-cassandra",
     "postgres-cdc": "plugins/pravaha-plugin-postgres-cdc",
+    "mysql-cdc": "plugins/pravaha-plugin-mysql-cdc",
     "kafka-sink": "plugins/pravaha-plugin-kafka", "kafka": "plugins/pravaha-plugin-kafka",
 }
 

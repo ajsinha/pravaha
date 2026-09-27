@@ -56,6 +56,7 @@
     <module>plugins/pravaha-plugin-cassandra</module>
     <module>plugins/pravaha-plugin-kafka</module>
     <module>plugins/pravaha-plugin-postgres-cdc</module>
+    <module>plugins/pravaha-plugin-mysql-cdc</module>
     <module>plugins/pravaha-cluster-zookeeper</module>
     <module>pravaha-bindings</module>
     <module>pravaha-embedded</module>

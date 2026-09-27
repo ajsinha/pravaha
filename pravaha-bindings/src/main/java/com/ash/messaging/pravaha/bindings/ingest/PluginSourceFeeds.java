@@ -889,7 +889,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                         + ". A plugin answers to the name it reports for itself and is found by "
                         + "ServiceLoader, so it resolves only when its jar is on THIS process's "
                         + "classpath: the server jar carries filesystem alone, and feedfile, jdbc, delta, "
-                        + "aerospike, cassandra, kafka and postgres-cdc are separate modules that have to "
+                        + "aerospike, cassandra, kafka, postgres-cdc and mysql-cdc are separate modules that have to "
                         + "be added to it. docs/CONNECTORS.md says which module ships which name.");
     }
 

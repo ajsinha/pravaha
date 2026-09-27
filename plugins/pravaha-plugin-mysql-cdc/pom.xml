@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.ash.messaging</groupId>
+    <artifactId>pravaha</artifactId>
+    <version>0.2.1-SNAPSHOT</version>
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+  <artifactId>pravaha-plugin-mysql-cdc</artifactId>
+  <name>Pravaha :: plugin :: mysql-cdc</name>
+  <description>Change data capture from MySQL through its row-based binary log, on ADR-041's model:
+    the plugin registers as a replica, an insert is +1, a delete is -1 of the full before-image, an
+    update is both. The position is a binlog file and offset at a transaction boundary.</description>
+
+  <properties>
+    <jacoco.line.coverage>0.35</jacoco.line.coverage>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-api</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <!-- The replication protocol and binlog event decoding, pure Java, Apache-2.0, no Debezium.
+         Its one transitive dependency is zstd-jni, for compressed transaction payloads
+         (binlog_transaction_compression = ON), which open refuses. It cannot be excluded: the
+         library's client links the decompressor's class when it is constructed. Its native code
+         is loaded only when a compressed payload is decoded, which never happens here, and
+         zstd-jni is one of the two native families ADR-053 already allows, at the version the
+         root pom pins for Parquet and Kafka. -->
+    <dependency>
+      <groupId>com.zendesk</groupId>
+      <artifactId>mysql-binlog-connector-java</artifactId>
+      <version>0.31.0</version>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>mysql</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- Test only, to write to the server; the plugin itself speaks the protocol through the binlog
+         library and needs no JDBC driver (Connector/J is GPL and is never shipped). -->
+    <dependency>
+      <groupId>com.mysql</groupId>
+      <artifactId>mysql-connector-j</artifactId>
+      <version>9.1.0</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

@@ -52,7 +52,16 @@ class ShippedConnectorsTest {
         // containsAll rather than exactly: this module's own test resources declare fixture
         // plugins (a guarantee probe among them), and the promise is about what ships.
         assertThat(names(ServiceLoader.load(StreamSourcePlugin.class)))
-                .contains("filesystem", "feedfile", "delta", "jdbc", "kafka", "postgres-cdc", "aerospike", "cassandra");
+                .contains(
+                        "filesystem",
+                        "feedfile",
+                        "delta",
+                        "jdbc",
+                        "kafka",
+                        "postgres-cdc",
+                        "mysql-cdc",
+                        "aerospike",
+                        "cassandra");
     }
 
     @Test
