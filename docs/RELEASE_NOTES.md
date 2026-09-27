@@ -37,6 +37,11 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 - **A tutorial joining two Aerospike sets and a CSV file** (`docs/tutorials/aerospike-fulfilment.md`,
   and a console card), with a script that pushes live orders; the QA install gains `/opt/pravaha/feeds/`
   for files you drop for file sources, and the bundle carries the tutorials' scripts.
+- **Console help:** `docs/COMPETITIVE_LANDSCAPE.md` scores Pravaha against five categories of
+  product, with a card per row and where it loses, and is its own page (`/about/competitive`). The
+  About page gains problem-and-fix pairs, "What makes it different", this list ("In this release",
+  read from this file) and a condensed landscape; the help gains an FAQ, and guides for these
+  notes, the roadmap (`REMAINING.md`) and `DEPLOYMENT.md`.
 - **Found, open:** a query cannot be replaced while the record at its position was dead-lettered
   (REPL-2, POST-GA); since REPL-1 it fails as `FAILED` `PRV-4013` rather than silently.
 

@@ -325,6 +325,11 @@ PAGES: list[tuple[str, str, bool, str]] = [
     ("tutorials", "/tutorials", False, "true"),
     ("tutorial", "/tutorials/trade-processing", False, "true"),
     ("help-code", "/help/codes/PRV-2050", False, "true"),
+    # The competitive landscape (its own page, drawn whole from docs/COMPETITIVE_LANDSCAPE.md,
+    # whose scored table is the widest thing in the help) and the FAQ: audited in every theme,
+    # not photographed -- their pixels move with the prose.
+    ("competitive", "/about/competitive", False, "true"),
+    ("help-faq", "/help/topics/faq", False, "true"),
     ("login", "/login", False, "true"),
     ("start", "/start", True, "document.querySelector('#start-app h2')"),
     ("catalog", "/catalog", True, "true"),
@@ -366,7 +371,7 @@ PAGES: list[tuple[str, str, bool, str]] = [
 #: and a baseline that breaks on a README edit teaches people to regenerate without looking.
 #: The help's own pages -- the index, a topic, a connector page, search, the guides browser --
 #: and About ARE photographed: their layout is the console's, and only the first screen is taken.
-DOCUMENT_PAGES = {"help-topic", "tutorial", "help-code", "help-codes"}
+DOCUMENT_PAGES = {"help-topic", "tutorial", "help-code", "help-codes", "competitive", "help-faq"}
 
 AXE = (CONSOLE_ROOT / "tests" / "vendor" / "axe-core" / "axe.min.js").read_text(encoding="utf-8")
 

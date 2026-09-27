@@ -1,0 +1,38 @@
+{# The competitive landscape's scored table and its cards, shared by /about and /about/competitive.
+   Everything they draw comes from docs/COMPETITIVE_LANDSCAPE.md through core/competitive.py:
+   the rows, the scores and the words. Only the layout is here. #}
+
+{% macro scored_table(columns, rows, href_base='', table_id='compete') %}
+<div class="table-responsive doc compete-wrap" tabindex="0" role="region" aria-labelledby="{{ table_id }}-caption">
+  <table class="compete">
+    <caption id="{{ table_id }}-caption">{{ t('competitive.caption') }}</caption>
+    <thead><tr>
+      <th scope="col">{{ t('competitive.capability') }}</th>
+      {% for c in columns %}<th scope="col" class="{{ 'own' if loop.last }}">{{ c }}</th>{% endfor %}
+    </tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr><th scope="row"><a href="{{ href_base }}#{{ r.id }}">{{ r.capability }}</a></th>
+        {% for s in r.scores %}<td class="{{ 'own' if loop.last }}"><span class="chip {{ s.chip }}">{{ s.word }}</span></td>{% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}
+
+{% macro card(c, columns) %}
+<article class="card mb-3 cmp-note" id="{{ c.id }}" aria-labelledby="{{ c.id }}-h">
+  <div class="card-body">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+      <h3 class="h5 mb-0" id="{{ c.id }}-h"><i class="bi bi-{{ c.icon }}" aria-hidden="true"></i> {{ c.title }}</h3>
+      <ul class="cmp-scores" aria-label="{{ t('competitive.scores') }}">
+        {% for s in c.scores %}
+        <li><span class="chip {{ s.chip }}{{ ' own' if loop.last }}">{{ columns[loop.index0] }} · {{ s.word }}</span></li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="doc cmp-body">{{ c.html|safe }}</div>
+  </div>
+</article>
+{% endmacro %}

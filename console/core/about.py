@@ -11,10 +11,15 @@ is read from there rather than retyped:
   built" list, the sections the build's DocumentationFreshnessTest keeps honest.
 * **The decisions** -- the one-line summaries in docs/adr/README.md, for the records chosen here.
 * **Provenance and legal** -- the README's "Legal" section and the LICENSE, verbatim.
+* **In this release** -- the newest entry of docs/RELEASE_NOTES.md, read on each request.
+* **The competitive landscape** -- the scored table, the shine cards' "Why it matters" and
+  "Where Pravaha loses", from docs/COMPETITIVE_LANDSCAPE.md through core/competitive.py, which
+  also draws the whole of it at /about/competitive.
 
 What is written here is what no document states in a form the page can use: the measured
-numbers (each with the document it comes from, and where and on what it was measured), and
-the design principles, each of which names the decision record that holds it.
+numbers (each with the document it comes from, and where and on what it was measured), the
+design principles, each of which names the decision record that holds it, and the four
+problem-and-fix pairs, each of which names the page that holds its claim.
 """
 from __future__ import annotations
 
@@ -134,6 +139,38 @@ PRINCIPLES: list[Principle] = [
 ]
 
 
+@dataclass(frozen=True)
+class Problem:
+    """One problem the engine exists for, and what it does instead. Each names the page that
+    holds the claim, so the pair is a pointer rather than a slogan."""
+    problem: str
+    fix: str
+    href: str
+
+
+PROBLEMS: list[Problem] = [
+    Problem("Every dashboard and alert re-runs the same query on a timer, paying for the whole "
+            "computation to learn what changed since the last run — and is stale in between.",
+            "Register the SQL once. The answer is maintained as rows change, with work proportional "
+            "to the change, and is current whenever it is read.",
+            "/help/topics/start-here"),
+    Problem("A stream processor computes the answer and writes it to a second database, which has "
+            "to be run, loaded and kept in step — and is only as right as the last time they agreed.",
+            "The maintained view is the serving store: read by key, scanned with SQL, subscribed to "
+            "commit by commit, or over the PostgreSQL wire protocol.",
+            "/help/decisions/014-serve-maintained-views"),
+    Problem("A late or corrected row either vanishes or produces a second, contradictory answer, and "
+            "every consumer invents its own way to reconcile the two.",
+            "A late row inside the allowed lateness is a correction: the old answer withdrawn and the "
+            "new one inserted, in one commit every reader sees.",
+            "/help/topics/late-data"),
+    Problem("A query that grows its state without limit is accepted, runs for months, and fails at "
+            "three in the morning when the heap fills.",
+            "It is refused when it is registered, with a PRV code and the reason — an unwindowed "
+            "GROUP BY over a stream is PRV-2050.",
+            "/help/topics/sql-refusals"),
+]
+
 def _section(text: str, heading: str) -> str:
     """The body of one ``## heading`` section of a markdown document."""
     match = re.search(r"^## " + re.escape(heading) + r"[^\n]*\n(.*?)(?=^## |\Z)", text, re.MULTILINE | re.DOTALL)
@@ -211,6 +248,24 @@ class AboutSource:
                     plain = plain[:plain.rfind(" ", 0, 237)] + " …"
                 out.append({"number": number, "stem": match.group(1), "summary": plain})
         return out
+
+    def release(self) -> dict[str, str]:
+        """The newest entry of docs/RELEASE_NOTES.md -- its heading and its body, rendered.
+
+        Read on every request, so the page says what the notes say the moment they change; an
+        empty dict when the notes are missing, and the template then says nothing about a release.
+        """
+        text = self._read("docs/RELEASE_NOTES.md")
+        match = re.search(r"^## (.+?)\n(.*?)(?=^## |^---\s*$|\Z)", text, re.MULTILINE | re.DOTALL)
+        if not match:
+            return {}
+        return {"title": match.group(1).strip(), "html": self.renderer.render(match.group(2).strip())[0]}
+
+    def landscape(self):
+        """The competitive landscape, from docs/COMPETITIVE_LANDSCAPE.md (core/competitive.py)."""
+        from core.competitive import Landscape
+
+        return Landscape(self.root, self.renderer)
 
     def legal(self) -> str:
         return self.renderer.render(_section(self._read("README.md"), "Legal"))[0]

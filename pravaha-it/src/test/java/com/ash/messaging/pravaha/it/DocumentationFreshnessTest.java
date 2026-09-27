@@ -69,7 +69,8 @@ class DocumentationFreshnessTest {
             "docs/OPERATIONS.md",
             "docs/SECURITY.md",
             "docs/TROUBLESHOOTING.md",
-            "docs/RELEASE_NOTES.md");
+            "docs/RELEASE_NOTES.md",
+            "docs/COMPETITIVE_LANDSCAPE.md");
 
     /**
      * The release note's defect counts are the register's, or the page is lying to the reader it

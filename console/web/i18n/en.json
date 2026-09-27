@@ -1341,16 +1341,20 @@
       "start": "Start here",
       "first_view": "Your first view",
       "decisions": "Decision records",
-      "tutorials": "Worked systems"
+      "tutorials": "Worked systems",
+      "competitive": "Competitive landscape"
     },
     "s": {
       "what": "What Pravaha is",
       "problem": "The problem it solves",
+      "different": "What makes it different",
       "how": "How it works, at a glance",
       "built": "What is built",
+      "release": "In this release",
       "numbers": "Measured, with the caveats",
       "decisions": "Decisions that shaped it",
       "principles": "Design principles",
+      "landscape": "Competitive landscape",
       "uses": "Where it is used",
       "stack": "How it is built",
       "name": "The name",
@@ -1435,6 +1439,23 @@
     "author": {
       "role": "Designer and author of Pravaha, its engine, its SDKs and this console.",
       "licence": "The licence, in full"
+    },
+    "version": "Console {v}",
+    "problem": {
+      "more": "Read more"
+    },
+    "different": {
+      "lede": "Where the competitive landscape scores Pravaha Yes: each card is that row's \"Why it matters\", word for word, and opens the whole comparison — the problem, how the other categories meet it, and where Pravaha's answer is proven.",
+      "how": "How, and against what"
+    },
+    "release": {
+      "source": "The newest entry of the release notes, read from the repository each time this page is shown.",
+      "all": "Every release"
+    },
+    "landscape": {
+      "lede": "Scored by category of product, not by vendor: where each category's centre of gravity sits, against what this tree can show for Pravaha. Yes is a documented, supported feature; Partial is some products, or with limits; No is not, or not without building it.",
+      "loses": "Where Pravaha loses",
+      "full": "The full comparison"
     }
   },
   "help": {
@@ -1462,7 +1483,10 @@
       "open_topic": "Open",
       "open_guide": "Read the guide",
       "no_hits": "No card matches that.",
-      "search_everything": "Search every page for it"
+      "search_everything": "Search every page for it",
+      "about": "About Pravaha",
+      "competitive": "Competitive landscape",
+      "faq": "Questions people ask"
     },
     "search": {
       "label": "Search the help",
@@ -2287,5 +2311,24 @@
     "error": {
       "checkpoint": "“{checkpoint}” is not a checkpoint id; a checkpoint id is a whole number, and leaving it alone asks for the newest one this node still retains."
     }
+  },
+  "competitive": {
+    "title": "Competitive landscape",
+    "kicker": "ABOUT",
+    "heading": "Competitive landscape",
+    "lede": "Where Pravaha stands among the kinds of product that do part of its job — scored by category, not vendor — and, for every row, how the others meet the need and how Pravaha does, with the record that proves it. Losses included.",
+    "nav": {
+      "about": "About Pravaha",
+      "help": "Help"
+    },
+    "s": {
+      "table": "The scored table",
+      "shine": "Where Pravaha shines, and how",
+      "behind": "Where Pravaha is partial or behind, and why"
+    },
+    "caption": "Capabilities, by category of product, against Pravaha",
+    "capability": "Capability",
+    "scores": "How each category scores",
+    "missing": "The comparison is read from docs/COMPETITIVE_LANDSCAPE.md, which this installation does not carry."
   }
 }

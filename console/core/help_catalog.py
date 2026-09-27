@@ -141,7 +141,10 @@ CATEGORIES: list[Category] = [
              extras=[_guide("operations", "Operations (long form)", "gear",
                             "Every setting, every metric, and the runbooks."),
                      _guide("execution-model", "Execution model", "cpu",
-                            "How a registered query executes: lanes, batches, commits and checkpoints.")]),
+                            "How a registered query executes: lanes, batches, commits and checkpoints."),
+                     _guide("deploying", "Deploying", "box-seam",
+                            "The one root under /opt/pravaha, a QA host from two images and two files, "
+                            "the container image, the Helm chart, upgrades and releases.")]),
     Category("security", "Security", "shield-lock",
              "Who may connect, what they may read and do, the row filters that follow them into "
              "every view, the audit trail, and TLS on every connection.",
@@ -174,6 +177,28 @@ CATEGORIES: list[Category] = [
                             "Every architecture decision, numbered and never renumbered."),
                      _guide("system-design", "System design", "diagram-2",
                             "The whole design, including what is not built yet.")]),
+    # What the product is as a product: the questions people actually ask, what changed, what
+    # is left, and where it stands against the alternatives. The notes and the roadmap are guides
+    # over documents in docs/, and the landscape is its own page drawn from one, so no page can
+    # say something its document does not.
+    Category("about", "About Pravaha", "info-circle",
+             "The questions a QA team or an integrator asks first, what changed in each cut, what "
+             "is still to build, and where Pravaha stands against the alternatives — losses included.",
+             guide="whats-new",
+             extras=[_page("/about", "About Pravaha", "info-circle",
+                           "What it is, the problems it solves, what is built and measured, and who made it.",
+                           "", "about overview author licence version"),
+                     _guide("whats-new", "What's new", "megaphone",
+                            "The release notes: what changed in each cut, with the numbers and the "
+                            "defects still open.", "NOTES"),
+                     _guide("roadmap", "Roadmap", "map",
+                            "What is left to build, in batches, and what is deliberately not scheduled.",
+                            "PLAN"),
+                     _page("/about/competitive", "Competitive landscape", "bar-chart-steps",
+                           "Scored by category against dataflow engines, streaming databases and "
+                           "Kafka-native tools, with a card per row saying how — and where Pravaha loses.",
+                           "COMPARE", "competitive landscape comparison flink materialize risingwave "
+                           "ksqldb kafka streams hazelcast versus alternative")]),
 ]
 
 CATEGORY_IDS = [c.id for c in CATEGORIES]

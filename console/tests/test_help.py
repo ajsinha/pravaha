@@ -201,7 +201,7 @@ def _parse(html: str) -> _Links:
 
 
 def _help_pages(catalog) -> list[str]:
-    pages = ["/help", "/help/guides", "/help/codes", "/about", "/tutorials"]
+    pages = ["/help", "/help/guides", "/help/codes", "/about", "/about/competitive", "/tutorials"]
     pages += [f"/help/topics/{t.slug}" for t in catalog.topics()]
     pages += [f"/help/{g.slug}" for g in catalog.guides()]
     return pages
@@ -519,7 +519,7 @@ def test_the_index_filters_in_the_browser_from_what_each_card_carries(anonymous)
 
 PUBLIC = ["/help", "/help/search?q=checkpoint", "/help/guides", "/help/codes", "/help/codes/PRV-2050",
           "/help/decisions/043-how-a-continuous-query-names-its-sink", "/about", "/help/topics/first-view",
-          "/help/topics/source-jdbc", "/help/concepts"]
+          "/help/topics/source-jdbc", "/help/concepts", "/about/competitive"]
 
 
 @pytest.mark.parametrize("path", PUBLIC)
@@ -565,3 +565,51 @@ def test_every_product_screen_links_to_its_help_topics(catalog):
         assert f'class="screen-help" href="/help/topics/{first}"' in page, f"{path} has no '?' to {first}"
         for slug in SCREEN_HELP[screen]:
             assert f'href="/help/topics/{slug}"' in page, f"{path} does not offer {slug}"
+
+
+# ================================================================== the competitive landscape
+
+def _landscape():
+    from core.competitive import BEHIND, SHINE, Landscape
+    from core.content.renderer import MarkdownRenderer
+
+    land = Landscape(REPO_ROOT, MarkdownRenderer())
+    return land, land.cards(SHINE), land.cards(BEHIND)
+
+
+def test_every_row_of_the_competitive_table_has_its_card_and_every_card_its_row():
+    # docs/COMPETITIVE_LANDSCAPE.md is the one source for the table, the cards and the About
+    # page's condensed version. A row with no card is a score nobody explains; a card with no
+    # row, or under the wrong heading for its score, is a claim the table does not make.
+    land, shine, behind = _landscape()
+    columns, rows = land.table()
+    assert columns and columns[-1] == "Pravaha", columns
+    assert len(rows) >= 12, f"only {len(rows)} capabilities scored"
+    for row in rows:
+        assert len(row["scores"]) == len(columns), row["capability"]
+        words = {s["word"] for s in row["scores"]}
+        assert words <= {"Yes", "Partial", "No"}, f"{row['capability']}: {words}"
+    orphans = [c["title"] for c in shine + behind if not c["row"]]
+    assert not orphans, f"cards whose title is no row of the table: {orphans}"
+    pravaha = {r["id"]: r["pravaha"] for r in rows}
+    assert sorted(c["id"] for c in shine) == sorted(i for i, s in pravaha.items() if s == "Yes"), \
+        "'Where Pravaha shines' must hold exactly the rows Pravaha scores Yes"
+    assert sorted(c["id"] for c in behind) == sorted(i for i, s in pravaha.items() if s != "Yes"), \
+        "'Where Pravaha is partial or behind' must hold exactly the rows it does not"
+    for c in shine:
+        assert c["why"], f"{c['title']} has no 'Why it matters' for the About page"
+        assert "/help/decisions/" in c["html"] or "/help/topics/" in c["html"], \
+            f"{c['title']} links to no decision record or help topic that proves it"
+
+
+def test_the_competitive_page_is_public_and_both_about_and_help_lead_to_it(anonymous):
+    land, shine, behind = _landscape()
+    page = anonymous.get("/about/competitive")
+    assert page.status_code == 200
+    for card in shine + behind:
+        assert f'id="{card["id"]}"' in page.text, f"no card for {card['title']}"
+    for path in ("/about", "/help"):
+        assert 'href="/about/competitive"' in anonymous.get(path).text, f"{path} does not lead to it"
+    about = anonymous.get("/about").text
+    for card in shine:
+        assert f'href="/about/competitive#{card["id"]}"' in about, card["title"]

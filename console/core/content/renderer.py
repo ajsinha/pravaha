@@ -69,7 +69,15 @@ class MarkdownRenderer:
         "02-following-a-view.md": "/tutorials/following-a-view",
         "03-changing-a-running-query.md": "/tutorials/changing-a-running-query",
         "04-investigating-an-incident.md": "/tutorials/investigating-an-incident",
+        "RELEASE_NOTES.md": "/help/whats-new",
+        "REMAINING.md": "/help/roadmap",
+        "DEPLOYMENT.md": "/help/deploying",
+        "COMPETITIVE_LANDSCAPE.md": "/about/competitive",
     }
+
+    #: A help topic linked from a document as its file -- ``../console/content/topics/late-data.md``
+    #: -- is served at /help/topics/<its stem>; the file link is the right one on GitHub.
+    _TOPIC = re.compile(r"(?:^|/)content/topics/([a-z0-9-]+)\.md$")
 
     #: An ADR, linked as ``adr/043-how-a-continuous-query-names-its-sink.md`` from docs/ or
     #: as ``043-....md`` from inside docs/adr/, is served at /help/decisions/<its stem>.
@@ -120,6 +128,9 @@ class MarkdownRenderer:
             if "#" in name:
                 name, anchor = name.split("#", 1)
                 anchor = "#" + self._GITHUB_RUN.sub("-", anchor)
+            topic = self._TOPIC.search(target.split("#", 1)[0])
+            if topic:
+                return prefix + "/help/topics/" + topic.group(1) + anchor + suffix
             route = self.ROUTES.get(name)
             if route:
                 return prefix + route + anchor + suffix
