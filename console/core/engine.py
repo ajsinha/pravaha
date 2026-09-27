@@ -19,13 +19,18 @@ stopped being the one place that spoke HTTP to the engine.
 """
 from __future__ import annotations
 
+import contextlib
 import dataclasses
+import json
 import logging
 import threading
+import urllib.parse
 from collections.abc import Iterator, Sequence
 
 from pravaha import connect
 from pravaha.client import QueryError
+
+from core import credential
 
 try:  # the SDK's REST error; absent only from an SDK older than this console
     from pravaha import ApiError
@@ -231,6 +236,15 @@ def _translated(exc: Exception) -> Exception:
     return exc
 
 
+def _refused_credential(exc: Exception) -> bool:
+    """Whether the engine answered by refusing the caller's credential (or its absence)."""
+    code = credential.code_of(exc)
+    if code in credential.EXPIRED_CODES or code in {"PRV-7002", credential.MUST_CHANGE_CODE}:
+        return True
+    status = getattr(exc, "status", None)
+    return status in (401, 403) or credential._unauthenticated(exc)
+
+
 class Engine:
     """A connection to one Pravaha server.
 
@@ -239,10 +253,9 @@ class Engine:
     needs at this scale.
     """
 
-    def __init__(self, url: str, token: str | None = None, http_url: str | None = None,
+    def __init__(self, url: str, http_url: str | None = None,
                  http_timeout: float = 5.0) -> None:
         self._url = url
-        self._token = token
         self._lock = threading.Lock()
         # The engine's HTTP surface is a separate port from Flight -- 18080 against 19090 -- and
         # conflating the two is the commonest way a first run fails, so it is its own setting.
@@ -257,19 +270,36 @@ class Engine:
     def http_url(self) -> str:
         return self._http
 
+    @contextlib.contextmanager
     def _client(self):
+        """A client carrying the bearer token of the person this request is for (ADR-052).
+
+        The token is the signed-in person's engine session, bound to the request by the
+        console's middleware (``core.credential``); an anonymous request carries none. There is
+        no console-wide token to fall back to: a call made for a person is authorised and
+        audited as that person, or not made. A refusal of the credential itself is noted on it
+        on the way out, so the middleware can send the person back to the sign-in form.
+        """
         from pravaha.options import ClientOptions
 
         kwargs: dict = {}
-        if self._token:
-            kwargs["token"] = self._token
+        bearer = credential.token()
+        if bearer:
+            kwargs["token"] = bearer
+            # The console reaches a loopback or in-cluster engine over plaintext as often as not,
+            # and the choice of transport is the deployment's (engine.url), not the person's.
             kwargs["allow_insecure_token"] = True
         if self._http:
             kwargs["http_url"] = self._http
             kwargs["request_timeout_seconds"] = self._http_timeout
-        if not kwargs:
-            return connect(self._url)
-        return connect(options=ClientOptions.create(self._url, **kwargs))
+        try:
+            client = (connect(self._url) if not kwargs
+                      else connect(options=ClientOptions.create(self._url, **kwargs)))
+            with client as opened:
+                yield opened
+        except Exception as exc:
+            credential.note_refusal(exc)
+            raise
 
     def _rest(self, call):
         """Runs ``call(client)`` against the engine's REST surface through the SDK."""
@@ -288,14 +318,25 @@ class Engine:
 
     def health(self) -> dict:
         """Whether the engine answers at all, and what it is running."""
+        # Asked on every page, the public ones included, so it must not end a session: what a
+        # page's own calls learn about the credential decides that, not the chrome's probe.
+        held = credential.current()
+        marks = (held.expired, held.must_change) if held is not None else None
         try:
             with self._client() as client:
                 queries = client.queries()
             return {"reachable": True, "url": self._url, "queries": len(queries)}
         except Exception as exc:  # noqa: BLE001 -- deliberate: see below
+            # An engine that refused the credential (a visitor with none, a session that has
+            # ended) answered: it is reachable, and what it holds is not this caller's to count.
+            if _refused_credential(exc):
+                return {"reachable": True, "url": self._url, "queries": 0}
             # Reported rather than raised: a console whose own page 500s when the engine is
             # down is a console that cannot tell you the engine is down.
             return {"reachable": False, "url": self._url, "error": str(exc)}
+        finally:
+            if held is not None and marks is not None:
+                held.expired, held.must_change = marks
 
     def queries(self) -> list[QueryRow]:
         with self._client() as client:
@@ -645,3 +686,123 @@ class Engine:
         """Each tenant's use against its admission quotas, and its refusals (ADR-050):
         ``GET /api/v1/tenants``, through the SDK's ``Client.tenants``."""
         return dict(self._rest(lambda c: c.tenants()) or {})
+
+    # ------------------------------------------------------------------ identity (ADR-052)
+    #
+    # The engine is the identity authority: signing in, the person's own account, and the
+    # administration of users, keys and sessions are its REST endpoints, called here with the
+    # signed-in person's own session token -- or with none, for the sign-in itself. The console
+    # verifies nothing: a password, a key and a session are checked by the engine or not at all.
+
+    def _identity(self, method: str, path: str, body: dict | None = None,
+                  query: dict | None = None, *, anonymous: bool = False):
+        """``method`` on ``/api/v1<path>`` through the SDK's HTTP client, as this request's person
+        (or as nobody, for the sign-in), with a refusal as an :class:`EngineHttpError`."""
+        if not self._http:
+            raise EngineHttpError(0, "no engine HTTP URL is configured (engine.http_url)")
+        rest = _IdentityRest(self._http, token=None if anonymous else credential.token(),
+                             timeout_seconds=self._http_timeout, allow_insecure_token=True)
+        try:
+            return rest.send(method, "/api/v1" + path, body, query)
+        except Exception as exc:
+            if not anonymous:
+                credential.note_refusal(exc)
+            translated = _translated(exc)
+            if translated is exc:
+                raise
+            raise translated from exc
+
+    def login(self, username: str, password: str) -> dict:
+        """``POST auth/login``: ``{token, expiresAt, mustChangePassword, mfa}``, or the engine's
+        refusal (``PRV-7010`` credentials refused, ``PRV-7011`` locked)."""
+        return dict(self._identity("POST", "/auth/login", {"username": username, "password": password},
+                                   anonymous=True) or {})
+
+    def logout(self) -> None:
+        self._identity("POST", "/auth/logout", {})
+
+    def me(self) -> dict:
+        """``GET auth/me``: the principal and the person's own fields."""
+        return dict(self._identity("GET", "/auth/me") or {})
+
+    def change_password(self, current: str, new: str) -> None:
+        self._identity("POST", "/auth/password", {"current": current, "new": new})
+
+    def redeem_reset(self, token: str, password: str) -> None:
+        """``POST auth/reset/redeem``: single use, and it ends every session of the person."""
+        self._identity("POST", "/auth/reset/redeem", {"token": token, "password": password},
+                       anonymous=True)
+
+    def users(self) -> list[dict]:
+        return _items(self._identity("GET", "/users"), "users")
+
+    def create_user(self, fields: dict) -> dict:
+        return dict(self._identity("POST", "/users", fields) or {})
+
+    def update_user(self, username: str, fields: dict) -> dict:
+        return dict(self._identity("PATCH", "/users/" + _segment(username), fields) or {})
+
+    def set_roles(self, username: str, roles: list[str]) -> dict:
+        return dict(self._identity("PUT", "/users/" + _segment(username) + "/roles",
+                                   {"roles": list(roles)}) or {})
+
+    def reset_password(self, username: str) -> dict:
+        """``{resetToken, expiresAt}``: the token is in this answer and nowhere else, ever."""
+        return dict(self._identity("POST", "/users/" + _segment(username) + "/password-reset", {}) or {})
+
+    def keys(self, all_keys: bool = False) -> list[dict]:
+        return _items(self._identity("GET", "/keys", query={"all": "true"} if all_keys else None), "keys")
+
+    def create_key(self, name: str, roles: list[str], expires_days: int,
+                   for_user: str | None = None) -> dict:
+        """``{key, keyId, expiresAt}``: the key is in this answer and nowhere else, ever."""
+        body: dict = {"name": name, "roles": list(roles), "expiresDays": int(expires_days)}
+        if for_user:
+            body["forUser"] = for_user
+        return dict(self._identity("POST", "/keys", body) or {})
+
+    def revoke_key(self, key_id: str) -> None:
+        self._identity("DELETE", "/keys/" + _segment(key_id))
+
+    def rotate_key(self, key_id: str) -> dict:
+        """``{key, keyId, expiresAt, oldExpiresAt}``: the successor, shown once."""
+        return dict(self._identity("POST", "/keys/" + _segment(key_id) + "/rotate", {}) or {})
+
+    def key_report(self) -> dict:
+        return dict(self._identity("GET", "/keys/report") or {})
+
+    def sessions(self, all_sessions: bool = False) -> list[dict]:
+        return _items(self._identity("GET", "/sessions", query={"all": "true"} if all_sessions else None),
+                      "sessions")
+
+    def end_session(self, session_id: str) -> None:
+        self._identity("DELETE", "/sessions/" + _segment(session_id))
+
+
+def _segment(value: str) -> str:
+    """One path segment, escaped: a username or a key id is never a path of its own."""
+    return urllib.parse.quote(str(value), safe="")
+
+
+def _items(answer, name: str) -> list[dict]:
+    """A list the engine answered bare or wrapped (``{"<name>": [...]}`` or ``{"items": [...]}``)."""
+    if isinstance(answer, dict):
+        answer = answer.get(name, answer.get("items", []))
+    return [dict(item) for item in (answer or []) if isinstance(item, dict)]
+
+
+def _identity_rest_class():
+    from pravaha.rest import RestClient
+
+    class IdentityRest(RestClient):
+        """The SDK's HTTP client with the verbs the identity endpoints use: its GET and POST, and
+        DELETE, PUT and PATCH through the same request path (headers, TLS, error decoding)."""
+
+        def send(self, method: str, path: str, body=None, query=None):
+            payload = self._call(method, path, body, query)
+            return json.loads(payload.decode("utf-8") or "null")
+
+    return IdentityRest
+
+
+_IdentityRest = _identity_rest_class()

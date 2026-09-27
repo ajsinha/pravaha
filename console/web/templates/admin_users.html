@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% from "_admin_head.html" import admin_head with context %}
+{% import "_states.html" as states %}
+{% import "_people.html" as people %}
+{% block title %}{{ t('admin.users.title') }} — {{ app_name }}{% endblock %}
+{% block content %}
+{#- ADR-052: the engine's users, administered through its REST API as the signed-in
+    administrator. A person is disabled, never deleted: the audit trail and the registry name
+    owners by id. A reset token is shown once, here, and the engine keeps only its hash. -#}
+{{ admin_head('users', t('admin.users.heading')) }}
+<p class="lede">{{ t('admin.users.lede') }}</p>
+
+{{ people.flashes(flashes) }}
+{{ people.issued_secret(issued) }}
+
+{% if denied %}
+{{ people.not_permitted(denied, 'users-not-permitted') }}
+{% elif users_error %}
+{{ states.error(users_error, retry_href='/admin/users', id='users-error', title=t('admin.users.error')) }}
+{% else %}
+<div class="card mb-3"><div class="table-responsive" tabindex="0" role="region" aria-label="{{ t('admin.users.caption') }}"><table class="table table-sm mb-0 small" id="users-table">
+  <caption class="visually-hidden">{{ t('admin.users.caption') }}</caption>
+  <thead><tr>
+    <th scope="col">{{ t('admin.users.col.user') }}</th><th scope="col">{{ t('admin.users.col.tenant') }}</th>
+    <th scope="col">{{ t('admin.users.col.roles') }}</th><th scope="col">{{ t('admin.users.col.status') }}</th>
+    <th scope="col">{{ t('admin.users.col.last_login') }}</th><th scope="col">{{ t('people.col.actions') }}</th>
+  </tr></thead>
+  <tbody>{% for u in users %}<tr data-user="{{ u.username }}">
+    <th scope="row" class="fw-normal"><span class="mono">{{ u.username }}</span>{% if u.displayName %}<div class="text-muted">{{ u.displayName }}</div>{% endif %}</th>
+    <td class="mono">{{ u.tenant or '—' }}</td>
+    <td><form method="post" action="/admin/users/{{ u.username }}/roles" class="d-flex gap-1 m-0">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label class="visually-hidden" for="roles-{{ loop.index }}">{{ t('admin.users.roles_for', user=u.username) }}</label>
+      <input class="form-control form-control-sm mono" id="roles-{{ loop.index }}" name="roles" value="{{ u.roles|join(', ') }}" autocomplete="off">
+      <button class="btn btn-sm btn-outline-secondary" type="submit" aria-label="{{ t('admin.users.set_roles_label', user=u.username) }}">{{ t('admin.users.set_roles') }}</button>
+    </form></td>
+    <td><span class="chip {{ 'ok' if u.status == 'active' else 'bad' }}">{{ u.status }}</span>
+      {% if u.mustChangePassword %} <span class="chip warn">{{ t('admin.users.must_change') }}</span>{% endif %}
+      {% if u.lockedUntil %} <span class="chip warn" title="{{ u.lockedUntil }}">{{ t('admin.users.locked') }}</span>{% endif %}</td>
+    <td>{{ people.when(u.lastLoginAt) }}</td>
+    <td><div class="d-flex flex-wrap gap-1">
+      <form method="post" action="/admin/users/{{ u.username }}/status" class="m-0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="status" value="{{ 'disabled' if u.status == 'active' else 'active' }}">
+        <button class="btn btn-sm {{ 'btn-outline-danger' if u.status == 'active' else 'btn-outline-secondary' }}" type="submit"
+                aria-label="{{ t('admin.users.disable_label' if u.status == 'active' else 'admin.users.enable_label', user=u.username) }}">{{ t('admin.users.disable') if u.status == 'active' else t('admin.users.enable') }}</button>
+      </form>
+      <form method="post" action="/admin/users/{{ u.username }}/password-reset" class="m-0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="btn btn-sm btn-outline-secondary" type="submit" aria-label="{{ t('admin.users.reset_label', user=u.username) }}">{{ t('admin.users.reset') }}</button>
+      </form>
+    </div></td>
+  </tr>{% endfor %}</tbody>
+</table></div></div>
+
+<form method="post" action="/admin/users" class="card" id="user-create-form" aria-labelledby="user-create-title"><div class="card-body">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <h2 class="h6" id="user-create-title">{{ t('admin.users.create') }}</h2>
+  <div class="row g-2 align-items-end">
+    <div class="col-sm-6 col-lg-3"><label class="form-label small" for="nu-username">{{ t('admin.users.username') }}</label>
+      <input class="form-control form-control-sm mono" id="nu-username" name="username" required autocomplete="off" autocapitalize="none" spellcheck="false"></div>
+    <div class="col-sm-6 col-lg-3"><label class="form-label small" for="nu-display">{{ t('admin.users.display_name') }}</label>
+      <input class="form-control form-control-sm" id="nu-display" name="displayName" autocomplete="off"></div>
+    <div class="col-sm-6 col-lg-3"><label class="form-label small" for="nu-email">{{ t('admin.users.email') }}</label>
+      <input class="form-control form-control-sm" id="nu-email" name="email" type="email" autocomplete="off"></div>
+    <div class="col-sm-6 col-lg-3"><label class="form-label small" for="nu-tenant">{{ t('admin.users.tenant') }}</label>
+      <input class="form-control form-control-sm mono" id="nu-tenant" name="tenant" autocomplete="off"></div>
+    <div class="col-sm-6 col-lg-6"><label class="form-label small" for="nu-roles">{{ t('admin.users.roles') }}</label>
+      <input class="form-control form-control-sm mono" id="nu-roles" name="roles" autocomplete="off" aria-describedby="nu-roles-note">
+      <div class="form-text small" id="nu-roles-note">{{ t('admin.users.roles_note') }}</div></div>
+    <div class="col-sm-6 col-lg-6"><label class="form-label small" for="nu-password">{{ t('admin.users.password') }}</label>
+      <input class="form-control form-control-sm" id="nu-password" name="password" type="password" required autocomplete="new-password" aria-describedby="nu-password-note">
+      <div class="form-text small" id="nu-password-note">{{ t('admin.users.password_note') }}</div></div>
+  </div>
+  <button class="btn btn-sm btn-primary mt-2" type="submit">{{ t('admin.users.create_button') }}</button>
+</div></form>
+{% endif %}
+{% endblock %}

@@ -34,6 +34,7 @@ import time
 from collections.abc import Callable, Iterator
 from typing import Any
 
+from core import credential
 from core.engine import Engine, QueryRow
 
 
@@ -389,10 +390,16 @@ class Broadcaster:
 
     def subscribe(self, view: str, filters: dict | None = None) -> Subscriber:
         key = view if not filters else view + "?" + "&".join(f"{k}={v}" for k, v in sorted(filters.items()))
+        # One feed per person as well as per view (ADR-052): the engine filters what each
+        # principal may read of a view, so a subscription opened with one person's session is
+        # never handed to another. Two tabs of the same person still share one.
+        held = credential.current()
+        key = (held.scope() if held is not None else "-") + "|" + key
         with self._lock:
             feed = self._feeds.get(key)
             if feed is None:
-                feed = _Feed(self._engine, view, filters or {}, lambda: self._release(key))
+                feed = _Feed(self._engine, view, filters or {}, lambda: self._release(key),
+                             owner=credential.Credential(held.token) if held is not None else None)
                 self._feeds[key] = feed
             return feed.attach()
 
@@ -486,8 +493,12 @@ class _Feed:
     it: whatever the copy lacks, the subscriber is offered, and nothing twice.
     """
 
-    def __init__(self, engine: Engine, view: str, filters: dict, on_empty: Callable[[], None]) -> None:
+    def __init__(self, engine: Engine, view: str, filters: dict, on_empty: Callable[[], None],
+                 owner: credential.Credential | None = None) -> None:
         self._engine = engine
+        #: Whose session the upstream subscription is opened with. The pump runs on a thread of
+        #: its own, which does not inherit the request's context, so it carries the credential.
+        self._owner = owner
         self._view = view
         self._filters = filters
         self._on_empty = on_empty
@@ -544,6 +555,10 @@ class _Feed:
         return [dict(row, _weight=weight) for row, weight in self._state.values()]
 
     def _pump(self) -> None:
+        with credential.bound(self._owner):
+            self._pump_as_owner()
+
+    def _pump_as_owner(self) -> None:
         try:
             for kind, rows, frontier in self._engine.mirror(self._view, self._filters):
                 if self._stop.is_set():
@@ -644,8 +659,9 @@ class CatalogService:
         self._engine = engine
         self._ttl = ttl_seconds
         self._lock = threading.Lock()
-        self._cached: list[dict] | None = None
-        self._at = 0.0
+        # By the person asking (ADR-052): the engine lists the streams each principal may read,
+        # so one person's catalogue is never another's answer, however recently it was asked.
+        self._cached: dict[str, tuple[list[dict], float]] = {}
 
     def forget(self) -> None:
         """Drop what is cached, so the next read asks the engine.
@@ -656,19 +672,20 @@ class CatalogService:
         photographs whatever the previous page load left behind.
         """
         with self._lock:
-            self._cached, self._at = None, 0.0
+            self._cached = {}
 
     def streams(self, fresh: bool = False) -> list[dict]:
+        whose = credential.scope()
         with self._lock:
-            if (not fresh and self._cached is not None
-                    and time.monotonic() - self._at < self._ttl):
-                return self._cached
+            held = self._cached.get(whose)
+            if not fresh and held is not None and time.monotonic() - held[1] < self._ttl:
+                return held[0]
         try:
             streams = sorted(self._engine.streams(), key=lambda s: str(s.get("name", "")))
         except Exception as exc:
             raise _refusal(exc, 503) from exc
         with self._lock:
-            self._cached, self._at = streams, time.monotonic()
+            self._cached[whose] = (streams, time.monotonic())
         return streams
 
     def streams_or_empty(self) -> list[dict]:
@@ -720,7 +737,7 @@ class CatalogService:
         except Exception as exc:
             raise _refusal(exc) from exc
         with self._lock:
-            self._cached = None
+            self._cached = {}
         return declared
 
     def completions(self) -> dict:
@@ -1502,6 +1519,8 @@ class Services:
         self.ops = OpsService(engine, self.queries, self.feeds,
                               lag_warn_seconds).with_authoring(self.authoring)
         self.plugins = PluginService(engine, self.catalog)
+        from core.accounts import AccountService
         from core.admin import AdminService
 
         self.admin = AdminService(engine)
+        self.accounts = AccountService(engine)

@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% from "_admin_head.html" import admin_head with context %}
+{% import "_states.html" as states %}
+{% import "_people.html" as people %}
+{% block title %}{{ t('admin.keys.title') }} — {{ app_name }}{% endblock %}
+{% block content %}
+{#- ADR-052: every API key the engine holds, by its keyId -- the lookup index and the audit
+    handle. Never a secret: the engine stores only a hash of one and shows it once, to whoever
+    created the key. The report is the engine's: unused, near expiry, superseded. -#}
+{{ admin_head('keys', t('admin.keys.heading')) }}
+<p class="lede">{{ t('admin.keys.lede') }}</p>
+
+{{ people.flashes(flashes) }}
+
+{% if denied %}
+{{ people.not_permitted(denied, 'keys-not-permitted') }}
+{% elif keys_error %}
+{{ states.error(keys_error, retry_href='/admin/keys', id='keys-error', title=t('admin.keys.error')) }}
+{% else %}
+<section class="mb-4" aria-labelledby="report-title" id="key-report">
+  <h2 class="h5" id="report-title">{{ t('admin.keys.report.title') }}</h2>
+  {% if report_error %}
+  {{ states.partial(body=t('admin.keys.report.error'), id='report-error') }}
+  {% elif report %}
+  <div class="row g-3">
+    {% for part in ('unused', 'expiring', 'superseded') %}
+    <div class="col-md-4"><section class="card h-100" aria-labelledby="report-{{ part }}-title"><div class="card-body">
+      <h3 class="h6" id="report-{{ part }}-title">{{ t('admin.keys.report.' ~ part) }} <span class="chip mute">{{ report[part]|length }}</span></h3>
+      <p class="small text-muted">{{ t('admin.keys.report.' ~ part ~ '_note') }}</p>
+      {% if report[part] %}
+      <ul class="list-unstyled small mb-0" id="report-{{ part }}">{% for k in report[part] %}
+        <li><span class="mono">{{ k.keyId }}</span> <span class="text-muted">{{ k.name }}{% if k.holder %} · {{ k.holder }}{% endif %}</span></li>
+      {% endfor %}</ul>
+      {% else %}<p class="small mb-0">{{ t('admin.keys.report.none') }}</p>{% endif %}
+    </div></section></div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+
+<h2 class="h5">{{ t('admin.keys.all') }}</h2>
+{% if not keys %}
+{{ states.empty(t('admin.keys.none.title'), body=t('admin.keys.none.body'), id='keys-none') }}
+{% else %}
+<div class="card"><div class="table-responsive" tabindex="0" role="region" aria-label="{{ t('admin.keys.caption') }}"><table class="table table-sm mb-0 small" id="keys-table">
+  <caption class="visually-hidden">{{ t('admin.keys.caption') }}</caption>
+  <thead><tr>
+    <th scope="col">{{ t('people.col.key_id') }}</th><th scope="col">{{ t('people.col.name') }}</th>
+    <th scope="col">{{ t('people.col.holder') }}</th><th scope="col">{{ t('people.col.roles') }}</th>
+    <th scope="col">{{ t('people.col.created') }}</th><th scope="col">{{ t('people.col.expires') }}</th>
+    <th scope="col">{{ t('people.col.last_used') }}</th><th scope="col">{{ t('people.col.status') }}</th>
+    <th scope="col">{{ t('people.col.actions') }}</th>
+  </tr></thead>
+  <tbody>{% for k in keys %}<tr data-key="{{ k.keyId }}">
+    <td class="mono">{{ k.keyId }}</td><td>{{ k.name }}</td><td class="mono">{{ k.holder }}</td>
+    <td>{% for r in k.roles %}<span class="chip mute me-1">{{ r }}</span>{% endfor %}</td>
+    <td>{{ people.when(k.createdAt) }}</td><td>{{ people.when(k.expiresAt) }}</td><td>{{ people.when(k.lastUsedAt) }}</td>
+    <td><span class="chip {{ 'ok' if k.status == 'active' else 'mute' }}">{{ k.status }}</span>
+      {% if k.supersededBy %}<div class="text-muted">{{ t('admin.keys.superseded_by', key_id=k.supersededBy) }}</div>{% endif %}</td>
+    <td>{% if k.status == 'active' %}<form method="post" action="/admin/keys/{{ k.keyId }}/revoke" class="m-0">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="btn btn-sm btn-outline-danger" type="submit" aria-label="{{ t('account.keys.revoke_label', key_id=k.keyId) }}">{{ t('account.keys.revoke') }}</button>
+    </form>{% endif %}</td>
+  </tr>{% endfor %}</tbody>
+</table></div></div>
+{% endif %}
+{% endif %}
+{% endblock %}

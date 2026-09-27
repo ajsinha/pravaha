@@ -308,7 +308,10 @@
       <dt class="col-sm-3">{{ t('about.install.console') }}</dt><dd class="col-sm-9 mono">{{ console_version }}</dd>
       <dt class="col-sm-3">{{ t('about.install.engine') }}</dt>
       <dd class="col-sm-9" id="engine-status">
-        {% if engine_status.reachable %}
+        {% if engine_status.private %}
+          <span class="chip ok">{{ t('shell.engine_up') }}</span>
+          <span class="small text-muted ms-2">{{ t('about.install.engine_private') }}</span>
+        {% elif engine_status.reachable %}
           <span class="mono">{{ engine_status.version or '—' }}</span>
           <span class="chip ok ms-2">{{ engine_status.state or '—' }}</span>
         {% else %}

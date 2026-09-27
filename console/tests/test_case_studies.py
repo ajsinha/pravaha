@@ -34,7 +34,6 @@ from run_pravaha_web import create_app
 @pytest.fixture(scope="module")
 def anonymous():
     config = PropertiesConfigurator(str(CONSOLE_ROOT / "config" / "application.yaml"))
-    config.set("console.password", "case-studies-test-password")
     config.set("console.session_secret", "case-studies-test-secret")
     return fastapi_testclient.TestClient(create_app(config, engine=FakeEngine()), follow_redirects=False)
 

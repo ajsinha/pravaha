@@ -16,6 +16,7 @@ import time
 from fastapi import Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
+from core import credential
 from core.about import MEASURED, PRINCIPLES, PROBLEMS, AboutSource
 from core.competitive import BEHIND, SHINE
 from core.help_catalog import ERROR_FAMILIES, HelpCatalog
@@ -82,9 +83,17 @@ class PublicRoutes(Routes):
                              behind=land.cards(BEHIND), sections=land.sections())
 
         def engine_status() -> dict:
+            # On a credential of its own: a public page reports what the engine said, and never
+            # ends the session of a visitor who happens to have one (routes.web_security).
             try:
-                raw = self.ctx["services"].engine.status()
-            except Exception:  # noqa: BLE001 -- an unreachable engine is a state, not an error here
+                with credential.bound(credential.Credential(credential.token())):
+                    raw = self.ctx["services"].engine.status()
+            except Exception as exc:  # noqa: BLE001 -- an unreachable engine is a state, not an error here
+                if getattr(exc, "status", None) in (401, 403) or credential.code_of(exc) in (
+                        "PRV-7001", "PRV-7016", "PRV-7018", "PRV-7002"):
+                    # ADR-052: the engine answers its status to a signed-in caller only. It is
+                    # there; what it runs is for whoever signs in.
+                    return {"reachable": True, "private": True}
                 return {"reachable": False}
             if not raw:
                 return {"reachable": False}
@@ -200,7 +209,7 @@ class PublicRoutes(Routes):
             """One PRV code: what the documentation says about it, gathered onto one page.
 
             Public, like the rest of the documentation: a code read off a log during an
-            incident should explain itself before anybody has found the console password.
+            incident should explain itself before anybody has signed in.
             """
             from core.content.codes import lookup
 

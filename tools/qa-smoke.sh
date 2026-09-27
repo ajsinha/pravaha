@@ -33,7 +33,13 @@ docker_bin="${DOCKER:-docker}"
 http_port="${QA_HTTP_PORT:-28080}"
 flight_port="${QA_FLIGHT_PORT:-29090}"
 console_port="${QA_CONSOLE_PORT:-27070}"
-password="qa-smoke-$RANDOM"
+# ADR-052: the console signs in against the engine, which is the identity authority. A node with
+# an empty identity store creates its bootstrap administrator, `admin`, with this password, and
+# outside the dev profile starts with it only when told it may (allow-default-admin-password) -- a
+# throwaway node for one smoke run is exactly that case. QA_ADMIN_PASSWORD overrides it, for an
+# image whose installer set its own.
+admin_user="${QA_ADMIN_USER:-admin}"
+admin_password="${QA_ADMIN_PASSWORD:-pravaha-dev-admin}"
 name="pravaha-qa-smoke-$$"
 
 while [[ $# -gt 0 ]]; do
@@ -92,6 +98,7 @@ step "a node, from the image"
 "$docker_bin" run -d --rm --name "$name" \
   -p "$http_port:18080" -p "$flight_port:19090" \
   -e PRAVAHA_SECURITY_ALLOWANONYMOUS=true \
+  -e PRAVAHA_IDENTITY_ALLOWDEFAULTADMINPASSWORD=true \
   -v "$work/data:/opt/pravaha/data" "$image" >/dev/null
 echo "      $image as $name, http $http_port, flight $flight_port"
 
@@ -131,13 +138,13 @@ if [[ ! -x "$root/console/.venv/bin/python" ]]; then
 fi
 # `exec`, so that $! is the console itself and not the subshell around it. Without it the
 # cleanup kills a shell that has already gone and leaves the console running -- and the NEXT run
-# of this script talks to the previous run's console, which still holds the previous run's
-# password, and reports the failed sign-in as five broken pages. Found exactly that way.
+# of this script talks to the previous run's console, pointed at the previous run's node, and
+# reports the failed sign-in as five broken pages. Found exactly that way.
+# No password and no engine token for the console: it holds neither (ADR-052).
 (
   cd "$root/console"
   exec env PRAVAHA_ENGINE="grpc://localhost:$flight_port" \
       PRAVAHA_ENGINE_HTTP="http://localhost:$http_port" \
-      CONSOLE_PASSWORD="$password" \
       CONSOLE_SESSION_SECRET="qa-smoke-secret" \
       CONSOLE_PORT="$console_port" \
       .venv/bin/python run_pravaha_web.py > "$work/console.log" 2>&1
@@ -164,8 +171,21 @@ done
 
 step "signed in, against the running node"
 rm -f "$jar"
-curl -s -c "$jar" -b "$jar" -o /dev/null -X POST \
-  -d "password=$password&role=operator&next=/home" "http://localhost:$console_port/login"
+# As a browser does it: the form first, for the session's CSRF token, then the post. The console
+# asks the engine (POST /api/v1/auth/login) and keeps the session it answers with.
+csrf="$(curl -s -c "$jar" -b "$jar" "http://localhost:$console_port/login" \
+  | sed -n 's/.*name="csrf_token" value="\([^"]*\)".*/\1/p' | head -1)"
+if [[ -z "$csrf" ]]; then bad "the sign-in form carries no CSRF token"; fi
+signed="$(curl -s -c "$jar" -b "$jar" -o /dev/null -w '%{http_code} %{redirect_url}' -X POST \
+  --data-urlencode "username=$admin_user" --data-urlencode "password=$admin_password" \
+  --data-urlencode "csrf_token=$csrf" --data-urlencode "next=/home" \
+  "http://localhost:$console_port/login")"
+case "$signed" in
+  "303 "*/account/password) ok "$admin_user signed in, and the engine says the password must change first"
+                            bad "this smoke run cannot change it; start the node without force-change" ;;
+  "303 "*)                  ok "$admin_user signed in against the engine ($signed)" ;;
+  *)                        bad "signing in as $admin_user answered '$signed' -- the engine refused it, or has no auth/login" ;;
+esac
 for page in /catalog /operations /workbench /queries; do
   if [[ "$(code "$page")" == "200" ]]; then ok "$page renders"
   else bad "$page answered $(code "$page")"; fi
@@ -177,6 +197,13 @@ if curl -s -b "$jar" -L "http://localhost:$console_port/overview" | grep -q "RUN
   ok "the overview reports the engine RUNNING, so the console really reached it"
 else
   bad "the overview does not report the engine as running -- the console is not reaching the node"
+fi
+
+# The console acted as the person, not as itself: the engine's own answer to who is asking.
+if curl -s -b "$jar" "http://localhost:$console_port/account" | grep -q "Signed in as $admin_user"; then
+  ok "the account page names $admin_user, from the engine's GET /api/v1/auth/me"
+else
+  bad "the account page does not name $admin_user -- the console is not reading auth/me as the person"
 fi
 
 step "done"

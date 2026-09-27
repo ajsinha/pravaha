@@ -22,8 +22,10 @@ fastapi_testclient = pytest.importorskip("fastapi.testclient")
 CONSOLE_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(CONSOLE_ROOT))
 
+from fake_identity import csrf_of, sign_in
+
 from core.config.properties_configurator import PropertiesConfigurator
-from core.engine import Engine
+from core.engine import Engine, EngineHttpError
 from run_pravaha_web import create_app
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -132,58 +134,80 @@ def feed(engine):
     return append
 
 
+USER = "operator-one"
+PASSWORD = "Test-console-password-1"
+#: The engine session the stand-in hands out: a secret the console holds for the person, in its
+#: signed cookie, and repeats on no page.
+SESSION_TOKEN = "prv_s_s3cret-engine-session-token-should-never-render"
+SESSION_SECRET = "s3cret-session-signing-key-should-never-render"
+
+
+class SignInOnly(Engine):
+    """The real engine adapter, with ADR-052's identity endpoints answered as the engine answers
+    them -- because the Flight test server these tests start has no HTTP surface at all. Every
+    Flight call is the real one, carrying the session the stand-in issued; the server here does
+    not authenticate, so what these tests prove is that the console signs in, holds the session
+    and carries it, not that the engine checks it (the engine's own tests do)."""
+
+    def login(self, username, password):
+        if (username, password) != (USER, PASSWORD):
+            raise EngineHttpError(401, "the username or password was not accepted", "PRV-7010")
+        return {"token": SESSION_TOKEN, "expiresAt": "2099-01-01T00:00:00Z",
+                "mustChangePassword": False, "mfa": "ok"}
+
+    def me(self):
+        return {"username": USER, "principal": USER, "roles": ["operator"], "tenant": "public"}
+
+    def logout(self):
+        return None
+
+
+def _app(engine_url, secret="test-only-secret", **settings):
+    config = PropertiesConfigurator(str(CONSOLE_ROOT / "config" / "application.yaml"))
+    config.set("engine.url", engine_url)
+    # No HTTP surface: the Flight test server has none, and the default names localhost:18080 -- where
+    # a developer's own node may be running, with credentials these tests do not hold. Left in, the
+    # suite's answer depended on what else was running on the machine.
+    config.set("engine.http_url", "")
+    config.set("console.session_secret", secret)
+    for key, value in settings.items():
+        config.set(key, value)
+    return fastapi_testclient.TestClient(create_app(config, engine=SignInOnly(
+        engine_url, http_url=config.get("engine.http_url") or None)))
+
+
 @pytest.fixture
 def client(engine_url):
-    """The real application, built the way `run_pravaha_web.py` builds it.
+    """The real application, built the way `run_pravaha_web.py` builds it, over the real
+    engine adapter.
 
     Through the configurator rather than by constructing services directly, so
     the tests exercise the wiring an operator actually gets -- including which
     templates exist and which routes are registered.
     """
-    config = PropertiesConfigurator(str(CONSOLE_ROOT / "config" / "application.yaml"))
-    config.set("engine.url", engine_url)
-    config.set("console.password", CONSOLE_PASSWORD)
-    config.set("console.session_secret", "test-only-secret")
-    client = fastapi_testclient.TestClient(create_app(config))
+    client = _app(engine_url)
     # Signed in, because every route that names a registered query -- reading or writing --
     # is gated now. A fixture that did not would exercise the login redirect instead of the
     # thing each test is about -- and the gate itself is tested directly, below.
-    client.post("/login", data={"password": CONSOLE_PASSWORD, "next": "/overview"})
+    sign_in(client, USER, PASSWORD, "/overview")
     return client
-
-
-CONSOLE_PASSWORD = "test-console-password"
 
 
 @pytest.fixture
 def anonymous(engine_url):
-    """A client that has not signed in."""
-    config = PropertiesConfigurator(str(CONSOLE_ROOT / "config" / "application.yaml"))
-    config.set("engine.url", engine_url)
-    config.set("console.password", CONSOLE_PASSWORD)
-    config.set("console.session_secret", "test-only-secret")
-    return fastapi_testclient.TestClient(create_app(config))
-
-
-ENGINE_TOKEN = "s3cret-engine-bearer-token-should-never-render"
-SESSION_SECRET = "s3cret-session-signing-key-should-never-render"
+    """A client that has not signed in, holding its session's CSRF token as a browser that has
+    opened the sign-in form does -- so what refuses it is the sign-in gate."""
+    client = _app(engine_url)
+    client.headers["X-CSRF-Token"] = csrf_of(client.get("/login").text)
+    return client
 
 
 @pytest.fixture
 def secretive_client(engine_url):
-    """Every secret this console holds set to a distinctive, greppable value.
-
-    Not a fixture other tests share: setting an engine token this deployment does not
-    expect is exactly the kind of thing that should stay confined to the one test that
-    needs it.
-    """
-    config = PropertiesConfigurator(str(CONSOLE_ROOT / "config" / "application.yaml"))
-    config.set("engine.url", engine_url)
-    config.set("engine.token", ENGINE_TOKEN)
-    config.set("console.password", CONSOLE_PASSWORD)
-    config.set("console.session_secret", SESSION_SECRET)
-    client = fastapi_testclient.TestClient(create_app(config))
-    client.post("/login", data={"password": CONSOLE_PASSWORD, "next": "/overview"})
+    """Every secret this console holds set to a distinctive, greppable value: the session
+    secret, and the engine session the person was issued."""
+    client = _app(engine_url, secret=SESSION_SECRET)
+    sign_in(client, USER, PASSWORD, "/overview")
     return client
 
 
@@ -302,10 +326,10 @@ def test_dropping_a_query_needs_its_name_typed_not_just_clicked_through(client):
 
 
 def test_no_secret_is_ever_serialised_to_the_browser(secretive_client):
-    # §23.20's own words. The engine bearer token and the session-signing secret are the
-    # two values this console holds that must never cross into anything a browser receives
-    # -- the cookie is signed with the session secret, not carrying it, and the engine
-    # token authenticates a server-to-server call the browser is never party to. Checked
+    # §23.20's own words. The person's engine session and the session-signing secret are the
+    # two values this console holds that must never appear in anything a page or an endpoint
+    # answers -- the cookie is signed with the session secret, not carrying it, and the engine
+    # session travels only in that HttpOnly cookie and on the console's own calls. Checked
     # across every page and API response the rest of the suite exercises, on a real running
     # engine and a registered query, rather than asserted about one screen in isolation.
     secretive_client.post(
@@ -319,18 +343,19 @@ def test_no_secret_is_ever_serialised_to_the_browser(secretive_client):
         ]
         for path in pages:
             body = secretive_client.get(path).text
-            assert ENGINE_TOKEN not in body, f"engine token leaked on {path}"
+            assert SESSION_TOKEN not in body, f"engine session leaked on {path}"
             assert SESSION_SECRET not in body, f"session secret leaked on {path}"
 
         # A bad query's own error text is the likeliest accidental leak: an engine message
         # that happened to echo back configuration would land here first.
         bad = secretive_client.post(
             "/workbench", data={"sql": "SELECT * FROM nowhere", "params": ""}).text
-        assert ENGINE_TOKEN not in bad
+        assert SESSION_TOKEN not in bad
         assert SESSION_SECRET not in bad
 
         # And the session cookie itself carries a signature, not the secret that produced it.
-        session_cookie = secretive_client.cookies.get("session") or ""
+        session_cookie = secretive_client.cookies.get("pravaha_console") or ""
+        assert session_cookie, "the console's session cookie is named pravaha_console"
         assert SESSION_SECRET not in session_cookie
     finally:
         secretive_client.post("/queries/secrets_check/drop")
@@ -747,7 +772,8 @@ def test_an_anonymous_visitor_cannot_drop_a_query(anonymous, client):
     try:
         # Before this gate existed, the console held one engine token and acted as it for
         # everyone: anyone who could reach the port could destroy production state, and
-        # nothing recorded who did.
+        # nothing recorded who did. Since ADR-052 it holds none: a visitor has no engine
+        # session, so there is nobody the console could act as.
         refused = anonymous.post("/queries/guarded/drop", follow_redirects=False)
 
         assert refused.status_code == 303
@@ -829,35 +855,27 @@ def test_the_admin_json_refuses_an_anonymous_caller_with_401(anonymous, path):
 def test_the_audit_screen_names_the_missing_http_url_rather_than_showing_an_empty_trail(engine_url):
     # This engine is reached over Flight only, and the audit trail is an HTTP endpoint: with no
     # engine.http_url the screen says which setting is missing, and is not an empty table.
-    config = PropertiesConfigurator(str(CONSOLE_ROOT / "config" / "application.yaml"))
-    config.set("engine.url", engine_url)
-    config.set("engine.http_url", "")
-    config.set("console.password", CONSOLE_PASSWORD)
-    config.set("console.session_secret", "test-only-secret")
-    client = fastapi_testclient.TestClient(create_app(config))
-    client.post("/login", data={"password": CONSOLE_PASSWORD, "next": "/overview"})
+    client = _app(engine_url, **{"engine.http_url": ""})
+    sign_in(client, USER, PASSWORD, "/overview")
     page = client.get("/admin/audit")
     assert page.status_code == 503
     assert "could not be read" in page.text and "engine.http_url" in page.text
     assert 'id="audit-events"' not in page.text
 
 
-def test_a_wrong_password_is_refused(anonymous):
-    response = anonymous.post("/login", data={"password": "not it", "next": "/overview"})
+def test_a_wrong_password_is_refused(engine_url):
+    client = _app(engine_url)
+    response = sign_in(client, USER, "not it", "/overview", keep_token=False)
 
     assert response.status_code == 401
-    assert "not the console password" in response.text
+    assert "were not accepted" in response.text
+    assert client.get("/overview", follow_redirects=False).status_code == 303
 
 
-def test_with_no_password_configured_nobody_can_sign_in(engine_url):
-    config = PropertiesConfigurator(str(CONSOLE_ROOT / "config" / "application.yaml"))
-    config.set("engine.url", engine_url)
-    config.set("console.password", "")
-    config.set("console.session_secret", "test-only-secret")
-    unconfigured = fastapi_testclient.TestClient(create_app(config))
-
-    # The safe failure. A default password is a public password, and this console can drop
-    # queries -- so an unset one locks the controls rather than opening them.
-    page = unconfigured.get("/login")
-    assert "No console password is set" in page.text
-    assert unconfigured.post("/login", data={"password": "", "next": "/"}).status_code == 401
+def test_the_console_has_no_password_of_its_own(engine_url):
+    # ADR-052. The console's old shared password is not read any more: set it, and signing in
+    # with it is refused like any other wrong password, because only the engine checks one.
+    client = _app(engine_url, **{"console.password": "the-old-shared-password"})
+    response = sign_in(client, "", "the-old-shared-password", "/", keep_token=False)
+    assert response.status_code == 401
+    assert "No console password is set" not in client.get("/login").text

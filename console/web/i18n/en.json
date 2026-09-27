@@ -21,7 +21,10 @@
     "density": "Change density",
     "density_title": "Density (d)",
     "footer_engine": "engine at",
-    "admin": "Admin"
+    "admin": "Admin",
+    "signed_in_as": "Signed in as {user}",
+    "account": "Your account, keys and sessions",
+    "people": "Users, keys and sessions"
   },
   "nav": {
     "workbench": "Workbench",
@@ -37,7 +40,7 @@
     "help": "Help",
     "help_gloss": "the documentation that ships with the engine",
     "admin": "Admin",
-    "admin_gloss": "what the policy allows, and the audit trail"
+    "admin_gloss": "people, keys, sessions, what the policy allows, and the audit trail"
   },
   "plugins": {
     "title": "Plugins",
@@ -702,13 +705,16 @@
       "access": "Access",
       "audit": "Audit trail",
       "plugins": "Plugins",
-      "tenants": "Tenants"
+      "tenants": "Tenants",
+      "users": "Users",
+      "keys": "API keys",
+      "sessions": "Sessions"
     },
     "access": {
       "title": "Access",
-      "heading": "What this console may do",
-      "lede": "The engine's own answers, asked of its configured policy for the identity this console connects as. Read-only: grants live wherever the policy gets them, not here.",
-      "error": "The engine's permissions endpoint is not answering, so what this identity may do is unknown",
+      "heading": "What you may do",
+      "lede": "The engine's own answers, asked of its configured policy for you, the person signed in. Read-only: grants live wherever the policy gets them, not here.",
+      "error": "The engine's permissions endpoint is not answering, so what you may do is unknown",
       "identity": "Identity",
       "principal": "Principal",
       "anonymous": "anonymous",
@@ -741,7 +747,7 @@
       "none_title": "Nothing visible",
       "none_body": "The policy shows this identity none. Anything it may not see is absent rather than listed with a no, because listing it would disclose that it exists.",
       "about_title": "What this page is, and is not",
-      "about_identity": "The console reaches the engine as one identity, the token in engine.token, for everyone signed in to it. These are that identity's permissions; a role chosen in the account menu picks a landing, not a permission.",
+      "about_identity": "The console reaches the engine as you: every call carries your own session, so these are your permissions, and everything you do is audited as you. A landing chosen in the account menu picks a screen, not a permission.",
       "about_hidden": "Only what the identity could already see is listed: the engine names no view or stream here that its listing would hide.",
       "about_grants": "There is nothing to edit. The engine enforces a SecurityPolicy that a deployment implements against its own identity system, and the configured policies have no grants to change."
     },
@@ -765,7 +771,7 @@
       "error": "The audit trail could not be read",
       "denied": {
         "title": "Not permitted",
-        "body": "The engine refused to show this console's identity the audit trail. Reading it is a permission of its own, not a consequence of being allowed to read views, and this attempt has itself been recorded.",
+        "body": "The engine refused to show you the audit trail. Reading it is a permission of its own, not a consequence of being allowed to read views, and this attempt has itself been recorded.",
         "fix": "An administrator grants it in the engine's policy: under the authenticated policy, a role listed in pravaha.security.audit-readers.",
         "access": "See what this identity may do"
       },
@@ -816,8 +822,8 @@
       "no_limit": "no limit",
       "of": "{used} of {limit}",
       "scope": "Which tenants are shown",
-      "scope_all": "Every tenant on this node. The console's identity may read the audit trail, so the engine shows it every tenant.",
-      "scope_own": "Only this console's own tenant. Seeing every tenant needs permission to read the audit trail; the engine hides other tenants from anyone else.",
+      "scope_all": "Every tenant on this node. You may read the audit trail, so the engine shows you every tenant.",
+      "scope_own": "Only your own tenant. Seeing every tenant needs permission to read the audit trail; the engine hides other tenants from anyone else.",
       "none": {
         "title": "No tenant holds anything",
         "body": "No tenant visible to this identity has registered a query or been refused one. A tenant appears here once it registers or is refused."
@@ -843,6 +849,87 @@
       "about_state": "View keys held counts the keys in the views of the tenant's computations. It is checked when a registration would start a computation; a tenant whose views grew past its quota keeps running and is shown over the limit.",
       "about_null": "A limit that is not set is no limit. Zero is a limit: a tenant limited to zero queries can register none.",
       "about_sharing": "The limits are set in the node's configuration under pravaha.tenancy and are read-only here. Refusal counts start from zero when the node restarts."
+    },
+    "people": {
+      "failed": "The engine refused: {detail}"
+    },
+    "users": {
+      "title": "Users",
+      "heading": "The people who can sign in",
+      "lede": "The engine's accounts. A person is disabled, never deleted, because the audit trail and the registry name owners by id. Roles decide what the engine lets each person do.",
+      "error": "The engine did not list its users",
+      "caption": "Users",
+      "col": {
+        "user": "User",
+        "tenant": "Tenant",
+        "roles": "Roles",
+        "status": "Status",
+        "last_login": "Last sign-in"
+      },
+      "roles_for": "Roles for {user}, separated by commas",
+      "set_roles": "Set",
+      "set_roles_label": "Set the roles of {user}",
+      "must_change": "must change password",
+      "locked": "locked",
+      "disable": "Disable",
+      "enable": "Enable",
+      "disable_label": "Disable {user}",
+      "enable_label": "Enable {user}",
+      "reset": "Issue reset",
+      "reset_label": "Issue a password reset for {user}",
+      "create": "Add a person",
+      "username": "Username",
+      "display_name": "Name",
+      "email": "Email",
+      "tenant": "Tenant",
+      "roles": "Roles",
+      "roles_note": "Separated by commas, e.g. operator, developer.",
+      "password": "First password",
+      "password_note": "Checked against the engine's password policy. Tell it to them directly.",
+      "create_button": "Add",
+      "created": "{user} can now sign in.",
+      "roles_set": "The roles of {user} are set.",
+      "enabled": "{user} is enabled.",
+      "disabled": "{user} is disabled, and their sessions are ended.",
+      "bad_status": "A person is either active or disabled."
+    },
+    "keys": {
+      "title": "API keys",
+      "heading": "Every API key",
+      "lede": "Every key the engine holds, by its key id: the handle the audit trail uses. A key's secret is never shown here; the engine keeps only a hash of it.",
+      "error": "The engine did not list its keys",
+      "report": {
+        "title": "What wants attention",
+        "error": "The engine's key report did not answer, so the keys are listed without it.",
+        "unused": "Unused",
+        "expiring": "Near expiry",
+        "superseded": "Superseded",
+        "unused_note": "Never used, or not lately: candidates to revoke.",
+        "expiring_note": "Expire soon: rotate them before they do.",
+        "superseded_note": "Rotated, and still inside their overlap.",
+        "none": "None."
+      },
+      "all": "All keys",
+      "none": {
+        "title": "No API keys",
+        "body": "Nobody has made a key yet. People make their own on their account page."
+      },
+      "caption": "Every API key",
+      "superseded_by": "succeeded by {key_id}",
+      "revoked": "Key {key_id} is revoked."
+    },
+    "sessions": {
+      "title": "Sessions",
+      "heading": "Every open session",
+      "lede": "Everyone signed in, and where. Ending a session takes effect on that person's next request.",
+      "error": "The engine did not list its sessions",
+      "none": "No open sessions",
+      "caption": "Every open session",
+      "end_label": "End the session of {user} started {at}",
+      "ended": "The session is ended.",
+      "whose": "Whose sessions",
+      "filter": "Show",
+      "everyone": "Everyone's"
     }
   },
   "operations": {
@@ -1433,6 +1520,7 @@
       "console": "Console",
       "engine": "Engine",
       "engine_down": "The engine did not answer, so its version is not known.",
+      "engine_private": "The engine is up; what it runs is shown to whoever signs in.",
       "help": "Help",
       "help_count": "{n} topics, plus the long-form guides"
     },
@@ -1577,19 +1665,20 @@
   },
   "login": {
     "kicker": "CONSOLE",
-    "unset": {
-      "title": "No console password is set",
-      "set": "Nobody can sign in, and that is the safe failure. Set",
-      "in": "— in",
-      "or": "or the",
-      "restart": "environment variable — and restart."
-    },
-    "password": "Console password",
-    "purpose": "I am here to",
-    "lands_on": "lands on {path}",
-    "role_note": "Changeable at any time from the account menu. It picks where you land and what the command palette offers first; it grants nothing.",
-    "gate_note": "This gate protects the console's own controls. It is not the engine's identity model — the engine authenticates its clients through the deployment's own provider, and a second, weaker account system beside it would be worse than an honest lock.",
-    "wrong_password": "That is not the console password."
+    "username": "Username",
+    "password": "Password",
+    "gate_note": "Your username and password are checked by the engine, which is where your account lives. The console keeps only the engine's session for you, and everything you do here is done, and audited, as you.",
+    "forgot": "Forgotten your password, or locked out? Ask an administrator for a reset token, then set a new password with it.",
+    "reset_link": "I have a reset token",
+    "refused": "That username and password were not accepted.",
+    "locked": "This account is locked after too many failed sign-ins. Wait, or ask an administrator.",
+    "locked_until": "This account is locked after too many failed sign-ins, until {until}. Wait, or ask an administrator.",
+    "expired": "Your session has ended. Sign in again to carry on.",
+    "stale": "That sign-in form had expired. Try again.",
+    "password_changed": "Your password is changed. Sign in with the new one.",
+    "no_token": "The engine accepted the sign-in but sent no session. This is a fault in the engine; nothing was kept.",
+    "mfa_unsupported": "This account needs a second factor, which this console cannot ask for yet. Sign in with a client that can, or ask an administrator.",
+    "engine_down": "The engine did not answer, so nobody can sign in right now: {detail}"
   },
   "catalog": {
     "title": "Catalog",
@@ -1934,7 +2023,11 @@
       "plugins": "Plugins",
       "access": "Admin · Access",
       "audit": "Admin · Audit trail",
-      "tenants": "Admin · Tenants"
+      "tenants": "Admin · Tenants",
+      "account": "Your account",
+      "users": "Admin · Users",
+      "keys": "Admin · API keys",
+      "sessions": "Admin · Sessions"
     },
     "hint": {
       "landing": "what Pravaha is",
@@ -1947,7 +2040,7 @@
       "queries": "the full list, filterable",
       "start": "first-run onboarding",
       "plugins": "loaded plugins, health, bindings",
-      "access": "what the engine's policy lets this console do",
+      "access": "what the engine's policy lets you do",
       "audit": "who asked for what, and what they were told",
       "new_query": "blank tab",
       "browse": "point query, snippets",
@@ -1960,7 +2053,11 @@
       "dead_letters": "records it could not decode",
       "replacement": "Backfill, cutover and rollback",
       "debug": "fork it from a checkpoint and step it",
-      "tenants": "each tenant's use against its quotas"
+      "tenants": "each tenant's use against its quotas",
+      "account": "password, API keys, sessions",
+      "users": "people who can sign in",
+      "keys": "every API key, and what wants rotating",
+      "sessions": "who is signed in, and ending a session"
     },
     "action": {
       "new_query": "New query in the workbench",
@@ -2330,5 +2427,129 @@
     "capability": "Capability",
     "scores": "How each category scores",
     "missing": "The comparison is read from docs/COMPETITIVE_LANDSCAPE.md, which this installation does not carry."
+  },
+  "session": {
+    "expired": "Your session has ended. Sign in again.",
+    "must_change": "Your password must be changed before anything else; open /account/password."
+  },
+  "csrf": {
+    "refused": "This request did not carry this session's form token. Reload the page and try again.",
+    "what": "a request without its form token",
+    "detail": "Every change made through the console carries a token only a page from this console knows, so another site cannot make one on your behalf. This one arrived without it, or with an old one — usually because the page was open from before a sign-in. Nothing was changed.",
+    "back": "Go back"
+  },
+  "account": {
+    "title": "Your account",
+    "kicker": "ACCOUNT",
+    "heading": "Your account",
+    "who": "Who you are",
+    "me_error": "The engine did not say who you are",
+    "username": "Username",
+    "display_name": "Name",
+    "email": "Email",
+    "tenant": "Tenant",
+    "roles": "Roles",
+    "no_roles": "none",
+    "password_expires": "Password expires",
+    "password": {
+      "change": "Change your password",
+      "title": "Change password",
+      "heading": "Change your password",
+      "forced": "Your password must be changed before you can do anything else.",
+      "forced_flash": "Choose a new password to carry on.",
+      "current": "Current password",
+      "new": "New password",
+      "rules": "The engine's policy decides what it accepts: by default at least 12 characters, from three of lower case, upper case, digits and symbols, and none of your last five.",
+      "confirm": "New password, again",
+      "submit": "Change password",
+      "sign_out_instead": "Sign out instead",
+      "back": "Back to your account",
+      "differ": "The two new passwords are not the same.",
+      "changed": "Your password is changed.",
+      "policy": "The engine did not accept that password: {detail}",
+      "wrong_current": "Your current password was not accepted."
+    },
+    "landing": {
+      "title": "Where you land",
+      "note": "Where signing in takes you, remembered for you on this browser. It picks a screen; it grants nothing.",
+      "lands_on": "lands on {path}",
+      "save": "Save"
+    },
+    "keys": {
+      "title": "Your API keys",
+      "lede": "A key lets a program call the engine as you, with the roles you give it — never more than your own. It is shown once, when it is made, and the engine keeps only a hash of it.",
+      "error": "The engine did not list your keys",
+      "none": {
+        "title": "You have no API keys",
+        "body": "Make one below for a program that needs to call the engine as you."
+      },
+      "caption": "Your API keys",
+      "rotate": "Rotate",
+      "rotate_label": "Rotate key {key_id}",
+      "revoke": "Revoke",
+      "revoke_label": "Revoke key {key_id}",
+      "create": "Make a key",
+      "name": "Name",
+      "days": "Expires in (days)",
+      "roles": "Roles it carries",
+      "create_note": "At most 365 days. Rotating a key makes a successor with the same roles; the old one keeps working for 7 days, then expires.",
+      "create_button": "Make key",
+      "revoked": "Key {key_id} is revoked.",
+      "widen": "A key can carry only roles you hold: {detail}",
+      "roles_note": "The key's roles, from your own. Administration is left off unless you tick it."
+    },
+    "sessions": {
+      "title": "Your sessions",
+      "lede": "Everywhere you are signed in. A session ends after 30 minutes idle or 12 hours, and at most three are open at once.",
+      "error": "The engine did not list your sessions",
+      "none": "No open sessions",
+      "caption": "Your sessions",
+      "end": "End",
+      "end_this": "End (signs you out)",
+      "end_label": "End the session started {at}",
+      "ended": "The session is ended."
+    }
+  },
+  "people": {
+    "issued": {
+      "key_title": "Your new key, {key_id}",
+      "rotated_title": "The successor key, {key_id}",
+      "reset_title": "A password reset for {user}",
+      "once": "Copy it now. It is shown this once and never again: the engine keeps only a hash of it.",
+      "secret": "Secret",
+      "expires": "Expires {at}.",
+      "old_until": "Key {key_id} keeps working until {at}.",
+      "reset_note": "Single use, for an hour. Hand it to the person directly, not by email; they set a new password with it at /login/reset."
+    },
+    "denied": {
+      "title": "Not permitted",
+      "body": "The engine did not allow your account to see this. Administering people needs its admin role."
+    },
+    "col": {
+      "key_id": "Key id",
+      "name": "Name",
+      "roles": "Roles",
+      "expires": "Expires",
+      "last_used": "Last used",
+      "status": "Status",
+      "actions": "Actions",
+      "holder": "Holder",
+      "created": "Created",
+      "started": "Started",
+      "last_seen": "Last seen",
+      "client": "Client",
+      "user": "User"
+    },
+    "this_session": "this browser",
+    "utc": "{at} UTC"
+  },
+  "reset": {
+    "title": "Set a new password",
+    "heading": "Set a new password with a reset token",
+    "lede": "An administrator gave you a reset token. It works once, for an hour; setting a password with it ends every session you had open.",
+    "token": "Reset token",
+    "submit": "Set password",
+    "back": "Back to sign in",
+    "invalid": "That reset token is not valid: it was mistyped, has been used, or is more than an hour old. Ask for another."
   }
 }

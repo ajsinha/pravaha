@@ -208,18 +208,20 @@ PRV-7001 and PRV-7002 are kept apart on purpose: **7001** means "present a crede
 one"; **7002** means "you are known, and not allowed — ask for access; a new credential will not
 help". Collapsing them produces support calls where nobody can tell which happened.
 
-## The console's own identity
+## The console signs you in against the engine
 
-The console is a separate process that reaches the engine as **one** identity: the token in its
-`engine.token` setting (environment variable `PRAVAHA_TOKEN`), sent on every Flight and HTTP call and
-never to a browser. Everything a signed-in console user does, the engine sees as that principal --
-so give the console a token whose roles cover what its operators need, and read its actions in the
-[audit trail](/help/topics/audit) under that id.
+The console holds no identity of its own (ADR-052). You sign in with your own username and password;
+the console sends them to the engine's `POST /api/v1/auth/login`, keeps only the session token the
+engine answers with -- in its signed, HttpOnly session cookie -- and sends that token on every
+Flight and HTTP call it makes for you. So everything you do through the console, the engine sees
+as you: it is authorised by your roles and recorded under your name in the
+[audit trail](/help/topics/audit). The console checks no password, key or session itself.
 
-Signing in to the console is a separate, simpler gate: a shared password, `console.password`, held in
-a signed session cookie. Unset, nobody can sign in. It distinguishes signed-in from anonymous and
-nothing finer; a deployment needing per-person identity should put the console behind its own
-single-sign-on proxy.
+A session ends after 30 minutes idle or 12 hours, when you sign out, or when your password changes;
+the console then sends you back to sign in (`PRV-7016`). Five failed sign-ins in 15 minutes lock
+the account for 30 (`PRV-7011`), and the refusal is the same whether the username or the password
+was wrong (`PRV-7010`). Your own API keys -- for a program that calls the engine as you, with no more
+than your roles -- are made, rotated and revoked on the console's **Account** page, and shown once.
 
 ## Bringing your own identity provider
 

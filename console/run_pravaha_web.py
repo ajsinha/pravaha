@@ -25,12 +25,12 @@ import sys
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from itsdangerous import URLSafeSerializer
 from starlette.middleware.gzip import GZipMiddleware
-from starlette.middleware.sessions import SessionMiddleware
 
 ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
@@ -44,6 +44,7 @@ from core.i18n import Messages
 from core.services import Services
 from routes import ALL_ROUTES
 from routes.base import use_messages
+from routes.web_security import IdentityMiddleware, SchemeSessions, csrf_protect
 
 logger = logging.getLogger("pravaha.console")
 
@@ -72,8 +73,9 @@ def create_app(config: PropertiesConfigurator, engine: Engine | None = None) -> 
     adapter that talks to the engine -- everything above it is the real console.
     """
     if engine is None:
+        # No token: the console holds no engine credential of its own (ADR-052). Each call
+        # carries the signed-in person's session token, bound to the request that makes it.
         engine = Engine(config.get("engine.url", "grpc://localhost:19090"),
-                        config.get("engine.token") or None,
                         http_url=config.get("engine.http_url") or None)
     services = Services(engine,
                         row_limit=config.get_int("ui.query_row_limit", 500),
@@ -81,7 +83,10 @@ def create_app(config: PropertiesConfigurator, engine: Engine | None = None) -> 
 
     app = FastAPI(title=config.get("app.name", "Pravaha") + " console",
                   version=config.get("app.version", "0.1.0"),
-                  docs_url="/api/docs")
+                  docs_url="/api/docs",
+                  # CSRF on every route, registered or yet to be: a POST nobody remembered to
+                  # protect is the one an attacker finds (routes.web_security.csrf_protect).
+                  dependencies=[Depends(csrf_protect)])
 
     # The session the sign-in writes into. A generated secret when none is configured: it
     # means sessions do not survive a restart, which is the right default for one instance
@@ -92,7 +97,13 @@ def create_app(config: PropertiesConfigurator, engine: Engine | None = None) -> 
     app.state.services = services
 
     secret = config.get("console.session_secret") or secrets.token_urlsafe(32)
-    app.add_middleware(SessionMiddleware, secret_key=secret, same_site="lax", https_only=False)
+    # Innermost first: the request's credential is read from the session, so the identity
+    # middleware sits inside the session middleware, which decodes the cookie before it runs.
+    app.add_middleware(IdentityMiddleware)
+    # The engine's session token lives in this cookie: signed, HttpOnly, SameSite=Lax, and Secure
+    # whenever the console is served over https (or always, with console.secure_cookies).
+    app.add_middleware(SchemeSessions, secret_key=secret,
+                       secure=config.get_bool("console.secure_cookies", False))
 
     # Compressed, because the console is opened during incidents over whatever link the
     # operator has: the shell's scripts are 122 kB as files and 41 kB gzipped (design 23.15
@@ -124,6 +135,8 @@ def create_app(config: PropertiesConfigurator, engine: Engine | None = None) -> 
     content = ContentLibrary(ROOT / "content")
     ctx = {
         "config": config,
+        # Signs the per-person landing preference (routes.auth_routes); a preference, not a secret.
+        "signer": URLSafeSerializer(secret, salt="pravaha-landing"),
         "engine": engine,
         "services": services,
         "content": content,

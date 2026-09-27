@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+{# The session's CSRF token, for api.js to send as X-CSRF-Token on every call it makes. #}
+<meta name="csrf-token" content="{{ csrf_token }}">
 <title>{% block title %}{{ app_name }}{% endblock %}</title>
 <link rel="icon" href="/static/img/pravaha-mark.svg">
 <!-- Vendored locally: no CDN, so the console renders in an air-gapped deployment.
@@ -525,10 +527,19 @@ footer .slogan{font-family:var(--serif);font-style:italic;color:var(--flow);}
                       data-bs-toggle="dropdown" aria-expanded="false" title="{{ t('shell.account_title') }}">
                 <i class="bi bi-person-circle" aria-hidden="true"></i> {{ t(roles[role].label) }}</button>
               <div class="dropdown-menu dropdown-menu-end p-2" aria-labelledby="account-menu" style="min-width:17rem">
+                {# Who is signed in: the engine's name for them (ADR-052). The button keeps the
+                   landing persona, which is what the menu below changes. #}
+                <div class="small px-2 pb-1" id="account-who">{{ t('shell.signed_in_as', user=username) }}</div>
+                <a class="dropdown-item small" href="/account">{{ t('shell.account') }}</a>
+                {% if is_admin %}
+                <a class="dropdown-item small" href="/admin/users">{{ t('shell.people') }}</a>
+                {% endif %}
+                <div class="dropdown-divider"></div>
                 <div class="small text-muted px-2 pb-1">{{ t('shell.land_on') }}</div>
                 {# Real forms: the role switch works with scripting off, like every control. #}
                 {% for key, meta in roles.items() %}
                 <form method="post" action="/preferences/role" class="m-0">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                   <input type="hidden" name="role" value="{{ key }}">
                   <input type="hidden" name="next" value="/home">
                   <button class="dropdown-item small{{ ' active' if key == role else '' }}" type="submit"
@@ -539,7 +550,12 @@ footer .slogan{font-family:var(--serif);font-style:italic;color:var(--flow);}
                 <div class="dropdown-divider"></div>
                 <a class="dropdown-item small" href="/start">{{ t('shell.get_started') }}</a>
                 <a class="dropdown-item small" href="/plugins">{{ t('shell.plugins') }}</a>
-                <a class="dropdown-item small" href="/logout" title="{{ t('shell.sign_out_title') }}">{{ t('shell.sign_out') }}</a>
+                {# A form, not a link: signing out changes state, so it carries the CSRF token
+                   like every other change, and a page elsewhere cannot sign anybody out. #}
+                <form method="post" action="/logout" class="m-0" id="sign-out-form">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <button class="dropdown-item small" type="submit" title="{{ t('shell.sign_out_title') }}">{{ t('shell.sign_out') }}</button>
+                </form>
               </div>
             </div>
           {% else %}

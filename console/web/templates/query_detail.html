@@ -88,11 +88,13 @@
           {# Real forms, so the controls work with scripting off; the module
              intercepts them to avoid a full page load when it is on. #}
           <form method="post" action="/queries/{{ query.name }}/pause">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="btn btn-sm btn-outline-secondary" id="pause" type="submit"
                     {{ 'disabled' if query.state != 'RUNNING' else '' }}
                     title="{{ t('query.pause_disabled') if query.state != 'RUNNING' else t('query.pause_title') }}">{{ t('query.pause') }}</button>
           </form>
           <form method="post" action="/queries/{{ query.name }}/resume">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="btn btn-sm btn-outline-secondary" id="resume" type="submit"
                     {{ 'disabled' if query.state == 'RUNNING' else '' }}
                     title="{{ t('query.resume_disabled') if query.state == 'RUNNING' else t('query.resume_title') }}">{{ t('query.resume') }}</button>
@@ -107,6 +109,7 @@
              the modal. Neither control is worse than what existed; the enhanced one is
              strictly better. #}
           <form method="post" action="/queries/{{ query.name }}/drop" id="dropForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="btn btn-sm btn-outline-danger" id="dropPlain" type="submit">{{ t('query.drop') }}</button>
           </form>
           <button type="button" class="btn btn-sm btn-outline-danger d-none" id="dropModalTrigger"

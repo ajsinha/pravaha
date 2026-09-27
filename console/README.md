@@ -37,13 +37,12 @@ environment variable, by `--key=value` on the command line, or in a git-ignored
 
 | Setting | Environment variable | Default | What it does |
 |---|---|---|---|
-| `console.password` | `CONSOLE_PASSWORD` | *empty* | **The sign-in gate. Set it or nobody can sign in** — the safe failure, because the console can drop queries and a default password is a public one. Only the landing page, About, the help (topics, guides, search, `/help/codes/*`, decision records) and the health probes are open, so an operator can open the console during an incident and see what is wrong before they find a password. Every screen and endpoint that names a registered query, reads a view, shows the catalog or reaches the engine needs a session. |
-| `console.session_secret` | `CONSOLE_SESSION_SECRET` | *empty* | Signs the session cookie. Set it where sessions should survive a restart. |
+| `console.session_secret` | `CONSOLE_SESSION_SECRET` | *empty* | Signs the session cookie, which holds the signed-in person's engine session. Set it where sessions should survive a restart. |
+| `console.secure_cookies` | `CONSOLE_SECURE_COOKIES` | `false` | Marks the session cookie `Secure` always. Without it the cookie is `Secure` exactly when the request reached the console over https; set it behind a proxy that terminates TLS without saying so. |
 | `server.host` | `CONSOLE_HOST` | `127.0.0.1` | Loopback by default; set `0.0.0.0` only behind something that authenticates. |
 | `server.port` | `CONSOLE_PORT` | `17070` | |
 | `engine.url` | `PRAVAHA_ENGINE` | `grpc://localhost:19090` | The engine's Flight endpoint. `grpc://` is plaintext and spelled out. |
 | `engine.http_url` | `PRAVAHA_ENGINE_HTTP` | `http://localhost:18080` | The engine's HTTP surface, handed to the SDK as `ClientOptions.http_url`: the catalog, sinks, query and view descriptions, validation, plans, status, Prometheus. Without it the workbench still edits and runs, and says validation is unavailable. |
-| `engine.token` | `PRAVAHA_TOKEN` | *empty* | Bearer token, sent to both engine surfaces and never to a browser. One identity for the whole console. |
 | `engine.pgwire` | `PRAVAHA_PGWIRE` | `localhost:5432` | Shown in the view browser's `psql` snippet. The console never connects to it. |
 | `ui.default_role` | `CONSOLE_DEFAULT_ROLE` | `operator` | Where a signed-in person lands until they choose: `analyst`, `operator`, `developer` or `admin`. |
 | `ui.tail_buffer` | — | `256` | Changes held per browser on a live view before the oldest are dropped (and said to be). |
@@ -225,15 +224,31 @@ is an orange-shifted red 34 ΔE away from the accent — a brand red and an erro
 other is a page where nothing is wrong and everything looks it. `test_contrast.py` holds both the
 ratios and that distance.
 
-**Roles pick a landing, not a permission.** Every signed-in person can reach every screen; the
-server checks the session on every call. The shared-secret sign-in names everyone `operator`, so the
-role comes from the person's own choice or `ui.default_role`; a principal from an identity provider
-named `analyst`, `developer` or `admin` would land there by name.
+**Signing in is the engine's (ADR-052).** A person signs in with the username and password the
+engine holds for them; the console posts them to the engine's `POST /api/v1/auth/login`, keeps only
+the session token it answers with (in its signed, HttpOnly, SameSite=Lax cookie), and makes every
+engine call for that person with that token — so everything done here is authorised and audited as
+the person who did it. The console has no password and no engine token of its own
+(`console.password` and `engine.token` are no longer read), verifies no password, key or session
+itself, and keeps no user table. Only the landing page, About, the help and the health probes are
+open without a session. When the engine says a session is over (`PRV-7016`) the person is sent back
+to sign in; when it says a password must change first (`PRV-7018`, only with the engine's
+`pravaha.identity.password.force-change`), every page but the password page sends them there. Every
+form and every state-changing request carries the session's CSRF token.
 
-**The engine decides what the admin screens show.** The console reaches the engine as one identity
-(`engine.token`) for everyone signed in, so the audit trail is readable here exactly when the engine's
-policy lets *that identity* read it (`SecurityPolicy.mayReadAudit`: the `authenticated` policy grants
-it to the roles in `pravaha.security.audit-readers`, `admin` by default). The console adds no rule
+People, API keys and sessions are administered in the engine and shown here: **Account** (your
+password, your API keys — each shown once — and your sessions) and **Admin · Users, API keys,
+Sessions** for an administrator. The first sign-in on a new engine is its bootstrap `admin`.
+
+**Personas pick a landing, not a permission.** Every signed-in person can reach every screen, and
+the engine decides what each shows them. The persona comes from the person's own choice (the account
+menu, or the account page), remembered for them on that browser, or `ui.default_role`.
+
+**The engine decides what the admin screens show.** The console reaches the engine as the person
+signed in, so the audit trail is readable here exactly when the engine's policy lets *that person*
+read it (`SecurityPolicy.mayReadAudit`: the `authenticated` policy grants it to the roles in
+`pravaha.security.audit-readers`, `admin` by default), and the people screens answer only an
+administrator. The console adds no rule
 of its own on top — a console-side rule would be enforcing nothing, since the engine is the one
 holding the data — and renders the engine's refusal as a designed *Not permitted* state. Every read,
 allowed or refused, is on the trail itself.

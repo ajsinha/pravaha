@@ -82,7 +82,8 @@ def sign_in_first() -> JSONResponse:
 
 
 def _signed_in(request: Request | None) -> bool:
-    """Whether this request carries a console session.
+    """Whether this request carries a console session: a person the engine signed in, whose
+    engine session token the console holds (ADR-052).
 
     Defensive about the session being absent entirely, because the middleware is
     configured in the entry point and a test may build an app without it.
@@ -90,9 +91,29 @@ def _signed_in(request: Request | None) -> bool:
     if request is None:
         return False
     try:
-        return request.session.get("user") is not None
+        return bool(request.session.get("token")) and request.session.get("user") is not None
     except Exception:  # noqa: BLE001 -- no session middleware on this app
         return False
+
+
+def session_roles(request: Request | None) -> list[str]:
+    """The roles the engine gave the signed-in person (``GET auth/me``), for presentation only:
+    which links to show. The engine enforces every one of them on every call."""
+    if request is None:
+        return []
+    try:
+        return [str(r) for r in (request.session.get("roles") or [])]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _session_value(request: Request | None, key: str):
+    if request is None:
+        return None
+    try:
+        return request.session.get(key)
+    except Exception:  # noqa: BLE001 -- no session middleware on this app
+        return None
 
 
 def _correlation(request: Request | None) -> str:
@@ -107,13 +128,11 @@ def _correlation(request: Request | None) -> str:
         return "-"
     return request.headers.get("x-correlation-id", "-")
 
-#: The principal the console's shared-secret sign-in records for everybody.
-SHARED_PRINCIPAL = "operator"
-
 #: The personas a signed-in person can be (design 23.2), where each lands, and what the
-#: landing is for. A role picks a landing, not a permission: the admin persona lands on Access,
-#: and what the audit screen shows is still decided by the engine's policy for the console's
-#: identity, whoever chose which role.
+#: landing is for. A persona picks a landing, not a permission: the admin persona lands on Access,
+#: and what every screen shows is still decided by the engine's policy for the signed-in person
+#: (ADR-052), whichever persona they chose. The engine's roles are a different thing, and are the
+#: engine's.
 #: ``label`` and ``blurb`` are keys into the UI string catalog, not English: a template says
 #: ``t(meta.label)``, so the words are where every other string is.
 ROLES: dict[str, dict[str, str]] = {
@@ -129,27 +148,19 @@ ROLES: dict[str, dict[str, str]] = {
 
 
 def role_of(request: Request | None, default: str = "operator") -> str:
-    """The signed-in person's role: their own choice, else the principal's name, else the default.
+    """The signed-in person's landing persona: their own choice, else the configured default.
 
-    The console's sign-in is one shared secret today, so the principal is usually just
-    "operator"; a deployment fronted by an identity provider would name the person, and a
-    principal literally called ``analyst`` or ``developer`` lands where that name says.
+    A person's name decides nothing here -- a user called ``admin`` is not thereby the admin
+    persona -- because a persona is a preference and a name is an identity.
     """
     chosen = None
-    user = None
     if request is not None:
         try:
             chosen = request.session.get("role")
-            user = request.session.get("user")
         except Exception:  # noqa: BLE001 -- no session middleware on this app
-            chosen = user = None
+            chosen = None
     if chosen in ROLES:
         return str(chosen)
-    # The shared-secret sign-in names everyone "operator" -- a name for the gate, not a
-    # statement about the person -- so it does not decide a role; the configured default
-    # does. A principal from a real identity provider named for a role does.
-    if user in ROLES and user != SHARED_PRINCIPAL:
-        return str(user)
     return default if default in ROLES else "operator"
 
 
@@ -265,6 +276,7 @@ class Routes:
         """What every template gets without asking for it."""
         c = self.ctx["config"]
         health = self.ctx["services"].health.health()
+        signed_in = _signed_in(request)
         return {
             "app_name": c.get("app.name", "Pravaha"),
             "tagline": c.get("app.tagline", ""),
@@ -280,7 +292,13 @@ class Routes:
             "engine_error": health.error or "",
             # On every page, because a control that is present but refuses is worse than
             # one whose absence is explained.
-            "signed_in": _signed_in(request),
+            "signed_in": signed_in,
+            # Who is signed in, and whether the engine made them an administrator -- which only
+            # decides which links the chrome shows; the engine refuses whatever is not theirs.
+            "username": _session_value(request, "user") if signed_in else None,
+            "is_admin": signed_in and "admin" in session_roles(request),
+            # The synchronizer token every form carries and api.js sends (routes.web_security).
+            "csrf_token": _session_value(request, "csrf") or "",
             "role": role_of(request, c.get("ui.default_role", "operator")),
             "roles": ROLES,
             # Asset versions are part of the page, so a cached module can never run against

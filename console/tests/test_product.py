@@ -31,22 +31,20 @@ REPO_ROOT = CONSOLE_ROOT.parent
 sys.path.insert(0, str(CONSOLE_ROOT))
 
 from fake_engine import PROMETHEUS, SINK_SECRET, TXN, FakeEngine
+from fake_identity import ADMIN, ADMIN_PASSWORD, csrf_of, sign_in
 
 from core import authoring, metrics, snippets
 from core.config.properties_configurator import PropertiesConfigurator
 from core.content.codes import lookup as code_lookup
 from run_pravaha_web import create_app
 
-PASSWORD = "product-test-password"
-ENGINE_TOKEN = "s3cret-engine-token-must-never-reach-a-browser"
+PASSWORD = ADMIN_PASSWORD
 SESSION_SECRET = "s3cret-session-key-must-never-reach-a-browser"
 
 
 def _app(engine: FakeEngine, **overrides):
     config = PropertiesConfigurator(str(CONSOLE_ROOT / "config" / "application.yaml"))
-    config.set("console.password", PASSWORD)
     config.set("console.session_secret", SESSION_SECRET)
-    config.set("engine.token", ENGINE_TOKEN)
     config.set("ui.default_role", overrides.get("default_role", "operator"))
     # The configurator is a process-wide singleton, and the browser harness turns the gallery on.
     config.set("ui.component_gallery", "false")
@@ -58,6 +56,12 @@ def engine():
     return FakeEngine()
 
 
+def engine_session_tokens(client) -> list[str]:
+    """The engine session tokens the fake has issued, which the console holds in its cookie."""
+    engine = client.app.state.services.engine
+    return list(getattr(engine.identity, "issued_tokens", []))
+
+
 def _signed_in_on(engine: FakeEngine, **overrides):
     """A signed-in client over this engine.
 
@@ -66,7 +70,7 @@ def _signed_in_on(engine: FakeEngine, **overrides):
     cached for a second -- so a fixture-built client has already read the old answer.
     """
     client = _app(engine, **overrides)
-    client.post("/login", data={"password": PASSWORD, "next": "/home"})
+    sign_in(client)
     return client
 
 
@@ -77,14 +81,24 @@ def signed_in(engine):
 
 @pytest.fixture
 def anonymous(engine):
-    return _app(engine)
+    """Not signed in, but holding its session's CSRF token, as a browser that has opened the
+    sign-in page does -- so what refuses its writes is the sign-in gate, which is what these
+    tests are about. The CSRF refusal has tests of its own."""
+    client = _app(engine)
+    client.headers["X-CSRF-Token"] = csrf_of(client.get("/login").text)
+    return client
 
 
 @pytest.fixture
 def engine_down():
-    fake = FakeEngine(down=True)
+    # Signed in while the engine answered -- nobody can sign in to an engine that does not --
+    # and then the engine goes away, which is the state these tests are about.
+    fake = FakeEngine()
     client = _app(fake)
-    client.post("/login", data={"password": PASSWORD, "next": "/home"})
+    sign_in(client)
+    fake.down = True
+    # The chrome's reachability answer is cached for a second; the sign-in just saw it up.
+    client.app.state.services.health._cached = None
     return client
 
 
@@ -346,16 +360,16 @@ def test_an_unknown_view_or_stream_is_a_404(signed_in):
                                           ("developer", "/views")])
 def test_each_role_lands_on_its_own_screen(engine, role, landing):
     client = _app(engine)
-    signed = client.post("/login", data={"password": PASSWORD, "next": "/home", "role": role},
-                         follow_redirects=False)
+    signed = sign_in(client)
     assert signed.headers["location"] == "/home"
+    client.post("/preferences/role", data={"role": role, "next": "/home"})
     home = client.get("/home", follow_redirects=False)
     assert home.headers["location"] == landing
 
 
 def test_the_default_role_comes_from_configuration(engine):
     client = _app(engine, default_role="developer")
-    client.post("/login", data={"password": PASSWORD, "next": "/home"})
+    sign_in(client)
     assert client.get("/home", follow_redirects=False).headers["location"] == "/views"
 
 
@@ -372,14 +386,34 @@ def test_a_role_can_be_changed_after_sign_in(signed_in):
 def test_first_run_lands_on_onboarding(engine):
     engine._queries = []
     client = _app(engine)
-    client.post("/login", data={"password": PASSWORD, "next": "/home"})
+    sign_in(client)
     assert client.get("/home", follow_redirects=False).headers["location"] == "/start"
 
 
-def test_the_sign_in_page_offers_the_roles(anonymous):
-    page = anonymous.get("/login").text
+def test_the_landing_preference_is_offered_on_the_account_page_and_grants_nothing(signed_in, engine):
+    """The persona picker left the sign-in form (ADR-052: it asks for a username and a password
+    and nothing else) for the account page, where it is a preference of the person."""
+    page = signed_in.get("/account").text
     for role in ("analyst", "operator", "developer"):
         assert f'value="{role}"' in page
+    assert 'name="role"' not in _app(engine).get("/login").text
+    # Choosing the admin persona changes where the person lands, and nothing the engine allows.
+    signed_in.post("/preferences/role", data={"role": "admin", "next": "/account"})
+    assert engine.identity.users[ADMIN].roles == ["admin", "operator", "developer", "analyst"]
+
+
+def test_the_landing_preference_follows_the_person_to_their_next_sign_in(engine):
+    client = _app(engine)
+    sign_in(client)
+    client.post("/preferences/role", data={"role": "developer", "next": "/home"})
+    client.post("/logout")
+    sign_in(client)
+    assert client.get("/home", follow_redirects=False).headers["location"] == "/views"
+    # Somebody else signing in on the same browser lands where they chose, not where admin did.
+    engine.identity.add_user("ann", "Ann-password-12", ["analyst"])
+    client.post("/logout")
+    sign_in(client, "ann", "Ann-password-12")
+    assert client.get("/home", follow_redirects=False).headers["location"] == "/operations"
 
 
 # ============================================================ JSON endpoints
@@ -639,7 +673,10 @@ def test_no_secret_reaches_any_new_page_or_endpoint(signed_in):
     responses += [signed_in.post(p, json=b) for p, b in NEW_JSON_POSTS]
     responses.append(signed_in.get("/api/v1/palette"))
     for response in responses:
-        for secret in (ENGINE_TOKEN, SESSION_SECRET, PASSWORD):
+        # The engine session token the console holds for this person is a secret too: it lives
+        # in the signed cookie, and no page or endpoint repeats it.
+        tokens = [t for t in engine_session_tokens(signed_in)]
+        for secret in (SESSION_SECRET, PASSWORD, *tokens):
             assert secret not in response.text, response.url
 
 
@@ -1004,7 +1041,7 @@ def test_admin_is_in_the_navigation_the_palette_and_is_the_admin_personas_landin
     assert {"/admin/access", "/admin/audit"} <= hrefs
     assert signed_in.get("/admin", follow_redirects=False).headers["location"] == "/admin/access"
     admin = _app(engine)
-    admin.post("/login", data={"password": PASSWORD, "role": "admin", "next": "/home"})
+    sign_in(admin)
     admin.post("/preferences/role", data={"role": "admin", "next": "/home"})
     assert admin.get("/home", follow_redirects=False).headers["location"] == "/admin/access"
 
@@ -1088,13 +1125,12 @@ def test_the_component_gallery_is_off_unless_set_and_gated_when_on(engine, signe
     assert signed_in.get("/_components").status_code == 404
     assert anonymous.get("/_components", follow_redirects=False).status_code == 404
     config = PropertiesConfigurator(str(CONSOLE_ROOT / "config" / "application.yaml"))
-    config.set("console.password", PASSWORD)
     config.set("console.session_secret", SESSION_SECRET)
     config.set("ui.component_gallery", "true")
     on = fastapi_testclient.TestClient(create_app(config, engine=engine))
     refused = on.get("/_components", follow_redirects=False)
     assert refused.status_code == 303 and refused.headers["location"].startswith("/login")
-    on.post("/login", data={"password": PASSWORD, "next": "/home"})
+    sign_in(on)
     page = on.get("/_components")
     assert page.status_code == 200
     assert len(re.findall(r'id="state-[a-z_]+" data-state=', page.text)) == 8, "a card for each state of 23.12"
@@ -1174,7 +1210,7 @@ def test_the_usage_of_a_limit_says_what_the_next_registration_meets():
 def test_the_tenants_screen_says_when_it_shows_only_its_own_tenant(signed_in, engine):
     engine.audit_allowed = False
     body = signed_in.get("/admin/tenants").text
-    assert 'data-scope="own"' in body and "Only this console" in body
+    assert 'data-scope="own"' in body and "Only your own tenant" in body
     assert 'data-tenant="public"' in body and 'data-tenant="risk"' not in body
 
 
