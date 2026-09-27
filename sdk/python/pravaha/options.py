@@ -7,7 +7,7 @@ PROPRIETARY AND CONFIDENTIAL. See the LICENSE file for the full terms.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Mapping, Optional, Union
+from typing import Any, Mapping, Optional, Union
 
 from pravaha.consistency import Consistency
 from pravaha.endpoint import Endpoint
@@ -117,7 +117,7 @@ class ClientOptions:
         """
         endpoint = Endpoint.from_config(config)
         tls = TlsOptions.from_config(config)
-        kwargs: dict = {"tls": tls}
+        kwargs: dict[str, Any] = {"tls": tls}
         if config.get("token"):
             kwargs["token"] = config["token"]
         allow_insecure = config.get("allow-insecure-token")
@@ -127,7 +127,7 @@ class ClientOptions:
             kwargs["application_name"] = config["application-name"]
         if config.get("http-url"):
             kwargs["http_url"] = config["http-url"]
-        return ClientOptions(endpoint=endpoint, **kwargs)  # type: ignore[arg-type]
+        return ClientOptions(endpoint=endpoint, **kwargs)
 
     def __str__(self) -> str:
         # Deliberately omits the token. Options reaching a log line must not leak it.

@@ -20,6 +20,7 @@ import math
 import pathlib
 import re
 import sys
+from typing import ClassVar
 
 import pytest
 
@@ -1388,7 +1389,7 @@ def test_the_version_history_is_read_from_the_engines_entries_and_not_its_senten
     from core.engine import Engine
 
     class Answering(Engine):
-        answer: dict = {}
+        answer: ClassVar[dict[str, object]] = {}
 
         def _rest(self, call):
             return dict(self.answer)
@@ -2205,7 +2206,7 @@ def test_the_figure_carries_no_number_that_was_typed_into_it(anonymous):
     # The version the page must show is the configured one, read here from the same file the
     # console reads, rather than typed into the test: it said "0.1.0" and failed the day the
     # release script moved the console to 0.1.1, in a test whose subject is not typing numbers in.
-    configured = re.search(r'^  version: "([^"]+)"', (CONSOLE_ROOT / "config" / "application.yaml").read_text(), re.M)
+    configured = re.search(r'^  version: "([^"]+)"', (CONSOLE_ROOT / "config" / "application.yaml").read_text(), re.MULTILINE)
     assert configured, "console/config/application.yaml declares app.version"
     version = configured.group(1)
     assert Messages()("landing.instance.console", version=version) == f"console {version}"

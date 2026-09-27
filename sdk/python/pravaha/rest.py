@@ -93,10 +93,10 @@ class RestClient:
     def base_url(self) -> str:
         return self._base
 
-    def get(self, path: str, query: dict | None = None) -> Any:
+    def get(self, path: str, query: dict[str, Any] | None = None) -> Any:
         return json.loads(self._call("GET", path, None, query).decode("utf-8") or "null")
 
-    def post(self, path: str, body: Any, query: dict | None = None) -> Any:
+    def post(self, path: str, body: Any, query: dict[str, Any] | None = None) -> Any:
         return json.loads(self._call("POST", path, body, query).decode("utf-8") or "null")
 
     def text(self, path: str) -> str:
@@ -107,7 +107,7 @@ class RestClient:
         method: str,
         path: str,
         body: Any,
-        query: dict | None,
+        query: dict[str, Any] | None,
         accept: str = "application/json",
     ) -> bytes:
         url = self._base + path
@@ -122,7 +122,8 @@ class RestClient:
             request.add_header("Authorization", "Bearer " + self._token)
         try:
             with urllib.request.urlopen(request, timeout=self._timeout, context=self._context) as response:
-                return response.read()
+                answer: bytes = response.read()
+                return answer
         except urllib.error.HTTPError as exc:
             payload = exc.read()
             body_json = _decoded(payload)

@@ -40,9 +40,11 @@ build_fixture() {
         mkdir -p "$dst/$(dirname "$pom")"
         cp "$root/$pom" "$dst/$pom"
       done
-  mkdir -p "$dst/sdk/python" "$dst/console" "$dst/deploy/helm/pravaha" "$dst/deploy/release"
+  mkdir -p "$dst/sdk/python" "$dst/console/config" "$dst/deploy/helm/pravaha" "$dst/deploy/release"
   cp "$root/sdk/python/pyproject.toml"      "$dst/sdk/python/pyproject.toml"
   cp "$root/console/pyproject.toml"         "$dst/console/pyproject.toml"
+  # set-version.sh keeps the console's displayed version in step too, and refuses a tree without it.
+  cp "$root/console/config/application.yaml" "$dst/console/config/application.yaml"
   cp "$root/deploy/helm/pravaha/Chart.yaml" "$dst/deploy/helm/pravaha/Chart.yaml"
   cp "$here/set-version.sh" "$here/version.sh" "$dst/deploy/release/"
   chmod +x "$dst/deploy/release/"*.sh
@@ -60,6 +62,9 @@ ok "the repository agrees about its version today"
 
 # ---------------------------------------------------------------- 2. a release version
 
+# The version the tree starts at, read rather than written down: this test once hard-coded
+# 0.1.0-SNAPSHOT and, three releases later, was comparing against a version nobody had.
+before="$("$fixture/deploy/release/version.sh" "$fixture")"
 out="$(setv 0.2.0)"
 grep -q '37 poms' <<<"$out" || grep -q 'poms, 2 wheels and the chart all say 0.2.0' <<<"$out" \
   || fail "set-version 0.2.0 did not report a consistent tree:
@@ -73,7 +78,7 @@ grep -q '^version: 0.1.0$' "$fixture/deploy/helm/pravaha/Chart.yaml" \
 ok "0.2.0 reached every pom, both wheels and the chart's appVersion -- and not the chart's own version"
 
 # Every pom, not just the root. The failure this guards is a reactor that will not resolve.
-stale="$(grep -rl '0\.1\.0-SNAPSHOT' "$fixture" --include=pom.xml || true)"
+stale="$(grep -rlF "<version>$before</version>" "$fixture" --include=pom.xml || true)"
 [[ -z "$stale" ]] || fail "poms left at the old version:
 $stale"
 ok "no pom left behind"
@@ -96,8 +101,11 @@ ok "--chart-version moves the chart's own version, separately"
 # ---------------------------------------------------------------- 5. SEED: one pom left behind
 
 build_fixture "$fixture"
-perl -0pi -e 's|<version>0.1.0-SNAPSHOT</version>|<version>0.1.0-OTHER</version>|' \
+current="$("$fixture/deploy/release/version.sh" "$fixture")"
+perl -0pi -e "s|<version>\Q$current\E</version>|<version>0.1.0-OTHER</version>|" \
   -- "$fixture/pravaha-server/pom.xml"
+grep -q '<version>0.1.0-OTHER</version>' "$fixture/pravaha-server/pom.xml" \
+  || fail "the seed did not land: pravaha-server/pom.xml has no <version>$current</version> to change"
 if setv --check >/dev/null 2>&1; then
   fail "--check passed with pravaha-server at a different version. A release from that tree would
 ship artefacts naming two versions and the reactor would not resolve."
@@ -111,7 +119,8 @@ ok "SEED: one pom at a different version is caught, and named"
 # ---------------------------------------------------------------- 6. SEED: a stale wheel
 
 build_fixture "$fixture"
-perl -0pi -e 's|^version = "0.1.0"|version = "0.0.9"|m' -- "$fixture/sdk/python/pyproject.toml"
+perl -0pi -e 's|^version = "[^"]*"|version = "0.0.9"|m' -- "$fixture/sdk/python/pyproject.toml"
+grep -q '^version = "0.0.9"$' "$fixture/sdk/python/pyproject.toml" || fail "the seed did not land in the wheel's pyproject"
 if setv --check >/dev/null 2>&1; then
   fail "--check passed with the Python SDK wheel at 0.0.9"
 fi

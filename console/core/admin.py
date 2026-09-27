@@ -137,7 +137,7 @@ class AdminService:
         except Exception as exc:
             raise _refusal(exc) from exc
         defaults = _limits(page.get("defaults"))
-        tenants = []
+        tenants: list[dict[str, Any]] = []
         for row in page.get("tenants") or []:
             if not isinstance(row, dict):
                 continue

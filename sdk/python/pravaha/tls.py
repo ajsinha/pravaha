@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Mapping, Optional, Union
+from typing import Any, Mapping, Optional, Union
 
 from pravaha.errors import InvalidTlsOptionsError
 
@@ -164,7 +164,7 @@ class TlsOptions:
         file structure (translated to whatever format each language's caller already uses)
         configures both.
         """
-        kwargs: dict = {}
+        kwargs: dict[str, Any] = {}
         if config.get("tls.ca-certificate"):
             kwargs["ca_certificate"] = config["tls.ca-certificate"]
         if config.get("tls.client-certificate"):

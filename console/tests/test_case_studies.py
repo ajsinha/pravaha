@@ -41,7 +41,7 @@ def anonymous():
 
 def _listed_folders() -> list[str]:
     index = (REPO_ROOT / "examples" / "case-studies" / "README.md").read_text(encoding="utf-8")
-    return re.findall(r"^\|\s*\[[^\]]+\]\(([\w-]+)/?\)", index, re.M)
+    return re.findall(r"^\|\s*\[[^\]]+\]\(([\w-]+)/?\)", index, re.MULTILINE)
 
 
 def test_the_catalog_is_the_index_tables_rows_in_its_order():
@@ -77,11 +77,11 @@ def test_a_name_the_index_does_not_list_is_not_found(anonymous):
 
 
 def test_links_go_to_the_study_the_setup_page_the_console_or_the_repository():
-    readme = "\n".join([
-        "[sql](sql/01-a.sql) [next](../trade-processing/) [setup](../SETUP.md) [all](../README.md)",
-        "[guide](../../../docs/CONTINUOUS_QUERIES.md) [licence](../../../LICENSE) [web](https://x.example/)",
-        "```", "[in a fence](sql/untouched.sql)", "```",
-    ])
+    readme = (
+        "[sql](sql/01-a.sql) [next](../trade-processing/) [setup](../SETUP.md) [all](../README.md)\n"
+        "[guide](../../../docs/CONTINUOUS_QUERIES.md) [licence](../../../LICENSE) [web](https://x.example/)\n"
+        "```\n[in a fence](sql/untouched.sql)\n```"
+    )
     out = case_studies.relink(readme, "banking-card-velocity", REPO_ROOT)
     assert "](https://github.com/ajsinha/pravaha/blob/main/examples/case-studies/banking-card-velocity/sql/01-a.sql)" in out
     assert "](/help/case-studies/trade-processing)" in out

@@ -22,7 +22,7 @@ from __future__ import annotations
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Tuple
+from typing import Any, Tuple
 
 from pravaha.errors import PravahaError
 
@@ -34,7 +34,7 @@ class TlsUnreadableError(PravahaError):
         super().__init__(1044, message)
 
 
-def _load_pkcs12(path: Path, password: str) -> Tuple[list, list]:
+def _load_pkcs12(path: Path, password: str) -> Tuple[list[Any], list[Any]]:
     """Returns ``(certificates, private_keys)`` -- usually one of each, or several certificates
     for a truststore with more than one trusted entry."""
     try:
@@ -65,7 +65,7 @@ def _load_pkcs12(path: Path, password: str) -> Tuple[list, list]:
     return certificates, keys
 
 
-def _jks_to_pkcs12(path: Path, password: str) -> Tuple[Path, tempfile.TemporaryDirectory]:
+def _jks_to_pkcs12(path: Path, password: str) -> Tuple[Path, tempfile.TemporaryDirectory[str]]:
     """Converts a JKS keystore to PKCS12 with ``keytool``, in a throwaway temporary directory."""
     workdir = tempfile.TemporaryDirectory(prefix="pravaha-jks-")
     converted = Path(workdir.name) / "converted.p12"
@@ -102,7 +102,7 @@ def _jks_to_pkcs12(path: Path, password: str) -> Tuple[Path, tempfile.TemporaryD
     return converted, workdir
 
 
-def _load(path: Path, password: str, store_type: str) -> Tuple[list, list]:
+def _load(path: Path, password: str, store_type: str) -> Tuple[list[Any], list[Any]]:
     if store_type.upper() == "PKCS12":
         return _load_pkcs12(path, password)
     converted, workdir = _jks_to_pkcs12(path, password)
@@ -112,20 +112,20 @@ def _load(path: Path, password: str, store_type: str) -> Tuple[list, list]:
         workdir.cleanup()
 
 
-def _pem_certificate(certificate) -> bytes:
+def _pem_certificate(certificate: Any) -> bytes:
     from cryptography.hazmat.primitives import serialization
 
-    return certificate.public_bytes(serialization.Encoding.PEM)
+    return bytes(certificate.public_bytes(serialization.Encoding.PEM))
 
 
-def _pem_private_key(key) -> bytes:
+def _pem_private_key(key: Any) -> bytes:
     from cryptography.hazmat.primitives import serialization
 
-    return key.private_bytes(
+    return bytes(key.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=serialization.NoEncryption(),
-    )
+    ))
 
 
 def trusted_certificates_pem(path: Path, password: str, store_type: str) -> bytes:

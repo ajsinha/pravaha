@@ -207,7 +207,7 @@ def test_every_named_palette_declares_every_token():
     layout = ("sans", "serif", "code", "row-h", "cell-", "card-", "gutter", "section-", "state-")
     colour = {name for name in light if not name.startswith(layout)}
     for theme in THEMES[1:]:
-        block = re.search(r':root\[data-theme="%s"\]\{(.*?)\n\}' % theme, css, re.DOTALL).group(1)
+        block = re.search(r':root\[data-theme="' + theme + r'"\]\{(.*?)\n\}', css, re.DOTALL).group(1)
         missing = colour - set(re.findall(r"--([a-z0-9-]+):", block))
         assert not missing, f"{theme} leaves {sorted(missing)} to the crimson light theme"
 
