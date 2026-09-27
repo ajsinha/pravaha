@@ -42,10 +42,13 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   About page gains problem-and-fix pairs, "What makes it different", this list ("In this release",
   read from this file) and a condensed landscape; the help gains an FAQ, and guides for these
   notes, the roadmap (`REMAINING.md`) and `DEPLOYMENT.md`.
+- **Fixed from the tutorials' runs:** a parameterised query from the Java SDK or CLI works under a
+  token (SDKJ-1); a second name on a shared computation is answered with that name (NAME-1); a debug
+  fixture of a windowed query carries its event time and runs (FIX-1).
 - **Found, open:** a query cannot be replaced while the record at its position was dead-lettered
   (REPL-2, POST-GA); since REPL-1 it fails as `FAILED` `PRV-4013` rather than silently.
 
-Register: **386 findings — 362 fixed, 10 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **399 findings — 369 fixed, 16 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ---
 

@@ -112,6 +112,9 @@ final class DebugFixtureExportTest {
                     .contains("StreamSchema.builder(\"txn\")")
                     .contains(".field(\"user_id\", Types.string())")
                     .contains(".field(\"amount\", Types.int64())")
+                    // The stream's declared event time goes with it, or a windowed query's fixture is
+                    // refused as it starts (PRV-2002) -- found by the tutorials' agent.
+                    .contains(".eventTime(\"event_time\")")
                     .as("the rows it consumed, in order, with their weights")
                     .contains("harness.row(\"txn\", 1L,")
                     .contains("\"bob\", -900L")

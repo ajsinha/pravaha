@@ -317,16 +317,30 @@ public final class PravahaFlightClient implements AutoCloseable {
         }
         requireOpen();
         ControlWire.requireWellFormed(sql, "the SQL");
-        try (FlightSqlClient.PreparedStatement statement = client.prepare(sql, callOptions)) {
-            try (VectorSchemaRoot bound = VectorSchemaRoot.create(statement.getParameterSchema(), allocator)) {
-                Parameters.write(bound, parameters);
-                statement.setParameters(bound);
-                FlightInfo info = statement.execute(callOptions);
-                return new QueryResult(
-                        client.getStream(info.getEndpoints().get(0).getTicket(), callOptions), this);
-            }
+        FlightSqlClient.PreparedStatement statement;
+        try {
+            statement = client.prepare(sql, callOptions);
         } catch (FlightRuntimeException e) {
             throw failureOf(e);
+        }
+        try (VectorSchemaRoot bound = VectorSchemaRoot.create(statement.getParameterSchema(), allocator)) {
+            Parameters.write(bound, parameters);
+            statement.setParameters(bound);
+            FlightInfo info = statement.execute(callOptions);
+            return new QueryResult(client.getStream(info.getEndpoints().get(0).getTicket(), callOptions), this);
+        } catch (FlightRuntimeException e) {
+            throw failureOf(e);
+        } finally {
+            // Closed with the caller's credentials, and best effort. Try-with-resources called the
+            // no-argument close(), which sent ClosePreparedStatement without the bearer token: under
+            // token authentication the server refused it (PRV-7001), and that refusal replaced a
+            // result that had already been computed. The server holds nothing for a prepared
+            // statement, so a failed close costs nothing -- the Python SDK closes the same way.
+            try {
+                statement.close(callOptions);
+            } catch (RuntimeException ignored) {
+                // Nothing to release on the server; tidying up must not replace the answer.
+            }
         }
     }
 

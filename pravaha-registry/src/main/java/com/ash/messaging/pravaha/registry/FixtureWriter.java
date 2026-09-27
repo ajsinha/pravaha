@@ -182,6 +182,13 @@ final class FixtureWriter {
                         .append(FixtureExport.typeCall(field.type()))
                         .append(")\n");
             }
+            // The declared event time goes with the schema. Without it a fixture of a windowed query
+            // was refused as it started (PRV-2002, no event time to window on): the export said it
+            // had captured the incident and produced a test that could not run it.
+            schema.eventTimeOrdinal()
+                    .ifPresent(ordinal -> out.append("            .eventTime(")
+                            .append(FixtureExport.quote(schema.field(ordinal).name()))
+                            .append(")\n"));
             out.append("            .build();\n\n");
         });
     }

@@ -86,7 +86,7 @@ corrected by late data arrives as a retraction of the old answer followed by the
 |---|---|
 | **SQL** | Calcite parses and optimises; the plan becomes Pravaha's own operator tree, run over off-heap binary rows. Whole-stage code generation runs roughly **10× the interpreted path**. Projections, expressions, `CASE`, string and numeric functions, `LIKE`, filters, aggregates. What is refused, and why, is in [`CONTINUOUS_QUERIES.md`](docs/CONTINUOUS_QUERIES.md), checked against the planner by a test |
 | **Continuous queries** | Registered with a name and a key; paused, resumed, dropped. Identical questions from one tenant share one computation under many names, matched on the normalised plan, so ten desks asking the same thing cost one read of the source. Each tenant is admitted by quota (queries, view state) and refused by name at the limit ([ADR-050](docs/adr/050-a-tenant-owns-names-and-state-and-shares-only-with-itself.md)) |
-| **Windows and event time** | Tumbling, sliding and session windows, with slicing. A query derives its watermark from the event-time column its stream declares, a quiet partition stops holding the rest back, and a window publishes when time passes its end |
+| **Windows and event time** | Tumbling and hopping (sliding) windows, with slicing; session windows are refused (`PRV-2020`). A query derives its watermark from the event-time column its stream declares, a quiet partition stops holding the rest back, and a window publishes when time passes its end |
 | **Corrections** | Late data within a stream's declared allowed lateness (`pravaha.streams.<name>.allowed-lateness`, or `allowedLateness` on `POST /api/v1/streams`; zero by default) reopens a closed window as a retraction plus the corrected answer. Every change carries a Z-set weight, through the engine, across the wire and into both SDKs |
 | **Joins** | Stream-to-stream, and temporal lookup joins against a JDBC or Aerospike dimension table |
 | **Sources** | Filesystem (bounded, or followed like `tail -f`), feedfile directories (CSV, Parquet), Delta Lake (deletion vectors included), JDBC polling, Aerospike scans, Cassandra `token()`-range scans (either retracting deleted and changed rows with `deletes: detect`), **PostgreSQL change data capture** (`postgres-cdc`: logical replication, an insert at +1, a delete as the whole old row at −1, an update as both, whole transactions, exactly once — the slot is confirmed only at checkpoints), and **Kafka topics** (`kafka`: one reader per partition, exactly once from the checkpoint's offsets, `read_committed` by default; JSON rows by column name, or `kafka-sink`'s changelog with its retractions). Filters are pushed into JDBC and Aerospike, projections into all three, and a continuous `COUNT`/`SUM` into JDBC as one pre-combined partial per polled page (over a watermark written only on insert: `watermark.moves.on.update: false`). Every source stamps a row with the stream's declared event-time column. One reader per source binding feeds every query bound to it, pushing the OR of their filters, except where a source promises exactly once. Connections to JDBC, PostgreSQL CDC, Aerospike, Cassandra and Kafka can be encrypted ([`CONNECTOR_TLS.md`](docs/CONNECTOR_TLS.md)) |
@@ -239,9 +239,10 @@ reference-hardware evidence and none is quoted as the engine's capability.**
 [`docs/gates/measured-2026-09-20`](docs/gates/measured-2026-09-20/README.md) has them all with their
 conditions, and says plainly what a reader must not conclude from them.
 
-Also measured there: **5 of Nexmark's 23 published queries run at all**, so win condition W5's
-head-to-head has nothing to compare on yet, and the eighteen that do not run are missing SQL rather
-than missing speed.
+Also measured there: **5 of Nexmark's 23 published queries ran** at the 2026-09-20 measurement, and
+**12 run as of 2026-09-26** after the SQL batch (self joins, top-N, exact DECIMAL). Win condition W5's
+head-to-head against Flink has still not been run, and the eleven that do not run are missing SQL
+rather than missing speed.
 
 What this machine reported earlier: the lane machinery runs at about **21 M rows/s**, and the cost
 of a query — threads, off-heap bytes, file descriptors, registration time — which `NodeScaleTest`

@@ -197,6 +197,25 @@ class FlightContinuousStatementTest {
     }
 
     @Test
+    void aSecondNameOnASharedComputationIsAnsweredWithTheNameItRegistered() {
+        // Found by the tutorials' agent: the register action answered with query.name(), the
+        // computation's first name, so registering big_payments_again over the same SQL was answered
+        // "big_payments". The fingerprint shows the sharing; the name answers the question asked.
+        String sql = "SELECT trade_id, product_type FROM trade";
+        List<List<String>> first = act(ADMIN, ControlWire.REGISTER, "trade_feed", sql, "0");
+        List<List<String>> second = act(ADMIN, ControlWire.REGISTER, "trade_feed_again", sql, "0");
+        assertThat(first.get(0).get(0)).isEqualTo("trade_feed");
+        assertThat(second.get(0).get(0)).isEqualTo("trade_feed_again");
+        assertThat(second.get(0).get(2))
+                .as("one computation, two names")
+                .isEqualTo(first.get(0).get(2));
+
+        List<List<String>> overSql =
+                query("CREATE CONTINUOUS QUERY trade_feed_third KEYED BY (trade_id) AS " + sql, ADMIN);
+        assertThat(overSql.get(0).get(0)).isEqualTo("trade_feed_third");
+    }
+
+    @Test
     void theSchemaIsKnownBeforeTheStatementRunsAndAskingForItRegistersNothing() {
         FlightInfo info = sql.execute(
                 "CREATE CONTINUOUS QUERY trade_feed KEYED BY (trade_id) AS SELECT trade_id FROM trade", bearing(ADMIN));

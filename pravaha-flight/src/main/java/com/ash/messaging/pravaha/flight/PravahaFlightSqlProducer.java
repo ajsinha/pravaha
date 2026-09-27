@@ -572,8 +572,12 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                     Retention retention = fields.size() > 4 ? retentionOf(fields.get(4)) : null;
                     RegisteredQuery query = ContinuousQueryStatements.register(
                             required, fields.get(0), fields.get(1), keys, principal, sink, retention);
+                    // The name the caller registered, not query.name(): a registration that shares an
+                    // existing computation is a second name on it, and answering with the first name
+                    // told a caller who registered big_payments_again that it had registered
+                    // big_payments. The fingerprint is how a caller sees the sharing.
                     listener.onNext(new Result(ControlWire.encode(
-                            query.name(),
+                            fields.get(0).strip(),
                             query.state().name(),
                             query.fingerprint().shortForm())));
                 }

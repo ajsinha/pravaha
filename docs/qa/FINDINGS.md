@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **386 findings carrying a
-status — 362 FIXED, 10 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 10 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 8 POST-GA and 2 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **399 findings carrying a
+status — 369 FIXED, 16 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 16 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 12 POST-GA and 4 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -6921,3 +6921,67 @@ recorded.
 ### HELPURL-1 (LOW) — the documented `pravaha.docs.base-url` pointed at a console path that does not exist
 
 > **Status:** FIXED — the engine's `PRV-1029` message, `OPERATIONS.md`, `TROUBLESHOOTING.md`, `system_design.md` and the jar's `application.yaml` all suggested `http://localhost:8088/help/errors/` as the base for the help link every refusal carries. The console serves code pages at `/help/codes/PRV-nnnn`, on port 8090 at the time; there has never been a `/help/errors/` route, so a deployment that followed the advice put a link to a 404 on every failure. Every place now says `http://localhost:17070/help/codes/`, which the QA install's configuration already used (with its own host name).
+
+## Found by the tutorial and About-page work (2026-09-27), 13 findings, 7 fixed
+
+Reported by the two agents that wrote the product tutorials, the five new case studies, the About
+page and the competitive landscape, each against a running node or the rendered console, and
+triaged by the lead.
+
+### SDKJ-1 (MEDIUM) — a parameterised query from the Java SDK or the CLI failed under a token
+
+> **Status:** FIXED — `pravaha query --token T --insecure-token --sql "… WHERE user_id = ?" --params u2` answered `PRV-7001` while the same query without `?` worked. `PravahaFlightClient.query(sql, params)` held its prepared statement in try-with-resources, whose no-argument `close()` sent `ClosePreparedStatement` without the bearer token; the server refused that close, and the refusal replaced the answer already computed. The statement is now closed with the caller's credentials, best effort, as the Python SDK closes it. `JavaSdkAuthenticationTest.aParameterisedQueryUnderATokenReturnsItsAnswer`, seed-proven (PRV-7001 without the fix).
+
+### NAME-1 (LOW) — a second name on a shared computation was answered with the first name
+
+> **Status:** FIXED — `register("big_payments_again", sql)` over the SQL of an existing `big_payments` answered `name='big_payments'`: the register action encoded `query.name()`, the computation's first name, rather than the name registered. It now answers with the name the caller registered; the fingerprint is what shows the sharing. `FlightContinuousStatementTest.aSecondNameOnASharedComputationIsAnsweredWithTheNameItRegistered`, over the action and `CREATE CONTINUOUS QUERY`, seed-proven.
+
+### FIX-1 (MEDIUM) — a debug session exported as a test could not run a windowed query
+
+> **Status:** FIXED — `FixtureWriter` wrote each input stream's fields and not its declared event time, so the fixture of a windowed query was refused as it started (`PRV-2002`): the export said it had captured the incident and produced a test that could not replay it. The schema now carries `.eventTime(…)` when the stream declares one. `DebugFixtureExportTest` asserts it and compiles and runs the fixture.
+
+### FIX-2 (LOW-MEDIUM) — exporting a fixture after only a watermark step is refused as firing millions of windows
+
+> **Status:** OPEN — `debug fork --checkpoint 3`, `debug step --step watermark:1790413560000000000`, then `debug fixture`, answered `PRV-3010`/`PRV-3022`: "would fire 29840226 windows … 1970-01-01…". A fixture replays from empty state, and a replay whose first event is a watermark with no rows before it asks the window operator to close every window since the epoch.
+> **Disposition:** POST-GA — the export should start the replay's clock at the first row's event time, or refuse by name when the session stepped no rows.
+
+### FIX-3 (LOW) — a generated fixture does not pass the repository's formatter
+
+> **Status:** OPEN — a fixture written into `pravaha-it` fails `spotless:check`, so dropping it in as the export suggests breaks the build until it is formatted. Tutorial 4 tells the reader to run `spotless:apply`.
+> **Disposition:** POST-GA — emit Palantir-formatted source, or say in the export's own output to run `spotless:apply`.
+
+### EMIT-2 (LOW) — a correction inside allowed lateness is published at the next watermark advance, not when the late row arrives
+
+> **Status:** OPEN — in the manufacturing study, appending only the late reading changes nothing until a later row arrives: the late row is applied to the window's state at once, and the corrected window is published when the watermark next advances. `CONTINUOUS_QUERIES.md` §6 reads as if the correction were immediate; the study's README documents what happens.
+> **Disposition:** POST-GA — either publish a correction when it is applied, or say in §6 that corrections ride the next watermark advance.
+
+### CLITOKEN-1 (LOW) — the QA configuration said the CLI reads PRAVAHA_TOKEN; it does not
+
+> **Status:** FIXED — the comment on the QA token in `deploy/qa/server.application.yaml` said `PRAVAHA_TOKEN=<this key>` for "the CLI and the SDKs"; the CLI takes `--token` and `--insecure-token` and reads no environment variable. The comment now says so. The CLI reading `PRAVAHA_TOKEN` would be a feature, and is not claimed.
+
+### DOCW-1 (LOW) — the README said session windows work, and the About page repeated it
+
+> **Status:** FIXED — README's "What works" said "Tumbling, sliding and session windows"; `CONTINUOUS_QUERIES.md` says `SESSION` windows are refused with `PRV-2020`. The README now says tumbling and hopping, and that sessions are refused; the About page reads its table from the README.
+
+### DOCW-2 (LOW) — the README's Nexmark count was a week old
+
+> **Status:** FIXED — "5 of Nexmark's 23 published queries run"; the release notes and the gate pack say 12 as of 2026-09-26. The README now gives both, dated.
+
+### DOCW-3 (LOW) — the Python guide named a type that does not exist
+
+> **Status:** FIXED — `docs/PYTHON_API_GUIDE.md` §5 said finer access control is "a custom `AccessPolicy`"; the type is `SecurityPolicy`.
+
+### PERFH-1 (LOW) — the console's performance suite charges sign-in's scripts to whichever page it measures first
+
+> **Status:** OPEN — the first measured page reports about 280–510 kB of initial JavaScript, `landing` in a full run and `about` when run alone, because what sign-in loaded is still counted. A harness artifact, not the page's weight.
+> **Disposition:** POST-GA — start each measured page in a fresh browser context.
+
+### OBS-1 (LOW) — one query went four minutes without a checkpoint at a one-minute interval
+
+> **Status:** OPEN — observed once on the tutorials' node (`spend_per_minute`), not reproduced, and not explained. Recorded so that a second sighting has somewhere to go.
+> **Disposition:** NOTE — not a defect -- a reconfirmation, correction or coverage observation
+
+### OBS-2 (LOW) — identical SQL fingerprinted differently on one fresh node
+
+> **Status:** OPEN — one fresh telecom node gave `9b5a430dc639` against `4a2655cf6ed1` for identical SQL; later runs were stable. Observed on a build before FP-1, when the fingerprint was a hash of the explain text; since FP-1 it hashes each operator's identity, built from records, and `PlanIdentityTest`'s sharing cases hold. Not reproduced.
+> **Disposition:** NOTE — not a defect -- a reconfirmation, correction or coverage observation

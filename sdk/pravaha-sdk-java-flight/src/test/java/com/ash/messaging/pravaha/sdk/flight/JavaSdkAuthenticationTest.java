@@ -141,6 +141,21 @@ class JavaSdkAuthenticationTest {
     }
 
     @Test
+    void aParameterisedQueryUnderATokenReturnsItsAnswer() {
+        // Found by the tutorials' agent: the prepared statement was closed by try-with-resources,
+        // whose close() sends ClosePreparedStatement with no credentials, and under a token the
+        // server's refusal (PRV-7001) replaced the answer the query had already computed.
+        try (PravahaFlightClient client = clientWith(ANALYST_TOKEN);
+                QueryResult result = client.query("SELECT user_id, total FROM user_volume WHERE user_id = ?", "u1")) {
+            List<String> users = new java.util.ArrayList<>();
+            for (Row row : result) {
+                users.add(row.getString("user_id"));
+            }
+            assertThat(users).containsExactly("u1");
+        }
+    }
+
+    @Test
     void aTokenIsRefusedOverAPlaintextConnectionUnlessAskedFor() {
         assertThatThrownBy(() -> ClientOptions.builder("grpc://example.com:19090")
                         .token("s3cret")

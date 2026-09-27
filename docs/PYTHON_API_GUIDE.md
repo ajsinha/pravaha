@@ -299,7 +299,7 @@ Under the QA host's `policy: authenticated`, **every verified caller may registe
 streams, and read and administer every view**. Roles are carried on the token and recorded in the
 audit trail, but the only thing they gate in the built-in policies is reading the audit trail
 (`admin`). Finer control — per-view read, row filters, who may administer what — is a custom
-`AccessPolicy` on the engine. Ask the node what *you* may do with [`permissions()`](#permissions).
+`SecurityPolicy` on the engine. Ask the node what *you* may do with [`permissions()`](#permissions).
 
 ---
 

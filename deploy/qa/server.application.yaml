@@ -67,7 +67,7 @@ pravaha:
         tenant: public
         roles: [operator, admin]
       "@@QA_TOKEN@@":
-        id: qa                            # for the CLI and the SDKs: PRAVAHA_TOKEN=<this key>
+        id: qa                            # for the CLI (--token <this key> --insecure-token) and the SDKs
         tenant: public
         roles: [operator, admin]
 
