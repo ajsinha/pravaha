@@ -13,7 +13,7 @@ make to a team running both (ADR-048).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, Sequence
+from typing import TYPE_CHECKING, Any, Optional, Sequence
 
 # The time-travel debugger's actions (ADR-048). One per verb: a debugger is a conversation,
 # and a single action carrying a verb field would hide the routing in the body.
@@ -152,7 +152,7 @@ class StateEntry:
     """One key's state: a join's row, a group's accumulators, a window's contents."""
 
     key: str
-    values: dict = field(default_factory=dict)
+    values: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -312,6 +312,10 @@ class DebugCommands:
     what it needs from its host -- so this class is about the debugger's protocol and
     nothing about connecting.
     """
+
+    if TYPE_CHECKING:  # provided by the host, pravaha.client.Client
+
+        def _act(self, action: str, fields: Sequence[str]) -> list[list[str]]: ...
 
     def debug_fork(self, query: str, checkpoint_id: "Optional[int]" = None) -> "DebugSession":
         """Forks a debug session from a query's checkpoint (ADR-048).

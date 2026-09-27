@@ -603,7 +603,7 @@ def test_every_row_of_the_competitive_table_has_its_card_and_every_card_its_row(
 
 
 def test_the_competitive_page_is_public_and_both_about_and_help_lead_to_it(anonymous):
-    land, shine, behind = _landscape()
+    _land, shine, behind = _landscape()
     page = anonymous.get("/about/competitive")
     assert page.status_code == 200
     for card in shine + behind:

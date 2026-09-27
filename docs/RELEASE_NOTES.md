@@ -10,6 +10,21 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ---
 
+## Unreleased (0.1.4-SNAPSHOT)
+
+- **The server image runs on glibc, and Parquet's Snappy codec loads in it** (PORT-1,
+  [ADR-053](adr/053-native-code-only-where-java-cannot.md)). Up to 0.1.3 the image was Alpine, where
+  snappy-java cannot load, so the `feedfile` and `delta` plugins could not read a Snappy-compressed
+  Parquet file inside the container. The build now refuses native libraries except Parquet's two
+  codecs; TLS runs on the JDK's engine. The node says at startup if a codec cannot load.
+- **Users, passwords, API keys and sessions kept by the engine**
+  ([ADR-052](adr/052-the-engine-is-the-identity-authority.md), stage 1 of 6). The core is built and off
+  by default (`pravaha.identity.enabled`). New codes PRV-7010 to PRV-7021.
+
+Register: **400 findings — 371 fixed, 15 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+
+---
+
 ## 0.1.3 — QA, 2026-09-27
 
 **What this build is for.** 0.1.2 with one fix QA would otherwise meet in its first week: a

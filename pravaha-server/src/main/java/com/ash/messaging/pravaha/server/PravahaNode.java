@@ -997,26 +997,12 @@ public class PravahaNode implements SmartLifecycle {
         // "rather than in a support ticket about 401s" -- and then said it nowhere until the first
         // call. A node that refuses every caller looked identical, in the log, to one that accepts
         // the right ones.
+        // ADR-053. The one native code this node carries, checked once, so a platform it cannot load on
+        // says so here rather than at the first Parquet file (PORT-1).
+        NativeCodecs.warning().ifPresent(log::warn);
         Optional<com.ash.messaging.pravaha.identity.IdentityService> users = identity();
         if (users.isPresent()) {
-            users.get().requireStartable();
-            log.info(
-                    "identity: users, API keys and sessions kept in {} (environment {}, sign-in by {}, forced "
-                            + "password change {})",
-                    identity.getStore(),
-                    identity.getEnvironment(),
-                    identity.effectiveMode(),
-                    identity.getPassword().isForceChange() ? "on" : "off");
-            if (!"password".equals(identity.getMode().trim())) {
-                log.warn(
-                        "pravaha.identity.mode is {} and no identity provider is configured, so people sign in "
-                                + "with passwords",
-                        identity.getMode());
-            }
-            if (users.get().defaultAdminPasswordInUse()) {
-                log.warn("identity: the user 'admin' still has the default password; change it before anyone else "
-                        + "can reach this node");
-            }
+            identity.announce(users.get(), log);
         } else {
             security.unusableTokenTable().ifPresent(log::warn);
         }

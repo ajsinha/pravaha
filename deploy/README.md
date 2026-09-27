@@ -8,7 +8,7 @@ Everything a deployment needs and nothing the engine needs. **The page to read i
 
 ```
 docker/     the engine node's container image
-  Dockerfile          Alpine JRE 21, uid 10001, over artefacts the reactor already built (ADR-047)
+  Dockerfile          glibc JRE 21 (ADR-053), uid 10001, over artefacts the reactor already built (ADR-047)
   conf/               the image's own application.yaml -- the lowest of three config layers
   build.sh            stage an ~80 MB context and build.   --tag, --push
   smoke.sh            ten steps against a REAL container.  --image, --keep

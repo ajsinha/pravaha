@@ -24,6 +24,14 @@
     <dependency>
       <groupId>org.apache.arrow</groupId>
       <artifactId>flight-sql</artifactId>
+      <!-- ADR-053: no JNI where Java does the job. TLS runs on the JDK's own engine, identically on
+           every platform; BoringSSL's per-platform builds are left out. -->
+      <exclusions>
+        <exclusion>
+          <groupId>io.netty</groupId>
+          <artifactId>netty-tcnative-boringssl-static</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>org.apache.arrow</groupId>

@@ -86,7 +86,7 @@ files (mode 0600, uid 10001), prints them once, and never overwrites either file
 | | |
 |---|---|
 | Built by | [`deploy/docker/Dockerfile`](../deploy/docker/Dockerfile), staged by [`deploy/docker/build.sh`](../deploy/docker/build.sh) |
-| Base | `eclipse-temurin:21-jre-alpine` (287 MB) plus ~2 MB of `bash` |
+| Base | `eclipse-temurin:21-jre` (Ubuntu, glibc, 459 MB). Not Alpine: Parquet's Snappy codec is glibc-only ([ADR-053](adr/053-native-code-only-where-java-cannot.md)) |
 | Size | **436,555,582 bytes** (~437 MB) as `docker image inspect` reports it; 77 MB of that is the application jar |
 | User | uid **10001**, non-root, numeric — a Kubernetes `runAsUser` and a `docker --user` both take a number |
 | Entrypoint | `/__cacert_entrypoint.sh bin/pravaha-server` |
@@ -191,6 +191,26 @@ mount the volume into a throwaway container.
 **Nothing is encrypted at rest.** If that is required, put the volume on an encrypted one.
 
 ---
+
+## Native code
+
+Pravaha is Java, and runs wherever a JDK 21 does, TLS included: TLS uses the JDK's own engine, not
+BoringSSL. The build refuses native libraries on any compile or runtime path
+([ADR-053](adr/053-native-code-only-where-java-cannot.md), `enforce-portable-native-code` in the root
+POM), with one exception. Parquet's Snappy and zstd codecs have no Java implementation Parquet can
+use, so they stay:
+
+| Codec | Library | Built for |
+|---|---|---|
+| Snappy | `snappy-java` 1.1.10 | Linux with glibc (x86_64, aarch64, arm, ppc64le, s390x, riscv64 and others), macOS (x86_64, aarch64), Windows (x86, x86_64), FreeBSD x86_64, SunOS |
+| zstd | `zstd-jni` 1.5.0 | Linux with glibc (amd64, aarch64, arm, i386, ppc64le, s390x, mips64), macOS (x86_64, aarch64), Windows (x86, amd64), FreeBSD |
+
+They matter only for reading or writing Parquet (the `feedfile` and `delta` sources, `delta-sink`)
+compressed with them. Elsewhere, including musl Linux such as Alpine, the node says at startup
+which codec cannot load; uncompressed and gzip Parquet still work. Both codecs unpack into
+`java.io.tmpdir` and load from there, so that directory must allow executing files. A Kubernetes
+`emptyDir` does. With Docker's `--read-only`, mount `--tmpfs /tmp:rw,exec`, because Docker's tmpfs
+is `noexec` by default.
 
 ## The chart
 
@@ -523,6 +543,7 @@ helm 3.16.3 binary fetched into a scratch directory for the purpose and removed 
 | [Security](SECURITY.md) | Authentication, authorization, row filters, audit |
 | [TLS](CONNECTOR_TLS.md) | Every encrypted connection Pravaha makes or accepts |
 | [Troubleshooting](TROUBLESHOOTING.md) | Every `PRV-` code, including the ones this page names |
-| [ADR-047](adr/047-the-image-is-a-dockerfile-over-built-artefacts.md) | Why the image is a Dockerfile, on Alpine, over built artefacts |
+| [ADR-047](adr/047-the-image-is-a-dockerfile-over-built-artefacts.md) | Why the image is a Dockerfile over built artefacts |
+| [ADR-053](adr/053-native-code-only-where-java-cannot.md) | Native code only where Java cannot do the job; why the base is glibc |
 | [ADR-035](adr/035-wave-8-is-survival-not-distribution.md) | Node ownership of state, and the standby the chart deploys |
 | [ADR-045](adr/045-cluster-mode-assigns-queries-not-rows.md) | The clustering this chart does not do |

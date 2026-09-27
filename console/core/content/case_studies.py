@@ -23,7 +23,7 @@ from pathlib import Path
 REPOSITORY = "https://github.com/ajsinha/pravaha/blob/main/examples/case-studies"
 
 # | [Title](folder/) | Domain | Store | What it shows |
-_ROW = re.compile(r"^\|\s*\[([^\]]+)\]\(([\w-]+)/?\)\s*\|([^|]*)\|([^|]*)\|([^|\n]*)\|", re.M)
+_ROW = re.compile(r"^\|\s*\[([^\]]+)\]\(([\w-]+)/?\)\s*\|([^|]*)\|([^|]*)\|([^|\n]*)\|", re.MULTILINE)
 _LINK = re.compile(r"\]\(([^)\s]+)\)")
 
 
@@ -104,7 +104,7 @@ def relink(readme: str, slug: str, root: Path) -> str:
         target = path[3:] if path.startswith("../") else f"{slug}/{path}"
         return f"{REPOSITORY}/{target}{suffix}"
 
-    parts = re.split(r"(```.*?```)", readme, flags=re.S)
+    parts = re.split(r"(```.*?```)", readme, flags=re.DOTALL)
     for i, part in enumerate(parts):
         if not part.startswith("```"):
             parts[i] = _LINK.sub(lambda m: f"]({target_for(m.group(1))})", part)

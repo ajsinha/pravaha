@@ -10,6 +10,8 @@ needs the ``flight`` extra, because a client installed into somebody else's
 environment should not drag pyarrow in unless it is going to talk to a server.
 """
 
+from typing import Any
+
 from pravaha.consistency import Consistency
 from pravaha.debug import (
     DebugSession,
@@ -43,7 +45,7 @@ from pravaha.tls import TlsOptions
 
 
 
-def connect(*args, **kwargs):
+def connect(*args: Any, **kwargs: Any) -> Any:
     """Connects to a Pravaha server. Needs the ``flight`` extra; see :mod:`pravaha.client`.
 
     Imported lazily so that ``import pravaha`` works without pyarrow -- the types and the

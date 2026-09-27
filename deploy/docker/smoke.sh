@@ -26,6 +26,8 @@
 #  10. SEED: the node must come ready and serve under `docker run --read-only`, which is the
 #      constraint deploy/helm/pravaha sets with readOnlyRootFilesystem and which there is no
 #      cluster on this machine to prove any other way
+#  11. the image's native code loads: Parquet's snappy and zstd codecs round-trip bytes inside the
+#      image, with the same read-only root and /tmp as step 10 (ADR-053, PORT-1)
 #
 # Each step prints "ok:" or fails the script naming what it expected. Every artefact it creates is
 # removed on exit -- the containers, by the names it chose, and the work directory, whose contents
@@ -338,9 +340,11 @@ ok "flightless node: readiness $code, not 200 (no client can reach it)"
 # The chart sets readOnlyRootFilesystem: true and mounts an emptyDir at /tmp. There is no cluster
 # on this machine to prove that on, and `docker run --read-only --tmpfs /tmp` is the same
 # constraint: nothing outside the volume and /tmp may be written. If the JVM or the engine needs
-# to write anywhere else, it fails here rather than in somebody's cluster.
+# to write anywhere else, it fails here rather than in somebody's cluster. `exec` because Docker's
+# tmpfs is noexec by default and the Parquet codecs load their native library from there; a
+# Kubernetes emptyDir allows it (ADR-053).
 "$docker_bin" run -d --name "$name-noflight" \
-  --read-only --tmpfs /tmp:rw,size=64m \
+  --read-only --tmpfs /tmp:rw,exec,size=64m \
   -p "127.0.0.1:$http_port:18080" \
   -p "127.0.0.1:$flight_port:19090" \
   -v "$work/data:/opt/pravaha/data" \
@@ -359,6 +363,23 @@ rows="$(pravaha query --sql "SELECT user_id, amount FROM by_user" 2>&1 || true)"
 grep -q '300' <<<"$rows" || fail "read-only root: the view did not come back:
 $rows"
 ok "ready, and serving, with --read-only and only /tmp and the volume writable"
+
+
+# ------------------------------------- 11. the image's native code loads
+
+# The only native code the build allows is Parquet's two codecs (ADR-053). Each is loaded and made
+# to round-trip bytes inside the image, under the same constraints as step 10, because a native
+# library that does not load fails at the first Parquet file rather than at startup -- which is how
+# snappy-java failed unseen on the Alpine image (PORT-1).
+codecs="$("$docker_bin" run --rm --read-only --tmpfs /tmp:rw,exec,size=64m --entrypoint java "$image" \
+  -cp lib/pravaha-server.jar -Dloader.main=com.ash.messaging.pravaha.server.NativeCodecs \
+  org.springframework.boot.loader.launch.PropertiesLauncher 2>&1)" || fail "a native codec does not load in the image:
+$codecs"
+grep -q '^snappy loaded' <<<"$codecs" || fail "snappy did not load in the image:
+$codecs"
+grep -q '^zstd loaded' <<<"$codecs" || fail "zstd did not load in the image:
+$codecs"
+ok "Parquet's native codecs load in the image: $(tr '\n' ' ' <<<"$codecs")"
 
 echo
 echo "smoke.sh: PASSED"

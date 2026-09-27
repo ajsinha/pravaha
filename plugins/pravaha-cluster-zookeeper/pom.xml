@@ -29,6 +29,18 @@
       <groupId>org.apache.curator</groupId>
       <artifactId>curator-recipes</artifactId>
       <version>${curator.version}</version>
+      <!-- ADR-053: ZooKeeper's client uses NIO unless told to use Netty, and its Netty path falls back
+           to NIO without epoll; neither native build is needed, and epoll came for x86_64 only. -->
+      <exclusions>
+        <exclusion>
+          <groupId>io.netty</groupId>
+          <artifactId>netty-transport-native-epoll</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>io.netty</groupId>
+          <artifactId>netty-tcnative-boringssl-static</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <!-- A real embedded ZooKeeper (TestingServer), test-scope only, so this plugin's own claims
          about membership and partition assignment are proved against a real ensemble rather than
@@ -40,6 +52,18 @@
       <artifactId>curator-test</artifactId>
       <version>${curator.version}</version>
       <scope>test</scope>
+      <!-- The embedded ZooKeeper runs on NIO, like the client; ADR-053's rule sees these whatever the
+           scope that brought them. -->
+      <exclusions>
+        <exclusion>
+          <groupId>io.netty</groupId>
+          <artifactId>netty-transport-native-epoll</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>io.netty</groupId>
+          <artifactId>netty-tcnative-boringssl-static</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
   </dependencies>
 </project>

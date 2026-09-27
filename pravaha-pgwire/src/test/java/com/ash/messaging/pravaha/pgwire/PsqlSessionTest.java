@@ -242,7 +242,7 @@ class PsqlSessionTest {
 
         // The PRV code reaching a person's terminal, unmangled, is most of what an error code is
         // for. If it survives the protocol it survives every client.
-        assertThat(psql(null, "SELECT * FROM nope")).contains("PRV-2002");
+        assertThat(psql(null, "SELECT * FROM nope")).contains("PRV-4023");
     }
 
     /**

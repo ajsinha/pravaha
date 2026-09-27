@@ -30,7 +30,7 @@ import dataclasses
 import re
 import urllib.parse
 from dataclasses import dataclass
-from typing import Any, Iterator, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Iterator, List, Optional, Sequence
 
 from pravaha.debug import DebugCommands
 from pravaha.endpoint import Endpoint
@@ -38,6 +38,9 @@ from pravaha.errors import PravahaError, configure_docs_base_from_environment, r
 from pravaha.options import ClientOptions
 from pravaha.rest import ApiError, RestClient
 from pravaha.tls import TlsOptions
+
+if TYPE_CHECKING:  # pyarrow is imported where it is used; this is for the annotations only.
+    import pyarrow
 
 try:  # pragma: no cover - exercised by the import-error path, not by the happy one
     import pyarrow.flight as _flight
@@ -50,7 +53,7 @@ except ImportError as exc:  # pragma: no cover
     ) from exc
 
 
-def _flight_client_tls_kwargs(tls: TlsOptions) -> dict:
+def _flight_client_tls_kwargs(tls: TlsOptions) -> dict[str, Any]:
     """Translates ``TlsOptions`` into the keyword arguments ``pyarrow.flight.FlightClient`` takes.
 
     ``FlightClient`` accepts only PEM bytes -- ``tls_root_certs``, ``cert_chain``,
@@ -58,7 +61,7 @@ def _flight_client_tls_kwargs(tls: TlsOptions) -> dict:
     bytes by :mod:`pravaha._keystore`, imported lazily here so that a client never
     touching a keystore never needs the ``cryptography`` package that bridge uses.
     """
-    kwargs: dict = {}
+    kwargs: dict[str, Any] = {}
     if tls.ca_certificate is not None:
         kwargs["tls_root_certs"] = tls.ca_certificate.read_bytes()
     elif tls.trust_store is not None:
@@ -70,6 +73,7 @@ def _flight_client_tls_kwargs(tls: TlsOptions) -> dict:
     if tls.client_certificate is not None:
         # client_key is guaranteed present too: TlsOptions refuses one without the other.
         kwargs["cert_chain"] = tls.client_certificate.read_bytes()
+        assert tls.client_key is not None  # TlsOptions refuses a certificate without its key
         kwargs["private_key"] = tls.client_key.read_bytes()
     elif tls.key_store is not None:
         from pravaha._keystore import client_certificate_and_key_pem
@@ -214,7 +218,7 @@ class Row:
         """Whether this withdraws a row rather than adding one."""
         return self._weight < 0
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return dict(zip(self._columns, self._values))
 
     def __len__(self) -> int:
@@ -267,7 +271,7 @@ def _weighted_rows_of(table: Any) -> list[Row]:
         for r in range(table.num_rows)
     ]
 
-class ChangeBatch(list):
+class ChangeBatch(List[Any]):
     """One commit's rows -- or, first on a snapshot subscription, the view it starts from.
 
     A ``list`` of :class:`Row`, so code written for plain subscriptions, which iterates or
@@ -356,7 +360,7 @@ class QueryResult:
         self._consumed = False
 
     @property
-    def columns(self) -> list:
+    def columns(self) -> list[Any]:
         """The column names, known before any row arrives."""
         return list(self._columns)
 
@@ -384,7 +388,7 @@ class QueryResult:
         self._consumed = True
         return self._reader.read_all()
 
-    def to_list(self) -> list:
+    def to_list(self) -> list[Any]:
         """Everything, as a list of dicts. For small answers and quick scripts."""
         return [row.to_dict() for row in self]
 
@@ -809,7 +813,7 @@ class Client(DebugCommands):
     def subscribe(
         self,
         view: str,
-        filters: Optional[dict] = None,
+        filters: Optional[dict[str, Any]] = None,
         *,
         batch_size_hint: Optional[int] = None,
         snapshot: bool = False,
@@ -861,16 +865,16 @@ class Client(DebugCommands):
         remote subscriber could have. Whatever is lost is reported on each batch as
         ``batch.dropped_before`` (STRM-10).
         """
-        pairs: list = []
+        pairs: list[Any] = []
         for column, value in (filters or {}).items():
             pairs.append(str(column))
             pairs.append(str(value))
         preference = None
         if buffer_rows is not None or overflow is not None:
-            rows = 10_000 if buffer_rows is None else int(buffer_rows)
-            if rows < 1:
-                raise QueryError(f"a subscriber's buffer must hold at least one row, not {rows}")
-            preference = f"rows={rows};overflow={(overflow or 'CONFLATE').upper()}"
+            capacity = 10_000 if buffer_rows is None else int(buffer_rows)
+            if capacity < 1:
+                raise QueryError(f"a subscriber's buffer must hold at least one row, not {capacity}")
+            preference = f"rows={capacity};overflow={(overflow or 'CONFLATE').upper()}"
         ticket = _flight.Ticket(
             _subscribe_ticket(view, pairs, snapshot=snapshot, preference=preference)
         )
@@ -882,7 +886,7 @@ class Client(DebugCommands):
             # failure so callers catch one exception type rather than pyarrow's several.
             raise _failure(exc) from exc
         try:
-            parts: list = []
+            parts: list[Any] = []
             for chunk in reader:
                 rows = _weighted_rows_of(chunk.data)
                 mark = _mark_of(getattr(chunk, "app_metadata", None))
@@ -947,13 +951,13 @@ class Client(DebugCommands):
             )
         return self._rest
 
-    def streams(self) -> "list[dict]":
+    def streams(self) -> "list[dict[str, Any]]":
         """Every stream this principal may read: ``name``, ``version``, ``fields``,
         ``eventTime``, ``outOfOrderness`` (ISO-8601) and ``source`` (the plugin that feeds
         it, if bound). ``GET /api/v1/streams``."""
         return list(self._http().get("/api/v1/streams") or [])
 
-    def stream(self, name: str) -> dict:
+    def stream(self, name: str) -> dict[str, Any]:
         """One stream. ``GET /api/v1/streams/{name}``."""
         return dict(self._http().get("/api/v1/streams/" + _segment(name)) or {})
 
@@ -964,44 +968,44 @@ class Client(DebugCommands):
         *,
         event_time: str | None = None,
         out_of_orderness: str | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Declares a stream from ``name:TYPE,...``, with its event-time column and how late
         its rows may be (ISO-8601, such as ``"PT10S"``). An administrative act; the server
         refuses it to a principal who may not change what it serves. ``POST /api/v1/streams``."""
-        body: dict = {"name": name, "schema": schema}
+        body: dict[str, Any] = {"name": name, "schema": schema}
         if event_time:
             body["eventTime"] = event_time
         if out_of_orderness:
             body["outOfOrderness"] = out_of_orderness
         return dict(self._http().post("/api/v1/streams", body) or {})
 
-    def validate(self, sql: str) -> dict:
+    def validate(self, sql: str) -> dict[str, Any]:
         """Plans ``sql`` without running it: ``valid``, ``diagnostics`` (each with ``code``,
         ``message``, ``helpUrl`` and, when the parser knew it, ``range`` -- 1-based lines and
         columns, end column inclusive), ``outputFields`` and ``elapsedMicros``. An invalid
         query is an answer, not an error. ``POST /api/v1/queries/validate``."""
         return dict(self._http().post("/api/v1/queries/validate", {"sql": sql}) or {})
 
-    def explain(self, sql: str, level: str = "physical", *, graph: bool = False) -> dict:
+    def explain(self, sql: str, level: str = "physical", *, graph: bool = False) -> dict[str, Any]:
         """The plan, as ``plan`` text at ``level`` (``physical``, ``logical`` or ``codegen``),
         and with ``graph=True`` also as ``graph``: ``nodes`` and ``edges``.
         ``POST /api/v1/queries/explain``."""
         query = {"level": level, "format": "graph" if graph else "text"}
         return dict(self._http().post("/api/v1/queries/explain", {"sql": sql}, query) or {})
 
-    def describe_queries(self) -> "list[dict]":
+    def describe_queries(self) -> "list[dict[str, Any]]":
         """Every registered query this principal may see, described in full: keys by name and
         ordinal, retention, sink and whether it is still attached, rows in, the other names
         sharing the computation, and ``feed`` -- each source partition's state and, for one
         that stopped, its ``failure`` (code, message, help URL) and ``stoppedAt``. Visibility is exactly :meth:`queries`'s. ``GET /api/v1/queries``."""
         return list(self._http().get("/api/v1/queries") or [])
 
-    def describe_query(self, name: str) -> dict:
+    def describe_query(self, name: str) -> dict[str, Any]:
         """One registered query, as :meth:`describe_queries` describes it.
         ``GET /api/v1/queries/{name}``."""
         return dict(self._http().get("/api/v1/queries/" + _segment(name)) or {})
 
-    def dead_letters_http(self, name: str, *, offset: int = 0, limit: int = 50) -> dict:
+    def dead_letters_http(self, name: str, *, offset: int = 0, limit: int = 50) -> dict[str, Any]:
         """A page of a query's dead letters over HTTP, newest first, with the queue's totals.
 
         The same answer :meth:`dead_letters` gives over Flight, in the API's JSON shape: an
@@ -1017,14 +1021,14 @@ class Client(DebugCommands):
             or {}
         )
 
-    def dead_letter_count(self, name: str) -> dict:
+    def dead_letter_count(self, name: str) -> dict[str, Any]:
         """How deep a query's queue is, and what retention has taken, without any of the
         records. The call a dashboard polls, because fetching a page of records with their
         bytes to learn a number would be reading production data to draw a line.
         ``GET /api/v1/queries/{name}/dead-letters/count``."""
         return dict(self._http().get("/api/v1/queries/" + _segment(name) + "/dead-letters/count") or {})
 
-    def replay_dead_letters_http(self, name: str, ids: Sequence[str]) -> dict:
+    def replay_dead_letters_http(self, name: str, ids: Sequence[str]) -> dict[str, Any]:
         """Feeds chosen dead letters back through the query, over HTTP.
 
         A new row at the query's current frontier, not a rewind. Not idempotent.
@@ -1038,7 +1042,7 @@ class Client(DebugCommands):
             or {}
         )
 
-    def query_plan(self, name: str) -> dict:
+    def query_plan(self, name: str) -> dict[str, Any]:
         """The plan a registered query is running, as ``nodes`` and ``edges``, with the
         query-level numbers the engine measures under ``query`` -- including how long its
         writers spent unable to place a row. ``operatorMetrics`` carries rows in, rows out,
@@ -1050,7 +1054,7 @@ class Client(DebugCommands):
         ``GET /api/v1/queries/{name}/plan``."""
         return dict(self._http().get("/api/v1/queries/" + _segment(name) + "/plan") or {})
 
-    def replacement_http(self, name: str) -> dict:
+    def replacement_http(self, name: str) -> dict[str, Any]:
         """The replacement of ``name`` in the API's JSON shape, over HTTP.
 
         The same answer :meth:`replacement` gives over Flight, plus the one field the Flight
@@ -1073,22 +1077,22 @@ class Client(DebugCommands):
         """
         return dict(self._http().get("/api/v1/queries/" + _segment(name) + "/replacement") or {})
 
-    def describe_view(self, name: str) -> dict:
+    def describe_view(self, name: str) -> dict[str, Any]:
         """A view's ``schema``, ``keyColumns``, ``retention``, ``sink`` and ``fingerprint``,
         without reading it. ``GET /api/v1/views/{name}``."""
         return dict(self._http().get("/api/v1/views/" + _segment(name)) or {})
 
-    def sinks(self) -> "list[dict]":
+    def sinks(self) -> "list[dict[str, Any]]":
         """The sinks this node binds that this principal may see: ``plugin``, ``fields``,
         ``keyColumns``, ``emitModes``, ``acceptsRetractions`` and the visible ``writers``.
         Never a binding's options. ``GET /api/v1/sinks``."""
         return list(self._http().get("/api/v1/sinks") or [])
 
-    def status(self) -> dict:
+    def status(self) -> dict[str, Any]:
         """The node: identity, version, engine state, plugin health. ``GET /api/v1/status``."""
         return dict(self._http().get("/api/v1/status") or {})
 
-    def plugins(self) -> "list[dict]":
+    def plugins(self) -> "list[dict[str, Any]]":
         """Every plugin the node can load: ``name``, ``version``, ``requiredApiVersion``,
         ``compatible``, ``loaded``, ``kinds`` (``source``/``sink``/``lookup``), declared
         ``capabilities``, manifest ``settings`` (names only), ``health`` (with ``reported``:
@@ -1107,7 +1111,7 @@ class Client(DebugCommands):
         decision: str | None = None,
         limit: int | None = None,
         cursor: str | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """One page of the node's recorded authorization decisions, newest first: ``events``
         (each with ``sequence``, ``at``, ``principal``, ``action``, ``target``, ``decision``,
         ``reason``, ``detail``), ``nextCursor`` (pass back as ``cursor``; ``None`` on the last
@@ -1134,14 +1138,14 @@ class Client(DebugCommands):
         }
         return dict(self._http().get("/api/v1/audit", query or None) or {})
 
-    def permissions(self) -> dict:
+    def permissions(self) -> dict[str, Any]:
         """What the node's policy lets this principal do: ``register``, ``readAudit`` (each
         ``allowed`` with a ``reason`` when not), and for each view and stream it may see, how
         it may ``read`` it (``full`` or ``filtered``) and whether it may ``administer`` it.
         ``GET /api/v1/me/permissions``."""
         return dict(self._http().get("/api/v1/me/permissions") or {})
 
-    def tenants(self) -> dict:
+    def tenants(self) -> dict[str, Any]:
         """The admission quotas in force and each tenant's use against them (ADR-050):
         ``scope`` (``all`` for a principal who may read the audit trail, otherwise ``own``),
         ``defaults`` (``maxQueries`` and ``maxStateKeys``, ``None`` meaning no limit), and
@@ -1566,7 +1570,7 @@ def _parse_doput_result(body: bytes) -> bytes:
     return _proto_fields(body).get(1, b"")
 
 
-def _proto_fields(payload: bytes) -> dict:
+def _proto_fields(payload: bytes) -> dict[int, bytes]:
     """Every length-delimited field in a message, by field number.
 
     Enough of a protobuf reader for the four messages this SDK exchanges, and no more.
@@ -1574,7 +1578,7 @@ def _proto_fields(payload: bytes) -> dict:
     the fields we read use them -- and guessing at the ones we do not read is how a
     hand-rolled parser starts drifting from the spec.
     """
-    fields: dict = {}
+    fields: dict[int, bytes] = {}
     index = 0
     while index < len(payload):
         tag, index = _read_varint(payload, index)
