@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.ash.messaging</groupId>
+    <artifactId>pravaha</artifactId>
+    <version>0.2.1-SNAPSHOT</version>
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+  <artifactId>pravaha-plugin-iceberg</artifactId>
+  <name>Pravaha :: plugin :: iceberg</name>
+  <description>Apache Iceberg sink. Maintains a continuous query's answer in an Iceberg table on
+    iceberg-core and iceberg-parquet, not Spark: one Iceberg commit per checkpoint, exactly once.</description>
+
+  <properties>
+    <!-- 1.2.1 because it is the newest Iceberg built on Parquet 1.12.3, the Parquet Delta Kernel 4.0
+         uses. The server is one classpath (every shipped plugin is in its jar), so the two table
+         formats must agree on one Parquet; a newer Iceberg would move Delta's Parquet under it. -->
+    <iceberg.version>1.2.1</iceberg.version>
+    <parquet.version>1.12.3</parquet.version>
+    <!-- Iceberg declares Hadoop compile-only. HadoopTables and Parquet's writer need it at runtime:
+         the shaded client, the same pair delta brings, so it adds nothing to the server. -->
+    <hadoop.client.version>3.4.0</hadoop.client.version>
+    <jacoco.line.coverage>0.80</jacoco.line.coverage>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-api</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <!-- For the engine's binary row (a BYTES column) and its decimal halves, as delta-sink. -->
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-common</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.iceberg</groupId>
+      <artifactId>iceberg-core</artifactId>
+      <version>${iceberg.version}</version>
+      <exclusions>
+        <!-- For the REST catalog, which this sink does not use. -->
+        <exclusion>
+          <groupId>org.apache.httpcomponents.client5</groupId>
+          <artifactId>httpclient5</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.iceberg</groupId>
+      <artifactId>iceberg-parquet</artifactId>
+      <version>${iceberg.version}</version>
+    </dependency>
+    <!-- Compile scope: the generic writer's factory takes Parquet's MessageType. -->
+    <dependency>
+      <groupId>org.apache.parquet</groupId>
+      <artifactId>parquet-column</artifactId>
+      <version>${parquet.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.hadoop</groupId>
+      <artifactId>hadoop-client-api</artifactId>
+      <version>${hadoop.client.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.hadoop</groupId>
+      <artifactId>hadoop-client-runtime</artifactId>
+      <version>${hadoop.client.version}</version>
+    </dependency>
+    <!-- The tests read a table back through Iceberg's own reader, deletes applied. -->
+    <dependency>
+      <groupId>org.apache.iceberg</groupId>
+      <artifactId>iceberg-data</artifactId>
+      <version>${iceberg.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

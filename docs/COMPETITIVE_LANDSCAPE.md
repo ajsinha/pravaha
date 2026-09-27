@@ -370,8 +370,8 @@ planner.
 streaming databases concentrate on Kafka and change data capture.
 
 **Where Pravaha stands.** **Partial.** Eight source types (files, feed directories, Delta, JDBC,
-Aerospike, Cassandra, PostgreSQL CDC, Kafka), two lookup sources and five sinks, all in the server
-jar (`ShippedConnectorsTest`). No Iceberg or Hudi sink, no change feed from any database but
+Aerospike, Cassandra, PostgreSQL CDC, Kafka), two lookup sources and six sinks (Iceberg among them,
+local-filesystem tables only), all in the server jar (`ShippedConnectorsTest`). No Hudi sink, no change feed from any database but
 PostgreSQL ([README](../README.md), "What is not built"); `kafka-sink` writes JSON, Avro or Protobuf. A
 plugin SPI and its TCK let others add more ([`CONNECTORS.md`](CONNECTORS.md)).
 

@@ -924,7 +924,7 @@ plugins' container ITs against Postgres, Aerospike and Cassandra).
 | **MySQL / Postgres** | table or CDC | direct; CDC is the better form. Postgres CDC is built (`postgres-cdc`); MySQL's binlog is not |
 | **RabbitMQ / ActiveMQ / SQS / NATS** | queue | **at-least-once only** — acknowledgement is not an offset, so there is nothing to rewind to |
 | **Pulsar / Kinesis / Redpanda** | streaming | as Kafka |
-| **Iceberg / Hudi** | table format | as Delta, which already exists **both ways** — the source `delta` and the sink `delta-sink`, `plugins/pravaha-plugin-delta` |
+| **Iceberg / Hudi** | table format | as Delta, which exists **both ways** (`delta`, `delta-sink`, `plugins/pravaha-plugin-delta`). **Iceberg: the sink `iceberg-sink` is built**, `plugins/pravaha-plugin-iceberg` (below); no Iceberg source, no Hudi |
 
 The queue connectors are architecturally different and it is worth saying so before one is written: a
 queue gives you *acknowledgement*, not a position you can return to. They cannot be `EXACTLY_ONCE`,
@@ -1168,6 +1168,45 @@ Kernel has no compaction API and the plugin does not pretend to one. Nor does it
 its rewrites leave behind. `DeltaSinkPluginTest` holds the behaviour against real tables on the
 local filesystem, and `DeltaSinkRegistrationTest` holds a registered query's table equal to its view
 across a crash.
+
+### A transactional sink with equality deletes: Iceberg
+
+`iceberg-sink` maintains a continuous query's answer in an Apache Iceberg table, on iceberg-core and
+iceberg-parquet and not Spark. The catalog is Iceberg's own `HadoopTables` over the **local
+filesystem**: the table is a directory and its metadata files are the catalog, with no metastore or
+REST service. `path` names that directory; a URI such as `s3://` is refused with `PRV-5140`.
+
+**Iceberg has a prepare, in effect.** A data file no snapshot names is invisible to every reader, so
+the sink stages *in the table*: a transaction's Parquet files go to
+`<path>/data/_pravaha/<transaction.id>/<label>/`, durable and unreferenced once `prepare` returns,
+and `commit` adds them all in **one** snapshot. That snapshot's summary carries
+`pravaha.transaction-id` and `pravaha.label`, and a commit whose label the table's snapshot history
+already records is skipped — the idempotence is the table's, as `delta-sink`'s `txn` action is.
+`abortAfter` removes every uncommitted label after the restored checkpoint; a committed label's files
+belong to the table and are never removed by the sink.
+
+**Iceberg has a delete.** Upsert mode (the default) collapses a checkpoint's changes by key, last
+change wins, and writes one equality delete file naming every affected key plus one data file of the
+rows that survive. Iceberg applies an equality delete only to data older than it, so a key is
+replaced without reading or rewriting the table: **a commit costs in proportion to the change**, not
+to the table as `delta-sink`'s copy-on-write does. The table is format version 2 with the key
+columns as identifier fields. The price is at read time: a reader applies the deletes until the
+table's own engine compacts it. Upsert mode holds a checkpoint's collapsed changes in memory until
+`prepare`; changelog mode writes a Parquet file per batch and holds nothing.
+
+**Changelog mode** appends every change with `_op` and the Z-set weight in `_weight`.
+
+Refused at configuration: no `path` or `schema`, a bad mode or key (`PRV-5140`), and an existing
+table whose columns, types, nullability or format version (upsert needs 2) are not the binding's
+(`PRV-5141`). Refused at write: a `TIMESTAMP` or `TIME` that is not a whole number of microseconds,
+or a decimal that does not fit its declared scale (`PRV-5142`). Not built: partitioned tables, object
+stores and catalog services, schema evolution, compaction and snapshot expiry (the table's own
+engine does those — but not the sink's newest snapshot, which holds its commit record).
+`IcebergSinkPluginTest` holds the behaviour against real tables, read back through Iceberg's own
+reader.
+
+The version is Iceberg 1.2.1, deliberately: it is the newest Iceberg on Parquet 1.12.3, the Parquet
+Delta Kernel uses, and the server is one classpath.
 
 ### The remote connector — the source that inverts this table
 

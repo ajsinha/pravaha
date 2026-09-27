@@ -72,13 +72,16 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   `+1` of that exact row version, and needs a source whose snapshot rows carry a version the feed
   also carries; no source here has one. `backfill.adaptive` would need a latency probe per store.
 
-- **Sinks: five, and one lakehouse format.** `filesystem`, `aerospike-sink`, `jdbc-sink`,
-  `kafka-sink` and `delta-sink`, and no others. Each is unit-tested without a server and again
-  against a real one — Aerospike, PostgreSQL and a Kafka broker under Testcontainers, Delta tables
-  on the local filesystem — so a machine without Docker skips those, by name, rather than passing.
+- **Sinks: six, and two lakehouse formats.** `filesystem`, `aerospike-sink`, `jdbc-sink`,
+  `kafka-sink`, `delta-sink` and `iceberg-sink`, and no others. Each is unit-tested without a server and again
+  against a real one — Aerospike, PostgreSQL and a Kafka broker under Testcontainers, Delta and
+  Iceberg tables on the local filesystem — so a machine without Docker skips those, by name, rather than passing.
   `kafka-sink` writes JSON, or Avro or Protobuf values in upsert mode, compressed with `none`, `gzip`, `snappy` or `zstd`; `lz4` is refused (see the boundary below).
-  **Delta is the only lakehouse format written**: there is no
-  Iceberg or Hudi sink, and `delta-sink` writes unpartitioned or partitioned tables
+  **Delta and Iceberg are the lakehouse formats written**; there is no Hudi sink.
+  `iceberg-sink` writes unpartitioned tables on the **local filesystem only** (no object store, no
+  catalog service), never evolves a table's schema, holds an upsert checkpoint's collapsed changes
+  in memory until `prepare`, and runs no compaction or snapshot expiry; its equality deletes cost a
+  reader until the table's own engine compacts. `delta-sink` writes unpartitioned or partitioned tables
   (`partition.columns`), creates no deletion vectors — and refuses to rewrite a table whose files
   carry them (`PRV-5055`) — and runs no compaction: `OPTIMIZE` and `VACUUM` belong to an engine that
   has them. The `delta` source reads deletion vectors, so a row a `DELETE` marks deleted reaches a
@@ -89,7 +92,8 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   envelope is JSON, since a schema's fields have no place for the op and weight. It registers no
   schema: `schema.id` is written as given.
 
-  **Buildable:** an Iceberg sink without Spark. Compaction stays with the table's own engine.
+  **Buildable:** `iceberg-sink` on an object store (S3 through Iceberg's own FileIO) or a REST or
+  Hive catalog, and partitioned Iceberg tables. Compaction stays with the table's own engine.
 
 - **Change data capture, beyond one PostgreSQL table's changes.** `postgres-cdc`
   ([ADR-041](adr/041-change-data-capture-without-debezium.md)) streams one table per binding

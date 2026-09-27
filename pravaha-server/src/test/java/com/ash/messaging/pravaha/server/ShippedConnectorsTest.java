@@ -58,7 +58,7 @@ class ShippedConnectorsTest {
     @Test
     void everyShippedSinkIsFoundByTheServer() {
         assertThat(names(ServiceLoader.load(StreamSinkPlugin.class)))
-                .contains("filesystem", "delta-sink", "jdbc-sink", "kafka-sink", "aerospike-sink");
+                .contains("filesystem", "delta-sink", "iceberg-sink", "jdbc-sink", "kafka-sink", "aerospike-sink");
     }
 
     @Test

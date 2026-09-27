@@ -58,7 +58,7 @@ The findings register tracks anything found along the way.
 | C1 | `jdbc-sink` over PostgreSQL through `PREPARE TRANSACTION`: a real two-phase commit, without the staging table's second write | *Built: `commit.mode: prepared`, opt-in.* M | Other databases keep staging |
 | C2 | `kafka-sink` writing Avro and Protobuf, reusing the source's specification-level encoders | *Built 2026-09-27: `format: avro` (`schema.file`, optional `schema.id` framing, nothing registered) and `format: protobuf`, upsert mode only; changelog stays JSON.* M | Pairs with the source's formats |
 | C3 | A MySQL binlog CDC source, on ADR-041's model (no Debezium) | L | Build when a deployment needs MySQL |
-| C4 | An Iceberg sink on iceberg-core, without Spark | L | Its dependency tree is large; build when a deployment asks for Iceberg |
+| C4 | An Iceberg sink on iceberg-core, without Spark | *Built 2026-09-27: `iceberg-sink`, Iceberg 1.2.1, local-filesystem tables, upsert by equality deletes or changelog, one snapshot per checkpoint.* L | Object stores, catalog services and partitioning are not built |
 
 ### What does not get built
 

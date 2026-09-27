@@ -421,6 +421,7 @@ PLUGINS = {
     "jdbc": "plugins/pravaha-plugin-jdbc", "jdbc-lookup": "plugins/pravaha-plugin-jdbc",
     "jdbc-sink": "plugins/pravaha-plugin-jdbc",
     "delta": "plugins/pravaha-plugin-delta", "delta-sink": "plugins/pravaha-plugin-delta",
+    "iceberg-sink": "plugins/pravaha-plugin-iceberg",
     "aerospike": "plugins/pravaha-plugin-aerospike", "aerospike-lookup": "plugins/pravaha-plugin-aerospike",
     "aerospike-sink": "plugins/pravaha-plugin-aerospike",
     "cassandra": "plugins/pravaha-plugin-cassandra",

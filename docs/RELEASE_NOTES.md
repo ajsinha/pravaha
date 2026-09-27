@@ -10,6 +10,17 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ---
 
+## Unreleased
+
+- **`iceberg-sink`, an Apache Iceberg sink** (`plugins/pravaha-plugin-iceberg`), on iceberg-core and
+  iceberg-parquet 1.2.1, not Spark. A table on the local filesystem; `mode: upsert` (the default)
+  keeps it equal to the view by key through equality deletes (format version 2), and
+  `mode: changelog` appends every change with `_op` and `_weight`. One snapshot per checkpoint,
+  exactly once: files are staged unreferenced at `prepare`, and the snapshot summary carries the
+  transaction id and label, so a commit repeated after a restore is skipped. New codes `PRV-5140`
+  (binding), `PRV-5141` (table not the binding's) and `PRV-5142` (write). Not built: object stores,
+  catalog services, partitioned tables. `IcebergSinkPluginTest`, 10 tests.
+
 ## 0.2.0 — QA, 2026-09-27
 
 **What this build is for.** People sign in to the console as themselves: the engine keeps users,
