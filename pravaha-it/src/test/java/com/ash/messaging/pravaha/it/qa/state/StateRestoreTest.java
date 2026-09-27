@@ -419,7 +419,9 @@ class StateRestoreTest extends StateTestSupport {
                 repoRoot()
                         .resolve(
                                 "pravaha-bindings/src/main/java/com/ash/messaging/pravaha/bindings/ingest/PluginSourceFeeds.java"));
-        assertThat(pluginSourceFeeds).contains("resumeFrom.get(");
+        // Through ResumePositions since A2, which matches each offset to its partition and stream rather
+        // than to pump creation order (KPG-2); the lookup still reaches every partition's reader.
+        assertThat(pluginSourceFeeds).contains("ResumePositions.of(resumeFrom)");
         assertThat(pluginSourceFeeds).contains("SourceOffset.BEGINNING");
     }
 
