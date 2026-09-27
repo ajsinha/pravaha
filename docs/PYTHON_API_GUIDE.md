@@ -802,6 +802,8 @@ Where it has got to. Wait for `CAUGHT_UP` before cutting over:
 import time
 while (r := client.replacement("big_payments")).state == "BACKFILLING":
     time.sleep(1)
+if r.state == "FAILED":
+    raise RuntimeError(f"backfill failed: {r.failure_code} {r.failure}")
 r.state, r.history_rows, r.partitions_live, r.history_complete, r.lag_nanos
 # ('CAUGHT_UP', 6, 1, True, 0)
 ```
@@ -811,11 +813,14 @@ r.state, r.history_rows, r.partitions_live, r.history_complete, r.lag_nanos
 `rows_per_second`, `partitions`, `partitions_live`, `history_complete`, `rate_limit`, `paused`,
 `lag_nanos`, `failure_code`, `failure`; helper `active`.
 
-> **Known limitation in 0.1.1 (REPL-1, REPL-2).** If the query's source holds a record that was
-> dead-lettered at the position the running version has reached, the backfill cannot reach that
-> position: it stops with `PRV-4013` in the engine's log, and `replacement()` goes on reporting
-> `BACKFILLING` with no failure. Don't poll forever: give up after a bound of your own and
-> `abandon_replacement`.
+> **If a backfill cannot finish.** A backfill that stops — its source failed, or it cannot reach the
+> running version's position — makes the replacement `FAILED`, with the source's code in
+> `failure_code` and the candidate released; the name goes on answering the version it answered.
+> Poll for `CAUGHT_UP` **or** `FAILED`. On the 0.1.1 engine such a replacement instead goes on
+> reporting `BACKFILLING` with no failure (REPL-1, fixed after 0.1.1), so bound your wait there.
+> One cause remains (REPL-2): if the record at the running version's position was dead-lettered,
+> the backfill cannot reach it and fails with `PRV-4013`; replace again once a good record has
+> arrived.
 
 ### `replacement_http(name) -> dict` — HTTP `GET /api/v1/queries/{name}/replacement`
 

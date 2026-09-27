@@ -112,7 +112,10 @@ CATEGORIES: list[Category] = [
              extras=[_guide("user-guide", "User guide (long form)", "book",
                             "Registering, reading and subscribing from the CLI and both SDKs."),
                      _guide("python-sdk", "Python SDK", "code-slash",
-                            "The Python client: queries, subscriptions, registration, the catalog, errors.")]),
+                            "The Python client: queries, subscriptions, registration, the catalog, errors."),
+                     _guide("python-api-guide", "Python integration guide", "plug",
+                            "Every SDK call and REST endpoint, one by one, each with a verified sample: "
+                            "the page to hand a team connecting an application.")]),
     Category("sources", "Sources", "box-arrow-in-right",
              "Where rows come from. One page per connector: its options, a complete binding, what "
              "it pushes down, what it guarantees, and how it goes wrong.",

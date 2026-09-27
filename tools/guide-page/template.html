@@ -1,0 +1,222 @@
+<title>Pravaha Python Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;600&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600;8..60,700&display=swap">
+<style>
+:root{
+  --flow:#A51C30; --flow-d:#8A1626; --flow-soft:#F6E8EA;
+  --canvas:#F7F5F2; --surface:#FFFFFF; --stripe:#F1EEE9;
+  --ink:#1A1A1A; --slate:#4A5058; --muted:#61666E;
+  --rule:#E3DED7; --hairline:#EDE9E3;
+  --code-bg:#FBFAF8; --code-ink:#24262B; --code-kw:#8A1626; --code-str:#2F6B3A;
+  --code-com:#6E737B; --code-num:#7A4A00; --code-fn:#1F4E8C; --code-op:#4A5058;
+  --note-bg:#F9F3F4;
+  --sans:"Source Sans 3",-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --serif:"Source Serif 4",Georgia,"Times New Roman",serif;
+  --code:"Source Code Pro",Consolas,"SF Mono",Menlo,monospace;
+  --rail:17rem;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --flow:#E47F92; --flow-d:#DE6B81; --flow-soft:#2A1C20;
+    --canvas:#151517; --surface:#1F1F23; --stripe:#232329;
+    --ink:#ECECEF; --slate:#AEB6C0; --muted:#9AA2AC;
+    --rule:#34343A; --hairline:#26262B;
+    --code-bg:#1A1A1D; --code-ink:#E4E4E8; --code-kw:#EC9EAC; --code-str:#9BD3A8;
+    --code-com:#8D949E; --code-num:#E8C26A; --code-fn:#A9C4F0; --code-op:#AEB6C0;
+    --note-bg:#221B1D;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --flow:#E47F92; --flow-d:#DE6B81; --flow-soft:#2A1C20;
+  --canvas:#151517; --surface:#1F1F23; --stripe:#232329;
+  --ink:#ECECEF; --slate:#AEB6C0; --muted:#9AA2AC;
+  --rule:#34343A; --hairline:#26262B;
+  --code-bg:#1A1A1D; --code-ink:#E4E4E8; --code-kw:#EC9EAC; --code-str:#9BD3A8;
+  --code-com:#8D949E; --code-num:#E8C26A; --code-fn:#A9C4F0; --code-op:#AEB6C0;
+  --note-bg:#221B1D;
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}}
+body{background:var(--canvas);color:var(--ink);font-family:var(--sans);font-size:17px;line-height:1.6;
+  padding-inline:16px;-webkit-font-smoothing:antialiased}
+
+/* ---------- masthead ---------- */
+.mast{max-width:78rem;margin-inline:auto;padding-block:2.5rem 1.75rem;border-bottom:1px solid var(--rule);
+  display:grid;gap:1.1rem}
+.kicker{font-family:var(--serif);font-size:.78rem;letter-spacing:.14em;text-transform:uppercase;color:var(--flow);
+  font-weight:600;margin:0}
+.mast h1{font-family:var(--serif);font-weight:700;font-size:clamp(2rem,4.2vw,3.1rem);line-height:1.08;
+  letter-spacing:-.015em;margin:0;text-wrap:balance;max-width:24ch}
+.mast .lede{font-size:1.08rem;color:var(--slate);max-width:62ch;margin:0}
+.ports{display:flex;flex-wrap:wrap;gap:.6rem;margin:.2rem 0 0;padding:0;list-style:none}
+.ports li{font-family:var(--code);font-size:.8rem;border:1px solid var(--rule);background:var(--surface);
+  padding:.28rem .6rem;border-radius:3px;color:var(--slate)}
+.ports b{color:var(--ink);font-weight:600}
+.weights{font-family:var(--code);font-size:.8rem;color:var(--muted);margin:0;display:flex;gap:1.2rem;flex-wrap:wrap}
+.weights .plus{color:var(--code-str)} .weights .minus{color:var(--flow)}
+
+/* ---------- frame ---------- */
+.frame{max-width:78rem;margin-inline:auto;display:grid;grid-template-columns:var(--rail) minmax(0,1fr);
+  gap:3rem;padding-block:2rem 5rem}
+.rail{position:sticky;top:calc(env(safe-area-inset-top,0px) + 1rem);align-self:start;
+  max-height:calc(100vh - 2rem);overflow:auto;padding-right:.5rem;font-size:.9rem}
+.rail details{border:0}
+.rail summary{display:none}
+.rail-group{margin-bottom:1.3rem}
+.rail-part{margin:0 0 .45rem;font-family:var(--serif);font-size:.72rem;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--muted);display:flex;flex-direction:column;gap:.1rem}
+.rail-part span{font-size:.95rem;letter-spacing:0;text-transform:none;color:var(--ink);font-weight:600}
+.rail ol{list-style:none;margin:0;padding:0;display:grid;gap:.05rem}
+.rail a{display:flex;gap:.55rem;padding:.24rem .5rem;border-left:2px solid transparent;color:var(--slate);
+  text-decoration:none;line-height:1.35}
+.rail a .n{font-family:var(--code);font-size:.78rem;color:var(--muted);min-width:1.4rem;padding-top:.08rem;
+  font-variant-numeric:tabular-nums}
+.rail a:hover{color:var(--ink);background:var(--stripe)}
+.rail a.on{color:var(--flow);border-left-color:var(--flow);background:var(--flow-soft)}
+.rail a.on .n{color:var(--flow)}
+
+/* ---------- prose ---------- */
+.doc{min-width:0;max-width:52rem}
+.intro{border-left:3px solid var(--flow);background:var(--note-bg);padding:.9rem 1.2rem;margin:0 0 2.5rem;
+  color:var(--slate);font-size:1rem}
+.intro p{margin:.4rem 0}
+.doc h1{font-family:var(--serif);font-size:.8rem;letter-spacing:.16em;text-transform:uppercase;color:var(--flow);
+  font-weight:600;margin:4rem 0 .4rem;padding-top:1.4rem;border-top:2px solid var(--flow);scroll-margin-top:1rem}
+.doc h1:first-child{margin-top:0}
+.doc h2{font-family:var(--serif);font-size:1.75rem;line-height:1.2;font-weight:700;letter-spacing:-.01em;
+  margin:2.6rem 0 .8rem;text-wrap:balance;scroll-margin-top:1rem}
+.doc h1 + h2{margin-top:.6rem}
+.doc h3{font-family:var(--serif);font-size:1.18rem;line-height:1.35;font-weight:600;margin:2.1rem 0 .55rem;
+  padding-top:1.1rem;border-top:1px solid var(--hairline);scroll-margin-top:1rem;overflow-wrap:anywhere}
+.doc h3 code{font-size:.84em;background:none;border:0;padding:0;color:var(--ink)}
+.doc p,.doc li{max-width:68ch}
+.doc a{color:var(--flow);text-underline-offset:.18em;text-decoration-thickness:1px}
+.doc a:hover{color:var(--flow-d)}
+.doc strong{font-weight:700}
+.doc ul,.doc ol{padding-left:1.3rem}
+.doc li{margin:.2rem 0}
+.doc hr{border:0;border-top:1px solid var(--rule);margin:3rem 0}
+:not(pre)>code{font-family:var(--code);font-size:.86em;background:var(--stripe);border:1px solid var(--hairline);
+  padding:.05em .32em;border-radius:3px;overflow-wrap:anywhere}
+.doc blockquote{margin:1.2rem 0;padding:.8rem 1.1rem;background:var(--note-bg);border-left:3px solid var(--flow);
+  color:var(--slate);font-size:.97rem}
+.doc blockquote p{margin:.35rem 0}
+
+/* ---------- tables ---------- */
+.table-wrap{overflow-x:auto;margin:1.1rem 0;border:1px solid var(--rule);background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:.9rem;font-variant-numeric:tabular-nums}
+th,td{text-align:left;vertical-align:top;padding:.5rem .75rem;border-bottom:1px solid var(--hairline)}
+th{font-family:var(--serif);font-weight:600;font-size:.82rem;letter-spacing:.02em;color:var(--slate);
+  background:var(--stripe);border-bottom:1px solid var(--rule)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+
+/* ---------- code ---------- */
+.hl{position:relative;margin:1rem 0 1.3rem;background:var(--code-bg);border:1px solid var(--rule);border-radius:4px}
+.hl pre{margin:0;padding:.95rem 1.1rem;overflow-x:auto;font-family:var(--code);font-size:.83rem;line-height:1.55;
+  color:var(--code-ink);tab-size:4}
+.copy{position:absolute;top:.45rem;right:.45rem;font-family:var(--sans);font-size:.74rem;font-weight:600;
+  letter-spacing:.03em;color:var(--slate);background:var(--surface);border:1px solid var(--rule);border-radius:3px;
+  padding:.2rem .55rem;cursor:pointer;opacity:.85}
+.copy:hover{color:var(--flow);border-color:var(--flow);opacity:1}
+.copy:focus-visible,.rail a:focus-visible,.doc a:focus-visible{outline:2px solid var(--flow);outline-offset:2px}
+.hl .k,.hl .kn,.hl .kd,.hl .kc,.hl .ow{color:var(--code-kw);font-weight:600}
+.hl .s,.hl .s1,.hl .s2,.hl .sa,.hl .se,.hl .si,.hl .sd{color:var(--code-str)}
+.hl .c,.hl .c1,.hl .cm,.hl .ch{color:var(--code-com);font-style:italic}
+.hl .mi,.hl .mf,.hl .m{color:var(--code-num)}
+.hl .nf,.hl .nc,.hl .fm{color:var(--code-fn)}
+.hl .nb,.hl .bp{color:var(--code-fn)}
+.hl .o,.hl .p{color:var(--code-op)}
+.hl .nn{color:var(--code-ink)}
+.hl .err{color:inherit;border:0}
+
+.foot{max-width:78rem;margin-inline:auto;border-top:1px solid var(--rule);padding-block:1.4rem 2.5rem;
+  color:var(--muted);font-size:.86rem;display:flex;flex-wrap:wrap;gap:.4rem 1.6rem}
+
+/* ---------- narrow ---------- */
+@media (max-width: 1000px){
+  .frame{grid-template-columns:minmax(0,1fr);gap:1.2rem;padding-top:1.2rem}
+  .rail{position:static;max-height:none;overflow:visible;padding:0}
+  .rail summary{display:block;cursor:pointer;font-family:var(--serif);font-weight:600;padding:.7rem .9rem;
+    border:1px solid var(--rule);background:var(--surface);list-style:none}
+  .rail summary::after{content:" ▾";color:var(--flow)}
+  .rail details[open] summary{border-bottom-color:transparent}
+  .rail details > div{border:1px solid var(--rule);border-top:0;background:var(--surface);padding:.9rem}
+  .doc{max-width:none}
+  body{font-size:16px}
+}
+</style>
+
+<header class="mast">
+  <p class="kicker">Pravaha 0.1.1 · Integration guide</p>
+  <h1>Connecting Python to Pravaha</h1>
+  <p class="lede">Every call the Python SDK makes and every REST endpoint the engine publishes, each with what it takes, what it returns, what it refuses, and a sample that was run against a live node before it was written down.</p>
+  <ul class="ports" aria-label="The engine's two ports">
+    <li><b>:9090</b> Flight SQL — register, read, subscribe</li>
+    <li><b>:8080</b> HTTP / JSON — catalogue, plans, status</li>
+    <li><b>pip</b> pravaha[flight]</li>
+  </ul>
+  <p class="weights" aria-label="How a change is carried"><span><span class="plus">+1</span> a row appeared</span><span><span class="minus">−1</span> a row was withdrawn</span><span>an update is both, in one commit</span></p>
+</header>
+
+<div class="frame">
+  <nav class="rail" aria-label="Contents">
+    <details id="toc" open>
+      <summary>Contents</summary>
+      <div>
+@@RAIL@@
+      </div>
+    </details>
+  </nav>
+  <main class="doc">
+    <div class="intro">@@INTRO@@</div>
+@@CONTENT@@
+  </main>
+</div>
+
+<footer class="foot">
+  <span>Copyright © 2026 Ashutosh Sinha. All rights reserved. Proprietary and confidential.</span>
+  <span>Generated from <code>docs/PYTHON_API_GUIDE.md</code>, which is the source of truth.</span>
+</footer>
+
+<script>
+(function(){
+  // Copy buttons: the clipboard call happens inside the click; if it is refused, select the text instead.
+  document.querySelectorAll('.hl').forEach(function(block){
+    var pre = block.querySelector('pre'); if(!pre) return;
+    var b = document.createElement('button'); b.type='button'; b.className='copy'; b.textContent='Copy';
+    b.setAttribute('aria-label','Copy this code');
+    b.addEventListener('click', function(){
+      var text = pre.innerText;
+      var done = function(){ b.textContent='Copied'; setTimeout(function(){ b.textContent='Copy'; }, 1400); };
+      var select = function(){ var r=document.createRange(); r.selectNodeContents(pre); var s=getSelection(); s.removeAllRanges(); s.addRange(r); b.textContent='Selected'; setTimeout(function(){ b.textContent='Copy'; }, 1400); };
+      try { navigator.clipboard.writeText(text).then(done, select); } catch(e){ select(); }
+    });
+    block.appendChild(b);
+  });
+
+  // On a narrow screen the contents start folded, so the guide itself is what shows first.
+  var toc = document.getElementById('toc');
+  if (window.matchMedia('(max-width: 1000px)').matches) toc.removeAttribute('open');
+  toc.addEventListener('click', function(e){
+    if (e.target.closest('a') && window.matchMedia('(max-width: 1000px)').matches) toc.removeAttribute('open');
+  });
+
+  // Mark the chapter being read in the contents rail.
+  var links = {}; document.querySelectorAll('.rail a').forEach(function(a){ links[a.getAttribute('href').slice(1)] = a; });
+  var heads = Array.prototype.filter.call(document.querySelectorAll('.doc h2[id]'), function(h){ return links[h.id]; });
+  if (!('IntersectionObserver' in window) || !heads.length) return;
+  var current = null;
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(en){ if (en.isIntersecting) current = en.target.id; });
+    if (!current) return;
+    Object.keys(links).forEach(function(id){ links[id].classList.toggle('on', id === current); });
+  }, {rootMargin:'0px 0px -70% 0px'});
+  heads.forEach(function(h){ io.observe(h); });
+})();
+</script>

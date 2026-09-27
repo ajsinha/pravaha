@@ -43,6 +43,7 @@ final class ReplayableLog implements SourceFeedFactory {
     private final StreamSchema schema;
     private final List<Object[]> rows = new CopyOnWriteArrayList<>();
     private final AtomicInteger readers = new AtomicInteger();
+    private volatile com.ash.messaging.pravaha.api.PravahaException backfillFailure;
 
     ReplayableLog(StreamSchema schema) {
         this.schema = schema;
@@ -59,6 +60,14 @@ final class ReplayableLog implements SourceFeedFactory {
     /** Readers ever created, so a test can see that a backfill opened its own rather than sharing. */
     int readersOpened() {
         return readers.get();
+    }
+
+    /**
+     * Makes every backfill's next read fail with {@code failure}, as a source that cannot reach the
+     * seam does (PRV-4013). The running version's own reader is untouched.
+     */
+    void failBackfillsWith(com.ash.messaging.pravaha.api.PravahaException failure) {
+        this.backfillFailure = failure;
     }
 
     @Override
@@ -94,11 +103,36 @@ final class ReplayableLog implements SourceFeedFactory {
         } else if (!plan.readHistory() && splice != null) {
             from = splice;
         }
-        return pumping(
-                queryName,
-                execution,
-                afterDelivery,
-                new OffsetSplicedReader(this::openAt, from, splice, plan.job(), historyDone));
+        PartitionReader spliced = new OffsetSplicedReader(this::openAt, from, splice, plan.job(), historyDone);
+        return pumping(queryName, execution, afterDelivery, new PartitionReader() {
+            @Override
+            public int poll(RecordSink sink, int maxRecords) {
+                if (backfillFailure != null) {
+                    throw backfillFailure;
+                }
+                return spliced.poll(sink, maxRecords);
+            }
+
+            @Override
+            public SourceOffset position() {
+                return spliced.position();
+            }
+
+            @Override
+            public void pause() {
+                spliced.pause();
+            }
+
+            @Override
+            public void resume() {
+                spliced.resume();
+            }
+
+            @Override
+            public void close() {
+                spliced.close();
+            }
+        });
     }
 
     @Override
@@ -109,7 +143,7 @@ final class ReplayableLog implements SourceFeedFactory {
     private SourceFeed pumping(
             String queryName, QueryExecution execution, Runnable afterDelivery, PartitionReader reader) {
         IngestPump pump = execution.pumpInto(0, schema.name(), reader, BackpressurePolicy.defaults());
-        return new Feed(queryName, pump, afterDelivery);
+        return new Feed(queryName, schema.name(), pump, afterDelivery);
     }
 
     private PartitionReader openAt(SourceOffset from) {
@@ -126,8 +160,11 @@ final class ReplayableLog implements SourceFeedFactory {
         private volatile boolean paused;
         private volatile boolean closed;
         private volatile long fed;
+        private final String stream;
+        private volatile FeedStatus.Stop stop;
 
-        Feed(String queryName, IngestPump pump, Runnable afterDelivery) {
+        Feed(String queryName, String stream, IngestPump pump, Runnable afterDelivery) {
+            this.stream = stream;
             this.pump = pump;
             this.afterDelivery = afterDelivery == null ? () -> {} : afterDelivery;
             this.thread = new Thread(this::run, "log-feed-" + queryName);
@@ -141,7 +178,15 @@ final class ReplayableLog implements SourceFeedFactory {
                     sleep();
                     continue;
                 }
-                int moved = pump.pumpOnce(64);
+                int moved;
+                try {
+                    moved = pump.pumpOnce(64);
+                } catch (com.ash.messaging.pravaha.api.PravahaException failure) {
+                    // What PumpingFeed does: the feed stops for good, says why, and the query stays
+                    // RUNNING with its view where it reached.
+                    stop = new FeedStatus.Stop(failure, java.time.Instant.now(), true);
+                    return;
+                }
                 fed += moved;
                 afterDelivery.run();
                 if (moved == 0) {
@@ -167,6 +212,19 @@ final class ReplayableLog implements SourceFeedFactory {
         @Override
         public void resume() {
             paused = false;
+        }
+
+        @Override
+        public FeedStatus status() {
+            FeedStatus.Stop stopped = stop;
+            return FeedStatus.of(
+                    describe(),
+                    List.of(new FeedStatus.Source(
+                            stream,
+                            0,
+                            false,
+                            stopped == null ? FeedStatus.SourceState.RUNNING : FeedStatus.SourceState.STOPPED,
+                            stopped)));
         }
 
         @Override

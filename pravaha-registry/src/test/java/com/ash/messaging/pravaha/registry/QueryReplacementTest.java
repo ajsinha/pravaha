@@ -465,6 +465,40 @@ class QueryReplacementTest {
 
     // ------------------------------------------------------------------ waiting
 
+    @Test
+    void aBackfillWhoseFeedStopsFailsTheReplacementAndReleasesTheCandidate() {
+        // REPL-1: found against a running node, where a backfill that could not reach the seam
+        // stopped with PRV-4013 and the replacement went on reporting BACKFILLING, failure null,
+        // its lag growing, for as long as anyone polled it.
+        ReplayableLog log = history(20);
+        QueryRegistry registry = registry(log);
+        registry.register("orders", V1, List.of(0), DANA);
+        awaitRows(registry, "orders", 1);
+        List<String> before = rendered(registry, "orders");
+
+        log.failBackfillsWith(new PravahaException(
+                com.ash.messaging.pravaha.backfill.BackfillErrors.SPLICE_MISSED,
+                "the backfill read all the history this source has and never reached the position the running "
+                        + "version is at"));
+        registry.replacements().replace("orders", V2, List.of(0), DANA, ReplacementOptions.defaults());
+
+        await(() -> registry.replacements().of("orders").orElseThrow().state() == QueryReplacement.State.FAILED);
+        QueryReplacement.Status failed = registry.replacements().of("orders").orElseThrow();
+        assertThat(failed.failureCode()).isEqualTo("PRV-4013");
+        assertThat(failed.failure()).contains("never reached the position");
+
+        // The name goes on answering the version it answered, and the failure is not left holding
+        // the candidate: a second replacement is accepted once the cause is gone.
+        assertThat(registry.find("orders").orElseThrow().sql()).isEqualTo(V1);
+        assertThat(rendered(registry, "orders")).isEqualTo(before);
+        await(() -> registry.find("orders").orElseThrow().names().size() == 1);
+        log.failBackfillsWith(null);
+        QueryReplacement.Status again =
+                registry.replacements().replace("orders", V2, List.of(0), DANA, ReplacementOptions.defaults());
+        assertThat(again.state()).isIn(QueryReplacement.State.BACKFILLING, QueryReplacement.State.CAUGHT_UP);
+        awaitCaughtUp(registry, "orders");
+    }
+
     private static void awaitRows(QueryRegistry registry, String name, int rows) {
         await(() -> registry.find(name).orElseThrow().view().size() == rows);
     }

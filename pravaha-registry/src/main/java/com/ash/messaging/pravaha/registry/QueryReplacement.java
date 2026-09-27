@@ -122,6 +122,7 @@ public final class QueryReplacement {
     private State state = State.BACKFILLING;
     private Instant cutOverAt;
     private PravahaException failure;
+    private boolean failureReleased;
     private long lagNanos;
 
     QueryReplacement(
@@ -225,7 +226,30 @@ public final class QueryReplacement {
             lagNanos = Math.max(
                     0, serving.view().appliedFrontier() - candidate.view().appliedFrontier());
             candidate.failure().ifPresent(this::failed);
+            // REPL-1. A candidate's *feed* can stop while the candidate itself stays RUNNING -- a
+            // backfill that never reaches the seam ends with PRV-4013 exactly so -- and that is the
+            // backfill failing, which is what FAILED is for. Watching only the query's own failure
+            // left such a replacement reporting BACKFILLING, its lag growing, for as long as anyone
+            // asked. A stopped source is always a failure and is never retried (FeedStatus).
+            FeedStatus feed = candidate.feedStatus();
+            if (feed.stopped()) {
+                feed.firstStopped().ifPresent(source -> failed(source.stop().failure()));
+            }
         }
+    }
+
+    /**
+     * Claims the one release a failed replacement is owed: true the first time it is asked after
+     * the replacement failed, false ever after. A failed candidate still holds its shadow query and
+     * its feed, and the journal still says it is pending, so without this a restart would start
+     * again the backfill that had just failed.
+     */
+    synchronized boolean claimReleaseOfFailure() {
+        if (state != State.FAILED || failureReleased) {
+            return false;
+        }
+        failureReleased = true;
+        return true;
     }
 
     synchronized void cutOver(Instant when) {

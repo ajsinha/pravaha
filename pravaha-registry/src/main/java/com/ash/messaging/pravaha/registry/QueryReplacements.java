@@ -659,6 +659,20 @@ public final class QueryReplacements implements AutoCloseable {
         for (QueryReplacement replacement : byName.values()) {
             try {
                 replacement.observe();
+                if (replacement.claimReleaseOfFailure()) {
+                    synchronized (this) {
+                        String why = replacement.status().failure() == null
+                                ? ""
+                                : ": " + replacement.status().failure();
+                        LOG.log(
+                                System.Logger.Level.WARNING,
+                                "the replacement of '" + replacement.name() + "' failed" + why + ". The name goes on "
+                                        + "answering the version it answered; the candidate is released. Replace "
+                                        + "it again once the cause is fixed.");
+                        registry.releaseShadow(replacement.candidate());
+                        endedInTheJournal(replacement.name());
+                    }
+                }
                 if (replacement.state() == QueryReplacement.State.CAUGHT_UP
                         && replacement.options().cutover() == ReplacementOptions.Cutover.AUTO) {
                     synchronized (this) {

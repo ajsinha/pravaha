@@ -19,11 +19,15 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   refusal (PYSDK-2); `pravaha.__version__` is the installed wheel's (PYSDK-3).
 - **The QA host's demonstration stream** is the seven-column `txn` with an event-time column and a
   `large_payments` sink, so the guide's samples, windows included, run on a fresh install.
-- **Found, open:** a replacement whose backfill has stopped goes on reporting `BACKFILLING`
-  (REPL-1, GA-REQUIRED), and a query cannot be replaced while the record at its position was
-  dead-lettered (REPL-2).
+- **Replacement:** a replacement whose backfill stops is `FAILED`, with the source's code, and its
+  candidate is released; it used to go on reporting `BACKFILLING` with no failure (REPL-1).
+- **Console image:** it carries the documentation its help pages include; the 0.1.1 image did not,
+  so its tutorials, guides and code browser were empty (IMG-1). The build now checks every include.
+  The Python guide has a help card (`/help/python-api-guide`).
+- **Found, open:** a query cannot be replaced while the record at its position was dead-lettered
+  (REPL-2, POST-GA); since REPL-1 it fails as `FAILED` `PRV-4013` rather than silently.
 
-Register: **382 findings — 357 fixed, 11 open, 0 GA-BLOCKER, 1 GA-REQUIRED**.
+Register: **383 findings — 359 fixed, 10 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ---
 

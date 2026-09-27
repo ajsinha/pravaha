@@ -39,10 +39,36 @@ RUN pip install --no-cache-dir "/tmp/sdk[flight]" && rm -rf /tmp/sdk
 # password anywhere, lets nobody sign in).
 WORKDIR /opt/pravaha/console
 COPY --chown=10001:10001 console /opt/pravaha/console
+
+# The documentation the console serves but does not own. A guide, a tutorial, the code browser, the
+# decision records and the About page's "what is built" all read files that live at the repository
+# root -- docs/, examples/case-studies/, README.md -- through `include:` paths resolved from the
+# console's grandparent directory, which in this image is /opt/pravaha. The 0.1.1 image shipped
+# without them: every tutorial said "not present in this installation" and the code browser listed
+# three codes. So they are copied to the same relative places, and a test in this image's build
+# (below) fails if one of them goes missing again.
+COPY --chown=10001:10001 docs /opt/pravaha/docs
+COPY --chown=10001:10001 examples/case-studies /opt/pravaha/examples/case-studies
+COPY --chown=10001:10001 README.md LICENSE /opt/pravaha/
+COPY --chown=10001:10001 sdk/python/README.md /opt/pravaha/sdk/python/README.md
 RUN pip install --no-cache-dir . \
  && mkdir -p conf \
  && printf '# This deployment: any key of config/application.yaml, and it wins.\n{}\n' > conf/application.yaml \
- && chown -R 10001:10001 /opt/pravaha
+ && chown -R 10001:10001 /opt/pravaha \
+ && python - <<'CHECK'
+# Every include a help topic, guide or tutorial names must resolve in this image, or the page
+# renders "not present in this installation" -- refused at build time instead.
+import pathlib, re, sys
+root = pathlib.Path("/opt/pravaha")
+missing = []
+for md in (root / "console" / "content").rglob("*.md"):
+    m = re.search(r"^include:\s*(\S+)", md.read_text(encoding="utf-8"), re.M)
+    if m and not (root / m.group(1)).is_file():
+        missing.append(f"{md.relative_to(root)} -> {m.group(1)}")
+if missing:
+    sys.exit("console includes that this image does not carry:\n  " + "\n  ".join(missing))
+print("every console include resolves")
+CHECK
 
 # Only for the defaults above, which read ${CONSOLE_HOST:127.0.0.1}: inside a container the console
 # must listen beyond loopback. A mounted configuration that names server.host is what decides.

@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **382 findings carrying a
-status — 357 FIXED, 11 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 11 open, **0 are
-GA-BLOCKER, 1 GA-REQUIRED, 8 POST-GA and 2 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **383 findings carrying a
+status — 359 FIXED, 10 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 10 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 8 POST-GA and 2 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -6865,15 +6865,14 @@ runs is how a default becomes folklore, and this project has already found two o
 
 > **Status:** FIXED — the time-travel debugger's six codes reached `FlightErrors.statusFor` through its default arm, so all of them arrived at a gRPC client as `INVALID_ARGUMENT`, including `PRV-8013` (the session has ended or expired) and `PRV-8014` (the node already holds its ceiling of sessions). That is the shape the method's own javadoc says must not happen — a saturated node looking like a bad request — and it matters because a client retries one and not the other. 8013 and 8016 now answer `NOT_FOUND`, 8014 `RESOURCE_EXHAUSTED`; the other three stay `INVALID_ARGUMENT`, because a missing checkpoint, an unreplayable source and an unreadable step are all things the caller can correct. `DebugStatusMappingTest`. Found by the STRM/TIME cluster's agent during its rebase, in a file neither batch had reason to touch.
 
-## Found writing the Python integration guide (2026-09-26), 5 findings, 3 fixed
+## Found writing the Python integration guide (2026-09-26), 6 findings, 5 fixed
 
 Every sample in `docs/PYTHON_API_GUIDE.md` was run against a 0.1.1 node before it was written down.
 Five things the samples did were not what the SDK's or the engine's own descriptions said.
 
 ### REPL-1 (MEDIUM) — a replacement whose backfill has stopped goes on reporting BACKFILLING, with no failure
 
-> **Status:** OPEN — `replace()` on a query whose source held a dead-lettered record at the seam: 30 seconds in, the node's log says `PumpingFeed ... stopped reading txn#0 with PRV-4013 and will not retry`, and `replacement()` over Flight and `GET /api/v1/queries/{name}/replacement` both kept answering `state: BACKFILLING`, `failure: null`, `failureCode: null`, with `lagSeconds` growing, for as long as they were polled (two minutes). `QueryReplacement.State` has a `FAILED` — "ended before the cutover because the backfill or the new version failed" — and this case never reaches it: the candidate's feed stopping is not carried to the replacement. An operator or an integration polling for `CAUGHT_UP` waits forever, told nothing; the guide tells integrators to bound their own wait until this is fixed. Inferred from the API's answers and the log; the path from the feed's stop to the replacement's state has not been traced in the code.
-> **Disposition:** GA-REQUIRED — the state the model has for exactly this is never reached, and a status surface that says a dead backfill is progressing is the defect this register's first table is about.
+> **Status:** FIXED — found against a running node: a backfill that could not reach the seam stopped with `PRV-4013` (the log said `PumpingFeed ... stopped reading txn#0 with PRV-4013 and will not retry`), and `replacement()` over Flight and `GET /api/v1/queries/{name}/replacement` both kept answering `state: BACKFILLING`, `failure: null`, lag growing, for as long as they were polled. `QueryReplacement.observe()` watched the candidate *query's* failure and not its *feed*: a feed that stops leaves the query `RUNNING` (FEED-1), so the `FAILED` state the model has for exactly this was never reached. It now fails the replacement with the first stopped source's own failure. And a failed replacement is now released once, by the watcher: its shadow query and feed are closed, the journal records it ended (a restart would otherwise have started the failed backfill again), and a `WARNING` says what failed and that the name still answers its old version. That release was missing for a candidate *query* failure too. `QueryReplacementTest.aBackfillWhoseFeedStopsFailsTheReplacementAndReleasesTheCandidate` — `FAILED` with `PRV-4013`, the old answer intact, a second replacement accepted; seed-proven (without the feed check it times out exactly as the node did).
 
 ### REPL-2 (MEDIUM) — a query cannot be replaced while the record at its current position is one that was dead-lettered
 
@@ -6891,3 +6890,7 @@ Five things the samples did were not what the SDK's or the engine's own descript
 ### PYSDK-3 (LOW) — the 0.1.1 wheel said it was 0.1.0
 
 > **Status:** FIXED — `pravaha.__version__` was the literal `"0.1.0"`, which `deploy/release/set-version.sh` does not touch, so the wheel `bundle.sh` put in the QA bundle reported the wrong version to anything that asked. It is now read from the installed package's own metadata (`"unknown"` from an uninstalled source tree), so it cannot disagree with the wheel it came in. `sdk/python/tests/test_version.py`.
+
+### IMG-1 (HIGH) — the 0.1.1 console image shipped without the documentation its help pages include
+
+> **Status:** FIXED — found putting the Python guide on a help card. A guide, a tutorial, the code browser, the decision records and the About page's "what is built" table read files at the repository root — `docs/`, `examples/case-studies/`, `README.md`, `sdk/python/README.md` — through `include:` paths resolved from the console's grandparent directory. In `pravaha/pravaha-console:0.1.1` that is `/opt/pravaha`, which held only `console/`: every tutorial rendered "not present in this installation" and `/help/codes` listed 3 codes instead of 213. The compose test and `qa-smoke.sh` both passed, because they checked status codes, and the second ran the console from the checkout, where the files exist. The image now copies those trees to the same relative places, and its build runs a check that every `include:` under `console/content` resolves, failing the build otherwise. Verified on the rebuilt image: tutorials, guides and About render with no missing-file marker, and the code browser lists 213 codes. **The QA bundle's 0.1.1 console image has the defect; 0.1.2 is the first without it.**
