@@ -72,6 +72,7 @@ The same Kafka plugin ships the sink, `kafka-sink`; this page is its source, nam
 | `buffer.records` | no | `10000` | Decoded records per partition waiting for the engine before the reader stops fetching. 1 to 2,147,483,647 |
 | `start.timeout` | no | `30s` | How long opening waits for the brokers, and for a new reader to have queued what the partition already holds |
 | `lag.warn.records` | no | `100000` | Records behind the end of any partition past which the source's health is `DEGRADED` |
+| `partitions.refresh` | no | `30s` | How often the topic's partitions are listed again, so one added while a query runs is read without a restart. At least `1s` (PRV-5100): each refresh is a metadata request |
 | `user` / `password` | no | empty | SASL credentials. Both or neither: half a credential is refused |
 | `sasl.mechanism` | no | `PLAIN` when `user` is set | `PLAIN`, `SCRAM-SHA-256` or `SCRAM-SHA-512`. `PLAIN` without TLS is refused — it sends the password in the clear |
 | `tls.*` | no | off | The shared TLS options — see [connector security](/help/topics/connector-security) |
@@ -106,8 +107,15 @@ broker rather than the heap.
 Within a partition, records arrive in offset order. Across partitions there is no order, which is
 Kafka's own rule: key your producer so that the records that must stay in order share a partition.
 
-**The partition list is read when a query registers.** A partition added to the topic afterwards is
-not read until the query's next restart or re-registration, and then starts where `start.from` says.
+**Partitions added while a query runs are read.** The source asks the brokers for the topic's
+partitions again every `partitions.refresh` (30 seconds by default), and a partition added meanwhile
+gets a reader of its own **from its first record**, whatever `start.from` says: a partition that did
+not exist when the query registered has no history the query chose to skip. Its offset is in the next
+checkpoint like any other, and a restart resumes it there. A partition added while the node was down
+is found at the restart and read from its first record too. The query's feed says so
+(`txn gained 1 partition while running [3]`), and a refresh the brokers do not answer is retried and
+shown there until one succeeds. A new partition's rows are late like any other if their event times are
+behind the watermark.
 
 **Threads.** Because an exactly-once source is never shared, ten queries over a 12-partition topic are
 120 consumers and 120 fetch threads, each holding up to `buffer.records` decoded records.
@@ -654,7 +662,6 @@ SCRAM mechanisms are allowed either way. `security.protocol` follows from the tw
 | **Writing** Avro or Protobuf | `kafka-sink` writes JSON. See [the Kafka sink](/help/topics/sink-kafka) |
 | **The record key** as data | Only the value is read. Put every column in the value, as `kafka-sink` does |
 | **Tombstones as deletes** | `format: changelog`, or `tombstone: skip` to read an upsert topic as insertions |
-| **Partitions added after registration** | Read from the next restart or re-registration, starting at `start.from` |
 | **Resuming from a consumer group** | The checkpoint is the position; `monitoring.group` only reports |
 | **Several topics, or a pattern**, in one binding | One binding per topic, one stream each |
 | **Sharing one reader between queries** | Each registration has its own consumers |

@@ -82,6 +82,16 @@ PartitionReader      createReader(SourcePartition partition, SourceOffset resume
 delivered to the lane that owns its key range. A source with no natural split returns one partition;
 Kafka returns one per topic-partition.
 
+**A source can gain partitions.** `partitionRefreshInterval()` defaults to zero: the list read at
+registration is the list for as long as the query runs. A source answering more (Kafka, every
+`partitions.refresh`) is asked for `partitions()` again that often, on the query's feed thread, and a
+partition not seen before is opened with `createReaderForNewPartition()`, which reads it from its
+first record because it has no history the query chose to skip. Its pump joins the running query and
+its offset enters the next checkpoint. Each checkpoint records, beside every `partition-N` offset, the
+partition it belongs to (`source-of-partition-N`), so a restore matches offsets by partition rather
+than by the order the pumps were created in; a restore with no offset for a partition treats it as
+one gained after the checkpoint and opens it the same way.
+
 ### `PartitionReader`
 
 ```java
@@ -888,7 +898,7 @@ What the shipped plugins claim, and why not more (ADR-039 item 6):
 |---|---|---|---|
 | `jdbc` | yes — bound `WHERE`, `alternatives` as an `OR` | yes — the `SELECT` list, plus the watermark and key columns | with `key.column` only: one `GROUP BY` per keyset page, `COUNT` and `SUM` over `BIGINT`; declined for a filter SQL cannot carry, and for text comparisons or text group keys unless `collation.binary: true`, since a case-insensitive collation groups `'DONE'` with `'done'` |
 | `aerospike` | yes — server-side expressions, `alternatives` as `Exp.or` (with `deletes: detect` too, where a record leaving the filter is retracted) | yes — the scan's bin names | no — server-side aggregation needs Lua stream UDFs registered on the cluster, and a last-update-time scan has no retraction for an overwritten record |
-| `cassandra` | no — anything but the partition key needs `ALLOW FILTERING` | yes — the CQL `SELECT` list | no — every pass re-reads the whole range, so no partial could cover "new rows only" |
+| `cassandra` | on the key only — the whole partition key by equality (or an OR of such keys, up to 256), then clustering restrictions in their declared order; anything else needs `ALLOW FILTERING` and stays with the engine. The feed description says what was pushed | yes — the CQL `SELECT` list | no — every pass re-reads what it reads, so no partial could cover "new rows only" |
 | `filesystem`, `feedfile`, `delta` | no | no | no |
 | `kafka` | no — a broker has no server-side filter; every record is fetched whole | no | no |
 
@@ -942,6 +952,12 @@ What it deliberately does not do:
   has not yet read, or a checkpoint's offset is past the partition's end (the topic was deleted and
   recreated), the reader refuses with `PRV-5106` rather than reading on from wherever the log now
   starts. `auto.offset.reset` is `none` and cannot be passed through.
+- **A partition added to the topic is read without a restart.** The partition list is read again
+  every `partitions.refresh` (30 seconds by default); a new partition's reader starts at its earliest
+  offset, whatever `start.from` says, and its offset is checkpointed like any other. Proved against a
+  real broker by `KafkaPartitionGrowthBrokerTest`: a partition added under a running query reaches the
+  view, is in the next checkpoint, and after a restart (with another partition added while the node
+  was down) every record is counted once.
 - **Aborted transactions are never delivered.** `isolation.level` defaults to `read_committed`, so a
   topic written transactionally — `kafka-sink`'s, or any exactly-once producer's — reads back exactly
   once too. The position steps over commit markers and aborted records only once everything before
@@ -1008,6 +1024,27 @@ as NULL when it is absent. Declare the field `optional` if a column must be able
 
 A value that begins with `0x00` while no registry is configured is the mistake this format makes
 most often, so a refusal that follows one says so and names `schema.registry.url`.
+
+#### Compressed topics: snappy and zstd, not lz4
+
+Both sides read and write `none`, `gzip`, `snappy` and `zstd` batches: the source whatever the
+producer or the broker chose, `kafka-sink` through `kafka.compression.type`. `gzip` is the JDK's.
+`snappy` and `zstd` are snappy-java and zstd-jni, native code, and the only two native families the
+build allows, because Parquet has no other way to read its files
+([ADR-053](adr/053-native-code-only-where-java-cannot.md)); one version of each serves Parquet and
+Kafka. They load on glibc Linux, macOS, Windows and FreeBSD, from a library unpacked into
+`java.io.tmpdir`, which must allow executing files ([`DEPLOYMENT.md`](DEPLOYMENT.md), "Native code").
+`kafka-sink` loads the codec once at configuration, so a platform it does not load on is `PRV-5100`
+before the sink opens.
+
+**`lz4` is refused on both sides.** It would need lz4-java, a third native family the root pom's
+`enforce-portable-native-code` rule refuses. `kafka.compression.type: lz4` is `PRV-5100` at
+configuration; an lz4 batch stops the source's reader with `PRV-5107` naming the codec, and health
+turns `UNHEALTHY`. Before this, an lz4, snappy or zstd batch killed the reader's fetch thread with a
+`NoClassDefFoundError` that nothing caught: the query stopped receiving rows and every status said it
+was healthy. Proved against a real broker (`KafkaCompressedBrokerTest`): producer- and
+broker-compressed snappy and zstd topics read, snappy and zstd written by `kafka-sink` taking under
+half the log of the same rows uncompressed, and an lz4 topic refused by name.
 
 Proved against a real broker (Testcontainers): the source TCK; an aborted transaction skipped, and
 resumption from an offset between it and its markers exact; three partitions restarted from

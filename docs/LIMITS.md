@@ -64,8 +64,8 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   `kafka-sink` and `delta-sink`, and no others. Each is unit-tested without a server and again
   against a real one — Aerospike, PostgreSQL and a Kafka broker under Testcontainers, Delta tables
   on the local filesystem — so a machine without Docker skips those, by name, rather than passing.
-  `kafka-sink` writes JSON only, and ships no lz4, snappy or zstd codec (they are native code):
-  `none` and `gzip` compression work. **Delta is the only lakehouse format written**: there is no
+  `kafka-sink` writes JSON only, compressed with `none`, `gzip`, `snappy` or `zstd`; `lz4` is refused (see the boundary below).
+  **Delta is the only lakehouse format written**: there is no
   Iceberg or Hudi sink, and `delta-sink` writes unpartitioned or partitioned tables
   (`partition.columns`), creates no deletion vectors — and refuses to rewrite a table whose files
   carry them (`PRV-5055`) — and runs no compaction: `OPTIMIZE` and `VACUUM` belong to an engine that
@@ -73,21 +73,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   view as a retraction. Its upsert mode rewrites the data files holding a changed key, so a commit costs in proportion to the table
   rather than to the change.
 
-  **Buildable:** snappy and zstd for `kafka-sink`, through the two native codecs [ADR-053](adr/053-native-code-only-where-java-cannot.md) allows (lz4 would need a third, and stays refused); Avro and Protobuf output reusing the source's writers; an Iceberg sink without Spark. Compaction stays with the table's own engine.
-
-- **The Kafka source reads JSON, Avro and Protobuf — with no library for any of them.** JSON rows or
-  `kafka-sink`'s changelog; Avro's binary encoding through a reader written here from the
-  specification, against `schema.file` or a schema id fetched from a Confluent-compatible registry
-  over its REST API (Karapace and Apicurio included); and Protobuf through `DynamicMessage` over a
-  descriptor set the deployment supplies. No `org.apache.avro`, and no Confluent client. Columns are
-  matched by name and a schema that cannot be mapped is refused at registration (`PRV-5108`). A
-  proto3 scalar without `optional` has no presence, so it reads as its type's default and never as
-  NULL. An upsert topic's tombstones cannot be retractions (a tombstone does not say what row it
-  deletes), so they are refused or, with `tombstone: skip`, ignored. The partition list is read at
-  registration: partitions added later are read after a restart. Its broker tests, like the sink's,
-  need Docker.
-
-  **Buildable:** partitions added after registration, picked up by a periodic metadata refresh. The proto3 presence rule and tombstones are properties of the formats, not gaps.
+  **Buildable:** Avro and Protobuf output reusing the source's writers; an Iceberg sink without Spark. Compaction stays with the table's own engine.
 
 - **Change data capture, beyond one PostgreSQL table's changes.** `postgres-cdc`
   ([ADR-041](adr/041-change-data-capture-without-debezium.md)) streams one table per binding
@@ -108,28 +94,6 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
   **Buildable:** a MySQL binlog source, on the same model as ADR-041. `TRUNCATE` stays a refusal: it names no rows to retract.
 
-- **The Spring Boot starter on Boot versions other than 3.5.** The starter (ADR-020) has its
-  `@PravahaTest` slice, a read-only `pravaha` actuator endpoint and health contribution, and a
-  listener error handler. Its Boot matrix is Maven profiles (`-Pboot-3.2` to `-Pboot-3.5`) with a
-  test that fails a leg running a Boot other than the one it names; only the 3.5 leg (3.5.16) has
-  been run, and no CI job runs the others.
-
-  **Buildable and small:** run the 3.2–3.4 legs and add them to CI.
-
-- **The console has its persona surfaces but not the §23.20 release gate** — workbench, catalog,
-  views, live results, operations with lane backpressure and per-operator numbers on the plan, a
-  dead-letter screen, a backfill and cutover screen, a plugins screen built on the engine's
-  manifest listing, and admin screens for access and the audit trail are built, and a
-  headless-Chrome suite holds zero axe violations, visual baselines in light and dark at both
-  densities, the measurable §23.15 budgets, the eight states of §23.12 screen by screen, and all
-  eight journeys, all of them end to end. A component gallery the
-  console renders itself stands in for Storybook, which is not adopted (it needs Node). Not done:
-  the manual WCAG 2.2 AA audit, plus cluster screens, the tenants and quotas screen (the engine's
-  `GET /api/v1/tenants` exists; the screen does not), and editing grants (the engine is not where
-  grants live).
-
-  **Buildable:** the tenants and quotas screen (the API exists). The manual WCAG audit is a person's task. Cluster screens wait for multi-node, and grants live outside the engine by design.
-
 
 ## Boundaries: limits of the stores, the formats or a decision
 
@@ -137,12 +101,14 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   Cassandra, and a continuous `COUNT`/`SUM` into JDBC as one partial per polled page — but only
   there: Aerospike would need Lua UDFs on the cluster and Cassandra re-reads its whole table each
   pass, so neither claims a partial. A windowed aggregate is never pre-combined, nor a `MIN`/`MAX`
-  (not retractable), nor anything filtered by a predicate SQL cannot carry. Cassandra pushes no
-  filter (it would need `ALLOW FILTERING`). `EXPLAIN` shows the plan, not what a source was asked
-  for; a query's feed description does (`feed.description` on `GET /api/v1/queries/{name}`)
+  (not retractable), nor anything filtered by a predicate SQL cannot carry. Cassandra pushes a
+  filter only on the key: the whole partition key by equality, then clustering restrictions in their
+  declared order; anything else would need `ALLOW FILTERING`, which reads every partition anyway.
+  `EXPLAIN` shows the plan, not what a source was asked for; a query's feed description does
+  (`feed.description` on `GET /api/v1/queries/{name}`), including what Cassandra was asked for
   ([ADR-039](adr/039-ga-includes-the-known-gaps-and-clustering.md) item 6).
 
-  **Mostly a boundary of the stores.** `MIN`/`MAX` cannot be retracted incrementally, and an Aerospike partial needs UDFs installed on the cluster. **Buildable:** Cassandra filter pushdown on partition-key and clustering columns, which needs no `ALLOW FILTERING`.
+  **A boundary of the stores.** `MIN`/`MAX` cannot be retracted incrementally, an Aerospike partial needs UDFs installed on the cluster, and a Cassandra filter off the key needs `ALLOW FILTERING`.
 
 - **Transactional sinks cost a second write.** `jdbc-sink`, `kafka-sink` and `delta-sink` are
   transactional, and none uses its store's own two-phase commit: `jdbc-sink` stages each
@@ -156,6 +122,44 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   checkpoint's offsets (ADR-029) is at least once whatever the sink does.
 
   **A deliberate trade.** **Buildable for PostgreSQL:** `PREPARE TRANSACTION` is a real two-phase commit, so `jdbc-sink` could skip staging there. Kafka and Delta have no equivalent.
+
+- **The console has its persona surfaces but not the §23.20 release gate** — workbench, catalog,
+  views, live results, operations with lane backpressure and per-operator numbers on the plan, a
+  dead-letter screen, a backfill and cutover screen, a plugins screen built on the engine's
+  manifest listing, and admin screens for access, the audit trail and tenants are built — the
+  tenants screen shows each tenant's queries and state keys against its admission quotas, and the
+  registrations refused for it, from the engine's `GET /api/v1/tenants` (ADR-050) — and a
+  headless-Chrome suite holds zero axe violations, visual baselines in light and dark at both
+  densities, the measurable §23.15 budgets, the eight states of §23.12 screen by screen, and all
+  eight journeys, all of them end to end. A component gallery the
+  console renders itself stands in for Storybook, which is not adopted (it needs Node). Not done:
+  the manual WCAG 2.2 AA audit, plus cluster screens, and editing grants or quotas (the engine is
+  not where grants live, and quotas are the node's configuration).
+
+  **Not code, deferred, or a boundary:** the manual WCAG audit is a person's task, cluster screens wait for multi-node, and grants live outside the engine by design.
+
+- **The Kafka source reads JSON, Avro and Protobuf — with no library for any of them.** JSON rows or
+  `kafka-sink`'s changelog; Avro's binary encoding through a reader written here from the
+  specification, against `schema.file` or a schema id fetched from a Confluent-compatible registry
+  over its REST API (Karapace and Apicurio included); and Protobuf through `DynamicMessage` over a
+  descriptor set the deployment supplies. No `org.apache.avro`, and no Confluent client. Columns are
+  matched by name and a schema that cannot be mapped is refused at registration (`PRV-5108`). A
+  proto3 scalar without `optional` has no presence, so it reads as its type's default and never as
+  NULL. An upsert topic's tombstones cannot be retractions (a tombstone does not say what row it
+  deletes), so they are refused or, with `tombstone: skip`, ignored. Partitions added to the topic
+  while a query runs are found every `partitions.refresh` and read from their first record. Its broker
+  tests, like the sink's, need Docker.
+
+  **A boundary of the formats:** the proto3 presence rule and tombstones are properties of the formats, not gaps.
+
+- **Kafka's `lz4` codec.** The `kafka` source and `kafka-sink` read and write `none`, `gzip`, `snappy`
+  and `zstd`. `snappy` and `zstd` are snappy-java and zstd-jni, the two native libraries the build
+  allows because Parquet needs them, so they work on the platforms those are built for (glibc Linux,
+  macOS, Windows, FreeBSD). `lz4` would need lz4-java, a third native family: `kafka.compression.type:
+  lz4` is refused at configuration (`PRV-5100`) and an lz4 batch stops the source's reader (`PRV-5107`),
+  both naming the ADR ([`CONNECTORS.md`](CONNECTORS.md), "Compressed topics").
+
+  **Decided, not missing** ([ADR-053](adr/053-native-code-only-where-java-cannot.md)): allowing a third native family takes an ADR.
 
 - **The spill tier is survival, not capacity.** There is no RocksDB, by decision
   ([ADR-044](adr/044-no-rocksdb-the-mapped-tier-is-l1.md)): the memory-mapped overflow tier is

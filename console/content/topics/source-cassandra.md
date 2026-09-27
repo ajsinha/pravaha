@@ -154,9 +154,26 @@ never fetch `notes`. The engine works this out through projections and
 filters directly over the scan; a query that aggregates, joins, windows or computes a column asks for
 every column. A shared reader selects the union of the columns its queries read.
 
-**Not `FILTER`.** A `WHERE` on anything but the partition key needs `ALLOW FILTERING`, which still
-reads every partition on the server and has null and collation rules of its own to be exact about. So
-the engine applies the `WHERE` after each row arrives, and every pass reads the whole range.
+**`FILTER` on the key, and only there.** CQL answers two shapes without `ALLOW FILTERING`, and both
+are pushed:
+
+- **The whole partition key by equality** (`WHERE tenant = 'acme' AND id = 7` over
+  `PRIMARY KEY ((tenant, id), ...)`): each pass reads that partition instead of the token range. A
+  reader shared by several queries, each pinning its own key, reads each of those partitions, up to 256.
+- **Then the clustering columns, in their declared order**: equality down a prefix, then a range on the
+  next one (`AND day = 3 AND ts > '2026-09-01'`), which Cassandra answers by slicing the partition.
+
+Anything else stays with the engine: a `WHERE` on a regular column, a partition key pinned only in
+part or by a range, a clustering restriction that skips a column. CQL would need `ALLOW FILTERING`
+for those, which reads every partition on the server anyway. The engine applies the whole `WHERE`
+after each row arrives in every case, so a pushed restriction only ever reads fewer rows, never
+different ones. Values are pushed only where they are exact: a `timestamp` bound is widened to the
+millisecond Cassandra stores, a text column is pushed by equality only, and key columns of types
+other than `tinyint`, `smallint`, `int`, `bigint`, `timestamp`, `text`, `ascii` and `boolean` are
+not pushed. The key columns and their types come from the table's schema metadata when the source
+opens. The query's feed description (`feed.description` on `GET /api/v1/queries/{name}`) says what
+was pushed: `pushed to Cassandra: partition key tenant = 'acme' and id = 7, clustering day = 3`, or
+`no filter pushed to Cassandra: ...` and why. With `deletes: detect`, one partition key is pushed.
 
 **Not `PARTIAL_AGGREGATE`.** CQL aggregates run per partition, and every pass here re-reads the whole
 range with no retraction of the previous pass, so no partial could be "the new rows only".

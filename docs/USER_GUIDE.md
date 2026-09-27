@@ -834,8 +834,11 @@ fails a leg that ran some other Boot than the one it names:
 ./mvnw -pl pravaha-spring-boot-starter -am test -Pboot-3.2
 ```
 
-Only the 3.5 leg has been run; the others need their Boot version downloaded, and no CI job runs them
-yet.
+All four legs run green (2026-09-27, 41 tests each), and CI's `matrix` workflow runs them on every
+pull request and nightly. A leg needs its Boot version in the local repository, so an offline build
+of a line never downloaded fails at resolution. The Boot 3.2 to 3.4 BOMs manage commons-dbcp2 and
+HttpClient 5 below what Calcite and Avatica are built against; the starter pins them to the versions
+Boot 3.5 resolves, so the engine runs on the same classpath on every line.
 
 ---
 

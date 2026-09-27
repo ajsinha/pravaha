@@ -465,7 +465,9 @@ writes one file per commit and rewrites none.
   re-register the query; it starts from `start.from` without them.
 - `PRV-5104` — a checkpoint holds a position this source did not write, or one for another topic or
   partition: the binding's `topic` was changed under an existing checkpoint. Register afresh.
-- `PRV-5107` — fetching failed in a way retrying will not fix, such as an ACL revoked mid-stream.
+- `PRV-5107` — fetching failed in a way retrying will not fix, such as an ACL revoked mid-stream, or
+  a batch compressed with `lz4` (ADR-053: its library is native code the build refuses), or with
+  `snappy` or `zstd` on a platform whose native library does not load. The message names the codec.
 - `PRV-5108` — at registration, with `format: avro` or `format: protobuf`: the writer schema cannot
   become rows of this stream. The message names the column with no field, or the field and the
   column whose types cannot meet — `schema.file` that is not an Avro schema, `schema.descriptor`

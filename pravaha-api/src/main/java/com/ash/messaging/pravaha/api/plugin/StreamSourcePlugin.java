@@ -63,6 +63,41 @@ public interface StreamSourcePlugin extends PravahaPlugin {
     }
 
     /**
+     * What this source asks its store for when a reader is created with {@code request}, in words:
+     * which filters it applies itself and which it leaves with the engine. Shown in a query's feed
+     * description beside the offer, because a source may honour part of a request and "offered two
+     * filters" does not say whether the store was asked for a key or read whole. Empty by default:
+     * the description then reports the offer alone.
+     */
+    default String describePushdown(ReadRequest request) {
+        return "";
+    }
+
+    /**
+     * How often the engine asks {@link #partitions} again while a query reads this source, to pick
+     * up partitions added since it began: a Kafka topic scaled out, say. {@link java.time.Duration#ZERO}, the
+     * default, means the list read when the query registered is the list for as long as it runs.
+     *
+     * <p>A source that answers more than zero must return every partition it returned before, with
+     * the same index, and new ones only with higher indexes. The engine opens each new one through
+     * {@link #createReaderForNewPartition} and checkpoints its position like any other.
+     */
+    default java.time.Duration partitionRefreshInterval() {
+        return java.time.Duration.ZERO;
+    }
+
+    /**
+     * A reader for a partition that did not exist when the query began reading this source -- found
+     * by a refresh, or on a restore whose checkpoint has no position for it. Such a partition has no
+     * history the query chose to skip, so it is read from its first record, whatever the binding's
+     * configured start position says. Defaults to {@link SourceOffset#BEGINNING}, which is right for
+     * a source whose configured start is its beginning.
+     */
+    default PartitionReader createReaderForNewPartition(SourcePartition partition, ReadRequest request) {
+        return createReader(partition, SourceOffset.BEGINNING, request);
+    }
+
+    /**
      * How this binding's positions are ordered, or {@code null} when they are not (ADR-054).
      *
      * <p>Non-null promises two things: {@link OrderedPositions#compare} orders any two positions this

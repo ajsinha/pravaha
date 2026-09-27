@@ -41,7 +41,7 @@ once ([the Kafka source](/help/topics/source-kafka)).
 | Delivery | **exactly once to `read_committed` consumers** with `transactional: true` and `pravaha.checkpoint.directory` set; see [below](#without-transactions) otherwise |
 | Rows per batch | at most 1,000 |
 | Target topic | **you create it**; the sink never does |
-| Compression | `none` and `gzip` as shipped |
+| Compression | `none`, `gzip`, `snappy` and `zstd`; `lz4` is refused (ADR-053) |
 | Security | the shared `tls.*` options; SASL `PLAIN` (TLS required), `SCRAM-SHA-256` or `SCRAM-SHA-512` |
 
 ## Options
@@ -326,11 +326,16 @@ which. See [delivery guarantees](/help/topics/delivery-guarantees).
 
 ## Compression
 
-`kafka.compression.type` accepts `none` (the default) and `gzip` as the plugin ships. The `lz4`,
-`snappy` and `zstd` codecs are native libraries the plugin does not bundle; asking for one is refused
-at configuration with PRV-5100, naming the class that is missing, **unless** you put that codec's
-library on the plugin's classpath yourself. The refusal comes before the sink opens, not at the first
-write.
+`kafka.compression.type` accepts `none` (the default), `gzip`, `snappy` and `zstd`. `gzip` is the
+JDK's own. `snappy` and `zstd` are native libraries (snappy-java and zstd-jni), the two the build
+allows because Parquet needs them too (ADR-053): they load on glibc Linux, macOS, Windows and
+FreeBSD, from a library they unpack into `java.io.tmpdir`, which must allow executing files. The sink
+loads the codec once at configuration, so a platform it does not load on is refused then with
+PRV-5100, not at the first write.
+
+`lz4` is refused at configuration with PRV-5100, whatever is on the classpath: it needs lz4-java, a
+third native library the build refuses. The `kafka` source reads `none`, `gzip`, `snappy` and `zstd`
+batches, and stops at the first `lz4` batch with PRV-5107 naming the codec.
 
 ## Security
 

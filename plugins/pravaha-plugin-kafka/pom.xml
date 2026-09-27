@@ -33,32 +33,43 @@
       <artifactId>kafka-clients</artifactId>
       <exclusions>
         <!--
-          The three compression codecs kafka-clients brings are JNI: zstd-jni and snappy-java carry a
-          native library per platform (Linux on x86_64, aarch64, arm, ppc64le, s390x, riscv64 and
-          more; macOS; Windows; FreeBSD), and lz4-java its own native build beside a Java fallback.
-          The client loads a codec only when a batch uses it, so without them it runs as it did:
-          compression.type none (the default here) and gzip, which is the JDK's own
-          java.util.zip, work; lz4, snappy and zstd are refused by the sink at configuration, with
-          PRV-5100, rather than failing at the first batch with a NoClassDefFoundError.
+          ADR-053: native code only where Java cannot do the job. kafka-clients brings three
+          compression codecs, all JNI. zstd-jni and snappy-java are the two native families the
+          root pom's enforce-portable-native-code rule allows, because Parquet already needs them;
+          they are declared below, at the version Parquet's modules resolve, so a Kafka topic and a
+          Parquet file are read by the same library. lz4-java would be a third family, which the
+          rule refuses: lz4 is refused by the sink at configuration (PRV-5100) and by the source at
+          the first lz4 batch (PRV-5107), both naming ADR-053, rather than failing with a
+          NoClassDefFoundError.
 
-          The same trade the Cassandra plugin made for jnr-posix: one bundle that runs anywhere,
-          proven by this module's tests, the real-broker ones included, passing without them.
-          A deployment that wants lz4 or zstd puts the codec jar on this plugin's classpath and
-          sets kafka.compression.type; the refusal checks for the class, not the name.
+          snappy-java is excluded here too and declared below, because kafka-clients 3.9.1 asks
+          for 1.1.10.5 and the build resolves Parquet's 1.1.10.4 (the root pom's pin): one snappy
+          for the whole node. Kafka uses only SnappyInputStream and SnappyOutputStream, unchanged
+          across the 1.1.10 line, and KafkaCompressedBrokerTest reads and writes snappy batches
+          through a real broker against 1.1.10.4. Raising the root pin to 1.1.10.5 or later
+          removes the need for this exclusion.
         -->
         <exclusion>
-          <groupId>com.github.luben</groupId>
-          <artifactId>zstd-jni</artifactId>
+          <groupId>org.xerial.snappy</groupId>
+          <artifactId>snappy-java</artifactId>
         </exclusion>
         <exclusion>
           <groupId>org.lz4</groupId>
           <artifactId>lz4-java</artifactId>
         </exclusion>
-        <exclusion>
-          <groupId>org.xerial.snappy</groupId>
-          <artifactId>snappy-java</artifactId>
-        </exclusion>
       </exclusions>
+    </dependency>
+    <!-- snappy and zstd, for the source reading a compressed topic and for kafka-sink's
+         kafka.compression.type. Compile scope because the sink loads each codec once at
+         configuration, so a platform the native library was not built for is refused by name
+         before a row moves (ADR-053, DEPLOYMENT.md "Native code"). Versions are the root pom's. -->
+    <dependency>
+      <groupId>org.xerial.snappy</groupId>
+      <artifactId>snappy-java</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.github.luben</groupId>
+      <artifactId>zstd-jni</artifactId>
     </dependency>
     <!-- The source reads JSON with Jackson's streaming parser alone: exact decimals and a record
          never materialised as a tree. The version is the one the root pom pins for the whole build,

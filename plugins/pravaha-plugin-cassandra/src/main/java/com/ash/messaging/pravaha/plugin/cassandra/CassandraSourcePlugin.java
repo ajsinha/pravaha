@@ -52,6 +52,12 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  * periodic, partition-parallel scan of a table, paged by {@code token()} so no partition is read
  * through {@code ALLOW FILTERING}.
  *
+ * <p><strong>A filter on the key is pushed</strong> ({@link CassandraPushdown}): equality on the whole
+ * partition key, or an OR of such keys, reads those partitions instead of the range
+ * ({@link KeyedScanReader}), and restrictions on the clustering columns in their declared order --
+ * equality down a prefix, then a range -- slice them. Neither needs {@code ALLOW FILTERING}. Any
+ * other filter is left with the engine, and the query's feed description says which it was.
+ *
  * <p>{@link CassandraStrategy} names two other strategies and implements neither.
  * {@code writetime-incremental} looks like the natural next step -- filter each scan on {@code
  * writetime()} the way the Aerospike plugin filters on {@code record.last_update_time()} -- and CQL
@@ -130,6 +136,15 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
      */
     private final java.util.Map<List<String>, PreparedStatement[]> projected =
             new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** A partition read's statement, prepared once per CQL text: its columns and its restrictions. */
+    private final java.util.Map<String, PreparedStatement> keyed = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** The table's clustering columns, in CQL order, named as the stream names them. */
+    private List<String> clusteringColumns = List.of();
+
+    /** The key columns a restriction may be pushed on, with their CQL types; empty when none may. */
+    private Map<String, CassandraPushdown.ColumnType> pushable = Map.of();
 
     @Override
     public String name() {
@@ -328,6 +343,107 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
                 .toList());
         this.greaterThan = all[0];
         this.greaterOrEqual = all[1];
+        readKeyMetadata();
+    }
+
+    /**
+     * Learns the table's clustering columns and the CQL types of its key columns from the driver's
+     * schema metadata, which is what a pushed restriction is built from. Without the metadata --
+     * schema metadata turned off in the driver -- nothing is pushed, as before.
+     */
+    private void readKeyMetadata() {
+        java.util.Optional<com.datastax.oss.driver.api.core.metadata.schema.TableMetadata> found =
+                session.getMetadata().getKeyspace(keyspace).flatMap(space -> space.getTable(table));
+        if (found.isEmpty()) {
+            return;
+        }
+        com.datastax.oss.driver.api.core.metadata.schema.TableMetadata metadata = found.get();
+        Map<String, CassandraPushdown.ColumnType> types = new java.util.HashMap<>();
+        List<String> clustering = new java.util.ArrayList<>();
+        List<com.datastax.oss.driver.api.core.metadata.schema.ColumnMetadata> keyColumns =
+                new java.util.ArrayList<>(metadata.getPartitionKey());
+        keyColumns.addAll(metadata.getClusteringColumns().keySet());
+        for (com.datastax.oss.driver.api.core.metadata.schema.ColumnMetadata column : keyColumns) {
+            String name = streamNameOf(column.getName().asInternal());
+            boolean isClustering = metadata.getClusteringColumns().containsKey(column);
+            if (isClustering) {
+                // A clustering column the stream does not declare can be restricted by no filter, so the
+                // restrictions stop at it; its CQL name keeps its place in the order.
+                clustering.add(name == null ? column.getName().asInternal() : name);
+            }
+            CassandraPushdown.ColumnType type = pushdownType(column.getType());
+            if (name != null && type != null) {
+                types.put(name, type);
+            }
+        }
+        this.clusteringColumns = List.copyOf(clustering);
+        this.pushable = Map.copyOf(types);
+    }
+
+    /** The stream's name for a CQL column, matched as CQL matches an unquoted name, or null. */
+    private String streamNameOf(String internal) {
+        for (com.ash.messaging.pravaha.api.data.Field field : schema.fields()) {
+            if (field.name().equalsIgnoreCase(internal)) {
+                return field.name();
+            }
+        }
+        return null;
+    }
+
+    static CassandraPushdown.ColumnType pushdownType(com.datastax.oss.driver.api.core.type.DataType type) {
+        if (type.equals(com.datastax.oss.driver.api.core.type.DataTypes.TINYINT)) {
+            return CassandraPushdown.ColumnType.TINYINT;
+        } else if (type.equals(com.datastax.oss.driver.api.core.type.DataTypes.SMALLINT)) {
+            return CassandraPushdown.ColumnType.SMALLINT;
+        } else if (type.equals(com.datastax.oss.driver.api.core.type.DataTypes.INT)) {
+            return CassandraPushdown.ColumnType.INT;
+        } else if (type.equals(com.datastax.oss.driver.api.core.type.DataTypes.BIGINT)) {
+            return CassandraPushdown.ColumnType.BIGINT;
+        } else if (type.equals(com.datastax.oss.driver.api.core.type.DataTypes.TIMESTAMP)) {
+            return CassandraPushdown.ColumnType.TIMESTAMP;
+        } else if (type.equals(com.datastax.oss.driver.api.core.type.DataTypes.TEXT)) {
+            return CassandraPushdown.ColumnType.TEXT;
+        } else if (type.equals(com.datastax.oss.driver.api.core.type.DataTypes.ASCII)) {
+            return CassandraPushdown.ColumnType.ASCII;
+        } else if (type.equals(com.datastax.oss.driver.api.core.type.DataTypes.BOOLEAN)) {
+            return CassandraPushdown.ColumnType.BOOLEAN;
+        }
+        return null;
+    }
+
+    /**
+     * What {@code request} is pushed to Cassandra as. {@code deletes: detect} compares whole passes
+     * in token order, so it takes a pass of one partition at most; it is never shared, so it is never
+     * asked for an OR of keys anyway.
+     */
+    CassandraPushdown.Plan pushdownFor(com.ash.messaging.pravaha.api.plugin.ReadRequest request) {
+        return CassandraPushdown.plan(
+                request,
+                partitionKeyColumns,
+                clusteringColumns,
+                pushable,
+                detectDeletes ? 1 : CassandraPushdown.MAX_READS);
+    }
+
+    @Override
+    public String describePushdown(com.ash.messaging.pravaha.api.plugin.ReadRequest request) {
+        return pushdownFor(request).description();
+    }
+
+    /** Runs one partition read selecting {@code columns}, bound and paged as a range scan is. */
+    private java.util.Iterator<com.datastax.oss.driver.api.core.cql.Row> run(
+            List<String> columns, CassandraPushdown.KeyRead read) {
+        String partitionKeyExpr = "token(" + String.join(",", partitionKeyColumns) + ")";
+        String cql = "SELECT " + partitionKeyExpr + " AS " + TOKEN_ALIAS + ", " + String.join(",", columns) + " FROM "
+                + keyspace + "." + table + read.where();
+        PreparedStatement statement = keyed.computeIfAbsent(cql, session::prepare);
+        return session.execute(statement
+                        .boundStatementBuilder(read.values())
+                        .setPageSize(fetchSize)
+                        .setConsistencyLevel(consistencyLevel)
+                        .setTimeout(Duration.ofMillis(requestTimeoutMillis))
+                        .build())
+                .iterator();
     }
 
     /** The exclusive- and inclusive-lower range statements selecting {@code columns}. */
@@ -391,7 +507,9 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
                     true,
                     true,
                     DeliveryGuarantee.EXACTLY_ONCE,
-                    EnumSet.of(com.ash.messaging.pravaha.api.plugin.PushdownKind.PROJECT),
+                    EnumSet.of(
+                            com.ash.messaging.pravaha.api.plugin.PushdownKind.PROJECT,
+                            com.ash.messaging.pravaha.api.plugin.PushdownKind.FILTER),
                     Duration.ofMillis(scanIntervalMillis),
                     // An exact changelog: an unchanged row is not emitted again (SCAN-1).
                     false);
@@ -409,13 +527,16 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
                 false,
                 false,
                 DeliveryGuarantee.AT_LEAST_ONCE,
-                // Projection only: the SELECT list is ours to choose, and a column not selected is
-                // bytes Cassandra does not send. Not FILTER: a predicate on anything but the
-                // partition key needs ALLOW FILTERING, which still reads every partition and has
-                // its own null and collation rules to be exact about. Not PARTIAL_AGGREGATE: CQL
-                // aggregates are per partition, and every pass here is a full re-read with no
-                // retraction of the previous one, so no partial could be "the new rows only".
-                EnumSet.of(com.ash.messaging.pravaha.api.plugin.PushdownKind.PROJECT),
+                // Projection: the SELECT list is ours to choose, and a column not selected is bytes
+                // Cassandra does not send. Filter, on the key only (CassandraPushdown): the whole
+                // partition key by equality, then clustering restrictions; a predicate on anything
+                // else needs ALLOW FILTERING, which still reads every partition, and is left with
+                // the engine. Not PARTIAL_AGGREGATE: CQL aggregates are per partition, and every
+                // pass here is a full re-read with no retraction of the previous one, so no partial
+                // could be "the new rows only".
+                EnumSet.of(
+                        com.ash.messaging.pravaha.api.plugin.PushdownKind.PROJECT,
+                        com.ash.messaging.pravaha.api.plugin.PushdownKind.FILTER),
                 Duration.ofMillis(scanIntervalMillis),
                 // Every pass emits every row of the range again at +1, changed or not (SCAN-1). A
                 // keyed view of the rows survives that -- each copy overwrites its own key -- and an
@@ -473,25 +594,50 @@ public final class CassandraSourcePlugin implements StreamSourcePlugin {
             read[ordinal] =
                     columns == null || columns.contains(schema.field(ordinal).name());
         }
+        List<String> selected = columns != null
+                ? columns
+                : schema.fields().stream()
+                        .map(com.ash.messaging.pravaha.api.data.Field::name)
+                        .toList();
+        CassandraPushdown.Plan plan = pushdownFor(request);
+        String range = (inclusiveLower ? "[" : "(") + lowerBound + "," + upperBound + "]";
         if (detectDeletes) {
             PreparedStatement fullPass = inclusiveLower ? statements[1] : statements[0];
             java.time.Duration timeout = Duration.ofMillis(requestTimeoutMillis);
-            return new DetectingTokenRangeReader(
-                    () -> session.execute(fullPass.boundStatementBuilder(lowerBound, upperBound)
+            DetectingTokenRangeReader.PassSource passes = plan.pushed()
+                    // One partition, one token: a pass of it is in token order by construction.
+                    ? () -> KeyedScanReader.inRange(
+                            plan.reads(), each -> run(selected, each), lowerBound, upperBound, inclusiveLower, range)
+                    : () -> session.execute(fullPass.boundStatementBuilder(lowerBound, upperBound)
                                     .setPageSize(fetchSize)
                                     .setConsistencyLevel(consistencyLevel)
                                     .setTimeout(timeout)
                                     .build())
-                            .iterator(),
+                            .iterator();
+            return new DetectingTokenRangeReader(
+                    passes,
                     read,
                     schema,
                     eventTimeColumn,
-                    (inclusiveLower ? "[" : "(") + lowerBound + "," + upperBound + "]",
+                    range,
                     fetchSize,
                     scanIntervalMillis,
                     resumeFrom,
                     deletesStateDir,
                     deletesMaxKeys);
+        }
+        if (plan.pushed()) {
+            return new KeyedScanReader(
+                    plan.reads(),
+                    each -> run(selected, each),
+                    read,
+                    schema,
+                    eventTimeColumn,
+                    lowerBound,
+                    upperBound,
+                    inclusiveLower,
+                    scanIntervalMillis,
+                    resumeFrom);
         }
         return new TokenRangeScanReader(
                 session,

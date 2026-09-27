@@ -1,3 +1,4 @@
 com.ash.messaging.pravaha.bindings.ingest.RecordingPushdownPlugin
 com.ash.messaging.pravaha.bindings.ingest.CountingScanPlugin
+com.ash.messaging.pravaha.bindings.ingest.GrowingPartitionsPlugin
 com.ash.messaging.pravaha.bindings.ingest.OrderedLogPlugin

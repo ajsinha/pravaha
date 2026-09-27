@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **400 findings carrying a
-status — 371 FIXED, 15 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 15 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 11 POST-GA and 4 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **408 findings carrying a
+status — 377 FIXED, 17 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 17 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 13 POST-GA and 4 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -6995,3 +6995,42 @@ image's base, not reasoned about.
 
 > **Status:** FIXED — `snappy-java` reaches the server through Parquet (the `feedfile` and `delta` plugins). Its Linux libraries are built for glibc, and the image was `eclipse-temurin:21-jre-alpine` (musl): loading it failed with `Error loading shared library ld-linux-x86-64.so.2`. Snappy is Parquet's default codec. ADR-047 had named this exact case as the reason to change the base, and nothing checked it, because the smoke journey reads CSV. The base is now `eclipse-temurin:21-jre` (glibc). The node round-trips bytes through both Parquet codecs at startup and warns by name when one does not load (`NativeCodecs`; `NativeCodecsTest`). `deploy/docker/smoke.sh` step 11 loads both inside the image with a read-only root, with `/tmp` mounted `exec`: Docker's tmpfs is `noexec` by default, and the codecs load from `java.io.tmpdir`. With it, the build now refuses native libraries on any compile or runtime path except those two (`enforce-portable-native-code`, proved by re-adding epoll and watching it fail). BoringSSL and epoll are excluded, so TLS runs on the JDK's engine, and the Flight and SDK TLS end-to-end tests pass without them. **Images up to 0.1.3 have the defect.**
 
+## Found building tranche A (2026-09-27), 8 findings, 6 fixed
+
+Reported by the agent that built compressed Kafka, Kafka partition growth, Cassandra key pushdown and
+the Spring Boot legs, each reproduced against a real broker or server where one exists, and triaged by
+the lead.
+
+### KC-1 (HIGH) — a Kafka topic compressed with snappy or zstd read nothing, forever, while reporting healthy
+
+> **Status:** FIXED — the kafka plugin excluded snappy-java and zstd-jni (native code), so the consumer's poll threw `NoClassDefFoundError` at the first compressed batch. Nothing caught a `LinkageError`: the fetch thread died with no failure recorded, so the query ingested zero rows with health HEALTHY and the feed RUNNING. Reproduced against a real broker. The plugin now carries both codecs, the two the build allows (ADR-053), with zstd-jni pinned once for Parquet and Kafka. The fetch loop turns a codec failure into PRV-5107 naming the codec and marks the source UNHEALTHY. `KafkaCompressedBrokerTest` reads snappy and zstd topics, compressed by the producer and by the broker.
+
+### KC-2 (MEDIUM) — an lz4 topic failed with an unrelated-sounding message
+
+> **Status:** FIXED — PRV-5107 said "Received exception when fetching the next record … seek past the record". lz4 needs lz4-java, a native family ADR-053 refuses; the source now says so, naming the codec and the ADR, and `kafka-sink` refuses `lz4` at configuration.
+
+### KPG-1 (MEDIUM) — a Kafka partition added while a query ran was read from `start.from` after a restart, so `latest` skipped its records
+
+> **Status:** FIXED — the partition list was read once, at registration; a partition added later was read only after a restart, and then from the configured start, which with `latest` skipped every record already in it. Partitions are now refreshed while the query runs (`partitions.refresh`, 30s), a new one is read from its earliest offset, and its offset enters the next checkpoint. `KafkaPartitionGrowthBrokerTest`.
+
+### KPG-2 (MEDIUM) — a restore matched partition offsets by pump order, so a changed partition count could give one stream's offset to another
+
+> **Status:** FIXED — for checkpoints written from now on: each checkpoint records which partition of which stream each offset belongs to, and a restore matches on that; a partition with no offset is treated as added after the checkpoint. Older checkpoints are still read by order. `PartitionGrowthTest` includes a two-stream join restored after growth, seed-proven.
+
+### KPG-3 (LOW) — the Kafka source's metadata consumer never saw an added partition
+
+> **Status:** FIXED — `partitionsFor` answered from the long-lived consumer's cache. It now lists through a fresh consumer. Found by the broker test.
+
+### BOOT-1 (LOW) — the Spring Boot 3.2 leg failed its dependency check
+
+> **Status:** FIXED — Boot 3.2 downgraded commons-dbcp2 and httpclient5/httpcore5 below what Calcite and Avatica need, and `requireUpperBoundDeps` refused the leg. The starter pins them to what Boot 3.5 resolves. All four legs (3.2 to 3.5) pass, each confirmed to run the Boot it names.
+
+### CASS-1 (LOW) — a Cassandra token-range reader stopped part way through a partition skips the rest of it until the next pass
+
+> **Status:** OPEN — `TokenRangeScanReader` resumes with `token(pk) > last`, so a stop in the middle of a wide partition leaves that partition's remaining clustering rows for the next full pass.
+> **Disposition:** POST-GA — resume within the partition by its clustering key.
+
+### INLIST-1 (LOW) — SQL `IN` lists are pushed to no source
+
+> **Status:** OPEN — `Pushdown.flatten` handles comparisons, AND and IS NULL; an `IN` on a Cassandra partition key reaches the plugin only as a shared reader's OR of several queries' equalities.
+> **Disposition:** POST-GA — flatten `IN` into an OR of equalities where the list is short.

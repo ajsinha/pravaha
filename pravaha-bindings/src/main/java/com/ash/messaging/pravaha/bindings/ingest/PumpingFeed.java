@@ -18,6 +18,7 @@ package com.ash.messaging.pravaha.bindings.ingest;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 
@@ -95,9 +96,19 @@ final class PumpingFeed implements SourceFeed {
     private static final System.Logger LOG = System.getLogger(PumpingFeed.class.getName());
 
     private final String queryName;
+    /**
+     * Copy-on-write, because a partition added to a source while the query runs brings a pump that
+     * joins on this feed's thread ({@link PartitionGrowth}) while status and replay read the lists
+     * from others.
+     */
     private final List<IngestPump> pumps;
+
     private final List<FeedInput> inputs;
     private final List<AutoCloseable> resources;
+
+    /** The streams whose sources may gain partitions, watched from this feed's thread. */
+    private volatile List<PartitionGrowth> growth = List.of();
+
     private final String description;
     private final Runnable afterDelivery;
     private final Thread thread;
@@ -136,9 +147,9 @@ final class PumpingFeed implements SourceFeed {
                     "one input per pump: " + pumps.size() + " pumps and " + inputs.size() + " inputs");
         }
         this.queryName = queryName;
-        this.pumps = List.copyOf(pumps);
-        this.inputs = List.copyOf(inputs);
-        this.resources = List.copyOf(resources);
+        this.pumps = new CopyOnWriteArrayList<>(pumps);
+        this.inputs = new CopyOnWriteArrayList<>(inputs);
+        this.resources = new CopyOnWriteArrayList<>(resources);
         this.description = description;
         this.afterDelivery = afterDelivery == null ? () -> {} : afterDelivery;
         // Virtual, and the paragraph above is why it can be. What that reasoning defends is
@@ -165,6 +176,33 @@ final class PumpingFeed implements SourceFeed {
         thread.start();
     }
 
+    /** Watches these streams for partitions added while the query runs. Called before {@link #start()}. */
+    PumpingFeed growing(List<PartitionGrowth> watched) {
+        this.growth = List.copyOf(watched);
+        return this;
+    }
+
+    /**
+     * Opens any partition a watched source has gained, on this thread, so the new pump is polled by
+     * the thread that owns every other. A pump that joins mid-checkpoint waits for the cut to finish
+     * (see {@code IngestSources}), and its offset is in the next one.
+     */
+    private void grow() {
+        List<PartitionGrowth> watched = growth;
+        if (watched.isEmpty()) {
+            return;
+        }
+        long now = System.nanoTime();
+        for (PartitionGrowth each : watched) {
+            for (PartitionGrowth.Opened opened : each.poll(now)) {
+                // Resources first: if the feed closes between these lines, the reader is still closed.
+                resources.addAll(0, opened.resources());
+                inputs.add(opened.input());
+                pumps.add(opened.pump());
+            }
+        }
+    }
+
     private void run() {
         // SRC-6. Grows while nothing arrives and resets the moment something does, so an idle
         // source costs fifty wake-ups a second rather than a thousand and a busy one pays nothing
@@ -183,6 +221,7 @@ final class PumpingFeed implements SourceFeed {
                     moved += pumps.get(index).pumpOnce(BATCH);
                 }
                 polling = -1;
+                grow();
                 if (moved > 0) {
                     rowsFed.addAndGet(moved);
                     nap = IDLE_NAP_NANOS;
@@ -315,7 +354,7 @@ final class PumpingFeed implements SourceFeed {
 
     @Override
     public FeedStatus status() {
-        return FeedStatus.of(description, sources(false));
+        return FeedStatus.of(description + grown(), sources(false));
     }
 
     /**
@@ -351,10 +390,23 @@ final class PumpingFeed implements SourceFeed {
 
     @Override
     public String describe() {
+        String described = description + grown();
         if (failure != null) {
-            return description + " -- stopped: " + failure.getMessage();
+            return described + " -- stopped: " + failure.getMessage();
         }
-        return description + (paused ? " (paused)" : "");
+        return described + (paused ? " (paused)" : "");
+    }
+
+    /** "; txn gained 1 partition while running [3]", or nothing. */
+    private String grown() {
+        StringBuilder text = new StringBuilder();
+        for (PartitionGrowth each : growth) {
+            String said = each.describe();
+            if (!said.isEmpty()) {
+                text.append("; ").append(said);
+            }
+        }
+        return text.toString();
     }
 
     @Override

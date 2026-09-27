@@ -128,7 +128,9 @@ class DocumentationFreshnessTest {
             Matcher matcher = reference.matcher(Files.readString(path, StandardCharsets.UTF_8));
             while (matcher.find()) {
                 String named = matcher.group(1);
-                boolean exists = modules.stream().anyMatch(m -> m.endsWith(named)) || KNOWN_FUTURE.contains(named);
+                boolean exists = modules.stream().anyMatch(m -> m.endsWith(named))
+                        || KNOWN_FUTURE.contains(named)
+                        || NOT_MODULES.contains(named);
                 if (!exists) {
                     phantom.add(doc + " -> " + named);
                 }
@@ -812,6 +814,12 @@ class DocumentationFreshnessTest {
             "pravaha-sdk-go",
             "pravaha-client-scala",
             "pravaha-dsl-scala");
+
+    /**
+     * Words shaped like a module name that are not one. The bootstrap admin's published password
+     * (ADR-052) is written out where a reader needs it, and is a password, not missing code.
+     */
+    private static final Set<String> NOT_MODULES = Set.of("pravaha-dev-admin");
 
     private static Set<String> mavenModules() throws IOException {
         String pom = Files.readString(repoRoot().resolve("pom.xml"), StandardCharsets.UTF_8);

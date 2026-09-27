@@ -69,12 +69,6 @@ final class KafkaSinkOptions {
         return Map.copyOf(refused);
     }
 
-    /** Codecs kafka-clients loads from a library this plugin does not ship; see the pom. */
-    private static final Map<String, String> CODEC_CLASSES = Map.of(
-            "lz4", "net.jpountz.lz4.LZ4Factory",
-            "snappy", "org.xerial.snappy.Snappy",
-            "zstd", "com.github.luben.zstd.Zstd");
-
     final String instanceName;
     final String bootstrapServers;
     final String topic;
@@ -283,17 +277,11 @@ final class KafkaSinkOptions {
         return properties;
     }
 
+    /** lz4 is refused by name, and snappy or zstd when the native library does not load here (ADR-053). */
     private void requireCodec(String codec) {
-        String library = CODEC_CLASSES.get(codec.toLowerCase(Locale.ROOT));
-        if (library == null) {
-            return;
-        }
-        try {
-            Class.forName(library, false, KafkaSinkOptions.class.getClassLoader());
-        } catch (ClassNotFoundException missing) {
-            throw refusal("'kafka.compression.type: " + codec + "' needs " + library + ", which this plugin does "
-                    + "not ship: the codec libraries carry per-platform native code. none and gzip work as "
-                    + "shipped; to use " + codec + ", put its library on this plugin's classpath.");
+        String why = KafkaCodecs.whySinkCannotWrite(codec);
+        if (why != null) {
+            throw refusal(why);
         }
     }
 

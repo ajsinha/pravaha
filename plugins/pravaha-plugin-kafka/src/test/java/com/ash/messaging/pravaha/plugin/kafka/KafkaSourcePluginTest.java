@@ -154,6 +154,43 @@ class KafkaSourcePluginTest {
     }
 
     @Test
+    void aPartitionAddedToTheTopicIsListedAndItsReaderStartsAtItsFirstRecordEvenFromLatest() {
+        topic.append(0, "k", "{\"user_id\":\"old\",\"amount\":1}");
+        plugin = open(Map.of("start.from", "latest"));
+        assertThat(plugin.partitionRefreshInterval()).as("the default refresh").isEqualTo(Duration.ofSeconds(30));
+        assertThat(plugin.partitions("txn")).hasSize(3);
+
+        int added = topic.addPartition();
+        topic.append(added, "k", "{\"user_id\":\"first\",\"amount\":1}");
+        topic.append(added, "k", "{\"user_id\":\"second\",\"amount\":2}");
+        assertThat(plugin.partitions("txn")).extracting(SourcePartition::index).containsExactly(0, 1, 2, 3);
+
+        try (Collected rows = new Collected(plugin.schema());
+                PartitionReader latest = plugin.createReader(partition(0), null);
+                PartitionReader added3 = plugin.createReaderForNewPartition(
+                        partition(added), com.ash.messaging.pravaha.api.plugin.ReadRequest.NOTHING)) {
+            assertThat(latest.position())
+                    .as("a partition that was there: start.from latest skips its history")
+                    .isEqualTo(offset(0, 1));
+            awaitRows(added3, rows, 2);
+            assertThat(rows.described())
+                    .as("a partition that was not there has no history to skip")
+                    .containsExactly("[first, 1, @1]", "[second, 2, @1]");
+        }
+    }
+
+    @Test
+    void thePartitionRefreshIsConfiguredAndNeverFasterThanASecond() {
+        plugin = open(Map.of("partitions.refresh", "5m"));
+        assertThat(plugin.partitionRefreshInterval()).isEqualTo(Duration.ofMinutes(5));
+        assertThatThrownBy(() -> configured(Map.of("partitions.refresh", "500ms")))
+                .hasMessageContaining("PRV-5100")
+                .hasMessageContaining("partitions.refresh must be at least 1s");
+        assertThatThrownBy(() -> configured(Map.of("partitions.refresh", "soon")))
+                .hasMessageContaining("partitions.refresh must be a duration");
+    }
+
+    @Test
     void startFromLatestResolvesToAConcreteOffsetSoACheckpointBeforeAnyRecordStillMeansSomething() {
         topic.append(0, "k", "{\"user_id\":\"old\",\"amount\":1}");
         plugin = open(Map.of("start.from", "latest"));

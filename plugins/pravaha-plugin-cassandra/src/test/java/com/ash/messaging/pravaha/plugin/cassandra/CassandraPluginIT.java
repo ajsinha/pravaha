@@ -266,8 +266,11 @@ class CassandraPluginIT {
         assertThat(plugin.capabilities().emitsBeforeImage()).isFalse();
         assertThat(plugin.capabilities().guarantee()).isEqualTo(DeliveryGuarantee.AT_LEAST_ONCE);
         assertThat(plugin.capabilities().pushdown())
-                .as("a SELECT list only: no filter without ALLOW FILTERING, no partial over a full re-read")
-                .containsExactly(com.ash.messaging.pravaha.api.plugin.PushdownKind.PROJECT);
+                .as(
+                        "a SELECT list and filters on the key: nothing needing ALLOW FILTERING, no partial over a full re-read")
+                .containsExactlyInAnyOrder(
+                        com.ash.messaging.pravaha.api.plugin.PushdownKind.PROJECT,
+                        com.ash.messaging.pravaha.api.plugin.PushdownKind.FILTER);
         plugin.close();
     }
 

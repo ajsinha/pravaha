@@ -176,16 +176,17 @@ class KafkaSinkOptionsTest {
     }
 
     /**
-     * The codec libraries are excluded from this plugin (they carry per-platform native code), so a
-     * codec that needs one is refused when configured -- not at the first batch, with a
-     * NoClassDefFoundError from the producer's I/O thread.
+     * ADR-053: snappy and zstd are the two native codecs the build allows, loaded once at
+     * configuration; lz4 would need a third, lz4-java, so it is refused by name when configured --
+     * not at the first batch, with a NoClassDefFoundError from the producer's I/O thread.
      */
     @Test
-    void aCompressionCodecWhoseLibraryIsNotShippedIsRefused() {
-        for (String codec : new String[] {"lz4", "snappy", "zstd"}) {
-            assertRefused(Map.of("kafka.compression.type", codec), "which this plugin does not ship");
+    void snappyAndZstdAreWrittenAndLz4IsRefusedNamingTheAdr() {
+        for (String codec : new String[] {"snappy", "zstd", "ZSTD", "gzip", "none"}) {
+            assertThat(with("kafka.compression.type", codec).targetProducer()).containsEntry("compression.type", codec);
         }
-        assertThat(with("kafka.compression.type", "none").targetProducer()).containsEntry("compression.type", "none");
+        assertRefused(Map.of("kafka.compression.type", "lz4"), "ADR-053");
+        assertRefused(Map.of("kafka.compression.type", "LZ4"), "lz4-java");
     }
 
     @Test

@@ -289,8 +289,21 @@ final class KafkaPartitionReader implements PartitionReader {
             Thread.currentThread().interrupt();
         } catch (KafkaException e) {
             if (!closed) {
-                failure = new PravahaException(
-                        KafkaErrors.READ_FAILED, "reading " + partition + " failed: " + e.getMessage(), e);
+                PravahaException codec = KafkaCodecs.readRefusal(partition, e);
+                failure = codec != null
+                        ? codec
+                        : new PravahaException(
+                                KafkaErrors.READ_FAILED, "reading " + partition + " failed: " + e.getMessage(), e);
+            }
+        } catch (LinkageError e) {
+            // A codec library that is absent (lz4, ADR-053) or does not load on this platform surfaces
+            // from the consumer's poll as an Error, not an exception. Uncaught, it ended this thread
+            // with the failure unset: the reader returned no rows for ever and health said HEALTHY.
+            if (!closed) {
+                PravahaException codec = KafkaCodecs.readRefusal(partition, e);
+                failure = codec != null
+                        ? codec
+                        : new PravahaException(KafkaErrors.READ_FAILED, "reading " + partition + " failed: " + e, e);
             }
         } catch (PravahaException e) {
             // A schema registry that cannot be read (PRV-5109) is already the right refusal, with the
