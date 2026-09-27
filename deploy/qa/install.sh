@@ -16,6 +16,7 @@
 #
 #   /opt/pravaha/docker-compose.yml
 #   /opt/pravaha/conf/application.yaml           the engine's configuration   (0600, uid 10001)
+#   /opt/pravaha/conf/initial-admin-password     admin's first password, read once (0600, uid 10001)
 #   /opt/pravaha/console/conf/application.yaml   the console's configuration  (0600, uid 10001)
 #   /opt/pravaha/data/                           journal, checkpoints, dead letters, spill
 #   /opt/pravaha/logs/                           the engine's log and the audit trail
@@ -89,30 +90,31 @@ if [[ "$home" != "/opt/pravaha" ]]; then
 fi
 
 new_credentials=""
-console_token=""
 
 if [[ ! -e "$home/conf/application.yaml" ]]; then
-  console_token="$(secret 40)"
   qa_token="$(secret 40)"
-  sed -e "s/@@CONSOLE_TOKEN@@/$console_token/" -e "s/@@QA_TOKEN@@/$qa_token/" -e "s/@@HOST@@/$host/g" \
+  sed -e "s/@@QA_TOKEN@@/$qa_token/" -e "s/@@HOST@@/$host/g" \
       "$here/server.application.yaml" > "$home/conf/application.yaml"
+  # The first administrator's password (ADR-052): read by the engine once, when its identity store is
+  # empty. Generated to meet the password policy (12 characters, 3 kinds) by construction.
+  admin_password="$(secret 20)-Qa9"
+  printf '%s\n' "$admin_password" > "$home/conf/initial-admin-password"
+  new_credentials+="  console sign-in:                            admin / $admin_password"$'\n'
   new_credentials+="  engine token for the CLI and SDKs (id qa):  $qa_token"$'\n'
-  echo "install.sh: wrote $home/conf/application.yaml"
+  echo "install.sh: wrote $home/conf/application.yaml and $home/conf/initial-admin-password"
 else
   echo "install.sh: kept  $home/conf/application.yaml (exists; never overwritten)"
+  if ! grep -q '^  identity:' "$home/conf/application.yaml" 2>/dev/null; then
+    echo "install.sh: WARNING -- the kept configuration keeps no users (no pravaha.identity block), and from"
+    echo "            0.2.0 the console signs people in against the engine's users. Copy the identity block"
+    echo "            from $here/server.application.yaml into it, write an initial admin password into"
+    echo "            $home/conf/initial-admin-password, then: docker compose restart"
+  fi
 fi
 
 if [[ ! -e "$home/console/conf/application.yaml" ]]; then
-  if [[ -z "$console_token" ]]; then
-    # The engine's file was kept, so the console's credential is whatever that file already says.
-    console_token="$(awk '/^ *"[^"]+":$/ { key=$1 } /id: console/ { gsub(/[":]/, "", key); print key; exit }' "$home/conf/application.yaml")"
-    [[ -n "$console_token" ]] || { echo "install.sh: no 'id: console' token in $home/conf/application.yaml to give the console" >&2; exit 1; }
-  fi
-  password="$(secret 20)"
-  sed -e "s/@@CONSOLE_PASSWORD@@/$password/" -e "s/@@SESSION_SECRET@@/$(secret 40)/" \
-      -e "s/@@CONSOLE_TOKEN@@/$console_token/" -e "s/@@HOST@@/$host/g" \
+  sed -e "s/@@SESSION_SECRET@@/$(secret 40)/" -e "s/@@HOST@@/$host/g" \
       "$here/console.application.yaml" > "$home/console/conf/application.yaml"
-  new_credentials+="  console password:                           $password"$'\n'
   echo "install.sh: wrote $home/console/conf/application.yaml"
 else
   echo "install.sh: kept  $home/console/conf/application.yaml (exists; never overwritten)"
@@ -147,6 +149,7 @@ fi
 # logs/ are the engine's to write. Without root, one throwaway container does the chown -- the
 # same trick deploy/docker/smoke.sh uses -- over this tree and nothing else.
 own='chmod 0600 "$1/conf/application.yaml" "$1/console/conf/application.yaml"
+     [ -e "$1/conf/initial-admin-password" ] && chmod 0600 "$1/conf/initial-admin-password"
      chmod 0750 "$1/data" "$1/logs"
      chown -R 10001:10001 "$1/conf" "$1/console/conf" "$1/data" "$1/logs"'
 if [[ "$(id -u)" == 0 ]]; then
@@ -160,7 +163,8 @@ echo
 echo "install.sh: Pravaha $version installed in $home"
 if [[ -n "$new_credentials" ]]; then
   echo
-  echo "New credentials -- shown this once, and kept in the two configuration files:"
+  echo "New credentials -- shown this once. Sign in to the console as admin and change the password;"
+  echo "then delete $home/conf/initial-admin-password, which the engine read on its first start."
   printf '%s' "$new_credentials"
 fi
 echo

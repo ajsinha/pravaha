@@ -17,7 +17,9 @@ cd /opt/pravaha && sudo docker compose up -d
 ```
 
 `install.sh` loads both images, writes the tree below, generates the credentials and prints them
-once. Open `http://<host>:17070` and sign in with the console password it printed.
+once. Open `http://<host>:17070` and sign in as `admin` with the password it printed, then change it
+from **Account** and delete `conf/initial-admin-password`. Add people from **Admin → Users**; each
+signs in as themselves, and programs use API keys from **Account**.
 
 ## Everything is under /opt/pravaha
 
@@ -58,8 +60,9 @@ If this host already uses 18080, 19090 or 17070, set `PRAVAHA_HTTP_PORT`, `PRAVA
 
 | What | Where it is kept | Used by |
 |---|---|---|
-| Console password | `console/conf/application.yaml`, `console.password` | people, at the sign-in page |
-| Console → engine token | the key of the `id: console` entry in `conf/application.yaml`, **and** `engine.token` in the console's file | the console; change both together |
+| People's passwords | the engine's user store, `data/identity/`, hashed | people, at the console's sign-in page; managed from **Admin → Users** |
+| `admin`'s first password | `conf/initial-admin-password`, read once when the store is empty | you, once; delete it after the first sign-in |
+| API keys | the engine's user store, hashed; each shown once when issued | the CLI, the SDKs and scripts; issued from **Account** |
 | QA token | the key of the `id: qa` entry in `conf/application.yaml` | the CLI and the SDKs |
 
 To add a person, add an entry under `pravaha.security.tokens` and restart the engine. The map key

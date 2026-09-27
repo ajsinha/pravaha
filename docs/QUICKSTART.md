@@ -284,19 +284,23 @@ pravaha subscribe --view user_volume --filter user_id=u1
 The console is a **separate process** that talks to the engine over the published Python SDK
 (ADR-024), and ships as its own artefact (ADR-033). So it needs the engine running first.
 
-**Prerequisites:** Python 3.11+, and an engine listening on `19090` (step 4 above).
+**Prerequisites:** Python 3.11+.
 
-**Set a console password first**, or nobody can sign in — which is the safe failure, because the
-console can drop queries and a default password is a public one:
+**The console signs people in against the engine's own users** (ADR-052); it keeps no password of
+its own. So restart the engine from step 4 with the `users` profile added, which turns on token
+authentication and a local user store:
 
 ```bash
-export CONSOLE_PASSWORD='something only you know'
+pravaha-server --spring.profiles.active=dev,users &
 ```
 
-Reading stays open without it: the landing page, the documentation and the health probes are
-deliberately ungated, because an operator opening the console during an incident needs it to load
-and say what is wrong before they find a password. Registering, pausing, dropping and running
-queries all require a session.
+The node creates `admin` on first start. With `dev`, `admin` keeps the published password
+`pravaha-dev-admin`; without `dev` the node refuses to start on it. From now on every caller presents a
+credential: you sign in to the console as `admin`, and the CLI and the SDKs use an API key you issue
+from the console's **Account** page (`pravaha query --token <key> ...`).
+
+The landing page, the documentation and the health probes stay open, because an operator opening
+the console during an incident needs it to load and say what is wrong before signing in.
 
 ```bash
 cd console

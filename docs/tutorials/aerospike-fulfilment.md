@@ -34,7 +34,7 @@ polls, and nothing re-runs the join.
 
 - A Pravaha QA host, installed with `install.sh` and running (`docker compose ps` in `/opt/pravaha`
   shows `pravaha-server` healthy and `pravaha-console` up). See `README.md` in the bundle.
-- The QA token `install.sh` printed (`id qa`) and the console password.
+- The QA token `install.sh` printed (`id qa`), and the `admin` password it printed for the console.
 - Python 3.9 or later on the host, with two packages:
 
 ```bash
@@ -289,7 +289,7 @@ window, and Pravaha will not call it unshipped yet. Step 8 moves the clock.
 
 ## Step 7 — Do the same in the console
 
-Open `http://<host>:17070` and sign in with the console password.
+Open `http://<host>:17070` and sign in as `admin`, or as a user an administrator added for you.
 
 1. **Catalog.** The **Workbench**'s catalog panel lists `orders`, `payments` and `shipments` with
    their columns, next to `txn`.

@@ -1,0 +1,15 @@
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+#
+# The `users` profile: a node that keeps its own users, passwords, API keys and sessions (ADR-052), for
+# running the console locally. `--spring.profiles.active=dev,users`. With `dev`, the bootstrap `admin`
+# keeps its published password, pravaha-dev-admin; without it, the node refuses to start on that
+# password (PRV-7019). Every caller now presents a credential: people sign in to the console, and the
+# CLI and the SDKs use an API key issued from the console's Account page.
+pravaha:
+  security:
+    authentication: token
+  identity:
+    enabled: true
+    store: data/identity/identity.journal

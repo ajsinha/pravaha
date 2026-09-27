@@ -75,8 +75,10 @@ sudo ./install.sh --host qa-vm.example && cd /opt/pravaha && sudo docker compose
 
 The console reads its product defaults from the image first and the deployment's file second, key
 by key, so the deployment's file names only what it changes and cannot pin a stale version.
-`install.sh` generates the console password, the session secret and two engine tokens into the two
-files (mode 0600, uid 10001), prints them once, and never overwrites either file on a re-run.
+`install.sh` generates `admin`'s first password into `conf/initial-admin-password`, the console's session
+secret, and a legacy engine token for the CLI and SDKs (mode 0600, uid 10001). It prints them once and
+never overwrites a file on a re-run. The engine keeps people, passwords and API keys itself (ADR-052),
+so the console holds no credential: people sign in as themselves.
 [`deploy/qa/README.md`](../deploy/qa/README.md) is the page to hand the QA team.
 
 ---

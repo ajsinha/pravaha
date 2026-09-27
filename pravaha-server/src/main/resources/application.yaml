@@ -293,6 +293,10 @@ pravaha:
     # people sign in with passwords whatever this says.
     mode: password
     allow-default-admin-password: false
+    # A file holding the password `admin` is created with, read only when the store is empty -- so it
+    # can be deleted once the node has started. The QA installer generates it. Unset: the published
+    # default above, which only the dev profile may keep.
+    bootstrap-password-file: ""
     password:
       min-length: 12
       # of lower case, upper case, digits and symbols

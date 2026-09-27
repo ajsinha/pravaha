@@ -98,6 +98,27 @@ class NodeIdentityTest {
     }
 
     @Test
+    void anInitialPasswordFileLetsANodeOutsideDevStartWithoutThePublishedPassword() throws Exception {
+        java.nio.file.Path file = dir.resolve("initial-admin-password");
+        java.nio.file.Files.writeString(file, "Generated-pass-9Qa\n");
+        IdentityProperties properties = identity(false);
+        properties.setBootstrapPasswordFile(file.toString());
+        PravahaNode node = node(tokens(Map.of()), properties);
+        IdentityService users = node.identity().orElseThrow();
+        assertThat(users.defaultAdminPasswordInUse()).isFalse();
+        users.requireStartable();
+        assertThat(users.login("admin", "Generated-pass-9Qa", null).token()).startsWith("prv_s_");
+    }
+
+    @Test
+    void aNamedInitialPasswordFileThatCannotBeReadIsRefused() {
+        IdentityProperties properties = identity(false);
+        properties.setBootstrapPasswordFile(dir.resolve("missing").toString());
+        PravahaNode node = node(tokens(Map.of()), properties);
+        assertThatThrownBy(node::identity).hasMessageContaining("PRV-7004").hasMessageContaining("missing");
+    }
+
+    @Test
     void identityWithoutTokenAuthenticationIsAMisconfiguration() {
         SecurityProperties none = new SecurityProperties();
         none.setAllowAnonymous(true);

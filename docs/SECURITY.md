@@ -463,27 +463,44 @@ changelog or none of it, so a decision that allowed the write and carried a filt
 the excluded rows written anyway. It is refused at registration, before the sink is opened, and it
 is not `PRV-7002`: nothing was denied, so it is the policy that has to change.
 
-## The console's own gate
+## Users, passwords, API keys and sessions (ADR-052)
 
-The console authenticates with a **single shared secret** (`console.password`), held in a signed
-session cookie. Unset by default, and unset means nobody can sign in.
+The engine can keep its own users (`pravaha.identity.enabled`), the way MAYA does. Every credential
+resolves to one principal through the same `TokenVerifier` seam, and the store keeps only derived forms
+of secrets:
 
-**This is not the engine's identity model, and is not meant to become one.** The engine
-authenticates its clients through the deployment's identity provider via `TokenVerifier`, and a
-second, weaker account system beside it would be worse than an honest lock. What this gate does is
-stop an unauthenticated visitor acting, and record who acted.
+| Credential | Held as | Rules |
+|---|---|---|
+| A person's password | Argon2id (PBKDF2-SHA512 where Argon2 is unavailable) | at least 12 characters from 3 of 4 kinds, none of the last 5, 90-day maximum age; 5 failures in 15 minutes lock the account for 30 |
+| A session (`prv_s_…`) | SHA-256 | 30 minutes idle, 12 hours in all, at most 3 per person; ended by sign-out, a password change or reset, or disabling the user |
+| An API key (`prv_<env>_<keyid>_<secret>`) | the password KDF | shown once; roles a subset of its holder's; expires (90 days by default, at most 365); rotation keeps the old key for 7 days; revocation is immediate; a key from another environment is refused |
+| A reset token | SHA-256 | single use, 60 minutes, issued by an administrator |
 
-| Surface | Gated |
+Sign-in and administration are REST calls under `/api/v1/auth`, `/users`, `/keys` and `/sessions`.
+The codes are `PRV-7010` to `PRV-7021` ([`TROUBLESHOOTING.md`](TROUBLESHOOTING.md)). Forcing a change
+of password at first sign-in is configuration (`pravaha.identity.password.force-change`), off unless
+set. So is single sign-on, which is used only when a provider is configured. `admin` is created on
+first start, from `pravaha.identity.bootstrap-password-file` or with the published default, and a node
+outside the dev profile refuses to start while the default is still its password (`PRV-7019`). Every
+sign-in, refusal, lockout and key change is an audit event. Static tokens in `pravaha.security.tokens`
+still work beside all this, logged as deprecated.
+
+## The console acts as the person signed in
+
+The console holds **no credential of its own**. A person signs in with their user name and password.
+The console passes them to the engine's `POST /api/v1/auth/login` and keeps only the session token it
+gets back, in its signed cookie. It sends that token on every call, over REST and Flight, so the engine
+authorizes and audits each action as that person, with their roles. The engine is the only place a
+credential is checked. Role checks in the console only decide what it shows; the engine decides what
+anyone may do.
+
+| Surface | Signed in? |
 |---|---|
 | Landing, about, help, tutorials, health probes | No — an operator needs the console to load during an incident |
-| Overview, query list and detail | No — reading only |
-| Register, pause, resume, drop | **Yes** |
-| Ad-hoc query (`/workbench`, `/api/v1/query`) | **Yes** — it reaches the engine as this deployment's principal |
-| `/api/v1` mutations | **Yes**, answering `401` rather than redirecting, so a `fetch` gets a status it can act on |
+| Everything that reads or changes the engine | **Yes**, as the person; a session that ends sends them to sign in again |
+| Account: password, API keys, sessions | **Yes**, their own |
+| Admin: users, keys, sessions, access, audit | **Yes**, and the engine refuses anyone without `admin` |
 
-Every state-changing action is logged with the session's identity, which is the question — *who
-dropped it* — that nothing could previously answer.
-
-**What this does not do.** It is one identity, so it distinguishes signed-in from anonymous and
-nothing finer; there are no roles and no per-user attribution beyond `operator`. A deployment
-needing that should put the console behind its own SSO proxy.
+Every form and state-changing request carries a per-session CSRF token. The console's session cookie
+is HttpOnly and SameSite=Lax, and Secure when served over https (`console.secure_cookies` for a proxy
+that terminates TLS).

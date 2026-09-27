@@ -92,12 +92,15 @@ cleanup() {
 trap cleanup EXIT
 
 step "a node, from the image"
-# PRAVAHA_SECURITY_ALLOWANONYMOUS: the node REFUSES to start otherwise (PRV-7004), because an
-# engine that serves every view to every caller is a decision somebody has to make on purpose.
-# A smoke test is exactly the case where that decision is fine and has to be stated anyway.
+# A node that keeps users (ADR-052): token authentication, the identity store on the data volume,
+# and the bootstrap admin's published password allowed on purpose, because this node lives for one
+# run. A QA install generates that password instead (deploy/qa/install.sh).
 "$docker_bin" run -d --rm --name "$name" \
   -p "$http_port:18080" -p "$flight_port:19090" \
-  -e PRAVAHA_SECURITY_ALLOWANONYMOUS=true \
+  -e PRAVAHA_SECURITY_AUTHENTICATION=token \
+  -e PRAVAHA_SECURITY_POLICY=authenticated \
+  -e PRAVAHA_IDENTITY_ENABLED=true \
+  -e PRAVAHA_IDENTITY_STORE=/opt/pravaha/data/identity/identity.journal \
   -e PRAVAHA_IDENTITY_ALLOWDEFAULTADMINPASSWORD=true \
   -v "$work/data:/opt/pravaha/data" "$image" >/dev/null
 echo "      $image as $name, http $http_port, flight $flight_port"
@@ -114,7 +117,13 @@ else
   exit 1
 fi
 
-status="$(curl -s "http://localhost:$http_port/api/v1/status")"
+# Every engine call carries a credential now: the admin's own session, signed in over REST.
+engine_token="$(curl -s -X POST -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$admin_user\",\"password\":\"$admin_password\"}" \
+  "http://localhost:$http_port/api/v1/auth/login" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("token",""))' 2>/dev/null)"
+[[ -n "$engine_token" ]] && ok "$admin_user signs in to the engine over REST" \
+  || bad "the engine refused $admin_user at /api/v1/auth/login"
+status="$(curl -s -H "Authorization: Bearer $engine_token" "http://localhost:$http_port/api/v1/status")"
 echo "      $status"
 grep -q '"engineState":"RUNNING"' <<<"$status" && ok "it says it is RUNNING" || bad "engineState is not RUNNING"
 
@@ -122,7 +131,7 @@ grep -q '"engineState":"RUNNING"' <<<"$status" && ok "it says it is RUNNING" || 
 # load all of them. A plugin missing from this list is one a deployment cannot bind -- which is how
 # jdbc-lookup and aerospike-lookup went unreachable on every node without anything saying so.
 expected="aerospike aerospike-lookup aerospike-sink cassandra delta delta-sink feedfile filesystem jdbc jdbc-lookup jdbc-sink kafka kafka-sink postgres-cdc"
-loaded="$(curl -s "http://localhost:$http_port/api/v1/plugins" \
+loaded="$(curl -s -H "Authorization: Bearer $engine_token" "http://localhost:$http_port/api/v1/plugins" \
   | python3 -c 'import sys,json; print(" ".join(sorted(p["name"] for p in json.load(sys.stdin) if p.get("loaded"))))')"
 missing=""
 for plugin in $expected; do

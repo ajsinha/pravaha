@@ -63,6 +63,7 @@ public class IdentityProperties {
     private final Session session = new Session();
     private final Key key = new Key();
     private Duration resetTokenLife = Duration.ofMinutes(60);
+    private String bootstrapPasswordFile = "";
 
     private IdentityService service;
 
@@ -130,6 +131,14 @@ public class IdentityProperties {
         return key;
     }
 
+    public String getBootstrapPasswordFile() {
+        return bootstrapPasswordFile;
+    }
+
+    public void setBootstrapPasswordFile(String bootstrapPasswordFile) {
+        this.bootstrapPasswordFile = bootstrapPasswordFile;
+    }
+
     public Duration getResetTokenLife() {
         return resetTokenLife;
     }
@@ -193,7 +202,7 @@ public class IdentityProperties {
                                 + "pravaha.identity.store is not set; it is the file every user and key is kept in, on "
                                 + "the data volume that is backed up");
             }
-            service = IdentityService.open(Path.of(store), settings(), audit);
+            service = IdentityService.open(Path.of(store), settings(), audit, this::bootstrapPassword);
         }
         return java.util.Optional.of(service);
     }
@@ -220,6 +229,36 @@ public class IdentityProperties {
         if (users.defaultAdminPasswordInUse()) {
             log.warn("identity: the user 'admin' still has the default password; change it before anyone else can "
                     + "reach this node");
+        }
+    }
+
+    /**
+     * The initial password for {@code admin}, read from {@code bootstrap-password-file} when there is one
+     * -- asked for only when the store is empty, so the file can be deleted once the node has started.
+     * Null means the published default, which a node outside dev refuses to keep (PRV-7019).
+     */
+    private String bootstrapPassword() {
+        if (bootstrapPasswordFile == null || bootstrapPasswordFile.isBlank()) {
+            return null;
+        }
+        Path file = Path.of(bootstrapPasswordFile);
+        try {
+            String password = java.nio.file.Files.readString(file).strip();
+            if (password.isEmpty()) {
+                throw new PravahaException(
+                        SecurityErrors.MISCONFIGURED,
+                        "pravaha.identity.bootstrap-password-file " + file
+                                + " is empty; it holds the password the first administrator is created with");
+            }
+            return password;
+        } catch (java.io.IOException e) {
+            throw new PravahaException(
+                    SecurityErrors.MISCONFIGURED,
+                    "pravaha.identity.bootstrap-password-file names "
+                            + file + ", which cannot be read (" + e.getMessage()
+                            + "); the identity store is empty, so this "
+                            + "is the password the first administrator would be created with",
+                    e);
         }
     }
 

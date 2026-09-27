@@ -121,6 +121,22 @@ class IdentityServiceTest {
     }
 
     @Test
+    void aDeploymentSuppliedInitialPasswordReplacesThePublishedOne() {
+        IdentityService identity = new IdentityService(
+                IdentityStore.inMemory(), IdentitySettings.defaults("qa"), audit::add, clock, () -> GOOD);
+        assertThat(identity.defaultAdminPasswordInUse()).isFalse();
+        identity.requireStartable();
+        identity.login("admin", GOOD, null);
+        assertThat(code(catchIt(() -> identity.login("admin", IdentityService.DEFAULT_ADMIN_PASSWORD, null))))
+                .isEqualTo("PRV-7010");
+
+        assertThat(code(catchIt(() -> new IdentityService(
+                        IdentityStore.inMemory(), IdentitySettings.defaults("qa"), audit::add, clock, () -> "short"))))
+                .as("the initial password meets the same policy as every other")
+                .isEqualTo("PRV-7012");
+    }
+
+    @Test
     void forcedChangeHappensOnlyWhenConfigured() {
         IdentityService plain = service();
         plain.createUser(admin(), "ana", null, null, null, Set.of("analyst"), GOOD, false);

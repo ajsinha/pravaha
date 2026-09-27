@@ -11,13 +11,11 @@
 # so any key of console/config/application.yaml can be set here, and one that is not keeps the
 # product's value. Everything an operator would change is written out below.
 #
-# install.sh writes this file once, generating the password, the session secret and the engine
-# token into it, and never overwrites it afterwards. It is mode 0600: it holds credentials.
+# install.sh writes this file once, generating the session secret into it, and never overwrites it
+# afterwards. It is mode 0600. There is no password here and no engine credential: people sign in
+# as themselves, against the engine's users (ADR-052), and the console acts as whoever signed in.
 
 console:
-  # The sign-in password for this console. Change it here and restart; empty means nobody can
-  # sign in, which is the safe failure, not an open door.
-  password: "@@CONSOLE_PASSWORD@@"
   # Signs the session cookie. Fixed here so a restart does not sign everybody out.
   session_secret: "@@SESSION_SECRET@@"
 
@@ -30,9 +28,6 @@ engine:
   # The engine, by its service name on the compose network. 19090 is Flight SQL, 18080 HTTP.
   url: grpc://pravaha:19090
   http_url: http://pravaha:18080
-  # The console's own credential with the engine: the key of the `id: console` entry under
-  # pravaha.security.tokens in /opt/pravaha/conf/application.yaml. Change both together.
-  token: "@@CONSOLE_TOKEN@@"
   # Shown to users in psql snippets only; the console never connects to it.
   pgwire: "@@HOST@@:5432"
   health_cache_seconds: 1

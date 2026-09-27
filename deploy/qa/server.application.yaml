@@ -49,10 +49,23 @@ pravaha:
   docs:
     base-url: http://@@HOST@@:17070/help/codes/
 
+  # ---------------------------------------------------------------------------------- identity
+  # Users, passwords, API keys and sessions, kept by the engine (ADR-052). People sign in to the
+  # console as themselves; programs use API keys issued from the console's Account page. `admin` is
+  # created on first start with the password install.sh generated into initial-admin-password --
+  # delete that file once you have signed in and changed it.
+  identity:
+    enabled: true
+    store: /opt/pravaha/data/identity/identity.journal
+    environment: qa
+    bootstrap-password-file: /opt/pravaha/conf/initial-admin-password
+    password:
+      force-change: false
+
   # ---------------------------------------------------------------------------------- security
-  # Token authentication, and nothing for a caller without one. THE MAP KEY IS THE SECRET; `id`
-  # is who it stands for, and is what the audit trail and the registry record -- never the key.
-  # Add a person by adding an entry; remove one by deleting it and restarting.
+  # Token authentication, and nothing for a caller without one. People and API keys are above; the
+  # static token below is the legacy way for the CLI and the SDKs, logged as deprecated. THE MAP KEY
+  # IS THE SECRET; `id` is who it stands for, and is what the audit trail records -- never the key.
   security:
     authentication: token
     policy: authenticated
@@ -62,10 +75,6 @@ pravaha:
     audit-keep: 5
     allow-anonymous: false
     tokens:
-      "@@CONSOLE_TOKEN@@":
-        id: console                       # the console, acting for whoever signed in to it
-        tenant: public
-        roles: [operator, admin]
       "@@QA_TOKEN@@":
         id: qa                            # for the CLI (--token <this key> --insecure-token) and the SDKs
         tenant: public

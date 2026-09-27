@@ -43,11 +43,11 @@ signed in and showed the engine as `RUNNING`.
 | Module (`-cp`) | `pravaha-server` |
 | Main class | `com.ash.messaging.pravaha.server.PravahaServerApplication` |
 | VM options | `--add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED` |
-| Program arguments | `--spring.profiles.active=dev` |
+| Program arguments | `--spring.profiles.active=dev,users` |
 | Working directory | the repository root (`$PROJECT_DIR$`) |
 
 On IntelliJ Ultimate, a **Spring Boot** configuration is equivalent. Put the same VM options under
-**Modify options → Add VM options**, and `dev` under **Active profiles**.
+**Modify options → Add VM options**, and `dev,users` under **Active profiles**.
 
 What each setting is for:
 
@@ -55,7 +55,10 @@ What each setting is for:
   `java.nio` internals. Without them the server starts, and then every Flight call fails inside
   `putNext`: the client sees `RST_STREAM` with no explanation. `bin/pravaha-server` and the
   container image set them for the same reason.
-- **`--spring.profiles.active=dev`** is the local acknowledgement that the server may run open.
+- **`--spring.profiles.active=dev,users`**: `dev` is the local acknowledgement that the server may run
+  open and that `admin` may keep its published password (`pravaha-dev-admin`); `users` turns on the
+  engine's own users, which the console signs people in against (ADR-052). Drop `users` to run the
+  engine alone with no credentials at all.
   Without a security choice the engine refuses to start (`PRV-7004`). The `dev` profile sets
   `pravaha.security.allow-anonymous: true` and nothing else. Never use it anywhere reachable.
 - **The module is `pravaha-server`**, because it depends on every connector. Kafka, Delta, JDBC,
@@ -151,18 +154,17 @@ IntelliJ plugin and enable it for this project, so the IDE formats as the build 
 | Script path | `console/run_pravaha_web.py` |
 | Working directory | `console/` |
 | Python interpreter | `console/.venv/bin/python` |
-| Environment variables | `CONSOLE_PASSWORD=dev` |
+| Environment variables | none |
 
-That is enough against an engine on the default ports. The console reads everything else from
+That is enough against an engine on the default ports, started with the `users` profile. Sign in as
+`admin` / `pravaha-dev-admin`: the console keeps no password of its own and acts as whoever signed in. The console reads everything else from
 `console/config/application.yaml`, whose defaults are `grpc://localhost:19090` and
 `http://localhost:18080`. The other variables it reads:
 
 | Variable | Default | Set it when |
 |---|---|---|
-| `CONSOLE_PASSWORD` | empty, so **nobody can sign in** | always, for a local run |
 | `PRAVAHA_ENGINE` | `grpc://localhost:19090` | the engine's Flight port moved: `grpc://localhost:19091` |
 | `PRAVAHA_ENGINE_HTTP` | `http://localhost:18080` | its HTTP port moved: `http://localhost:18081` |
-| `PRAVAHA_TOKEN` | empty | the engine runs with token authentication |
 | `CONSOLE_PORT` | `17070` | 17070 is taken |
 | `CONSOLE_SESSION_SECRET` | generated at start | you want sessions to survive a restart |
 

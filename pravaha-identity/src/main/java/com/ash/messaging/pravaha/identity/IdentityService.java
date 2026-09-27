@@ -66,8 +66,23 @@ public final class IdentityService {
     private final Map<String, String> sessionByTokenHash = new HashMap<>();
     private final Map<String, Instant> lastSeen = new HashMap<>();
     private final Map<String, Instant> verifiedKeys = new ConcurrentHashMap<>();
+    private final java.util.function.Supplier<String> initialAdminPassword;
 
     IdentityService(IdentityStore store, IdentitySettings settings, AuditSink audit, Clock clock) {
+        this(store, settings, audit, clock, null);
+    }
+
+    /**
+     * @param initialAdminPassword what {@link #ADMIN} is created with when the store is empty, asked for
+     *     only then; null, or a supplier answering null, means the published default
+     */
+    IdentityService(
+            IdentityStore store,
+            IdentitySettings settings,
+            AuditSink audit,
+            Clock clock,
+            java.util.function.Supplier<String> initialAdminPassword) {
+        this.initialAdminPassword = initialAdminPassword;
         this.store = store;
         this.settings = settings;
         this.policy = new PasswordPolicy(settings);
@@ -88,6 +103,19 @@ public final class IdentityService {
         return new IdentityService(IdentityStore.open(file), settings, audit, Clock.systemUTC());
     }
 
+    /**
+     * A service over the journal at {@code file}, whose bootstrap admin -- made only when the store is
+     * empty -- gets the password {@code initialAdminPassword} supplies rather than the published one. An
+     * installer generates it, so no deployment starts on a password printed in the documentation.
+     */
+    public static IdentityService open(
+            Path file,
+            IdentitySettings settings,
+            AuditSink audit,
+            java.util.function.Supplier<String> initialAdminPassword) {
+        return new IdentityService(IdentityStore.open(file), settings, audit, Clock.systemUTC(), initialAdminPassword);
+    }
+
     /** A service that keeps nothing on disk: for an embedded engine and tests. */
     public static IdentityService inMemory(IdentitySettings settings, AuditSink audit, Clock clock) {
         return new IdentityService(IdentityStore.inMemory(), settings, audit, clock);
@@ -104,6 +132,15 @@ public final class IdentityService {
             return;
         }
         Instant now = clock.instant();
+        String chosen = initialAdminPassword == null ? null : initialAdminPassword.get();
+        if (chosen != null) {
+            Optional<String> refusal = policy.refusal(ADMIN, chosen, List.of());
+            if (refusal.isPresent()) {
+                throw new PravahaException(
+                        IdentityErrors.PASSWORD_POLICY,
+                        "the initial password for '" + ADMIN + "' is refused: " + refusal.get());
+            }
+        }
         store.putUser(new Identities.User(
                 ADMIN,
                 "Administrator",
@@ -112,7 +149,7 @@ public final class IdentityService {
                 Set.of(ADMIN_ROLE, "operator"),
                 "active",
                 false,
-                Kdf.hash(DEFAULT_ADMIN_PASSWORD),
+                Kdf.hash(chosen == null ? DEFAULT_ADMIN_PASSWORD : chosen),
                 List.of(),
                 settings.forceChange(),
                 now,
@@ -121,7 +158,15 @@ public final class IdentityService {
                 null,
                 null,
                 now));
-        record(system(), "bootstrap.admin_created", ADMIN, true, "no users existed", null);
+        record(
+                system(),
+                "bootstrap.admin_created",
+                ADMIN,
+                true,
+                chosen == null
+                        ? "no users existed; the published default password"
+                        : "no users existed; the initial password the deployment supplied",
+                null);
     }
 
     /** True while the bootstrap admin still has its well-known password. */
