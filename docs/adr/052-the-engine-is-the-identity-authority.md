@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted; being built in six stages (below) |
+| Status | Accepted; stages 1-3 and 6 built. **Stages 4 (MFA) and 5 (SSO) dropped by the owner on 2026-09-27**: simple authentication -- users, passwords, API keys, sessions -- is what Pravaha needs |
 | Date | 2026-09-27 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-024 (the console reaches the engine only through its API), ADR-031 (authorization at the Pravaha layer), ADR-050 (tenancy), ADR-051 (help) |
@@ -136,8 +136,8 @@ first (only when `force-change` is configured), `PRV-7019` default admin passwor
 1. Engine core: store, KDF, policy, lockout, users, keys, sessions, reset tokens, bootstrap, verifier, audit.
 2. Administration: the REST contract above and `pravaha user|key|session` CLI commands.
 3. Console: per-user sign-in, acting as the signed-in user, CSRF, account and admin pages.
-4. MFA: TOTP with sealed seeds, then WebAuthn/passkeys.
-5. SSO: OIDC (code flow with PKCE), then SAML.
+4. ~~MFA: TOTP with sealed seeds, then WebAuthn/passkeys.~~ Dropped by the owner, 2026-09-27.
+5. ~~SSO: OIDC (code flow with PKCE), then SAML.~~ Dropped by the owner, 2026-09-27. `pravaha.identity.mode` accepts only what is built: `sso` and `hybrid` sign people in with passwords, and the node says so at startup.
 6. Migration and release: the QA installer bootstraps an admin and issues the console nothing; a check
    that tracked configuration holds no secrets; documentation; 0.2.0.
 

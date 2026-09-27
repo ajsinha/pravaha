@@ -31,7 +31,7 @@ The findings register tracks anything found along the way.
 
 | Item | Slot | Size |
 |---|---|---|
-| Users, passwords, API keys, sessions, MFA and SSO, the way MAYA does them ([ADR-052](adr/052-the-engine-is-the-identity-authority.md)): the engine core, then admin REST and CLI, the console signing each person in against the engine, TOTP and WebAuthn, OIDC and SAML, then migration and 0.2.0 | both | six stages |
+| Users, passwords, API keys and sessions, the way MAYA does them ([ADR-052](adr/052-the-engine-is-the-identity-authority.md)): engine, REST, CLI, console sign-in, QA install, and a check that shipped configuration holds no secret. **Built.** MFA and SSO dropped by the owner (2026-09-27) | both | done |
 
 ### Tranche A: small, contained, each closes an entry (isolated slot)
 

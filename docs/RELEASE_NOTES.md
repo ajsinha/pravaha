@@ -10,7 +10,14 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ---
 
-## Unreleased (0.1.4-SNAPSHOT)
+## 0.2.0 — QA, 2026-09-27
+
+**What this build is for.** People sign in to the console as themselves: the engine keeps users,
+passwords, API keys and sessions, and the console holds no password or token of its own. **An upgrade
+from 0.1.x needs its server configuration to gain an identity block** -- install.sh says so and how
+when it keeps an older file. Also: one reader shared by every query on a Kafka topic, an index on a
+column outside a view's key, compressed and Avro/Protobuf Kafka, and a glibc image in which Parquet's
+Snappy codec loads.
 
 - **`kafka-sink` writes Avro and Protobuf values** (`format: avro` with `schema.file`, and
   optionally `schema.id` for the Confluent prefix; `format: protobuf` with `schema.descriptor` and
