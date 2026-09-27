@@ -1454,6 +1454,22 @@ public final class PhysicalPlanBuilder {
         return sb.toString();
     }
 
+    /**
+     * The plan's identity: every operator's {@link PhysicalOperator#identity()}, in the same tree shape
+     * as {@link #explain}. What the query fingerprint hashes -- never the explain text, which is for
+     * people and summarises.
+     */
+    public static String identity(PhysicalOperator root) {
+        StringBuilder sb = new StringBuilder();
+        identity(root, 0, sb);
+        return sb.toString();
+    }
+
+    private static void identity(PhysicalOperator operator, int depth, StringBuilder sb) {
+        sb.append("  ".repeat(depth)).append(operator.identity()).append('\n');
+        operator.inputs().forEach(input -> identity(input, depth + 1, sb));
+    }
+
     private static void render(PhysicalOperator operator, int depth, StringBuilder sb) {
         sb.append("  ".repeat(depth)).append(operator.label()).append('\n');
         operator.inputs().forEach(input -> render(input, depth + 1, sb));

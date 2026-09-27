@@ -34,6 +34,9 @@ services:
       - ${PRAVAHA_HOME:-/opt/pravaha}/conf:/opt/pravaha/conf:ro
       - ${PRAVAHA_HOME:-/opt/pravaha}/data:/opt/pravaha/data
       - ${PRAVAHA_HOME:-/opt/pravaha}/logs:/opt/pravaha/logs
+      # Files you drop for file sources (a CSV a warehouse writes, say): yours to write, the engine's
+      # to read, and nothing of the engine's own state -- that is data/, which is the engine's alone.
+      - ${PRAVAHA_HOME:-/opt/pravaha}/feeds:/opt/pravaha/feeds:ro
     stop_grace_period: 60s                 # a checkpoint and the sinks' commit, before SIGKILL
 
   console:

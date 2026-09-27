@@ -49,9 +49,23 @@ public record ProjectOperator(PhysicalOperator input, StreamSchema outputSchema,
 
     @Override
     public String label() {
-        return "Project"
+        // A renamed column says where it came from -- `v=amount` -- so a plan with an alias is read
+        // for what it computes; an unrenamed one reads as it always has.
+        StreamSchema in = input.outputSchema();
+        List<String> columns = new java.util.ArrayList<>();
+        for (int i = 0; i < sourceOrdinals.size(); i++) {
+            String name = outputSchema.field(i).name();
+            String source = in.field(sourceOrdinals.get(i)).name();
+            columns.add(name.equals(source) ? name : name + "=" + source);
+        }
+        return "Project" + columns;
+    }
+
+    @Override
+    public String identity() {
+        return "Project(" + sourceOrdinals + " as "
                 + outputSchema.fields().stream()
                         .map(com.ash.messaging.pravaha.api.data.Field::name)
-                        .toList();
+                        .toList() + ")";
     }
 }

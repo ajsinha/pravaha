@@ -48,4 +48,10 @@ public record FilterOperator(PhysicalOperator input, Predicate predicate) implem
     public String label() {
         return "Filter(" + predicate.describe() + ")";
     }
+
+    @Override
+    public String identity() {
+        // The predicate's record form: ordinals, operators, typed values, never an ambiguous name.
+        return "Filter(" + predicate + ")";
+    }
 }

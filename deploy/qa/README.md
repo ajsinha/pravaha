@@ -28,6 +28,7 @@ once. Open `http://<host>:8090` and sign in with the console password it printed
   console/conf/application.yaml     the CONSOLE's configuration
   data/                             registry journal, checkpoints, dead letters, spill; incoming/txn.csv
   logs/                             pravaha-server.log, audit.jsonl
+  feeds/                            files you drop for file sources: yours to write, read-only to the engine
 ```
 
 Each directory is mounted into its container **at the same path**, so a path in a config file, a

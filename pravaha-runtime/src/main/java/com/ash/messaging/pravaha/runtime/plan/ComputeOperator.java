@@ -59,4 +59,12 @@ public record ComputeOperator(PhysicalOperator input, StreamSchema outputSchema,
                 + expressions.stream().map(Expression::describe).collect(java.util.stream.Collectors.joining(", "))
                 + "]";
     }
+
+    @Override
+    public String identity() {
+        return "Compute(" + expressions + " as "
+                + outputSchema.fields().stream()
+                        .map(com.ash.messaging.pravaha.api.data.Field::name)
+                        .toList() + ")";
+    }
 }

@@ -53,6 +53,21 @@ public sealed interface PhysicalOperator
     /** A short label for plan rendering and metrics. */
     String label();
 
+    /**
+     * Everything about this operator that can change what it answers, and nothing a person needs to
+     * read: what two computations must agree on to be the same computation.
+     *
+     * <p>Separate from {@link #label()} because the label is for a reader and summarises. The query
+     * fingerprint used to be the plans' labels, hashed, and so it inherited every summary: a join's
+     * time bound, INNER against LEFT, which column a projected name came from and which function an
+     * aggregate applied were all absent, and two queries differing only in one of them shared one
+     * computation -- the second registration read the first one's answer, with nothing to say so.
+     * An identity names columns by ordinal, because after a join two input columns can share a name.
+     */
+    default String identity() {
+        return label();
+    }
+
     /** Whether this operator keeps state, and so needs a bound (design section 9.6). */
     default boolean isStateful() {
         return false;

@@ -200,7 +200,9 @@ class PhysicalPlanBuilderTest {
         PhysicalOperator root = new PhysicalPlanBuilder()
                 .build(planner.plan("SELECT t.user_id FROM txn t JOIN other o ON t.user_id = o.user_id"));
 
-        assertThat(PhysicalPlanBuilder.explain(root)).contains("Join[user_id = user_id]");
+        // The default match window is shown, not hidden: a join with no stated bound runs with one (FP-1).
+        assertThat(PhysicalPlanBuilder.explain(root))
+                .contains("Join[user_id = user_id, left - right in [-3600s, 3600s]]");
     }
 
     @Test

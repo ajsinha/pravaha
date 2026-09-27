@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **383 findings carrying a
-status — 359 FIXED, 10 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 10 open, **0 are
+only part that is kept current. Counting the register as it stands: **385 findings carrying a
+status — 361 FIXED, 10 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 10 open, **0 are
 GA-BLOCKER, 0 GA-REQUIRED, 8 POST-GA and 2 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -6894,3 +6894,18 @@ Five things the samples did were not what the SDK's or the engine's own descript
 ### IMG-1 (HIGH) — the 0.1.1 console image shipped without the documentation its help pages include
 
 > **Status:** FIXED — found putting the Python guide on a help card. A guide, a tutorial, the code browser, the decision records and the About page's "what is built" table read files at the repository root — `docs/`, `examples/case-studies/`, `README.md`, `sdk/python/README.md` — through `include:` paths resolved from the console's grandparent directory. In `pravaha/pravaha-console:0.1.1` that is `/opt/pravaha`, which held only `console/`: every tutorial rendered "not present in this installation" and `/help/codes` listed 3 codes instead of 213. The compose test and `qa-smoke.sh` both passed, because they checked status codes, and the second ran the console from the checkout, where the files exist. The image now copies those trees to the same relative places, and its build runs a check that every `include:` under `console/content` resolves, failing the build otherwise. Verified on the rebuilt image: tutorials, guides and About render with no missing-file marker, and the code browser lists 213 codes. **The QA bundle's 0.1.1 console image has the defect; 0.1.2 is the first without it.**
+
+## Found writing the Aerospike tutorial (2026-09-26), 2 findings, 2 fixed
+
+The tutorial joins two Aerospike sets with each other and with a followed CSV file, on a QA host
+installed from the 0.1.1 bundle, with live data pushed in. It is the first end-to-end run of a join
+over `aerospike` sources. The joins answered correctly. Changing the tutorial's dispatch window from
+10 minutes to 2 did not change the queries' fingerprints, which is how the first finding surfaced.
+
+### FP-1 (BLOCKER) — two queries differing in a join bound, INNER/LEFT, a projection's source or an aggregate's function shared one computation, and the second read the first one's answer
+
+> **Status:** FIXED — the query fingerprint was a hash of the plan's *explain text* (`PhysicalPlanBuilder.explain`), and the explain text summarised: `JoinOperator.label()` printed the equality keys and neither the time bound nor whether the join was LEFT; `ProjectOperator` printed output names and not the columns they came from; `WindowedAggregateOperator` printed "*N* aggregate(s)"; `AggregateOperator` printed a function and its output name, not its argument. Reproduced on a running node, each a silent wrong answer: `SELECT txn_id AS v` shared with `SELECT amount AS v` and returned amounts; `MAX(amount)` shared with `SUM(amount)` and returned 3150 where the maximum was 3000; a 300-second join shared with a 5-second one and held 29 pairs, where Aerospike's own data had 146 inside 300 seconds; a LEFT JOIN shared with the INNER JOIN. Any two tenants' users — or one user and a teammate — asking two such questions got one answer between them. `PhysicalOperator` now has `identity()`: everything that can change an operator's answer, by ordinal (a join's output can hold two columns named `order_id`), and `QueryFingerprint` hashes `PhysicalPlanBuilder.identity(plan)`, never the explain text. The explain labels show what a reader needs as well: a join's window (`left - right in [-300s, 0s]`, and the default `[-3600s, 3600s]` a join with no stated bound runs with, which EXPLAIN used to hide), `LeftJoin`, a renamed column's source (`v=amount`), each aggregate's function and argument, and allowed lateness. Fingerprints are recomputed from SQL at every start and name no checkpoint directory, so an upgrade changes nothing on disk; two registrations that shared under 0.1.1 and should not have are two computations after it. `PlanIdentityTest` — five pairs that must not share, seed-proven (four fail without the fix; the fifth was already covered by the projection below the aggregate and stays as a guard), and two that must still share: case and spacing, and a mirrored comparison.
+
+### JOINDOC-1 (LOW) — the joins page's summary table said a self join is refused, and its own text says it runs
+
+> **Status:** FIXED — `console/content/topics/joins.md`: the table row read "Self join — no — refused at registration" while the section below it shows one running (fixed 2026-09-26, when self joins were built). The row now says it runs and points at the windowed-`COUNT` alternative. The same page said joins over `aerospike` sources were "not yet demonstrated end to end"; the tutorial is that demonstration, and the page links to it.

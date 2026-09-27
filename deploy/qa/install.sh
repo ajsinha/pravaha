@@ -19,6 +19,8 @@
 #   /opt/pravaha/console/conf/application.yaml   the console's configuration  (0600, uid 10001)
 #   /opt/pravaha/data/                           journal, checkpoints, dead letters, spill
 #   /opt/pravaha/logs/                           the engine's log and the audit trail
+#   /opt/pravaha/feeds/                          files you drop for file sources: yours to write, read-only
+#                                                to the engine
 #
 # SAFE TO RE-RUN. A configuration file that exists is never overwritten, so the edits made to it
 # survive an upgrade: a new bundle brings new images and a new compose file, and your two YAML
@@ -58,6 +60,14 @@ done
 
 # ---------------------------------------------------------------- the tree
 mkdir -p "$home/conf" "$home/console/conf" "$home/logs"
+if [[ ! -d "$home/feeds" ]]; then
+  # Owned by whoever ran the installer -- through sudo, the person behind it -- so they can write
+  # their files there without root; world-readable, because the engine reads it as uid 10001.
+  mkdir -p "$home/feeds"
+  owner="${SUDO_USER:-$(id -un)}"
+  chown "$owner" "$home/feeds" 2>/dev/null || true
+  chmod 0755 "$home/feeds"
+fi
 # data/ is the engine's once it has run (0750, uid 10001), so it is seeded only when it is new: the
 # one stream the configuration declares, with the six rows docs/PYTHON_API_GUIDE.md starts from.
 if [[ ! -d "$home/data" ]]; then
@@ -133,4 +143,5 @@ echo
 echo "Start it:   cd $home && docker compose up -d"
 echo "Console:    http://$host:8090"
 echo "Engine:     http://$host:8080  (HTTP)   grpc://$host:9090  (Flight SQL)"
+echo "Feeds:      $home/feeds/ -- drop files for file sources here; the engine reads them as /opt/pravaha/feeds"
 echo "Configure:  $home/conf/application.yaml, $home/console/conf/application.yaml -- then docker compose restart"

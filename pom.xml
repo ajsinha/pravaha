@@ -70,6 +70,10 @@
   </modules>
 
   <properties>
+    <!-- Empty until JaCoCo's prepare-agent sets it at build time. The default is for an IDE: IntelliJ
+         imports surefire's argLine to run tests, and without a value it passed the text
+         "@{jacoco.surefire.argLine}" to the JVM, which then could not start. -->
+    <jacoco.surefire.argLine />
     <maven.shade.version>3.6.0</maven.shade.version>
     <!-- Design 4.5: Java 21 LTS is the baseline; pravaha-api targets 17 for embedders. -->
     <maven.compiler.release>21</maven.compiler.release>

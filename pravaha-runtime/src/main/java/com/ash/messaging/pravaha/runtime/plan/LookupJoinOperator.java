@@ -85,6 +85,11 @@ public record LookupJoinOperator(
                         .toList() + "]";
     }
 
+    @Override
+    public String identity() {
+        return (leftOuter ? "LookupLeftJoin" : "LookupJoin") + "(" + lookupStream + ", keys=" + streamKeys + ")";
+    }
+
     /** Where the dimension's columns begin in the output. */
     public int streamWidth() {
         return input.outputSchema().fields().size();

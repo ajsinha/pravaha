@@ -1,0 +1,64 @@
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+#
+# The fulfilment tutorial's streams: two Aerospike sets and a CSV file.
+# Copy to /opt/pravaha/conf/aerospike-fulfilment.yaml and add ONE line to the top level of
+# /opt/pravaha/conf/application.yaml:
+#
+#   spring.config.import: optional:file:/opt/pravaha/conf/aerospike-fulfilment.yaml
+#
+# Spring merges these maps into the ones application.yaml already has, so the demonstration stream
+# `txn` stays as it was. Removing the tutorial is removing that line.
+
+pravaha:
+  streams:
+    orders:
+      schema: "order_id:INT64,customer_id:STRING,region:STRING,amount:INT64,event_time:TIMESTAMP"
+      event-time: event_time
+      out-of-orderness: 5s
+    payments:
+      schema: "payment_id:INT64,order_id:INT64,pay_method:STRING,amount:INT64,event_time:TIMESTAMP"
+      event-time: event_time
+      out-of-orderness: 5s
+    shipments:
+      schema: "shipment_id:INT64,order_id:INT64,carrier:STRING,event_time:TIMESTAMP"
+      event-time: event_time
+      out-of-orderness: 5s
+
+  sources:
+    # Two sets in one Aerospike namespace. `deletes: detect` is what lets a join (or an aggregate)
+    # read them: without it a rescan re-delivers updated records with nothing retracting the old
+    # ones, and the query is refused with PRV-2042. It keeps each reader's emitted rows on disk.
+    orders:
+      plugin: aerospike
+      options:
+        hosts: "aerospike:3000"
+        namespace: test
+        set: orders
+        schema: "order_id:INT64,customer_id:STRING,region:STRING,amount:INT64,event_time:TIMESTAMP"
+        event.time: event_time
+        deletes: detect
+        deletes.state.dir: /opt/pravaha/data/aerospike/orders
+        scan.interval.ms: "1000"
+    payments:
+      plugin: aerospike
+      options:
+        hosts: "aerospike:3000"
+        namespace: test
+        set: payments
+        schema: "payment_id:INT64,order_id:INT64,pay_method:STRING,amount:INT64,event_time:TIMESTAMP"
+        event.time: event_time
+        deletes: detect
+        deletes.state.dir: /opt/pravaha/data/aerospike/payments
+        scan.interval.ms: "1000"
+    # A CSV file the warehouse drops, followed as it grows. /opt/pravaha/feeds is yours to write and
+    # the engine's to read.
+    shipments:
+      plugin: filesystem
+      options:
+        path: /opt/pravaha/feeds/shipments.csv
+        schema: "shipment_id:INT64,order_id:INT64,carrier:STRING,event_time:TIMESTAMP"
+        event.time: event_time
+        skip.header: "true"
+        follow: "true"

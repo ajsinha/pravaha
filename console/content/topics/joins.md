@@ -36,7 +36,7 @@ stream on a key** (this page) and **a stream enriched from a table** ([temporal 
 | `RIGHT` / `FULL OUTER` | no | PRV-2020 | Swap the inputs and use `LEFT` |
 | `CROSS JOIN` | no | PRV-2020 | No key to partition on |
 | Non-equi — `ON a.x > b.x` | no | PRV-2020 | A cross product in disguise |
-| Self join — one stream on both sides | no | (no code) | Refused at registration: rows enter a join by stream name |
+| Self join — one stream on both sides | yes | | Each row is handed to both sides ([below](#the-refused-shapes)); a windowed `COUNT(*) … HAVING` is often what is meant |
 
 ## An inner join with a time bound
 
@@ -341,8 +341,9 @@ HAVING COUNT(*) > 1
 
 The two sides may come from entirely different sources — a `filesystem` file on one side and a
 `feedfile` directory on the other is demonstrated end to end by the engine's own tests. Joins across
-`jdbc`, `delta`, `aerospike`, `cassandra`, `postgres-cdc` or `kafka` sources are supported by
-construction and not yet demonstrated end to end. Each side keeps its own out-of-orderness; the join waits for the slower.
+`jdbc`, `delta`, `cassandra`, `postgres-cdc` or `kafka` sources are supported by construction and not
+yet demonstrated end to end. Two `aerospike` sets joined with each other and with a followed CSV file
+are, in the tutorial [Joining two Aerospike sets and a CSV file](/tutorials/aerospike-fulfilment). Each side keeps its own out-of-orderness; the join waits for the slower.
 
 ## Pitfalls
 

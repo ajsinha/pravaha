@@ -96,4 +96,9 @@ public record TopNOperator(
                         .collect(Collectors.joining(", "))
                 + "]";
     }
+
+    @Override
+    public String identity() {
+        return "TopN(" + limit + ", partition=" + partitionOrdinals + ", order=" + sortKeys + ")";
+    }
 }

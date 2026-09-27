@@ -58,4 +58,9 @@ public record SinkOperator(PhysicalOperator input, String sinkName, EmitMode emi
     public String label() {
         return "Sink(" + sinkName + ", " + emitMode + ")";
     }
+
+    @Override
+    public String identity() {
+        return "Sink(" + sinkName + ", " + emitMode + ", keys=" + keyFields + ")";
+    }
 }

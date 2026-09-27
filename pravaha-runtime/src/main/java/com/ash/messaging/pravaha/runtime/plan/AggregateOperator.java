@@ -95,7 +95,21 @@ public record AggregateOperator(
     public String label() {
         return "Aggregate(group=" + groupKeyOrdinals + ", "
                 + aggregates.stream()
-                        .map(a -> a.kind() + "(" + a.outputName() + ")")
-                        .toList() + ")";
+                        .map(a -> a.kind() + "(" + argumentName(input.outputSchema(), a) + ")->" + a.outputName())
+                        .toList()
+                + ")";
+    }
+
+    @Override
+    public String identity() {
+        return "Aggregate(group=" + groupKeyOrdinals + ", " + aggregates + ")";
+    }
+
+    /** The column an aggregate reads, by name, for a reader; {@code *} for one that reads none. */
+    static String argumentName(StreamSchema in, AggregateCall call) {
+        int ordinal = call.argumentOrdinal();
+        return ordinal < 0 || ordinal >= in.fields().size()
+                ? "*"
+                : in.field(ordinal).name();
     }
 }

@@ -224,7 +224,7 @@ class WindowAnswerTest extends WindowTestSupport {
         com.ash.messaging.pravaha.runtime.plan.PhysicalOperator plan = plan(tumble("s0", "10' SECOND"));
         assertThat(findByLabel(plan, "WindowedAggregate").label())
                 .contains("WindowedAggregate(TUMBLING 10000ms")
-                .contains("2 aggregate(s)");
+                .contains("[COUNT(*)->n, SUM(amount)->total]"); // each aggregate by function and argument (FP-1)
         assertThat(findByLabel(plan, "WindowAssign").label())
                 .isEqualTo("WindowAssign(TUMBLING size=10000ms slide=10000ms on event_time)");
     }
@@ -459,7 +459,7 @@ class WindowAnswerTest extends WindowTestSupport {
         com.ash.messaging.pravaha.runtime.plan.PhysicalOperator plan = plan(hop("s0", "10' SECOND", "20' SECOND"));
         assertThat(findByLabel(plan, "WindowedAggregate").label())
                 .startsWith("WindowedAggregate(HOPPING 20000ms")
-                .contains("2 aggregate(s)");
+                .contains("[COUNT(*)->n, SUM(amount)->total]"); // each aggregate by function and argument (FP-1)
         assertThat(findByLabel(plan, "WindowAssign").label())
                 .isEqualTo("WindowAssign(HOPPING size=20000ms slide=10000ms on event_time)");
     }

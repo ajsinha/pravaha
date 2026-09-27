@@ -84,6 +84,16 @@ public record WindowedAggregateOperator(
     @Override
     public String label() {
         return "WindowedAggregate(" + spec.kind() + " " + spec.sizeNanos() / 1_000_000 + "ms, keys=" + groupKeys + ", "
-                + aggregates.size() + " aggregate(s))";
+                + aggregates.stream()
+                        .map(a -> a.kind() + "(" + AggregateOperator.argumentName(input.outputSchema(), a) + ")->"
+                                + a.outputName())
+                        .toList()
+                + (allowedLatenessNanos > 0 ? ", lateness=" + allowedLatenessNanos / 1_000_000 + "ms" : "") + ")";
+    }
+
+    @Override
+    public String identity() {
+        return "WindowedAggregate(" + spec + ", keys=" + groupKeys + ", " + aggregates + ", start=" + windowStartOrdinal
+                + ", end=" + windowEndOrdinal + ", lateness=" + allowedLatenessNanos + "ns)";
     }
 }

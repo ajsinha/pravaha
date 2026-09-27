@@ -24,10 +24,18 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 - **Console image:** it carries the documentation its help pages include; the 0.1.1 image did not,
   so its tutorials, guides and code browser were empty (IMG-1). The build now checks every include.
   The Python guide has a help card (`/help/python-api-guide`).
+- **Query sharing (FP-1, fixed):** two queries differing only in a join's time bound, INNER against
+  LEFT, which column a projected name came from, or an aggregate's function shared one computation,
+  and the second read the first one's answer. The fingerprint now hashes each operator's full
+  identity, and EXPLAIN shows a join's window, `LeftJoin`, renamed columns' sources and aggregate
+  arguments. **0.1.1 has this defect**; nothing on disk changes on upgrade.
+- **A tutorial joining two Aerospike sets and a CSV file** (`docs/tutorials/aerospike-fulfilment.md`,
+  and a console card), with a script that pushes live orders; the QA install gains `/opt/pravaha/feeds/`
+  for files you drop for file sources, and the bundle carries the tutorials' scripts.
 - **Found, open:** a query cannot be replaced while the record at its position was dead-lettered
   (REPL-2, POST-GA); since REPL-1 it fails as `FAILED` `PRV-4013` rather than silently.
 
-Register: **383 findings — 359 fixed, 10 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **385 findings — 361 fixed, 10 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ---
 

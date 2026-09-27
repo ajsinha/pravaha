@@ -199,7 +199,7 @@ operational one, which is the whole design of §2.
 **Falsifier:** Rows past the ceiling are silently dropped and the join continues.
 **Setup:** HJ5, `JoinOperator` constructed with `maxRowsPerSide = 3`.
 **Steps:** Feed four distinct left keys with no matching right rows.
-**Expected:** `PRV-4001` on the fourth: "the left side of Join[user_id = user_id] holds 4 rows, past
+**Expected:** `PRV-4001` on the fourth: "the left side of Join[user_id = user_id, left - right in [-3600s, 3600s]] holds 4 rows, past
 the ceiling of 3. Both sides of a stream-to-stream join keep every row that could still match…".
 The message names the side, the count and the ceiling. Note the check runs *after* the row is added,
 so the reported count is ceiling + 1.

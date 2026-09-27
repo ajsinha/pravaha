@@ -224,7 +224,29 @@ public record JoinOperator(
                     .append(" = ")
                     .append(right.outputSchema().field(rightKeys.get(i)).name());
         }
-        return "Join[" + condition + "]";
+        return (leftOuter ? "LeftJoin[" : "Join[") + condition + ", " + window() + "]";
+    }
+
+    @Override
+    public String identity() {
+        return (leftOuter ? "LeftJoin" : "Join") + "(keys=" + leftKeys + "=" + rightKeys
+                + ", left-right in [" + matchLowerNanos + "," + matchUpperNanos + "]ns"
+                + ", within=" + matchWithinNanos + "ns)";
+    }
+
+    /** The time bound as a reader wants it: what the left row's time minus the right row's may be. */
+    private String window() {
+        return "left - right in [" + duration(matchLowerNanos) + ", " + duration(matchUpperNanos) + "]";
+    }
+
+    private static String duration(long nanos) {
+        if (nanos % 1_000_000_000L == 0) {
+            return (nanos / 1_000_000_000L) + "s";
+        }
+        if (nanos % 1_000_000L == 0) {
+            return (nanos / 1_000_000L) + "ms";
+        }
+        return nanos + "ns";
     }
 
     /** How many columns come from the left, and so where the right's begin in the output. */

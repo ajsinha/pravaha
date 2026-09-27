@@ -99,7 +99,9 @@ public record QueryFingerprint(String value) {
             List<Integer> keyColumns,
             Retention retention,
             String tenant) {
-        StringBuilder canonical = new StringBuilder(PhysicalPlanBuilder.explain(plan));
+        // The plan's identity, not its explain text: the text summarises, and every summary was a way
+        // for two different queries to share one computation (FP-1).
+        StringBuilder canonical = new StringBuilder(PhysicalPlanBuilder.identity(plan));
         if (tenant != null) {
             // Length-prefixed, because a tenant comes from an identity provider and could carry a
             // newline: unprefixed, tenant "t\nsecurity:p" would hash as tenant "t" with row filter p.

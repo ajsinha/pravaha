@@ -15,6 +15,7 @@
 #   install.sh  docker-compose.yml  server.application.yaml  console.application.yaml  README.md
 #   VERSION     images/pravaha-server-<v>.tar  images/pravaha-console-<v>.tar
 #   dist/       the server fat jar, the CLI jar, the SDK and console wheels, the Helm chart
+#   tutorials/  the tutorials' scripts and configuration (examples/tutorials/)
 #   docs/       RELEASE_NOTES.md, DEPLOYMENT.md, QUICKSTART.md, USER_GUIDE.md, PYTHON_API_GUIDE.md
 set -euo pipefail
 
@@ -101,6 +102,8 @@ if [[ ! -e "$root/target/pravaha-$version.tgz" ]] && git -C "$root" rev-parse -q
   git -C "$root" archive --format=tar.gz -o "$root/target/pravaha-$version.tgz" "v$version:deploy/helm" pravaha
 fi
 label="helm chart";  take "$root"/target/pravaha-"$version".tgz
+# The tutorials' own scripts and configuration, which the tutorials tell a reader to run.
+mkdir -p "$out/tutorials" && cp -r "$root/examples/tutorials/." "$out/tutorials/"
 for doc in RELEASE_NOTES.md DEPLOYMENT.md QUICKSTART.md USER_GUIDE.md PYTHON_API_GUIDE.md; do cp "$root/docs/$doc" "$out/docs/"; done
 
 (cd "$out" && sha256sum VERSION install.sh docker-compose.yml *.yaml images/* dist/* > SHA256SUMS)

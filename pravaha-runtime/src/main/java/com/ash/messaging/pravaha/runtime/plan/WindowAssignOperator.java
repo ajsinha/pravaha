@@ -57,4 +57,9 @@ public record WindowAssignOperator(
                 + spec.slideNanos() / 1_000_000 + "ms on "
                 + outputSchema.field(eventTimeOrdinal).name() + ")";
     }
+
+    @Override
+    public String identity() {
+        return "WindowAssign(" + spec + ", time=" + eventTimeOrdinal + ")";
+    }
 }
