@@ -6,9 +6,8 @@ Proprietary and confidential. See LICENSE at the repository root.
 
 Both are the engine's answers, reached through the SDK, and neither is decided here. The
 engine authorizes reading the audit trail with a permission of its own
-(``SecurityPolicy.mayReadAudit``), and it decides for the identity the console connects as
-(``engine.token``) -- one identity for every person signed in to this console. So a refusal is
-the engine's, rendered as a state of the screen ("not permitted", with the engine's reason),
+(``SecurityPolicy.mayReadAudit``), and it decides for the person signed in, whose own engine
+session every call carries (ADR-052). So a refusal is the engine's, rendered as a state of the screen ("not permitted", with the engine's reason),
 never a console rule layered on top: a console that hid the audit screen by its own role
 would be enforcing nothing, and one that showed it regardless would be showing a 403.
 """

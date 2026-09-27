@@ -41,6 +41,7 @@ REPO_ROOT = CONSOLE_ROOT.parent
 sys.path.insert(0, str(CONSOLE_ROOT))
 
 from fake_engine import FakeEngine
+from fake_identity import ADMIN_PASSWORD, sign_in
 
 from core.config.properties_configurator import PropertiesConfigurator
 from core.content.codes import every_code
@@ -55,7 +56,6 @@ from core.help_catalog import (
 )
 from run_pravaha_web import create_app
 
-ENGINE_TOKEN = "help-test-engine-token-never-in-a-page"
 SESSION_SECRET = "help-test-session-secret-never-in-a-page"
 TOPICS_DIR = CONSOLE_ROOT / "content" / "topics"
 EXAMPLES_DIR = CONSOLE_ROOT / "content" / "examples"
@@ -65,9 +65,7 @@ REQUIRED = ("title", "slug", "category", "order", "icon", "summary")
 @pytest.fixture(scope="module")
 def anonymous():
     config = PropertiesConfigurator(str(CONSOLE_ROOT / "config" / "application.yaml"))
-    config.set("console.password", "help-test-password")
     config.set("console.session_secret", SESSION_SECRET)
-    config.set("engine.token", ENGINE_TOKEN)
     return fastapi_testclient.TestClient(create_app(config, engine=FakeEngine()), follow_redirects=False)
 
 
@@ -526,15 +524,25 @@ PUBLIC = ["/help", "/help/search?q=checkpoint", "/help/guides", "/help/codes", "
 def test_help_and_about_are_public_and_render_nothing_secret(anonymous, path):
     response = anonymous.get(path)
     assert response.status_code == 200, path
-    assert ENGINE_TOKEN not in response.text
     assert SESSION_SECRET not in response.text
-    assert "help-test-password" not in response.text
+    assert ADMIN_PASSWORD not in response.text
+    # A public page asks the engine nothing that would open a session for its visitor.
+    assert "set-cookie" not in {k.lower() for k in response.headers}, path
 
 
 def test_about_says_the_engine_version_and_nothing_else_about_the_node(anonymous):
+    """ADR-052: the engine answers its status to a signed-in caller only, so a visitor learns the
+    engine is up and a signed-in person learns what it runs -- and nobody the node's id."""
     page = anonymous.get("/about").text
+    assert "0.1.0" not in page.split('id="engine-status"')[1].split("</dd>")[0]
+    assert "engine up" in page.split('id="engine-status"')[1].split("</dd>")[0]
+    config = PropertiesConfigurator(str(CONSOLE_ROOT / "config" / "application.yaml"))
+    config.set("console.session_secret", SESSION_SECRET)
+    signed = fastapi_testclient.TestClient(create_app(config, engine=FakeEngine()))
+    sign_in(signed)
+    page = signed.get("/about").text
     assert "0.1.0" in page and "RUNNING" in page
-    # The fake engine's instance id and plugin list are for signed-in operators.
+    # The fake engine's instance id and plugin list are for the plugins screen.
     assert ">n1<" not in page and "instanceId" not in page
 
 
@@ -555,10 +563,9 @@ SCREENS = {"/workbench": "workbench", "/catalog": "catalog", "/views": "views",
 
 def test_every_product_screen_links_to_its_help_topics(catalog):
     config = PropertiesConfigurator(str(CONSOLE_ROOT / "config" / "application.yaml"))
-    config.set("console.password", "pw")
     config.set("console.session_secret", SESSION_SECRET)
     client = fastapi_testclient.TestClient(create_app(config, engine=FakeEngine()))
-    client.post("/login", data={"password": "pw", "next": "/home"})
+    sign_in(client)
     for path, screen in SCREENS.items():
         page = client.get(path).text
         first = SCREEN_HELP[screen][0]

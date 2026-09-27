@@ -31,15 +31,21 @@ from collections.abc import Iterator
 import pytest
 from cdp import Browser, Page, find_chrome
 from fake_engine import FakeEngine
+from fake_identity import ADMIN, ADMIN_PASSWORD
 
 from core.config.properties_configurator import PropertiesConfigurator
 from run_pravaha_web import create_app
 
 CONSOLE_ROOT = pathlib.Path(__file__).resolve().parents[1]
-PASSWORD = "browser-test-password"
+#: Who the browser tests sign in as (ADR-052): the engine's bootstrap administrator.
+USERNAME = ADMIN
+PASSWORD = ADMIN_PASSWORD
 
 #: 2026-09-19 09:30:00 UTC. Every page a baseline was taken of believes it is this moment.
 FIXED_CLOCK_MS = 1789810200000
+#: The same moment, for the fake engine's identity authority: sessions, keys and sign-ins are
+#: stamped with it, so the account and people screens photograph the same way every time.
+FIXED_CLOCK_S = FIXED_CLOCK_MS / 1000
 
 #: Runs before any page script: a pinned clock that still advances (timers, debounces and
 #: the palette's own waits keep working), and no animation or transition anywhere.
@@ -73,7 +79,11 @@ class BrowserEngine(FakeEngine):
     """
 
     def __init__(self, fresh: bool = False, follow_lifecycle: bool = False) -> None:
-        super().__init__()
+        # Unlimited sessions per person: a module keeps a signed-in tab per theme, viewport and
+        # density -- twenty of them, all the administrator -- and the engine's rule of three
+        # would sign the first seventeen out. The rule itself is tested in test_identity.
+        super().__init__(clock=lambda: FIXED_CLOCK_S, max_sessions=None)
+        _seed_people(self)
         self._tails: list[queue.Queue] = []
         self._tails_lock = threading.Lock()
         self.closed = threading.Event()
@@ -182,6 +192,29 @@ class BrowserEngine(FakeEngine):
                 self._tails.remove(mine)
 
 
+def _seed_people(engine: FakeEngine) -> None:
+    """The people, keys and sessions the account and admin screens are photographed with: fixed
+    ids and fixed times, so a baseline is the same picture every run."""
+    day = 86400
+    now = FIXED_CLOCK_S
+    identity = engine.identity
+    identity.add_user("ann", "Ann-password-12", ["analyst"], display_name="Ann Analyst", tenant="risk")
+    identity.add_user("carol", "Carol-password-12", ["operator", "developer"], display_name="Carol Operator")
+    identity.add_user("dave", "Dave-password-12", ["analyst"], display_name="Dave Former")
+    identity.users["dave"].status = "disabled"
+    identity.users["carol"].last_login = now - 3600
+    identity.seed_key("3f9a1c2b7d10", ADMIN, "ci-deploy", ["operator"], created=now - 30 * day,
+                      expires=now + 60 * day, last_used=now - 3600)
+    identity.seed_key("a17e55d0c942", "ann", "notebook", ["analyst"], created=now - 80 * day,
+                      expires=now + 10 * day)
+    identity.seed_key("c0ffee123456", "carol", "etl", ["operator"], created=now - 85 * day,
+                      expires=now + 5 * day, last_used=now - 600, superseded_by="d00d00123456")
+    identity.seed_key("d00d00123456", "carol", "etl", ["operator"], created=now - day,
+                      expires=now + 89 * day, last_used=now - 60)
+    identity.seed_session("s0c0ffee0001", "carol", created=now - 2 * 3600, seen=now - 300)
+    identity.seed_session("s0c0ffee0002", "carol", created=now - 40 * 60, seen=now - 60)
+
+
 def _free_port() -> int:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
@@ -196,9 +229,8 @@ class Console:
 
         self.engine = engine
         config = PropertiesConfigurator(str(CONSOLE_ROOT / "config" / "application.yaml"))
-        config.set("console.password", PASSWORD)
         config.set("console.session_secret", "browser-test-session-secret")
-        config.set("engine.token", "browser-test-engine-token")
+        config.set("console.secure_cookies", "false")
         config.set("ui.default_role", default_role)
         # The component gallery is a page the audit and the screenshots cover like any other.
         config.set("ui.component_gallery", "true")
@@ -225,13 +257,25 @@ class Console:
         self._thread.join(timeout=10)
 
 
-def sign_in(page: Page, console: Console, role: str = "operator", next_path: str = "/home") -> None:
-    """Through the real sign-in form: the password typed, the role chosen, the button pressed."""
-    page.goto(console.url("/login?next=" + next_path))
+def sign_in(page: Page, console: Console, role: str | None = None, next_path: str = "/home",
+            username: str = USERNAME, password: str = PASSWORD) -> None:
+    """Through the real sign-in form: the username and password typed, the button pressed.
+
+    ``role`` is the landing persona, which is no longer on the sign-in form (ADR-052): it is
+    chosen after signing in, through the account menu's own form, as a person chooses it; and
+    then the browser goes where it was going, as it would have from the sign-in.
+    """
+    page.goto(console.url("/login?next=" + ("/account" if role else next_path)))
+    page.focus("#username")
+    page.type(username)
     page.focus("#password")
-    page.type(PASSWORD)
-    page.eval(f"document.getElementById('role-{role}') && (document.getElementById('role-{role}').checked = true)")
+    page.type(password)
     page.wait_for_navigation(lambda: page.click("form[action='/login'] button[type=submit]"))
+    if role:
+        page.wait_for_navigation(lambda: page.eval(
+            f"(() => {{ const input = document.querySelector('#account-landing-form input[value={role}]');"
+            f" input.checked = true; input.form.submit(); return true; }})()"))
+        page.goto(console.url(next_path))
 
 
 def settled(page: Page) -> None:
@@ -333,6 +377,8 @@ PAGES: list[tuple[str, str, bool, str]] = [
     ("competitive", "/about/competitive", False, "true"),
     ("help-faq", "/help/topics/faq", False, "true"),
     ("login", "/login", False, "true"),
+    # ADR-052's public page for a person holding a reset token an administrator issued.
+    ("login-reset", "/login/reset", False, "true"),
     ("start", "/start", True, "document.querySelector('#start-app h2')"),
     ("catalog", "/catalog", True, "true"),
     ("catalog-queries", "/catalog?tab=queries", True, "true"),
@@ -364,6 +410,15 @@ PAGES: list[tuple[str, str, bool, str]] = [
     ("admin-audit", "/admin/audit", True, "true"),
     ("admin-audit-filtered", "/admin/audit?principal=carol&decision=deny", True, "true"),
     ("admin-tenants", "/admin/tenants", True, "true"),
+    # ADR-052: the signed-in person's own account, the password page, and the people screens.
+    # The sessions screen is photographed narrowed to carol, whose two sessions are seeded with
+    # fixed times: the administrator's own sessions are one per signed-in tab, and how many tabs
+    # have signed in by the time a shot is taken depends on which tests ran first.
+    ("account", "/account", True, "document.querySelector('#key-create-form')"),
+    ("account-password", "/account/password", True, "true"),
+    ("admin-users", "/admin/users", True, "document.querySelector('#users-table')"),
+    ("admin-keys", "/admin/keys", True, "document.querySelector('#keys-table')"),
+    ("admin-sessions", "/admin/sessions?user=carol", True, "document.querySelector('#sessions-table')"),
     ("not-found", "/views/no_such_view", True, "true"),
     ("components", "/_components", True, "document.querySelector('#state-unauthorized button')"),
 ]

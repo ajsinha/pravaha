@@ -33,22 +33,26 @@ an integrator's program can do too.
 
 The landing page, the help (including every `/help/codes/...` page), About and the health probes are
 **public**: an operator opening the console during an incident needs it to load and say what is
-wrong before they have found a password. **Everything that names a registered query, reads a view,
-shows the catalogue or reaches the engine needs a session.** Sign in with the console password
-(`console.password`, environment `CONSOLE_PASSWORD`); if none is set, nobody can sign in — the safe
-failure for a tool that can drop queries.
+wrong before they have signed in. **Everything that names a registered query, reads a view,
+shows the catalogue or reaches the engine needs a session.** Sign in with your own username and
+password: the console asks the engine, which is where accounts live (ADR-052), keeps the engine
+session it answers with, and acts as you on every call — so everything you do is authorised and
+audited as you. A new engine's first account is its bootstrap `admin`; an administrator adds
+everyone else under **Admin · Users**. Your password, your API keys and your sessions are on
+**Account**, in the account menu.
 
-At sign-in you choose a **role**, and the role decides where you land, not what you may do:
+In the account menu, or on your account page, you choose a **persona**, and it decides where you
+land, not what you may do:
 
 | Role | Lands on | For |
 |---|---|---|
 | analyst | Workbench | writing and registering SQL |
 | operator | Operations | health, lag, state, checkpoints |
 | developer | Views | reading answers, copying client code |
-| admin | Admin · Access | what the console's engine identity may do, the audit trail |
+| admin | Admin · Access | what you may do, the audit trail, and (for an administrator) people, keys and sessions |
 
-The engine decides what the console may see: the console reaches it as **one identity**
-(`engine.token`), and every screen shows exactly what the engine's policy lets that identity see.
+The engine decides what you may see: the console reaches it **as you**, and every screen shows
+exactly what the engine's policy lets you see. It is remembered for you on that browser.
 
 ## Home and onboarding
 
@@ -217,7 +221,6 @@ registry without metrics, a view's page says which call failed.
 |---|---|---|
 | `engine.url` | `grpc://localhost:19090` | the engine's Flight endpoint |
 | `engine.http_url` | `http://localhost:18080` | the engine's HTTP surface; without it validation and plans are unavailable |
-| `engine.token` | empty | the console's single engine identity, never sent to a browser |
 | `engine.pgwire` | `localhost:5432` | shown in the `psql` snippets only |
 | `ui.default_role` | `operator` | where a signed-in person lands until they choose |
 | `ui.tail_buffer` | 256 | changes held per browser on a live view |

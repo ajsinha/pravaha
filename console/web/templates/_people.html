@@ -1,0 +1,51 @@
+{#- Shared by the account and the people screens (ADR-052): the one-line outcomes of the last
+    action, and a secret the engine issued once. -#}
+
+{# What the last action did, once. `flashes` is [[level, message], ...], popped by the route. #}
+{% macro flashes(items) -%}
+{% for level, message in items or [] %}
+<div class="alert alert-{{ level if level in ('success', 'warning', 'danger', 'info') else 'info' }} py-2 small"
+     role="{{ 'alert' if level == 'danger' else 'status' }}" data-flash="{{ level }}">{{ message }}</div>
+{% endfor %}
+{%- endmacro %}
+
+{# A secret shown once: a new or rotated key, or a password-reset token. The engine keeps only
+   its hash and the console kept it only until this page was drawn, so this is the one chance
+   to copy it -- and the page says so rather than letting somebody find out on reload. #}
+{% macro issued_secret(issued) -%}
+{% if issued and issued.secret %}
+<section class="alert alert-warning" id="issued" aria-labelledby="issued-title">
+  <h2 class="h6 mb-1" id="issued-title">
+    {%- if issued.kind == 'reset' %}{{ t('people.issued.reset_title', user=issued.get('for', '')) }}
+    {%- elif issued.kind == 'rotated' %}{{ t('people.issued.rotated_title', key_id=issued.keyId) }}
+    {%- else %}{{ t('people.issued.key_title', key_id=issued.keyId) }}{% endif -%}
+  </h2>
+  <p class="small mb-2">{{ t('people.issued.once') }}</p>
+  <label class="form-label small mb-1" for="issued-secret">{{ t('people.issued.secret') }}</label>
+  <input class="form-control form-control-sm mono" id="issued-secret" type="text" readonly
+         value="{{ issued.secret }}" autocomplete="off" spellcheck="false">
+  <p class="small mb-0 mt-2">
+    {%- if issued.expiresAt %}{{ t('people.issued.expires', at=issued.expiresAt) }}{% endif -%}
+    {%- if issued.kind == 'rotated' and issued.oldExpiresAt %} {{ t('people.issued.old_until', key_id=issued.oldKeyId, at=issued.oldExpiresAt) }}{% endif -%}
+    {%- if issued.kind == 'reset' %} {{ t('people.issued.reset_note') }}{% endif -%}
+  </p>
+</section>
+{% endif %}
+{%- endmacro %}
+
+{# The engine refused this person the screen: its reason, and what would change the answer. #}
+{% macro not_permitted(denied, id) -%}
+<div class="state" id="{{ id }}">
+  <h2><i class="bi bi-shield-lock" aria-hidden="true"></i> {{ t('people.denied.title') }}</h2>
+  <p>{{ t('people.denied.body') }}</p>
+  <p class="mono small">{{ denied.reason }}{% if denied.code %} <a href="/help/codes/{{ denied.code }}">{{ denied.code }}</a>{% endif %}</p>
+</div>
+{%- endmacro %}
+
+{# A time as the engine sent it -- an ISO-8601 instant, shown to the minute in UTC with the
+   full instant on hover -- or a dash for one it did not send. #}
+{% macro when(value) -%}
+{% if value and value|length >= 16 and value[10] == 'T' and value.endswith('Z') -%}
+<span class="mono" title="{{ value }}">{{ t('people.utc', at=value[:16]|replace('T', ' ')) }}</span>
+{%- elif value %}<span class="mono">{{ value }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
+{%- endmacro %}

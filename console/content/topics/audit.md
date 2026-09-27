@@ -178,10 +178,10 @@ payroll" has an answer too.
 
 ## Pitfalls
 
-!!! warning "Pitfall: the console reads as one identity"
-    The console reaches the engine with one token (`engine.token`), so the Admin · Audit screen shows
-    the trail exactly when that identity may read it, and every action a console user takes is
-    recorded under that identity. Attribute console actions to people from the console's own log.
+!!! note "The console reads as the person signed in"
+    The console reaches the engine with the signed-in person's own session (ADR-052), so the
+    Admin · Audit screen shows the trail exactly when that person may read it, and every action
+    taken through the console is recorded under the name of the person who took it.
 
 !!! warning "Pitfall: a relative audit-file"
     The default `pravaha-audit.jsonl` lands in whatever directory the server was started from, which

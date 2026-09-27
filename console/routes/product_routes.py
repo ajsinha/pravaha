@@ -37,7 +37,7 @@ from core import authoring
 from core.services import ServiceError, jsonable
 from core.snippets import SnippetError, snippets
 from routes.auth_routes import current_user, local_path, login_required
-from routes.base import ROLES, Routes, failure, role_of, sign_in_first
+from routes.base import ROLES, Routes, failure, role_of, session_roles, sign_in_first
 
 logger = logging.getLogger(__name__)
 
@@ -88,11 +88,17 @@ class ProductRoutes(Routes):
         def choose_role(request: Request, role: str = Form(...), next: str = Form("/home")):
             if (refusal := login_required(request)) is not None:
                 return refusal
-            if role in ROLES:
-                request.session["role"] = role
             target = local_path(next)
-            return RedirectResponse(ROLES.get(role, {}).get("landing", target)
-                                    if target == "/home" else target, status_code=303)
+            answer = RedirectResponse(ROLES.get(role, {}).get("landing", target)
+                                      if target == "/home" else target, status_code=303)
+            if role in ROLES:
+                # A landing, per person (ADR-052 keeps it a preference): this session now, and
+                # this person's next sign-in on this browser. It grants nothing.
+                request.session["role"] = role
+                remember = self.ctx.get("remember_landing")
+                if remember is not None:
+                    remember(request, answer, current_user(request), role)
+            return answer
 
         @self.app.get("/start", response_class=HTMLResponse, tags=["ui"])
         def start(request: Request, stream: str = ""):
@@ -447,10 +453,14 @@ class ProductRoutes(Routes):
                 page("workbench", "/workbench"), page("catalog", "/catalog"), page("views", "/views"),
                 page("operations", "/operations"), page("queries", "/queries"), page("start", "/start"),
                 page("plugins", "/plugins"), page("access", "/admin/access"), page("audit", "/admin/audit"),
-                page("tenants", "/admin/tenants"),
+                page("tenants", "/admin/tenants"), page("account", "/account"),
                 {"kind": "action", "title": t("palette.action.new_query"), "href": "/workbench?new=1",
                  "hint": t("palette.hint.new_query")},
             ]
+            if "admin" in session_roles(request):
+                # Offered to whom the engine made an administrator; the engine decides regardless.
+                items += [page("users", "/admin/users"), page("keys", "/admin/keys"),
+                          page("sessions", "/admin/sessions")]
             for key, meta in ROLES.items():
                 if key != role:
                     items.append({"kind": "role", "title": t("palette.role", role=t(meta["label"]).lower()),

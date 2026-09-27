@@ -7,15 +7,27 @@ It replaces exactly one object -- the only thing in the console that touches the
 engine's HTTP API -- so everything above it (services, routes, templates, the session gate,
 the islands in a real browser) is the real console. Its answers are fixed, which is what
 lets a screenshot of a page be compared with yesterday's.
+
+It is also the identity authority the console signs people in against (ADR-052,
+``fake_identity.FakeIdentity``): every call made while serving a request carries that request's
+engine session (``core.credential``), and the fake refuses one that has ended with ``PRV-7016``
+exactly as the engine does -- so a console that forgot to send the person's token, or kept
+serving a session the engine has ended, fails its tests.
 """
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import re
 import sys
 import time
 
+from fake_identity import ADMIN, ADMIN_PASSWORD, FakeIdentity
+
+from core import credential
 from core.engine import EngineHttpError, QueryRow
+
+__all__ = ["ADMIN", "ADMIN_PASSWORD", "FakeEngine"]
 
 SINK_SECRET = "jdbc-password-that-the-engine-never-publishes"
 
@@ -73,10 +85,13 @@ this line is not a sample
 class FakeEngine:
     """Engine's public surface, answered from memory. ``down`` makes every call fail."""
 
-    def __init__(self, down: bool = False) -> None:
+    def __init__(self, down: bool = False, *, force_change: bool = False,
+                 clock=time.time, max_sessions: int | None = 3) -> None:
         self.url = "grpc://engine.test:19090"
         self.http_url = "http://engine.test:18080"
         self.down = down
+        #: ADR-052's users, sessions and keys; the console signs in against this.
+        self.identity = FakeIdentity(force_change=force_change, clock=clock, max_sessions=max_sessions)
         #: Calls that fail, and calls that take this many seconds, by method name (``_check``).
         self.failing: dict[str, Exception] = {}
         self.slow: dict[str, float] = {}
@@ -208,6 +223,7 @@ class FakeEngine:
         screen in its partial, error or first-loading state (design 23.12)."""
         if self.down:
             raise EngineHttpError(0, "the engine's HTTP API at http://engine.test:18080 did not answer")
+        self._session()
         call = sys._getframe(1).f_code.co_name
         if self.slow.get(call):
             time.sleep(self.slow[call])
@@ -223,6 +239,88 @@ class FakeEngine:
     def heal(self) -> None:
         self.failing.clear()
         self.slow.clear()
+
+    def _session(self):
+        """The bearer this request carries, checked as the engine checks it. Outside a request --
+        a test calling the fake directly -- there is no bearer to check."""
+        if credential.current() is None:
+            return None
+        return self._as_identity(lambda token: self.identity.principal(token)[0])
+
+    def principal_name(self) -> str:
+        """Who the current request is, for answers that name the caller."""
+        held = credential.current()
+        if held is None or not held.token:
+            return "anonymous"
+        user = self.identity.sessions.get(hashlib.sha256(held.token.encode()).hexdigest())
+        return user["username"] if user else "anonymous"
+
+    def _as_identity(self, call):
+        """An identity call as the engine's HTTP API answers it: refused when down, and a refusal
+        of the credential noted on it, as the real adapter notes it."""
+        if self.down:
+            raise EngineHttpError(0, "the engine's HTTP API at http://engine.test:18080 did not answer")
+        try:
+            return call(credential.token())
+        except EngineHttpError as exc:
+            credential.note_refusal(exc)
+            raise
+
+    # ADR-052: the identity endpoints, as core.engine.Engine calls them
+    def login(self, username, password):
+        if self.down:
+            raise EngineHttpError(0, "the engine's HTTP API at http://engine.test:18080 did not answer")
+        return self.identity.login(username, password)
+
+    def logout(self):
+        return self._as_identity(self.identity.logout)
+
+    def me(self):
+        return self._as_identity(self.identity.me)
+
+    def change_password(self, current, new):
+        return self._as_identity(lambda t: self.identity.change_password(t, current, new))
+
+    def redeem_reset(self, token, password):
+        if self.down:
+            raise EngineHttpError(0, "the engine's HTTP API at http://engine.test:18080 did not answer")
+        return self.identity.redeem(token, password)
+
+    def users(self):
+        return self._as_identity(self.identity.list_users)
+
+    def create_user(self, fields):
+        return self._as_identity(lambda t: self.identity.create_user(t, fields))
+
+    def update_user(self, username, fields):
+        return self._as_identity(lambda t: self.identity.update_user(t, username, fields))
+
+    def set_roles(self, username, roles):
+        return self._as_identity(lambda t: self.identity.set_roles(t, username, roles))
+
+    def reset_password(self, username):
+        return self._as_identity(lambda t: self.identity.reset(t, username))
+
+    def keys(self, all_keys=False):
+        return self._as_identity(lambda t: self.identity.list_keys(t, all_keys))
+
+    def create_key(self, name, roles, expires_days, for_user=None):
+        return self._as_identity(lambda t: self.identity.create_key(t, name, roles, expires_days, for_user))
+
+    def revoke_key(self, key_id):
+        return self._as_identity(lambda t: self.identity.revoke_key(t, key_id))
+
+    def rotate_key(self, key_id):
+        return self._as_identity(lambda t: self.identity.rotate_key(t, key_id))
+
+    def key_report(self):
+        return self._as_identity(self.identity.key_report)
+
+    def sessions(self, all_sessions=False):
+        return self._as_identity(lambda t: self.identity.list_sessions(t, all_sessions))
+
+    def end_session(self, session_id):
+        return self._as_identity(lambda t: self.identity.end_session(t, session_id))
 
     # Flight half
     def health(self):
@@ -248,6 +346,7 @@ class FakeEngine:
     def queries(self):
         if self.down:
             raise ConnectionError("connection refused")
+        self._session()
         if self.slow.get("queries"):
             time.sleep(self.slow["queries"])
         if "queries" in self.failing:
@@ -273,6 +372,7 @@ class FakeEngine:
         return ["txn_id", "user_id", "amount"], [list(r) for r in self.rows], ["int64", "string", "int64"]
 
     def tail(self, view, filters=None):
+        self._session()
         yield {"txn_id": 1, "user_id": "u1", "amount": 150, "_weight": 1}
         yield {"txn_id": 1, "user_id": "u1", "amount": 150, "_weight": -1}
 
@@ -281,6 +381,7 @@ class FakeEngine:
         return [{"txn_id": r[0], "user_id": r[1], "amount": r[2], "_weight": 1} for r in self.rows]
 
     def mirror(self, view, filters=None):
+        self._session()
         yield ("snapshot", self.snapshot_rows(), 1)
         yield ("commit", list(self.tail(view, filters)), 2)
 
@@ -823,7 +924,7 @@ class FakeEngine:
         self._check()
         audit = ({"allowed": True, "reason": None} if self.audit_allowed else
                  {"allowed": False, "reason": AUDIT_REFUSAL})
-        return {"principal": "console", "tenant": "public", "roles": ["admin"] if self.audit_allowed else [],
+        return {"principal": self.principal_name(), "tenant": "public", "roles": ["admin"] if self.audit_allowed else [],
                 "anonymous": False, "policy": "authenticated",
                 "register": ({"allowed": False, "reason": self.register_refusal} if self.register_refusal
                              else {"allowed": True, "reason": None}), "readAudit": audit,
@@ -851,7 +952,7 @@ class FakeEngine:
                  "action": action, "decision": decision, "limit": limit, "cursor": cursor}
         self.audit_calls.append({k: v for k, v in asked.items() if v is not None})
         if not self.audit_allowed:
-            raise EngineHttpError(403, "console may not read the audit trail: " + AUDIT_REFUSAL, "PRV-7002")
+            raise EngineHttpError(403, self.principal_name() + " may not read the audit trail: " + AUDIT_REFUSAL, "PRV-7002")
         matching = [e for e in reversed(self.audit_events)
                     if (principal is None or e["principal"] == principal)
                     and (view is None or (e["target"] or "").lower() == view.lower())

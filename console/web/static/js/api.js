@@ -22,11 +22,19 @@
     return Math.random().toString(16).slice(2, 10);
   }
 
+  /* The session's CSRF token (base.html's meta tag), sent on every call: the console refuses a
+     POST, PUT, PATCH or DELETE without it, and sending it on a GET costs nothing. */
+  function csrfToken() {
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? meta.getAttribute("content") || "" : "";
+  }
+
   async function call(path, options) {
     options = options || {};
     var correlation = correlationId();
     var headers = Object.assign(
-      {"Content-Type": "application/json", "X-Correlation-Id": correlation},
+      {"Content-Type": "application/json", "X-Correlation-Id": correlation,
+       "X-CSRF-Token": csrfToken()},
       options.headers || {});
     var response = await fetch(API + path, Object.assign({}, options, {headers: headers}));
     var payload = await response.json().catch(function () { return {}; });
@@ -88,5 +96,5 @@
     }
   };
 
-  window.PravahaApi = {call: call, escapeHtml: escapeHtml, Url: Url, base: API, t: t};
+  window.PravahaApi = {call: call, escapeHtml: escapeHtml, Url: Url, base: API, t: t, csrfToken: csrfToken};
 }());

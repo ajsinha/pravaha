@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% import "_states.html" as states %}
+{% import "_people.html" as people %}
+{% block title %}{{ t('account.title') }} — {{ app_name }}{% endblock %}
+{% block content %}
+{#- ADR-052: everything on this page is the engine's answer for the signed-in person, asked with
+    their own session. Creating, rotating and revoking a key, and ending a session, are the
+    engine's to allow; this page only asks. -#}
+<div class="page-head">
+  <div>
+    <div class="accent"></div>
+    <p class="kicker mt-2 mb-1">{{ t('account.kicker') }}</p>
+    <h1>{{ t('account.heading') }}</h1>
+  </div>
+</div>
+<div class="rule"></div>
+
+{{ people.flashes(flashes) }}
+{{ people.issued_secret(issued) }}
+
+<div class="row g-3 mb-4">
+  <div class="col-lg-6"><section class="card h-100" aria-labelledby="account-who-title"><div class="card-body">
+    <h2 class="h6" id="account-who-title">{{ t('account.who') }}</h2>
+    {% if me_error %}
+    {{ states.error(me_error, retry_href='/account', id='account-me-error', title=t('account.me_error')) }}
+    {% else %}
+    <dl class="plugin-facts small mb-2" id="account-facts">
+      <dt>{{ t('account.username') }}</dt><dd class="mono">{{ me.get('username') or username }}</dd>
+      {% if me.get('displayName') %}<dt>{{ t('account.display_name') }}</dt><dd>{{ me.displayName }}</dd>{% endif %}
+      {% if me.get('email') %}<dt>{{ t('account.email') }}</dt><dd>{{ me.email }}</dd>{% endif %}
+      {% if me.get('tenant') %}<dt>{{ t('account.tenant') }}</dt><dd class="mono">{{ me.tenant }}</dd>{% endif %}
+      <dt>{{ t('account.roles') }}</dt>
+      <dd>{% for r in (me.get('roles') or my_roles) %}<span class="chip mute me-1">{{ r }}</span>{% else %}<span class="text-muted">{{ t('account.no_roles') }}</span>{% endfor %}</dd>
+      {% if me.get('passwordExpiresAt') %}<dt>{{ t('account.password_expires') }}</dt><dd class="mono">{{ me.passwordExpiresAt }}</dd>{% endif %}
+    </dl>
+    {% endif %}
+    <a class="btn btn-sm btn-outline-secondary" href="/account/password" id="account-change-password">{{ t('account.password.change') }}</a>
+  </div></section></div>
+
+  <div class="col-lg-6"><section class="card h-100" aria-labelledby="account-landing-title"><div class="card-body">
+    <h2 class="h6" id="account-landing-title">{{ t('account.landing.title') }}</h2>
+    <p class="small text-muted">{{ t('account.landing.note') }}</p>
+    <form method="post" action="/preferences/role" id="account-landing-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="next" value="/account">
+      <fieldset>
+        <legend class="visually-hidden">{{ t('account.landing.title') }}</legend>
+        {% for key, meta in roles.items() %}
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="role" id="landing-{{ key }}" value="{{ key }}"
+                 {{ 'checked' if key == role else '' }}>
+          <label class="form-check-label small" for="landing-{{ key }}"><strong>{{ t(meta.label) }}</strong>
+            <span class="text-muted">— {{ t('account.landing.lands_on', path=meta.landing) }}</span></label>
+        </div>
+        {% endfor %}
+      </fieldset>
+      <button class="btn btn-sm btn-primary mt-2" type="submit">{{ t('account.landing.save') }}</button>
+    </form>
+  </div></section></div>
+</div>
+
+<section id="keys" class="mb-4">
+  <h2 class="h5" id="keys-title">{{ t('account.keys.title') }}</h2>
+  <p class="small text-muted">{{ t('account.keys.lede') }}</p>
+  {% if keys_error %}
+  {{ states.error(keys_error, retry_href='/account', id='keys-error', title=t('account.keys.error')) }}
+  {% elif not my_keys %}
+  {{ states.empty(t('account.keys.none.title'), body=t('account.keys.none.body'), id='keys-none', heading='h3') }}
+  {% else %}
+  <div class="card mb-3"><div class="table-responsive" tabindex="0" role="region" aria-label="{{ t('account.keys.caption') }}"><table class="table table-sm mb-0 small" id="keys-table">
+    <caption class="visually-hidden">{{ t('account.keys.caption') }}</caption>
+    <thead><tr>
+      <th scope="col">{{ t('people.col.key_id') }}</th><th scope="col">{{ t('people.col.name') }}</th>
+      <th scope="col">{{ t('people.col.roles') }}</th><th scope="col">{{ t('people.col.expires') }}</th>
+      <th scope="col">{{ t('people.col.last_used') }}</th><th scope="col">{{ t('people.col.status') }}</th>
+      <th scope="col">{{ t('people.col.actions') }}</th>
+    </tr></thead>
+    <tbody>{% for k in my_keys %}<tr data-key="{{ k.keyId }}">
+      <td class="mono">{{ k.keyId }}</td><td>{{ k.name }}</td>
+      <td>{% for r in k.roles %}<span class="chip mute me-1">{{ r }}</span>{% endfor %}</td>
+      <td>{{ people.when(k.expiresAt) }}</td><td>{{ people.when(k.lastUsedAt) }}</td>
+      <td><span class="chip {{ 'ok' if k.status == 'active' else 'mute' }}">{{ k.status }}</span></td>
+      <td>{% if k.status == 'active' %}<div class="d-flex flex-wrap gap-1">
+        <form method="post" action="/account/keys/{{ k.keyId }}/rotate" class="m-0">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="btn btn-sm btn-outline-secondary" type="submit" aria-label="{{ t('account.keys.rotate_label', key_id=k.keyId) }}">{{ t('account.keys.rotate') }}</button>
+        </form>
+        <form method="post" action="/account/keys/{{ k.keyId }}/revoke" class="m-0">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="btn btn-sm btn-outline-danger" type="submit" aria-label="{{ t('account.keys.revoke_label', key_id=k.keyId) }}">{{ t('account.keys.revoke') }}</button>
+        </form>
+      </div>{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div></div>
+  {% endif %}
+
+  <form method="post" action="/account/keys" class="card" id="key-create-form" aria-labelledby="key-create-title"><div class="card-body">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <h3 class="h6" id="key-create-title">{{ t('account.keys.create') }}</h3>
+    <div class="row g-2 align-items-end">
+      <div class="col-sm-6 col-lg-4"><label class="form-label small" for="key-name">{{ t('account.keys.name') }}</label>
+        <input class="form-control form-control-sm" id="key-name" name="name" required maxlength="80" autocomplete="off"></div>
+      <div class="col-sm-6 col-lg-2"><label class="form-label small" for="key-days">{{ t('account.keys.days') }}</label>
+        <input class="form-control form-control-sm" id="key-days" name="days" type="number" min="1" max="365" value="90"></div>
+      <div class="col-lg-6"><div role="group" aria-labelledby="key-roles-label" aria-describedby="key-roles-note">
+        <div class="form-label small" id="key-roles-label">{{ t('account.keys.roles') }}</div>
+        {% for r in my_roles %}
+        <div class="form-check form-check-inline">
+          {# Every role but administration ticked: a key that can administer is one to make on purpose. #}
+          <input class="form-check-input" type="checkbox" name="roles" id="key-role-{{ loop.index }}" value="{{ r }}"{{ '' if r == 'admin' else ' checked' }}>
+          <label class="form-check-label small mono" for="key-role-{{ loop.index }}">{{ r }}</label>
+        </div>
+        {% else %}<span class="small text-muted">{{ t('account.no_roles') }}</span>{% endfor %}
+        <div class="form-text small" id="key-roles-note">{{ t('account.keys.roles_note') }}</div>
+      </div></div>
+    </div>
+    <p class="small text-muted mt-2 mb-2">{{ t('account.keys.create_note') }}</p>
+    <button class="btn btn-sm btn-primary" type="submit">{{ t('account.keys.create_button') }}</button>
+  </div></form>
+</section>
+
+<section id="sessions" class="mb-4">
+  <h2 class="h5" id="sessions-title">{{ t('account.sessions.title') }}</h2>
+  <p class="small text-muted">{{ t('account.sessions.lede') }}</p>
+  {% if sessions_error %}
+  {{ states.error(sessions_error, retry_href='/account', id='sessions-error', title=t('account.sessions.error')) }}
+  {% elif not my_sessions %}
+  {{ states.empty(t('account.sessions.none'), id='sessions-none', heading='h3') }}
+  {% else %}
+  <div class="card"><div class="table-responsive" tabindex="0" role="region" aria-label="{{ t('account.sessions.caption') }}"><table class="table table-sm mb-0 small" id="sessions-table">
+    <caption class="visually-hidden">{{ t('account.sessions.caption') }}</caption>
+    <thead><tr>
+      <th scope="col">{{ t('people.col.started') }}</th><th scope="col">{{ t('people.col.last_seen') }}</th>
+      <th scope="col">{{ t('people.col.expires') }}</th><th scope="col">{{ t('people.col.client') }}</th>
+      <th scope="col">{{ t('people.col.actions') }}</th>
+    </tr></thead>
+    <tbody>{% for s in my_sessions %}<tr data-session="{{ s.id }}">
+      <td>{{ people.when(s.createdAt) }}{% if s.current %} <span class="chip ok">{{ t('people.this_session') }}</span>{% endif %}</td>
+      <td>{{ people.when(s.lastSeenAt) }}</td><td>{{ people.when(s.expiresAt) }}</td>
+      <td>{{ s.client or '—' }}</td>
+      <td><form method="post" action="/account/sessions/{{ s.id }}/end" class="m-0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="current" value="{{ 'yes' if s.current else 'no' }}">
+        <button class="btn btn-sm btn-outline-danger" type="submit"
+                aria-label="{{ t('account.sessions.end_label', at=s.createdAt or s.id) }}">{{ t('account.sessions.end_this') if s.current else t('account.sessions.end') }}</button>
+      </form></td>
+    </tr>{% endfor %}</tbody>
+  </table></div></div>
+  {% endif %}
+</section>
+{% endblock %}

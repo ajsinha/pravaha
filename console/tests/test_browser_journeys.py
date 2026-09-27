@@ -28,6 +28,7 @@ import time
 import pytest
 from browser_harness import (
     PASSWORD,
+    USERNAME,
     fresh_console,
     own_console,
     settled,
@@ -100,7 +101,9 @@ def test_signing_out_comes_back_to_the_landing_page(page):
         page.goto(own.url("/"))
         settled(page)
         assert "Open the console" in page.text("#rail-cta")
-        page.wait_for_navigation(lambda: page.goto(own.url("/logout")))
+        # The account menu's sign-out: a form, carrying the page's CSRF token (ADR-052).
+        page.wait_for_navigation(lambda: page.eval(
+            "(() => { document.getElementById('sign-out-form').submit(); return true; })()"))
         assert page.url().rstrip("/").endswith(own.url("").rstrip("/")), page.url()
         assert "Sign in" in page.text("#rail-cta")
         assert page.exceptions == [], page.exceptions
@@ -297,7 +300,10 @@ def test_a_view_can_be_found_and_queried_without_a_mouse(page, console):
     """Sign in, jump to a view from the palette, and ask it a point query -- keys only."""
     page.goto(console.url("/login?next=/home"))
     settled(page)
-    page.focus("#password")
+    # The username field has the focus on arrival; Tab reaches the password.
+    assert page.eval("document.activeElement.id") == "username"
+    page.type(USERNAME)
+    page.press("Tab")
     page.type(PASSWORD)
     page.wait_for_navigation(lambda: page.press("Enter"))
     page.press("k", "Control")

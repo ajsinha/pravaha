@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% from "_admin_head.html" import admin_head with context %}
+{% import "_states.html" as states %}
+{% import "_people.html" as people %}
+{% block title %}{{ t('admin.sessions.title') }} — {{ app_name }}{% endblock %}
+{% block content %}
+{#- ADR-052: every open session the engine holds -- 30 minutes idle, 12 hours at most, three a
+    person -- and ending one, which takes effect on that person's next request. -#}
+{{ admin_head('sessions', t('admin.sessions.heading')) }}
+<p class="lede">{{ t('admin.sessions.lede') }}</p>
+
+{{ people.flashes(flashes) }}
+
+<form method="get" action="/admin/sessions" class="d-flex flex-wrap gap-2 align-items-end mb-3" id="sessions-filter">
+  <div><label class="form-label small mb-1" for="sf-user">{{ t('admin.sessions.whose') }}</label>
+    <input class="form-control form-control-sm mono" id="sf-user" name="user" value="{{ whose }}" autocomplete="off"></div>
+  <button class="btn btn-sm btn-outline-secondary" type="submit">{{ t('admin.sessions.filter') }}</button>
+  {% if whose %}<a class="btn btn-sm btn-link" href="/admin/sessions">{{ t('admin.sessions.everyone') }}</a>{% endif %}
+</form>
+
+{% if denied %}
+{{ people.not_permitted(denied, 'sessions-not-permitted') }}
+{% elif sessions_error %}
+{{ states.error(sessions_error, retry_href='/admin/sessions', id='sessions-error', title=t('admin.sessions.error')) }}
+{% elif not sessions %}
+{{ states.empty(t('admin.sessions.none'), id='sessions-none') }}
+{% else %}
+<div class="card"><div class="table-responsive" tabindex="0" role="region" aria-label="{{ t('admin.sessions.caption') }}"><table class="table table-sm mb-0 small" id="sessions-table">
+  <caption class="visually-hidden">{{ t('admin.sessions.caption') }}</caption>
+  <thead><tr>
+    <th scope="col">{{ t('people.col.user') }}</th><th scope="col">{{ t('people.col.started') }}</th>
+    <th scope="col">{{ t('people.col.last_seen') }}</th><th scope="col">{{ t('people.col.expires') }}</th>
+    <th scope="col">{{ t('people.col.client') }}</th><th scope="col">{{ t('people.col.actions') }}</th>
+  </tr></thead>
+  <tbody>{% for s in sessions %}<tr data-session="{{ s.id }}">
+    <td class="mono">{{ s.username }}{% if s.current %} <span class="chip ok">{{ t('people.this_session') }}</span>{% endif %}</td>
+    <td>{{ people.when(s.createdAt) }}</td><td>{{ people.when(s.lastSeenAt) }}</td><td>{{ people.when(s.expiresAt) }}</td>
+    <td>{{ s.client or '—' }}</td>
+    <td><form method="post" action="/admin/sessions/{{ s.id }}/end" class="m-0">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="current" value="{{ 'yes' if s.current else 'no' }}">
+      <button class="btn btn-sm btn-outline-danger" type="submit"
+              aria-label="{{ t('admin.sessions.end_label', user=s.username, at=s.createdAt or s.id) }}">{{ t('account.sessions.end') }}</button>
+    </form></td>
+  </tr>{% endfor %}</tbody>
+</table></div></div>
+{% endif %}
+{% endblock %}

@@ -46,6 +46,7 @@
     <a href="/admin/access">{{ t('cutover.refused_access') }}</a></div>
   {% else %}
   <form method="post" action="/queries/{{ query.name }}/replacement/start" class="card" id="rep-start-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="card-body">
       <p class="small text-muted" id="rep-start-note">{{ t('cutover.start.note') }}
         <a href="/workbench?query={{ query.name }}">{{ t('cutover.start.workbench') }}</a></p>
@@ -169,9 +170,11 @@
 <div class="d-flex flex-wrap gap-2 align-items-end">
   {% if active %}
   <form method="post" action="/queries/{{ query.name }}/replacement/{{ 'resume' if bf.paused else 'pause' }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button class="btn btn-sm btn-outline-secondary" id="bf-pause" type="submit">{{ t('cutover.controls.resume') if bf.paused else t('cutover.controls.pause') }}</button>
   </form>
   <form method="post" action="/queries/{{ query.name }}/replacement/throttle" class="d-flex gap-2 align-items-end">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div>
       <label class="form-label small mb-1" for="bf-rate">{{ t('cutover.controls.rate_label') }}</label>
       <input class="form-control form-control-sm" style="width:9rem" type="number" min="0" step="1"
@@ -189,6 +192,7 @@
      disabled button takes no focus and shows no tooltip, so a title alone is a reason
      nobody can read. (The same finding the component gallery made about unauthorized.) #}
   <form method="post" action="/queries/{{ query.name }}/replacement/cutover" id="cutoverForm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button class="btn btn-sm btn-primary" id="rep-cutover-plain" type="submit"
             {{ 'disabled' if not bf.historyComplete }}
             {% if not bf.historyComplete %}aria-describedby="rep-cutover-early"{% else %}title="{{ t('cutover.controls.cutover_title') }}"{% endif %}>{{ t('cutover.controls.cutover') }}</button>
@@ -198,12 +202,14 @@
           {% if not bf.historyComplete %}aria-describedby="rep-cutover-early"{% endif %}
           data-bs-toggle="modal" data-bs-target="#cutoverConfirmModal">{{ t('cutover.controls.cutover') }}</button>
   <form method="post" action="/queries/{{ query.name }}/replacement/abandon">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button class="btn btn-sm btn-outline-secondary" id="rep-abandon" type="submit">{{ t('cutover.controls.abandon') }}</button>
   </form>
   {% endif %}
 
   {% if replacement.state == 'CUT_OVER' %}
   <form method="post" action="/queries/{{ query.name }}/replacement/rollback" id="rollbackForm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button class="btn btn-sm btn-outline-danger" id="rep-rollback-plain" type="submit"
             {{ 'disabled' if not replacement.rollbackAvailable }}
             {% if not replacement.rollbackAvailable %}aria-describedby="rep-rollback-gone"{% else %}title="{{ t('cutover.controls.rollback_title') }}"{% endif %}>{{ t('cutover.controls.rollback') }}</button>
@@ -213,6 +219,7 @@
           {% if not replacement.rollbackAvailable %}aria-describedby="rep-rollback-gone"{% endif %}
           data-bs-toggle="modal" data-bs-target="#rollbackConfirmModal">{{ t('cutover.controls.rollback') }}</button>
   <form method="post" action="/queries/{{ query.name }}/replacement/finish">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button class="btn btn-sm btn-outline-secondary" id="rep-finish" type="submit">{{ t('cutover.controls.finish') }}</button>
   </form>
   {% endif %}

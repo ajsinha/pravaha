@@ -14,6 +14,13 @@
   <a href="/admin/access" {% if tab == 'access' %}aria-current="page"{% endif %}>{{ t('admin.tab.access') }}</a>
   <a href="/admin/audit" {% if tab == 'audit' %}aria-current="page"{% endif %}>{{ t('admin.tab.audit') }}</a>
   <a href="/admin/tenants" {% if tab == 'tenants' %}aria-current="page"{% endif %}>{{ t('admin.tab.tenants') }}</a>
+  {# ADR-052's people screens, offered to whom the engine made an administrator -- or on the
+     screen itself, so the tab that is open is never missing. The engine decides either way. #}
+  {% if is_admin or tab in ('users', 'keys', 'sessions') %}
+  <a href="/admin/users" {% if tab == 'users' %}aria-current="page"{% endif %}>{{ t('admin.tab.users') }}</a>
+  <a href="/admin/keys" {% if tab == 'keys' %}aria-current="page"{% endif %}>{{ t('admin.tab.keys') }}</a>
+  <a href="/admin/sessions" {% if tab == 'sessions' %}aria-current="page"{% endif %}>{{ t('admin.tab.sessions') }}</a>
+  {% endif %}
   <a href="/plugins">{{ t('admin.tab.plugins') }}</a>
 </nav>
 {% endmacro %}

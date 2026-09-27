@@ -29,14 +29,17 @@ app:
     years: "2026"
     holder: Ashutosh Sinha
 
-# The console's own gate. It protects the console's controls -- registering, pausing and
-# dropping queries -- and is NOT the engine's identity model: the engine authenticates its
-# clients through the deployment's own provider (TokenVerifier).
-#
-# Empty by default, and an empty password means nobody can sign in. That is the safe
-# failure: a default password is a public password, and this console can destroy state.
+# Signing in (ADR-052). The engine is the identity authority: a person signs in with the
+# username and password the engine holds for them, the console keeps the engine session token
+# it answers with in a signed cookie, and every engine call it makes for that person carries
+# that token. The console has no password of its own and no engine token of its own -- a new
+# person, a password reset or an API key is administered in the engine (Admin · Users here,
+# `pravaha user` on the command line, or its REST API).
 console:
-  password: "${CONSOLE_PASSWORD:}"
+  # Mark the session cookie Secure always. Without this it is Secure exactly when the request
+  # reached the console over https, which is right unless a proxy terminates TLS and forwards
+  # plain http without saying so (run uvicorn with --proxy-headers so it can).
+  secure_cookies: "${CONSOLE_SECURE_COOKIES:false}"
   # Signs the session cookie. Empty means one is generated at startup, which is fine for a
   # single instance and logs everybody out on restart; set it to share sessions across
   # instances or to survive a restart.
@@ -52,9 +55,8 @@ server:
 # mode nobody is watching for concurrency nobody needs at this scale.
 engine:
   url: "${PRAVAHA_ENGINE:grpc://localhost:19090}"
-  # A bearer token, if the engine requires one. Belongs in the .local overlay
-  # or the environment, never here.
-  token: "${PRAVAHA_TOKEN:}"
+  # No token: the console calls the engine as the person signed in, with their own engine
+  # session (ADR-052). `engine.token` is no longer read.
   # How long a health answer is reused. The overview polls it, and every browser
   # asking the engine directly would make the health check a load source of its
   # own -- which is the failure where monitoring takes down what it monitors.
@@ -85,7 +87,8 @@ ui:
   lag_warn_seconds: 300
   # Where a signed-in person lands when they have not chosen: analyst (workbench),
   # operator (operations dashboard) or developer (views). Each person can change their own
-  # from the account menu; this is only the default.
+  # from the account menu or their account page, and it is remembered for them on that
+  # browser; this is only the default. It picks a screen, never a permission.
   default_role: "${CONSOLE_DEFAULT_ROLE:operator}"
   # /_components: every design-system component and the eight states of design 23.12 on one
   # page, rendered by the console itself -- the no-build stand-in for Storybook, for whoever

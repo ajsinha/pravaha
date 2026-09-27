@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_admin_head.html" import admin_head %}
+{% from "_admin_head.html" import admin_head with context %}
 {% from "_helpcards.html" import screenhelp, helplink %}
 {% import "_states.html" as states %}
 {% block title %}{{ t('admin.audit.title') }} — {{ app_name }}{% endblock %}

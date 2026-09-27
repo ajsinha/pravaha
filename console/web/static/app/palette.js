@@ -51,7 +51,8 @@ function highlight(text, marks) {
 function submitRole(role) {
   const form = document.createElement("form");
   form.method = "post"; form.action = "/preferences/role";
-  for (const [name, value] of [["role", role], ["next", "/home"]]) {
+  const csrf = window.PravahaApi ? window.PravahaApi.csrfToken() : "";
+  for (const [name, value] of [["csrf_token", csrf], ["role", role], ["next", "/home"]]) {
     const input = document.createElement("input");
     input.type = "hidden"; input.name = name; input.value = value; form.appendChild(input);
   }

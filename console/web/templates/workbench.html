@@ -68,6 +68,7 @@
        form: run the SQL once, or register it, with the server rendering the answer. #}
     <div id="workbench-app" data-origin="{{ origin }}"{% if register_refused %} data-register-refused="{{ register_refused }}"{% endif %}>
       <form method="post" action="/workbench" id="run-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="card"><div class="card-body">
           <div class="mb-3">
             <label class="form-label small text-muted mb-1" for="sql">SQL</label>
@@ -85,6 +86,7 @@
       </form>
 
       <form method="post" action="/queries" class="card mt-3" id="register-form"><div class="card-body">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="row g-2 align-items-end">
           <div class="col-sm-4">
             <label class="form-label small text-muted mb-1" for="name">{{ t('workbench.register_as') }}</label>

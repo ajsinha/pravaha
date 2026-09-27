@@ -72,6 +72,7 @@
                   action_label=t('debug.checkpoints.none_help')) }}
 {% else %}
 <form method="post" action="/queries/{{ query.name }}/debug/fork" class="card" id="dbg-fork-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <div class="card-body">
     <p class="small text-muted mb-3" id="dbg-fork-note">{{ t('debug.fork.note', n=checkpoints|length) }}</p>
     <div class="row g-3 align-items-end">
@@ -145,12 +146,14 @@
            swaps each for a fetch that appends to the log below, so a reader who steps fifty
            times does not navigate fifty times. #}
         <form method="post" action="/queries/{{ query.name }}/debug/step" class="d-flex flex-wrap gap-2 mb-3" id="dbg-step-quick">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="session" value="{{ session.id }}">
           <button class="btn btn-sm btn-primary" id="dbg-step-row" type="submit" name="step" value="row">{{ t('debug.step.row') }}</button>
           <button class="btn btn-sm btn-outline-secondary" id="dbg-step-ten" type="submit" name="step" value="rows:10">{{ t('debug.step.ten') }}</button>
           <button class="btn btn-sm btn-outline-secondary" id="dbg-step-commit" type="submit" name="step" value="commit">{{ t('debug.step.commit') }}</button>
         </form>
         <form method="post" action="/queries/{{ query.name }}/debug/step" class="mb-0" id="dbg-step-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="session" value="{{ session.id }}">
           <label class="form-label small" for="dbg-step">{{ t('debug.step.spec') }}</label>
           <div class="d-flex gap-2">
@@ -312,6 +315,7 @@
 
 <h2>{{ t('debug.fixture.heading') }}</h2>
 <form method="post" action="/queries/{{ query.name }}/debug/fixture" class="card mb-3" id="dbg-fixture-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <div class="card-body">
     <input type="hidden" name="session" value="{{ session.id }}">
     <p class="small text-muted" id="dbg-fixture-note">{{ t('debug.fixture.note') }}</p>
@@ -336,6 +340,7 @@
 
 <h2>{{ t('debug.end.heading') }}</h2>
 <form method="post" action="/queries/{{ query.name }}/debug/end" class="d-flex gap-2 align-items-center" id="dbg-end-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <input type="hidden" name="session" value="{{ session.id }}">
   <button class="btn btn-sm btn-outline-danger" id="dbg-end" type="submit">{{ t('debug.end.button') }}</button>
   <span class="small text-muted" id="dbg-end-note">{{ t('debug.end.note') }}</span>
