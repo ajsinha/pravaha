@@ -112,6 +112,8 @@ Everything is proprietary and wholly owned by Ashutosh Sinha (§30.4).
 
 ## 2. Competitive Landscape & Winning Strategy
 
+> **Current view:** [`COMPETITIVE_LANDSCAPE.md`](COMPETITIVE_LANDSCAPE.md) — scored, dated and sourced. This section is the design's original intent, kept as history; its claims about Pravaha are targets, not measurements.
+
 A design that only fixes the draft's engineering produces a competent Flink alternative — and "a slightly better Flink" is not a product, because Flink is free, entrenched, and has a decade of ecosystem. Beating commercial products requires being *structurally different* in ways the incumbents cannot copy without abandoning their own architecture. This section defines that difference and makes it measurable.
 
 ### 2.1 The field

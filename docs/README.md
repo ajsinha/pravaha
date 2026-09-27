@@ -42,6 +42,7 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 | [Implementation plan](implementation_plan.md) | The wave roadmap and its gates |
 | [What is left](REMAINING.md) | Every remaining requirement, in batches that can be built at once, and how they are scheduled |
 | [Gate records](gates/) | Evidence packs. The retrospectives are the honest part |
+| [Competitive landscape](COMPETITIVE_LANDSCAPE.md) | Where Pravaha stands among the products that do part of its job: scored by category, dated, and plain about where it loses |
 
 ## A note on these documents
 
@@ -56,7 +57,7 @@ Several of them are **checked by the build** rather than maintained by memory:
   print. The blocks that need a running server are skipped, not covered
 - `DocumentationFreshnessTest` — every module is described, every ADR a document cites exists, and
   the README's status badge, status line and roadmap table agree about which wave this is. Its link
-  check is narrower than it sounds: thirteen files, and only targets carrying a file extension, so
+  check is narrower than it sounds: fifteen files, and only targets carrying a file extension, so
   about a third of the repository's internal links. Anchors are checked by nothing
 - `OPERATIONS.md` — every `pravaha.lane.*` key `application.yaml` declares must be named there, and
   every per-query gauge `PravahaMetrics` registers must appear in its metric table. A setting or a
