@@ -205,13 +205,7 @@ class AboutSource:
 
     def built(self) -> list[dict[str, str]]:
         """The README's "What works" table: one row per area, rendered."""
-        rows = []
-        for line in _section(self._read("README.md"), "What works").splitlines():
-            cells = [c.strip() for c in line.strip().strip("|").split("|")]
-            if len(cells) >= 2 and cells[0].startswith("**"):
-                rows.append({"area": cells[0].strip("*"),
-                             "html": self.renderer.render("|".join(cells[1:]))[0]})
-        return rows
+        return self._labelled(_section(self._read("README.md"), "What works"))
 
     def not_built(self) -> str:
         """The README's list of what is not built, or not finished, rendered as it is written."""
@@ -219,10 +213,21 @@ class AboutSource:
 
     def how_built(self) -> list[dict[str, str]]:
         """The README's "How it is built" table."""
+        return self._labelled(_section(self._read("README.md"), "How it is built"))
+
+    def _labelled(self, section: str) -> list[dict[str, str]]:
+        """One entry per ``- **Area** — text`` item, or per ``| **Area** | text |`` row: the README
+        holds these as lists (a long table stops GitHub's mobile app rendering the page), and a table
+        is still read, so either form of the file gives the page the same rows."""
         rows = []
-        for line in _section(self._read("README.md"), "How it is built").splitlines():
-            cells = [c.strip() for c in line.strip().strip("|").split("|")]
-            if len(cells) >= 2 and cells[0].startswith("**"):
+        for line in section.splitlines():
+            stripped = line.strip()
+            item = re.match(r"^- \*\*(.+?)\*\* — (.*)$", stripped)
+            if item:
+                rows.append({"area": item.group(1), "html": self.renderer.render(item.group(2))[0]})
+                continue
+            cells = [c.strip() for c in stripped.strip("|").split("|")]
+            if stripped.startswith("|") and len(cells) >= 2 and cells[0].startswith("**"):
                 rows.append({"area": cells[0].strip("*"),
                              "html": self.renderer.render("|".join(cells[1:]))[0]})
         return rows
