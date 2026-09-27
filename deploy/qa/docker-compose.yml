@@ -16,8 +16,8 @@
 #
 # Set in /opt/pravaha/.env if they must differ: PRAVAHA_HOME moves the whole tree (install.sh --home);
 # PRAVAHA_VERSION picks the images; PRAVAHA_HTTP_PORT, PRAVAHA_FLIGHT_PORT and PRAVAHA_CONSOLE_PORT
-# move the ports this host publishes -- when 8080 is already somebody else's, say. They change
-# only the host's side: inside, the engine is on 8080 and 9090 and the console reaches it there.
+# move the ports this host publishes -- when 18080 is already somebody else's, say. They change
+# only the host's side: inside, the engine is on 18080 and 19090 and the console reaches it there.
 
 name: pravaha
 
@@ -27,8 +27,8 @@ services:
     container_name: pravaha-server
     restart: unless-stopped
     ports:
-      - "${PRAVAHA_HTTP_PORT:-8080}:8080"   # HTTP: operator pages, REST API, probes
-      - "${PRAVAHA_FLIGHT_PORT:-9090}:9090" # Flight SQL: SDKs, CLI
+      - "${PRAVAHA_HTTP_PORT:-18080}:18080"   # HTTP: operator pages, REST API, probes
+      - "${PRAVAHA_FLIGHT_PORT:-19090}:19090" # Flight SQL: SDKs, CLI
       # - "5432:5432"                      # PostgreSQL wire, once pravaha.pgwire.enabled is true
     volumes:
       - ${PRAVAHA_HOME:-/opt/pravaha}/conf:/opt/pravaha/conf:ro
@@ -47,6 +47,6 @@ services:
       pravaha:
         condition: service_healthy
     ports:
-      - "${PRAVAHA_CONSOLE_PORT:-8090}:8090"
+      - "${PRAVAHA_CONSOLE_PORT:-17070}:17070"
     volumes:
       - ${PRAVAHA_HOME:-/opt/pravaha}/console/conf:/opt/pravaha/console/conf:ro

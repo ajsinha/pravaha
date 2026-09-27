@@ -44,9 +44,9 @@ WHERE s.shipment_id IS NULL
 
 def client():
     return connect(options=ClientOptions.create(
-        os.environ.get("PRAVAHA_URL", "grpc://localhost:9090"),
+        os.environ.get("PRAVAHA_URL", "grpc://localhost:19090"),
         token=os.environ["PRAVAHA_TOKEN"],
-        http_url=os.environ.get("PRAVAHA_HTTP_URL", "http://localhost:8080"),
+        http_url=os.environ.get("PRAVAHA_HTTP_URL", "http://localhost:18080"),
         allow_insecure_token=True,          # a QA host serves plaintext
     ))
 

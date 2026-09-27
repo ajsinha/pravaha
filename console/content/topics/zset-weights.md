@@ -73,7 +73,7 @@ Subscribe from Python, printing each row's weight:
 ```python
 from pravaha import connect
 
-with connect("grpc://localhost:9090") as client:
+with connect("grpc://localhost:19090") as client:
     for batch in client.subscribe("large_payments"):
         for row in batch:
             print(f"{row.weight:+d}", row["txn_id"], row["user_id"], row["amount"])

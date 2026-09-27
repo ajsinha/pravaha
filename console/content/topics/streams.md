@@ -115,13 +115,13 @@ binding at all registers and runs, and the node logs that nothing is attached. S
 The same two things in a JSON body — useful for a stream that exists only for an experiment:
 
 ```bash
-curl -s -X POST http://localhost:8080/api/v1/streams \
+curl -s -X POST http://localhost:18080/api/v1/streams \
      -H 'Content-Type: application/json' \
      -d '{"name": "txn",
           "schema": "txn_id:INT64,user_id:STRING,amount:INT64,event_time:TIMESTAMP",
           "eventTime": "event_time",
           "outOfOrderness": "PT10S"}'
-curl -s http://localhost:8080/api/v1/streams
+curl -s http://localhost:18080/api/v1/streams
 ```
 
 An optional `"allowedLateness": "PT1M"` declares the allowed lateness the same way.

@@ -19,7 +19,7 @@ package com.ash.messaging.pravaha.common.net;
  * How a host and a port are written down so that whoever reads them can connect.
  *
  * <p>CFG-2(c). An address in a log line or advertised to a cluster is copied into a connection
- * string, and {@code ::1:9090} cannot be parsed as one: the colons of the address and the colon
+ * string, and {@code ::1:19090} cannot be parsed as one: the colons of the address and the colon
  * before the port are the same character, so a reader -- human or machine -- cannot tell where the
  * host ends. RFC 3986 settled this with brackets and every client library follows it, so the one
  * place this project writes {@code host:port} follows it too, rather than each caller remembering.

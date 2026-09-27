@@ -41,7 +41,7 @@ Every case names one of these rather than restating it.
 **`H-CLI` — the CLI, no server.** Built with `./mvnw -pl pravaha-cli -am install -DskipTests`;
 `export PATH="$PWD/bin:$PATH"` from the repository root; `NO_COLOR=1` and output redirected, so
 `Ansi.enabled()` is false and every expectation below is plain text. **Nothing is listening on
-9090** — confirmed with `ss -ltn 'sport = :9090'` returning no row before the section runs.
+19090** — confirmed with `ss -ltn 'sport = :19090'` returning no row before the section runs.
 Constants used throughout:
 
 ```
@@ -81,7 +81,7 @@ Exit codes are `PravahaCli.EXIT_OK = 0`, `EXIT_FAILED = 1`, `EXIT_USAGE = 2`.
 **`H-SRV` — an open server.** `pravaha-server --spring.profiles.active=dev` (so
 `pravaha.security.allow-anonymous: true`, `authentication: none`, `policy: permissive`, and
 `PravahaServerApplication.pravahaAuthentication` registers the filter **disabled** because
-`security.verifier()` returns null). HTTP on 8080, Flight on 9090. `application.yaml` amended with:
+`security.verifier()` returns null). HTTP on 18080, Flight on 19090. `application.yaml` amended with:
 
 ```yaml
 pravaha:
@@ -274,13 +274,13 @@ is created anywhere.
 
 ## API-012 — `pravaha query --help` demands `--sql` without opening a connection
 **Intent:** `ServerCommand.query` calls `sqlFrom(args)` before `connect(args)`, so a help attempt
-fails locally rather than dialling `grpc://localhost:9090`.
+fails locally rather than dialling `grpc://localhost:19090`.
 **Falsifier:** exit 1 with a connection message (which would mean the connection is attempted
 first), or a hang.
-**Setup:** `H-CLI` (nothing on 9090).
+**Setup:** `H-CLI` (nothing on 19090).
 **Steps:** `time pravaha query --help >out.txt 2>err.txt; echo $?`
 **Expected:** exit `2`; `err.txt` is `--sql is required. Supplied: [help]`; `out.txt` empty; elapsed
-under 2 s with no TCP connection attempted to 9090.
+under 2 s with no TCP connection attempted to 19090.
 
 ## API-013 — `pravaha register --help` demands `--name`
 **Intent:** `register` requires `--name` before it looks for SQL, so the first complaint differs
@@ -295,10 +295,10 @@ from the other commands'. Pinning it catches a reordering.
 proceeds straight to `connect(args)`. Asking for help contacts the network. This is the worst of
 the nine and the one that most justifies the section.
 **Falsifier:** help text on stdout, or exit 2.
-**Setup:** `H-CLI`, nothing listening on 9090.
+**Setup:** `H-CLI`, nothing listening on 19090.
 **Steps:** `pravaha queries --help >out.txt 2>err.txt; echo $?`
-**Expected:** exit `1`; `err.txt` names `localhost:9090` and carries the SDK's
-`PRV-…  cannot connect to localhost:9090: …` or a Flight `UNAVAILABLE` description reaching it
+**Expected:** exit `1`; `err.txt` names `localhost:19090` and carries the SDK's
+`PRV-…  cannot connect to localhost:19090: …` or a Flight `UNAVAILABLE` description reaching it
 through `fail(e)`; `out.txt` empty. The exit code is 1 (a failure), never 2.
 
 ## API-015 — `pravaha subscribe --help` demands `--view`
@@ -907,7 +907,7 @@ further output — a subscription that had not actually closed would print it.
 **Setup:** `H-CLI` (no server needed — the refusal precedes `connect`).
 **Steps:** `pravaha subscribe --view by_user --filter "user_id" >out.txt 2>err.txt; echo $?`
 **Expected:** exit `2`; `err.txt` is `--filter takes column=value pairs, got 'user_id'`;
-`out.txt` empty; no TCP connection to 9090. Then the mixed case
+`out.txt` empty; no TCP connection to 19090. Then the mixed case
 `--filter "user_id=u1,status"` must fail the same way on the second pair, having accepted the first.
 
 ### H. Exit codes, streams, transport and hostile input (API-067–075)
@@ -918,7 +918,7 @@ so the failure appears on the first call and reaches `fail(e)`, which exits 1. N
 exit 0 and none may exit 2.
 **Falsifier:** any of the six exiting 0 (a silent success against nothing), or 2 (which would tell a
 script the command line was wrong when the server was simply down), or hanging indefinitely.
-**Setup:** `H-CLI`, nothing listening on 9090, `--url grpc://localhost:9090` (the default).
+**Setup:** `H-CLI`, nothing listening on 19090, `--url grpc://localhost:19090` (the default).
 **Steps:** run each and record `$?`:
 ```
 pravaha queries
@@ -930,20 +930,20 @@ pravaha resume    --name x
 pravaha subscribe --view x
 ```
 **Expected:** all seven invocations exit `1`. Each writes a message to **stderr** naming
-`localhost:9090` (either the SDK's `cannot connect to localhost:9090: …` or a Flight
+`localhost:19090` (either the SDK's `cannot connect to localhost:19090: …` or a Flight
 `UNAVAILABLE` description) and writes nothing to stdout. Each returns within the client's connect
 timeout rather than blocking forever — record the actual wall time for each, since `subscribe`
 blocks in `subscription.run()` and is the one that could hang.
 
 ## API-068 — a `--url` with no scheme defaults to TLS and fails against a plaintext server
 **Intent:** `Endpoint.parse` starts with `tls = true` and only a recognised scheme turns it off, so
-`--url localhost:9090` is **not** the same as the default `grpc://localhost:9090`. A user who
+`--url localhost:19090` is **not** the same as the default `grpc://localhost:19090`. A user who
 copies a host:port out of a log gets a TLS handshake against a plaintext socket.
-**Falsifier:** `localhost:9090` behaving identically to `grpc://localhost:9090`.
+**Falsifier:** `localhost:19090` behaving identically to `grpc://localhost:19090`.
 **Setup:** `H-SRV` (Flight is plaintext — `pravaha.flight.tls.certificate` is empty).
 **Steps:**
-1. `pravaha queries --url grpc://localhost:9090; echo $?`
-2. `pravaha queries --url localhost:9090 >out.txt 2>err.txt; echo $?`
+1. `pravaha queries --url grpc://localhost:19090; echo $?`
+2. `pravaha queries --url localhost:19090 >out.txt 2>err.txt; echo $?`
 **Expected:** (1) exit `0` with the listing. (2) exit `1`; `err.txt` shows a transport/handshake
 failure, not a Pravaha PRV code. The contrast is the finding: the same address, two outcomes, and
 nothing in the message says "this client tried TLS".
@@ -952,7 +952,7 @@ nothing in the message says "this client tried TLS".
 **Intent:** the `default ->` arm of `Endpoint.parse`'s scheme switch.
 **Falsifier:** the scheme being ignored and a connection attempted anyway.
 **Setup:** `H-CLI`.
-**Steps:** `pravaha queries --url "ftp://localhost:9090" >out.txt 2>err.txt; echo $?`; then
+**Steps:** `pravaha queries --url "ftp://localhost:19090" >out.txt 2>err.txt; echo $?`; then
 `pravaha queries --url "" 2>err2.txt; echo $?`; then `pravaha queries --url "grpc://" 2>err3.txt; echo $?`
 **Expected:** all three exit `1`. `err.txt` says `'ftp' is not a known scheme` and quotes the
 connection string; `err2.txt` says it is empty — **except** that `--url ""` is stored as a blank
@@ -969,8 +969,8 @@ unencrypted and silently.
 **Falsifier:** a warning on stderr, or a refusal, when a token is paired with a plaintext URL.
 **Setup:** `H-SRVA` (authenticating) but with `pravaha.flight.tls` still empty, so Flight is
 plaintext.
-**Steps:** `pravaha queries --url grpc://localhost:9090 --token "ann-token-0123456789" >out.txt 2>err.txt; echo $?`
-while capturing loopback traffic (`tcpdump -i lo -A port 9090`).
+**Steps:** `pravaha queries --url grpc://localhost:19090 --token "ann-token-0123456789" >out.txt 2>err.txt; echo $?`
+while capturing loopback traffic (`tcpdump -i lo -A port 19090`).
 **Expected:** exit `0` with the listing; `err.txt` **empty** — no warning of any kind; and the
 capture contains the literal bytes `Bearer ann-token-0123456789` in a gRPC header frame. That
 `err.txt` is empty is the assertion; the capture is the proof it should not have been.
@@ -978,7 +978,7 @@ capture contains the literal bytes `Bearer ann-token-0123456789` in a gRPC heade
 ## API-071 — `PRAVAHA_CLI_TRACE` adds a stack trace to stderr and nothing to stdout
 **Intent:** the only debugging switch the CLI has, and the guarantee that it changes stderr only.
 **Falsifier:** the trace appearing on stdout, or the exit code changing when the variable is set.
-**Setup:** `H-CLI`, nothing on 9090.
+**Setup:** `H-CLI`, nothing on 19090.
 **Steps:**
 1. `pravaha queries >a.out 2>a.err; echo $?`
 2. `PRAVAHA_CLI_TRACE=1 pravaha queries >b.out 2>b.err; echo $?`
@@ -1088,7 +1088,7 @@ a credential.
 **Intent:** the machine-readable half of the status pair; the console's first call.
 **Falsifier:** a missing field, `uptimeSeconds` as a string, or a plugin list that is not an array.
 **Setup:** `H-SRV`, up for at least 3 s.
-**Steps:** `curl -si localhost:8080/api/v1/status`
+**Steps:** `curl -si localhost:18080/api/v1/status`
 **Expected:** `200`; `Content-Type: application/json`; a body parsing to an object with exactly the
 six `NodeStatus` fields — `instanceId` (`"pravaha-node-01"` from `pravaha.node.id`), `version`,
 `engineState` (`"RUNNING"`), `uptimeSeconds` (a JSON number >= 3), `registeredQueries`, `plugins`
@@ -1102,7 +1102,7 @@ template engine, no static asset, no external font, no script.
 **Falsifier:** any `<script`, `<link`, `src=`, or `http`-scheme URL in the body; or a
 `Content-Type` that is not `text/html`.
 **Setup:** `H-SRV`.
-**Steps:** `curl -si localhost:8080/status -o page.html` then
+**Steps:** `curl -si localhost:18080/status -o page.html` then
 `grep -Eic '<script|<link|src=|https?://' page.html`
 **Expected:** `200`; `Content-Type: text/html;charset=UTF-8`; grep count `0`; the body contains
 `<title>Pravaha node pravaha-node-01</title>`, the four rows `State`, `Version`, `Uptime`,
@@ -1115,7 +1115,7 @@ representations cannot disagree.
 **Falsifier:** an internal enum constant in `type`, a `fieldCount` that disagrees with `fields`
 length, or ordinals out of order.
 **Setup:** `H-SRV` (one declared stream, `txn`, four fields).
-**Steps:** `curl -s localhost:8080/api/v1/streams | jq .`
+**Steps:** `curl -s localhost:18080/api/v1/streams | jq .`
 **Expected:** `200`; an array of length `1`; `[0].name == "txn"`, `[0].version == 1`,
 `[0].fieldCount == 4`, `[0].fields | length == 4`; the fields in ordinal order `0,1,2,3` with
 `type` values `"INT64 NOT NULL"`, `"STRING NOT NULL"`, `"INT64 NOT NULL"`, `"STRING NOT NULL"` and
@@ -1126,7 +1126,7 @@ every field nullable (API-150), and the two surfaces disagree.
 **Intent:** the single-resource read.
 **Falsifier:** an array instead of an object, or a different rendering of the same schema.
 **Setup:** `H-SRV`.
-**Steps:** `curl -s localhost:8080/api/v1/streams/txn | jq .`
+**Steps:** `curl -s localhost:18080/api/v1/streams/txn | jq .`
 **Expected:** `200`; an object byte-equal to element `[0]` of API-078's array.
 
 ## API-080 — `POST /api/v1/streams` answers 201 while the locked contract says 200
@@ -1139,7 +1139,7 @@ listing 201.
 **Setup:** `H-SRV`.
 **Steps:**
 ```
-curl -si localhost:8080/api/v1/streams -H 'Content-Type: application/json' \
+curl -si localhost:18080/api/v1/streams -H 'Content-Type: application/json' \
      -d '{"name":"orders","schema":"order_id:INT64,sku:STRING,qty:INT32"}'
 jq '.paths."/api/v1/streams".post.responses' api/openapi.lock.json
 ```
@@ -1154,7 +1154,7 @@ latency.
 **Setup:** `H-SRV`.
 **Steps:**
 ```
-curl -s localhost:8080/api/v1/queries/validate -H 'Content-Type: application/json' \
+curl -s localhost:18080/api/v1/queries/validate -H 'Content-Type: application/json' \
   -d '{"sql":"SELECT user_id, amount FROM txn WHERE amount > 100"}' | jq .
 ```
 **Expected:** `200`; `valid == true`; `diagnostics == []`; `outputFields` of length `2` —
@@ -1168,9 +1168,9 @@ an HTTP failure. And the diagnostic carries the PRV code and a help URL.
 **Setup:** `H-SRV`.
 **Steps:**
 ```
-curl -si localhost:8080/api/v1/queries/validate -H 'Content-Type: application/json' \
+curl -si localhost:18080/api/v1/queries/validate -H 'Content-Type: application/json' \
   -d '{"sql":"SELECT nope FROM txn"}'
-curl -s  localhost:8080/api/v1/queries/validate -H 'Content-Type: application/json' \
+curl -s  localhost:18080/api/v1/queries/validate -H 'Content-Type: application/json' \
   -d '{"sql":"SELECT user_id, COUNT(*) FROM txn GROUP BY user_id"}' | jq -r .diagnostics[0].code
 ```
 **Expected:** the first is `200` with `valid == false`, `diagnostics[0].code == "PRV-2002"`,
@@ -1205,7 +1205,7 @@ not implement.
 **Falsifier:** any of these answering 200, or a 404 where the path exists but the method does not
 (which tells a client the endpoint is gone rather than misused).
 **Setup:** `H-SRV`.
-**Steps:** for each row, `curl -si -X <M> localhost:8080<path>`:
+**Steps:** for each row, `curl -si -X <M> localhost:18080<path>`:
 
 | Path | implemented | expected 405 for |
 |---|---|---|
@@ -1225,7 +1225,7 @@ That is `4 + 4 + 3 + 4 + 4 + 4 = 23` requests.
 **Intent:** the two methods a proxy, a browser preflight or a health checker sends unprompted.
 **Falsifier:** HEAD returning a body, or OPTIONS returning 500.
 **Setup:** `H-SRV`.
-**Steps:** `curl -sI localhost:8080<path>` and `curl -si -X OPTIONS localhost:8080<path>` for the
+**Steps:** `curl -sI localhost:18080<path>` and `curl -si -X OPTIONS localhost:18080<path>` for the
 six paths.
 **Expected:** HEAD mirrors GET's status and headers with a zero-length body on the four GET paths,
 and `405` on the two POST-only paths. OPTIONS returns `200` with an `Allow` header listing the
@@ -1253,9 +1253,9 @@ something).
 **Setup:** `H-SRV`.
 **Steps:**
 ```
-curl -si localhost:8080/api/v1/queries/validate -H 'Content-Type: application/json' -d '{"sql": '
-curl -si localhost:8080/api/v1/queries/validate -H 'Content-Type: application/json' -d 'not json'
-curl -si localhost:8080/api/v1/queries/validate -H 'Content-Type: application/json' -d '[1,2,3]'
+curl -si localhost:18080/api/v1/queries/validate -H 'Content-Type: application/json' -d '{"sql": '
+curl -si localhost:18080/api/v1/queries/validate -H 'Content-Type: application/json' -d 'not json'
+curl -si localhost:18080/api/v1/queries/validate -H 'Content-Type: application/json' -d '[1,2,3]'
 ```
 **Expected:** all three `400`. The bodies are Spring's `HttpMessageNotReadableException` rendering,
 **not** `ApiError` — no `code`, no `helpUrl`. Record the exact body of the first: a client that
@@ -1267,7 +1267,7 @@ parses `.code` gets `null` and will report "unknown error".
 unhandled `NullPointerException` (-> a 500 with Spring's body, and a stack trace in the log).
 **Falsifier:** a 200 with `valid: true`.
 **Setup:** `H-SRV`.
-**Steps:** `curl -si localhost:8080/api/v1/queries/validate -H 'Content-Type: application/json' -d '{}'`
+**Steps:** `curl -si localhost:18080/api/v1/queries/validate -H 'Content-Type: application/json' -d '{}'`
 and the same with `{"sql":null}`, and against `/api/v1/queries/explain`.
 **Expected:** record the status for each of the four. The required outcome is a `400` carrying an
 `ApiError`; a `500` is a defect and the case's finding, because a caller omitting a field is a
@@ -1295,7 +1295,7 @@ compatibility and worth recording so nobody relies on the opposite.
 **Setup:** `H-SRV`.
 **Steps:**
 ```
-curl -s localhost:8080/api/v1/queries/validate -H 'Content-Type: application/json' \
+curl -s localhost:18080/api/v1/queries/validate -H 'Content-Type: application/json' \
   -d '{"sql":"SELECT user_id FROM txn","tenant":"acme","level":"codegen","limit":99}' | jq .
 ```
 **Expected:** `200`, `valid == true`, `outputFields` of length 1. The `level` field in the **body**
@@ -1308,7 +1308,7 @@ in the body silently gets `physical`. Confirm that against `/api/v1/queries/expl
 **Intent:** the zero-length case, distinct from `{}`.
 **Falsifier:** a 200.
 **Setup:** `H-SRV`.
-**Steps:** `curl -si -X POST localhost:8080/api/v1/queries/validate -H 'Content-Type: application/json' --data-binary ''`
+**Steps:** `curl -si -X POST localhost:18080/api/v1/queries/validate -H 'Content-Type: application/json' --data-binary ''`
 and the same for `/api/v1/queries/explain` and `/api/v1/streams`.
 **Expected:** `400` for all three (`Required request body is missing`), with Spring's error body.
 No 500, no stack trace in the response.
@@ -1388,7 +1388,7 @@ Any stream actually created here is a finding in its own right.
 **Setup:** `H-SRV`.
 **Steps:**
 ```
-curl -si localhost:8080/api/v1/streams -H 'Content-Type: application/json' \
+curl -si localhost:18080/api/v1/streams -H 'Content-Type: application/json' \
   -d '{"name":"bad","schema":"order_id INT64,sku:STRING"}'
 ```
 **Expected:** `500`, body an `ApiError` with `code == "PRV-5040"`,
@@ -1424,7 +1424,7 @@ reported as a malformed request. And the message appends `Registered: ` plus the
 **Falsifier:** a 404 (the REST convention, and what a client's `if (404) create()` expects), or a
 message that does not enumerate.
 **Setup:** `H-SRV` with `txn` and `orders` registered.
-**Steps:** `curl -si localhost:8080/api/v1/streams/nope`
+**Steps:** `curl -si localhost:18080/api/v1/streams/nope`
 **Expected:** `400 Bad Request`; body an `ApiError` with `code == "PRV-2003"`,
 `message == "no stream named 'nope'. Registered: [txn, orders]"`,
 `helpUrl == "https://docs.pravaha.io/errors/PRV-2003"`, `path == "/api/v1/streams/nope"`, and a
@@ -1457,11 +1457,11 @@ query planned against the old schema), or a 201.
 **Setup:** `H-SRV`, `orders` registered by API-080.
 **Steps:**
 ```
-curl -si localhost:8080/api/v1/streams -H 'Content-Type: application/json' \
+curl -si localhost:18080/api/v1/streams -H 'Content-Type: application/json' \
   -d '{"name":"orders","schema":"order_id:INT64,sku:STRING,qty:INT32"}'
-curl -si localhost:8080/api/v1/streams -H 'Content-Type: application/json' \
+curl -si localhost:18080/api/v1/streams -H 'Content-Type: application/json' \
   -d '{"name":"orders","schema":"order_id:INT64"}'
-curl -s  localhost:8080/api/v1/streams/orders | jq .fieldCount
+curl -s  localhost:18080/api/v1/streams/orders | jq .fieldCount
 ```
 **Expected:** both POSTs return `400` with `code == "PRV-2002"` and the message
 `stream 'orders' version 1 is already registered. Schema versions are immutable; register a new
@@ -1558,7 +1558,7 @@ row data, and a client that cannot fetch the schema cannot generate a client.
 **Falsifier:** a 401 on any of them (which would break code generation), **or** any of them
 containing stream names, query text or configuration values.
 **Setup:** `H-SRVA`, no `Authorization` header.
-**Steps:** `curl -si localhost:8080/api/v1/openapi.json`, `.../api/docs`, `.../swagger-ui/index.html`;
+**Steps:** `curl -si localhost:18080/api/v1/openapi.json`, `.../api/docs`, `.../swagger-ui/index.html`;
 then `grep -c 'txn\|by_user\|token' openapi.json`.
 **Expected:** `200` for all three. The OpenAPI document lists the six locked paths and the DTO
 schemas, and the grep count is `0` — no stream name, no query text and no credential appears in it.
@@ -1639,7 +1639,7 @@ boot. It is part of the API surface because it decides whether the port is there
 `pravaha.security.policy=authenticated` and `authentication=none`; then with the `dev` profile.
 **Expected:** (1) startup fails with a `PravahaException` naming
 `pravaha.security.authentication=none, policy=permissive` and listing the three ways out; no port
-8080 listener (`curl` gets connection refused). (2) startup fails with the contradiction message —
+18080 listener (`curl` gets connection refused). (2) startup fails with the contradiction message —
 "a node nobody can use" — because the policy serves only verified callers and nothing can verify
 one. (3) starts, and `/api/v1/streams` answers `200` anonymously. Three configurations, three
 outcomes, and only the third has an HTTP surface.
@@ -1679,8 +1679,8 @@ themselves — and any secret passed as a system property or an environment vari
 **Falsifier:** a `200` from `/actuator/env` under any configuration reachable from the shipped
 files; or a `200` from `/actuator/env/pravaha.security.tokens`.
 **Setup:** `H-SRV` (open) and `H-SRVA` (authenticated), tried in turn.
-**Steps:** `curl -si localhost:8080/actuator/env` and
-`curl -si 'localhost:8080/actuator/env/pravaha.security.tokens.*'`, on both nodes, without a
+**Steps:** `curl -si localhost:18080/actuator/env` and
+`curl -si 'localhost:18080/actuator/env/pravaha.security.tokens.*'`, on both nodes, without a
 credential and then with one.
 **Expected:** `404` on both nodes in all four combinations, because
 `management.endpoints.web.exposure.include: health,info,metrics,prometheus` does not list `env`.
@@ -1700,8 +1700,8 @@ back by the CLI) appends `this server serves [every view]`. None consults the po
 `globex`), who has no relationship with any of them.
 **Steps:**
 ```
-curl -s -H "$BOB" localhost:8080/api/v1/streams/nope            | jq -r .message
-curl -s -H "$BOB" localhost:8080/api/v1/queries/validate \
+curl -s -H "$BOB" localhost:18080/api/v1/streams/nope            | jq -r .message
+curl -s -H "$BOB" localhost:18080/api/v1/queries/validate \
      -H 'Content-Type: application/json' -d '{"sql":"SELECT x FROM nope"}' | jq -r .diagnostics[0].message
 ```
 **Expected:** the first message ends `Registered: [txn, orders, payroll]`; the second ends
@@ -1764,7 +1764,7 @@ listed returning 404 (which would mean monitoring has silently stopped).
 **Steps:** for every id Spring Boot ships — `auditevents, beans, caches, conditions, configprops,
 env, flyway, health, heapdump, httpexchanges, info, integrationgraph, liquibase, logfile, loggers,
 mappings, metrics, prometheus, quartz, scheduledtasks, sessions, shutdown, startup, threaddump` —
-`curl -s -o /dev/null -w '%{http_code} %{url_effective}\n' localhost:8080/actuator/<id>`.
+`curl -s -o /dev/null -w '%{http_code} %{url_effective}\n' localhost:18080/actuator/<id>`.
 **Expected:** exactly four `200`s — `health`, `info`, `metrics`, `prometheus` — matching
 `management.endpoints.web.exposure.include` character for character. Every other id returns `404`:
 `24 - 4 = 20` of them. Also fetch `/actuator` itself (the discovery index) and confirm it lists only

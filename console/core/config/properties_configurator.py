@@ -20,7 +20,7 @@ Order of precedence, highest first:
 
 Nested YAML is flattened to dotted keys, so ``app: {name: Pravaha}`` is read as
 ``app.name``. Values are stored as strings and coerced on access, so
-``port: 8080`` and ``port: "${PORT:8080}"`` behave identically.
+``port: 18080`` and ``port: "${PORT:18080}"`` behave identically.
 """
 from __future__ import annotations
 

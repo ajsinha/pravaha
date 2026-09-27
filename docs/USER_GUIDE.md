@@ -20,13 +20,13 @@ working correctly. [`QUICKSTART.md`](QUICKSTART.md) is the ten-minute version of
 Three clients, one protocol (Arrow Flight SQL, ADR-030). Anything one can do, the others can.
 
 ```java
-try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:9090")) { … }
+try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:19090")) { … }
 ```
 ```python
-with connect("grpc://localhost:9090") as client: ...
+with connect("grpc://localhost:19090") as client: ...
 ```
 ```bash
-pravaha queries --url grpc://localhost:9090
+pravaha queries --url grpc://localhost:19090
 ```
 
 > `grpc://` is **plaintext** and spelled out. Omitting the scheme means TLS, which is the right
@@ -35,13 +35,13 @@ pravaha queries --url grpc://localhost:9090
 With a credential:
 
 ```java
-ClientOptions.builder("grpc+tls://pravaha:9090").token(System.getenv("PRAVAHA_TOKEN")).build()
+ClientOptions.builder("grpc+tls://pravaha:19090").token(System.getenv("PRAVAHA_TOKEN")).build()
 ```
 ```python
-ClientOptions.create("grpc+tls://pravaha:9090", token=os.environ["PRAVAHA_TOKEN"])
+ClientOptions.create("grpc+tls://pravaha:19090", token=os.environ["PRAVAHA_TOKEN"])
 ```
 ```bash
-pravaha queries --url grpc+tls://pravaha:9090 --token "$PRAVAHA_TOKEN"
+pravaha queries --url grpc+tls://pravaha:19090 --token "$PRAVAHA_TOKEN"
 ```
 
 Both SDKs **refuse to send a token over a plaintext connection** unless told to
@@ -431,14 +431,14 @@ may see, the streams it reads, its feed (each source partition's state, and a st
 time) — and its running plan as a graph:
 
 ```bash
-curl -H "Authorization: Bearer $TOKEN" http://engine:8080/api/v1/queries/card_velocity
-curl -H "Authorization: Bearer $TOKEN" http://engine:8080/api/v1/queries/card_velocity/plan
-curl -H "Authorization: Bearer $TOKEN" http://engine:8080/api/v1/views/card_velocity   # schema, key, retention
-curl -H "Authorization: Bearer $TOKEN" http://engine:8080/api/v1/sinks                 # what each sink accepts
+curl -H "Authorization: Bearer $TOKEN" http://engine:18080/api/v1/queries/card_velocity
+curl -H "Authorization: Bearer $TOKEN" http://engine:18080/api/v1/queries/card_velocity/plan
+curl -H "Authorization: Bearer $TOKEN" http://engine:18080/api/v1/views/card_velocity   # schema, key, retention
+curl -H "Authorization: Bearer $TOKEN" http://engine:18080/api/v1/sinks                 # what each sink accepts
 ```
 ```python
 client = connect(options=ClientOptions.create(
-    "grpc+tls://engine:9090", token=token, http_url="https://engine:8080"))
+    "grpc+tls://engine:19090", token=token, http_url="https://engine:18080"))
 client.describe_query("card_velocity")
 client.query_plan("card_velocity"); client.describe_view("card_velocity"); client.sinks()
 ```
@@ -588,8 +588,8 @@ running N copies of something that could be one".
 cd console && make install && make run
 ```
 
-Then <http://127.0.0.1:8090>. (Not 8080 — that is the engine's own actuator port, and
-following this line to 8080 lands you on the wrong process.) It is a *functional admin* console on purpose — see
+Then <http://127.0.0.1:17070>. (Not 18080 — that is the engine's own actuator port, and
+following this line to 18080 lands you on the wrong process.) It is a *functional admin* console on purpose — see
 [its README](../console/README.md) for what that means and what it does not do.
 
 ## 9. Embed the engine in your application

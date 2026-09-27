@@ -4,16 +4,16 @@ slug: http-api
 category: reading
 order: 60
 icon: globe
-summary: "Every /api/v1 endpoint the engine serves on port 8080 — streams, validation, plans, query and view descriptions, sinks, plugins, status, permissions and the audit trail — with its auth, a curl call and the JSON it answers."
+summary: "Every /api/v1 endpoint the engine serves on port 18080 — streams, validation, plans, query and view descriptions, sinks, plugins, status, permissions and the audit trail — with its auth, a curl call and the JSON it answers."
 badge: API
 audience: Developers
-keywords: [rest, http, curl, json, openapi, swagger, "8080", bearer, validate, explain, status, actuator, prometheus, "/api/v1", ApiError]
+keywords: [rest, http, curl, json, openapi, swagger, "18080", bearer, validate, explain, status, actuator, prometheus, "/api/v1", ApiError]
 guide: user-guide#5-manage-what-is-running
 related: [client-snippets, sdk-reference, metrics-alerts, authentication, audit]
 ---
 
-The engine serves two protocols. **Arrow Flight SQL** (port 9090) carries every read, every
-subscription and every registration. The **HTTP API** (port 8080, Spring's `server.port`) carries the
+The engine serves two protocols. **Arrow Flight SQL** (port 19090) carries every read, every
+subscription and every registration. The **HTTP API** (port 18080, Spring's `server.port`) carries the
 questions that have no Flight form: *what streams exist, is this SQL valid, what is the plan, describe
 this query or view, what sinks and plugins are there, what may I do, what has been decided*. It never
 returns a view's rows and never registers a query — those are Flight calls. The Python SDK wraps every
@@ -24,7 +24,7 @@ this surface.
 
 | | |
 |---|---|
-| Base URL | `http://<node>:8080` (`server.port` in the node's configuration) |
+| Base URL | `http://<node>:18080` (`server.port` in the node's configuration) |
 | Format | JSON in and out |
 | Authentication | `Authorization: Bearer <token>` when `pravaha.security.authentication` is `token`; without a credential every call but the open ones is `401` |
 | Open without a credential | `/actuator/health…`, `/actuator/info`, `/api/v1/openapi.json`, `/api/docs` (Swagger UI) |
@@ -60,7 +60,7 @@ The one pair of calls a SQL editor needs. A refused query is an **answer** (`200
 not an error:
 
 ```bash
-curl -s -X POST http://engine:8080/api/v1/queries/validate \
+curl -s -X POST http://engine:18080/api/v1/queries/validate \
   -H "Authorization: Bearer $PRAVAHA_TOKEN" -H "Content-Type: application/json" \
   -d '{"sql": "SELECT user_id, COUNT(*) FROM txn GROUP BY user_id"}'
 ```
@@ -116,7 +116,7 @@ A request with no `sql` at all is a `400` (PRV-1050), not a `valid:false`: a mal
 query that failed to validate.
 
 ```bash
-curl -s -X POST "http://engine:8080/api/v1/queries/explain?level=physical" \
+curl -s -X POST "http://engine:18080/api/v1/queries/explain?level=physical" \
   -H "Authorization: Bearer $PRAVAHA_TOKEN" -H "Content-Type: application/json" \
   -d '{"sql": "SELECT txn_id, amount FROM txn WHERE amount > 1000"}'
 ```
@@ -132,7 +132,7 @@ illustrative). `level=codegen` returns the Java the engine will actually run. `f
 ## Describing what is registered
 
 ```bash
-curl -s -H "Authorization: Bearer $PRAVAHA_TOKEN" http://engine:8080/api/v1/queries/hourly_spend
+curl -s -H "Authorization: Bearer $PRAVAHA_TOKEN" http://engine:18080/api/v1/queries/hourly_spend
 ```
 
 ```json
@@ -171,7 +171,7 @@ is (not registered, `pravaha.metrics.operators` off, or measured), and `query`: 
 ## Declaring a stream
 
 ```bash
-curl -s -X POST http://engine:8080/api/v1/streams \
+curl -s -X POST http://engine:18080/api/v1/streams \
   -H "Authorization: Bearer $PRAVAHA_TOKEN" -H "Content-Type: application/json" \
   -d '{"name": "orders", "schema": "order_id:INT64,customer_id:STRING,region:STRING,amount:INT64,status:STRING,event_time:TIMESTAMP",
        "eventTime": "event_time", "outOfOrderness": "PT30S", "allowedLateness": "PT2M"}'
@@ -191,7 +191,7 @@ the name gets `403`.
 ## Status
 
 ```bash
-curl -s -H "Authorization: Bearer $PRAVAHA_TOKEN" http://engine:8080/api/v1/status
+curl -s -H "Authorization: Bearer $PRAVAHA_TOKEN" http://engine:18080/api/v1/status
 ```
 
 ```json
@@ -214,7 +214,7 @@ as a page that needs nothing else to load.
 
 ```bash
 curl -s -H "Authorization: Bearer $PRAVAHA_TOKEN" \
-  "http://engine:8080/api/v1/audit?decision=deny&since=2026-09-19T08:00:00Z&limit=50"
+  "http://engine:18080/api/v1/audit?decision=deny&since=2026-09-19T08:00:00Z&limit=50"
 ```
 
 | Parameter | |
@@ -265,12 +265,12 @@ names.
     There is none. Reading a view is `SELECT` over Flight SQL (or the PostgreSQL gateway); HTTP only
     describes. An SDK's `query()` is the call you want.
 
-!!! warning "Pitfall: 8080 is also Spring's actuator"
+!!! warning "Pitfall: 18080 is also Spring's actuator"
     `/actuator/prometheus` needs a credential on a node with authentication on; only `health` and
     `info` are open. Give the scraper a token.
 
 !!! warning "Pitfall: `http_url` pointed at the Flight port"
-    The Python SDK's `http_url` is the HTTP port (`http://host:8080`), not 9090. Pointed at 9090 every
+    The Python SDK's `http_url` is the HTTP port (`http://host:18080`), not 19090. Pointed at 19090 every
     HTTP call fails to parse a response.
 
 ## Where next

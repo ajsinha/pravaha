@@ -90,7 +90,7 @@ pravaha:
 ```
 
 then `pravaha register --name q --sql "SELECT user_id, amount, product_type FROM txn" --keys 0`
-against `grpc://localhost:9090`, and `pravaha subscribe --view q` as the subscriber. Rows reach
+against `grpc://localhost:19090`, and `pravaha subscribe --view q` as the subscriber. Rows reach
 the node by being written to the source's directory. Note `PumpingFeed.PUBLISH_INTERVAL_NANOS =
 20_000_000L` — the 20 ms commit cadence every latency case is measured against.
 

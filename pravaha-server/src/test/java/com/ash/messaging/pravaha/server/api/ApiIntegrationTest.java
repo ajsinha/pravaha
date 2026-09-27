@@ -50,7 +50,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
             "pravaha.security.allow-anonymous=true",
             // Port 0, so the operating system assigns one. This is a MockMvc test and needs no
             // Flight client, but the node it boots starts a real Flight server -- and on the
-            // default 9090 that collides with anything else holding the port: the other
+            // default 19090 that collides with anything else holding the port: the other
             // @SpringBootTest in this module when surefire runs them in separate JVMs, and a
             // developer's own node on their own machine. A test that binds a fixed port is
             // fragile whether or not anything is running in parallel.
@@ -120,11 +120,11 @@ class ApiIntegrationTest {
 
     @Test
     void aConfiguredHelpBaseReachesTheErrorBody() throws Exception {
-        com.ash.messaging.pravaha.api.HelpUrls.configure("http://localhost:8088/help/errors/");
+        com.ash.messaging.pravaha.api.HelpUrls.configure("http://localhost:17070/help/codes/");
         try {
             mvc.perform(get("/api/v1/streams/nope"))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.helpUrl").value("http://localhost:8088/help/errors/PRV-2003"));
+                    .andExpect(jsonPath("$.helpUrl").value("http://localhost:17070/help/codes/PRV-2003"));
         } finally {
             com.ash.messaging.pravaha.api.HelpUrls.configure(null);
         }

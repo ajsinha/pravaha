@@ -10,7 +10,7 @@ import os
 from pravaha import ClientOptions, Consistency, connect
 
 options = ClientOptions.create(
-    "grpc+tls://pravaha:9090",
+    "grpc+tls://pravaha:19090",
     token=os.environ["PRAVAHA_TOKEN"],
     default_consistency=Consistency.CONSISTENT,
 )
@@ -82,8 +82,8 @@ growing a second implementation of each on Flight — two places deciding what a
 about the catalogue would drift apart. Give the client the HTTP URL as well:
 
 ```python
-options = ClientOptions.create("grpc+tls://pravaha:9090", token=token,
-                               http_url="https://pravaha:8080")
+options = ClientOptions.create("grpc+tls://pravaha:19090", token=token,
+                               http_url="https://pravaha:18080")
 with connect(options=options) as client:
     client.streams()                      # with eventTime, outOfOrderness, source
     client.validate("SELECT amont FROM txn")["diagnostics"][0]["range"]

@@ -49,7 +49,7 @@ pravaha:
   flight: { enabled: true }
 ```
 
-on `grpc://localhost:9090`. A query `q` is registered as
+on `grpc://localhost:19090`. A query `q` is registered as
 `SELECT user_id, amount, product_type FROM txn` with key columns `[0]`, and rows are pushed with
 `DoPut` unless a case says otherwise.
 
@@ -74,10 +74,10 @@ pair generated for `CN=localhost` with
 **`H-DEAD`** — nothing listening on `localhost:9099`. Confirmed with `ss -ltn | grep 9099` returning
 nothing before each case.
 
-**`H-CON`** — the console at `http://127.0.0.1:8090`, `CONSOLE_PASSWORD=letmein`, pointed at
-`H-OPEN` via `PRAVAHA_ENGINE=grpc://localhost:9090`. Driven with an HTTP client that keeps cookies.
+**`H-CON`** — the console at `http://127.0.0.1:17070`, `CONSOLE_PASSWORD=letmein`, pointed at
+`H-OPEN` via `PRAVAHA_ENGINE=grpc://localhost:19090`. Driven with an HTTP client that keeps cookies.
 
-**`H-CON-DOWN`** — `H-CON` with the engine stopped and nothing listening on 9090.
+**`H-CON-DOWN`** — `H-CON` with the engine stopped and nothing listening on 19090.
 
 ---
 
@@ -111,18 +111,18 @@ scheme means TLS. The CLI defaults the other way (SDKX-059), and the two togethe
 
 | input | `nodes()` | `tls()` |
 |---|---|---|
-| `grpc://h:9090` | `[(h,9090)]` | false |
-| `http://h:9090` | `[(h,9090)]` | false |
-| `grpc+tls://h:9090` | `[(h,9090)]` | **true** |
-| `grpcs://h:9090` | `[(h,9090)]` | **true** |
-| `https://h:9090` | `[(h,9090)]` | **true** |
-| `h:9090` (no scheme) | `[(h,9090)]` | **true** |
-| `h` (no scheme, no port) | `[(h,9090)]` | **true** |
-| `ftp://h:9090` | — | PRV-1030 |
-| `GRPC://h:9090` | — | record actual |
+| `grpc://h:19090` | `[(h,19090)]` | false |
+| `http://h:19090` | `[(h,19090)]` | false |
+| `grpc+tls://h:19090` | `[(h,19090)]` | **true** |
+| `grpcs://h:19090` | `[(h,19090)]` | **true** |
+| `https://h:19090` | `[(h,19090)]` | **true** |
+| `h:19090` (no scheme) | `[(h,19090)]` | **true** |
+| `h` (no scheme, no port) | `[(h,19090)]` | **true** |
+| `ftp://h:19090` | — | PRV-1030 |
+| `GRPC://h:19090` | — | record actual |
 
 The last row is the one to measure rather than assume: the `switch` is on the lower-cased scheme or
-not, and the case must record which. `DEFAULT_PORT = 9090` (`Endpoint.java:44`) supplies the port in
+not, and the case must record which. `DEFAULT_PORT = 19090` (`Endpoint.java:44`) supplies the port in
 rows 6 and 7.
 **Vacuity:** n/a.
 
@@ -131,10 +131,10 @@ rows 6 and 7.
 Flight client does not; this case pins that the *parsing* half is real, so the gap is attributable.
 **Falsifier:** the order changes, or only one node comes back.
 **Setup:** `H-UNIT`.
-**Steps:** 1. `Endpoint.parse("grpc://a:9090,b:9091,c:9092")`. 2.
-`Endpoint.parse("grpc+tls://a:9090, b:9091 ,c")`. 3. `Endpoint.parse("grpc://a:9090,,b:9091")`.
-**Expected:** step 1 — `nodes()` is `[(a,9090), (b,9091), (c,9092)]` in that order, `tls()` false.
-Step 2 — three nodes, whitespace stripped, `c` defaulted to port 9090, `tls()` true: the scheme is
+**Steps:** 1. `Endpoint.parse("grpc://a:19090,b:9091,c:9092")`. 2.
+`Endpoint.parse("grpc+tls://a:19090, b:9091 ,c")`. 3. `Endpoint.parse("grpc://a:19090,,b:9091")`.
+**Expected:** step 1 — `nodes()` is `[(a,19090), (b,9091), (c,9092)]` in that order, `tls()` false.
+Step 2 — three nodes, whitespace stripped, `c` defaulted to port 19090, `tls()` true: the scheme is
 stated once and applies to all. Step 3 — record whether the empty element is skipped or refused with
 PRV-1030.
 **Vacuity:** using three distinct ports makes the order checkable; three copies of one host would not.
@@ -146,7 +146,7 @@ PRV-1030.
 not a `PravahaClientException`.
 **Setup:** `H-UNIT`.
 **Steps:** parse each of: `""`, `"   "`, `null`, `"grpc://"`, `"grpc://h:"`, `"grpc://h:abc"`,
-`"grpc://h:0"`, `"grpc://h:65536"`, `"grpc://h:-1"`, `"ftp://h:9090"`, `"://h:9090"`.
+`"grpc://h:0"`, `"grpc://h:65536"`, `"grpc://h:-1"`, `"ftp://h:19090"`, `"://h:19090"`.
 **Expected:** every one throws `PravahaClientException` whose `errorCode().code()` is `PRV-1030` and
 whose message matches `cannot parse endpoint '<input>': <why>. Expected grpc://host:port,
 grpc+tls://host:port, or a comma-separated list.` Record the `<why>` for each. The port arms
@@ -161,7 +161,7 @@ single over-broad `catch` that turns everything into PRV-1030 still has to produ
 of them are inert (SDKX-030).
 **Falsifier:** any default differs.
 **Setup:** `H-UNIT`.
-**Steps:** 1. `ClientOptions.builder("grpc://h:9090").build()`. 2. Read all eight accessors.
+**Steps:** 1. `ClientOptions.builder("grpc://h:19090").build()`. 2. Read all eight accessors.
 **Expected:** `endpoint()` is the parsed endpoint; `token()` is `Optional.empty()`;
 `allowInsecureToken()` is `false`; `connectTimeout()` is `Duration.ofSeconds(10)`;
 `requestTimeout()` is `Duration.ofSeconds(30)`; `defaultConsistency()` is `Consistency.CONSISTENT`;
@@ -175,7 +175,7 @@ nothing enforces it.
 **Intent:** `INVALID_OPTIONS = new ErrorCode(1031, "CLIENT_INVALID_OPTIONS")`
 (`ClientOptions.java:34`). Refusing at `build()` rather than at first use is the point.
 **Falsifier:** any of these builds.
-**Setup:** `H-UNIT`, base `builder("grpc://h:9090")`.
+**Setup:** `H-UNIT`, base `builder("grpc://h:19090")`.
 **Steps:** set each in turn and `build()`: `connectTimeout(Duration.ZERO)`;
 `connectTimeout(Duration.ofSeconds(-1))`; `connectTimeout(null)`; the same three for
 `requestTimeout`; `subscriberBufferRows(0)`; `subscriberBufferRows(-1)`; `applicationName("")`;
@@ -190,16 +190,16 @@ rather than a blanket refusal.
 ## SDKX-007 — a token over a plaintext endpoint is refused, and `allowInsecureToken` permits it
 **Intent:** `ClientOptions.java:192`–`:204`. The check exists, and SDKX-059 and SDKX-080 are two
 first-party consumers that switch it off unconditionally.
-**Falsifier:** `builder("grpc://h:9090").token("t").build()` succeeds.
+**Falsifier:** `builder("grpc://h:19090").token("t").build()` succeeds.
 **Setup:** `H-UNIT`.
-**Steps:** 1. `builder("grpc://h:9090").token("t").build()`. 2. The same with
-`.allowInsecureToken(true)`. 3. `builder("grpc+tls://h:9090").token("t").build()`. 4.
-`builder("h:9090").token("t").build()` (scheme omitted, so TLS).
+**Steps:** 1. `builder("grpc://h:19090").token("t").build()`. 2. The same with
+`.allowInsecureToken(true)`. 3. `builder("grpc+tls://h:19090").token("t").build()`. 4.
+`builder("h:19090").token("t").build()` (scheme omitted, so TLS).
 **Expected:** step 1 throws PRV-1031 with
 `refusing to send a token over a plaintext connection to <endpoint>; use grpc+tls://, remove the
 token, or call allowInsecureToken(true) if the connection is loopback or TLS ends at a local
 sidecar`. Steps 2, 3 and 4 all succeed. Note that step 2's escape hatch talks about loopback and does
-not *check* for loopback — `builder("grpc://public.example.com:9090").token("t")
+not *check* for loopback — `builder("grpc://public.example.com:19090").token("t")
 .allowInsecureToken(true).build()` also succeeds; assert that, because it is what SDKX-059 exploits.
 **Vacuity:** step 3 and 4 are the controls: without them, a builder that refused every token would
 pass step 1.
@@ -209,7 +209,7 @@ pass step 1.
 exception messages.
 **Falsifier:** the token appears in any string form.
 **Setup:** `H-UNIT`, options with `token("correct-horse-battery-staple-0001")`,
-`allowInsecureToken(true)`, `grpc://h:9090`.
+`allowInsecureToken(true)`, `grpc://h:19090`.
 **Steps:** 1. `options.toString()`. 2. Trigger a PRV-1030 and a PRV-1031 carrying these options and
 read the messages.
 **Expected:** none of the three strings contains `correct-horse` or any substring of the token of
@@ -286,7 +286,7 @@ actions and a `FlightSqlClient` for SQL. Every call passes `CallOption[]` carryi
 **Falsifier:** `connect` throws, or `query` returns no rows for data that is there.
 **Setup:** `H-OPEN`, with three rows pushed into `txn`: `("u1", 100, "card")`, `("u2", 250, "wire")`,
 `("u1", 102, "card")`, and the view `q` committed.
-**Steps:** 1. `PravahaFlightClient c = PravahaFlightClient.connect("grpc://localhost:9090")`.
+**Steps:** 1. `PravahaFlightClient c = PravahaFlightClient.connect("grpc://localhost:19090")`.
 2. `try (QueryResult r = c.query("SELECT user_id, amount FROM q ORDER BY amount"))`, collect
 `r.toList()`. 3. `c.close()`.
 **Expected:** `r.columns()` is `["user_id", "amount"]`. `toList()` has 3 elements:
@@ -302,8 +302,8 @@ it is a projection, so both `u1` rows must appear separately.
 **Falsifier:** `connect` throws against a host with nothing listening.
 **Setup:** `H-DEAD`. Confirm `ss -ltn | grep 9099` is empty.
 **Steps:** 1. Time `PravahaFlightClient.connect("grpc://localhost:9099")`. 2. Repeat with a host
-that does not resolve (`grpc://no-such-host.invalid:9090`). 3. Repeat with a routable but
-unreachable address (`grpc://10.255.255.1:9090`).
+that does not resolve (`grpc://no-such-host.invalid:19090`). 3. Repeat with a routable but
+unreachable address (`grpc://10.255.255.1:19090`).
 **Expected:** all three **return a client**, in under 100 ms each, with no exception. Record the
 elapsed time for each — in particular arm 2, where a DNS lookup might be expected to happen eagerly
 and does not. This is a finding, not a pass: the SDK's own `CONNECT_FAILED` code implies otherwise.
@@ -348,9 +348,9 @@ one that always happens is classified non-retryable (SDKX-015).
 **Intent:** `PravahaFlightClient.java:138` is `options.endpoint().nodes().get(0)`. `Endpoint`'s
 javadoc promises the client picks and fails over; it does not.
 **Falsifier:** a request succeeds when the first node is dead and the second is alive.
-**Setup:** `H-OPEN` on 9090. Nothing on 9099.
-**Steps:** 1. `connect("grpc://localhost:9099,localhost:9090")`, then `queries()`. 2.
-`connect("grpc://localhost:9090,localhost:9099")`, then `queries()`. 3. Stop `H-OPEN` mid-session in
+**Setup:** `H-OPEN` on 19090. Nothing on 9099.
+**Steps:** 1. `connect("grpc://localhost:9099,localhost:19090")`, then `queries()`. 2.
+`connect("grpc://localhost:19090,localhost:9099")`, then `queries()`. 3. Stop `H-OPEN` mid-session in
 arm 2 and call `queries()` again.
 **Expected:** arm 1 throws PRV-1041 — the live second node is never tried. Arm 2 succeeds. Arm 3
 throws PRV-1041 and does **not** fail over to the (dead) second node either, which is consistent.
@@ -363,7 +363,7 @@ the parser (SDKX-003 is the control).
 **Intent:** the happy path of the header at `PravahaFlightClient.java:178`–`:182`.
 **Falsifier:** PRV-7001 with the correct token.
 **Setup:** `H-AUTH`.
-**Steps:** 1. `connect(ClientOptions.builder("grpc://localhost:9090")
+**Steps:** 1. `connect(ClientOptions.builder("grpc://localhost:19090")
 .token("correct-horse-battery-staple-0001").allowInsecureToken(true).build())`. 2. `queries()`.
 3. `query("SELECT user_id FROM q")`.
 **Expected:** both calls succeed. The server's audit sink records the principal as `ann`, tenant
@@ -392,7 +392,7 @@ what makes "indistinguishable except by text" a measured claim.
 (`credentialsOf` returns `new CallOption[0]`, `:170`–`:176`) rather than an empty one.
 **Falsifier:** the client refuses locally instead of letting the server answer, or the call succeeds.
 **Setup:** `H-AUTH`.
-**Steps:** 1. `connect("grpc://localhost:9090")` with no token. 2. `queries()`. 3. Capture the gRPC
+**Steps:** 1. `connect("grpc://localhost:19090")` with no token. 2. `queries()`. 3. Capture the gRPC
 metadata on the wire (server-side interceptor or `tcpdump` on loopback).
 **Expected:** step 1 succeeds — the client does not pre-check (the comment at `:166`–`:169` says so:
 "a server that requires auth answers PRV-7001"). Step 2 throws PRV-1041 whose message contains the
@@ -487,7 +487,7 @@ returns zero rows and fails; and `rowsIn` moving from 0 to 2 shows the field is 
 which exists so an older server's four-field reply still parses.
 **Falsifier:** a registered query is missing, or a short reply throws.
 **Setup:** `H-OPEN` with three registrations: `q`, `byuser`, and `shared` sharing `q`'s fingerprint.
-**Steps:** 1. `c.queries()`. 2. Compare against `pravaha queries --url grpc://localhost:9090`.
+**Steps:** 1. `c.queries()`. 2. Compare against `pravaha queries --url grpc://localhost:19090`.
 3. Feed a hand-built four-field LIST reply through the same parser.
 **Expected:** step 1 returns three `RegisteredQueryInfo`s, one per **name** (not per computation), so
 `q` and `shared` both appear with the **same** `fingerprint()`. Step 2's CLI output has the same
@@ -560,7 +560,7 @@ something untrue.
 **Setup:** a TCP endpoint that accepts and never responds — `nc -l 9098` — plus `H-DEAD`'s
 black-holed `10.255.255.1`.
 **Steps:** 1. `grep -rn "connectTimeout\|requestTimeout\|withDeadline\|CallOptions.timeout"
-sdk/pravaha-sdk-java-flight/src/main/java/`. 2. Connect to `grpc://10.255.255.1:9090` with
+sdk/pravaha-sdk-java-flight/src/main/java/`. 2. Connect to `grpc://10.255.255.1:19090` with
 `connectTimeout(Duration.ofSeconds(1))` and time `queries()`. 3. Connect to `grpc://localhost:9098`
 with `requestTimeout(Duration.ofSeconds(2))` and time `query("SELECT 1")`.
 **Expected:** step 1 returns **zero** hits. Step 2 blocks far longer than 1 s — record the actual
@@ -634,8 +634,8 @@ consumer can depend on the types without the 100 MB Arrow wheel.
 **Falsifier:** `import pravaha` raises `ModuleNotFoundError` in a venv without pyarrow.
 **Setup:** two virtualenvs on Python 3.9 and on 3.11: (a) `pip install ./sdk/python`; (b)
 `pip install "./sdk/python[flight]"`.
-**Steps:** In (a): 1. `import pravaha`. 2. `pravaha.Endpoint.parse("grpc://h:9090")`. 3.
-`pravaha.ClientOptions.create("grpc://h:9090")`. 4. `pravaha.connect("grpc://h:9090")`. In (b):
+**Steps:** In (a): 1. `import pravaha`. 2. `pravaha.Endpoint.parse("grpc://h:19090")`. 3.
+`pravaha.ClientOptions.create("grpc://h:19090")`. 4. `pravaha.connect("grpc://h:19090")`. In (b):
 5. all four again.
 **Expected:** (a) steps 1–3 succeed; step 4 raises `ModuleNotFoundError` naming `pyarrow`. (b) all
 four succeed. `pravaha.__all__` is exactly
@@ -649,7 +649,7 @@ the console needs `>=3.11`; a 3.9-only failure would otherwise go unseen.
 
 ## SDKX-035 — Python `Endpoint.parse` matches the Java one, row for row
 **Intent:** two implementations of one contract. `endpoint.py:17`–`:18` declares the same two scheme
-sets and the same `DEFAULT_PORT = 9090`, and defaults to TLS when the scheme is omitted (`:64`).
+sets and the same `DEFAULT_PORT = 19090`, and defaults to TLS when the scheme is omitted (`:64`).
 **Falsifier:** any row of SDKX-002's or SDKX-003's table resolves differently in Python.
 **Setup:** `H-UNIT` (pytest).
 **Steps:** 1. Run SDKX-002's nine inputs and SDKX-003's three through `Endpoint.parse`. 2. Run
@@ -667,7 +667,7 @@ is what makes this a drift test rather than two independent tests that could bot
 same four things.
 **Falsifier:** a default differs, or a refusal differs.
 **Setup:** `H-UNIT`.
-**Steps:** 1. `ClientOptions.create("grpc://h:9090")` and read all nine fields. 2. Repeat SDKX-006's
+**Steps:** 1. `ClientOptions.create("grpc://h:19090")` and read all nine fields. 2. Repeat SDKX-006's
 refusal arms. 3. `str(options)` with a token set. 4. `repr(options)`.
 **Expected:** `token` `None`; `connect_timeout_seconds` `10.0`; `request_timeout_seconds` `30.0`;
 `default_consistency` `Consistency.CONSISTENT`; `subscriber_buffer_rows` `10_000`;
@@ -684,9 +684,9 @@ a logging framework actually takes.
 to exist first.
 **Falsifier:** the options construct.
 **Setup:** `H-UNIT`.
-**Steps:** 1. `ClientOptions.create("grpc://h:9090", token="t")`. 2. The same with
-`allow_insecure_token=True`. 3. `ClientOptions.create("grpc+tls://h:9090", token="t")`.
-4. `ClientOptions.create("h:9090", token="t")`.
+**Steps:** 1. `ClientOptions.create("grpc://h:19090", token="t")`. 2. The same with
+`allow_insecure_token=True`. 3. `ClientOptions.create("grpc+tls://h:19090", token="t")`.
+4. `ClientOptions.create("h:19090", token="t")`.
 **Expected:** step 1 raises `InvalidOptionsError` code `1031`, message containing
 `refusing to send a token over a plaintext connection to` and
 `pass allow_insecure_token=True`. Steps 2, 3, 4 succeed. Diff the wording against Java's
@@ -699,7 +699,7 @@ both.
 SDKs are directly comparable.
 **Falsifier:** different rows, different types, or different ordering from SDKX-013.
 **Setup:** `H-OPEN` with SDKX-013's three rows.
-**Steps:** 1. `with pravaha.connect("grpc://localhost:9090") as c:`. 2. `r = c.query("SELECT
+**Steps:** 1. `with pravaha.connect("grpc://localhost:19090") as c:`. 2. `r = c.query("SELECT
 user_id, amount FROM q ORDER BY amount")`. 3. `r.columns`, `list(r)`, `r.to_list()`, `r.to_table()`.
 4. For the first row: `row["user_id"]`, `row[0]`, `row.get("amount")`, `row.is_null("amount")`,
 `row.to_dict()`, `len(row)`.
@@ -708,7 +708,7 @@ user_id, amount FROM q ORDER BY amount")`. 3. `r.columns`, `list(r)`, `r.to_list
 `__getitem__` at `client.py:95` accepts a name **or** an ordinal, which Java's does not; assert both.
 `row.is_null("amount")` is `False`. `row.to_dict()` is `{"user_id": "u1", "amount": 100}`.
 `len(row) == 2`. `r.to_table()` is a `pyarrow.Table` with 3 rows. Also: `c.uri` is
-`"grpc://localhost:9090"` (`client.py:222`).
+`"grpc://localhost:19090"` (`client.py:222`).
 **Vacuity:** comparing the values against SDKX-013's recorded Java results is the cross-check; the
 two SDKs reading the same view differently would be invisible to either test alone.
 
@@ -841,7 +841,7 @@ Python's `.code` is the int `1041`. A polyglot consumer writing one error-handli
 **Falsifier:** a call returns within `request_timeout_seconds` against a black hole.
 **Setup:** as SDKX-030.
 **Steps:** 1. `grep -n "timeout" sdk/python/pravaha/client.py`. 2. Connect to
-`grpc://10.255.255.1:9090` with `connect_timeout_seconds=1.0`; time `c.queries()`. 3. Connect to
+`grpc://10.255.255.1:19090` with `connect_timeout_seconds=1.0`; time `c.queries()`. 3. Connect to
 the accept-and-never-answer socket with `request_timeout_seconds=2.0`; time `c.query("SELECT 1")`.
 **Expected:** step 1 returns nothing. Steps 2 and 3 block far past the configured values; record the
 elapsed times and compare with SDKX-030's Java figures.
@@ -937,8 +937,8 @@ independent causes and a fix for one does not fix the others.
 below is attributable to the client.
 **Falsifier:** the node refuses to start, or logs `PLAINTEXT`.
 **Setup:** `H-TLS`.
-**Steps:** 1. Start the node. 2. Grep the log for `flight transport=`. 3. `ss -ltn | grep 9090`.
-4. `openssl s_client -connect localhost:9090 -alpn h2 -servername localhost` with `-CAfile cert.pem`.
+**Steps:** 1. Start the node. 2. Grep the log for `flight transport=`. 3. `ss -ltn | grep 19090`.
+4. `openssl s_client -connect localhost:19090 -alpn h2 -servername localhost` with `-CAfile cert.pem`.
 5. `PravahaFlightServer.isEncrypted()` via the status endpoint or a test hook.
 **Expected:** step 2 — `security: authentication=token, policy=authenticated, audit=..., flight
 transport=TLS` (`PravahaNode.java:350`). Step 3 — listening. Step 4 — the handshake **succeeds**;
@@ -986,7 +986,7 @@ different graph from the one the build actually used.
 **Setup:** `H-TLS`. The client run with the JDK truststore extended to trust `cert.pem`
 (`keytool -importcert` into a copy of `cacerts`, passed with
 `-Djavax.net.ssl.trustStore=...`), so that certificate trust is **not** the variable.
-**Steps:** 1. `connect(ClientOptions.builder("grpc+tls://localhost:9090")
+**Steps:** 1. `connect(ClientOptions.builder("grpc+tls://localhost:19090")
 .token("correct-horse-battery-staple-0001").build())`. 2. `queries()`. 3. Capture the full stack
 trace, including causes and suppressed. 4. Repeat with the netty artefact added to the client
 classpath by hand and record whether it then works.
@@ -1005,7 +1005,7 @@ ALPN, the token, or the server — and the extended truststore already removes o
 failure mode differs and must be measured rather than assumed.
 **Falsifier:** an untested assumption either way.
 **Setup:** `H-TLS`.
-**Steps:** 1. `pravaha.connect(options=ClientOptions.create("grpc+tls://localhost:9090",
+**Steps:** 1. `pravaha.connect(options=ClientOptions.create("grpc+tls://localhost:19090",
 token="correct-horse-battery-staple-0001"))`. 2. `c.queries()`. 3. Repeat with the certificate
 installed in the system CA store (`update-ca-certificates` or `SSL_CERT_FILE`). 4. Repeat against a
 server whose certificate chains to a public root.
@@ -1024,9 +1024,9 @@ alone cannot.
 SDK's classpath.
 **Falsifier:** the CLI connects.
 **Setup:** `H-TLS`.
-**Steps:** 1. `pravaha queries --url grpc+tls://localhost:9090 --token
+**Steps:** 1. `pravaha queries --url grpc+tls://localhost:19090 --token
 correct-horse-battery-staple-0001`. 2. Record stdout, stderr and the exit code. 3. `pravaha queries
---url localhost:9090 --token ...` (scheme omitted, so TLS, SDKX-002). 4. `pravaha --help` and grep
+--url localhost:19090 --token ...` (scheme omitted, so TLS, SDKX-002). 4. `pravaha --help` and grep
 for `tls`.
 **Expected:** step 1 fails. Record whether the operator sees a PRV code and an actionable message or
 a raw stack trace — given SDKX-053, expect the latter, and a non-zero exit. Step 3 fails the same
@@ -1061,16 +1061,16 @@ rather than a limitation of the underlying library.
 (`JavaSdkQueryTest:80`). That test asserts only `isInstanceOf(PravahaClientException.class)`; this
 case pins the code and the message, which is what an operator will actually see.
 **Falsifier:** the message does not mention TLS or the scheme.
-**Setup:** `H-OPEN` (plaintext) on 9090.
-**Steps:** 1. Java: `connect("localhost:9090")`, then `queries()`. 2. Python: the same.
-3. CLI: `pravaha queries --url localhost:9090`. 4. For each, record the full message chain.
+**Setup:** `H-OPEN` (plaintext) on 19090.
+**Steps:** 1. Java: `connect("localhost:19090")`, then `queries()`. 2. Python: the same.
+3. CLI: `pravaha queries --url localhost:19090`. 4. For each, record the full message chain.
 **Expected:** all three fail. Java gives `PravahaClientException` PRV-1041 whose message is the gRPC
 status description — record it, and record whether it says anything about TLS. If it does not, that
 is the finding: the most likely single mistake a new user makes (omitting the scheme) produces a
 message that does not name its cause, while `Endpoint`'s javadoc is the only place the rule is
-written down. Step 3 is the control for the CLI's opposite default: `--url localhost:9090` is TLS
+written down. Step 3 is the control for the CLI's opposite default: `--url localhost:19090` is TLS
 because it goes through `ClientOptions.builder(url)`, whereas the CLI's *default* when `--url` is
-omitted is the literal string `grpc://localhost:9090`, which is plaintext and works. Two defaults,
+omitted is the literal string `grpc://localhost:19090`, which is plaintext and works. Two defaults,
 two directions, one flag.
 **Vacuity:** the three clients and the CLI's two paths are what show the inconsistency is in the
 contract, not in one implementation.
@@ -1080,8 +1080,8 @@ contract, not in one implementation.
 forgetting to update one client.
 **Falsifier:** the call hangs indefinitely, or succeeds.
 **Setup:** `H-TLS`.
-**Steps:** 1. Java: `connect("grpc://localhost:9090")`, `queries()`. 2. Python: the same.
-3. `pravaha queries --url grpc://localhost:9090`. 4. Time each.
+**Steps:** 1. Java: `connect("grpc://localhost:19090")`, `queries()`. 2. Python: the same.
+3. `pravaha queries --url grpc://localhost:19090`. 4. Time each.
 **Expected:** all three fail. Record the message and the elapsed time. With no deadline (SDKX-030),
 the plaintext client sending HTTP/2 preface bytes into a TLS listener may block until the server or
 the OS gives up — measure it. Anything over a few seconds is a finding, because this is the
@@ -1095,15 +1095,15 @@ control.
 `args.get("token").ifPresent(token -> options.token(token).allowInsecureToken(true));`. The SDK
 refuses to send a token over plaintext (SDKX-007); its own first-party consumer switches that off
 **unconditionally**, for every URL, including a remote one.
-**Falsifier:** `pravaha query --token secret --url grpc://remote:9090` is refused, or warns.
+**Falsifier:** `pravaha query --token secret --url grpc://remote:19090` is refused, or warns.
 **Setup:** `H-AUTH` on a second host (or a loopback alias that is not `127.0.0.1`), plus a packet
 capture on the path.
-**Steps:** 1. `pravaha queries --url grpc://<remote>:9090 --token
+**Steps:** 1. `pravaha queries --url grpc://<remote>:19090 --token
 correct-horse-battery-staple-0001`. 2. Capture the traffic. 3. Check stdout and stderr for any
 warning. 4. Read the CLI's default URL when `--url` is omitted.
 **Expected:** step 1 **succeeds**. Step 2 — the token is visible in cleartext in the gRPC metadata on
 the wire; extract it from the capture and show it matches. Step 3 — **no warning**, on either stream.
-Step 4 — the default is `grpc://localhost:9090`, plaintext (`ServerCommand.java:194`), which is the
+Step 4 — the default is `grpc://localhost:19090`, plaintext (`ServerCommand.java:194`), which is the
 opposite default from the SDK's (SDKX-002 row 6). Cross-reference `docs/qa/logs/SEC.md:1557`, where
 this was already recorded. The finding is not that loopback is exempted — it is that nothing checks
 whether the connection is loopback, so the exemption applies to every host.
@@ -1316,10 +1316,10 @@ engine URL, from the `brand()` context.
 **Falsifier:** the engine URL is absent, or the chip disagrees with reality.
 **Setup:** `H-CON` (engine up) and `H-CON-DOWN`.
 **Steps:** 1. `GET /` in each. 2. Compare.
-**Expected:** up — a chip reading `engine up` and the text `grpc://localhost:9090`. Down — a chip
+**Expected:** up — a chip reading `engine up` and the text `grpc://localhost:19090`. Down — a chip
 reading `engine unreachable` and a `<pre>` containing the error text from `Engine.health()`
 (`console/core/engine.py:71`–`:80`). Both return **200**. The footer (`base.html:348`) shows
-`engine at grpc://localhost:9090` in both.
+`engine at grpc://localhost:19090` in both.
 **Vacuity:** running both arms and diffing is what makes the chip an observation rather than a
 constant.
 
@@ -1491,11 +1491,11 @@ Unconditional, exactly as the CLI does (SDKX-059) — and the console builds **a
 call**.
 **Falsifier:** a token over a plaintext remote engine is refused or warned about; or the client is
 reused across calls.
-**Setup:** `H-CON` with `PRAVAHA_ENGINE=grpc://<remote>:9090` and `PRAVAHA_TOKEN=
+**Setup:** `H-CON` with `PRAVAHA_ENGINE=grpc://<remote>:19090` and `PRAVAHA_TOKEN=
 correct-horse-battery-staple-0001`, against `H-AUTH` on a non-loopback address, with a packet capture.
 **Steps:** 1. `GET /queries`. 2. Capture the traffic. 3. Grep the console's logs and the page for any
 warning. 4. Instrument `Engine._client` and count constructions across 20 page loads. 5. Count TCP
-connections opened to 9090 over those 20 loads. 6. Repeat with `PRAVAHA_ENGINE=grpc+tls://...` and
+connections opened to 19090 over those 20 loads. 6. Repeat with `PRAVAHA_ENGINE=grpc+tls://...` and
 record what happens (cross-reference SDKX-054).
 **Expected:** step 2 — the bearer token is in cleartext on the wire. Step 3 — no warning anywhere.
 Step 4 — **20 or more** client constructions; the SDK's refusal is bypassed on every one. Step 5 —

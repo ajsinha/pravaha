@@ -127,7 +127,7 @@ The server is described by one file, shipped with this study:
 ```bash
 pravaha-server --spring.profiles.active=dev \
                --spring.config.additional-location=file:./conf/application.yaml &
-pravaha queries --url grpc://localhost:9090     # expect: no continuous queries are registered
+pravaha queries --url grpc://localhost:19090     # expect: no continuous queries are registered
 ```
 
 The Aerospike connector ships inside the server jar, so there is nothing to build in — see
@@ -192,7 +192,7 @@ Reading it a line at a time:
 Register it through the SDK — Java:
 
 ```java
-try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:9090")) {
+try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:19090")) {
     RegisteredQueryInfo registered = client.register(
             "card_velocity",                                    // the view your SQL will read
             Files.readString(Path.of("sql/01-continuous-card-velocity.sql")),
@@ -203,16 +203,16 @@ try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:
 Python:
 
 ```python
-with connect("grpc://localhost:9090") as client:
+with connect("grpc://localhost:19090") as client:
     client.register("card_velocity", open("sql/01-continuous-card-velocity.sql").read(), [1])
 ```
 
 Or from a shell, with no code at all:
 
 ```bash
-pravaha register --url grpc://localhost:9090 \
+pravaha register --url grpc://localhost:19090 \
   --name card_velocity --sql-file sql/01-continuous-card-velocity.sql --keys 1
-pravaha queries --url grpc://localhost:9090
+pravaha queries --url grpc://localhost:19090
 ```
 
 > **Notice what the client does not have.** No schemas, no engine, no plugin configuration — it
@@ -258,7 +258,7 @@ INSERT INTO test.auth (PK, auth_id, card_id, merchant_id, amount_minor, mcc, sta
 >   VALUES ('a-9', 'a-9', 'c-1003', 'm-70', 100, 5411, 'APPROVED', 1767225700000000000);
 > ```
 > ```bash
-> pravaha query --url grpc://localhost:9090 \
+> pravaha query --url grpc://localhost:19090 \
 >   --sql "SELECT card_id, auth_count, distinct_merchants FROM card_velocity"
 > ```
 > This is the single most confusing thing about event-time streaming the first time you meet it: the
@@ -288,7 +288,7 @@ Python:
 ```python
 from pravaha import connect
 
-with connect("grpc://localhost:9090") as client:
+with connect("grpc://localhost:19090") as client:
     for row in client.query(open("sql/02-read-one-card.sql").read(), ["c-1002"]):
         print(row["card_id"], row["auth_count"], row["distinct_merchants"])
 ```
@@ -296,7 +296,7 @@ with connect("grpc://localhost:9090") as client:
 Java:
 
 ```java
-try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:9090");
+try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:19090");
         QueryResult result = client.query(sql, "c-1002")) {
     for (Row row : result) {
         System.out.println(row.getString("card_id") + " " + row.getLong("auth_count"));

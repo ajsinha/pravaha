@@ -109,7 +109,7 @@ four. An empty `audit-readers` closes the trail to everybody over HTTP.
 no endpoint to change a grant, because grants live in your identity system, not in the engine.
 
 ```bash
-curl -s -H "Authorization: Bearer $PRAVAHA_TOKEN" https://pravaha.internal:8080/api/v1/me/permissions
+curl -s -H "Authorization: Bearer $PRAVAHA_TOKEN" https://pravaha.internal:18080/api/v1/me/permissions
 ```
 
 ```json

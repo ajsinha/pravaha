@@ -130,7 +130,7 @@ ceiling, and the set's one reader writes each record into each lane once.
 raise `lanes` or `max-queries-per-lane`, or accept the inbox each own-lane query costs.
 
 ```bash
-curl -s http://localhost:8080/actuator/prometheus | grep '^pravaha_lane_'
+curl -s http://localhost:18080/actuator/prometheus | grep '^pravaha_lane_'
 ```
 
 ```text

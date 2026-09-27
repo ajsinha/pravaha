@@ -194,16 +194,16 @@ class ErrcCrossCuttingTest {
                     .contains("docs/TROUBLESHOOTING.md")
                     .doesNotContain("http");
 
-            HelpUrls.configure("http://localhost:8088/help/errors/");
+            HelpUrls.configure("http://localhost:17070/help/codes/");
             // Sampled across the whole four-digit space, as the original did: the URL is
             // mechanically the configured base plus the rendered code, for every code.
             for (int number = 1000; number <= 9999; number += 137) {
                 assertThat(new ErrorCode(number, "X").helpUrl())
                         .as("PRV-" + number)
-                        .isEqualTo("http://localhost:8088/help/errors/PRV-" + number);
+                        .isEqualTo("http://localhost:17070/help/codes/PRV-" + number);
             }
             assertThat(new ErrorCode(2050, "SQL_UNBOUNDED_STATE").helpUrl())
-                    .isEqualTo("http://localhost:8088/help/errors/PRV-2050");
+                    .isEqualTo("http://localhost:17070/help/codes/PRV-2050");
 
             // The dead host is gone from the product, not merely unused: nothing can put it back
             // except an operator who types it.

@@ -14,7 +14,7 @@ related: [pgwire, client-snippets, tls, errors-overview, sql-types]
 
 A **gateway** is how a client reaches the engine. There are two, and each has a block in this range:
 
-- **61nn — Arrow Flight SQL**, on port 9090. Every SDK, the CLI, this console, and any JDBC/ADBC
+- **61nn — Arrow Flight SQL**, on port 19090. Every SDK, the CLI, this console, and any JDBC/ADBC
   Flight SQL driver speak it. It is the full surface: queries, registration, subscriptions.
 - **62nn — the PostgreSQL wire protocol**, on port 5432, **off by default**
   (`pravaha.pgwire.enabled`). It lets `psql`, DBeaver, Grafana and any ORM **read** a maintained view

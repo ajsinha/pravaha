@@ -249,11 +249,11 @@ def test_a_client_without_an_http_url_says_which_setting_is_missing():
 
 def test_a_token_is_not_sent_over_plaintext_http_unless_asked_for():
     with pytest.raises(InvalidOptionsError):
-        ClientOptions.create("grpc+tls://engine:9090", token="t", http_url="http://engine:8080")
+        ClientOptions.create("grpc+tls://engine:19090", token="t", http_url="http://engine:18080")
     with pytest.raises(InvalidOptionsError):
-        RestClient("http://engine:8080", token="t")
+        RestClient("http://engine:18080", token="t")
     with pytest.raises(InvalidOptionsError):
-        ClientOptions.create("grpc+tls://engine:9090", http_url="engine:8080")
+        ClientOptions.create("grpc+tls://engine:19090", http_url="engine:18080")
 
     # Asked for by name, for a loopback engine.
-    RestClient("http://127.0.0.1:8080", token="t", allow_insecure_token=True)
+    RestClient("http://127.0.0.1:18080", token="t", allow_insecure_token=True)

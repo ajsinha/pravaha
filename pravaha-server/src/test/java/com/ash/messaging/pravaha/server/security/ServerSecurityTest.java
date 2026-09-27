@@ -364,10 +364,10 @@ class ServerSecurityTest {
     void theUnauthenticatedBodyCarriesTheConfiguredHelpUrlAndNothingWhenThereIsNone() throws Exception {
         assertThat(refusalBody()).contains("\"code\":\"PRV-7001\"").contains("\"helpUrl\":\"\"");
 
-        com.ash.messaging.pravaha.api.HelpUrls.configure("http://localhost:8088/help/errors/");
+        com.ash.messaging.pravaha.api.HelpUrls.configure("http://localhost:17070/help/codes/");
         try {
             assertThat(refusalBody())
-                    .contains("\"helpUrl\":\"http://localhost:8088/help/errors/PRV-7001\"")
+                    .contains("\"helpUrl\":\"http://localhost:17070/help/codes/PRV-7001\"")
                     .doesNotContain("docs.pravaha.io");
         } finally {
             com.ash.messaging.pravaha.api.HelpUrls.configure(null);

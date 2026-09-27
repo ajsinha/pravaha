@@ -3,7 +3,7 @@
 # Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 # Proprietary and confidential; see the LICENSE file in the root of this repository.
 #
-# The engine node. HTTP on 8080, Flight SQL on 9090.
+# The engine node. HTTP on 18080, Flight SQL on 19090.
 #
 # This server refuses to start if it would serve every view to unauthenticated callers without
 # anybody having said so. For a local first run:

@@ -242,9 +242,9 @@ meaning — a team running both reads one page per code, not two.
 
 ### PRV-1030 — CLIENT_MALFORMED_ENDPOINT
 
-The endpoint string is not one the client can use. The accepted forms are `grpc://host:9090`
-(plaintext), `grpc+tls://host:9090` (TLS, also spelled `grpcs://`), a comma-separated list of nodes
-(`grpc+tls://h1:9090,h2:9090`, the client picks and fails over), and a bare `host:9090`, which
+The endpoint string is not one the client can use. The accepted forms are `grpc://host:19090`
+(plaintext), `grpc+tls://host:19090` (TLS, also spelled `grpcs://`), a comma-separated list of nodes
+(`grpc+tls://h1:19090,h2:19090`, the client picks and fails over), and a bare `host:19090`, which
 assumes TLS. An unknown scheme (`tcp://`), an empty host or a port that is not a number is refused
 **when the client is constructed**, next to the code that supplied it, rather than fifteen minutes
 later inside a request. In Python this is `pravaha.errors.MalformedEndpointError`.
@@ -269,8 +269,8 @@ PRV-1032 on purpose — one is fixed by editing the options, the other by fixing
 ### PRV-1040 — CLIENT_CONNECT_FAILED
 
 The node could not be reached. **Retryable** — a node may come back — and the Python error says so
-with `retryable = True`. The commonest causes, in order: the wrong port (the console is on 8090, the
-engine's Flight endpoint on 9090, its HTTP API on 8080), plaintext against a TLS listener or the
+with `retryable = True`. The commonest causes, in order: the wrong port (the console is on 17070, the
+engine's Flight endpoint on 19090, its HTTP API on 18080), plaintext against a TLS listener or the
 reverse, and a firewall.
 
 ```python
@@ -278,7 +278,7 @@ from pravaha import connect
 from pravaha.errors import PravahaError
 
 try:
-    with connect("grpc://localhost:9090") as client:
+    with connect("grpc://localhost:19090") as client:
         rows = client.query("SELECT user_id, spend FROM hourly_spend")
 except PravahaError as e:
     print(e.code, e.retryable)
@@ -288,7 +288,7 @@ except PravahaError as e:
 1040 True
 ```
 
-(With no node listening on 9090.)
+(With no node listening on 19090.)
 
 ### PRV-1041 — CLIENT_QUERY_REFUSED
 
@@ -321,7 +321,7 @@ A JSON body left out a field the endpoint requires — today, `sql` on `/api/v1/
 `/explain`:
 
 ```bash
-curl -s -X POST http://localhost:8080/api/v1/queries/validate \
+curl -s -X POST http://localhost:18080/api/v1/queries/validate \
      -H 'Content-Type: application/json' -d '{}'
 ```
 

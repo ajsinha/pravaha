@@ -33,16 +33,16 @@ import com.ash.messaging.pravaha.api.ErrorCode;
  * <p>Accepted forms:
  *
  * <pre>
- *   grpc://host:9090              plaintext
- *   grpc+tls://host:9090          TLS
- *   grpc+tls://h1:9090,h2:9090    several nodes; the client picks and fails over
- *   host:9090                     scheme omitted, TLS assumed
+ *   grpc://host:19090              plaintext
+ *   grpc+tls://host:19090          TLS
+ *   grpc+tls://h1:19090,h2:19090    several nodes; the client picks and fails over
+ *   host:19090                     scheme omitted, TLS assumed
  * </pre>
  */
 public final class Endpoint {
 
     /** Default gRPC port, matching the design's gateway configuration. */
-    public static final int DEFAULT_PORT = 9090;
+    public static final int DEFAULT_PORT = 19090;
 
     private static final ErrorCode MALFORMED = new ErrorCode(1030, "CLIENT_MALFORMED_ENDPOINT");
 

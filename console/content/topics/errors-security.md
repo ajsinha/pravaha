@@ -41,8 +41,8 @@ versus "wrong signature" is three bits of an oracle for whoever is working throu
 engine keeps them to itself; the node's own log and the audit trail record the decision.
 
 ```bash
-curl -s http://localhost:8080/api/v1/queries                       # no token: 401, PRV-7001
-curl -s -H "Authorization: Bearer $PRAVAHA_TOKEN" http://localhost:8080/api/v1/queries
+curl -s http://localhost:18080/api/v1/queries                       # no token: 401, PRV-7001
+curl -s -H "Authorization: Bearer $PRAVAHA_TOKEN" http://localhost:18080/api/v1/queries
 ```
 
 ```python
@@ -50,7 +50,7 @@ from pravaha import connect
 from pravaha.endpoint import Endpoint
 from pravaha.options import ClientOptions
 
-options = ClientOptions(endpoint=Endpoint.parse("grpc+tls://pravaha-1:9090"), token=token)
+options = ClientOptions(endpoint=Endpoint.parse("grpc+tls://pravaha-1:19090"), token=token)
 with connect(options=options) as client:
     rows = client.query("SELECT user_id, spend FROM hourly_spend")
 ```

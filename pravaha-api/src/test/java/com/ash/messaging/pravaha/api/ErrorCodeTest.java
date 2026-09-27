@@ -45,8 +45,8 @@ class ErrorCodeTest {
     void theHelpUrlIsEmptyUntilADeploymentPublishesOne() {
         ErrorCode c = new ErrorCode(2041, "EMIT_MODE_MISMATCH");
         assertThat(c.helpUrl()).isEmpty();
-        HelpUrls.configure("http://localhost:8088/help/errors/");
-        assertThat(c.helpUrl()).isEqualTo("http://localhost:8088/help/errors/PRV-2041");
+        HelpUrls.configure("http://localhost:17070/help/codes/");
+        assertThat(c.helpUrl()).isEqualTo("http://localhost:17070/help/codes/PRV-2041");
     }
 
     @Test

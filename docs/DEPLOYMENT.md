@@ -90,7 +90,7 @@ files (mode 0600, uid 10001), prints them once, and never overwrites either file
 | Size | **436,555,582 bytes** (~437 MB) as `docker image inspect` reports it; 77 MB of that is the application jar |
 | User | uid **10001**, non-root, numeric — a Kubernetes `runAsUser` and a `docker --user` both take a number |
 | Entrypoint | `/__cacert_entrypoint.sh bin/pravaha-server` |
-| Ports | 8080 HTTP, 9090 Flight SQL |
+| Ports | 18080 HTTP, 19090 Flight SQL |
 | Volume | `/opt/pravaha/data` |
 | Healthcheck | `wget --spider /actuator/health/liveness`, every 30s after a 45s start period |
 
@@ -163,7 +163,7 @@ Relaxed binding means every key has an environment spelling: `pravaha.flight.ena
 
 ```bash
 docker run -d --name pravaha \
-  -p 8080:8080 -p 9090:9090 \
+  -p 18080:18080 -p 19090:19090 \
   -v pravaha-data:/opt/pravaha/data \
   -v "$PWD/application.yaml:/opt/pravaha/conf/application.yaml:ro" \
   --read-only --tmpfs /tmp:rw,size=64m \
@@ -176,7 +176,7 @@ The CLI is **not** in the image — 49 MB, a second copy of the whole engine, to
 belongs on the operator's machine. Point it at the container instead:
 
 ```bash
-pravaha queries --url grpc://127.0.0.1:9090
+pravaha queries --url grpc://127.0.0.1:19090
 ```
 
 ### What is on the volume, and who can read it

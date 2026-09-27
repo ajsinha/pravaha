@@ -124,7 +124,7 @@ class NodeCrashRestartTest {
                 CrashNodeMain.class.getName(),
                 state.toString(),
                 nodeId,
-                "9090"));
+                "19090"));
         Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
         List<String> output = new ArrayList<>();
         // Read until the child's *verdict* line appears, not merely until it says anything. The

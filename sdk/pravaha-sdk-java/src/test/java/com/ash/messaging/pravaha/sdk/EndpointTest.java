@@ -28,24 +28,24 @@ class EndpointTest {
 
     @Test
     void parsesSchemeHostAndPort() {
-        Endpoint e = Endpoint.parse("grpc+tls://db01.example.com:9090");
+        Endpoint e = Endpoint.parse("grpc+tls://db01.example.com:19090");
         assertThat(e.tls()).isTrue();
-        assertThat(e.nodes()).singleElement().hasToString("db01.example.com:9090");
+        assertThat(e.nodes()).singleElement().hasToString("db01.example.com:19090");
     }
 
     @Test
     void plaintextSchemeDisablesTls() {
-        assertThat(Endpoint.parse("grpc://localhost:9090").tls()).isFalse();
-        assertThat(Endpoint.parse("http://localhost:9090").tls()).isFalse();
+        assertThat(Endpoint.parse("grpc://localhost:19090").tls()).isFalse();
+        assertThat(Endpoint.parse("http://localhost:19090").tls()).isFalse();
     }
 
     @Test
     void tlsIsAssumedWhenTheSchemeIsOmitted() {
         // The safe reading of an ambiguous input. Defaulting to plaintext would mean a typo
         // silently downgrades the connection.
-        Endpoint e = Endpoint.parse("host:9090");
+        Endpoint e = Endpoint.parse("host:19090");
         assertThat(e.tls()).isTrue();
-        assertThat(e.nodes()).singleElement().hasToString("host:9090");
+        assertThat(e.nodes()).singleElement().hasToString("host:19090");
     }
 
     @Test
@@ -58,7 +58,7 @@ class EndpointTest {
 
     @Test
     void parsesAListOfNodesForFailover() {
-        Endpoint e = Endpoint.parse("grpc+tls://a:9090, b:9091 ,c:9092");
+        Endpoint e = Endpoint.parse("grpc+tls://a:19090, b:9091 ,c:9092");
         assertThat(e.nodes()).hasSize(3);
         assertThat(e.nodes().get(1).host()).isEqualTo("b");
         assertThat(e.nodes().get(2).port()).isEqualTo(9092);
@@ -66,13 +66,14 @@ class EndpointTest {
 
     @Test
     void roundTripsThroughToString() {
-        String text = "grpc+tls://a:9090,b:9091";
+        String text = "grpc+tls://a:19090,b:9091";
         assertThat(Endpoint.parse(Endpoint.parse(text).toString())).isEqualTo(Endpoint.parse(text));
     }
 
     @ParameterizedTest
     @ValueSource(
-            strings = {"", "   ", "grpc://", "ftp://host:1", "host:notaport", "host:0", "host:70000", "a:9090,,b:9090"})
+            strings = {"", "   ", "grpc://", "ftp://host:1", "host:notaport", "host:0", "host:70000", "a:19090,,b:19090"
+            })
     void malformedInputFailsAtConstructionWithTheAcceptedForms(String text) {
         // A typo in a connection string should fail next to the code that supplied it, not fifteen
         // minutes later inside a request where the stack trace points somewhere unhelpful.

@@ -8,7 +8,7 @@ Application entry point. Wires configuration, the engine adapter, the services
 and the routes, then serves.
 
     python run_pravaha_web.py
-    python run_pravaha_web.py --server.port=8099 --engine.url=grpc://host:9090
+    python run_pravaha_web.py --server.port=8099 --engine.url=grpc://host:19090
 
 The console reaches the engine only through the published Python SDK (ADR-024),
 and ships as one artefact configured by an engine URL (ADR-033). It starts
@@ -72,7 +72,7 @@ def create_app(config: PropertiesConfigurator, engine: Engine | None = None) -> 
     adapter that talks to the engine -- everything above it is the real console.
     """
     if engine is None:
-        engine = Engine(config.get("engine.url", "grpc://localhost:9090"),
+        engine = Engine(config.get("engine.url", "grpc://localhost:19090"),
                         config.get("engine.token") or None,
                         http_url=config.get("engine.http_url") or None)
     services = Services(engine,
@@ -181,7 +181,7 @@ def main() -> None:
         format="%(asctime)s %(levelname)-5s %(name)s — %(message)s")
 
     host = config.get("server.host", "127.0.0.1")
-    port = config.get_int("server.port", 8090)
+    port = config.get_int("server.port", 17070)
     app = create_app(config)
 
     # Said at startup rather than left to be discovered: the two ports are

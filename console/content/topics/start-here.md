@@ -165,8 +165,8 @@ merchant_minute  RUNNING  7c1e2a9b4f03
     stream's `out-of-orderness`. See [event time and watermarks](/help/topics/event-time-watermarks).
 
 !!! note "Three ports"
-    The engine's Flight SQL endpoint is **9090**, its HTTP API and Prometheus endpoint **8080**, the
-    PostgreSQL gateway (when enabled) **5432**, and this console **8090**. Confusing them is the
+    The engine's Flight SQL endpoint is **19090**, its HTTP API and Prometheus endpoint **18080**, the
+    PostgreSQL gateway (when enabled) **5432**, and this console **17070**. Confusing them is the
     commonest way a first connection fails.
 
 ## Where next

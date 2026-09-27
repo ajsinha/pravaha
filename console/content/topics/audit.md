@@ -117,7 +117,7 @@ different question and look right.
 
 ```bash
 curl -s -H "Authorization: Bearer $OPS_TOKEN" \
-  "https://pravaha.internal:8080/api/v1/audit?principal=ann&decision=deny&limit=2"
+  "https://pravaha.internal:18080/api/v1/audit?principal=ann&decision=deny&limit=2"
 ```
 
 ```json

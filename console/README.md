@@ -12,20 +12,20 @@ engine commits. Plus the documentation the engine ships with, rendered in place.
 
 ```bash
 make install          # .venv, the Pravaha Python SDK, and this
-make run              # http://127.0.0.1:8090, engine at grpc://localhost:9090 and http://localhost:8080
+make run              # http://127.0.0.1:17070, engine at grpc://localhost:19090 and http://localhost:18080
 ```
 
 Any configuration key can be overridden on the command line, so a second instance pointed somewhere
 else needs no file of its own:
 
 ```bash
-python run_pravaha_web.py --server.port=8099 --engine.url=grpc://staging:9090 \
-    --engine.http_url=http://staging:8080
+python run_pravaha_web.py --server.port=8099 --engine.url=grpc://staging:19090 \
+    --engine.http_url=http://staging:18080
 ```
 
 **Three ports, and confusing them is the commonest way a first run fails.** The console is on
-**8090**, the engine's Flight endpoint on **9090**, and the engine's own HTTP surface — its REST
-API and `/actuator/prometheus` — on **8080**. The console uses both engine ports: Flight for
+**17070**, the engine's Flight endpoint on **19090**, and the engine's own HTTP surface — its REST
+API and `/actuator/prometheus` — on **18080**. The console uses both engine ports: Flight for
 queries, registration, lifecycle and subscriptions; HTTP for the catalog, validation, plans, node
 status and metrics.
 
@@ -40,9 +40,9 @@ environment variable, by `--key=value` on the command line, or in a git-ignored
 | `console.password` | `CONSOLE_PASSWORD` | *empty* | **The sign-in gate. Set it or nobody can sign in** — the safe failure, because the console can drop queries and a default password is a public one. Only the landing page, About, the help (topics, guides, search, `/help/codes/*`, decision records) and the health probes are open, so an operator can open the console during an incident and see what is wrong before they find a password. Every screen and endpoint that names a registered query, reads a view, shows the catalog or reaches the engine needs a session. |
 | `console.session_secret` | `CONSOLE_SESSION_SECRET` | *empty* | Signs the session cookie. Set it where sessions should survive a restart. |
 | `server.host` | `CONSOLE_HOST` | `127.0.0.1` | Loopback by default; set `0.0.0.0` only behind something that authenticates. |
-| `server.port` | `CONSOLE_PORT` | `8090` | |
-| `engine.url` | `PRAVAHA_ENGINE` | `grpc://localhost:9090` | The engine's Flight endpoint. `grpc://` is plaintext and spelled out. |
-| `engine.http_url` | `PRAVAHA_ENGINE_HTTP` | `http://localhost:8080` | The engine's HTTP surface, handed to the SDK as `ClientOptions.http_url`: the catalog, sinks, query and view descriptions, validation, plans, status, Prometheus. Without it the workbench still edits and runs, and says validation is unavailable. |
+| `server.port` | `CONSOLE_PORT` | `17070` | |
+| `engine.url` | `PRAVAHA_ENGINE` | `grpc://localhost:19090` | The engine's Flight endpoint. `grpc://` is plaintext and spelled out. |
+| `engine.http_url` | `PRAVAHA_ENGINE_HTTP` | `http://localhost:18080` | The engine's HTTP surface, handed to the SDK as `ClientOptions.http_url`: the catalog, sinks, query and view descriptions, validation, plans, status, Prometheus. Without it the workbench still edits and runs, and says validation is unavailable. |
 | `engine.token` | `PRAVAHA_TOKEN` | *empty* | Bearer token, sent to both engine surfaces and never to a browser. One identity for the whole console. |
 | `engine.pgwire` | `PRAVAHA_PGWIRE` | `localhost:5432` | Shown in the view browser's `psql` snippet. The console never connects to it. |
 | `ui.default_role` | `CONSOLE_DEFAULT_ROLE` | `operator` | Where a signed-in person lands until they choose: `analyst`, `operator`, `developer` or `admin`. |

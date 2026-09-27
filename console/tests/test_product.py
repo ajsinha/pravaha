@@ -839,7 +839,7 @@ def test_the_metrics_history_scrapes_at_most_once_per_ttl_and_computes_rates():
 
 
 def test_snippets_cover_every_client_and_bind_rather_than_splice():
-    code = snippets.snippets("user_volume", engine_url="grpc://localhost:9090",
+    code = snippets.snippets("user_volume", engine_url="grpc://localhost:19090",
                              key_column="user_id", key_value="o'brien")
     assert set(code) == {"java", "python", "psql", "cli"}
     assert 'client.query("SELECT * FROM user_volume WHERE user_id = ?", "o\'brien")' in code["java"]["read"]
@@ -856,14 +856,14 @@ def test_snippets_cover_every_client_and_bind_rather_than_splice():
 
 
 def test_snippets_keep_numbers_numeric_and_never_carry_a_token():
-    code = snippets.snippets("v", engine_url="grpc+tls://prod:9090", key_column="id", key_value="40")
+    code = snippets.snippets("v", engine_url="grpc+tls://prod:19090", key_column="id", key_value="40")
     assert 'client.query("SELECT * FROM v WHERE id = ?", 40)' in code["java"]["read"]
     assert "[40]" in code["python"]["read"]
     assert "WHERE id = 40" in code["psql"]["read"]
     everything = json.dumps(code)
     assert "PRAVAHA_TOKEN" in everything          # read from the environment...
     assert "System.getenv" in code["java"]["read"]
-    plain = snippets.snippets("v", engine_url="grpc://dev:9090")
+    plain = snippets.snippets("v", engine_url="grpc://dev:19090")
     assert "--token" not in plain["cli"]["read"]  # ...and not sent over plaintext
 
 

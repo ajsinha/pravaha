@@ -142,7 +142,7 @@ class JavaSdkAuthenticationTest {
 
     @Test
     void aTokenIsRefusedOverAPlaintextConnectionUnlessAskedFor() {
-        assertThatThrownBy(() -> ClientOptions.builder("grpc://example.com:9090")
+        assertThatThrownBy(() -> ClientOptions.builder("grpc://example.com:19090")
                         .token("s3cret")
                         .build())
                 .isInstanceOf(PravahaClientException.class)

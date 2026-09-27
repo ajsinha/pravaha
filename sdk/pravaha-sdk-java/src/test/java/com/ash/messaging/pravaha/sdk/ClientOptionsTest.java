@@ -30,7 +30,7 @@ class ClientOptionsTest {
     void defaultsAreTheSafeChoicesNotTheFastestOnes() {
         // A client that quietly defaults to the loosest behaviour is how an application ends up
         // reporting numbers that do not reconcile, months before anyone notices.
-        ClientOptions o = ClientOptions.builder("host:9090").build();
+        ClientOptions o = ClientOptions.builder("host:19090").build();
         assertThat(o.endpoint().tls()).isTrue();
         assertThat(o.defaultConsistency()).isEqualTo(Consistency.CONSISTENT);
         assertThat(o.subscriberBufferRows()).isPositive();
@@ -40,7 +40,7 @@ class ClientOptionsTest {
 
     @Test
     void overridesApply() {
-        ClientOptions o = ClientOptions.builder("grpc+tls://host:9090")
+        ClientOptions o = ClientOptions.builder("grpc+tls://host:19090")
                 .token("secret-token")
                 .connectTimeout(Duration.ofSeconds(2))
                 .requestTimeout(Duration.ofSeconds(5))
@@ -67,7 +67,7 @@ class ClientOptionsTest {
         // Sending a bearer token over plaintext hands it to anyone on the path. Refusing is less
         // convenient than warning, and considerably safer.
         assertThatThrownBy(() ->
-                        ClientOptions.builder("grpc://host:9090").token("t").build())
+                        ClientOptions.builder("grpc://host:19090").token("t").build())
                 .isInstanceOf(PravahaClientException.class)
                 .hasMessageContaining("plaintext")
                 .hasMessageContaining("grpc+tls://");
@@ -75,7 +75,7 @@ class ClientOptionsTest {
 
     @Test
     void plaintextWithoutATokenIsAllowedForLocalDevelopment() {
-        assertThat(ClientOptions.builder("grpc://localhost:9090")
+        assertThat(ClientOptions.builder("grpc://localhost:19090")
                         .build()
                         .endpoint()
                         .tls())
@@ -85,16 +85,17 @@ class ClientOptionsTest {
     @Test
     void toStringNeverRendersTheToken() {
         // A ClientOptions reaching a log line must not leak the credential it carries.
-        ClientOptions o =
-                ClientOptions.builder("grpc+tls://h:9090").token("super-secret").build();
+        ClientOptions o = ClientOptions.builder("grpc+tls://h:19090")
+                .token("super-secret")
+                .build();
         assertThat(o.toString()).doesNotContain("super-secret").contains("authenticated");
-        assertThat(ClientOptions.builder("grpc+tls://h:9090").build().toString())
+        assertThat(ClientOptions.builder("grpc+tls://h:19090").build().toString())
                 .doesNotContain("authenticated");
     }
 
     @Test
     void rejectsNonsensicalSettings() {
-        var b = ClientOptions.builder("grpc+tls://h:9090");
+        var b = ClientOptions.builder("grpc+tls://h:19090");
         assertThatThrownBy(() -> b.subscriberBufferRows(0)).isInstanceOf(PravahaClientException.class);
         assertThatThrownBy(() -> b.connectTimeout(Duration.ZERO)).isInstanceOf(PravahaClientException.class);
         assertThatThrownBy(() -> b.requestTimeout(Duration.ofSeconds(-1))).isInstanceOf(PravahaClientException.class);
@@ -137,7 +138,7 @@ class ClientOptionsTest {
         // real work and an answer nobody can tell is wrong is the worst kind this system produces.
         for (Consistency unimplemented :
                 new Consistency[] {Consistency.LATEST, Consistency.AT_LEAST, Consistency.AS_OF}) {
-            assertThatThrownBy(() -> ClientOptions.builder("grpc+tls://host:9090")
+            assertThatThrownBy(() -> ClientOptions.builder("grpc+tls://host:19090")
                             .defaultConsistency(unimplemented)
                             .build())
                     .as("%s must refuse rather than quietly become CONSISTENT", unimplemented)
@@ -149,7 +150,7 @@ class ClientOptionsTest {
 
     @Test
     void theImplementedModeIsAccepted() {
-        assertThat(ClientOptions.builder("grpc+tls://host:9090")
+        assertThat(ClientOptions.builder("grpc+tls://host:19090")
                         .defaultConsistency(Consistency.CONSISTENT)
                         .build()
                         .defaultConsistency())
@@ -158,7 +159,7 @@ class ClientOptionsTest {
 
     @Test
     void defaultTlsOptionsAreCarriedThrough() {
-        ClientOptions o = ClientOptions.builder("grpc+tls://host:9090").build();
+        ClientOptions o = ClientOptions.builder("grpc+tls://host:19090").build();
         assertThat(o.tls().isDefault()).isTrue();
     }
 
@@ -168,8 +169,8 @@ class ClientOptionsTest {
         // the kind of setting that looks like it did something and did not.
         TlsOptions tls =
                 TlsOptions.builder().caCertificate(Path.of("/tmp/ca.pem")).build();
-        assertThatThrownBy(
-                        () -> ClientOptions.builder("grpc://host:9090").tls(tls).build())
+        assertThatThrownBy(() ->
+                        ClientOptions.builder("grpc://host:19090").tls(tls).build())
                 .isInstanceOf(PravahaClientException.class)
                 .hasMessageContaining("plaintext");
     }
@@ -179,7 +180,7 @@ class ClientOptionsTest {
         // The refusal above is about material that would silently do nothing, not about the mere
         // presence of a tls(...) call -- passing TlsOptions.defaults() explicitly must not be
         // punished the way configuring real material is.
-        assertThat(ClientOptions.builder("grpc://host:9090")
+        assertThat(ClientOptions.builder("grpc://host:19090")
                         .tls(TlsOptions.defaults())
                         .build()
                         .tls()
@@ -194,7 +195,7 @@ class ClientOptionsTest {
         // having disabled the other. On a real TLS endpoint, a token is fine either way.
         TlsOptions insecureHostnameCheck =
                 TlsOptions.builder().disableHostnameVerificationInsecure(true).build();
-        assertThat(ClientOptions.builder("grpc+tls://host:9090")
+        assertThat(ClientOptions.builder("grpc+tls://host:19090")
                         .tls(insecureHostnameCheck)
                         .token("t")
                         .build()
@@ -209,7 +210,7 @@ class ClientOptionsTest {
         // any other TLS setting -- it does not open some separate path around the token refusal.
         TlsOptions insecureHostnameCheck =
                 TlsOptions.builder().disableHostnameVerificationInsecure(true).build();
-        assertThatThrownBy(() -> ClientOptions.builder("grpc://host:9090")
+        assertThatThrownBy(() -> ClientOptions.builder("grpc://host:19090")
                         .tls(insecureHostnameCheck)
                         .token("t")
                         .build())
@@ -220,7 +221,7 @@ class ClientOptionsTest {
     @Test
     void fromConfigBuildsAFullyTlsConfiguredClientFromAPlainMapAloneNoCodeEdit() {
         ClientOptions opts = ClientOptions.fromConfig(Map.of(
-                "hosts", "db01:9090",
+                "hosts", "db01:19090",
                 "tls.enabled", "true",
                 "tls.trust-store", "/tmp/truststore.p12",
                 "tls.trust-store-password", "secret",
@@ -236,7 +237,7 @@ class ClientOptionsTest {
     @Test
     void fromConfigWithTlsEnabledFalseTurnsTlsOffEvenWithLeftoverCertMaterial() {
         assertThatThrownBy(() -> ClientOptions.fromConfig(
-                        Map.of("hosts", "db01:9090", "tls.enabled", "false", "tls.ca-certificate", "/tmp/ca.pem")))
+                        Map.of("hosts", "db01:19090", "tls.enabled", "false", "tls.ca-certificate", "/tmp/ca.pem")))
                 // Endpoint stays plaintext (tls.enabled won), so the leftover cert material is then
                 // caught -- loudly, not silently dropped and not silently switching TLS back on -- by
                 // the ordinary "TLS options on a plaintext endpoint" refusal.
@@ -246,7 +247,7 @@ class ClientOptionsTest {
 
     @Test
     void applyConfigComposesWithDirectBuilderCallsLastCallWins() {
-        ClientOptions opts = ClientOptions.builder(Endpoint.parse("grpc://host:9090"))
+        ClientOptions opts = ClientOptions.builder(Endpoint.parse("grpc://host:19090"))
                 .applyConfig(Map.of("application-name", "from-config"))
                 .applicationName("from-code")
                 .build();

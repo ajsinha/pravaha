@@ -73,7 +73,7 @@ rule.
 **Verdict: FIXED**, in two places, and the first half was already half-done.
 
 **The six commands.** `queries`, `query`, `register`, `drop`, `pause` and `resume` already answered
-`PRV-1040  cannot reach localhost:9090: …` with the scheme advice after it — E-7's fix, in
+`PRV-1040  cannot reach localhost:19090: …` with the scheme advice after it — E-7's fix, in
 `ServerFailures.of`, which recovers the server's own code from the wire and treats an `UNAVAILABLE`
 carrying none as a connection that reached no server. Verified rather than re-fixed.
 

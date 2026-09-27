@@ -7,7 +7,7 @@ Proprietary and confidential. See LICENSE at the repository root.
 """This case study, end to end, through the published SDK.
 
     . ../../../sdk/python/.venv/bin/activate
-    python3 run.py --url grpc://localhost:9090
+    python3 run.py --url grpc://localhost:19090
 
 Everything here goes over the wire to a running server. The shape worth copying is
 that **the client holds no schemas and no engine**: it sends SQL and reads answers.
@@ -27,7 +27,7 @@ def read(name: str) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--url", default="grpc://localhost:9090")
+    parser.add_argument("--url", default="grpc://localhost:19090")
     parser.add_argument("--product", default="SWAP", help="product_type to look up")
     parser.add_argument("--source", default="MUREX", help="source_system to look up")
     parser.add_argument("--watch", action="store_true", help="stream changes instead of exiting")

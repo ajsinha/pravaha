@@ -89,7 +89,7 @@ Python — values in a list, in placeholder order:
 ```python
 from pravaha import ClientOptions, connect
 
-with connect(options=ClientOptions.create("grpc+tls://pravaha:9090", token=token)) as client:
+with connect(options=ClientOptions.create("grpc+tls://pravaha:19090", token=token)) as client:
     for row in client.query("SELECT txn_id, merchant, amount FROM big_txn WHERE user_id = ?", ["ann"]):
         print(row["txn_id"], row["merchant"], row["amount"])
 ```

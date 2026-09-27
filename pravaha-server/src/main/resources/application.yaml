@@ -18,7 +18,7 @@ spring:
       enabled: false
 
 server:
-  port: 8080
+  port: 18080
   shutdown: graceful
 
 management:
@@ -72,9 +72,9 @@ pravaha:
   # internet at all. The engine appends the rendered code, so the value is the part before it:
   #
   #   docs:
-  #     base-url: http://localhost:8088/help/errors/
+  #     base-url: http://localhost:17070/help/codes/
   #
-  # gives http://localhost:8088/help/errors/PRV-2002. A trailing slash is supplied if it is
+  # gives http://localhost:17070/help/codes/PRV-2002. A trailing slash is supplied if it is
   # missing. A value that is not an absolute http or https URL is refused at startup with
   # PRV-1029 rather than concatenated into something that only looks like a link.
   #
@@ -83,7 +83,7 @@ pravaha:
   # of its own Configuration.
   #
   # docs:
-  #   base-url: http://localhost:8088/help/errors/
+  #   base-url: http://localhost:17070/help/codes/
 
   # The wire protocol the SDKs and the CLI speak (ADR-030). The HTTP surface above is for humans
   # and operators; this is for clients.
@@ -162,7 +162,7 @@ pravaha:
     # node written for loopback bound something else and failed with "Cannot assign requested
     # address" -- true, and silent about the reinterpretation. An abbreviated IPv4 address is now
     # refused at startup naming this key (PRV-3010, CFG-2). An IPv6 host is fine and is reported
-    # bracketed, [::1]:9090, so what the node logs and advertises can be pasted into a client.
+    # bracketed, [::1]:19090, so what the node logs and advertises can be pasted into a client.
     host: 0.0.0.0
     # Without these the transport is grpc+tcp and every row, credential and query travels in clear
     # text. Defensible on a loopback socket and nowhere else: authentication over an unencrypted
@@ -170,7 +170,7 @@ pravaha:
     tls:
       certificate: ""
       key: ""
-    # 9090, because that is what the CLI, both SDKs, every case study and the console already
+    # 19090, because that is what the CLI, both SDKs, every case study and the console already
     # default to. Arrow's registered port is 8815 and using it here would have been defensible in
     # isolation -- and wrong, because a default that disagrees with every example in the repository
     # costs each new user the same twenty minutes.
@@ -179,7 +179,7 @@ pravaha:
     # picked -- which is the only one a client can use. A value outside 0-65535 is refused at
     # startup with PRV-3010 naming this key, rather than by gRPC's own argument check, which named
     # neither the key nor a code (CFG-2).
-    port: 9090
+    port: 19090
 
   # The streams this node knows about. Until these are in the catalog nothing can be planned
   # against them, and a query naming one is refused with "Object 'txn' not found. Known streams: []"

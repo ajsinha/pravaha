@@ -104,7 +104,7 @@ study. From this directory:
 ```bash
 pravaha-server --spring.profiles.active=dev \
                --spring.config.additional-location=file:./conf/application.yaml &
-pravaha queries --url grpc://localhost:9090     # expect: no continuous queries are registered
+pravaha queries --url grpc://localhost:19090     # expect: no continuous queries are registered
 ```
 
 The Aerospike connector ships inside the server jar, so there is nothing to build in — see
@@ -187,7 +187,7 @@ the stream is read once per registration. The benefit is that neither query hide
 Register both, through the SDK:
 
 ```java
-try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:9090")) {
+try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:19090")) {
     client.register("order_rate",  Files.readString(Path.of("sql/01-continuous-new-order-rate.sql")), List.of(1));
     client.register("cancel_rate", Files.readString(Path.of("sql/02-continuous-cancel-rate.sql")), List.of(1));
 }
@@ -253,7 +253,7 @@ WHERE trader_id = ?
 ```python
 from pravaha import connect
 
-with connect("grpc://localhost:9090") as client:
+with connect("grpc://localhost:19090") as client:
     orders  = {(r["trader_id"], r["symbol"]): r["new_orders"]
                for r in client.query(open("sql/03-read-trader-activity.sql").read(), ["t-7"])}
     cancels = {(r["trader_id"], r["symbol"]): r["cancels"]

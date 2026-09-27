@@ -42,7 +42,7 @@ final class StateOwnershipTest {
     private static final Duration LEASE = Duration.ofSeconds(30);
 
     private static StateOwnership.Owner node(String id) {
-        return StateOwnership.Owner.current(id, "10.0.0.1", 9090);
+        return StateOwnership.Owner.current(id, "10.0.0.1", 19090);
     }
 
     @Test
@@ -52,7 +52,7 @@ final class StateOwnershipTest {
             Properties marker = read(root);
             assertThat(marker.getProperty("node.id")).isEqualTo("node-a");
             assertThat(marker.getProperty("host")).isEqualTo("10.0.0.1");
-            assertThat(marker.getProperty("port")).isEqualTo("9090");
+            assertThat(marker.getProperty("port")).isEqualTo("19090");
             assertThat(marker.getProperty("pid")).isNotBlank();
             assertThat(marker.getProperty("claimed.at")).isNotBlank();
         }
@@ -68,13 +68,13 @@ final class StateOwnershipTest {
 
     @Test
     void anotherNodesStateIsRefusedWhileItIsRunning(@TempDir Path root) throws Exception {
-        writeMarker(root, "node-b", "10.0.0.2", 9090, 4242L, System.currentTimeMillis());
+        writeMarker(root, "node-b", "10.0.0.2", 19090, 4242L, System.currentTimeMillis());
 
         assertThatThrownBy(() -> StateOwnership.claim(root, node("node-a"), LEASE, false))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-4003")
                 .hasMessageContaining("belongs to node 'node-b'")
-                .hasMessageContaining("10.0.0.2:9090")
+                .hasMessageContaining("10.0.0.2:19090")
                 .hasMessageContaining("it is running now");
     }
 
@@ -88,7 +88,7 @@ final class StateOwnershipTest {
                 root,
                 "node-b",
                 "10.0.0.2",
-                9090,
+                19090,
                 4242L,
                 System.currentTimeMillis() - Duration.ofHours(1).toMillis());
 
@@ -108,7 +108,7 @@ final class StateOwnershipTest {
                 root,
                 "node-a",
                 "10.0.0.1",
-                9090,
+                19090,
                 999_999L,
                 System.currentTimeMillis() - Duration.ofHours(1).toMillis());
 
@@ -124,7 +124,7 @@ final class StateOwnershipTest {
     void aSecondLiveInstanceOfOneNodeIsRefused(@TempDir Path root) throws Exception {
         // The case an operator hits by starting the service twice, or by rolling a deployment
         // without waiting for the old pod to go. Same node id, different process, claim still fresh.
-        writeMarker(root, "node-a", "10.0.0.9", 9090, 888_888L, System.currentTimeMillis());
+        writeMarker(root, "node-a", "10.0.0.9", 19090, 888_888L, System.currentTimeMillis());
 
         assertThatThrownBy(() -> StateOwnership.claim(root, node("node-a"), LEASE, false))
                 .isInstanceOf(PravahaException.class)
@@ -136,7 +136,7 @@ final class StateOwnershipTest {
 
     @Test
     void theOverrideIsHonouredBecauseRefusingToStartIsAlsoAFailure(@TempDir Path root) throws Exception {
-        writeMarker(root, "node-b", "10.0.0.2", 9090, 4242L, System.currentTimeMillis());
+        writeMarker(root, "node-b", "10.0.0.2", 19090, 4242L, System.currentTimeMillis());
 
         try (StateOwnership claim = StateOwnership.claim(root, node("node-a"), LEASE, true)) {
             assertThat(claim.owner().nodeId()).isEqualTo("node-a");

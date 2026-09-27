@@ -13,7 +13,7 @@ related: [metrics-alerts, state-spill, checkpoints-recovery, lane-sharing, setti
 ---
 
 A Pravaha server publishes its metrics in the Prometheus text format at
-**`/actuator/prometheus`** on its HTTP port (8080 by default). The engine registers them with
+**`/actuator/prometheus`** on its HTTP port (18080 by default). The engine registers them with
 Micrometer under dotted names (`pravaha.query.rows.in`); Prometheus exposes them with underscores
 (`pravaha_query_rows_in`), which is the form below and the form you query.
 
@@ -23,7 +23,7 @@ numbers. Meters are **removed when a query is dropped**, so a dashboard never sh
 query that is gone, and no dropped query's state is kept alive by a forgotten gauge.
 
 ```bash
-curl -s http://localhost:8080/actuator/prometheus | grep '^pravaha_query_state_fraction'
+curl -s http://localhost:18080/actuator/prometheus | grep '^pravaha_query_state_fraction'
 ```
 
 ```text

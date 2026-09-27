@@ -30,8 +30,8 @@ HTTP call, and as the password on the PostgreSQL gateway.
 
 | Surface | Port | How the token is sent | No credential, or a bad one |
 |---|---|---|---|
-| Arrow Flight SQL (CLI, both SDKs, the console, JDBC/ADBC Flight drivers) | 9090 | `authorization: Bearer <token>` gRPC header | refused with PRV-7001 |
-| HTTP API (`/api/v1/*`, `/actuator/prometheus`) | 8080 | `Authorization: Bearer <token>` | `401` with PRV-7001 |
+| Arrow Flight SQL (CLI, both SDKs, the console, JDBC/ADBC Flight drivers) | 19090 | `authorization: Bearer <token>` gRPC header | refused with PRV-7001 |
+| HTTP API (`/api/v1/*`, `/actuator/prometheus`) | 18080 | `Authorization: Bearer <token>` | `401` with PRV-7001 |
 | PostgreSQL gateway (`psql`, BI tools), when enabled | 5432 | the token **as the password** (cleartext password exchange, after the TLS handshake) | the connection is refused with PRV-7001 |
 
 Flight has no session, and that is deliberate: a server behind a load balancer can answer any call
@@ -154,7 +154,7 @@ handed to anyone on the path.
 
 ```bash
 export PRAVAHA_TOKEN="9f3c1d7a-analyst-2b8e4f6a1c5d"
-pravaha queries --url grpc+tls://pravaha.internal:9090 --token "$PRAVAHA_TOKEN"
+pravaha queries --url grpc+tls://pravaha.internal:19090 --token "$PRAVAHA_TOKEN"
 ```
 
 Over a plaintext `grpc://` endpoint the CLI refuses to send a token at all, before connecting,
@@ -162,7 +162,7 @@ unless you type `--insecure-token` — which exists for a loopback socket or a s
 TLS, and nothing else:
 
 ```bash
-pravaha queries --url grpc://localhost:9090 --token "$PRAVAHA_TOKEN" --insecure-token
+pravaha queries --url grpc://localhost:19090 --token "$PRAVAHA_TOKEN" --insecure-token
 ```
 
 ### From Python
@@ -171,9 +171,9 @@ pravaha queries --url grpc://localhost:9090 --token "$PRAVAHA_TOKEN" --insecure-
 import os
 from pravaha import ClientOptions, connect
 
-options = ClientOptions.create("grpc+tls://pravaha.internal:9090",
+options = ClientOptions.create("grpc+tls://pravaha.internal:19090",
                                token=os.environ["PRAVAHA_TOKEN"],
-                               http_url="https://pravaha.internal:8080")
+                               http_url="https://pravaha.internal:18080")
 with connect(options=options) as client:
     print(client.permissions()["register"])
 ```
@@ -183,13 +183,13 @@ The SDK refuses a token over `grpc://` or `http://` unless `allow_insecure_token
 ### Over HTTP
 
 ```bash
-curl -s -H "Authorization: Bearer $PRAVAHA_TOKEN" https://pravaha.internal:8080/api/v1/queries
+curl -s -H "Authorization: Bearer $PRAVAHA_TOKEN" https://pravaha.internal:18080/api/v1/queries
 ```
 
 Without the header:
 
 ```bash
-curl -s https://pravaha.internal:8080/api/v1/queries
+curl -s https://pravaha.internal:18080/api/v1/queries
 ```
 
 ```json
@@ -232,7 +232,7 @@ PravahaFlightServer server = new PravahaFlightServer(views)
         .authenticatedBy(myTokenVerifier)          // credential -> Principal
         .authorizedBy(myPolicy, myAuditSink)       // what they may read, and the record
         .hosting(registry)
-        .start("0.0.0.0", 9090);
+        .start("0.0.0.0", 19090);
 ```
 
 A Flight server started **without** `authenticatedBy` accepts every call as the anonymous principal

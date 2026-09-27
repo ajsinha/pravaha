@@ -13,13 +13,13 @@ from pravaha.endpoint import DEFAULT_PORT
 
 
 def test_parses_scheme_host_and_port() -> None:
-    e = Endpoint.parse("grpc+tls://db01.example.com:9090")
+    e = Endpoint.parse("grpc+tls://db01.example.com:19090")
     assert e.tls is True
     assert len(e.nodes) == 1
-    assert str(e.nodes[0]) == "db01.example.com:9090"
+    assert str(e.nodes[0]) == "db01.example.com:19090"
 
 
-@pytest.mark.parametrize("text", ["grpc://localhost:9090", "http://localhost:9090"])
+@pytest.mark.parametrize("text", ["grpc://localhost:19090", "http://localhost:19090"])
 def test_plaintext_scheme_disables_tls(text: str) -> None:
     assert Endpoint.parse(text).tls is False
 
@@ -27,7 +27,7 @@ def test_plaintext_scheme_disables_tls(text: str) -> None:
 def test_tls_is_assumed_when_the_scheme_is_omitted() -> None:
     # The safe reading of an ambiguous input: defaulting to plaintext would mean a
     # typo silently downgrades the connection.
-    assert Endpoint.parse("host:9090").tls is True
+    assert Endpoint.parse("host:19090").tls is True
 
 
 def test_port_defaults_when_omitted() -> None:
@@ -35,20 +35,20 @@ def test_port_defaults_when_omitted() -> None:
 
 
 def test_parses_a_list_of_nodes_for_failover() -> None:
-    e = Endpoint.parse("grpc+tls://a:9090, b:9091 ,c:9092")
+    e = Endpoint.parse("grpc+tls://a:19090, b:9091 ,c:9092")
     assert len(e.nodes) == 3
     assert e.nodes[1].host == "b"
     assert e.nodes[2].port == 9092
 
 
 def test_round_trips_through_str() -> None:
-    text = "grpc+tls://a:9090,b:9091"
+    text = "grpc+tls://a:19090,b:9091"
     assert Endpoint.parse(str(Endpoint.parse(text))) == Endpoint.parse(text)
 
 
 @pytest.mark.parametrize(
     "text",
-    ["", "   ", "grpc://", "ftp://host:1", "host:notaport", "host:0", "host:70000", "a:9090,,b:9090"],
+    ["", "   ", "grpc://", "ftp://host:1", "host:notaport", "host:0", "host:70000", "a:19090,,b:19090"],
 )
 def test_malformed_input_fails_at_construction_with_the_accepted_forms(text: str) -> None:
     # A typo should fail next to the code that supplied it, not fifteen minutes later
@@ -62,7 +62,7 @@ def test_malformed_input_fails_at_construction_with_the_accepted_forms(text: str
 
 def test_non_string_input_is_rejected() -> None:
     with pytest.raises(MalformedEndpointError):
-        Endpoint.parse(9090)  # type: ignore[arg-type]
+        Endpoint.parse(19090)  # type: ignore[arg-type]
 
 
 def test_equality_is_by_value() -> None:

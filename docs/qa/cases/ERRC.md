@@ -258,7 +258,7 @@ the constraint. **Cross-reference CFG-035:** `ZooKeeperProvider` casts a `long` 
 **Reached through:** the Java SDK and the CLI's `--url`: `Endpoint.parse` on a URL it cannot read
 (`Endpoint.java:46,136`). `pravaha queries --url nonsense` is the one-line reach.
 **Falsifier:** a malformed URL produces a connection attempt, or a `URISyntaxException`.
-**Setup:** `--url nonsense`, `--url http://h:9090` (wrong scheme), `--url grpc://` (no host),
+**Setup:** `--url nonsense`, `--url http://h:19090` (wrong scheme), `--url grpc://` (no host),
 `--url grpc://h:99999` (port out of range), `--url grpc+tls://h` (no port).
 **Expected:** `PRV-1030` for each that is genuinely malformed. E3 must name the offending URL **and**
 the accepted form (`grpc://host:port` / `grpc+tls://host:port`) — a client library's first error is

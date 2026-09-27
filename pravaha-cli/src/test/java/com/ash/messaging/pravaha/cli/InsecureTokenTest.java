@@ -42,13 +42,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class InsecureTokenTest {
 
-    private static final String PLAINTEXT = "grpc://localhost:9090";
-    private static final String ENCRYPTED = "grpc+tls://localhost:9090";
+    private static final String PLAINTEXT = "grpc://localhost:19090";
+    private static final String ENCRYPTED = "grpc+tls://localhost:19090";
 
     /** Exactly what {@code ServerCommand.connect} does with the parsed arguments. */
     private static ClientOptions optionsFor(String... arguments) {
         Args args = Args.parse(List.of(arguments));
-        String url = args.get("url", "grpc://localhost:9090");
+        String url = args.get("url", "grpc://localhost:19090");
         ClientOptions.Builder options = ClientOptions.builder(url);
         args.get("token").ifPresent(token -> options.token(token).allowInsecureToken(args.has("insecure-token")));
         return options.build();

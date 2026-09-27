@@ -23,13 +23,13 @@ console:
 
 server:
   host: 0.0.0.0                            # inside the container; docker-compose.yml publishes it
-  port: 8090
+  port: 17070
   reload: false
 
 engine:
-  # The engine, by its service name on the compose network. 9090 is Flight SQL, 8080 HTTP.
-  url: grpc://pravaha:9090
-  http_url: http://pravaha:8080
+  # The engine, by its service name on the compose network. 19090 is Flight SQL, 18080 HTTP.
+  url: grpc://pravaha:19090
+  http_url: http://pravaha:18080
   # The console's own credential with the engine: the key of the `id: console` entry under
   # pravaha.security.tokens in /opt/pravaha/conf/application.yaml. Change both together.
   token: "@@CONSOLE_TOKEN@@"

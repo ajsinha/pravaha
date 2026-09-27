@@ -113,7 +113,7 @@ Python, keeping a total across every merchant:
 from pravaha import connect
 
 total = 0
-with connect("grpc://localhost:9090") as client:
+with connect("grpc://localhost:19090") as client:
     for batch in client.subscribe("spend_by_merchant"):
         for row in batch:
             total += row.weight * row["spend"]
@@ -129,7 +129,7 @@ Java, the same:
 
 ```java
 long[] total = {0};
-try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:9090");
+try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:19090");
      Subscription subscription = client.subscribe("spend_by_merchant", batch -> {
          for (Row row : batch) {
              total[0] += row.weight() * row.getLong("spend");

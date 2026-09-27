@@ -38,7 +38,7 @@ import com.ash.messaging.pravaha.sdk.flight.Subscription;
  * <p>Run a server first, then:
  *
  * <pre>
- *   java TradeProcessingExample grpc://localhost:9090
+ *   java TradeProcessingExample grpc://localhost:19090
  * </pre>
  */
 public final class TradeProcessingExample {
@@ -48,7 +48,7 @@ public final class TradeProcessingExample {
     private TradeProcessingExample() {}
 
     public static void main(String[] args) throws Exception {
-        String url = args.length > 0 ? args[0] : "grpc://localhost:9090";
+        String url = args.length > 0 ? args[0] : "grpc://localhost:19090";
 
         try (PravahaFlightClient client = PravahaFlightClient.connect(url)) {
 

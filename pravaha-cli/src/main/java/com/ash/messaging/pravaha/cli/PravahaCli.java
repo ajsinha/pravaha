@@ -204,7 +204,7 @@ public final class PravahaCli {
         commands.put(
                 "query",
                 List.of(
-                        "  query     --sql <query> [--params a,b] [--url grpc://host:9090] [--token t]",
+                        "  query     --sql <query> [--params a,b] [--url grpc://host:19090] [--token t]",
                         "            Ask a running server a question and print the rows. Also runs",
                         "            CREATE / DROP / PAUSE / RESUME CONTINUOUS QUERY and SHOW CONTINUOUS QUERIES."));
         commands.put(
@@ -292,7 +292,7 @@ public final class PravahaCli {
             block.forEach(out::println);
         }
         out.println();
-        out.println("  query     --sql <query> [--params a,b] [--url grpc://host:9090] [--token t]");
+        out.println("  query     --sql <query> [--params a,b] [--url grpc://host:19090] [--token t]");
         out.println("            Ask a running server a question and print the rows. Also runs");
         out.println("            CREATE / DROP / PAUSE / RESUME CONTINUOUS QUERY and SHOW CONTINUOUS QUERIES.");
         out.println();

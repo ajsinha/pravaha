@@ -419,7 +419,7 @@ public class PravahaNode implements SmartLifecycle {
             @Value("${pravaha.watermark.tick:1s}") Duration watermarkTick,
             @Value("${pravaha.flight.enabled:true}") boolean flightEnabled,
             @Value("${pravaha.flight.host:0.0.0.0}") String flightHost,
-            @Value("${pravaha.flight.port:9090}") int flightPort,
+            @Value("${pravaha.flight.port:19090}") int flightPort,
             PersistenceProperties persistence,
             @Value("${pravaha.cluster.mode:SINGLE}") String clusterMode,
             @Value("${pravaha.cluster.mechanism:single}") String clusterMechanism,
@@ -1192,7 +1192,7 @@ public class PravahaNode implements SmartLifecycle {
             flight = server.start(flightHost, flightPort);
             // CFG-2(b)/(c). The bound port, not the configured one -- with `port: 0` those differ
             // and the second is the only one a client can use -- and the address bracketed, so an
-            // IPv6 node does not log `::1:9090`, which nothing can parse back into a host and a
+            // IPv6 node does not log `::1:19090`, which nothing can parse back into a host and a
             // port. The same string is served at GET /api/v1/status.
             log.info(
                     "Flight SQL listening on {} (pravaha.flight.host, pravaha.flight.port)",

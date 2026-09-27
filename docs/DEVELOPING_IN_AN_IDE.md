@@ -66,10 +66,10 @@ Press **Run** or **Debug**. It is ready when the log says `Started PravahaServer
 
 | Port | What |
 |---|---|
-| `8080` | HTTP: the operator pages, `/api/v1`, `/actuator/health` |
-| `9090` | Flight SQL: the SDKs, the CLI, the console |
+| `18080` | HTTP: the operator pages, `/api/v1`, `/actuator/health` |
+| `19090` | Flight SQL: the SDKs, the CLI, the console |
 
-Check it: `curl localhost:8080/api/v1/status` answers with `"engineState":"RUNNING"`. Its `version`
+Check it: `curl localhost:18080/api/v1/status` answers with `"engineState":"RUNNING"`. Its `version`
 is `unknown` from an IDE, because the version is read from the jar's manifest and a run from classes
 has no jar. That is expected.
 
@@ -94,7 +94,7 @@ pravaha:
 ```
 
 **Port already in use?** Move it in the program arguments:
-`--server.port=8081 --pravaha.flight.port=9091`. Then point the console at the new ports (below).
+`--server.port=18081 --pravaha.flight.port=19091`. Then point the console at the new ports (below).
 
 ### Debugging
 
@@ -154,24 +154,24 @@ IntelliJ plugin and enable it for this project, so the IDE formats as the build 
 | Environment variables | `CONSOLE_PASSWORD=dev` |
 
 That is enough against an engine on the default ports. The console reads everything else from
-`console/config/application.yaml`, whose defaults are `grpc://localhost:9090` and
-`http://localhost:8080`. The other variables it reads:
+`console/config/application.yaml`, whose defaults are `grpc://localhost:19090` and
+`http://localhost:18080`. The other variables it reads:
 
 | Variable | Default | Set it when |
 |---|---|---|
 | `CONSOLE_PASSWORD` | empty, so **nobody can sign in** | always, for a local run |
-| `PRAVAHA_ENGINE` | `grpc://localhost:9090` | the engine's Flight port moved: `grpc://localhost:9091` |
-| `PRAVAHA_ENGINE_HTTP` | `http://localhost:8080` | its HTTP port moved: `http://localhost:8081` |
+| `PRAVAHA_ENGINE` | `grpc://localhost:19090` | the engine's Flight port moved: `grpc://localhost:19091` |
+| `PRAVAHA_ENGINE_HTTP` | `http://localhost:18080` | its HTTP port moved: `http://localhost:18081` |
 | `PRAVAHA_TOKEN` | empty | the engine runs with token authentication |
-| `CONSOLE_PORT` | `8090` | 8090 is taken |
+| `CONSOLE_PORT` | `17070` | 17070 is taken |
 | `CONSOLE_SESSION_SECRET` | generated at start | you want sessions to survive a restart |
 
 Any key can also be given as a parameter, for example `--server.port=8099`. Machine-local values
 that should not be committed go in `console/config/application.local.yaml`, which git ignores and
 the console reads straight after `application.yaml`.
 
-Press **Run**. The log says `console on http://127.0.0.1:8090 — engine expected at
-grpc://localhost:9090`. Open it and sign in with the password you set. The overview shows the
+Press **Run**. The log says `console on http://127.0.0.1:17070 — engine expected at
+grpc://localhost:19090`. Open it and sign in with the password you set. The overview shows the
 engine as `RUNNING` when the console reached it.
 
 ### Debugging
@@ -205,6 +205,6 @@ The usual loop:
 3. Register a query from the console's **Workbench**, and step through the engine as the
    registration arrives over Flight, or through the console as the view renders.
 
-If something else on your machine already holds 8080 or 9090, move the engine
-(`--server.port=8081 --pravaha.flight.port=9091`) and give the console `PRAVAHA_ENGINE` and
+If something else on your machine already holds 18080 or 19090, move the engine
+(`--server.port=18081 --pravaha.flight.port=19091`) and give the console `PRAVAHA_ENGINE` and
 `PRAVAHA_ENGINE_HTTP` to match.

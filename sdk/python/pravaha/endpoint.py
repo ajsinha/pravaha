@@ -11,7 +11,7 @@ from typing import Mapping, Sequence, Tuple
 
 from pravaha.errors import MalformedEndpointError
 
-DEFAULT_PORT = 9090
+DEFAULT_PORT = 19090
 """Default gRPC port, matching the engine's gateway configuration."""
 
 _TLS_SCHEMES = frozenset({"grpc+tls", "grpcs", "https"})
@@ -40,10 +40,10 @@ class Endpoint:
 
     Accepted forms::
 
-        grpc://host:9090              plaintext
-        grpc+tls://host:9090          TLS
-        grpc+tls://h1:9090,h2:9090    several nodes; the client picks and fails over
-        host:9090                     scheme omitted, TLS assumed
+        grpc://host:19090              plaintext
+        grpc+tls://host:19090          TLS
+        grpc+tls://h1:19090,h2:19090    several nodes; the client picks and fails over
+        host:19090                     scheme omitted, TLS assumed
     """
 
     nodes: Tuple[HostPort, ...]

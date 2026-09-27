@@ -245,7 +245,7 @@ How to read them:
 
 ```bash
 export PRAVAHA_TOKEN=<the qa token>
-export PRAVAHA_URL=grpc://localhost:9090 PRAVAHA_HTTP_URL=http://localhost:8080
+export PRAVAHA_URL=grpc://localhost:19090 PRAVAHA_HTTP_URL=http://localhost:18080
 python fulfilment.py register
 ```
 
@@ -260,8 +260,8 @@ The heart of it is two SDK calls, `validate` and `register`:
 from pravaha import ClientOptions, connect
 
 c = connect(options=ClientOptions.create(
-    "grpc://localhost:9090", token=os.environ["PRAVAHA_TOKEN"],
-    http_url="http://localhost:8080", allow_insecure_token=True))    # a QA host serves plaintext
+    "grpc://localhost:19090", token=os.environ["PRAVAHA_TOKEN"],
+    http_url="http://localhost:18080", allow_insecure_token=True))    # a QA host serves plaintext
 
 check = c.validate(FULFILLED)                 # plans it without running it
 if not check["valid"]:
@@ -289,7 +289,7 @@ window, and Pravaha will not call it unshipped yet. Step 8 moves the clock.
 
 ## Step 7 — Do the same in the console
 
-Open `http://<host>:8090` and sign in with the console password.
+Open `http://<host>:17070` and sign in with the console password.
 
 1. **Catalog.** The **Workbench**'s catalog panel lists `orders`, `payments` and `shipments` with
    their columns, next to `txn`.

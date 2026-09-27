@@ -74,8 +74,8 @@ class FakeEngine:
     """Engine's public surface, answered from memory. ``down`` makes every call fail."""
 
     def __init__(self, down: bool = False) -> None:
-        self.url = "grpc://engine.test:9090"
-        self.http_url = "http://engine.test:8080"
+        self.url = "grpc://engine.test:19090"
+        self.http_url = "http://engine.test:18080"
         self.down = down
         #: Calls that fail, and calls that take this many seconds, by method name (``_check``).
         self.failing: dict[str, Exception] = {}
@@ -207,7 +207,7 @@ class FakeEngine:
         -- keyed by the calling method's name -- fail or delay one, which is how a test puts a
         screen in its partial, error or first-loading state (design 23.12)."""
         if self.down:
-            raise EngineHttpError(0, "the engine's HTTP API at http://engine.test:8080 did not answer")
+            raise EngineHttpError(0, "the engine's HTTP API at http://engine.test:18080 did not answer")
         call = sys._getframe(1).f_code.co_name
         if self.slow.get(call):
             time.sleep(self.slow[call])

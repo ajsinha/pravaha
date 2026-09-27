@@ -216,7 +216,7 @@ final class DebugCommand {
     }
 
     private PravahaFlightClient connect(Args args) {
-        ClientOptions.Builder options = ClientOptions.builder(args.get("url", "grpc://localhost:9090"));
+        ClientOptions.Builder options = ClientOptions.builder(args.get("url", "grpc://localhost:19090"));
         args.get("token").ifPresent(token -> options.token(token).allowInsecureToken(args.has("insecure-token")));
         return PravahaFlightClient.connect(options.build());
     }

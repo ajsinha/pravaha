@@ -12,7 +12,7 @@ guide: operations#watching-a-running-node
 related: [metrics-index, state-spill, checkpoints-recovery, lane-sharing, console-tour]
 ---
 
-A node publishes its metrics in Prometheus text format at **`http://<node>:8080/actuator/prometheus`**.
+A node publishes its metrics in Prometheus text format at **`http://<node>:18080/actuator/prometheus`**.
 They are per query, labelled `query="<name>"`, plus a handful per node. This page lists every one,
 says which to alert on and why, gives rules you can load as they are, and explains the verdict the
 console's operations screen draws from the same numbers.
@@ -66,7 +66,7 @@ queries goes blank rather than freezing on the last value.
 ## Reading it
 
 ```bash
-curl -s http://localhost:8080/actuator/prometheus | grep 'query="hourly_spend"'
+curl -s http://localhost:18080/actuator/prometheus | grep 'query="hourly_spend"'
 ```
 
 ```text
@@ -196,7 +196,7 @@ Two more worth having, depending on the deployment:
 
 ## Health probes
 
-On port 8080, for an orchestrator:
+On port 18080, for an orchestrator:
 
 | Endpoint | Answers | Used as |
 |---|---|---|

@@ -157,7 +157,7 @@ PRV-2050  GROUP BY user_id has no bound on its key space, so its state grows wit
 ```
 
 ```bash
-curl -s -X POST http://localhost:8080/api/v1/queries/validate \
+curl -s -X POST http://localhost:18080/api/v1/queries/validate \
      -H 'Content-Type: application/json' \
      -d '{"sql": "SELECT user_id, SUM(amount) FROM txn GROUP BY user_id"}'
 ```

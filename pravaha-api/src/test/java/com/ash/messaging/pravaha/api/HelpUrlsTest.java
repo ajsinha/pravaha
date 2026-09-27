@@ -54,10 +54,10 @@ class HelpUrlsTest {
 
     @Test
     void aConfiguredBaseCarriesTheCode() {
-        HelpUrls.configure("http://localhost:8088/help/errors/");
+        HelpUrls.configure("http://localhost:17070/help/codes/");
         assertThat(HelpUrls.configured()).isTrue();
-        assertThat(HelpUrls.forCode("PRV-2002")).isEqualTo("http://localhost:8088/help/errors/PRV-2002");
-        assertThat(HelpUrls.helpLine("PRV-2002")).isEqualTo("http://localhost:8088/help/errors/PRV-2002");
+        assertThat(HelpUrls.forCode("PRV-2002")).isEqualTo("http://localhost:17070/help/codes/PRV-2002");
+        assertThat(HelpUrls.helpLine("PRV-2002")).isEqualTo("http://localhost:17070/help/codes/PRV-2002");
     }
 
     /** A base written without its trailing slash is the commonest way to get this wrong. */

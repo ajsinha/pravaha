@@ -65,7 +65,7 @@ be re-attached, a clustered filesystem). Two local disks give the standby nothin
 The promotion is logged at WARN, and it says what was lost:
 
 ```text
-promoted from standby: pravaha-node-01 at 10.0.0.4:9090 (pid 8123) last refreshed its claim 41s ago. Whatever the previous owner processed after its last checkpoint is not in the state this node resumes from; it is replayed from the source offsets that checkpoint carries, and anything the source can no longer supply is lost.
+promoted from standby: pravaha-node-01 at 10.0.0.4:19090 (pid 8123) last refreshed its claim 41s ago. Whatever the previous owner processed after its last checkpoint is not in the state this node resumes from; it is replayed from the source offsets that checkpoint carries, and anything the source can no longer supply is lost.
 ```
 
 ## What it buys: recovery time, not continuity
@@ -99,7 +99,7 @@ pravaha-server --spring.config.additional-location=/opt/pravaha/conf/node.yaml -
 Its readiness probe answers not-ready while it waits:
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' http://standby-host:8080/actuator/health/readiness
+curl -s -o /dev/null -w '%{http_code}\n' http://standby-host:18080/actuator/health/readiness
 ```
 
 ```text
@@ -108,7 +108,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://standby-host:8080/actuator/healt
 
 Kill the primary (`kill -9`). About half a minute later the standby logs the promotion line above,
 then the usual startup lines — journal replayed, checkpoints restored, `Flight SQL listening on
-0.0.0.0:9090` — and the readiness probe turns to 200. Clients that retry against the standby's
+0.0.0.0:19090` — and the readiness probe turns to 200. Clients that retry against the standby's
 address, or behind a load balancer that follows readiness, carry on.
 
 ## Pitfalls

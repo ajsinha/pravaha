@@ -102,18 +102,18 @@ def test_str_never_renders_a_password() -> None:
 
 
 def test_default_tls_options_are_carried_through_client_options() -> None:
-    o = ClientOptions.create("grpc+tls://host:9090")
+    o = ClientOptions.create("grpc+tls://host:19090")
     assert o.tls.is_default is True
 
 
 def test_tls_options_on_a_plaintext_endpoint_are_refused() -> None:
     tls = TlsOptions(ca_certificate=SOME_PATH)
     with pytest.raises(InvalidOptionsError, match="plaintext"):
-        ClientOptions(endpoint=Endpoint.parse("grpc://host:9090"), tls=tls)
+        ClientOptions(endpoint=Endpoint.parse("grpc://host:19090"), tls=tls)
 
 
 def test_default_tls_options_on_a_plaintext_endpoint_are_fine() -> None:
-    o = ClientOptions(endpoint=Endpoint.parse("grpc://host:9090"), tls=TlsOptions())
+    o = ClientOptions(endpoint=Endpoint.parse("grpc://host:19090"), tls=TlsOptions())
     assert o.tls.is_default is True
 
 
@@ -122,14 +122,14 @@ def test_disabling_hostname_verification_on_a_tls_connection_does_not_waive_the_
     # verification is a property of the handshake itself -- so a token is fine on a real
     # TLS endpoint regardless of hostname verification.
     tls = TlsOptions(disable_hostname_verification=True)
-    o = ClientOptions(endpoint=Endpoint.parse("grpc+tls://host:9090"), tls=tls, token="t")
+    o = ClientOptions(endpoint=Endpoint.parse("grpc+tls://host:19090"), tls=tls, token="t")
     assert o.token == "t"
 
 
 def test_disabling_hostname_verification_on_a_plaintext_endpoint_is_still_refused_for_being_plaintext() -> None:
     tls = TlsOptions(disable_hostname_verification=True)
     with pytest.raises(InvalidOptionsError, match="plaintext"):
-        ClientOptions(endpoint=Endpoint.parse("grpc://host:9090"), tls=tls, token="t")
+        ClientOptions(endpoint=Endpoint.parse("grpc://host:19090"), tls=tls, token="t")
 
 
 def test_tls_options_from_config_reads_pem_material_from_a_plain_map() -> None:
@@ -223,7 +223,7 @@ def test_endpoint_from_config_rejects_a_tls_enabled_value_that_is_neither_true_n
 def test_client_options_from_config_builds_a_fully_tls_configured_client_from_a_plain_map() -> None:
     opts = ClientOptions.from_config(
         {
-            "hosts": "db01:9090",
+            "hosts": "db01:19090",
             "tls.enabled": "true",
             "tls.trust-store": "/tmp/truststore.p12",
             "tls.trust-store-password": "secret",
@@ -243,7 +243,7 @@ def test_client_options_from_config_with_tls_enabled_false_turns_tls_off_even_wi
 ):
     with pytest.raises(InvalidOptionsError, match="plaintext"):
         ClientOptions.from_config(
-            {"hosts": "db01:9090", "tls.enabled": "false", "tls.ca-certificate": "/tmp/ca.pem"}
+            {"hosts": "db01:19090", "tls.enabled": "false", "tls.ca-certificate": "/tmp/ca.pem"}
         )
 
 

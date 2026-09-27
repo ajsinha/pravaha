@@ -284,7 +284,7 @@ ends at PRV-8009.
 ## Seeing the sinks: `GET /api/v1/sinks`
 
 ```bash
-curl -s -H "Authorization: Bearer $PRAVAHA_TOKEN" http://localhost:8080/api/v1/sinks
+curl -s -H "Authorization: Bearer $PRAVAHA_TOKEN" http://localhost:18080/api/v1/sinks
 ```
 
 ```json

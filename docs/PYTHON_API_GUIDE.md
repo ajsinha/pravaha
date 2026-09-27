@@ -65,8 +65,8 @@ moment or **subscribe** to as it changes.
 
 | Port | Protocol | What travels on it |
 |---|---|---|
-| **9090** | Arrow Flight SQL (gRPC) | Registering, pausing, resuming and dropping queries; **reading views**; **subscribing**; dead letters; replacements; the debugger |
-| **8080** | HTTP / JSON | The catalogue, validation and plans, descriptions of queries and views, status, plugins, sinks, permissions, quotas, the audit trail, metrics — and the same dead-letter, replacement and debugger calls |
+| **19090** | Arrow Flight SQL (gRPC) | Registering, pausing, resuming and dropping queries; **reading views**; **subscribing**; dead letters; replacements; the debugger |
+| **18080** | HTTP / JSON | The catalogue, validation and plans, descriptions of queries and views, status, plugins, sinks, permissions, quotas, the audit trail, metrics — and the same dead-letter, replacement and debugger calls |
 
 The SDK speaks both. It needs the Flight address to connect, and the HTTP address (`http_url`) for
 the calls that live on HTTP. **There is no HTTP endpoint that registers a query or returns a view's
@@ -102,12 +102,12 @@ import os
 from pravaha import connect, ClientOptions
 
 client = connect(options=ClientOptions.create(
-    os.environ.get("PRAVAHA_URL", "grpc://qa-vm:9090"),        # Flight
+    os.environ.get("PRAVAHA_URL", "grpc://qa-vm:19090"),        # Flight
     token=os.environ["PRAVAHA_TOKEN"],                          # the key of a pravaha.security.tokens entry
-    http_url=os.environ.get("PRAVAHA_HTTP_URL", "http://qa-vm:8080"),
+    http_url=os.environ.get("PRAVAHA_HTTP_URL", "http://qa-vm:18080"),
     allow_insecure_token=True,     # the QA host serves plaintext; remove this once it serves TLS
 ))
-print(client.uri)                  # grpc://qa-vm:9090
+print(client.uri)                  # grpc://qa-vm:19090
 ```
 
 - **`grpc://` is plaintext and must be written out.** A connection string with no scheme means TLS.
@@ -130,10 +130,10 @@ with connect(options=options) as client:
 ```python
 from pravaha import TlsOptions
 options = ClientOptions.create(
-    "grpc+tls://pravaha.example:9090",
+    "grpc+tls://pravaha.example:19090",
     token=os.environ["PRAVAHA_TOKEN"],
     tls=TlsOptions.create(ca_certificate="/etc/ssl/pravaha-ca.pem"),
-    http_url="https://pravaha.example:8080",
+    http_url="https://pravaha.example:18080",
 )
 ```
 
@@ -145,8 +145,8 @@ options = ClientOptions.create(
 from pravaha.config import layered
 
 config = layered({
-    "endpoint": "grpc://qa-vm:9090",          # or "hosts": "qa-vm:9090" plus tls.* keys
-    "http-url": "http://qa-vm:8080",
+    "endpoint": "grpc://qa-vm:19090",          # or "hosts": "qa-vm:19090" plus tls.* keys
+    "http-url": "http://qa-vm:18080",
     "allow-insecure-token": "true",
 })                                              # token comes from PRAVAHA_TOKEN
 client = connect(options=ClientOptions.from_config(config))
@@ -165,8 +165,8 @@ import os, threading, time
 from pravaha import connect, ClientOptions
 
 client = connect(options=ClientOptions.create(
-    "grpc://qa-vm:9090", token=os.environ["PRAVAHA_TOKEN"],
-    http_url="http://qa-vm:8080", allow_insecure_token=True))
+    "grpc://qa-vm:19090", token=os.environ["PRAVAHA_TOKEN"],
+    http_url="http://qa-vm:18080", allow_insecure_token=True))
 
 # 1. Ask once.
 client.register("big_payments",
@@ -340,11 +340,11 @@ audit trail, but the only thing they gate in the built-in policies is reading th
 connect(connection_string=None, *, options=None, http_url=None) -> Client
 ```
 
-Give a connection string (`"grpc://host:9090"`, `"grpc+tls://host:9090"`, or several hosts
+Give a connection string (`"grpc://host:19090"`, `"grpc+tls://host:19090"`, or several hosts
 comma-separated) **or** `options`, not both. `http_url` may be given here or in `options`.
 
 ```python
-client = connect("grpc://localhost:9090", http_url="http://localhost:8080")   # no token
+client = connect("grpc://localhost:19090", http_url="http://localhost:18080")   # no token
 ```
 
 ### `ClientOptions`
@@ -945,7 +945,7 @@ end them.
 ```python
 client.status()
 # {'instanceId': 'pravaha-qa-01', 'version': '0.1.1', 'engineState': 'RUNNING', 'uptimeSeconds': 136,
-#  'registeredQueries': 2, 'plugins': [], 'streams': 1, 'stoppedFeeds': 0, 'flight': '0.0.0.0:9090'}
+#  'registeredQueries': 2, 'plugins': [], 'streams': 1, 'stoppedFeeds': 0, 'flight': '0.0.0.0:19090'}
 ```
 
 For a load balancer or orchestrator, the unauthenticated probes are `GET /actuator/health/liveness`
@@ -1080,7 +1080,7 @@ except ApiError as e:
 ```
 
 `help_url` is the code's page on the console when `PRAVAHA_DOCS_BASE_URL` is set in the client's
-environment (on a QA host, `http://<host>:8090/help/codes/`), otherwise `""`.
+environment (on a QA host, `http://<host>:17070/help/codes/`), otherwise `""`.
 
 **Codes an integration meets most**
 
@@ -1112,7 +1112,7 @@ Every code has a page in the console's **Help → Codes** (`/help/codes/PRV-nnnn
 
 ## 18. REST conventions
 
-- Base URL `http://<host>:8080`. The machine-readable contract is `GET /api/v1/openapi.json` (no
+- Base URL `http://<host>:18080`. The machine-readable contract is `GET /api/v1/openapi.json` (no
   token needed); a browsable one is `/api/docs`, which redirects to the Swagger UI.
 - **Authentication:** `Authorization: Bearer <token>` on every call. Without it, `401`.
 - Bodies are JSON. Names in paths are URL-encoded (`window#0` is `window%230`).
@@ -1129,7 +1129,7 @@ A small helper used by every sample below:
 ```python
 import requests
 
-BASE = "http://qa-vm:8080"
+BASE = "http://qa-vm:18080"
 http = requests.Session()
 http.headers["Authorization"] = f"Bearer {os.environ['PRAVAHA_TOKEN']}"
 

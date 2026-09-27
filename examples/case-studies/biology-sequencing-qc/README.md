@@ -100,7 +100,7 @@ study. From this directory:
 ```bash
 pravaha-server --spring.profiles.active=dev \
                --spring.config.additional-location=file:./conf/application.yaml &
-pravaha queries --url grpc://localhost:9090     # expect: no continuous queries are registered
+pravaha queries --url grpc://localhost:19090     # expect: no continuous queries are registered
 ```
 
 The Aerospike connector ships inside the server jar, so there is nothing to build in — see
@@ -218,7 +218,7 @@ WHERE sample_id = ?
 ```python
 from pravaha import connect
 
-with connect("grpc://localhost:9090") as client:
+with connect("grpc://localhost:19090") as client:
     for row in client.query(open("sql/02-read-one-sample.sql").read(), ["s-02"]):
         print(row["sample_id"], "depth", row["mean_depth"], "targets", row["targets_touched"])
 ```

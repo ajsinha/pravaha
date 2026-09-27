@@ -69,28 +69,28 @@ class ErrcClientTest extends ErrcTestSupport {
         // ERRC-012's own Setup names five candidate inputs as "genuinely malformed"; empirically,
         // three of the five parse successfully because Endpoint.parse accepts more than the case
         // assumes: "http"/"https" are accepted aliases for grpc/grpc+tls (Endpoint.java:93), a bare
-        // hostname with no colon at all defaults to port 9090 (parseHostPort, no exception), and a
-        // scheme with a host but no port also defaults to 9090. Verified against the SDK's own
+        // hostname with no colon at all defaults to port 19090 (parseHostPort, no exception), and a
+        // scheme with a host but no port also defaults to 19090. Verified against the SDK's own
         // Endpoint.parse directly (a public, documented entry point -- not the throwing method called
         // out of context) rather than over the network, since a live connection attempt to a
         // nonexistent host in this environment risks a DNS-timeout hang unrelated to what this case
         // is checking. Recorded as a finding: the case's own "one-line reach" example
         // (`--url nonsense`) does not, in fact, produce PRV-1030.
-        assertThat(Endpoint.parse("nonsense").nodes()).containsExactly(new Endpoint.HostPort("nonsense", 9090));
+        assertThat(Endpoint.parse("nonsense").nodes()).containsExactly(new Endpoint.HostPort("nonsense", 19090));
         assertThat(Endpoint.parse("nonsense").tls()).isTrue();
 
-        Endpoint http = Endpoint.parse("http://h:9090");
+        Endpoint http = Endpoint.parse("http://h:19090");
         assertThat(http.tls()).isFalse();
-        assertThat(http.nodes()).containsExactly(new Endpoint.HostPort("h", 9090));
+        assertThat(http.nodes()).containsExactly(new Endpoint.HostPort("h", 19090));
 
-        assertThat(Endpoint.parse("grpc+tls://h").nodes()).containsExactly(new Endpoint.HostPort("h", 9090));
+        assertThat(Endpoint.parse("grpc+tls://h").nodes()).containsExactly(new Endpoint.HostPort("h", 19090));
     }
 
     // ------------------------------------------------------------ ERRC-013 -- PRV-1031
 
     @Test
     void fourClientOptionsValidationSitesAllRefuseWithARetryableFalseException() {
-        Endpoint anyEndpoint = Endpoint.parse("grpc://localhost:9090");
+        Endpoint anyEndpoint = Endpoint.parse("grpc://localhost:19090");
 
         assertRefused(
                 () -> ClientOptions.builder(anyEndpoint).subscriberBufferRows(0),
@@ -117,7 +117,7 @@ class ErrcClientTest extends ErrcTestSupport {
         // fluent setters the case names by line number). Recorded as a minor completeness note on
         // the case rather than a product defect: the code is correct, the case's own site count is
         // short by one.
-        Endpoint plaintext = Endpoint.parse("grpc://localhost:9090");
+        Endpoint plaintext = Endpoint.parse("grpc://localhost:19090");
         assertThatThrownBy(
                         () -> ClientOptions.builder(plaintext).token("secret").build())
                 .isInstanceOfSatisfying(PravahaClientException.class, e -> {

@@ -141,7 +141,7 @@ if [[ -n "$new_credentials" ]]; then
 fi
 echo
 echo "Start it:   cd $home && docker compose up -d"
-echo "Console:    http://$host:8090"
-echo "Engine:     http://$host:8080  (HTTP)   grpc://$host:9090  (Flight SQL)"
+echo "Console:    http://$host:17070"
+echo "Engine:     http://$host:18080  (HTTP)   grpc://$host:19090  (Flight SQL)"
 echo "Feeds:      $home/feeds/ -- drop files for file sources here; the engine reads them as /opt/pravaha/feeds"
 echo "Configure:  $home/conf/application.yaml, $home/console/conf/application.yaml -- then docker compose restart"

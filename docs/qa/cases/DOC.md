@@ -43,7 +43,7 @@ introduced with its own install note at the point of use.
 **Intent:** Added this week. Offered as the alternative for a reader with no JDK, which is exactly
 the reader least able to diagnose it.
 **Steps:** `docker build -t pravaha:local .` then
-`docker run --rm -p 8080:8080 -p 9090:9090 pravaha:local --spring.profiles.active=dev`
+`docker run --rm -p 18080:18080 -p 19090:19090 pravaha:local --spring.profiles.active=dev`
 (remapped to this area's assigned ports for the run).
 **Expected:** The image builds; the container starts and serves Flight and HTTP. If docker is not
 available in this environment, the case is BLOCKED and the Dockerfile is reviewed statically against
@@ -210,7 +210,7 @@ marked so.
 
 ## DOC-026 — `OPERATIONS.md` "Starting a node" YAML is safe to copy
 **Intent:** It prints a `pravaha.flight.port`. Every other surface in the repository — the shipped
-default, the CLI's default URL, both SDKs, the console, every case study — uses 9090, and the shipped
+default, the CLI's default URL, both SDKs, the console, every case study — uses 19090, and the shipped
 `application.yaml` carries a comment explicitly rejecting the alternative.
 **Steps:** Compare the printed value with the shipped default and with every other document.
 **Expected:** They agree. A reader who copies the operations block gets a node their own CLI can

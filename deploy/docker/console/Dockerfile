@@ -76,5 +76,5 @@ ENV CONSOLE_HOST=0.0.0.0 \
     PYTHONUNBUFFERED=1
 
 USER 10001:10001
-EXPOSE 8090
+EXPOSE 17070
 CMD ["python", "run_pravaha_web.py", "--config", "/opt/pravaha/console/config/application.yaml,/opt/pravaha/console/conf/application.yaml"]

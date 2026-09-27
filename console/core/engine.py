@@ -244,7 +244,7 @@ class Engine:
         self._url = url
         self._token = token
         self._lock = threading.Lock()
-        # The engine's HTTP surface is a separate port from Flight -- 8080 against 9090 -- and
+        # The engine's HTTP surface is a separate port from Flight -- 18080 against 19090 -- and
         # conflating the two is the commonest way a first run fails, so it is its own setting.
         self._http = (http_url or "").rstrip("/")
         self._http_timeout = http_timeout

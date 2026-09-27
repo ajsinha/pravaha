@@ -14,7 +14,7 @@ from pravaha import ClientOptions, Consistency, InvalidOptionsError
 def test_defaults_are_the_safe_choices_not_the_fastest_ones() -> None:
     # A client that quietly defaults to the loosest behaviour is how an application ends
     # up reporting numbers that do not reconcile, months before anyone notices.
-    o = ClientOptions.create("host:9090")
+    o = ClientOptions.create("host:19090")
     assert o.endpoint.tls is True
     assert o.default_consistency is Consistency.CONSISTENT
     assert o.subscriber_buffer_rows > 0
@@ -24,7 +24,7 @@ def test_defaults_are_the_safe_choices_not_the_fastest_ones() -> None:
 
 def test_overrides_apply() -> None:
     o = ClientOptions.create(
-        "grpc+tls://host:9090",
+        "grpc+tls://host:19090",
         token="secret-token",
         connect_timeout_seconds=2.0,
         default_consistency=Consistency.LATEST,
@@ -43,17 +43,17 @@ def test_overrides_apply() -> None:
 def test_refuses_to_send_a_token_over_plaintext() -> None:
     # Sending a bearer token over plaintext hands it to anyone on the path.
     with pytest.raises(InvalidOptionsError) as excinfo:
-        ClientOptions.create("grpc://host:9090", token="t")
+        ClientOptions.create("grpc://host:19090", token="t")
     assert "plaintext" in str(excinfo.value)
     assert "grpc+tls://" in str(excinfo.value)
 
 
 def test_plaintext_without_a_token_is_allowed_for_local_development() -> None:
-    assert ClientOptions.create("grpc://localhost:9090").endpoint.tls is False
+    assert ClientOptions.create("grpc://localhost:19090").endpoint.tls is False
 
 
 def test_str_never_renders_the_token() -> None:
-    o = ClientOptions.create("grpc+tls://h:9090", token="super-secret")
+    o = ClientOptions.create("grpc+tls://h:19090", token="super-secret")
     assert "super-secret" not in str(o)
     assert "authenticated" in str(o)
     # repr is what a debugger and most log formatters actually call.
@@ -71,7 +71,7 @@ def test_str_never_renders_the_token() -> None:
 )
 def test_rejects_nonsensical_settings(kwargs: dict) -> None:
     with pytest.raises(InvalidOptionsError):
-        ClientOptions.create("grpc+tls://h:9090", **kwargs)
+        ClientOptions.create("grpc+tls://h:19090", **kwargs)
 
 
 def test_consistency_matches_the_engine_modes() -> None:

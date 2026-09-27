@@ -17,8 +17,8 @@ operator answers *"is everything healthy, and if not, where?"*, and where anyone
 change as the engine commits. This page walks every screen.
 
 It is a **separate process** (ADR-024) that reaches the engine **only through the published Python
-SDK** — Arrow Flight on the engine's port 9090 for queries, registration, lifecycle and
-subscriptions, and the engine's HTTP API on 8080 for the catalogue, validation, plans, status and
+SDK** — Arrow Flight on the engine's port 19090 for queries, registration, lifecycle and
+subscriptions, and the engine's HTTP API on 18080 for the catalogue, validation, plans, status and
 metrics. It holds no data of its own and cannot reach past the public API, so anything it can do,
 an integrator's program can do too.
 
@@ -26,9 +26,9 @@ an integrator's program can do too.
 
 | Port | Process | What it is |
 |---|---|---|
-| **8090** | the console | this browser product |
-| **9090** | the engine | Arrow Flight SQL — every SDK, the CLI |
-| **8080** | the engine | its HTTP API and `/actuator/prometheus` |
+| **17070** | the console | this browser product |
+| **19090** | the engine | Arrow Flight SQL — every SDK, the CLI |
+| **18080** | the engine | its HTTP API and `/actuator/prometheus` |
 | **5432** | the engine | the PostgreSQL gateway, when `pravaha.pgwire.enabled` is set |
 
 The landing page, the help (including every `/help/codes/...` page), About and the health probes are
@@ -215,8 +215,8 @@ registry without metrics, a view's page says which call failed.
 
 | Setting | Default | Effect |
 |---|---|---|
-| `engine.url` | `grpc://localhost:9090` | the engine's Flight endpoint |
-| `engine.http_url` | `http://localhost:8080` | the engine's HTTP surface; without it validation and plans are unavailable |
+| `engine.url` | `grpc://localhost:19090` | the engine's Flight endpoint |
+| `engine.http_url` | `http://localhost:18080` | the engine's HTTP surface; without it validation and plans are unavailable |
 | `engine.token` | empty | the console's single engine identity, never sent to a browser |
 | `engine.pgwire` | `localhost:5432` | shown in the `psql` snippets only |
 | `ui.default_role` | `operator` | where a signed-in person lands until they choose |

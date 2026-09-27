@@ -522,7 +522,7 @@ final class ServerCommand {
     private String endpoint;
 
     private PravahaFlightClient connect(Args args) {
-        String url = args.get("url", "grpc://localhost:9090");
+        String url = args.get("url", "grpc://localhost:19090");
         this.endpoint = url;
         ClientOptions.Builder options = ClientOptions.builder(url);
         // P-3. This was `.allowInsecureToken(true)` unconditionally, on every command, on every

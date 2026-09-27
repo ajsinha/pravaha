@@ -120,7 +120,7 @@ exec 9>&-
 # measure things, and making them quick would mean measuring less.
 #
 # Turning it on found a real defect rather than needing a workaround: two
-# @SpringBootTest classes both bound the *fixed* Flight port 9090, which collides
+# @SpringBootTest classes both bound the *fixed* Flight port 19090, which collides
 # whenever they do not run sequentially -- and would collide equally with a node
 # the developer happens to be running. Both now use port 0. If a future test fails
 # only under forks, that is the same smell: look for shared fixed state before

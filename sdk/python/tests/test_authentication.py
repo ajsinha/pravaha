@@ -154,14 +154,14 @@ def test_the_filter_holds_under_an_aggregate(secure_server):
 
 def test_a_token_is_refused_over_a_plaintext_connection_by_default():
     with pytest.raises(InvalidOptionsError) as refused:
-        ClientOptions.create("grpc://example.com:9090", token="s3cret")
+        ClientOptions.create("grpc://example.com:19090", token="s3cret")
 
     assert "plaintext" in str(refused.value)
 
 
 def test_the_token_never_appears_in_a_repr():
     options = ClientOptions.create(
-        "grpc://localhost:9090", token="s3cret", allow_insecure_token=True
+        "grpc://localhost:19090", token="s3cret", allow_insecure_token=True
     )
 
     # Options reach log lines. A credential in one reaches the log with it.

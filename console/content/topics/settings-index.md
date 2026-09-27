@@ -37,8 +37,8 @@ A few keys are bound from configuration classes rather than written out in the s
 | Setting | Default | What it does |
 |---|---|---|
 | `pravaha.flight.enabled` | `true` | Serve Arrow Flight SQL — the protocol the SDKs, the CLI and the console speak |
-| `pravaha.flight.host` | `0.0.0.0` | Where Flight listens. Write an address in full: `127` is legal input to `InetAddress` and means `0.0.0.127`, so an abbreviated one is refused at startup (PRV-3010). An IPv6 host is reported bracketed, `[::1]:9090` |
-| `pravaha.flight.port` | `9090` | Flight's port — what every client and example defaults to. `0` lets the operating system pick, and `GET /api/v1/status`'s `flight` field reports the port it picked. Outside 0-65535 is PRV-3010 naming the key, rather than gRPC's own unnamed argument check |
+| `pravaha.flight.host` | `0.0.0.0` | Where Flight listens. Write an address in full: `127` is legal input to `InetAddress` and means `0.0.0.127`, so an abbreviated one is refused at startup (PRV-3010). An IPv6 host is reported bracketed, `[::1]:19090` |
+| `pravaha.flight.port` | `19090` | Flight's port — what every client and example defaults to. `0` lets the operating system pick, and `GET /api/v1/status`'s `flight` field reports the port it picked. Outside 0-65535 is PRV-3010 naming the key, rather than gRPC's own unnamed argument check |
 | `pravaha.flight.tls.certificate` | *empty* | PEM certificate chain. With the key, Flight serves TLS; without both, plaintext. One without the other is refused at startup (PRV-6104) — see [TLS](/help/topics/tls) |
 | `pravaha.flight.tls.key` | *empty* | PEM private key, the other half of the pair |
 | `pravaha.pgwire.enabled` | `false` | Serve the read-only [PostgreSQL gateway](/help/topics/pgwire), for `psql`, Grafana and ORMs |
@@ -47,7 +47,7 @@ A few keys are bound from configuration classes rather than written out in the s
 | `pravaha.pgwire.tls.certificate` | *empty* | PEM certificate; `sslmode=require` then negotiates on the same port. Refused at startup if half-set (PRV-6206) |
 | `pravaha.pgwire.tls.key` | *empty* | PEM private key |
 
-The HTTP API and Prometheus are on Spring's `server.port` (`8080`).
+The HTTP API and Prometheus are on Spring's `server.port` (`18080`).
 
 ## Security
 

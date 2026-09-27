@@ -11,9 +11,9 @@ guide: user-guide#1-connect
 related: [point-reads, subscriptions, sdk-reference, cli-reference, http-api, pgwire]
 ---
 
-Every client reaches the same engine through one of three doors: **Arrow Flight SQL** on port 9090 (both
+Every client reaches the same engine through one of three doors: **Arrow Flight SQL** on port 19090 (both
 SDKs, the CLI, the console, any Flight SQL driver), the **PostgreSQL gateway** on 5432 when it is turned
-on (`psql` and every PostgreSQL driver), and the engine's **HTTP API** on 8080 (the catalogue, validation,
+on (`psql` and every PostgreSQL driver), and the engine's **HTTP API** on 18080 (the catalogue, validation,
 plans and descriptions — but not reading a view's rows). An embedded engine is the fourth: no door at all,
 the engine in your process. This page shows the same four operations through each, so you can copy the
 one for your stack. The console's view pages generate these for the view and key you are looking at.
@@ -53,9 +53,9 @@ u1       2026-09-19T10:00:00Z   1350
 
 | Door | Default | URL form | Token |
 |---|---|---|---|
-| Flight SQL | 9090 | `grpc://host:9090` (plaintext, spelled out) or `grpc+tls://host:9090`; no scheme means TLS | `--token` / `.token(...)` / `token=` |
+| Flight SQL | 19090 | `grpc://host:19090` (plaintext, spelled out) or `grpc+tls://host:19090`; no scheme means TLS | `--token` / `.token(...)` / `token=` |
 | PostgreSQL gateway | 5432, **off** by default | `host=… port=… dbname=pravaha` | as the password |
-| HTTP | 8080 | `http://host:8080` or `https://…` | `Authorization: Bearer …` |
+| HTTP | 18080 | `http://host:18080` or `https://…` | `Authorization: Bearer …` |
 
 Both SDKs and the CLI **refuse to send a token over plaintext** (`grpc://`, `http://`) unless told to by
 name — `allowInsecureToken(true)`, `allow_insecure_token=True`, `--insecure-token` — which exists for a
@@ -71,7 +71,7 @@ import com.ash.messaging.pravaha.sdk.flight.PravahaFlightClient;
 import com.ash.messaging.pravaha.sdk.flight.QueryResult;
 import com.ash.messaging.pravaha.sdk.flight.Row;
 
-ClientOptions options = ClientOptions.builder("grpc+tls://engine:9090")
+ClientOptions options = ClientOptions.builder("grpc+tls://engine:19090")
         .token(System.getenv("PRAVAHA_TOKEN"))
         .build();
 try (PravahaFlightClient client = PravahaFlightClient.connect(options);
@@ -116,7 +116,7 @@ Package `pravaha` with the `flight` extra (it brings pyarrow). Read:
 import os
 from pravaha import connect, ClientOptions
 
-options = ClientOptions.create("grpc+tls://engine:9090", token=os.environ["PRAVAHA_TOKEN"])
+options = ClientOptions.create("grpc+tls://engine:19090", token=os.environ["PRAVAHA_TOKEN"])
 with connect(options=options) as client:
     for row in client.query(
             "SELECT user_id, window_end, spend FROM hourly_spend WHERE user_id = ?", ["u1"]):
@@ -153,7 +153,7 @@ hourly_spend_copy RUNNING 3f9c2a61d0b4
 ## The pravaha CLI
 
 ```bash
-pravaha query --url grpc+tls://engine:9090 --token "$PRAVAHA_TOKEN" \
+pravaha query --url grpc+tls://engine:19090 --token "$PRAVAHA_TOKEN" \
   --sql "SELECT user_id, window_end, spend FROM hourly_spend WHERE user_id = ?" --params u1
 ```
 
@@ -165,10 +165,10 @@ u1	2026-09-19T10:00:00Z	1350
 ```
 
 ```bash
-pravaha subscribe --url grpc+tls://engine:9090 --token "$PRAVAHA_TOKEN" \
+pravaha subscribe --url grpc+tls://engine:19090 --token "$PRAVAHA_TOKEN" \
   --view hourly_spend --filter user_id=u1
 
-pravaha register --url grpc+tls://engine:9090 --token "$PRAVAHA_TOKEN" \
+pravaha register --url grpc+tls://engine:19090 --token "$PRAVAHA_TOKEN" \
   --name hourly_spend_copy --sql-file hourly_spend.sql --keys 0,2 --retain P7D
 ```
 
@@ -247,13 +247,13 @@ See [Spring Boot starter](/help/topics/spring-boot-starter).
 ## A Flight SQL driver (JDBC, ADBC)
 
 Pravaha's client protocol *is* Arrow Flight SQL (ADR-030), so the Apache Arrow Flight SQL JDBC and ADBC
-drivers speak to port 9090 directly. With the Arrow JDBC driver the URL takes the form:
+drivers speak to port 19090 directly. With the Arrow JDBC driver the URL takes the form:
 
 ```text
-jdbc:arrow-flight-sql://engine:9090?useEncryption=true&token=<token>
+jdbc:arrow-flight-sql://engine:19090?useEncryption=true&token=<token>
 ```
 
-and a Python ADBC connection is `adbc_driver_flightsql.dbapi.connect("grpc+tls://engine:9090", …)`.
+and a Python ADBC connection is `adbc_driver_flightsql.dbapi.connect("grpc+tls://engine:19090", …)`.
 
 !!! warning "Not driven by the project's tests"
     The engine's own tests drive `FlightSqlClient` — the library these drivers are built on — against
@@ -266,7 +266,7 @@ and a Python ADBC connection is `adbc_driver_flightsql.dbapi.connect("grpc+tls:/
 The HTTP API describes things; it does **not** read a view's rows or subscribe. For the same view:
 
 ```bash
-curl -s -H "Authorization: Bearer $PRAVAHA_TOKEN" https://engine:8080/api/v1/views/hourly_spend
+curl -s -H "Authorization: Bearer $PRAVAHA_TOKEN" https://engine:18080/api/v1/views/hourly_spend
 ```
 
 ```json
@@ -290,8 +290,8 @@ curl -s -H "Authorization: Bearer $PRAVAHA_TOKEN" https://engine:8080/api/v1/vie
 ## Pitfalls
 
 !!! warning "Pitfall: the wrong port"
-    9090 is Flight, 8080 is HTTP, 5432 is the PostgreSQL gateway, and 8090 is the console. An SDK
-    pointed at 8080 fails to connect; `http_url` pointed at 9090 gets no HTTP answer.
+    19090 is Flight, 18080 is HTTP, 5432 is the PostgreSQL gateway, and 17070 is the console. An SDK
+    pointed at 18080 fails to connect; `http_url` pointed at 19090 gets no HTTP answer.
 
 !!! warning "Pitfall: a token over grpc://"
     Refused by both SDKs and the CLI unless you say `allow_insecure_token` / `--insecure-token`. The

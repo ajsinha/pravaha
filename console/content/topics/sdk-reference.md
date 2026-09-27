@@ -14,8 +14,8 @@ related: [client-snippets, http-api, cli-reference, point-reads, subscriptions]
 
 Two SDKs, one surface: the Python client mirrors the Java one deliberately — the same concepts under the
 same names — so a team running both holds one mental model. Both speak **Arrow Flight SQL** to the
-engine's port 9090 for reads, subscriptions, registration and lifecycle. The Python SDK also wraps the
-engine's **HTTP API** (port 8080) for the calls Flight has no form for; in Java those are plain HTTP (see
+engine's port 19090 for reads, subscriptions, registration and lifecycle. The Python SDK also wraps the
+engine's **HTTP API** (port 18080) for the calls Flight has no form for; in Java those are plain HTTP (see
 [HTTP API](/help/topics/http-api)).
 
 Every example uses the example deployment's view `hourly_spend(user_id, window_start, window_end, spend)`:
@@ -36,16 +36,16 @@ SELECT window_end, spend FROM hourly_spend WHERE user_id = ?
 
 | Java | Python | |
 |---|---|---|
-| `PravahaFlightClient.connect("grpc://host:9090")` | `connect("grpc://host:9090")` | Plaintext, spelled out |
+| `PravahaFlightClient.connect("grpc://host:19090")` | `connect("grpc://host:19090")` | Plaintext, spelled out |
 | `PravahaFlightClient.connect(ClientOptions)` | `connect(options=ClientOptions…)` | Everything else |
-| — | `connect(url, http_url="http://host:8080")` | Adds the HTTP API for the catalogue calls |
+| — | `connect(url, http_url="http://host:18080")` | Adds the HTTP API for the catalogue calls |
 | `client.close()` / try-with-resources | `client.close()` / `with` | Releases the channel |
 
 **The scheme decides TLS.** `grpc://` is plaintext; `grpc+tls://` — or no scheme at all — is TLS, which
 is why TLS is the terse default and plaintext has to be asked for by name.
 
 ```java
-ClientOptions options = ClientOptions.builder("grpc+tls://engine:9090")
+ClientOptions options = ClientOptions.builder("grpc+tls://engine:19090")
         .token(System.getenv("PRAVAHA_TOKEN"))
         .requestTimeout(Duration.ofSeconds(10))
         .tls(TlsOptions.builder().caCertificate(Path.of("/opt/pravaha/conf/ca.pem")).build())
@@ -58,11 +58,11 @@ import os
 from pravaha import connect, ClientOptions, TlsOptions
 
 options = ClientOptions.create(
-    "grpc+tls://engine:9090",
+    "grpc+tls://engine:19090",
     token=os.environ["PRAVAHA_TOKEN"],
     request_timeout_seconds=10,
     tls=TlsOptions.create(ca_certificate="/opt/pravaha/conf/ca.pem"),
-    http_url="https://engine:8080",
+    http_url="https://engine:18080",
 )
 with connect(options=options) as client:
     ...

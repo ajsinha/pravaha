@@ -261,7 +261,7 @@ cd sdk/python && make install && . .venv/bin/activate     # from the repository 
 ```python
 from pravaha import connect
 
-with connect("grpc://localhost:9090") as client:
+with connect("grpc://localhost:19090") as client:
     for row in client.query("SELECT user_id, spend FROM minute_spend WHERE user_id = ?", ["u2"]):
         print(row["user_id"], row["spend"])
 ```
@@ -279,7 +279,7 @@ receives commits made after it attaches, one batch per commit — and every row 
 ```python
 from pravaha import connect
 
-with connect("grpc://localhost:9090") as client:
+with connect("grpc://localhost:19090") as client:
     for batch in client.subscribe("big_payments"):
         for row in batch:
             print(f"{row.weight:+d}", row["txn_id"], row["user_id"], row["amount"])
@@ -402,8 +402,8 @@ A drop removes a **name**; the computation goes when its last name goes.
     Plugin options live under `options:`. A key written one level too high is not read, not
     reported, and the node ingests nothing.
 
-!!! warning "Connection refused on 8080 from the SDK"
-    The SDKs and CLI speak Flight on **9090**. Port 8080 is the engine's HTTP API; 8090 is this
+!!! warning "Connection refused on 18080 from the SDK"
+    The SDKs and CLI speak Flight on **19090**. Port 18080 is the engine's HTTP API; 17070 is this
     console.
 
 !!! danger "Before anybody else can reach it"

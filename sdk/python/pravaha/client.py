@@ -5,7 +5,7 @@ PROPRIETARY AND CONFIDENTIAL. See the LICENSE file for the full terms.
 
     from pravaha import connect
 
-    with connect("grpc://localhost:9090") as client:
+    with connect("grpc://localhost:19090") as client:
         for row in client.query("SELECT user_id, total FROM user_volume WHERE total > 100"):
             print(row["user_id"], row["total"])
 
@@ -936,7 +936,7 @@ class Client(DebugCommands):
                 raise ApiError(
                     0,
                     "this client has no HTTP URL for the engine; set ClientOptions.http_url "
-                    "(the engine's HTTP port, 8080 by default, not the Flight port)",
+                    "(the engine's HTTP port, 18080 by default, not the Flight port)",
                 )
             self._rest = RestClient(
                 self._options.http_url,
@@ -1172,10 +1172,10 @@ def connect(
 ) -> Client:
     """Connects to a Pravaha server.
 
-    ``connect("grpc://host:9090")`` for plaintext; omitting the scheme means TLS, which
+    ``connect("grpc://host:19090")`` for plaintext; omitting the scheme means TLS, which
     is the right default for a client and the reason it is not the terse one.
 
-    ``http_url`` is the engine's HTTP port (``http://host:8080``), needed only for the
+    ``http_url`` is the engine's HTTP port (``http://host:18080``), needed only for the
     catalogue, validation, plans, sinks and status calls; pass it here or in ``options``.
     """
     if options is None:

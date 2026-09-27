@@ -7,7 +7,7 @@ icon: sliders
 summary: "How a Pravaha node is configured: the shipped application.yaml, environment variables, command-line overrides and profiles — and the whole pravaha: tree, annotated, key by key."
 badge: SETTINGS
 audience: Operators
-keywords: [application.yaml, spring.profiles.active, environment variables, ports, 8080, 9090, 5432, node.id, dev profile]
+keywords: [application.yaml, spring.profiles.active, environment variables, ports, 18080, 19090, 5432, node.id, dev profile]
 guide: operations#starting-a-node
 related: [settings-index, sizing-lanes, checkpoints-recovery, authentication, metrics-alerts]
 ---
@@ -62,7 +62,7 @@ pravaha-server --spring.profiles.active=dev
 ... security: authentication=none, policy=permissive, audit=none, flight transport=PLAINTEXT
 ... WARN pravaha.checkpoint.directory is not set, so registered queries keep no checkpoints: ...
 ... WARN pravaha.registry.journal is not set, so registered queries live only in memory and ...
-... Flight SQL listening on 0.0.0.0:9090
+... Flight SQL listening on 0.0.0.0:19090
 ```
 
 Those lines are the node telling you what it is actually running with. **Read them after every
@@ -73,12 +73,12 @@ answer to "did my setting take?".
 
 | Port | Setting | Speaks | Used by |
 |---|---|---|---|
-| **9090** | `pravaha.flight.port` | Arrow Flight SQL (gRPC) | the CLI, both SDKs, the console, any Flight SQL or ADBC client |
-| **8080** | `server.port` | HTTP: `/api/v1/*`, `/actuator/health`, `/actuator/prometheus` | operators, the console's catalog and metrics, Prometheus |
+| **19090** | `pravaha.flight.port` | Arrow Flight SQL (gRPC) | the CLI, both SDKs, the console, any Flight SQL or ADBC client |
+| **18080** | `server.port` | HTTP: `/api/v1/*`, `/actuator/health`, `/actuator/prometheus` | operators, the console's catalog and metrics, Prometheus |
 | **5432** | `pravaha.pgwire.port` | the PostgreSQL wire protocol, read-only, **off by default** | `psql`, DBeaver, Grafana, any PostgreSQL driver |
 
-The console is a separate process on **8090** and reaches the engine on both 9090 and 8080.
-Confusing the three is the commonest first-run failure: an SDK pointed at 8080 gets an HTTP
+The console is a separate process on **17070** and reaches the engine on both 19090 and 18080.
+Confusing the three is the commonest first-run failure: an SDK pointed at 18080 gets an HTTP
 answer to a gRPC question and reports a protocol error.
 
 !!! warning "Pitfall: 5432 is probably taken"
@@ -98,7 +98,7 @@ pravaha:
   flight:
     enabled: true                # false = this node serves HTTP only
     host: 0.0.0.0
-    port: 9090
+    port: 19090
     tls:
       certificate: ""            # PEM chain; set both or neither -- half a pair is refused
       key: ""
@@ -186,7 +186,7 @@ choose:
 |---|---|---|
 | `pravaha.node.id` | `pravaha-node-01` | The name every ownership claim is made under. Two nodes must not share it — unless one is the other's [standby](/help/topics/standby), where sharing it is the point |
 | `pravaha.flight.enabled` | `true` | Whether the Flight SQL endpoint starts. Off, the node answers HTTP only, and the readiness probe says so |
-| `pravaha.flight.host`, `pravaha.flight.port` | `0.0.0.0`, `9090` | Where Flight listens |
+| `pravaha.flight.host`, `pravaha.flight.port` | `0.0.0.0`, `19090` | Where Flight listens |
 | `pravaha.flight.tls.certificate`, `pravaha.flight.tls.key` | empty | PEM files. Both set: TLS. Neither: plaintext, and a node with authentication on logs a warning that credentials travel in the clear. One without the other: refused at startup |
 | `pravaha.pgwire.enabled` | `false` | The read-only PostgreSQL gateway — [the gateway](/help/topics/pgwire) |
 | `pravaha.pgwire.host`, `pravaha.pgwire.port` | `0.0.0.0`, `5432` | Where it listens |
@@ -296,13 +296,13 @@ What the startup log should now say, and what each line confirms:
 ... checkpointing registered queries under /opt/pravaha/data/checkpoints
 ... security: authentication=token, policy=authenticated, audit=file, flight transport=TLS
 ... sources bound: [txn <- filesystem[path, schema, event.time, skip.header, follow]]
-... Flight SQL listening on 0.0.0.0:9090
+... Flight SQL listening on 0.0.0.0:19090
 ```
 
 And, from another shell, that the node is ready:
 
 ```bash
-curl -s http://localhost:8080/actuator/health/readiness
+curl -s http://localhost:18080/actuator/health/readiness
 ```
 
 ```text
@@ -312,7 +312,7 @@ curl -s http://localhost:8080/actuator/health/readiness
 ## Checking what a node is running with
 
 - **The startup log**, as above — bound values, not file contents.
-- **`GET /api/v1/status`** on 8080: node id, version, engine state, plugin health.
+- **`GET /api/v1/status`** on 18080: node id, version, engine state, plugin health.
 - **The console's Operations screen**, which reads both.
 
 Configuration is read once, at startup. There is no reload: change the file, restart the node.

@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **385 findings carrying a
-status — 361 FIXED, 10 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 10 open, **0 are
+only part that is kept current. Counting the register as it stands: **386 findings carrying a
+status — 362 FIXED, 10 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 10 open, **0 are
 GA-BLOCKER, 0 GA-REQUIRED, 8 POST-GA and 2 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -6909,3 +6909,15 @@ over `aerospike` sources. The joins answered correctly. Changing the tutorial's 
 ### JOINDOC-1 (LOW) — the joins page's summary table said a self join is refused, and its own text says it runs
 
 > **Status:** FIXED — `console/content/topics/joins.md`: the table row read "Self join — no — refused at registration" while the section below it shows one running (fixed 2026-09-26, when self joins were built). The row now says it runs and points at the windowed-`COUNT` alternative. The same page said joins over `aerospike` sources were "not yet demonstrated end to end"; the tutorial is that demonstration, and the page links to it.
+
+## Found moving the default ports (2026-09-27), 1 finding, 1 fixed
+
+At the owner's request the defaults moved: the engine's HTTP port from 8080 to **18080**, Flight from
+9090 to **19090**, and the console from 8090 to **17070**, in the engine, both SDKs' default port, the
+CLI, the images, the Helm chart, the QA install and every live document; the smoke scripts' own test
+ports moved to 28080, 29090 and 27070, off the new defaults. Historical records keep the ports they
+recorded.
+
+### HELPURL-1 (LOW) — the documented `pravaha.docs.base-url` pointed at a console path that does not exist
+
+> **Status:** FIXED — the engine's `PRV-1029` message, `OPERATIONS.md`, `TROUBLESHOOTING.md`, `system_design.md` and the jar's `application.yaml` all suggested `http://localhost:8088/help/errors/` as the base for the help link every refusal carries. The console serves code pages at `/help/codes/PRV-nnnn`, on port 8090 at the time; there has never been a `/help/errors/` route, so a deployment that followed the advice put a link to a 404 on every failure. Every place now says `http://localhost:17070/help/codes/`, which the QA install's configuration already used (with its own host name).

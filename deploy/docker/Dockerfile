@@ -29,7 +29,7 @@ ARG PRAVAHA_VERSION=0.0.0-unset
 ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
 LABEL org.opencontainers.image.title="Pravaha engine node" \
-      org.opencontainers.image.description="Continuous-query engine node: HTTP on 8080, Flight SQL on 9090." \
+      org.opencontainers.image.description="Continuous-query engine node: HTTP on 18080, Flight SQL on 19090." \
       org.opencontainers.image.version="${PRAVAHA_VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
@@ -45,7 +45,7 @@ WORKDIR /opt/pravaha
 # the alternative -- rewriting the shipped launcher to POSIX sh so one base image is happier --
 # would change the thing every other way of running this server goes through. Paid here, once.
 #
-# Not root, and not a shell account either. The engine needs no privileged port -- 8080 and 9090
+# Not root, and not a shell account either. The engine needs no privileged port -- 18080 and 19090
 # are both above 1024 -- and a streaming engine that reads whatever a binding points it at is
 # precisely the thing that should not be able to read the rest of the filesystem. 10001 rather
 # than a name, because a Kubernetes runAsUser and a `docker run --user` both take a number, and a
@@ -111,11 +111,11 @@ ENV PRAVAHA_JAVA_OPTS="-XX:MaxRAMPercentage=50.0 -XX:+ExitOnOutOfMemoryError"
 
 USER 10001:10001
 
-# 8080 HTTP: the operator pages, the REST read API and the actuator probes.
-# 9090 Flight SQL: what the SDKs, the CLI and the console speak, and how a query is REGISTERED --
+# 18080 HTTP: the operator pages, the REST read API and the actuator probes.
+# 19090 Flight SQL: what the SDKs, the CLI and the console speak, and how a query is REGISTERED --
 # there is no REST endpoint that registers one. Confusing the two is the commonest first-run
 # failure.
-EXPOSE 8080 9090
+EXPOSE 18080 19090
 
 # The registry journal, the checkpoints and the dead-letter queue all live under here. Without a
 # volume a restart loses every registered query -- which the node warns about at startup rather
@@ -126,7 +126,7 @@ VOLUME ["/opt/pravaha/data"]
 # a node that is merely still restoring state look broken; Kubernetes gets both probes separately
 # (deploy/helm/pravaha). --spider because busybox wget writes the body to stdout otherwise.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=45s --retries=3 \
-  CMD wget -q --spider http://127.0.0.1:8080/actuator/health/liveness || exit 1
+  CMD wget -q --spider http://127.0.0.1:18080/actuator/health/liveness || exit 1
 
 # No --spring.profiles.active=dev. The server refuses to start open unless a deployment says so,
 # and an image that said so on everyone's behalf would put the default back where it was.

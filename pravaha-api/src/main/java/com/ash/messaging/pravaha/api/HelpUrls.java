@@ -167,7 +167,7 @@ public final class HelpUrls {
                         + ". The engine appends a code to it -- " + KEY + " + 'PRV-2002' -- to build the help "
                         + "link every failure carries, so this value would produce a link nobody can follow. "
                         + "Write the base of a page that resolves, for example "
-                        + "http://localhost:8088/help/errors/, or leave the key unset: with no base the engine "
+                        + "http://localhost:17070/help/codes/, or leave the key unset: with no base the engine "
                         + "prints no URL at all and says to " + lookupHint(null) + ".");
     }
 }

@@ -7,7 +7,7 @@
 
 help:
 	@echo "make install    create .venv and install the console with dev extras"
-	@echo "make run        serve the console on :8090, against an engine on :9090"
+	@echo "make run        serve the console on :17070, against an engine on :19090"
 	@echo "make test       run the tests (the real-engine ones need the Java side built and JAVA_HOME;"
 	@echo "                the browser ones need Chrome or Chromium, or PRAVAHA_CHROME=<path>)"
 	@echo "make test-fast  everything but the browser: journeys, axe, screenshots, budget"

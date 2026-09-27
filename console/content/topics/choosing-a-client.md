@@ -25,13 +25,13 @@ catalogue, validation, plans, status and audit. Anything one Flight client can d
 | A Python service, a notebook, a dataframe | **Python SDK** (`pravaha`) | yes, `.to_table()` | yes, with weights | yes | yes (`http_url`) |
 | A BI tool or an existing Flight SQL / JDBC / ADBC driver | **Flight SQL driver** | yes | no | the `CREATE`/`DROP` statements | no |
 | `psql`, DBeaver, Grafana, any Postgres driver | **PostgreSQL gateway** (port 5432) | yes | no | **no** — read-only (PRV-6211) | `\d` |
-| An operator's script, a dashboard's health check | **HTTP API** (port 8080) | no rows | no | no | yes |
+| An operator's script, a dashboard's health check | **HTTP API** (port 18080) | no rows | no | no | yes |
 | Pravaha inside your own process, no network | **Embedded engine** | yes | yes | yes | yes |
 
 Two rules hold for every network client:
 
 - **`grpc://` is plaintext and has to be spelled out.** A URL without a scheme means TLS, which is
-  the right default; `grpc+tls://host:9090` is the explicit form.
+  the right default; `grpc+tls://host:19090` is the explicit form.
 - **A token is never sent over plaintext** unless you say so (`allowInsecureToken(true)`,
   `allow_insecure_token=True`, `--insecure-token`). That switch exists for loopback tests and
   sidecar-terminated TLS; the right fix is almost always `grpc+tls://`.
@@ -47,7 +47,7 @@ SELECT window_end, spend FROM hourly_spend WHERE user_id = ?
 ## The CLI
 
 ```bash
-pravaha query --url grpc://localhost:9090 \
+pravaha query --url grpc://localhost:19090 \
     --sql "SELECT window_end, spend FROM hourly_spend WHERE user_id = ?" --params u1
 ```
 
@@ -72,7 +72,7 @@ and the offline `run`, `validate` and `explain`. With a credential add `--token 
 ```
 
 ```java
-try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:9090");
+try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:19090");
      QueryResult result = client.query(
              "SELECT window_end, spend FROM hourly_spend WHERE user_id = ?", "u1")) {
     for (Row row : result) {
@@ -83,7 +83,7 @@ try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:
 
 `getLong` on a null column throws rather than returning zero — check `isNull` first, or read with
 `get`. Rows are flyweights over the Arrow buffer that carried them: copy what you keep. With a
-credential: `ClientOptions.builder("grpc+tls://pravaha:9090").token(token).build()`.
+credential: `ClientOptions.builder("grpc+tls://pravaha:19090").token(token).build()`.
 
 ## The Python SDK
 
@@ -94,7 +94,7 @@ cd sdk/python && make install && . .venv/bin/activate
 ```python
 from pravaha import connect
 
-with connect("grpc://localhost:9090") as client:
+with connect("grpc://localhost:19090") as client:
     for row in client.query("SELECT window_end, spend FROM hourly_spend WHERE user_id = ?", ["u1"]):
         print(row["window_end"], row["spend"])
     frame = client.query("SELECT * FROM hourly_spend").to_table()   # pyarrow; to pandas/Polars from there
@@ -107,7 +107,7 @@ rest):
 from pravaha import ClientOptions, connect
 
 client = connect(options=ClientOptions.create(
-    "grpc+tls://engine:9090", token=token, http_url="https://engine:8080"))
+    "grpc+tls://engine:19090", token=token, http_url="https://engine:18080"))
 ```
 
 ## Any Flight SQL driver (JDBC, ADBC)
@@ -116,7 +116,7 @@ Pravaha is a Flight SQL server, so the Apache Arrow Flight SQL JDBC driver and t
 drivers connect directly. JDBC, plaintext on loopback:
 
 ```text
-jdbc:arrow-flight-sql://localhost:9090/?useEncryption=false
+jdbc:arrow-flight-sql://localhost:19090/?useEncryption=false
 ```
 
 A driver's `executeQuery` reads views; its `executeUpdate` runs the management statements —
@@ -154,12 +154,12 @@ PRV-6211 (SQLSTATE `25006`). `BYTES` and `TIME` columns are refused by name rath
 
 ## The HTTP API
 
-The engine's HTTP surface, on port 8080, is for everything *about* the data rather than the data:
+The engine's HTTP surface, on port 18080, is for everything *about* the data rather than the data:
 
 ```bash
-curl -s http://localhost:8080/api/v1/views/hourly_spend        # schema, key, retention, sink
-curl -s http://localhost:8080/api/v1/queries/hourly_spend      # a query in full
-curl -s -X POST http://localhost:8080/api/v1/queries/validate \
+curl -s http://localhost:18080/api/v1/views/hourly_spend        # schema, key, retention, sink
+curl -s http://localhost:18080/api/v1/queries/hourly_spend      # a query in full
+curl -s -X POST http://localhost:18080/api/v1/queries/validate \
      -H 'Content-Type: application/json' \
      -d '{"sql": "SELECT user_id, amount FROM txn WHERE amount > 100"}'
 ```
@@ -194,8 +194,8 @@ decided who may call it. See [the embedded engine](/help/topics/embedded-engine)
 ## Pitfalls
 
 !!! warning "The wrong port"
-    Flight is **9090**. The HTTP API is **8080**; the gateway **5432**; this console **8090**. An SDK
-    pointed at 8080 fails to connect with a protocol error, not a helpful message.
+    Flight is **19090**. The HTTP API is **18080**; the gateway **5432**; this console **17070**. An SDK
+    pointed at 18080 fails to connect with a protocol error, not a helpful message.
 
 !!! warning "Building SQL strings"
     Bind values with `?` (in `WHERE` and `HAVING` only). A bound value is never parsed as SQL, and

@@ -50,7 +50,7 @@ final class StandbyWatchTest {
         CountDownLatch promoted = new CountDownLatch(1);
         // A live primary: its claim is refreshed by StateOwnership's own lease thread.
         try (StateOwnership primary = StateOwnership.claim(
-                        root, StateOwnership.Owner.current("node-a", "10.0.0.1", 9090), LEASE, false);
+                        root, StateOwnership.Owner.current("node-a", "10.0.0.1", 19090), LEASE, false);
                 StandbyWatch watch = new StandbyWatch(root, "node-a", LEASE, POLL, takeover -> promoted.countDown())) {
             watch.start();
 
@@ -64,7 +64,7 @@ final class StandbyWatchTest {
     @Test
     void aStandbyPromotesOnceThePrimaryStopsRefreshing(@TempDir Path root) throws Exception {
         // A claim written by hand and never refreshed: what a crashed primary leaves behind.
-        writeMarker(root, "node-a", "10.0.0.1", 9090, 4242L, System.currentTimeMillis());
+        writeMarker(root, "node-a", "10.0.0.1", 19090, 4242L, System.currentTimeMillis());
 
         CountDownLatch promoted = new CountDownLatch(1);
         AtomicReference<StandbyWatch.Takeover> seen = new AtomicReference<>();
@@ -78,7 +78,7 @@ final class StandbyWatchTest {
                     .isTrue();
         }
 
-        assertThat(seen.get().previousOwner()).contains("node-a").contains("10.0.0.1:9090");
+        assertThat(seen.get().previousOwner()).contains("node-a").contains("10.0.0.1:19090");
         assertThat(seen.get().describe())
                 .as("a takeover buys recovery time, not continuity, and has to say so at the moment it happens")
                 .contains("promoted from standby")
@@ -95,7 +95,7 @@ final class StandbyWatchTest {
                 root,
                 "node-b",
                 "10.0.0.2",
-                9090,
+                19090,
                 4242L,
                 System.currentTimeMillis() - Duration.ofHours(1).toMillis());
 

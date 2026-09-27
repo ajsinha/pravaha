@@ -176,12 +176,12 @@ class PravahaCliTest {
 
     @Test
     void withAHelpBaseConfiguredARefusalPrintsThatDeploymentsUrl() {
-        com.ash.messaging.pravaha.api.HelpUrls.configure("http://localhost:8088/help/errors/");
+        com.ash.messaging.pravaha.api.HelpUrls.configure("http://localhost:17070/help/codes/");
         assertThat(run("validate", "--sql", "SELECT nope FROM txn", "--schema", SCHEMA))
                 .isEqualTo(1);
         assertThat(stderr())
                 .contains("PRV-2002")
-                .contains("http://localhost:8088/help/errors/PRV-2002")
+                .contains("http://localhost:17070/help/codes/PRV-2002")
                 .doesNotContain("docs.pravaha.io");
     }
 

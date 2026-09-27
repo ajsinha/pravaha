@@ -44,8 +44,10 @@ docker_bin="${DOCKER:-docker}"
 
 image=""
 name="pravaha-smoke-$$"
-http_port="${SMOKE_HTTP_PORT:-18080}"
-flight_port="${SMOKE_FLIGHT_PORT:-19090}"
+# Host ports, deliberately not the defaults (18080, 19090): a node already running here on its
+# defaults must not be what gets tested.
+http_port="${SMOKE_HTTP_PORT:-28080}"
+flight_port="${SMOKE_FLIGHT_PORT:-29090}"
 keep=0
 
 while [[ $# -gt 0 ]]; do
@@ -142,8 +144,8 @@ echo "smoke.sh: image   $image"
 echo "smoke.sh: volume  $work/data -> /opt/pravaha/data"
 
 "$docker_bin" run -d --name "$name" \
-  -p "127.0.0.1:$http_port:8080" \
-  -p "127.0.0.1:$flight_port:9090" \
+  -p "127.0.0.1:$http_port:18080" \
+  -p "127.0.0.1:$flight_port:19090" \
   -v "$work/data:/opt/pravaha/data" \
   -v "$work/conf/application.yaml:/opt/pravaha/conf/application.yaml:ro" \
   "$image" >/dev/null
@@ -270,8 +272,8 @@ ok "the files that hold data are owner-only, written by uid 10001"
 # ---------------------------------------------------------------- 8. a new container, same volume
 
 "$docker_bin" run -d --name "$name-restart" \
-  -p "127.0.0.1:$http_port:8080" \
-  -p "127.0.0.1:$flight_port:9090" \
+  -p "127.0.0.1:$http_port:18080" \
+  -p "127.0.0.1:$flight_port:19090" \
   -v "$work/data:/opt/pravaha/data" \
   -v "$work/conf/application.yaml:/opt/pravaha/conf/application.yaml:ro" \
   "$image" >/dev/null
@@ -307,7 +309,7 @@ ok "and its view"
 #
 # If this step ever passes readiness, the chart's readinessProbe is decoration.
 "$docker_bin" run -d --name "$name-noflight" \
-  -p "127.0.0.1:$http_port:8080" \
+  -p "127.0.0.1:$http_port:18080" \
   -v "$work/conf/application.yaml:/opt/pravaha/conf/application.yaml:ro" \
   -e PRAVAHA_FLIGHT_ENABLED=false \
   -e PRAVAHA_REGISTRY_JOURNAL= \
@@ -339,8 +341,8 @@ ok "flightless node: readiness $code, not 200 (no client can reach it)"
 # to write anywhere else, it fails here rather than in somebody's cluster.
 "$docker_bin" run -d --name "$name-noflight" \
   --read-only --tmpfs /tmp:rw,size=64m \
-  -p "127.0.0.1:$http_port:8080" \
-  -p "127.0.0.1:$flight_port:9090" \
+  -p "127.0.0.1:$http_port:18080" \
+  -p "127.0.0.1:$flight_port:19090" \
   -v "$work/data:/opt/pravaha/data" \
   -v "$work/conf/application.yaml:/opt/pravaha/conf/application.yaml:ro" \
   "$image" >/dev/null

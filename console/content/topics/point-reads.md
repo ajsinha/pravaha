@@ -93,7 +93,7 @@ From Python:
 ```python
 from pravaha import connect
 
-with connect("grpc://localhost:9090") as client:
+with connect("grpc://localhost:19090") as client:
     for row in client.query(
             "SELECT user_id, window_end, spend FROM hourly_spend WHERE user_id = ?", ["u1"]):
         print(row["user_id"], row["window_end"], row["spend"])
@@ -107,7 +107,7 @@ u1 2026-09-19 10:00:00+00:00 1350
 From Java:
 
 ```java
-try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:9090");
+try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:19090");
      QueryResult result = client.query(
              "SELECT user_id, window_end, spend FROM hourly_spend WHERE user_id = ?", "u1")) {
     for (Row row : result) {

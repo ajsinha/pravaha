@@ -74,7 +74,7 @@ PravahaFlightServer server = new PravahaFlightServer(views)
         .authorizedBy(myPolicy, myAuditSink)       // what they may read, and the record
         .admitting(ReadAdmission.of(16), Duration.ofSeconds(30))
         .hosting(registry)
-        .start("0.0.0.0", 9090);
+        .start("0.0.0.0", 19090);
 ```
 
 Credentials travel as `authorization: Bearer <token>` on **every call** — Flight has no session, which

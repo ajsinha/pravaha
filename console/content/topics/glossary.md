@@ -118,7 +118,7 @@ configured for it) resume at the exact position their checkpoint recorded. → [
 retention. Two registrations with the same fingerprint share one computation.
 → [Sharing by fingerprint](/help/topics/sharing)
 
-**Flight SQL.** Arrow Flight SQL, the client protocol (port 9090) the SDKs, the CLI, the console and
+**Flight SQL.** Arrow Flight SQL, the client protocol (port 19090) the SDKs, the CLI, the console and
 JDBC/ADBC drivers speak. → [Client code](/help/topics/client-snippets)
 
 **Frontier.** How far in its input a view has committed. A read can ask for at least a frontier; a view

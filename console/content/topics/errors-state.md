@@ -296,7 +296,7 @@ A read named a view this server does not serve. Usually the query was dropped, t
 or the client is pointed at a different server than you think:
 
 ```bash
-pravaha queries --url grpc://localhost:9090
+pravaha queries --url grpc://localhost:19090
 ```
 
 A name this server does not serve, on every path that asks for one — a read, `GET

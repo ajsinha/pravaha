@@ -1295,7 +1295,7 @@ pravaha:
   flight:
     enabled: true       # the wire protocol the SDKs and CLI speak; HTTP above is for operators
     host: 0.0.0.0
-    port: 9090         # the shipped default, and what the CLI, both SDKs and the console assume
+    port: 19090         # the shipped default, and what the CLI, both SDKs and the console assume
 ```
 
 A node with no `registry.journal` starts and **says so** — a development run does not need
@@ -1306,7 +1306,7 @@ durability, but the cost of finding out at the next restart is every client's re
 plain HTML page at `/status` and the startup log line. That is the only place the bound port is
 readable from outside the process: `/actuator/health`'s components are suppressed by the shipped
 `show-details: when-authorized` on a node with `authentication: none` (CFG-2). An IPv6 host is
-written bracketed there, `[::1]:9090`, so the string can be pasted into a client.
+written bracketed there, `[::1]:19090`, so the string can be pasted into a client.
 
 **Two values in that block are refused rather than reinterpreted.** A port outside 0–65535 fails
 with `PRV-3010` naming `pravaha.flight.port`, instead of gRPC's own `IllegalArgumentException: port
@@ -1315,7 +1315,7 @@ out of range` with no key and no code. And `host: 127` — legal input to `InetA
 
 **What an operator can read back about the node itself.** The startup line for the cluster now names
 the member this node joined as, `cluster mode SINGLE on single (consensus), self-contained, this
-node pravaha-node-01@10.0.0.7:9090 (pravaha.node.id=pravaha-node-01)` — `pravaha.node.id` decides
+node pravaha-node-01@10.0.0.7:19090 (pravaha.node.id=pravaha-node-01)` — `pravaha.node.id` decides
 which checkpoint directory and which registry journal this node may claim, and it used to reach one
 served field and no log line at all (CFG-1). It is also a `node` tag on every metric, and
 `GET /actuator/info` reports the name, the version and the id.
@@ -1335,7 +1335,7 @@ say. One setting, three spellings of it:
 | The CLI, the Java and Python SDKs, scripts | the environment variable `PRAVAHA_DOCS_BASE_URL` |
 
 The engine appends the rendered code, so the value is the part before it:
-`http://localhost:8088/help/errors/` gives `http://localhost:8088/help/errors/PRV-2002`. A missing
+`http://localhost:17070/help/codes/` gives `http://localhost:17070/help/codes/PRV-2002`. A missing
 trailing slash is supplied. Pointing it at the console's help gives every code a page that resolves
 with no internet connection at all.
 
@@ -1858,7 +1858,7 @@ queries it never registered (CFG-13, CFG-14). Now the second one refuses to star
 
 ```
 PRV-4003  the state in /opt/pravaha/data/checkpoints belongs to node 'pravaha-node-01'
-          (pravaha-node-01 at 10.0.0.4:9090 (pid 8123)), and this node is 'pravaha-node-02'.
+          (pravaha-node-01 at 10.0.0.4:19090 (pid 8123)), and this node is 'pravaha-node-02'.
           ... The other node refreshed its claim 3s ago, so it is running now.
 ```
 
@@ -1894,7 +1894,7 @@ says so rather than waiting silently.
 **What a takeover buys is recovery time, not continuity**, and the promotion line says which:
 
 ```
-promoted from standby: pravaha-node-01 at 10.0.0.4:9090 (pid 8123) last refreshed its claim 41s
+promoted from standby: pravaha-node-01 at 10.0.0.4:19090 (pid 8123) last refreshed its claim 41s
 ago. Whatever the previous owner processed after its last checkpoint is not in the state this node
 resumes from; it is replayed from the source offsets that checkpoint carries, and anything the
 source can no longer supply is lost.

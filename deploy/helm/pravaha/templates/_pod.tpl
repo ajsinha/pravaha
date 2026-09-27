@@ -11,11 +11,11 @@ Called as:  include "pravaha.podSpec" (dict "ctx" $ "role" "node")
 */}}
 
 {{- define "pravaha.httpPort" -}}
-{{- dig "server" "port" 8080 (default (dict) .Values.config.spring) -}}
+{{- dig "server" "port" 18080 (default (dict) .Values.config.spring) -}}
 {{- end -}}
 
 {{- define "pravaha.flightPort" -}}
-{{- dig "flight" "port" 9090 (default (dict) .Values.config.pravaha) -}}
+{{- dig "flight" "port" 19090 (default (dict) .Values.config.pravaha) -}}
 {{- end -}}
 
 {{- define "pravaha.podSpec" -}}

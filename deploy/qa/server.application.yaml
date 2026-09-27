@@ -17,7 +17,7 @@
 # needs to differ from those defaults is written out below.
 
 server:
-  port: 8080                              # HTTP: operator pages, REST API, /actuator probes
+  port: 18080                              # HTTP: operator pages, REST API, /actuator probes
 
 # The node's own log, in /opt/pravaha/logs as well as on `docker compose logs`. Rotated by size.
 logging:
@@ -37,7 +37,7 @@ pravaha:
 
   flight:
     host: 0.0.0.0
-    port: 9090                            # Flight SQL: the SDKs, the CLI and the console
+    port: 19090                            # Flight SQL: the SDKs, the CLI and the console
 
   # The PostgreSQL wire protocol, for psql and BI tools. Off; set enabled: true and publish 5432 in
   # docker-compose.yml to try it.
@@ -47,7 +47,7 @@ pravaha:
 
   # Every refusal is a PRV-nnnn code; a code in a log or an API answer links to its page here.
   docs:
-    base-url: http://@@HOST@@:8090/help/codes/
+    base-url: http://@@HOST@@:17070/help/codes/
 
   # ---------------------------------------------------------------------------------- security
   # Token authentication, and nothing for a caller without one. THE MAP KEY IS THE SECRET; `id`

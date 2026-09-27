@@ -47,7 +47,7 @@ Or build a container image instead, which needs no JDK on the host:
 
 ```bash
 docker build -t pravaha:local .
-docker run --rm -p 8080:8080 -p 9090:9090 pravaha:local --spring.profiles.active=dev
+docker run --rm -p 18080:18080 -p 19090:19090 pravaha:local --spring.profiles.active=dev
 ```
 
 ## 2. Run a query with no server at all
@@ -284,7 +284,7 @@ pravaha subscribe --view user_volume --filter user_id=u1
 The console is a **separate process** that talks to the engine over the published Python SDK
 (ADR-024), and ships as its own artefact (ADR-033). So it needs the engine running first.
 
-**Prerequisites:** Python 3.11+, and an engine listening on `9090` (step 4 above).
+**Prerequisites:** Python 3.11+, and an engine listening on `19090` (step 4 above).
 
 **Set a console password first**, or nobody can sign in — which is the safe failure, because the
 console can drop queries and a default password is a public one:
@@ -301,17 +301,17 @@ queries all require a session.
 ```bash
 cd console
 make install          # .venv, the Pravaha Python SDK, and the console
-make run              # http://127.0.0.1:8090, engine at grpc://localhost:9090
+make run              # http://127.0.0.1:17070, engine at grpc://localhost:19090
 ```
 
 Any setting can be overridden on the command line, so a second instance needs no file of its own:
 
 ```bash
-python run_pravaha_web.py --server.port=8099 --engine.url=grpc://staging:9090
+python run_pravaha_web.py --server.port=8099 --engine.url=grpc://staging:19090
 ```
 
-**Three ports.** Console **8090**, the engine's Flight endpoint **9090**, the engine's own
-HTTP/actuator surface **8080**. Confusing them is the commonest way a first run fails.
+**Three ports.** Console **17070**, the engine's Flight endpoint **19090**, the engine's own
+HTTP/actuator surface **18080**. Confusing them is the commonest way a first run fails.
 
 ### What is there
 
@@ -363,7 +363,7 @@ yours going leaves theirs running.
 Java:
 
 ```java
-try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:9090")) {
+try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:19090")) {
     client.register("user_volume", Files.readString(Path.of("velocity.sql")), List.of(1));
     try (QueryResult result = client.query("SELECT total FROM user_volume WHERE user_id = ?", "u1")) {
         for (Row row : result) System.out.println(row.getLong("total"));
@@ -379,7 +379,7 @@ cd sdk/python && make install && . .venv/bin/activate
 ```python
 from pravaha import connect
 
-with connect("grpc://localhost:9090") as client:
+with connect("grpc://localhost:19090") as client:
     client.register("user_volume", open("velocity.sql").read(), [1])
     for row in client.query("SELECT total FROM user_volume WHERE user_id = ?", ["u1"]):
         print(row["total"])

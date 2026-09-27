@@ -117,8 +117,8 @@ more interesting than the case that referenced it.
     the bug that came of it.
 17. `application-dev.yaml` contains exactly one key: `pravaha.security.allow-anonymous: true`.
 18. `OPERATIONS.md:322-326` documents `pravaha.flight.port: 8815`. `application.yaml` and
-    `PravahaNode.java:124` both say **9090**, and `application.yaml`'s own comment explains at
-    length why 9090 and not Arrow's registered 8815.
+    `PravahaNode.java:124` both say **19090**, and `application.yaml`'s own comment explains at
+    length why 19090 and not Arrow's registered 8815.
 
 ---
 
@@ -280,7 +280,7 @@ a number the node is not listening on.
 
 | Variant | Value | Expected |
 |---|---|---|
-| unset | absent | `9090` (`PravahaNode.java:124`), agreeing with `application.yaml`. **`OPERATIONS.md:322-326` says 8815 — raise that as a documentation defect against OPERATIONS.md, not against the code** |
+| unset | absent | `19090` (`PravahaNode.java:124`), agreeing with `application.yaml`. **`OPERATIONS.md:322-326` says 8815 — raise that as a documentation defect against OPERATIONS.md, not against the code** |
 | valid | `19800` | listening on 19800; `/api/v1/status` and health both report `flightPort: 19800` |
 | invalid | `70000` | out of range. `@Value("${...}") int` binds it as an `int` fine; the failure comes from the socket bind. The message must name the port |
 | boundary | `0` | ephemeral. `PravahaNode.flightPort()` exists precisely for this (`PravahaNode.java:470-473`). Health and `/api/v1/status` must report the **actual** port, never `0` |
@@ -949,7 +949,7 @@ inertness, same latent narrowing.
 ## CFG-037 — `server.port`
 **Intent:** The HTTP surface every operator, the console and every `/api/v1` example uses.
 **Falsifier:** the node serves HTTP on a port other than the configured one.
-**Expected:** unset → `8080` from `application.yaml` (**there is no annotation default behind this
+**Expected:** unset → `18080` from `application.yaml` (**there is no annotation default behind this
 one — deleting the line really does unset it, unlike every `pravaha.*` key in fact 1**); valid
 `18800` → served; invalid `70000` → bind failure; boundary `0` → ephemeral, and
 `/api/v1/status` must report the actual port; wrong type `"http"` → context refresh fails.
@@ -1863,7 +1863,7 @@ this file that set a key which `application-dev.yaml` also sets was testing the 
 the executor must say so before reporting any other result. Confirm also that
 `--spring.config.additional-location` adds to, rather than replaces, the packaged
 `application.yaml` — `spring.config.location` would replace it, and the difference is whether
-`pravaha.flight.port: 9090` and the rest of the packaged defaults are still present.
+`pravaha.flight.port: 19090` and the rest of the packaged defaults are still present.
 
 ---
 

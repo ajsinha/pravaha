@@ -45,7 +45,7 @@ class ClientOptions:
     #: setting that looks like it did something and silently did not is exactly what
     #: this class exists to refuse.
     tls: TlsOptions = field(default_factory=TlsOptions)
-    #: The engine's HTTP surface (``http://host:8080``), for the calls that have no Flight form:
+    #: The engine's HTTP surface (``http://host:18080``), for the calls that have no Flight form:
     #: the stream catalogue, validation, plans, sinks, per-query descriptions and node status.
     #: A separate port from Flight, which is why it is a separate setting. Optional: a client
     #: that only queries and subscribes never needs it.

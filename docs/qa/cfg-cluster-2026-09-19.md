@@ -135,7 +135,7 @@ nothing else. Restored.
   `flight`, carrying the address that was bound; the HTML page at `/status` shows it too, since
   that page exists for the case where nothing else works. `PravahaNode.flightAddress()` is the one
   place it is composed, and `describe()` uses it as well.
-- **(c)** `host: ::1` was logged and advertised as `::1:9090`, which nothing can parse back into a
+- **(c)** `host: ::1` was logged and advertised as `::1:19090`, which nothing can parse back into a
   host and a port. `Endpoint.address` in `pravaha-common` brackets an IPv6 literal, leaves
   everything else alone, and is safe to apply twice; `Member.address()`, the startup log line and
   the status field all go through it, so the three cannot disagree.

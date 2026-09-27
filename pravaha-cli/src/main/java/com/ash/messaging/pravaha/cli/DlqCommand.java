@@ -221,7 +221,7 @@ final class DlqCommand {
     }
 
     private PravahaFlightClient connect(Args args) {
-        String url = args.get("url", "grpc://localhost:9090");
+        String url = args.get("url", "grpc://localhost:19090");
         ClientOptions.Builder options = ClientOptions.builder(url);
         args.get("token").ifPresent(token -> options.token(token).allowInsecureToken(args.has("insecure-token")));
         return PravahaFlightClient.connect(options.build());

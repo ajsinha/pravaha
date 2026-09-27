@@ -41,7 +41,7 @@ one command's flags and exits `0` without contacting a server (P-4).
 
 | Flag | Default | |
 |---|---|---|
-| `--url` | `grpc://localhost:9090` | The node's Flight endpoint. `grpc://` is plaintext; `grpc+tls://` (or no scheme) is TLS |
+| `--url` | `grpc://localhost:19090` | The node's Flight endpoint. `grpc://` is plaintext; `grpc+tls://` (or no scheme) is TLS |
 | `--token` | none | A bearer token |
 | `--insecure-token` | off | Allow `--token` over a plaintext `grpc://` URL. For loopback or a local TLS-terminating sidecar; the right fix is usually `grpc+tls://` |
 

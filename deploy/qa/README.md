@@ -17,7 +17,7 @@ cd /opt/pravaha && sudo docker compose up -d
 ```
 
 `install.sh` loads both images, writes the tree below, generates the credentials and prints them
-once. Open `http://<host>:8090` and sign in with the console password it printed.
+once. Open `http://<host>:17070` and sign in with the console password it printed.
 
 ## Everything is under /opt/pravaha
 
@@ -51,7 +51,7 @@ Both files are mode 0600, owned by uid 10001 (the containers' user), because the
 Running `install.sh` again **never overwrites them**, so an upgrade keeps your edits: a new bundle
 brings new images and a new `docker-compose.yml`, and nothing else changes.
 
-If this host already uses 8080, 9090 or 8090, set `PRAVAHA_HTTP_PORT`, `PRAVAHA_FLIGHT_PORT` or
+If this host already uses 18080, 19090 or 17070, set `PRAVAHA_HTTP_PORT`, `PRAVAHA_FLIGHT_PORT` or
 `PRAVAHA_CONSOLE_PORT` in `/opt/pravaha/.env`. These change only the published port on the host.
 
 ## Credentials
@@ -70,7 +70,7 @@ refuse to send a token over plaintext unless you acknowledge it (`PRV-1031`):
 
 ```python
 from pravaha import connect, ClientOptions
-c = connect(options=ClientOptions.create("grpc://<host>:9090", token="<QA token>",
+c = connect(options=ClientOptions.create("grpc://<host>:19090", token="<QA token>",
                                          allow_insecure_token=True))
 ```
 

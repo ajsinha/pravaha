@@ -28,9 +28,11 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 image="pravaha:qa"
 keep=0
 docker_bin="${DOCKER:-docker}"
-http_port="${QA_HTTP_PORT:-18080}"
-flight_port="${QA_FLIGHT_PORT:-19090}"
-console_port="${QA_CONSOLE_PORT:-18090}"
+# Host ports for the test node and console, deliberately not the defaults (18080, 19090, 17070):
+# a node or console already running on this machine with its defaults must not be what gets tested.
+http_port="${QA_HTTP_PORT:-28080}"
+flight_port="${QA_FLIGHT_PORT:-29090}"
+console_port="${QA_CONSOLE_PORT:-27070}"
 password="qa-smoke-$RANDOM"
 name="pravaha-qa-smoke-$$"
 
@@ -88,7 +90,7 @@ step "a node, from the image"
 # engine that serves every view to every caller is a decision somebody has to make on purpose.
 # A smoke test is exactly the case where that decision is fine and has to be stated anyway.
 "$docker_bin" run -d --rm --name "$name" \
-  -p "$http_port:8080" -p "$flight_port:9090" \
+  -p "$http_port:18080" -p "$flight_port:19090" \
   -e PRAVAHA_SECURITY_ALLOWANONYMOUS=true \
   -v "$work/data:/opt/pravaha/data" "$image" >/dev/null
 echo "      $image as $name, http $http_port, flight $flight_port"

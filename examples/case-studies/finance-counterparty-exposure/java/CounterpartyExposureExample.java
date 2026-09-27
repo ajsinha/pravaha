@@ -38,7 +38,7 @@ import com.ash.messaging.pravaha.sdk.flight.Subscription;
  * <p>Run a server first, then:
  *
  * <pre>
- *   java CounterpartyExposureExample grpc://localhost:9090
+ *   java CounterpartyExposureExample grpc://localhost:19090
  * </pre>
  */
 public final class CounterpartyExposureExample {
@@ -48,7 +48,7 @@ public final class CounterpartyExposureExample {
     private CounterpartyExposureExample() {}
 
     public static void main(String[] args) throws Exception {
-        String url = args.length > 0 ? args[0] : "grpc://localhost:9090";
+        String url = args.length > 0 ? args[0] : "grpc://localhost:19090";
 
         try (PravahaFlightClient client = PravahaFlightClient.connect(url)) {
 

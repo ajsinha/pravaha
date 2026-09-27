@@ -94,7 +94,7 @@ study. From this directory:
 ```bash
 pravaha-server --spring.profiles.active=dev \
                --spring.config.additional-location=file:./conf/application.yaml &
-pravaha queries --url grpc://localhost:9090     # expect: no continuous queries are registered
+pravaha queries --url grpc://localhost:19090     # expect: no continuous queries are registered
 ```
 
 The Aerospike connector ships inside the server jar, so there is nothing to build in — see
@@ -144,7 +144,7 @@ No window. No `GROUP BY`. No join. It is a pass-through, and that is deliberate.
 Register it:
 
 ```java
-try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:9090")) {
+try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:19090")) {
     RegisteredQueryInfo feed = client.register(
             "trade_feed",
             Files.readString(Path.of("sql/01-continuous-trade-feed.sql")),
@@ -391,7 +391,7 @@ Python:
 ```python
 from pravaha import connect
 
-with connect("grpc://localhost:9090") as client:
+with connect("grpc://localhost:19090") as client:
     for row in client.query(open("sql/02-read-by-product-and-source.sql").read(), ["SWAP", "MUREX"]):
         print(row["trade_id"], row["trade_json"])
 ```

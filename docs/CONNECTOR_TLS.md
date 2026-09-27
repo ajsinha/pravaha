@@ -282,7 +282,7 @@ pravaha:
   flight:
     enabled: true
     host: 0.0.0.0
-    port: 9090
+    port: 19090
     tls:
       certificate: /opt/pravaha/conf/tls/server-chain.pem
       key: /opt/pravaha/conf/tls/server-key.pem
@@ -381,7 +381,7 @@ Configuration saying TLS is on is what this whole document is about not trusting
 
 ```bash
 # What the server presents, and whether the chain validates.
-openssl s_client -connect pravaha.internal:9090 -CAfile ca.pem -servername pravaha.internal
+openssl s_client -connect pravaha.internal:19090 -CAfile ca.pem -servername pravaha.internal
 
 # Look for: "Verify return code: 0 (ok)". Anything else is a trust problem, not a typo.
 ```

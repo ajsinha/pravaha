@@ -99,12 +99,12 @@ class ConfigurationCheckTest {
         ConfigurationCheck check = checkOf("""
                 pravaha:
                   docs:
-                    base-url: "http://localhost:8088/help/errors"
+                    base-url: "http://localhost:17070/help/codes"
                 """);
 
         assertThatCode(check::check).doesNotThrowAnyException();
         assertThat(new com.ash.messaging.pravaha.api.ErrorCode(2002, "X").helpUrl())
-                .isEqualTo("http://localhost:8088/help/errors/PRV-2002");
+                .isEqualTo("http://localhost:17070/help/codes/PRV-2002");
     }
 
     /** Unset is a supported state, and it means no URL rather than the old dead one. */

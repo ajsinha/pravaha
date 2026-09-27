@@ -192,12 +192,12 @@ class CoordinatorFactoryTest {
         // never the member, so a running node's log could not confirm the id it advertises.
         Configuration configuration = config("pravaha.node.id", "cfg-node");
         try (ClusterCoordinator coordinator = CoordinatorFactory.create(configuration)) {
-            Member self = new Member("cfg-node", "10.0.0.7", 9090);
+            Member self = new Member("cfg-node", "10.0.0.7", 19090);
             coordinator.start(self);
 
             String line = CoordinatorFactory.describe(configuration, coordinator, self);
 
-            assertThat(line).contains("SINGLE").contains("cfg-node").contains("10.0.0.7:9090");
+            assertThat(line).contains("SINGLE").contains("cfg-node").contains("10.0.0.7:19090");
             assertThat(CoordinatorFactory.describe(configuration, coordinator))
                     .as("the two-argument line is unchanged for callers that have no member")
                     .doesNotContain("cfg-node");
@@ -206,11 +206,11 @@ class CoordinatorFactoryTest {
 
     @Test
     void anIpv6MemberAdvertisesAnAddressAClientCanParse_CFG2() {
-        // CFG-2(c). `::1` + 9090 was advertised and logged as `::1:9090`, where the colon before
+        // CFG-2(c). `::1` + 19090 was advertised and logged as `::1:19090`, where the colon before
         // the port is indistinguishable from the address's own, so the string an operator copies
         // into a connection is unparseable.
-        assertThat(new Member("n", "::1", 9090).address()).isEqualTo("[::1]:9090");
-        assertThat(new Member("n", "127.0.0.1", 9090).address()).isEqualTo("127.0.0.1:9090");
+        assertThat(new Member("n", "::1", 19090).address()).isEqualTo("[::1]:19090");
+        assertThat(new Member("n", "127.0.0.1", 19090).address()).isEqualTo("127.0.0.1:19090");
     }
 
     @Test

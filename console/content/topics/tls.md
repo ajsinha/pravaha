@@ -24,9 +24,9 @@ connectors dialling someone else's database — and one rule holds across all of
 
 | Surface | Direction | Configured by | Default |
 |---|---|---|---|
-| Arrow Flight SQL, port 9090 | clients → node | `pravaha.flight.tls.certificate`, `pravaha.flight.tls.key` | **plaintext** (`grpc+tcp`) |
+| Arrow Flight SQL, port 19090 | clients → node | `pravaha.flight.tls.certificate`, `pravaha.flight.tls.key` | **plaintext** (`grpc+tcp`) |
 | PostgreSQL gateway, port 5432 | `psql`/BI tools → node | `pravaha.pgwire.tls.certificate`, `pravaha.pgwire.tls.key` | plaintext |
-| HTTP API and Prometheus, port 8080 | clients → node | Spring Boot's own `server.ssl.*` keys | plaintext |
+| HTTP API and Prometheus, port 18080 | clients → node | Spring Boot's own `server.ssl.*` keys | plaintext |
 | CLI, Java and Python SDKs | client → node | the endpoint URL (`grpc+tls://`) and the SDK's TLS options | TLS is the SDKs' default; `grpc://` must be spelled out |
 | Connectors (Aerospike, Cassandra, the Kafka source and sink) | node → store | the plugin's shared `tls.*` options | off unless configured |
 | JDBC source, lookup, sink; postgres-cdc | node → database | the JDBC `url` (`sslmode=verify-full`, ...) | whatever the URL says |
@@ -38,7 +38,7 @@ pravaha:
   flight:
     enabled: true
     host: 0.0.0.0
-    port: 9090
+    port: 19090
     tls:
       certificate: /opt/pravaha/conf/tls/server-chain.pem
       key: /opt/pravaha/conf/tls/server-key.pem
@@ -94,21 +94,21 @@ The HTTP surface (`/api/v1/*`, `/actuator/prometheus`) carries the **same bearer
 and Pravaha's own settings do not encrypt it. HTTPS there comes from Spring Boot's standard
 `server.ssl.*` properties (keystore, password, type), set by hand. **A node that configures Flight TLS
 and stops there has not secured the channel carrying the same credential over HTTP** — configure
-both, or keep port 8080 on a network only trusted clients reach.
+both, or keep port 18080 on a network only trusted clients reach.
 
 ## Clients: the CLI
 
 The URL decides: `grpc+tls://` is encrypted, `grpc://` is not.
 
 ```bash
-pravaha queries --url grpc+tls://pravaha.internal:9090 --token "$PRAVAHA_TOKEN"
+pravaha queries --url grpc+tls://pravaha.internal:19090 --token "$PRAVAHA_TOKEN"
 ```
 
 Over `grpc://`, the CLI refuses to send a token at all — before any connection is attempted --
 unless `--insecure-token` is typed, which is for a loopback socket or a TLS-terminating sidecar:
 
 ```bash
-pravaha queries --url grpc://localhost:9090 --token "$PRAVAHA_TOKEN" --insecure-token
+pravaha queries --url grpc://localhost:19090 --token "$PRAVAHA_TOKEN" --insecure-token
 ```
 
 The CLI has no flag for a CA file: the server's certificate must chain to a CA its Java runtime
@@ -121,10 +121,10 @@ import os
 from pravaha import ClientOptions, TlsOptions, connect
 
 tls = TlsOptions.create(ca_certificate="/opt/pravaha/conf/tls/ca.pem")
-options = ClientOptions.create("grpc+tls://pravaha.internal:9090",
+options = ClientOptions.create("grpc+tls://pravaha.internal:19090",
                                token=os.environ["PRAVAHA_TOKEN"],
                                tls=tls,
-                               http_url="https://pravaha.internal:8080")
+                               http_url="https://pravaha.internal:18080")
 with connect(options=options) as client:
     print([q.name for q in client.queries()])
 ```
@@ -191,7 +191,7 @@ openssl pkcs8 -topk8 -nocrypt -in server-key.pem -out server-key.pk8.pem
 Configuration saying TLS is on is exactly what this page is about not trusting. Check the wire:
 
 ```bash
-openssl s_client -connect pravaha.internal:9090 -CAfile ca.pem -servername pravaha.internal </dev/null
+openssl s_client -connect pravaha.internal:19090 -CAfile ca.pem -servername pravaha.internal </dev/null
 ```
 
 ```text
@@ -211,7 +211,7 @@ connection now fails. A connector that still connects was not verifying anything
     `openssl s_client` check above after every certificate change.
 
 !!! warning "Pitfall: Flight encrypted, HTTP not"
-    The same token travels to port 8080. Encrypt both, or neither leaves the trusted network.
+    The same token travels to port 18080. Encrypt both, or neither leaves the trusted network.
 
 !!! warning "Pitfall: `sslmode=require`"
     It encrypts and verifies nothing. `verify-full` checks the CA and the host name.

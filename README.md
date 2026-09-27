@@ -289,7 +289,7 @@ with interactive islands in plain ES modules â€” no bundler, no Node toolchain â
 Monaco, ECharts and ELK included, vendored so it runs air-gapped.
 
 ```bash
-cd console && make install && make run     # :8090, engine Flight at :9090 and HTTP at :8080
+cd console && make install && make run     # :17070, engine Flight at :19090 and HTTP at :18080
 ```
 
 Each persona lands on its own screen. An analyst gets a **SQL Workbench**: Monaco with catalog-aware

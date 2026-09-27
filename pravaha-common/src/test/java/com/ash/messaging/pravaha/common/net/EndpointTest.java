@@ -32,19 +32,19 @@ class EndpointTest {
     void anIpv6LiteralIsBracketedSoTheAddressCanBeParsedBack_CFG2() {
         // `pravaha.flight.host: ::1` logged `Flight SQL listening on ::1:19800`. Where does the
         // host end? Every colon looks the same, so the answer needs the reader to already know.
-        assertThat(Endpoint.address("::1", 9090)).isEqualTo("[::1]:9090");
-        assertThat(Endpoint.address("fe80::1%eth0", 9090)).isEqualTo("[fe80::1%eth0]:9090");
-        assertThat(Endpoint.address("::", 9090)).isEqualTo("[::]:9090");
+        assertThat(Endpoint.address("::1", 19090)).isEqualTo("[::1]:19090");
+        assertThat(Endpoint.address("fe80::1%eth0", 19090)).isEqualTo("[fe80::1%eth0]:19090");
+        assertThat(Endpoint.address("::", 19090)).isEqualTo("[::]:19090");
     }
 
     @Test
     void anAddressThatIsAlreadyWritableIsLeftExactlyAsItIs_CFG2() {
-        assertThat(Endpoint.address("127.0.0.1", 9090)).isEqualTo("127.0.0.1:9090");
-        assertThat(Endpoint.address("0.0.0.0", 9090)).isEqualTo("0.0.0.0:9090");
+        assertThat(Endpoint.address("127.0.0.1", 19090)).isEqualTo("127.0.0.1:19090");
+        assertThat(Endpoint.address("0.0.0.0", 19090)).isEqualTo("0.0.0.0:19090");
         assertThat(Endpoint.address("db-1.internal", 5432)).isEqualTo("db-1.internal:5432");
         // Applying it twice must not double-bracket, because a caller cannot always know whether
         // the host it was handed came from a file or from another formatter.
-        assertThat(Endpoint.address("[::1]", 9090)).isEqualTo("[::1]:9090");
+        assertThat(Endpoint.address("[::1]", 19090)).isEqualTo("[::1]:19090");
     }
 
     @Test

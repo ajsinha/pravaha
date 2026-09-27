@@ -12,6 +12,11 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Since 0.1.1 — unreleased
 
+- **Default ports moved** (the owner's decision): the engine's HTTP port is **18080** (was 8080),
+  Flight SQL **19090** (was 9090), the console **17070** (was 8090). Both SDKs' default port, the CLI's
+  default URL, the images, the Helm chart and the QA install follow. **A 0.1.1 deployment that
+  relied on the defaults must move its clients and published ports**; one that set them explicitly
+  keeps working. The documented help-link base now points at a console path that exists (HELPURL-1).
 - **`docs/PYTHON_API_GUIDE.md`**: an integrator's guide and reference for every call the Python SDK
   makes and every REST endpoint, each sample run against a 0.1.1 node. It ships in the QA bundle.
 - **Python SDK:** a refusal over Flight carries the engine's code as `QueryError.engine_code`, as
@@ -35,7 +40,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 - **Found, open:** a query cannot be replaced while the record at its position was dead-lettered
   (REPL-2, POST-GA); since REPL-1 it fails as `FAILED` `PRV-4013` rather than silently.
 
-Register: **385 findings — 361 fixed, 10 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **386 findings — 362 fixed, 10 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ---
 

@@ -53,7 +53,7 @@ config:
     flight:
       enabled: true
       host: 0.0.0.0
-      port: 9090
+      port: 19090
     # The security block ships refusing to start, on purpose; pick one of the three ways in docs/DEPLOYMENT.md.
     security:
       authentication: token
@@ -133,9 +133,9 @@ service:
   # The Service type in front of the node; ClusterIP, because neither port belongs on the internet.
   type: ClusterIP
   # The HTTP port: operator pages, the REST read API and the actuator probes.
-  httpPort: 8080
+  httpPort: 18080
   # The Flight SQL port: the SDKs, the CLI and the console, and the only way to register a query.
-  flightPort: 9090
+  flightPort: 19090
   # Annotations for the Service, e.g. an internal load balancer's.
   annotations: {}
 

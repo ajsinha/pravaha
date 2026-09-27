@@ -47,7 +47,7 @@ import com.ash.messaging.pravaha.sdk.TlsOptions;
  * Asking Pravaha a question from Java.
  *
  * <pre>{@code
- * try (PravahaFlightClient client = PravahaFlightClient.connect("localhost:9090");
+ * try (PravahaFlightClient client = PravahaFlightClient.connect("localhost:19090");
  *         QueryResult result = client.query("SELECT user_id, total FROM user_volume WHERE total > 100")) {
  *     for (Row row : result) {
  *         System.out.println(row.getString("user_id") + " " + row.getLong("total"));

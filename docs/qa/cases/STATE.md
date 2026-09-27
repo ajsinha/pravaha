@@ -141,14 +141,14 @@ pravaha:
   security: { authentication: none, policy: permissive, allow-anonymous: true }
 ```
 
-Clients speak to `grpc://localhost:9090`. "Restart" means `stop()` then `start()` of a new process
+Clients speak to `grpc://localhost:19090`. "Restart" means `stop()` then `start()` of a new process
 against the same two paths.
 
 **`H-CFG` — configuration only, no I/O.** `CoordinatorFactory.create(Configuration.builder()...)`
 called directly. Every cluster case that does not say otherwise is this, and needs no second node.
 
-**`H-2N` — two nodes.** Two `pravaha server` processes on one host, Flight ports 9090 and 9091,
-`pravaha.cluster.socket.peers: "a=127.0.0.1:9090,b=127.0.0.1:9091"`. **Requires a second node.**
+**`H-2N` — two nodes.** Two `pravaha server` processes on one host, Flight ports 19090 and 9091,
+`pravaha.cluster.socket.peers: "a=127.0.0.1:19090,b=127.0.0.1:9091"`. **Requires a second node.**
 
 **`H-ZK` — ZooKeeper.** `H-SRV` with `plugins/pravaha-cluster-zookeeper` on the classpath and a
 single-node ZooKeeper at `127.0.0.1:2181`. **Requires ZooKeeper.**
@@ -917,7 +917,7 @@ absent from the text.
 **Falsifier:** `pravaha queries` or the Flight LIST action includes a checkpoint field.
 **Setup:** `H-SRV` with `checkpoint.directory` set and `checkpoint.interval: 1s`. Register `w`. Then
 `chmod 0500` the per-query checkpoint directory and wait 10 s.
-**Steps:** 1. `pravaha queries --url grpc://localhost:9090`. 2. `GET /api/v1/queries` on the console
+**Steps:** 1. `pravaha queries --url grpc://localhost:19090`. 2. `GET /api/v1/queries` on the console
 API, and the console's `/queries/{name}` page. 3. `GET /actuator/health`. 4. Grep the server log.
 **Expected:** step 1 prints `w<TAB>RUNNING<TAB><fingerprint><TAB><rowsIn>` — four fields, none about
 checkpointing (`ServerCommand.java:115`). Step 2 shows `state: RUNNING` and no checkpoint field.
@@ -1799,7 +1799,7 @@ record but not a pass.
 **Setup:** `plugins/pravaha-cluster-zookeeper` on the classpath; ZooKeeper at `127.0.0.1:2181`;
 `mode=SINGLE`, `mechanism=zookeeper`, `pravaha.cluster.zookeeper.connect=127.0.0.1:2181`.
 **Steps:** 1. `CoordinatorFactory.available()`. 2. `create`. 3. `start(new Member("n1", "127.0.0.1",
-9090))`. 4. Read `mechanism()`, `guarantees()`, `isLeader()`, `members()`. 5. `close()`.
+19090))`. 4. Read `mechanism()`, `guarantees()`, `isLeader()`, `members()`. 5. `close()`.
 **Expected:** step 1's map contains the keys `single`, `socket` **and** `zookeeper`, in that order —
 `available()` inserts the two built-ins first "so that a broken third-party provider cannot displace
 them" (`:41`–`:44`) and then `putIfAbsent`s the `ServiceLoader` results. `mechanism() ==
@@ -1879,7 +1879,7 @@ writing the same aggregate, and the damage is silent and durable`; the remedy
 `Refusing now rather than during a partition.` Step 2: the node does **not** start — `create` is the
 first statement of `PravahaNode.start` (`:328`), before `refuseAccidentalOpenServer`,
 before the Flight bind — so no port is opened and no query is recovered. Verify with `ss -ltn` that
-neither 9090 nor the HTTP port is listening.
+neither 19090 nor the HTTP port is listening.
 **Vacuity:** step 2 is the non-vacuity: a refusal that happened after the ports were bound would be a
 different and much weaker guarantee, and the port check is what distinguishes them.
 

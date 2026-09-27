@@ -2351,7 +2351,7 @@ message ResultBatch {
 ```python
 from pravaha import Client
 
-with Client("grpc+tls://pravaha:9090", token=os.environ["PRAVAHA_TOKEN"]) as c:
+with Client("grpc+tls://pravaha:19090", token=os.environ["PRAVAHA_TOKEN"]) as c:
     q = c.register("""
         SELECT STREAM window_end, user_id, txn_count, total_volume
         FROM q_user_volume_output
@@ -3513,7 +3513,7 @@ PRV-2041  Query produces updates but sink 'alerts_http' is append-only.
     · add  EMIT CHANGES WITH ('emit.mode'='upsert')  and declare key.fields
     · change the LEFT JOIN to an INNER JOIN if unmatched rows are not needed
 
-  See: http://localhost:8088/help/errors/PRV-2041
+  See: http://localhost:17070/help/codes/PRV-2041
 ```
 
 Every error code is stable, documented, and has a page with a runnable reproduction. This is boring work with a disproportionate effect on adoption.
@@ -3686,7 +3686,7 @@ pravaha:
       set: checkpoints
 
   gateways:
-    grpc:    { port: 9090, tls: true, max.inbound.message: 16MB }
+    grpc:    { port: 19090, tls: true, max.inbound.message: 16MB }
     avatica: { port: 8765, tls: true }
     internal:{ port: 9080, mtls: true }
 
