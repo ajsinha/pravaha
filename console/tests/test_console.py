@@ -433,16 +433,26 @@ def test_the_help_index_offers_the_worked_systems(client):
 
 
 def test_a_case_study_renders_in_the_console(client):
-    page = client.get("/tutorials/trade-processing").text
+    page = client.get("/help/case-studies/trade-processing").text
 
     assert "trade_event_id" in page
     assert "<table" in page
 
 
+def test_a_case_studys_old_tutorial_address_moves_to_its_page(client):
+    # The studies were served under /tutorials until they had their own section; an address
+    # somebody kept still reaches the study, and says it moved.
+    response = client.get("/tutorials/trade-processing", follow_redirects=False)
+    assert response.status_code == 301
+    assert response.headers["location"] == "/help/case-studies/trade-processing"
+    assert client.get("/tutorials/card-velocity", follow_redirects=False).headers["location"] == (
+        "/help/case-studies/banking-card-velocity")
+
+
 def test_an_unknown_case_study_is_refused(client):
     # Two layers refuse this and either is fine: the router normalises the path away before the
     # handler sees it, and the handler's allow-list would refuse the name anyway. What matters is
-    # that nothing outside the five studies is ever read from disk.
+    # that nothing outside the tutorials is ever read from disk.
     for attempt in ["../../etc", "nonexistent", "HANDOVER"]:
         response = client.get(f"/tutorials/{attempt}")
         assert response.status_code == 404

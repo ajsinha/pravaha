@@ -14,7 +14,7 @@ from __future__ import annotations
 import time
 
 from fastapi import Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from core.about import MEASURED, PRINCIPLES, PROBLEMS, AboutSource
 from core.competitive import BEHIND, SHINE
@@ -49,7 +49,9 @@ class PublicRoutes(Routes):
             """
             source = AboutSource(content.include_root, content.renderer)
             topics = {t.slug: t for t in content.topics("about")}
-            case_studies = [t for _section, ts in content.sections("tutorials") for t in ts if t.slug != "setup"]
+            from core.content.case_studies import catalog as studies
+
+            case_studies = studies(content.include_root)
             land = source.landscape()
             columns, rows = land.table()
             landscape = {"columns": columns, "rows": rows, "shine": land.cards(SHINE),
@@ -256,8 +258,25 @@ class PublicRoutes(Routes):
         def tutorials_index(request: Request):
             return index(request, "tutorials")
 
+        #: Where each case study lived before it had its own section: an address somebody bookmarked
+        #: or linked keeps working, and says (301) that it has moved.
+        MOVED_TO_CASE_STUDIES = {
+            "trade-processing": "trade-processing",
+            "counterparty-exposure": "finance-counterparty-exposure",
+            "card-velocity": "banking-card-velocity",
+            "order-flow": "trading-order-flow",
+            "sequencing-qc": "biology-sequencing-qc",
+            "sensor-anomalies": "manufacturing-sensor-anomalies",
+            "checkout-funnel": "ecommerce-checkout-funnel",
+            "click-attribution": "adtech-click-attribution",
+            "cdr-fraud": "telecom-cdr-fraud",
+            "delivery-sla": "logistics-delivery-sla",
+        }
+
         @self.app.get("/tutorials/{slug}", response_class=HTMLResponse, tags=["public"])
         def tutorial(request: Request, slug: str):
+            if slug in MOVED_TO_CASE_STUDIES:
+                return RedirectResponse(f"/help/case-studies/{MOVED_TO_CASE_STUDIES[slug]}", status_code=301)
             return topic(request, "tutorials", slug)
 
         # ------------------------------------------------------------- probes

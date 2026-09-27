@@ -1427,7 +1427,7 @@
       "all": "Every decision record"
     },
     "uses": {
-      "lede": "Five worked systems ship with the engine, each with a data model, its continuous SQL — planned by the build — and application code."
+      "lede": "Worked systems ship with the engine, one domain each: a data model, its continuous SQL — planned by the build — and application code. Every one is in Help, under Case studies."
     },
     "install": {
       "console": "Console",
@@ -1519,7 +1519,7 @@
     "guides": {
       "title": "Guides",
       "lede": "The long-form documents the engine ships with, rendered in place from the repository's docs/ -- the same text a reader of the source sees, so the two cannot drift. Each topic in the help links to the guide behind it.",
-      "worked": "Worked systems"
+      "worked": "Tutorials"
     },
     "codes": {
       "title": "Every error code",
@@ -1544,7 +1544,7 @@
       "codes": "Every error code",
       "more": "Go further",
       "guides": "All long-form guides",
-      "tutorials": "Five worked systems",
+      "tutorials": "Tutorials",
       "about": "About Pravaha"
     },
     "screen_help": "Help for this screen",
@@ -1559,7 +1559,7 @@
         "kicker": "TUTORIALS",
         "heading": "Working through Pravaha",
         "title": "Tutorials",
-        "blurb": "Worked walkthroughs, end to end and with real calls. Four lessons first, each run against a fresh install's demonstration stream: your first maintained view, following a view, changing a running query safely, and investigating an incident. Then ten worked systems across finance, biology, manufacturing, retail, advertising, telecoms and logistics — windows, joins with a time bound, top-N, late data and sinks."
+        "blurb": "Worked walkthroughs, end to end and with real calls, each run against a fresh install's demonstration stream: your first maintained view, following a view, changing a running query safely, investigating an incident, and joining two Aerospike sets with a CSV file. Worked systems in ten domains are in Help, under Case studies."
       }
     },
     "decision_records": "Decision records",

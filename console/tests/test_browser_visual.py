@@ -115,6 +115,11 @@ def shooters(chrome: Browser, console: Console):
             tab.before_every_document(DETERMINISM)
             tab.before_every_document(theme_script(theme))
             tab.before_every_document(density_script(density))
+            # Every shot starts with no workbench drafts: the workbench keeps its tabs in this
+            # browser, so a shot taken after another workbench page showed that page's tab as well,
+            # and whether it did depended on which tests ran first. test_browser_accessibility
+            # clears the same key for the same reason.
+            tab.before_every_document("try{localStorage.removeItem('pravaha.workbench.tabs')}catch(e){}")
             tab.emulate(reduced_motion=True, scheme="dark" if theme == "dark" else "light")
             sign_in(tab, console)
             tabs[key] = tab

@@ -89,10 +89,10 @@ CATEGORIES: list[Category] = [
              extras=[_guide("quickstart", "Quick start (long form)", "flag",
                             "From an empty engine to a maintained view, including the refusals — "
                             "every command real."),
-                     _page("/tutorials", "Tutorials: five worked systems", "journal-code",
-                           "Five end-to-end case studies — trade processing, counterparty exposure, "
-                           "card velocity, order flow, sequencing QC — with SQL the build plans.",
-                           "TUTORIALS", "case study example tutorial banking trading biology"),
+                     _page("/tutorials", "Tutorials", "journal-code",
+                           "Learn Pravaha step by step: a first maintained view, following a view, changing a "
+                           "running query safely, investigating an incident, and joining Aerospike with a CSV file.",
+                           "TUTORIALS", "tutorial lesson learn walkthrough aerospike"),
                      _page("/help/case-studies", "Case studies", "journal-code",
                            "Worked systems, one domain each, from their data to their continuous queries — "
                            "each study's README, with the output of a real run.",

@@ -269,9 +269,9 @@
   <div class="row g-3">
     {% for s in case_studies %}
     <div class="col-md-6 col-xl-4">
-      <a class="help-card" href="/tutorials/{{ s.slug }}">
-        <span class="t"><i class="bi bi-{{ s.icon }}" aria-hidden="true"></i>{{ s.title }}<span class="badge-help">{{ s.section|upper }}</span></span>
-        <span class="s">{{ s.summary }}</span>
+      <a class="help-card" href="/help/case-studies/{{ s.slug }}">
+        <span class="t"><i class="bi bi-journal-code" aria-hidden="true"></i>{{ s.title }}<span class="badge-help">{{ s.domain|upper }}</span></span>
+        <span class="s">{{ s.shows }}</span>
       </a>
     </div>
     {% endfor %}
