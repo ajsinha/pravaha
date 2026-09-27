@@ -32,7 +32,8 @@ import com.ash.messaging.pravaha.common.row.BinaryRowView;
 import com.ash.messaging.pravaha.common.row.Decimals;
 
 /**
- * A row as a Kafka record's key and value, in JSON.
+ * A row as a Kafka record's key and value, in JSON; or, with a {@link ValueEncoder}, an upsert
+ * value in Avro or protobuf behind the same JSON key.
  *
  * <p><strong>Upsert mode.</strong> The key is a JSON object of the key columns, in {@code
  * key.columns} order: {@code {"user_id":"u1"}}. The value is a JSON object of every column, by the
@@ -58,11 +59,29 @@ final class KafkaRecords {
     private final StreamSchema schema;
     private final int[] keyOrdinals;
     private final boolean changelog;
+    private final ValueEncoder valueEncoder;
+
+    /**
+     * An upsert value in a format other than JSON ({@link AvroRowWriter}, {@link ProtobufRowWriter}):
+     * the row's values, as {@link #read} copies them, into the bytes of one record's value.
+     */
+    interface ValueEncoder {
+        byte[] encode(Object[] values);
+    }
 
     KafkaRecords(StreamSchema schema, int[] keyOrdinals, boolean changelog) {
+        this(schema, keyOrdinals, changelog, null);
+    }
+
+    /** With {@code valueEncoder} null the value is JSON; otherwise upsert mode only, tombstones as ever. */
+    KafkaRecords(StreamSchema schema, int[] keyOrdinals, boolean changelog, ValueEncoder valueEncoder) {
+        if (changelog && valueEncoder != null) {
+            throw new IllegalArgumentException("the changelog envelope is JSON only");
+        }
         this.schema = schema;
         this.keyOrdinals = keyOrdinals.clone();
         this.changelog = changelog;
+        this.valueEncoder = valueEncoder;
     }
 
     /** A record's key and value; the value is null for a tombstone. */
@@ -73,7 +92,10 @@ final class KafkaRecords {
         long weight = row.weight();
         byte[] key = keyOrdinals.length > 0 ? object(values, keyOrdinals) : object(values, allOrdinals());
         if (!changelog) {
-            return new Encoded(key, weight < 0 ? null : object(values, allOrdinals()));
+            if (weight < 0) {
+                return new Encoded(key, null);
+            }
+            return new Encoded(key, valueEncoder != null ? valueEncoder.encode(values) : object(values, allOrdinals()));
         }
         StringBuilder value = new StringBuilder(64);
         value.append("{\"op\":\"")

@@ -76,7 +76,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   `kafka-sink` and `delta-sink`, and no others. Each is unit-tested without a server and again
   against a real one — Aerospike, PostgreSQL and a Kafka broker under Testcontainers, Delta tables
   on the local filesystem — so a machine without Docker skips those, by name, rather than passing.
-  `kafka-sink` writes JSON only, compressed with `none`, `gzip`, `snappy` or `zstd`; `lz4` is refused (see the boundary below).
+  `kafka-sink` writes JSON, or Avro or Protobuf values in upsert mode, compressed with `none`, `gzip`, `snappy` or `zstd`; `lz4` is refused (see the boundary below).
   **Delta is the only lakehouse format written**: there is no
   Iceberg or Hudi sink, and `delta-sink` writes unpartitioned or partitioned tables
   (`partition.columns`), creates no deletion vectors — and refuses to rewrite a table whose files
@@ -85,7 +85,11 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   view as a retraction. Its upsert mode rewrites the data files holding a changed key, so a commit costs in proportion to the table
   rather than to the change.
 
-  **Buildable:** Avro and Protobuf output reusing the source's writers; an Iceberg sink without Spark. Compaction stays with the table's own engine.
+  `kafka-sink` writes Avro and Protobuf values in upsert mode only (built 2026-09-27); its changelog
+  envelope is JSON, since a schema's fields have no place for the op and weight. It registers no
+  schema: `schema.id` is written as given.
+
+  **Buildable:** an Iceberg sink without Spark. Compaction stays with the table's own engine.
 
 - **Change data capture, beyond one PostgreSQL table's changes.** `postgres-cdc`
   ([ADR-041](adr/041-change-data-capture-without-debezium.md)) streams one table per binding

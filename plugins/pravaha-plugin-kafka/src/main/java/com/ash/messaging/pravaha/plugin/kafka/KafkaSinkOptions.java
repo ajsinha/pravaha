@@ -15,6 +15,11 @@
  */
 package com.ash.messaging.pravaha.plugin.kafka;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -56,7 +61,7 @@ final class KafkaSinkOptions {
         refused.put("bootstrap.servers", "set bootstrap.servers on the binding itself");
         refused.put("transactional.id", "set transactional.id on the binding itself");
         refused.put("key.serializer", "the sink writes the key itself, as JSON");
-        refused.put("value.serializer", "the sink writes the value itself, as JSON");
+        refused.put("value.serializer", "the sink writes the value itself, in the binding's format");
         refused.put("key.deserializer", "the sink reads its staging topic itself");
         refused.put("value.deserializer", "the sink reads its staging topic itself");
         refused.put("group.id", "the staging reader's group is commit.group");
@@ -76,6 +81,11 @@ final class KafkaSinkOptions {
     final List<String> keyNames;
     final int[] keyOrdinals;
     final boolean changelog;
+    /** {@code json}, {@code avro} or {@code protobuf}. */
+    final String format;
+    /** The Avro or protobuf value writer, or null for JSON. */
+    final KafkaRecords.ValueEncoder valueEncoder;
+
     final boolean transactional;
     final String transactionalId;
     final String stagingTopic;
@@ -91,16 +101,14 @@ final class KafkaSinkOptions {
         this.topic = requireTopicName(context.require("topic").strip(), "topic");
         this.schema = KafkaSchema.parse(topic, context.require("schema"));
 
-        String format = context.get("format", "json").strip().toLowerCase(Locale.ROOT);
-        if (!format.equals("json")) {
-            throw refusal("format '" + format + "' is not built; json is the one format this sink writes");
-        }
         String mode = context.get("mode", "upsert").strip().toLowerCase(Locale.ROOT);
         this.changelog = switch (mode) {
             case "upsert" -> false;
             case "changelog" -> true;
             default -> throw refusal("mode '" + mode + "' is not upsert or changelog");
         };
+        this.format = context.get("format", "json").strip().toLowerCase(Locale.ROOT);
+        this.valueEncoder = valueEncoder(context);
 
         List<String> names = new ArrayList<>();
         for (String part : context.get("key.columns", "").split(",")) {
@@ -145,6 +153,96 @@ final class KafkaSinkOptions {
         Map<String, Object> merged = new LinkedHashMap<>(passThrough(context));
         merged.putAll(security);
         this.shared = merged;
+    }
+
+    /**
+     * The value writer {@code format} names, with its schema options checked here: a schema option for
+     * another format, a changelog mode with nowhere to put its weight, or a column the schema cannot
+     * hold exactly is refused at configure rather than at the first batch.
+     */
+    private KafkaRecords.ValueEncoder valueEncoder(PluginContext context) {
+        String schemaFile = context.get("schema.file", "").strip();
+        String schemaId = context.get("schema.id", "").strip();
+        String descriptor = context.get("schema.descriptor", "").strip();
+        String message = context.get("schema.message", "").strip();
+        switch (format) {
+            case "json" -> {}
+            case "avro", "protobuf" -> {
+                if (changelog) {
+                    throw refusal("mode: changelog is JSON only: its weight and op are part of the value, and an "
+                            + format + " value has only the schema's fields to put them in. Use mode: upsert (a "
+                            + "retraction is a tombstone), or format: json for the changelog.");
+                }
+            }
+            default ->
+                throw refusal("format '" + format + "' is not json, avro or protobuf. avro writes Avro's binary "
+                        + "encoding of schema.file; protobuf writes one message of schema.descriptor.");
+        }
+        refuseUnless(format.equals("avro") || schemaFile.isEmpty(), "schema.file", "avro");
+        refuseUnless(format.equals("avro") || schemaId.isEmpty(), "schema.id", "avro");
+        refuseUnless(format.equals("protobuf") || descriptor.isEmpty(), "schema.descriptor", "protobuf");
+        refuseUnless(format.equals("protobuf") || message.isEmpty(), "schema.message", "protobuf");
+        try {
+            if (format.equals("avro")) {
+                if (schemaFile.isEmpty()) {
+                    throw refusal("format: avro needs schema.file, the writer schema as Avro JSON");
+                }
+                return AvroRowWriter.map(
+                        schema,
+                        AvroSchema.parse(new String(read(schemaFile, "schema.file"), StandardCharsets.UTF_8)),
+                        schemaId(schemaId));
+            }
+            if (format.equals("protobuf")) {
+                if (descriptor.isEmpty() || message.isEmpty()) {
+                    throw refusal("format: protobuf needs schema.descriptor (a FileDescriptorSet, written with "
+                            + "protoc --include_imports --descriptor_set_out=x.desc) and schema.message, and has no "
+                            + (descriptor.isEmpty() ? "schema.descriptor" : "schema.message"));
+                }
+                return ProtobufRowWriter.map(
+                        schema, ProtobufSchemas.message(read(descriptor, "schema.descriptor"), message));
+            }
+            return null;
+        } catch (AvroSchema.Invalid e) {
+            throw new ConfigurationException(
+                    KafkaErrors.SCHEMA_UNMAPPABLE,
+                    "sink '" + instanceName + "': schema.file '" + schemaFile + "' is not an Avro schema: "
+                            + e.getMessage());
+        } catch (KafkaValueDecoder.Unmappable e) {
+            throw new ConfigurationException(
+                    KafkaErrors.SCHEMA_UNMAPPABLE,
+                    "sink '" + instanceName + "': the stream's columns cannot be written as " + format + ": "
+                            + e.getMessage());
+        }
+    }
+
+    private void refuseUnless(boolean fine, String option, String format) {
+        if (!fine) {
+            throw refusal(option + " is for format: " + format + ", and this sink writes " + this.format);
+        }
+    }
+
+    private byte[] read(String path, String option) {
+        try {
+            return Files.readAllBytes(Path.of(path));
+        } catch (IOException | InvalidPathException e) {
+            throw refusal("cannot read " + option + " '" + path + "': " + e.getMessage());
+        }
+    }
+
+    /** The Confluent prefix's id, or -1 for bare Avro. Written as given: this sink registers nothing. */
+    private int schemaId(String value) {
+        if (value.isEmpty()) {
+            return -1;
+        }
+        try {
+            int id = Integer.parseInt(value);
+            if (id < 0) {
+                throw new NumberFormatException();
+            }
+            return id;
+        } catch (NumberFormatException e) {
+            throw refusal("schema.id must be a schema registry id, a non-negative 32-bit integer; got '" + value + "'");
+        }
     }
 
     private int keyOrdinal(String key) {

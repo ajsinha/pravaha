@@ -123,7 +123,9 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  *
  * <p>Configuration: {@code bootstrap.servers}, {@code topic}, {@code schema} (all required), {@code
  * mode} ({@code upsert} | {@code changelog}), {@code key.columns} (required in upsert mode), {@code
- * format} ({@code json}, the only one built), {@code transactional} (default {@code true}), {@code
+ * format} ({@code json}, or in upsert mode {@code avro} with {@code schema.file} and an optional
+ * {@code schema.id}, or {@code protobuf} with {@code schema.descriptor} and {@code schema.message}),
+ * {@code transactional} (default {@code true}), {@code
  * transactional.id} (default the binding's name), {@code staging.topic} (default {@code
  * pravaha-staging.<transactional.id>}), {@code staging.retention.ms}, {@code commit.group} (default
  * {@code pravaha-sink.<transactional.id>}), {@code user}, {@code password}, {@code sasl.mechanism}
@@ -185,7 +187,7 @@ public final class KafkaSinkPlugin implements StreamSinkPlugin {
     @Override
     public void configure(PluginContext context) {
         this.options = new KafkaSinkOptions(context);
-        this.records = new KafkaRecords(options.schema, options.keyOrdinals, options.changelog);
+        this.records = new KafkaRecords(options.schema, options.keyOrdinals, options.changelog, options.valueEncoder);
         this.staging = new TopicPartition(options.stagingTopic, 0);
     }
 

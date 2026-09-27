@@ -122,7 +122,7 @@ text of each is in [`LIMITS.md`](docs/LIMITS.md). The order they get built in is
 |---|---|
 | One read of an ordered source per query, beyond Kafka and files | Kafka and files read once through are shared at an exact seam ([ADR-054](docs/adr/054-an-ordered-source-is-shared-at-an-exact-seam.md)). Delta and JDBC need their positions shown to be totally ordered; CDC stays one reader per query (its slot acknowledgement) |
 | The snapshot-and-change-feed splice | A boundary: `SplicedReader` keeps the newest row per key, which double-retracts on a weighted changelog such as `postgres-cdc`'s, whose own `snapshot.mode: initial` is already exact. A replacement splices at an offset (ADR-046); `backfill.adaptive` stays refused |
-| More sinks and formats | Avro and Protobuf output for `kafka-sink`; an Iceberg sink without Spark |
+| More sinks | An Iceberg sink without Spark |
 | More sources | A MySQL binlog CDC source |
 | Console | Per-user sign-in with API keys ([ADR-052](docs/adr/052-the-engine-is-the-identity-authority.md), being built) |
 

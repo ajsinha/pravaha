@@ -12,6 +12,13 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased (0.1.4-SNAPSHOT)
 
+- **`kafka-sink` writes Avro and Protobuf values** (`format: avro` with `schema.file`, and
+  optionally `schema.id` for the Confluent prefix; `format: protobuf` with `schema.descriptor` and
+  `schema.message`). Upsert mode only, the key stays JSON and a retraction stays a tombstone.
+  Columns map by name, and a column the schema cannot hold exactly is refused at registration
+  (`PRV-5108`); `mode: changelog` with either is refused (`PRV-5100`). No schema is registered, and
+  no Avro or Confluent library is added: the encoder is written from the specification beside the
+  source's reader, which reads every row back unchanged.
 - **`jdbc-sink` can commit through PostgreSQL's own two-phase commit** (`commit.mode: prepared`). Each
   checkpoint's changes go straight into the table inside a transaction that `PREPARE TRANSACTION` holds
   and `COMMIT PREPARED` publishes: one write per change instead of two. It is opt-in, because the
@@ -46,7 +53,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   password; locally, run the engine with `--spring.profiles.active=dev,users`. New codes PRV-7010 to
   PRV-7021.
 
-Register: **413 findings — 377 fixed, 22 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **417 findings — 377 fixed, 26 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ---
 

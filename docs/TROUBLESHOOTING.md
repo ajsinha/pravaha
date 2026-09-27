@@ -475,7 +475,11 @@ writes one file per commit and rewrites none.
   is a `TIMESTAMP` (declare it `timestamp-millis`), a `repeated` field where the column is one
   value. Fix the binding's `schema`, or the schema the producer writes. A schema that arrives with
   the record, from the registry, cannot be checked this early: those records become dead letters
-  (`PRV-5105` with no dead-letter queue), and the message names the schema id.
+  (`PRV-5105` with no dead-letter queue), and the message names the schema id. On `kafka-sink` it
+  is the other direction: a column the schema cannot hold exactly (a nullable column into a field
+  with no null branch or no presence, an `INT64` into an Avro `int`, a Protobuf unsigned integer, a
+  `FLOAT64` into a `float`, a field no column fills that cannot be left null). Change the schema file
+  or the column's type.
 - `PRV-5109` — the schema registry could not be read: unreachable or timed out after three attempts
   (`schema.registry.timeout`), the credentials refused (401/403 — set `schema.registry.user` and
   `schema.registry.password`, or `schema.registry.token`), no schema with that id (404 — the records

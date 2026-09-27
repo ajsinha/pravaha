@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **413 findings carrying a
-status — 377 FIXED, 22 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 22 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 18 POST-GA and 4 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **417 findings carrying a
+status — 377 FIXED, 26 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 26 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 22 POST-GA and 4 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7063,4 +7063,26 @@ the lead.
 
 > **Status:** OPEN — the counters (`indexLookups`, `scans`, `indexEntries`) exist in the view and its tests but reach no metric, API or console screen; true of ADR-049's paths too.
 > **Disposition:** POST-GA — expose them per view in the metrics and on the query page.
+
+## Found building C2, Avro and Protobuf out of kafka-sink (2026-09-27), 4 findings
+
+### KSF-1 (LOW) — the record key is always JSON, even when the value is Avro or Protobuf
+
+> **Status:** OPEN — a registry-aware consumer that expects an Avro key cannot read it.
+> **Disposition:** POST-GA — a `key.format` beside `format`.
+
+### KSF-2 (LOW) — Protobuf output cannot carry the Confluent prefix
+
+> **Status:** OPEN — the Confluent Protobuf framing needs message indexes after the schema id, which are not written; Protobuf values go out bare and `schema.id` is refused with them.
+> **Disposition:** POST-GA — write the message-index framing.
+
+### KSF-3 (LOW) — `schema.id` is not checked against the registry
+
+> **Status:** OPEN — a wrong id makes every consumer decode with the wrong schema; nothing asks the registry whether the id names the schema in `schema.file`.
+> **Disposition:** POST-GA — fetch the id's schema at open and refuse a mismatch.
+
+### KSF-4 (LOW) — an Avro time finer than its field's precision fails at write time, not at configuration
+
+> **Status:** OPEN — PRV-5102 at the first such value, which detaches the sink, because the sink's schema string cannot declare a timestamp precision to compare at configuration.
+> **Disposition:** POST-GA — let the schema declare the precision and refuse at configuration.
 

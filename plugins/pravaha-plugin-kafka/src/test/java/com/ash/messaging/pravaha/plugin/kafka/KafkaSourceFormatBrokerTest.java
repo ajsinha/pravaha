@@ -179,6 +179,79 @@ class KafkaSourceFormatBrokerTest {
         return "http://127.0.0.1:" + registry.getAddress().getPort();
     }
 
+    @Test
+    void whatTheSinkWritesAsAvroOrProtobufTheSourceReadsBackAsTheSameRows() throws IOException {
+        Path schemaFile = directory.resolve("txn-out.avsc");
+        Files.writeString(schemaFile, AVRO_SCHEMA, StandardCharsets.UTF_8);
+        String avroTopic = KafkaBroker.topic("avro-sink", 1, true);
+        String columns = "user_id:STRING,amount:INT64,note:STRING?";
+        sinkWrites(
+                avroTopic,
+                columns,
+                Map.of("format", "avro", "schema.file", schemaFile.toString()),
+                "user_id",
+                new Object[] {"u1", 100L, "first"},
+                new Object[] {"u2", -250L, null});
+
+        KafkaSourcePlugin avro = open(
+                avroTopic,
+                columns,
+                Map.of("format", "avro", "schema.file", schemaFile.toString(), "tombstone", "skip"));
+        try (Collected rows = new Collected(avro.schema());
+                PartitionReader reader = avro.createReader(partition(0), null)) {
+            awaitRows(reader, rows, 3);
+            assertThat(rows.described())
+                    .containsExactly("[u1, 100, first, @1]", "[u2, -250, null, @1]", "[u2, -250, null, @1]");
+        }
+
+        Path descriptor = directory.resolve("order-out.desc");
+        Files.write(descriptor, ProtoFixtures.orderDescriptorSet());
+        String protoTopic = KafkaBroker.topic("protobuf-sink", 1, true);
+        Map<String, String> proto = Map.of(
+                "format",
+                "protobuf",
+                "schema.descriptor",
+                descriptor.toString(),
+                "schema.message",
+                ProtoFixtures.ORDER);
+        sinkWrites(protoTopic, "id:INT64,name:STRING", proto, "id", new Object[] {1L, "one"}, new Object[] {2L, "two"});
+        Map<String, String> read = new HashMap<>(proto);
+        read.put("tombstone", "skip");
+        KafkaSourcePlugin protobuf = open(protoTopic, "id:INT64,name:STRING", read);
+        try (Collected rows = new Collected(protobuf.schema());
+                PartitionReader reader = protobuf.createReader(partition(0), null)) {
+            awaitRows(reader, rows, 3);
+            assertThat(rows.described()).containsExactly("[1, one, @1]", "[2, two, @1]", "[2, two, @1]");
+        }
+    }
+
+    /**
+     * Through {@code kafka-sink}, in one checkpoint: {@code first} inserted, {@code second} inserted,
+     * {@code first} retracted (a tombstone the reader skips), {@code second} written again -- so the
+     * reader sees first, second, second.
+     */
+    private static void sinkWrites(
+            String topic, String columns, Map<String, String> format, String key, Object[] first, Object[] second) {
+        Map<String, String> config = new HashMap<>(format);
+        config.put("bootstrap.servers", KafkaBroker.bootstrap());
+        config.put("topic", topic);
+        config.put("schema", columns);
+        config.put("key.columns", key);
+        config.put("staging.topic", topic + ".staging");
+        KafkaSinkPlugin sink = new KafkaSinkPlugin();
+        sink.configure(new KafkaSourcePluginTest.Ctx(topic + "-sink", config));
+        sink.open();
+        try (TestRows rows = new TestRows()) {
+            var schema = KafkaSchema.parse(topic, columns);
+            sink.beginTransaction(1);
+            sink.write(List.of(rows.row(schema, 1, first), rows.row(schema, 1, second)));
+            sink.write(List.of(rows.row(schema, -1, first), rows.row(schema, 1, second)));
+            sink.commit(sink.prepare(1));
+        } finally {
+            sink.close();
+        }
+    }
+
     private static byte[] avro(String user, long amount, String note) {
         return note(new AvroWriter().text(user).number(amount), note).bytes();
     }

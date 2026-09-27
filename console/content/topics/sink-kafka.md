@@ -4,10 +4,10 @@ slug: sink-kafka
 category: sinks
 order: 45
 icon: broadcast
-summary: "kafka-sink writes a query's changes to a Kafka topic as keyed JSON — upserts with a tombstone for each retraction, or an explicit changelog — exactly once to read_committed consumers, through a staging topic."
+summary: "kafka-sink writes a query's changes to a Kafka topic — keyed upserts in JSON, Avro or Protobuf with a tombstone for each retraction, or an explicit JSON changelog — exactly once to read_committed consumers, through a staging topic."
 badge: SINK
 audience: Engineers
-keywords: [kafka, kafka-sink, topic, compacted, compaction, tombstone, upsert, changelog, json, read_committed, isolation.level, transactional.id, staging topic, staging.topic, commit.group, exactly once, sasl, scram, gzip, compression, ktable, ksqldb]
+keywords: [kafka, kafka-sink, topic, compacted, compaction, tombstone, upsert, changelog, json, avro, protobuf, schema.file, schema.id, schema.descriptor, schema.message, read_committed, isolation.level, transactional.id, staging topic, staging.topic, commit.group, exactly once, sasl, scram, gzip, compression, ktable, ksqldb]
 guide: connectors#a-transactional-sink-on-a-store-with-no-prepare-kafka
 related: [sinks-overview, delivery-guarantees, source-kafka, sink-jdbc, checkpoints-recovery, zset-weights, connector-security, source-postgres-cdc]
 ---
@@ -34,7 +34,7 @@ once ([the Kafka source](/help/topics/source-kafka)).
 |---|---|
 | Plugin name | `kafka-sink` (under `pravaha.sinks.<name>`) |
 | Module | `plugins/pravaha-plugin-kafka` — in the server jar |
-| Format | JSON, the one format built: the key and the value are JSON objects by column name |
+| Format | `json` (default), or in upsert mode `avro` or `protobuf` for the value; the key is always a JSON object by column name |
 | Accepts | `mode: upsert` (default): `UPSERT`, `RETRACT`. `mode: changelog`: `APPEND`, `RETRACT`. **Both take a revising query** |
 | Keyed | in upsert mode, by `key.columns`, which must be the view's key |
 | Transactional | yes, by default (`transactional: true`) |
@@ -53,7 +53,10 @@ once ([the Kafka source](/help/topics/source-kafka)).
 | `schema` | yes | — | The row shape, `name:TYPE,...` (`?` for nullable; `DECIMAL(p,s)` is accepted). Must match the registered query's `SELECT` list in order, name and type (PRV-8010) |
 | `mode` | no | `upsert` | `upsert`: the topic is a table keyed by `key.columns`, retractions as tombstones. `changelog`: every change as `{"op","weight","row"}` |
 | `key.columns` | in upsert mode | — | Comma-separated. Must be the registration's key. Not floating-point, not nullable. Optional in changelog mode, where it keys the records if given |
-| `format` | no | `json` | `json` is the only value accepted; anything else is PRV-5100 |
+| `format` | no | `json` | `json`, `avro` or `protobuf` ([below](#avro-and-protobuf-values)). `avro` and `protobuf` are upsert mode only; anything else is PRV-5100 |
+| `schema.file` | with `format: avro` | — | The writer schema, Avro JSON (`.avsc`): a record whose fields the columns are written to |
+| `schema.id` | no | — | With `format: avro`: prefix each value with the Confluent wire format, the byte `0` and this id. The sink **registers nothing**; register the schema yourself and give its id |
+| `schema.descriptor` / `schema.message` | with `format: protobuf` | — | A `FileDescriptorSet` (`protoc --include_imports --descriptor_set_out=x.desc`) and the message in it a value is |
 | `transactional` | no | `true` | `true` stages changes and commits them per checkpoint; `false` sends each change straight to the target |
 | `transactional.id` | no | the binding's name | The Kafka transactional id, 1 to 200 characters. **One writer per id**: a second opens and fences the first |
 | `staging.topic` | no | `pravaha-staging.<transactional.id>` | Where changes wait for their checkpoint. Created if missing — one partition, `cleanup.policy=delete`. Must not be the target, and must not be compacted (PRV-5103) |
@@ -73,7 +76,7 @@ them itself or because they would weaken what it promises:
 | `kafka.sasl.jaas.config` | set `user` and `password` |
 | `kafka.security.protocol` | it follows from `tls.*` and `user`/`password` |
 | `kafka.ssl.*` | TLS is the shared `tls.*` options |
-| `kafka.key.serializer`, `kafka.value.serializer` (and the deserializers) | the sink writes JSON itself |
+| `kafka.key.serializer`, `kafka.value.serializer` (and the deserializers) | the sink writes the key and value itself |
 | `kafka.group.id`, `kafka.isolation.level`, `kafka.enable.auto.commit`, `kafka.auto.offset.reset` | the staging reader's settings are part of the guarantee |
 | `kafka.enable.idempotence: false` | a retried send could be written twice or out of order |
 | `kafka.acks` other than `all` / `-1` | a leader failover could lose a change the sink was told was written |
@@ -130,6 +133,49 @@ with `format: changelog` reads this envelope and applies the weight itself.
 
 The encoding is deterministic — the same key always produces the same bytes — which compaction relies
 on: it collapses records whose key *bytes* are equal.
+
+### Avro and Protobuf values
+
+In upsert mode the **value** can be Avro or Protobuf instead of JSON; the key stays the JSON object
+of the key columns, and a retraction is still a tombstone. A [`kafka` source](/help/topics/source-kafka)
+with the same `format` and schema reads the rows back unchanged — the tests prove each format by that
+round trip.
+
+```yaml
+    open_orders_avro:
+      plugin: kafka-sink
+      options:
+        bootstrap.servers: "kafka-1.internal:9093"
+        topic: open-orders-avro
+        schema: "order_id:INT64,customer_id:STRING,amount:DECIMAL(12,2),note:STRING?"
+        key.columns: order_id
+        format: avro
+        schema.file: /opt/pravaha/conf/avro/order.avsc
+        schema.id: "42"          # optional: the Confluent prefix, for a registry-aware consumer
+```
+
+Columns map to fields **by name** (exactly, then ignoring case), once, at registration. Anything the
+schema cannot hold exactly is refused then with **PRV-5108**, naming the column and the field:
+
+| Column | Avro field | Protobuf field |
+|---|---|---|
+| `BOOLEAN` | `boolean` | `bool` |
+| `INT8` … `INT32` | `int` or `long` | a signed 32- or 64-bit integer |
+| `INT64` | `long` | `int64`, `sint64`, `sfixed64` |
+| `FLOAT32` / `FLOAT64` | `float` / `double` | `float` / `double` |
+| `DECIMAL(p,s)` | `bytes` or `fixed`, `logicalType: decimal`, scale ≥ `s`, at least `p-s` integer digits | `string`, the exact digits |
+| `STRING` / `BYTES` | `string` / `bytes` | `string` / `bytes` |
+| `DATE` | `int`, `date` | ISO-8601 `string` |
+| `TIME` | `int`/`time-millis` or `long`/`time-micros` | ISO-8601 `string` |
+| `TIMESTAMP` | `long`, `timestamp-millis` or `timestamp-micros` | `google.protobuf.Timestamp` or ISO-8601 `string` |
+| nullable (`?`) | a union with `"null"` | a field with presence (`optional`, or a message) |
+
+Also refused at registration: a column with no field; in Avro, a field no column names that cannot
+be null (Avro writes every field, so it is written null); in Protobuf, a `repeated` field, an unsigned
+integer, two columns in one `oneof`, and a `required` field no column fills. **`mode: changelog` is
+JSON only** (PRV-5100): its op and weight have no place among a schema's fields. Avro times are millis
+or micros and the engine's are nanoseconds, so a `TIME` or `TIMESTAMP` value finer than its field is
+refused when written (PRV-5102), never truncated.
 
 ## A complete example: open orders, kept in a compacted topic
 
@@ -355,6 +401,7 @@ without TLS is refused; the SCRAM mechanisms never send it and are allowed eithe
 | [PRV-5101](/help/codes/PRV-5101) | when the sink opens | Brokers unreachable, the target topic missing, credentials or ACLs refused |
 | [PRV-5102](/help/codes/PRV-5102) | while running | A send or commit failed at the broker — most often **fenced** by another writer with the same `transactional.id`, or a transaction that outlived `kafka.transaction.timeout.ms` |
 | [PRV-5103](/help/codes/PRV-5103) | at open or at a commit | The staging topic is compacted, cannot be created, or no longer holds the range a checkpoint recorded |
+| [PRV-5108](/help/codes/PRV-5108) | at registration | With `format: avro` or `protobuf`: `schema.file` or `schema.descriptor` does not parse, or a column cannot be written to it exactly. The message names the column and the field |
 | [PRV-8010](/help/codes/PRV-8010) | at registration | The query's columns are not the sink's `schema`, or its key is not `key.columns` |
 | [PRV-8009](/help/codes/PRV-8009) | after a refused batch | The sink is detached; the view carries on. Drop and re-register to start it again |
 

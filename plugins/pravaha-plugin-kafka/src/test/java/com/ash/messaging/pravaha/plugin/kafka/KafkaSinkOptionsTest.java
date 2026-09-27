@@ -127,7 +127,8 @@ class KafkaSinkOptionsTest {
     @Test
     void settingsOutsideTheirRangeAreRefused() {
         assertRefused(Map.of("mode", "append"), "is not upsert or changelog");
-        assertRefused(Map.of("format", "avro"), "json is the one format");
+        assertRefused(Map.of("format", "xml"), "is not json, avro or protobuf");
+        assertRefused(Map.of("format", "avro"), "format: avro needs schema.file");
         assertRefused(Map.of("transactional", "yes"), "must be true or false");
         assertRefused(Map.of("topic", "no spaces"), "not a valid Kafka topic name");
         assertRefused(Map.of("staging.topic", "spend"), "staging.topic is the target topic");
