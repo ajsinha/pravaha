@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pravaha-console"
-version = "0.1.4"
+version = "0.2.0"
 description = "Operator console for Project Pravaha. A separate process, built on the published SDK."
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
