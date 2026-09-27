@@ -120,6 +120,17 @@ public final class JdbcSinkPlugin implements StreamSinkPlugin {
     private int[] keyOrdinals = new int[0];
     private boolean append;
     private boolean transactional;
+
+    /**
+     * {@code commit.mode: prepared} (C1): PostgreSQL's own two-phase commit instead of the staging table.
+     * Each checkpoint's changes are written straight into the target inside one transaction, which
+     * {@code PREPARE TRANSACTION} makes durable and invisible, and {@code COMMIT PREPARED} publishes --
+     * one write per change, not two. The price: the database must allow prepared transactions
+     * ({@code max_prepared_transactions > 0}), and the rows a transaction touched stay locked from its
+     * prepare to its commit, one checkpoint interval. Opt-in for those reasons; staging stays the default.
+     */
+    private boolean prepared;
+
     private String transactionId;
     private String stagingTable;
     private JdbcDialect dialectSetting;
@@ -212,6 +223,17 @@ public final class JdbcSinkPlugin implements StreamSinkPlugin {
                             + "wherever it appears");
         }
         this.dialectSetting = JdbcDialect.named(context.get("dialect", "auto"));
+        String commitMode = context.get("commit.mode", "staging").strip();
+        if (!commitMode.equals("staging") && !commitMode.equals("prepared")) {
+            throw new ConfigurationException(
+                    JdbcErrors.BAD_CONFIGURATION, "commit.mode is 'staging' or 'prepared', not '" + commitMode + "'");
+        }
+        this.prepared = commitMode.equals("prepared");
+        if (prepared && !transactional) {
+            throw new ConfigurationException(
+                    JdbcErrors.BAD_CONFIGURATION,
+                    "commit.mode: prepared is a way of being transactional; it cannot go with transactional: false");
+        }
     }
 
     private int keyOrdinal(String key) {
@@ -267,7 +289,9 @@ public final class JdbcSinkPlugin implements StreamSinkPlugin {
             this.table = JdbcSinkTable.resolve(connection, tableSetting, schema);
             this.rows = new JdbcSinkRows(schema);
             buildStatements();
-            if (transactional) {
+            if (prepared) {
+                requirePreparedTransactions();
+            } else if (transactional) {
                 ensureStagingTable();
             }
             connection.commit();
@@ -314,6 +338,59 @@ public final class JdbcSinkPlugin implements StreamSinkPlugin {
      * than looked up in the catalogue, so it is found under exactly the spelling every statement
      * here will use.
      */
+    /** Refuses prepared mode where the database cannot prepare a transaction, before a row moves. */
+    private void requirePreparedTransactions() throws SQLException {
+        if (dialect != JdbcDialect.POSTGRESQL) {
+            throw new ConfigurationException(
+                    JdbcErrors.BAD_CONFIGURATION,
+                    "commit.mode: prepared uses PostgreSQL's PREPARE TRANSACTION, and '" + tableSetting + "' is on "
+                            + dialect + "; use commit.mode: staging, which works on any database");
+        }
+        try (Statement show = connection.createStatement();
+                ResultSet rs = show.executeQuery("SHOW max_prepared_transactions")) {
+            int allowed = rs.next() ? Integer.parseInt(rs.getString(1).strip()) : 0;
+            if (allowed <= 0) {
+                throw new ConfigurationException(
+                        JdbcErrors.BAD_CONFIGURATION,
+                        "commit.mode: prepared needs PostgreSQL's max_prepared_transactions above 0 (it is " + allowed
+                                + "); raise it and restart the database, or use commit.mode: staging");
+            }
+        }
+    }
+
+    /** The global id of this sink's prepared transaction for {@code label}. */
+    private String gid(long label) {
+        return "pravaha:" + transactionId + ":" + label;
+    }
+
+    /** This sink's prepared transactions, by label. */
+    private Map<Long, String> preparedTransactions() throws SQLException {
+        Map<Long, String> found = new java.util.TreeMap<>();
+        String prefix = "pravaha:" + transactionId + ":";
+        try (PreparedStatement list =
+                connection.prepareStatement("SELECT gid FROM pg_prepared_xacts WHERE gid LIKE ? ESCAPE '!'")) {
+            list.setString(1, prefix.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%");
+            try (ResultSet rs = list.executeQuery()) {
+                while (rs.next()) {
+                    String gid = rs.getString(1);
+                    found.put(Long.parseLong(gid.substring(prefix.length())), gid);
+                }
+            }
+        }
+        return found;
+    }
+
+    /** Runs a statement that PostgreSQL refuses inside a transaction block. */
+    private void outsideTransaction(String sql) throws SQLException {
+        connection.rollback();
+        connection.setAutoCommit(true);
+        try (Statement statement = connection.createStatement()) {
+            statement.execute(sql);
+        } finally {
+            connection.setAutoCommit(false);
+        }
+    }
+
     private void ensureStagingTable() throws SQLException {
         try (Statement probe = connection.createStatement()) {
             probe.executeQuery("SELECT sink_id, label, seq, payload FROM " + stagingTable + " WHERE 1 = 0")
@@ -380,6 +457,11 @@ public final class JdbcSinkPlugin implements StreamSinkPlugin {
             return 0;
         }
         try {
+            if (prepared && openLabel >= 0) {
+                // Into the target, inside the transaction the next prepare names; not committed here.
+                apply(changes);
+                return changes.size();
+            }
             if (transactional && openLabel >= 0) {
                 stage(changes);
             } else {
@@ -614,8 +696,18 @@ public final class JdbcSinkPlugin implements StreamSinkPlugin {
         }
         requireOpen();
         try {
-            deleteStaged("label = ?", checkpointId);
-            connection.commit();
+            if (prepared) {
+                // A transaction of this label prepared by a process that died before its checkpoint was
+                // recorded: never to be committed, and holding its locks until it is rolled back.
+                String stale = preparedTransactions().get(checkpointId);
+                if (stale != null) {
+                    outsideTransaction("ROLLBACK PREPARED '" + stale + "'");
+                }
+                connection.rollback();
+            } else {
+                deleteStaged("label = ?", checkpointId);
+                connection.commit();
+            }
         } catch (SQLException | RuntimeException e) {
             throw failed("begin transaction " + checkpointId + " for '" + tableSetting + "'", e);
         }
@@ -638,6 +730,16 @@ public final class JdbcSinkPlugin implements StreamSinkPlugin {
                     "prepare(" + checkpointId + ") for '" + tableSetting + "' with no transaction begun");
         }
         String handle = HANDLE_PREFIX + openLabel + ":" + transactionId;
+        if (prepared) {
+            try {
+                // Durable and invisible; the connection is free for the next transaction at once.
+                try (Statement statement = connection.createStatement()) {
+                    statement.execute("PREPARE TRANSACTION '" + gid(openLabel) + "'");
+                }
+            } catch (SQLException e) {
+                throw failed("prepare " + handle, e);
+            }
+        }
         openLabel = -1;
         return handle;
     }
@@ -654,6 +756,18 @@ public final class JdbcSinkPlugin implements StreamSinkPlugin {
         }
         requireOpen();
         long label = labelOf(handle);
+        if (prepared) {
+            try {
+                // Absent means committed already: by this process before it died, or an earlier restore.
+                if (preparedTransactions().containsKey(label)) {
+                    outsideTransaction("COMMIT PREPARED '" + gid(label) + "'");
+                }
+                connection.rollback();
+            } catch (SQLException | RuntimeException e) {
+                throw failed("commit " + handle, e);
+            }
+            return;
+        }
         try {
             List<Integer> seqs = new ArrayList<>();
             try (PreparedStatement list = connection.prepareStatement(
@@ -711,8 +825,16 @@ public final class JdbcSinkPlugin implements StreamSinkPlugin {
         requireOpen();
         long label = labelOf(handle);
         try {
-            deleteStaged("label = ?", label);
-            connection.commit();
+            if (prepared) {
+                if (preparedTransactions().containsKey(label)) {
+                    outsideTransaction("ROLLBACK PREPARED '" + gid(label) + "'");
+                } else if (label == openLabel) {
+                    connection.rollback();
+                }
+            } else {
+                deleteStaged("label = ?", label);
+                connection.commit();
+            }
         } catch (SQLException | RuntimeException e) {
             throw failed("abort " + handle, e);
         }
@@ -733,8 +855,17 @@ public final class JdbcSinkPlugin implements StreamSinkPlugin {
         }
         requireOpen();
         try {
-            deleteStaged("label > ?", checkpointId);
-            connection.commit();
+            if (prepared) {
+                connection.rollback();
+                for (Map.Entry<Long, String> each : preparedTransactions().entrySet()) {
+                    if (each.getKey() > checkpointId) {
+                        outsideTransaction("ROLLBACK PREPARED '" + each.getValue() + "'");
+                    }
+                }
+            } else {
+                deleteStaged("label > ?", checkpointId);
+                connection.commit();
+            }
         } catch (SQLException | RuntimeException e) {
             throw failed("abort transactions after " + checkpointId, e);
         }

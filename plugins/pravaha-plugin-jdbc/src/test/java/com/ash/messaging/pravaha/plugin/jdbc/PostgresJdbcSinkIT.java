@@ -69,7 +69,9 @@ class PostgresJdbcSinkIT {
         assumeThat(DockerClientFactory.instance().isDockerAvailable())
                 .as("docker is not available; the PostgreSQL tests need a real database")
                 .isTrue();
-        postgres = new PostgreSQLContainer<>("postgres:16-alpine");
+        // Prepared transactions allowed, for commit.mode: prepared (C1); nothing else here uses them.
+        postgres = new PostgreSQLContainer<>("postgres:16-alpine")
+                .withCommand("postgres", "-c", "max_prepared_transactions=10");
         postgres.start();
         admin = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
     }
@@ -190,6 +192,64 @@ class PostgresJdbcSinkIT {
         String handle = sink.prepare(1);
         assertThat(count("totals")).isZero();
 
+        sink.commit(handle);
+        try (Statement statement = admin.createStatement();
+                ResultSet rs = statement.executeQuery("SELECT total FROM totals WHERE user_id = 'u1'")) {
+            assertThat(rs.next()).isTrue();
+            assertThat(rs.getLong(1)).isEqualTo(2L);
+        }
+    }
+
+    @Test
+    void preparedModeWritesOnceIntoTheTableAndSurvivesTheProcess() throws SQLException {
+        String spec = "user_id:STRING,amount:INT64";
+        Map<String, String> prepared = Map.of("mode", "append", "commit.mode", "prepared");
+        JdbcSinkPlugin before = open("events", spec, prepared);
+        StreamSchema schema = before.schema().orElseThrow();
+        before.beginTransaction(1);
+        before.write(List.of(rows.row(schema, 1, "u1", 300L), rows.row(schema, 1, "u2", 50L)));
+        String recorded = before.prepare(1);
+        before.beginTransaction(2);
+        before.write(List.of(rows.row(schema, 1, "u3", 7L)));
+        String lost = before.prepare(2);
+        before.close();
+        assertThat(events()).as("prepared, not committed: invisible").isEmpty();
+        assertThat(count("pg_prepared_xacts"))
+                .as("both prepared transactions outlive the process")
+                .isEqualTo(2);
+
+        JdbcSinkPlugin after = open("events", spec, prepared);
+        after.commit(recorded);
+        after.commit(recorded);
+        after.abortAfter(1);
+        assertThat(events())
+                .as("committed once; the one past the checkpoint rolled back")
+                .containsExactly("u1|300", "u2|50");
+        assertThat(count("pg_prepared_xacts")).as("nothing left holding locks").isZero();
+        after.commit(lost);
+        assertThat(events()).containsExactly("u1|300", "u2|50");
+        try (Statement statement = admin.createStatement();
+                ResultSet rs =
+                        statement.executeQuery("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = '"
+                                + JdbcSinkPlugin.DEFAULT_STAGING_TABLE + "'")) {
+            rs.next();
+            assertThat(rs.getInt(1))
+                    .as("no staging table in prepared mode: each row is written once")
+                    .isZero();
+        }
+    }
+
+    @Test
+    void preparedModeUpsertsAppearOnlyAtCommit() throws SQLException {
+        JdbcSinkPlugin sink = open("totals", TOTALS, Map.of("key.columns", "user_id", "commit.mode", "prepared"));
+        StreamSchema schema = sink.schema().orElseThrow();
+        sink.beginTransaction(1);
+        sink.write(List.of(rows.row(schema, 1, "u1", 1L, null, null, null, null, null)));
+        sink.write(List.of(
+                rows.row(schema, -1, "u1", 1L, null, null, null, null, null),
+                rows.row(schema, 1, "u1", 2L, null, null, null, null, null)));
+        String handle = sink.prepare(1);
+        assertThat(count("totals")).isZero();
         sink.commit(handle);
         try (Statement statement = admin.createStatement();
                 ResultSet rs = statement.executeQuery("SELECT total FROM totals WHERE user_id = 'u1'")) {

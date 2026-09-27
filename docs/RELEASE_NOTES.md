@@ -12,6 +12,11 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased (0.1.4-SNAPSHOT)
 
+- **`jdbc-sink` can commit through PostgreSQL\'s own two-phase commit** (`commit.mode: prepared`). Each
+  checkpoint\'s changes go straight into the table inside a transaction that `PREPARE TRANSACTION` holds
+  and `COMMIT PREPARED` publishes: one write per change instead of two. It is opt-in, because the
+  database must allow prepared transactions and the touched rows stay locked for a checkpoint
+  interval. It is refused by name elsewhere.
 - **The server image runs on glibc, and Parquet's Snappy codec loads in it** (PORT-1,
   [ADR-053](adr/053-native-code-only-where-java-cannot.md)). Up to 0.1.3 the image was Alpine, where
   snappy-java cannot load, so the `feedfile` and `delta` plugins could not read a Snappy-compressed

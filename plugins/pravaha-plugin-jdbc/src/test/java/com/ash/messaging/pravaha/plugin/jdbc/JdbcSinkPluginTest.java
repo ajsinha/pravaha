@@ -587,6 +587,22 @@ class JdbcSinkPluginTest {
 
     // ---------------------------------------------------------------- helpers
 
+    @Test
+    void preparedCommitModeIsRefusedWhereItCannotWork() {
+        // H2 is not PostgreSQL: refused at open, before a row moves, with the mode that does work named.
+        assertThatThrownBy(() -> open(TOTALS_SCHEMA, Map.of("key.columns", "user_id", "commit.mode", "prepared")))
+                .hasMessageContaining("PRV-5074")
+                .hasMessageContaining("commit.mode: staging");
+        assertThatThrownBy(() -> configure(
+                        "totals",
+                        TOTALS_SCHEMA,
+                        Map.of("mode", "append", "commit.mode", "prepared", "transactional", "false")))
+                .hasMessageContaining("PRV-5074");
+        assertThatThrownBy(
+                        () -> configure("totals", TOTALS_SCHEMA, Map.of("mode", "append", "commit.mode", "twophase")))
+                .hasMessageContaining("'staging' or 'prepared'");
+    }
+
     private JdbcSinkPlugin configure(String table, String spec, Map<String, String> extra) {
         Map<String, String> config = new HashMap<>(Map.of("url", url, "table", table, "schema", spec));
         config.putAll(extra);

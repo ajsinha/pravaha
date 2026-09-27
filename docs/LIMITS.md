@@ -121,7 +121,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   restart stay in the file. End to end is still capped by the source: one that cannot rewind to a
   checkpoint's offsets (ADR-029) is at least once whatever the sink does.
 
-  **A deliberate trade.** **Buildable for PostgreSQL:** `PREPARE TRANSACTION` is a real two-phase commit, so `jdbc-sink` could skip staging there. Kafka and Delta have no equivalent.
+  **A deliberate trade, with one exception built:** `jdbc-sink` over PostgreSQL can use `commit.mode: prepared` (`PREPARE TRANSACTION` / `COMMIT PREPARED`), writing each change once, at the cost of `max_prepared_transactions > 0` on the database and row locks held for a checkpoint interval. Staging stays the default. Kafka and Delta have no equivalent.
 
 - **The console has its persona surfaces but not the §23.20 release gate** — workbench, catalog,
   views, live results, operations with lane backpressure and per-operator numbers on the plan, a
