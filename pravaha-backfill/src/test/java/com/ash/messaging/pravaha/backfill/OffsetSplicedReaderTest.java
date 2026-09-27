@@ -61,6 +61,12 @@ class OffsetSplicedReaderTest {
     private static final class Log {
         private final List<Long> records = new ArrayList<>();
         private final AtomicLong readersOpened = new AtomicLong();
+        /** Indexes of records no decoder can read: the reader rejects them, as a real one does. */
+        private final java.util.Set<Integer> poison = new java.util.HashSet<>();
+
+        void poison(int index) {
+            poison.add(index);
+        }
 
         void append(long value) {
             records.add(value);
@@ -92,8 +98,17 @@ class OffsetSplicedReaderTest {
             @Override
             public int poll(RecordSink sink, int maxRecords) {
                 int emitted = 0;
-                while (emitted < maxRecords && delivered + 1 < records.size()) {
+                // maxRecords bounds what is consumed, delivered or rejected (PartitionReader#poll).
+                int consumed = 0;
+                while (consumed < maxRecords && delivered + 1 < records.size()) {
                     long value = records.get(++delivered);
+                    consumed++;
+                    if (poison.contains(delivered)) {
+                        if (!sink.reject(Long.toString(value).getBytes(), "n=" + delivered, "poison")) {
+                            throw new IllegalStateException("no dead-letter queue for record " + delivered);
+                        }
+                        continue;
+                    }
                     sink.beginRow()
                             .setLong(0, value)
                             .weight(1)
@@ -130,19 +145,83 @@ class OffsetSplicedReaderTest {
     /** Collects everything a reader delivers, in order. */
     private static final class Delivered implements PartitionReader.RecordSink {
         private final List<Long> values = new ArrayList<>();
+        private final List<String> rejected = new ArrayList<>();
 
         @Override
         public RowWriter beginRow() {
             return new CapturingRowWriter(SCHEMA, captured -> values.add(captured.asLong(0)));
         }
+
+        @Override
+        public boolean reject(byte[] raw, String sourceOffset, String reason) {
+            rejected.add(sourceOffset);
+            return true;
+        }
     }
 
     private static List<Long> readAll(PartitionReader reader, int batch, int polls) {
-        Delivered delivered = new Delivered();
+        return readInto(new Delivered(), reader, batch, polls).values;
+    }
+
+    private static Delivered readInto(Delivered delivered, PartitionReader reader, int batch, int polls) {
         for (int i = 0; i < polls; i++) {
             reader.poll(delivered, batch);
         }
-        return delivered.values;
+        return delivered;
+    }
+
+    @Test
+    void aSeamOnARejectedRecordThatIsTheLastOneIsReached() {
+        // REPL-2, the shape found on a running node: the running version's last record was one its
+        // feed dead-lettered, so the seam names a record no reader delivers. The history reader
+        // rejected it and returned nothing, and a poll returning nothing read as the end of the
+        // history: the backfill waited out its grace and failed with PRV-4013.
+        Log log = new Log();
+        for (long value = 0; value < 20; value++) {
+            log.append(value);
+        }
+        log.poison(19);
+        OffsetSplicedReader reader = new OffsetSplicedReader(
+                log::openAt, SourceOffset.BEGINNING, log.at(19), new BackfillJob("replace:orders"), false);
+
+        Delivered history = readInto(new Delivered(), reader, 7, 4);
+        assertThat(history.values).containsExactlyElementsOf(range(0, 19));
+        assertThat(history.rejected).containsExactly("n=19");
+        assertThat(reader.phase())
+                .as("the rejected record was the seam, and it was reached")
+                .isEqualTo(BackfillPhase.LIVE);
+
+        log.append(20L);
+        assertThat(readAll(reader, 64, 1))
+                .as("and the live stream follows it, once")
+                .containsExactly(20L);
+        reader.close();
+    }
+
+    @Test
+    void aSeamOnARejectedRecordWithRowsAfterItStopsThereAndLosesNothing() {
+        // The other half of REPL-2: a reader that rejected the seam's record and carried on to the
+        // next inside the same poll would have read past the seam, delivering the overlap twice.
+        // With maxRecords counting rejections, a poll of one consumes exactly the rejected record.
+        Log log = new Log();
+        for (long value = 0; value < 30; value++) {
+            log.append(value);
+        }
+        log.poison(19);
+        OffsetSplicedReader reader = new OffsetSplicedReader(
+                log::openAt, SourceOffset.BEGINNING, log.at(19), new BackfillJob("replace:orders"), false);
+
+        Delivered all = readInto(new Delivered(), reader, 5, 12);
+        List<Long> expected = new ArrayList<>(range(0, 19));
+        expected.addAll(range(20, 30));
+        assertThat(all.values)
+                .as("every record once, the rejected one excepted")
+                .containsExactlyElementsOf(expected);
+        assertThat(all.rejected)
+                .as("and the rejected one rejected once, by the history reader")
+                .containsExactly("n=19");
+        assertThat(reader.phase()).isEqualTo(BackfillPhase.LIVE);
+        reader.close();
     }
 
     @Test

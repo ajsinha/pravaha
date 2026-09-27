@@ -172,16 +172,26 @@ public final class OffsetSplicedReader implements PartitionReader {
     private int pollHistory(PartitionReader.RecordSink sink, int maxRecords) {
         int budget = allowance(maxRecords);
         int moved = 0;
-        while (moved < budget) {
-            int read = history.poll(sink, 1);
-            if (read == 0) {
+        int consumedThisPoll = 0;
+        Counting counting = new Counting(sink);
+        while (consumedThisPoll < budget) {
+            counting.rejected = 0;
+            int read = history.poll(counting, 1);
+            // A record the reader set aside on the dead-letter queue is a record read: the reader's
+            // position has moved past it (PartitionReader#poll counts it against maxRecords). Before
+            // REPL-2 only delivered rows counted, so a poll whose one record was rejected looked like
+            // the end of the history -- and when that record was the one the running version had
+            // stopped on, the seam was never seen and the backfill failed with PRV-4013.
+            int consumed = read + counting.rejected;
+            if (consumed == 0) {
                 atEndOfWhatThereIs();
                 break;
             }
+            consumedThisPoll += consumed;
             moved += read;
             historyRows += read;
             if (tokens > 0) {
-                tokens -= read;
+                tokens -= consumed;
             }
             firstEmptyPollNanos = Long.MIN_VALUE;
             if (splice != null && splice.equals(history.position())) {
@@ -190,6 +200,42 @@ public final class OffsetSplicedReader implements PartitionReader {
             }
         }
         return moved;
+    }
+
+    /**
+     * The engine's sink, counting what the history reader rejected so a poll that only rejected is
+     * seen as progress. Everything else is the sink's own.
+     */
+    private static final class Counting implements PartitionReader.RecordSink {
+        private final PartitionReader.RecordSink target;
+        private int rejected;
+
+        Counting(PartitionReader.RecordSink target) {
+            this.target = target;
+        }
+
+        @Override
+        public com.ash.messaging.pravaha.api.data.RowWriter beginRow() {
+            return target.beginRow();
+        }
+
+        @Override
+        public boolean reject(byte[] raw, String sourceOffset, String reason) {
+            boolean taken = target.reject(raw, sourceOffset, reason);
+            if (taken) {
+                rejected++;
+            }
+            return taken;
+        }
+
+        @Override
+        public boolean reject(byte[] raw, String sourceOffset, String reason, String code) {
+            boolean taken = target.reject(raw, sourceOffset, reason, code);
+            if (taken) {
+                rejected++;
+            }
+            return taken;
+        }
     }
 
     /**

@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **399 findings carrying a
-status — 369 FIXED, 16 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 16 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 12 POST-GA and 4 are not defects at all** — see the triage below. Counted by the same pattern
+status — 370 FIXED, 15 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 15 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 11 POST-GA and 4 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -6865,7 +6865,7 @@ runs is how a default becomes folklore, and this project has already found two o
 
 > **Status:** FIXED — the time-travel debugger's six codes reached `FlightErrors.statusFor` through its default arm, so all of them arrived at a gRPC client as `INVALID_ARGUMENT`, including `PRV-8013` (the session has ended or expired) and `PRV-8014` (the node already holds its ceiling of sessions). That is the shape the method's own javadoc says must not happen — a saturated node looking like a bad request — and it matters because a client retries one and not the other. 8013 and 8016 now answer `NOT_FOUND`, 8014 `RESOURCE_EXHAUSTED`; the other three stay `INVALID_ARGUMENT`, because a missing checkpoint, an unreplayable source and an unreadable step are all things the caller can correct. `DebugStatusMappingTest`. Found by the STRM/TIME cluster's agent during its rebase, in a file neither batch had reason to touch.
 
-## Found writing the Python integration guide (2026-09-26), 6 findings, 5 fixed
+## Found writing the Python integration guide (2026-09-26), 6 findings, 6 fixed
 
 Every sample in `docs/PYTHON_API_GUIDE.md` was run against a 0.1.1 node before it was written down.
 Five things the samples did were not what the SDK's or the engine's own descriptions said.
@@ -6876,8 +6876,7 @@ Five things the samples did were not what the SDK's or the engine's own descript
 
 ### REPL-2 (MEDIUM) — a query cannot be replaced while the record at its current position is one that was dead-lettered
 
-> **Status:** OPEN — the running version's position was line 11 of a followed file, the line its feed had dead-lettered (`PRV-5040`, not a number). The candidate's backfill read the nine good rows before it and stopped with `PRV-4013  the backfill read all the history this source has and never reached the position the running version is at (11)`: the history reader does not deliver the undecodable record, so the position it sits at is never observed. The same replacement on the same data without the bad line reached `CAUGHT_UP` at once. The seam logic (ADR-046 §1, `OffsetSplicedReader`) assumes every position is a delivered record; a dead-letter queue makes that false exactly at the moment an operator is most likely to be changing the query.
-> **Disposition:** POST-GA — the condition clears when a good record moves the running version past the bad one, so a replacement can be retried; the fix is for the seam to count a dead-lettered position as reached.
+> **Status:** FIXED — the running version's position was the line its feed had dead-lettered, the candidate's history reader rejected the same line, and `OffsetSplicedReader` counted only delivered rows: a history poll that rejected its one record returned 0, read as the end of the history, and after the grace the backfill failed with `PRV-4013`. The dangerous half was worse and unseen: a reader that rejected the seam's record and went on to the next inside the same poll would have carried the backfill past the seam, and only the missed equality stopped it doubling rows. The fix is a contract rather than a guess at when each reader moves its position: `PartitionReader#poll`'s `maxRecords` bounds records **consumed**, delivered or rejected, and the backfill counts a rejection as progress, checking the seam after every record. The filesystem and Kafka readers are brought into line (they counted only delivered rows); PostgreSQL CDC already budgeted by records taken. Seed-proven at every layer: `OffsetSplicedReaderTest` (a seam on a rejected last record, and on a rejected record with rows after it), `FilesystemPluginTest` and `KafkaSourcePluginTest` (a poll of one consumes exactly the rejected record). On a node built from this change, the scenario that found it -- a followed file whose latest line was dead-lettered, then a replacement, with good rows appended while it ran -- reached `CAUGHT_UP` at once and, after the cutover, held every good row exactly once.
 
 ### PYSDK-1 (MEDIUM) — a refusal over Flight hid the engine's code inside the SDK's text
 

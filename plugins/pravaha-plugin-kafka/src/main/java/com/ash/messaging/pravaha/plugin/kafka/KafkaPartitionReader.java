@@ -147,7 +147,10 @@ final class KafkaPartitionReader implements PartitionReader {
             return 0;
         }
         int written = 0;
-        while (written < maxRecords) {
+        // Records consumed, delivered or rejected: what maxRecords bounds (PartitionReader#poll). A
+        // skipped control record is not a record of the topic's and does not count.
+        int consumed = 0;
+        while (consumed < maxRecords) {
             Item item = queue.peek();
             if (item == null) {
                 break;
@@ -156,6 +159,7 @@ final class KafkaPartitionReader implements PartitionReader {
                 case Decoded decoded -> {
                     write(sink, decoded);
                     written++;
+                    consumed++;
                     position = decoded.offset() + 1;
                 }
                 case Rejected rejected -> {
@@ -169,6 +173,7 @@ final class KafkaPartitionReader implements PartitionReader {
                                         + "dead-letter queue to set such records aside, or fix the producer.");
                     }
                     position = rejected.offset() + 1;
+                    consumed++;
                 }
                 case Skipped skipped -> position = Math.max(position, skipped.next());
             }

@@ -188,6 +188,32 @@ class KafkaSourcePluginTest {
     }
 
     @Test
+    void aRejectedRecordCountsAgainstMaxRecordsAndMovesThePosition() {
+        // REPL-2's contract (PartitionReader#poll): maxRecords bounds records consumed, delivered
+        // or rejected, so a backfill reading history one record at a time cannot be carried past
+        // the running version's position by a rejection inside the same poll.
+        topic.append(0, "k", "{\"user_id\":\"u1\",\"amount\":1}");
+        topic.append(0, "k", "{\"user_id\":\"u2\",\"amount\":\"lots\"}");
+        topic.append(0, "k", "{\"user_id\":\"u3\",\"amount\":3}");
+        plugin = open(Map.of());
+
+        try (Collected rows = new Collected(plugin.schema(), true);
+                PartitionReader reader = plugin.createReader(partition(0), null)) {
+            assertThat(reader.poll(rows, 1)).isEqualTo(1);
+            assertThat(reader.position()).isEqualTo(offset(0, 1));
+            assertThat(reader.poll(rows, 1))
+                    .as("the record at 1 is consumed, and rejected")
+                    .isZero();
+            assertThat(reader.position()).as("and the position is past it").isEqualTo(offset(0, 2));
+            assertThat(rows.rejections).hasSize(1);
+            assertThat(reader.poll(rows, 1))
+                    .as("the record at 2 is the next poll's")
+                    .isEqualTo(1);
+            assertThat(reader.position()).isEqualTo(offset(0, 3));
+        }
+    }
+
+    @Test
     void anUndecodableRecordIsADeadLetterWhenThereIsAQueueAndStopsTheReaderWhenThereIsNot() {
         topic.append(0, "k", "{\"user_id\":\"u1\",\"amount\":1}");
         topic.append(0, "k", "{\"user_id\":\"u2\",\"amount\":\"lots\"}");

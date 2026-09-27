@@ -10,6 +10,18 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ---
 
+## Since 0.1.2 — unreleased
+
+- **Replacing a query whose latest record was dead-lettered works** (REPL-2). The backfill counts a
+  record its source rejected as read, and `PartitionReader#poll`'s `maxRecords` now bounds records
+  consumed, rejected ones included, so a backfill stops on the running version's exact position
+  whether or not the record there could be decoded. The filesystem and Kafka readers are brought into
+  line; PostgreSQL CDC already was. 0.1.2 fails such a replacement with `PRV-4013`.
+
+Register: **399 findings — 370 fixed, 15 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+
+---
+
 ## 0.1.2 — QA, 2026-09-27
 
 **What this build is for.** The QA host's second build, and the one to test on: 0.1.1's console image

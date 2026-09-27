@@ -268,8 +268,10 @@ final class FilesystemPartitionReader implements PartitionReader {
             reopenIfReplaced();
         }
         int produced = 0;
+        // Lines consumed, delivered or rejected: what maxRecords bounds (PartitionReader#poll).
+        int consumed = 0;
         try {
-            while (produced < maxRecords) {
+            while (consumed < maxRecords) {
                 String line = follow ? readCompleteLine() : reader.readLine();
                 if (line == null) {
                     // Following means end of file is not end of stream: the writer may not have
@@ -284,6 +286,7 @@ final class FilesystemPartitionReader implements PartitionReader {
                 if (line.isEmpty()) {
                     continue;
                 }
+                consumed++;
                 if (decodeInto(line, lineNumber, "line " + lineNumber, sink)) {
                     produced++;
                 }

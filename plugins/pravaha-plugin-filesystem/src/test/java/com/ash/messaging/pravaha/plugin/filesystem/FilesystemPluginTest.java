@@ -252,6 +252,52 @@ class FilesystemPluginTest {
     }
 
     @Test
+    void aRejectedLineCountsAgainstMaxRecordsAndMovesThePosition(@TempDir Path dir) throws IOException {
+        // REPL-2's contract (PartitionReader#poll): maxRecords bounds lines consumed, delivered or
+        // rejected. A backfill reads history one record at a time and stops on the running
+        // version's exact position; a poll of one that rejected line 2 and went on to line 3 would
+        // have carried it past a seam at line 2.
+        Path input = dir.resolve("in.csv");
+        Files.writeString(input, "1,a,1.0,true,x\n2,b,oops,true,y\n3,c,3.0,true,z\n");
+
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            source.configure(ctx(Map.of("path", input.toString(), "schema", SCHEMA)));
+            source.open();
+            try (PartitionReader reader =
+                            source.createReader(source.partitions("txn").get(0), null);
+                    Collector rows = new Collector(source.schema())) {
+                List<String> rejected = new java.util.ArrayList<>();
+                PartitionReader.RecordSink sink = new PartitionReader.RecordSink() {
+                    @Override
+                    public com.ash.messaging.pravaha.api.data.RowWriter beginRow() {
+                        return rows.beginRow();
+                    }
+
+                    @Override
+                    public boolean reject(byte[] raw, String sourceOffset, String reason) {
+                        rejected.add(sourceOffset);
+                        return true;
+                    }
+                };
+
+                assertThat(reader.poll(sink, 1)).isEqualTo(1);
+                assertThat(reader.position().token()).isEqualTo("1");
+                assertThat(reader.poll(sink, 1))
+                        .as("line 2 is consumed, and rejected")
+                        .isZero();
+                assertThat(reader.position().token())
+                        .as("and the position is past it")
+                        .isEqualTo("2");
+                assertThat(rejected).containsExactly("line 2");
+                assertThat(reader.poll(sink, 1))
+                        .as("line 3 is the next poll's, not line 2's")
+                        .isEqualTo(1);
+                assertThat(reader.position().token()).isEqualTo("3");
+            }
+        }
+    }
+
+    @Test
     void resumesFromARecordedOffset(@TempDir Path dir) throws IOException {
         // The claim behind declaring EXACTLY_ONCE. The TCK checks the round trip rather than
         // trusting the declaration, and so does this.

@@ -29,7 +29,16 @@ public interface PartitionReader extends AutoCloseable {
     /**
      * Decodes up to {@code maxRecords} into {@code sink}.
      *
-     * @return how many were written; zero when nothing is available
+     * <p><strong>{@code maxRecords} bounds the records this call consumes, delivered or
+     * rejected</strong>: a record handed to {@link RecordSink#reject} counts against it exactly as a
+     * written row does, and {@link #position()} afterwards is past every record consumed. The engine
+     * relies on it: a backfill reads history one record at a time and stops on the exact position
+     * the running version reached (ADR-046), and a reader that rejected one record and went on to
+     * the next inside the same call would carry the backfill past that position -- or, when the
+     * rejected record was the last, leave a poll that looked like the end of the history (REPL-2).
+     *
+     * @return how many were written; zero when nothing is available, or when every record consumed
+     *     was rejected
      */
     int poll(RecordSink sink, int maxRecords);
 

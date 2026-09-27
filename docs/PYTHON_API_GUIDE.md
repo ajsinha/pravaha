@@ -818,9 +818,9 @@ r.state, r.history_rows, r.partitions_live, r.history_complete, r.lag_nanos
 > `failure_code` and the candidate released; the name goes on answering the version it answered.
 > Poll for `CAUGHT_UP` **or** `FAILED`. On the 0.1.1 engine such a replacement instead goes on
 > reporting `BACKFILLING` with no failure (REPL-1, fixed after 0.1.1), so bound your wait there.
-> One cause remains (REPL-2): if the record at the running version's position was dead-lettered,
-> the backfill cannot reach it and fails with `PRV-4013`; replace again once a good record has
-> arrived.
+> On 0.1.2 one more cause fails it (REPL-2, fixed in 0.1.3): if the record at the running
+> version's position was dead-lettered, the backfill cannot reach it and fails with `PRV-4013`;
+> replace again once a good record has arrived.
 
 ### `replacement_http(name) -> dict` — HTTP `GET /api/v1/queries/{name}/replacement`
 
