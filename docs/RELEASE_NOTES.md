@@ -10,7 +10,13 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ---
 
-## Since 0.1.1 — unreleased
+## 0.1.2 — QA, 2026-09-27
+
+**What this build is for.** The QA host's second build, and the one to test on: 0.1.1's console image
+shipped without the documentation its help pages include (IMG-1), and 0.1.1's query sharing could
+hand one query another's answer (FP-1). Both are fixed here. **The default ports change** — 18080,
+19090 and 17070 — so a QA host moving from 0.1.1 installs this bundle fresh or moves its published
+ports; its two configuration files are kept either way.
 
 - **Default ports moved** (the owner's decision): the engine's HTTP port is **18080** (was 8080),
   Flight SQL **19090** (was 9090), the console **17070** (was 8090). Both SDKs' default port, the CLI's
