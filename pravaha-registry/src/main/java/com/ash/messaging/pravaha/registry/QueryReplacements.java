@@ -376,6 +376,7 @@ public final class QueryReplacements implements AutoCloseable {
                         replacement.sink(),
                         replacement.shadowDirectory()));
             }
+            carryIndexes(name, from, to, journal);
 
             // 5. Every subscriber of the old version has had every commit it ever made, including
             //    the one taken at the seam. Now they are told it has been replaced.
@@ -413,6 +414,45 @@ public final class QueryReplacements implements AutoCloseable {
                         + from.fingerprint().shortForm() + " is retained for "
                         + replacement.options().rollbackRetention());
         return replacement.status();
+    }
+
+    /**
+     * Gives the version taking the name the equality indexes the version leaving it kept, by column
+     * name, and writes them down after the cutover record that cleared them (ADR-055).
+     *
+     * <p>A replacement changes the query behind a name, not how the name is read: a reader who was
+     * served by a probe must not find the same read has become a scan because the SQL was edited.
+     * A column the new version does not produce, or produces at another type, cannot carry its
+     * index, and that is logged rather than refused -- the answer is the same either way, and a
+     * cutover is not the moment to fail.
+     */
+    private static void carryIndexes(String name, RegisteredQuery from, RegisteredQuery to, RegistryJournal journal) {
+        com.ash.messaging.pravaha.api.data.StreamSchema leaving = from.view().schema();
+        com.ash.messaging.pravaha.api.data.StreamSchema taking = to.view().schema();
+        for (int ordinal : from.view().indexedColumns()) {
+            com.ash.messaging.pravaha.api.data.Field column = leaving.field(ordinal);
+            int carried = -1;
+            for (int candidate = 0; candidate < taking.fieldCount(); candidate++) {
+                if (taking.field(candidate).name().equals(column.name())
+                        && taking.field(candidate).type().typeName()
+                                == column.type().typeName()) {
+                    carried = candidate;
+                }
+            }
+            if (carried < 0) {
+                LOG.log(
+                        System.Logger.Level.WARNING,
+                        "'" + name + "' kept an equality index over '" + column.name() + "', which the version "
+                                + "taking the name does not produce as "
+                                + column.type().typeName()
+                                + "; reads by that column scan from now on");
+                continue;
+            }
+            to.view().index(carried);
+        }
+        if (journal != null && !to.view().indexedColumns().isEmpty()) {
+            journal.recordIndexes(name, to.view().indexedColumns());
+        }
     }
 
     /**
@@ -456,6 +496,7 @@ public final class QueryReplacements implements AutoCloseable {
                                         replacement.sink(),
                                         QueryCheckpoints.directoryFor(name)));
             }
+            carryIndexes(name, from, to, journal);
             from.endSubscriptions(new PravahaException(
                     BackfillErrors.VIEW_REPLACED,
                     "the replacement of '" + name + "' was rolled back, so the name answers the previous query "

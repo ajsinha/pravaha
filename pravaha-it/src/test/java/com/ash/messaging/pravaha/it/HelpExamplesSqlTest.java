@@ -224,8 +224,8 @@ class HelpExamplesSqlTest {
             PhysicalOperator plan = new PhysicalPlanBuilder().build(new SqlPlanner(schema).plan(create.select()));
             // The checks a registration makes, in the order ContinuousQueryStatements makes them,
             // because a help page showing a refusal has to be showing the refusal the engine
-            // actually gives. A WITH list read and not judged, or a RANGE whose column type nobody
-            // looked at, would make an example that says "refused" pass while a user copying it is
+            // actually gives. A WITH list read and not judged, or a RANGE or INDEX whose column type
+            // nobody looked at, would make an example that says "refused" pass while a user copying it is
             // told something else.
             ContinuousStatement.Create registered = create;
             if (!create.orReplace() && !create.options().isEmpty()) {
@@ -239,6 +239,15 @@ class HelpExamplesSqlTest {
                 if (!options.keyColumns().isEmpty()) {
                     registered = create.withKeyColumns(options.keyColumns());
                 }
+                if (options.indexColumn().isPresent()) {
+                    if (create.indexColumn().isPresent()) {
+                        throw new PravahaException(
+                                com.ash.messaging.pravaha.registry.RegistryErrors.OPTION_UNKNOWN,
+                                "'" + create.name() + "' names its index twice");
+                    }
+                    registered =
+                            registered.withIndexColumn(options.indexColumn().get());
+                }
             }
             if (create.orReplace()) {
                 com.ash.messaging.pravaha.registry.ReplacementOptions replacement =
@@ -250,6 +259,7 @@ class HelpExamplesSqlTest {
             }
             List<Integer> keys = registered.keyOrdinals(plan.outputSchema());
             registered.rangeOrdinal(plan.outputSchema());
+            registered.indexOrdinal(plan.outputSchema());
             return Optional.of(
                     new ServedView(create.name(), plan.outputSchema().renamedTo(create.name()), keys, 1_000));
         }

@@ -69,7 +69,8 @@ final class RegistryRecovery {
                         entry.retention(),
                         values.isEmpty() ? BoundParameters.none() : BoundParameters.of(values),
                         entry.sink(),
-                        entry.checkpointDirectory());
+                        entry.checkpointDirectory(),
+                        entry.indexed());
                 recovered.add(entry.name());
             } catch (RuntimeException failure) {
                 // One bad entry must not stop the rest. A deployment recovering forty queries should

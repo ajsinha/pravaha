@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted; built — `ServedView` and `ViewAccessPath` in `pravaha-serving`, `RANGE` in `ContinuousStatements` |
+| Status | Accepted; built — `ServedView` and `ViewAccessPath` in `pravaha-serving`, `RANGE` in `ContinuousStatements`. The refusal of an index over a non-key column is superseded by [ADR-055](055-an-equality-index-over-a-column-outside-the-key.md) |
 | Date | 2026-09-19 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-043 (a query's sink), ADR-044 (no RocksDB; the mapped tier is L1), design §11.2 and §17.2 |

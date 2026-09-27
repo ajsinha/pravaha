@@ -328,7 +328,8 @@ answers a new one. Export what the session has if you still want it, then end it
 
 A `WITH (...)` option this engine does not build, or a value that is not what the option names.
 Which options exist depends on the statement: a plain `CREATE CONTINUOUS QUERY` takes `retention`,
-`sink` and `keys` — the arguments `pravaha register` already took — and `CREATE OR REPLACE` takes
+`sink` and `keys` — the arguments `pravaha register` already took — and `index`, the value form of
+`INDEX (column)`; `CREATE OR REPLACE` takes
 `backfill`, `backfill.rate.limit`, `cutover` and `rollback.retention`. Each refuses the other's by
 name, with the statement that takes it — a replacement's refusal carries PRV-4018 rather than this
 code, since it is the backfill that reads the list.
@@ -342,8 +343,8 @@ The design's `consistency.default`, `parallelism` and `allowed.lateness` are not
 consistency is chosen by the reader and per read, and a query's parallelism and lateness are the
 engine's to decide.
 
-The same code covers the same setting said twice — `RETAIN FOR` and `retention`, or `WRITING TO`
-and a different `sink` — because which of two answers wins is not something to leave to the order
+The same code covers the same setting said twice — `RETAIN FOR` and `retention`, `WRITING TO`
+and a different `sink`, or `INDEX` and `index` — because which of two answers wins is not something to leave to the order
 they were written in.
 
 ## Tenancy quotas

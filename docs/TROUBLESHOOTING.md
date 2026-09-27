@@ -659,7 +659,7 @@ And this — Calcite's own conversion failure, distinct from either `StackOverfl
 ## `CREATE CONTINUOUS QUERY` and the statements around it
 
 The statements that register and manage queries in SQL
-([`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §10.1) have four refusals of their own. Each names
+([`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §10.1) have five refusals of their own. Each names
 the statement's expected shape.
 
 | Code | What happened | What to do |
@@ -668,7 +668,8 @@ the statement's expected shape.
 | `PRV-2071` | `KEYED BY` names a column the `SELECT` does not produce, or names one twice | Name the column as the `SELECT` list does — by its alias where it has one (`SUM(amount) AS total` is `total`). The message does not list the columns, because it is raised before the registry has decided whether you may read what the query reads |
 | `PRV-2072` | A clause from the design's grammar that is not built: `EMIT CHANGES WITH (...)`, or a `SERVE AS VIEW` naming a view other than the query | Drop the `EMIT CHANGES WITH` list — every continuous query emits its changes — and say a retention with `RETAIN FOR` or `WITH (retention = ...)`; give the query the name clients read. Refused rather than ignored: an ignored `'allowed.lateness' = '30s'` drops rows somebody asked to be waited for |
 | `PRV-2073` | `RANGE (column)` asks for an ordered index over a column this engine has no total order for: text (needs a collation), `FLOAT` (IEEE 754, and `NaN` is ordered against nothing), `DECIMAL` (`compareTo` disagrees with `equals`, so `1.0` and `1.00` would be one entry and two rows), `BYTES`, `BOOLEAN` | Drop the `RANGE` — the key still works as a key, and point reads and full-key lookups are unaffected — or range-scan a whole-number or temporal column. Refused at registration, against the columns the view will actually have |
-| `PRV-8017` | A `WITH (...)` option this engine does not build, or a value that is not what the option names. A plain `CREATE` takes `retention`, `sink` and `keys`; `CREATE OR REPLACE` takes `backfill`, `backfill.rate.limit`, `cutover` and `rollback.retention`. Also raised for the same setting said twice — `RETAIN FOR` and `retention`, or two different sinks | Use the option the message lists, on the statement that takes it. The design's `consistency.default`, `parallelism` and `allowed.lateness` are not built: consistency is chosen by the reader and per read, and a query's parallelism and lateness are the engine's to decide. Refused rather than ignored, because an option nobody reads is a setting you believe is in force |
+| `PRV-2074` | `INDEX (column)` or `WITH (index = ...)` asks for an equality index this engine will not keep: over `FLOAT` (`0.0` and `-0.0` are equal and stored apart; `NaN` equals nothing), `DECIMAL` (`1.0` and `1.00`), `BYTES`, or the view's whole key (already a hash probe). Also a fifth index on one view, which only names sharing a computation can reach | Index a whole-number, temporal, text or `BOOLEAN` column outside the key, or drop the `INDEX` — the read by that column still works, as a scan. Refused at registration, against the columns the view will actually have |
+| `PRV-8017` | A `WITH (...)` option this engine does not build, or a value that is not what the option names. A plain `CREATE` takes `retention`, `sink`, `keys` and `index`; `CREATE OR REPLACE` takes `backfill`, `backfill.rate.limit`, `cutover` and `rollback.retention`. Also raised for the same setting said twice — `RETAIN FOR` and `retention`, two different sinks, or `INDEX` and `index` | Use the option the message lists, on the statement that takes it. The design's `consistency.default`, `parallelism` and `allowed.lateness` are not built: consistency is chosen by the reader and per read, and a query's parallelism and lateness are the engine's to decide. Refused rather than ignored, because an option nobody reads is a setting you believe is in force |
 | `PRV-6211` | One of the statements was sent to the PostgreSQL gateway (SQLSTATE `25006`), which is read-only | Send it over Flight SQL: an SDK's `query()`, `pravaha query --sql`, or the console's workbench |
 
 A reserved word as the query's name is refused by the registry's own name rule, `PRV-8008`, whichever
@@ -807,6 +808,7 @@ client models the error rather than an empty object.
 | `PRV-2071` | SQL_KEY_COLUMN_UNKNOWN | sql |
 | `PRV-2072` | SQL_CLAUSE_NOT_BUILT | sql |
 | `PRV-2073` | SQL_RANGE_NOT_ORDERED | sql |
+| `PRV-2074` | SQL_INDEX_UNUSABLE | sql |
 | `PRV-3001` | RUNTIME_ARENA_EXHAUSTED | runtime |
 | `PRV-3002` | RUNTIME_BACKPRESSURED | runtime |
 | `PRV-3010` | RUNTIME_LANE_FAILED | runtime |

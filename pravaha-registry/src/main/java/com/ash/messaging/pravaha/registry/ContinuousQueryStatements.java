@@ -17,6 +17,7 @@ package com.ash.messaging.pravaha.registry;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.StringJoiner;
 
 import com.ash.messaging.pravaha.api.PravahaException;
@@ -162,6 +163,15 @@ public final class ContinuousQueryStatements {
             if (!options.keyColumns().isEmpty()) {
                 statement = statement.withKeyColumns(options.keyColumns());
             }
+            if (options.indexColumn().isPresent()) {
+                if (statement.indexColumn().isPresent()) {
+                    throw new PravahaException(
+                            RegistryErrors.OPTION_UNKNOWN,
+                            "'" + statement.name() + "' names its index twice: INDEX before AS and index in "
+                                    + "the WITH list. They are the same setting; say it once.");
+                }
+                statement = statement.withIndexColumn(options.indexColumn().get());
+            }
         }
 
         // The key by name, resolved against the columns the view would have. Planned the way register
@@ -172,17 +182,27 @@ public final class ContinuousQueryStatements {
         // column this engine cannot order is refused at registration rather than at the first read
         // that wanted the index (PRV-2073, ADR-049).
         statement.rangeOrdinal(output);
+        // INDEX (column): the same, for an equality index over a column outside the key (PRV-2074,
+        // ADR-055). Kept on the view before the registration is acknowledged, and journalled with it.
+        Optional<Integer> index = statement.indexOrdinal(output);
         if (statement.orReplace() && registry.find(statement.name()).isPresent()) {
+            if (index.isPresent()) {
+                throw new PravahaException(
+                        com.ash.messaging.pravaha.sql.SqlErrors.CLAUSE_NOT_BUILT,
+                        "'" + statement.name() + "' already exists, and a replacement keeps the equality "
+                                + "indexes its view keeps -- carried to the new version at the cutover, by "
+                                + "column name -- rather than changing them. Drop the INDEX clause; to index "
+                                + "a different column, drop the query and register it again.");
+            }
             return replace(statement, keys, principal);
         }
-        RegisteredQuery query = register(
-                registry,
-                statement.name(),
-                statement.select(),
-                keys,
-                principal,
-                statement.sink().orElse(null),
-                retention);
+        String sink = statement.sink().orElse(null);
+        String name = statement.name();
+        String select = statement.select();
+        Retention kept = retention;
+        RegisteredQuery query = registry.declaringIndexes(
+                index.map(List::of).orElse(List.of()),
+                () -> register(registry, name, select, keys, principal, sink, kept));
         return new ViewQuery.Result(CREATED, List.<Object[]>of(new Object[] {
             statement.name(),
             query.state().name(),

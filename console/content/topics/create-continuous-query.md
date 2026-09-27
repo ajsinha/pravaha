@@ -7,7 +7,7 @@ icon: plus-square
 summary: "Registering a query in SQL: KEYED BY, WRITING TO, RETAIN FOR — and DROP, PAUSE, RESUME and SHOW. The full grammar, what each statement answers, and every way one is refused."
 badge: STATEMENTS
 audience: Analysts and developers
-keywords: [create continuous query, keyed by, range, writing to, retain for, retain forever, with, options, drop, pause, resume, show continuous queries, indexed by, into, emit changes, insert into, PRV-2070, PRV-2071, PRV-2072, PRV-2073, PRV-8017, PRV-6211]
+keywords: [create continuous query, keyed by, range, index, writing to, retain for, retain forever, with, options, drop, pause, resume, show continuous queries, indexed by, into, emit changes, insert into, PRV-2070, PRV-2071, PRV-2072, PRV-2073, PRV-8017, PRV-6211]
 guide: continuous-queries#101-the-statements-that-register-and-manage-queries
 related: [query-lifecycle, views-and-keys, sinks-overview, sql-parameters, sharing]
 ---
@@ -304,10 +304,40 @@ CREATE CONTINUOUS QUERY by_currency
 AS SELECT merchant, currency FROM txn
 ```
 
-A predicate on a column that is *not* in the key is still a scan and a filter. That is deliberate,
-not an omission: an index over a non-key column has to find the entry to delete from the row's
-previous values, and an index that quietly disagrees with the view it indexes is a wrong answer
-with a confident face.
+## `INDEX` — an equality index over a column outside the key
+
+`INDEX (column)` keeps value-to-keys for one column that is not the view's key, so a read that pins
+it with `=` or `IN` probes the index instead of walking every row:
+
+```sql
+CREATE CONTINUOUS QUERY by_merchant
+    KEYED BY (txn_id) INDEX (merchant)
+AS SELECT txn_id, merchant, amount FROM txn
+```
+
+<!-- sql: read -->
+```sql
+SELECT txn_id, amount FROM by_merchant WHERE merchant IN ('acme', 'globex')
+```
+
+The index is kept in the view's own commit, from the row the view held rather than from the change
+that replaced it, so it is never a step behind the view; it is written down with the registration
+and comes back after a restart. `WITH (index = 'merchant')` says the same thing. One column per
+clause, at most four per view, and it costs one entry per row, bounded by the view's ceiling. A
+replacement keeps it, carried to the new version by column name.
+
+`FLOAT`, `DECIMAL` and `BYTES` are refused with PRV-2074 — two values the filter calls equal can be
+different stored values (`0.0` and `-0.0`, `1.0` and `1.00`) — and so is the view's whole key, which
+is a hash probe already:
+
+<!-- sql: refused PRV-2074 -->
+```sql
+CREATE CONTINUOUS QUERY by_itself
+    KEYED BY (txn_id) INDEX (txn_id)
+AS SELECT txn_id, amount FROM txn
+```
+
+A predicate on a column that is neither in the key nor indexed is still a scan and a filter.
 
 ## `WITH (...)` — a registration's options
 
@@ -367,7 +397,8 @@ INSERT INTO audit_trail SELECT txn_id, amount FROM txn
 | Refused | Code | Say instead |
 |---|---|---|
 | `RANGE` over text, `FLOAT`, `DECIMAL`, `BYTES` or `BOOLEAN` | PRV-2073 | Drop the `RANGE` — the key still works as a key — or range-scan a whole-number or temporal column |
-| A `WITH` option that does not exist, or one said twice | PRV-8017 (PRV-4018 on a replacement) | `retention`, `sink`, `keys` on a `CREATE`; `backfill`, `backfill.rate.limit`, `cutover`, `rollback.retention` on a `CREATE OR REPLACE` |
+| `INDEX` over `FLOAT`, `DECIMAL`, `BYTES` or the whole key | PRV-2074 | Index a whole-number, temporal, text or `BOOLEAN` column outside the key |
+| A `WITH` option that does not exist, or one said twice | PRV-8017 (PRV-4018 on a replacement) | `retention`, `sink`, `keys`, `index` on a `CREATE`; `backfill`, `backfill.rate.limit`, `cutover`, `rollback.retention` on a `CREATE OR REPLACE` |
 | `EMIT CHANGES WITH (...)` | PRV-2072 | `EMIT CHANGES` alone, or nothing |
 | `SERVE AS VIEW other` | PRV-2072 | A query and its view are one name — the one clients put in `FROM` |
 | `INSERT INTO <sink> SELECT` | PRV-2020 | `WRITING TO <sink>`, `WITH (sink = '<sink>')`, or `pravaha register --sink` |

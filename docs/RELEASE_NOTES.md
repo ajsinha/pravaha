@@ -12,6 +12,14 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased (0.1.4-SNAPSHOT)
 
+- **An equality index over a column outside a view's key**
+  ([ADR-055](adr/055-an-equality-index-over-a-column-outside-the-key.md)). `CREATE CONTINUOUS QUERY
+  ... INDEX (region)`, or `WITH (index = 'region')`, keeps value-to-keys in the view's own commit, so
+  `WHERE region = 'eu'` and `WHERE region IN ('eu', 'us')` probe instead of scanning, over Flight
+  SQL, REST and pgwire alike. The index is journalled with the registration (a new `X` record, which
+  an older build refuses by name), rebuilt over a restored checkpoint, and carried to a replacement by
+  column name. New code `PRV-2074` refuses an index over `FLOAT`, `DECIMAL`, `BYTES` or the view's
+  whole key.
 - **The server image runs on glibc, and Parquet's Snappy codec loads in it** (PORT-1,
   [ADR-053](adr/053-native-code-only-where-java-cannot.md)). Up to 0.1.3 the image was Alpine, where
   snappy-java cannot load, so the `feedfile` and `delta` plugins could not read a Snappy-compressed

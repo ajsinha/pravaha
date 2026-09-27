@@ -177,7 +177,7 @@ class RegistrationOptionsTest {
                 .contains("PRV-8017")
                 .contains("'consistency.default'")
                 .contains("refused rather than ignored")
-                .contains("[retention, sink, keys]");
+                .contains("[retention, sink, keys, index]");
         assertThat(registry.find("v"))
                 .as("nothing was registered on the way to the refusal")
                 .isEmpty();
@@ -275,7 +275,7 @@ class RegistrationOptionsTest {
         assertThatThrownBy(() -> RegistrationOptions.of(Map.of("sink", "  ")))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("cannot be empty");
-        assertThat(RegistrationOptions.KNOWN).containsExactly("retention", "sink", "keys");
+        assertThat(RegistrationOptions.KNOWN).containsExactly("retention", "sink", "keys", "index");
     }
 
     @Test

@@ -120,5 +120,20 @@ public final class SqlErrors {
      */
     public static final ErrorCode RANGE_NOT_ORDERED = new ErrorCode(2073, "SQL_RANGE_NOT_ORDERED");
 
+    /**
+     * {@code INDEX (column)} names a column this engine will not keep an equality index over
+     * (ADR-055).
+     *
+     * <p>An equality index is filed by the stored value, and a read probes it with the literal
+     * converted to the column's stored class. That finds every row the filter keeps only where
+     * the filter's equality and the stored value's equality are the same relation. They are not
+     * for {@code FLOAT} ({@code 0.0} and {@code -0.0}; {@code NaN}), {@code DECIMAL} ({@code 1.0}
+     * and {@code 1.00}) or {@code BYTES} (arrays have identity equality), so those are refused. So
+     * is a column that is the view's whole key: a lookup by it is already a hash probe.
+     *
+     * <p>Refused at registration, against the columns the view will actually have.
+     */
+    public static final ErrorCode INDEX_UNUSABLE = new ErrorCode(2074, "SQL_INDEX_UNUSABLE");
+
     private SqlErrors() {}
 }
