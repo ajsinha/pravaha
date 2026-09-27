@@ -24,7 +24,6 @@ import java.nio.file.Path;
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.data.RowKind;
 import com.ash.messaging.pravaha.api.data.RowWriter;
-import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
 
 /**
@@ -45,7 +44,7 @@ import com.ash.messaging.pravaha.api.plugin.SourceOffset;
  * reader reopens from the start rather than sitting on a handle to something nobody can see any
  * more. A file that merely grew is read on from where it was.
  */
-final class FilesystemPartitionReader implements PartitionReader {
+final class FilesystemPartitionReader implements com.ash.messaging.pravaha.api.plugin.BoundedPartitionReader {
 
     private final DelimitedCodec codec;
     private BufferedReader reader;
@@ -261,6 +260,37 @@ final class FilesystemPartitionReader implements PartitionReader {
 
     @Override
     public int poll(RecordSink sink, int maxRecords) {
+        return read(sink, maxRecords, Long.MAX_VALUE);
+    }
+
+    /**
+     * Reads only lines before {@code bound}'s line, stopping on the line number itself rather than on a
+     * count: a blank line advances the line number without counting as a record, so "read bound minus
+     * here records" would read past the bound whenever there was one (ADR-054).
+     */
+    @Override
+    public int pollBefore(RecordSink sink, int maxRecords, SourceOffset bound) {
+        return read(sink, maxRecords, lineOf(bound));
+    }
+
+    /** Orders two positions this reader handed out: {@link SourceOffset#BEGINNING} is line 0. */
+    static int compareLines(SourceOffset a, SourceOffset b) {
+        return Long.compare(lineOf(a), lineOf(b));
+    }
+
+    private static long lineOf(SourceOffset offset) {
+        if (offset == null || offset.isBeginning()) {
+            return 0;
+        }
+        try {
+            return Long.parseLong(offset.token());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(
+                    "'" + offset.token() + "' is not a position a file source handed out: it names a line number", e);
+        }
+    }
+
+    private int read(RecordSink sink, int maxRecords, long lineBound) {
         if (paused || exhausted) {
             return 0;
         }
@@ -271,7 +301,7 @@ final class FilesystemPartitionReader implements PartitionReader {
         // Lines consumed, delivered or rejected: what maxRecords bounds (PartitionReader#poll).
         int consumed = 0;
         try {
-            while (consumed < maxRecords) {
+            while (consumed < maxRecords && lineNumber < lineBound) {
                 String line = follow ? readCompleteLine() : reader.readLine();
                 if (line == null) {
                     // Following means end of file is not end of stream: the writer may not have

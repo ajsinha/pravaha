@@ -633,6 +633,53 @@ class FilesystemPluginTest {
         return ids;
     }
 
+    // ------------------------------------------------------------------ ordered positions (ADR-054)
+
+    @Test
+    void aBoundedReadStopsOnTheLineNumberEvenWithBlankLinesInTheWay(@TempDir Path dir) throws IOException {
+        // Lines 1-6, two of them blank. A blank line moves the position without counting as a record,
+        // so "read bound minus here records" would run past line 4 and deliver id 4's successor too.
+        Path input = dir.resolve("gaps.csv");
+        Files.writeString(input, "1,ann\n\n\n2,bob\n3,cat\n4,dan\n");
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            source.configure(ctx(Map.of("path", input.toString(), "schema", SMALL)));
+            source.open();
+            com.ash.messaging.pravaha.api.plugin.OrderedPositions order = source.orderedPositions();
+            assertThat(order)
+                    .as("a file read once through has ordered positions")
+                    .isNotNull();
+            try (PartitionReader plain =
+                            source.createReader(source.partitions("txn").get(0), null);
+                    Collector out = new Collector(source.schema())) {
+                com.ash.messaging.pravaha.api.plugin.BoundedPartitionReader reader =
+                        (com.ash.messaging.pravaha.api.plugin.BoundedPartitionReader) plain;
+                SourceOffset lineFour = new SourceOffset("4");
+                while (reader.pollBefore(out, 100, lineFour) > 0) {
+                    // up to the bound
+                }
+                assertThat(out.rows).extracting(row -> row.getLong(0)).containsExactly(1L, 2L);
+                assertThat(reader.position())
+                        .as("at the bound exactly, once nothing before it remains")
+                        .isEqualTo(lineFour);
+                assertThat(order.compare(reader.position(), lineFour)).isZero();
+                assertThat(order.compare(SourceOffset.BEGINNING, lineFour)).isNegative();
+                assertThat(order.compare(new SourceOffset("10"), lineFour)).isPositive();
+            }
+        }
+    }
+
+    @Test
+    void aFollowedFileDoesNotClaimOrderedPositions(@TempDir Path dir) throws IOException {
+        Path input = dir.resolve("live.csv");
+        Files.writeString(input, "1,ann\n");
+        try (FilesystemSourcePlugin source = new FilesystemSourcePlugin()) {
+            source.configure(ctx(Map.of("path", input.toString(), "schema", SMALL, "follow", "true")));
+            assertThat(source.orderedPositions())
+                    .as("a replaced file restarts its line count, so its positions are not ordered")
+                    .isNull();
+        }
+    }
+
     @Test
     void followingSeesRowsAppendedAfterTheReaderCaughtUp(@TempDir Path dir) throws IOException {
         // The whole point. Without follow the reader latches exhausted at the first null read, so a

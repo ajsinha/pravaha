@@ -24,6 +24,8 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 
 import com.ash.messaging.pravaha.api.PravahaException;
+import com.ash.messaging.pravaha.api.plugin.BoundedPartitionReader;
+import com.ash.messaging.pravaha.api.plugin.OrderedPositions;
 import com.ash.messaging.pravaha.api.plugin.PartitionReader;
 import com.ash.messaging.pravaha.api.plugin.ReadRequest;
 import com.ash.messaging.pravaha.api.plugin.SourceOffset;
@@ -83,6 +85,19 @@ import com.ash.messaging.pravaha.runtime.lane.LaneMultiplexer;
  * all of the history by construction. A source that answered its first poll with nothing while a
  * fetch was still in flight would end its catch-up early, and that is the second reason the
  * at-least-once gate is where it is rather than wider.
+ *
+ * <h2>An exact seam, for a source whose positions are ordered (ADR-054)</h2>
+ *
+ * <p>Everything above about duplication is for a source that cannot say where two positions stand. One
+ * that can ({@link StreamSourcePlugin#orderedPositions()}) is shared without it, and so is shared even
+ * when it promises exactly-once or order. A member is then in one of three states. <em>Attached</em>:
+ * fed by the fan-out. <em>Catching up</em>, having joined behind the reader: fed only by its own
+ * reader, bounded to stop exactly where the shared one stands, and attached the moment the two
+ * positions are equal. <em>Waiting</em>, having joined ahead: fed nothing, while the shared reader
+ * reads exactly up to its position, and attached when it lands there. Nothing is attached before its
+ * seam, so nothing arrives twice. The seam is checked between polls on this one thread, so nothing
+ * moves while it is compared. A checkpoint's offset is exactly what the member has been handed in each
+ * state.
  *
  * <h2>What is pushed down, and changing it without losing or repeating a row</h2>
  *
@@ -189,6 +204,18 @@ final class SharedPartitionFeed {
 
     private final ReentrantLock lock = new ReentrantLock(true);
 
+    /** How this source orders its positions, or null for the at-least-once sharing above. */
+    private final OrderedPositions order;
+
+    /**
+     * Catch-up polls per shared poll, in exact mode, so a catch-up closes on a seam that keeps moving:
+     * the shared reader advances one batch a round and each catch-up up to this many.
+     */
+    private static final int CATCH_UP_ROUNDS = 8;
+
+    /** How long a catch-up may read nothing while still short of its seam before the group stops. */
+    private static final Duration SEAM_GRACE = Duration.ofSeconds(30);
+
     private final List<Member> members = new ArrayList<>();
 
     private PartitionReader reader;
@@ -229,7 +256,7 @@ final class SharedPartitionFeed {
     private final java.util.Map<Lane, LaneRoute> routes = new java.util.HashMap<>();
 
     SharedPartitionFeed(String stream, SourcePartition partition, StreamSourcePlugin plugin) {
-        this(stream, partition, plugin, null, BackpressurePolicy.defaults());
+        this(stream, partition, plugin, null, BackpressurePolicy.defaults(), plugin.orderedPositions());
     }
 
     /** @param binding what this reads, whose option values a recorded failure must not carry; may be null */
@@ -239,6 +266,18 @@ final class SharedPartitionFeed {
             StreamSourcePlugin plugin,
             SourceBinding binding,
             BackpressurePolicy policy) {
+        this(stream, partition, plugin, binding, policy, null);
+    }
+
+    /** @param order how the source orders its positions, or null for at-least-once sharing (ADR-054) */
+    SharedPartitionFeed(
+            String stream,
+            SourcePartition partition,
+            StreamSourcePlugin plugin,
+            SourceBinding binding,
+            BackpressurePolicy policy,
+            OrderedPositions order) {
+        this.order = order;
         this.binding = binding;
         this.stream = stream;
         this.partition = partition;
@@ -292,7 +331,18 @@ final class SharedPartitionFeed {
                 }
                 if (anyoneLive()) {
                     SourceOffset here = reader.position();
-                    if (!here.equals(from)) {
+                    if (order != null) {
+                        // Behind: its own reader, up to exactly here. Ahead: nothing until the shared
+                        // reader lands on its position. Attached only at the seam either way.
+                        int where = order.compare(from, here);
+                        if (where < 0) {
+                            catchUpFrom = from;
+                            member.attached = false;
+                        } else if (where > 0) {
+                            member.awaitingAt = from;
+                            member.attached = false;
+                        }
+                    } else if (!here.equals(from)) {
                         catchUpFrom = from;
                     }
                 } else {
@@ -314,7 +364,9 @@ final class SharedPartitionFeed {
                 member.laneInput = laneInput;
                 member.route = routeOn(laneInput);
                 member.route.members.add(member);
-                laneInput.listen(member.route.id);
+                if (member.attached) {
+                    laneInput.listen(member.route.id);
+                }
             }
             if (catchUpFrom != null) {
                 startCatchUp(member, catchUpFrom);
@@ -466,6 +518,10 @@ final class SharedPartitionFeed {
      * gate on sharing ({@link SharedSourceGroup#canShare}) already permits, and never a loss.
      */
     private void drainToIdle() {
+        if (order != null) {
+            // An ordered source's position is exact after every poll, not only an empty one.
+            return;
+        }
         long deadline = System.nanoTime() + DRAIN_TIMEOUT.toNanos();
         // With every member paused there is nobody to hand the rest of the scan to: each of them
         // resumes through a catch-up from its own recorded position, whatever this reader does.
@@ -553,8 +609,22 @@ final class SharedPartitionFeed {
             // Where this consumer is, which is where the reader is unless it was still catching up.
             // Resuming from the older of the two is a re-read; resuming from the newer would skip
             // whatever the catch-up had not reached.
-            member.resumeAt = member.catchUp != null ? member.catchUp.position() : position();
+            member.resumeAt = member.catchUp != null
+                    ? member.catchUp.position()
+                    : member.awaitingAt != null ? member.awaitingAt : position();
             member.paused = true;
+            if (order != null) {
+                // Resuming classifies it afresh against wherever the shared reader then stands.
+                closeQuietly(member.catchUp);
+                member.catchUp = null;
+                member.awaitingAt = null;
+                boolean wasListening = member.attached;
+                member.attached = false;
+                if (member.route != null && wasListening) {
+                    member.laneInput.stopListening(member.route.id);
+                }
+                return;
+            }
             if (member.route != null) {
                 // At the row resumeAt names: everything written before it has been, or will be,
                 // handed to this query, and nothing after it will be.
@@ -573,6 +643,22 @@ final class SharedPartitionFeed {
             }
             SourceOffset resumeAt = member.resumeAt;
             boolean movedTheReader = !anyoneLive() && resumeAt != null;
+            if (order != null) {
+                if (movedTheReader) {
+                    replaceReaderAt(resumeAt, request);
+                }
+                member.paused = false;
+                member.resumeAt = null;
+                int where = movedTheReader || resumeAt == null ? 0 : order.compare(resumeAt, position());
+                if (where == 0) {
+                    attach(member);
+                } else if (where < 0) {
+                    startCatchUp(member, resumeAt);
+                } else {
+                    member.awaitingAt = resumeAt;
+                }
+                return;
+            }
             if (movedTheReader) {
                 // LANE-6. Nobody was being fed from where the reader stands: with every member
                 // paused it stopped reading and the source went on without it, so the rows between
@@ -614,6 +700,27 @@ final class SharedPartitionFeed {
         closeQuietly(member.catchUp);
         member.catchUp = plugin.createReader(partition, from, member.request);
         member.catchUpPolled = false;
+        member.seamProgressNanos = System.nanoTime();
+        if (order != null && !(member.catchUp instanceof BoundedPartitionReader)) {
+            throw new PravahaException(
+                    IngestErrors.FEED_FAILED,
+                    "the source for '" + stream + "' declares ordered positions but its reader cannot stop at one "
+                            + "(it is not a BoundedPartitionReader); sharing it would read past the seam (ADR-054)");
+        }
+    }
+
+    /**
+     * Puts a member on the fan-out, at the row the shared reader stands on. Exact mode only; lock held,
+     * between polls, so the seam cannot move while it is crossed.
+     */
+    private void attach(Member member) {
+        closeQuietly(member.catchUp);
+        member.catchUp = null;
+        member.awaitingAt = null;
+        member.attached = true;
+        if (member.route != null) {
+            member.laneInput.listen(member.route.id);
+        }
     }
 
     /** Called with the lock held. */
@@ -652,6 +759,13 @@ final class SharedPartitionFeed {
                 return 0;
             }
             int moved = pollCatchUps();
+            for (int round = 1; order != null && round < CATCH_UP_ROUNDS && moved > 0; round++) {
+                int more = pollCatchUps();
+                if (more == 0) {
+                    break;
+                }
+                moved += more;
+            }
             int read = pollLive();
             if (read > 0) {
                 moved += read;
@@ -678,8 +792,16 @@ final class SharedPartitionFeed {
         // cover stops growing at that moment.
         List<Member> live = new ArrayList<>(members.size());
         int room = BATCH;
+        SourceOffset bound = earliestWaiting();
+        if (bound != null && members.stream().noneMatch(m -> !m.paused && m.attached)) {
+            // Nobody reads from where the shared reader stands, so it can simply move to the first
+            // query waiting ahead of it rather than read the gap for nobody.
+            replaceReaderAt(bound, request);
+            attachWaitingAtPosition();
+            return 0;
+        }
         for (Member member : members) {
-            if (member.paused) {
+            if (member.paused || !member.attached) {
                 continue;
             }
             int free = member.pump.roomForSharedPoll();
@@ -695,11 +817,38 @@ final class SharedPartitionFeed {
         if (live.isEmpty() || room <= 0) {
             return -1;
         }
-        return pollShared(live, room);
+        int read = pollShared(live, room, bound);
+        if (bound != null) {
+            attachWaitingAtPosition();
+        }
+        return read;
+    }
+
+    /** The earliest position a member is waiting ahead at, or null. Exact mode; lock held. */
+    private SourceOffset earliestWaiting() {
+        SourceOffset earliest = null;
+        for (Member member : members) {
+            if (!member.paused && member.awaitingAt != null) {
+                if (earliest == null || order.compare(member.awaitingAt, earliest) < 0) {
+                    earliest = member.awaitingAt;
+                }
+            }
+        }
+        return earliest;
+    }
+
+    /** Attaches every waiting member the shared reader has reached. Exact mode; lock held. */
+    private void attachWaitingAtPosition() {
+        SourceOffset here = position();
+        for (Member member : members) {
+            if (!member.paused && member.awaitingAt != null && order.compare(member.awaitingAt, here) <= 0) {
+                attach(member);
+            }
+        }
     }
 
     /** Called with the lock held. */
-    private int pollShared(List<Member> live, int room) {
+    private int pollShared(List<Member> live, int room, SourceOffset bound) {
         int frozen = 0;
         for (; frozen < live.size(); frozen++) {
             if (!live.get(frozen).pump.freezeIngest(FREEZE_TIMEOUT)) {
@@ -728,9 +877,12 @@ final class SharedPartitionFeed {
                     member.route.listening.add(member);
                 }
             }
-            int read = reader.poll(new BroadcastSink(sinks), room);
-            // Nothing returned is the one moment the position covers exactly what was handed over.
-            readerIdle = read == 0;
+            int read = bound == null
+                    ? reader.poll(new BroadcastSink(sinks), room)
+                    : ((BoundedPartitionReader) reader).pollBefore(new BroadcastSink(sinks), room, bound);
+            // Nothing returned is the one moment the position covers exactly what was handed over --
+            // except for an ordered source, whose position is exact after every poll.
+            readerIdle = read == 0 || order != null;
             if (read > 0) {
                 rowsRead.addAndGet(read);
                 copiesWritten.addAndGet((long) read * sinks.size());
@@ -765,6 +917,9 @@ final class SharedPartitionFeed {
             if (member.catchUp == null || member.paused) {
                 continue;
             }
+            if (order != null && seamReached(member)) {
+                continue;
+            }
             if (member.pump.roomForSharedPoll() <= 0) {
                 // Backpressured, not finished. Telling the two apart is the whole reason this asks
                 // before polling: a full inbox answers zero, and treating that as "caught up" would
@@ -788,6 +943,21 @@ final class SharedPartitionFeed {
                 member.pump.thawIngest();
             }
             moved += read;
+            if (order != null) {
+                if (read > 0) {
+                    member.seamProgressNanos = System.nanoTime();
+                }
+                if (!seamReached(member) && System.nanoTime() - member.seamProgressNanos > SEAM_GRACE.toNanos()) {
+                    throw new PravahaException(
+                            IngestErrors.FEED_FAILED,
+                            "query '" + member.queryName + "' catching up on " + stream + "#" + partition.index()
+                                    + " read nothing for " + SEAM_GRACE.toSeconds()
+                                    + "s while still short of the shared "
+                                    + "reader's position " + position() + " (it stands at " + member.catchUp.position()
+                                    + "); reading on would pass the seam and deliver records twice (ADR-054)");
+                }
+                continue;
+            }
             if (read == 0 && member.catchUpPolled) {
                 closeQuietly(member.catchUp);
                 member.catchUp = null;
@@ -795,6 +965,26 @@ final class SharedPartitionFeed {
             member.catchUpPolled = true;
         }
         return moved;
+    }
+
+    /**
+     * Whether a catching-up member has reached the shared reader, attaching it if so. Exact mode; lock
+     * held. Past the seam cannot happen through {@code pollBefore}; it can if the shared reader was moved
+     * back, and then the member waits for the shared reader instead.
+     */
+    private boolean seamReached(Member member) {
+        int where = order.compare(member.catchUp.position(), position());
+        if (where == 0) {
+            attach(member);
+            return true;
+        }
+        if (where > 0) {
+            member.awaitingAt = member.catchUp.position();
+            closeQuietly(member.catchUp);
+            member.catchUp = null;
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -886,6 +1076,15 @@ final class SharedPartitionFeed {
         private boolean catchUpPolled;
         private boolean paused;
         private SourceOffset resumeAt;
+
+        /** On the fan-out. Always, without an order; in exact mode, from its seam on (ADR-054). */
+        private boolean attached = true;
+
+        /** Exact mode: the position it joined ahead at, which the shared reader has not reached yet. */
+        private SourceOffset awaitingAt;
+
+        /** Exact mode: when its catch-up last delivered anything. */
+        private long seamProgressNanos;
 
         /** Why publishing this query stopped, or null. Guarded by the feed's lock. */
         private volatile PravahaException publishFailure;
@@ -1020,7 +1219,16 @@ final class SharedPartitionFeed {
             PartitionReader catchUp = member.catchUp;
             // Nothing when there is no catch-up: the group's thread writes this consumer's rows
             // through the fan-out, not through here.
-            return catchUp == null ? 0 : catchUp.poll(sink, maxRecords);
+            if (catchUp == null) {
+                return 0;
+            }
+            SharedPartitionFeed feed = member.feed;
+            if (feed.order != null) {
+                // Up to exactly where the shared reader stands, and not a record further. Called on the
+                // group's thread with its lock held, so that position is not moving (ADR-054).
+                return ((BoundedPartitionReader) catchUp).pollBefore(sink, maxRecords, feed.position());
+            }
+            return catchUp.poll(sink, maxRecords);
         }
 
         @Override
@@ -1038,6 +1246,10 @@ final class SharedPartitionFeed {
                     // reader's position instead resumed a restored query past every row it missed
                     // while paused -- silent loss, and a pause is exactly when an operator takes one.
                     return member.resumeAt;
+                }
+                if (member.awaitingAt != null) {
+                    // Waiting ahead: handed nothing yet, so a restore starts exactly where it joined.
+                    return member.awaitingAt;
                 }
                 return feed.position();
             } finally {

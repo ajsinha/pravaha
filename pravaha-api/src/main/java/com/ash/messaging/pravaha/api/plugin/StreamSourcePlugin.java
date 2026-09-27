@@ -61,4 +61,17 @@ public interface StreamSourcePlugin extends PravahaPlugin {
     default PartitionReader createReader(SourcePartition partition, SourceOffset resumeFrom, ReadRequest request) {
         return createReader(partition, resumeFrom);
     }
+
+    /**
+     * How this binding's positions are ordered, or {@code null} when they are not (ADR-054).
+     *
+     * <p>Non-null promises two things: {@link OrderedPositions#compare} orders any two positions this
+     * plugin's readers hand out for one partition, and every reader {@link #createReader} returns is a
+     * {@link BoundedPartitionReader}. Together they let one reader be shared by queries at different
+     * positions, each receiving each record once and in order, even from a source that promises
+     * exactly-once or order. {@code null}, the default, keeps each such query on a reader of its own.
+     */
+    default OrderedPositions orderedPositions() {
+        return null;
+    }
 }

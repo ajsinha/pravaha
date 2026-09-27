@@ -313,6 +313,20 @@ public final class FilesystemSourcePlugin implements StreamSourcePlugin {
         return new FilesystemPartitionReader(path, codec, skipHeader, resumeFrom, deleteMarkers, follow);
     }
 
+    /**
+     * Line numbers, ordered as numbers, when the file is read once through (ADR-054).
+     *
+     * <p>Not when it is followed. A followed file that is replaced -- a log rotation -- restarts its line
+     * count at the top of the new file, so "line 500" before a rotation and "line 5" after one are not in
+     * the order their numbers say, and sharing one reader by that order would strand a query catching up
+     * at a seam it can never reach. A followed file keeps a reader per query until its positions carry
+     * which file they belong to.
+     */
+    @Override
+    public com.ash.messaging.pravaha.api.plugin.OrderedPositions orderedPositions() {
+        return follow ? null : FilesystemPartitionReader::compareLines;
+    }
+
     StreamSchema schema() {
         return schema;
     }

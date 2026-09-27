@@ -641,7 +641,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                 // configuration, and asking before connecting means a source that cannot share does
                 // not pay for a connection this throws away.
                 StreamSourcePlugin plugin = configure(binding);
-                String why = SharedSourceGroup.whyNotShared(plugin.capabilities());
+                String why = SharedSourceGroup.whyNotShared(plugin.capabilities(), plugin.orderedPositions());
                 if (why != null) {
                     unshareable.put(binding, why);
                     closeQuietly(List.of(plugin));
