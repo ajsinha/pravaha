@@ -108,6 +108,18 @@ public final class RegistryJournal {
     /** A pending replacement that ended without moving the name: abandoned, or failed. */
     private static final String REPLACEMENT_ENDED = "E";
 
+    /**
+     * The equality indexes a live name's view keeps (ADR-055): the name, then the output ordinals.
+     *
+     * <p>Follows the {@code R}, {@code W} or {@code C} record it belongs to, in the same append when
+     * it is written with a registration, and applies to the name's current registration only -- a
+     * later {@code R} or {@code C} for the name starts without indexes until another {@code X} says
+     * otherwise. A kind of its own, so a build that predates indexes refuses it by name rather than
+     * replaying the query without them, which would answer correctly and scan where it was told
+     * it would probe.
+     */
+    private static final String INDEX = "X";
+
     private final Path file;
 
     public RegistryJournal(Path file) {
@@ -123,14 +135,34 @@ public final class RegistryJournal {
             Retention retention,
             List<String> parameters,
             String sink,
-            String checkpointDirectory) {
+            String checkpointDirectory,
+            List<Integer> indexed) {
 
         public Entry {
             keyColumns = List.copyOf(keyColumns);
             parameters = List.copyOf(parameters);
+            indexed = indexed == null ? List.of() : List.copyOf(indexed);
             sink = sink == null || sink.isEmpty() ? null : sink;
             checkpointDirectory =
                     checkpointDirectory == null || checkpointDirectory.isEmpty() ? null : checkpointDirectory;
+        }
+
+        /** A registration keeping no equality index. */
+        public Entry(
+                String name,
+                String sql,
+                List<Integer> keyColumns,
+                String owner,
+                Retention retention,
+                List<String> parameters,
+                String sink,
+                String checkpointDirectory) {
+            this(name, sql, keyColumns, owner, retention, parameters, sink, checkpointDirectory, List.of());
+        }
+
+        /** This registration, keeping equality indexes over these output columns. */
+        public Entry withIndexed(List<Integer> columns) {
+            return new Entry(name, sql, keyColumns, owner, retention, parameters, sink, checkpointDirectory, columns);
         }
 
         /** A registration checkpointing into the directory its name implies. */
@@ -206,11 +238,27 @@ public final class RegistryJournal {
             Retention retention,
             BoundParameters parameters,
             String sink) {
+        recordRegistration(name, sql, keyColumns, owner, retention, parameters, sink, List.of());
+    }
+
+    /**
+     * Appends a registration and the equality indexes its view keeps, in one write: two appends
+     * could leave a restart with the query and without its indexes.
+     */
+    public void recordRegistration(
+            String name,
+            String sql,
+            List<Integer> keyColumns,
+            String owner,
+            Retention retention,
+            BoundParameters parameters,
+            String sink,
+            List<Integer> indexed) {
         List<String> encoded = new ArrayList<>();
         for (int index = 0; index < parameters.size(); index++) {
             encoded.add(encodeParameter(parameters.at(index)));
         }
-        recordRegistration(name, sql, keyColumns, owner, retention, encoded, sink);
+        append(registration(name, sql, keyColumns, owner, retention, encoded, sink), indexRecord(name, indexed));
     }
 
     /**
@@ -218,6 +266,26 @@ public final class RegistryJournal {
      * when {@code sink} is null.
      */
     public void recordRegistration(
+            String name,
+            String sql,
+            List<Integer> keyColumns,
+            String owner,
+            Retention retention,
+            List<String> parameters,
+            String sink) {
+        append(registration(name, sql, keyColumns, owner, retention, parameters, sink));
+    }
+
+    /** Appends the equality indexes {@code name}'s current registration keeps, replacing any before. */
+    public void recordIndexes(String name, List<Integer> indexed) {
+        append(indexRecord(name, indexed));
+    }
+
+    private static List<String> indexRecord(String name, List<Integer> indexed) {
+        return indexed == null || indexed.isEmpty() ? null : List.of(INDEX, name, joinInts(indexed));
+    }
+
+    private static List<String> registration(
             String name,
             String sql,
             List<Integer> keyColumns,
@@ -236,7 +304,7 @@ public final class RegistryJournal {
         fields.add(owner == null ? "" : owner);
         fields.add(encodeRetention(retention));
         fields.addAll(parameters);
-        append(fields);
+        return fields;
     }
 
     /** Appends a drop, so a query dropped before a restart stays dropped after it. */
@@ -371,6 +439,13 @@ public final class RegistryJournal {
             pending.remove(fields.get(1));
             return;
         }
+        if (INDEX.equals(kind) && fields.size() >= 3) {
+            Entry indexedEntry = live.get(fields.get(1));
+            if (indexedEntry != null) {
+                live.put(indexedEntry.name(), indexedEntry.withIndexed(parseInts(fields.get(2))));
+            }
+            return;
+        }
         if (REPLACEMENT_ENDED.equals(kind) && fields.size() >= 2) {
             pending.remove(fields.get(1));
             return;
@@ -435,11 +510,26 @@ public final class RegistryJournal {
         live.put(name, entry);
     }
 
-    private void append(List<String> fields) {
-        byte[] payload = ControlWire.encode(fields);
-        ByteBuffer buffer = ByteBuffer.allocate(4 + payload.length);
-        buffer.putInt(payload.length);
-        buffer.put(payload);
+    /** Appends records in one write and one force; a null record is skipped. */
+    @SafeVarargs
+    private void append(List<String>... records) {
+        List<byte[]> payloads = new ArrayList<>();
+        int size = 0;
+        for (List<String> fields : records) {
+            if (fields != null) {
+                byte[] payload = ControlWire.encode(fields);
+                payloads.add(payload);
+                size += 4 + payload.length;
+            }
+        }
+        if (payloads.isEmpty()) {
+            return;
+        }
+        ByteBuffer buffer = ByteBuffer.allocate(size);
+        for (byte[] payload : payloads) {
+            buffer.putInt(payload.length);
+            buffer.put(payload);
+        }
         buffer.flip();
         try {
             Path parent = file.getParent();
@@ -486,16 +576,18 @@ public final class RegistryJournal {
                     // registration, so a compaction that wrote it back as a plain R record would
                     // point the name at a directory holding nothing.
                     rewritten.recordCutover(entry);
-                    continue;
+                } else {
+                    rewritten.recordRegistration(
+                            entry.name(),
+                            entry.sql(),
+                            entry.keyColumns(),
+                            entry.owner(),
+                            entry.retention(),
+                            entry.parameters(),
+                            entry.sink());
                 }
-                rewritten.recordRegistration(
-                        entry.name(),
-                        entry.sql(),
-                        entry.keyColumns(),
-                        entry.owner(),
-                        entry.retention(),
-                        entry.parameters(),
-                        entry.sink());
+                // After the record it belongs to, since an R or a C clears what the name indexed.
+                rewritten.recordIndexes(entry.name(), entry.indexed());
             }
             for (Pending each : pending) {
                 rewritten.recordReplacementStarted(each);

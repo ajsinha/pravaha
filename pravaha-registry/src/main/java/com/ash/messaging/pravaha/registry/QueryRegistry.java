@@ -882,6 +882,7 @@ public final class QueryRegistry implements AutoCloseable {
                 announce(name, delivery);
             }
             try {
+                declaring.forEach(existing.view()::index);
                 journalRegistration(name, sql, keyColumns, principal, retention, parameters, sinkName);
             } catch (RuntimeException e) {
                 deliveries.remove(name);
@@ -906,6 +907,7 @@ public final class QueryRegistry implements AutoCloseable {
             announce(name, delivery);
         }
         try {
+            declaring.forEach(query.view()::index);
             journalRegistration(name, sql, keyColumns, principal, retention, parameters, sinkName);
         } catch (RuntimeException e) {
             deliveries.remove(name);
@@ -940,7 +942,8 @@ public final class QueryRegistry implements AutoCloseable {
             BoundParameters parameters,
             String sinkName) {
         if (journal != null) {
-            journal.recordRegistration(name, sql, keyColumns, principal.id(), retention, parameters, sinkName);
+            journal.recordRegistration(
+                    name, sql, keyColumns, principal.id(), retention, parameters, sinkName, declaring);
         }
     }
 
@@ -953,18 +956,40 @@ public final class QueryRegistry implements AutoCloseable {
             Retention retention,
             BoundParameters parameters,
             String sinkName,
-            String checkpointDirectory) {
+            String checkpointDirectory,
+            List<Integer> indexed) {
         RegistryJournal suspended = journal;
         journal = null;
         String directory = recoveringInto;
         recoveringInto = checkpointDirectory;
         try {
-            return register(name, sql, keyColumns, principal, retention, parameters, sinkName);
+            return declaringIndexes(
+                    indexed, () -> register(name, sql, keyColumns, principal, retention, parameters, sinkName));
         } finally {
             journal = suspended;
             recoveringInto = directory;
         }
     }
+
+    /**
+     * Runs one registration that also declares equality indexes over these output columns
+     * (ADR-055): kept on the view before the registration is acknowledged, and journalled in the
+     * same append as the registration, so a restart never brings the query back without them.
+     * Held for the length of one call, as {@link #recoveringInto} is.
+     */
+    synchronized RegisteredQuery declaringIndexes(
+            List<Integer> indexed, java.util.function.Supplier<RegisteredQuery> registration) {
+        List<Integer> previous = declaring;
+        declaring = List.copyOf(indexed);
+        try {
+            return registration.get();
+        } finally {
+            declaring = previous;
+        }
+    }
+
+    /** The equality indexes the registration in progress declares; see {@link #declaringIndexes}. */
+    private List<Integer> declaring = List.of();
 
     /**
      * The checkpoint directory a registration being replayed keeps, when it is not the one its name

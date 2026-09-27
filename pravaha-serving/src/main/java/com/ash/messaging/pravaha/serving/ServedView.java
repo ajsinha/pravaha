@@ -309,6 +309,12 @@ public final class ServedView {
             Object[] replaced = visible.get(key);
             if (replaced != null) {
                 indexRemove(replaced);
+                // The equality indexes are told the row the view held, never the retraction: the
+                // entry to delete is filed under the PREVIOUS row's value, and this is the one
+                // place that value is known for certain (ADR-055).
+                for (EqualityIndex<Key> index : equalityIndexes.values()) {
+                    index.remove(key, replaced);
+                }
             }
             if (values == null) {
                 visible.remove(key);
@@ -322,6 +328,9 @@ public final class ServedView {
                 visible.remove(key);
                 visible.put(key, values);
                 indexPut(values);
+                for (EqualityIndex<Key> index : equalityIndexes.values()) {
+                    index.put(key, values);
+                }
                 // The row's own event time, not the commit's. A commit covers a batch and the rows
                 // in it are not all the same age.
                 writtenAt.put(key, pendingTime.getOrDefault(key, frontier));
@@ -444,14 +453,12 @@ public final class ServedView {
     //  * The key's leading columns by equality and its LAST column between bounds: the ordered
     //    index below. `RANGE (column)` in the statement declares it -- see ADR-049 for why that
     //    declaration is a check rather than an allocation.
-    //  * A predicate on a column that is not in the key stays a scan and a filter, which is what
-    //    design section 17.2 says it is ("Secondary predicate | Best effort"). An index over a
-    //    non-key column is a different structure with a different failure mode: a row's non-key
-    //    values change under it, so every update is a delete and an insert in the index as well as
-    //    in the view, and the entry to delete is found from the row's PREVIOUS values -- which a
-    //    Z-set retraction may or may not carry. That is not refused here because it is hard; it is
-    //    refused because getting it subtly wrong leaves an index that disagrees with the view it
-    //    indexes, which is a wrong answer with a confident face.
+    //  * A predicate on a column that is not in the key is a scan and a filter unless the column
+    //    was declared with INDEX (column), in which case it is an equality-index probe (ADR-055).
+    //    That index has the failure mode ADR-049 declined it for -- a row's non-key values change
+    //    under it, so the entry to delete must be found from the row's PREVIOUS values -- and the
+    //    answer is that the previous row is the one in `visible`, read under this monitor in the
+    //    same critical section that replaces it, never the retraction that caused the change.
 
     /**
      * The ordered index: for each value of the key's leading columns, the rows with that prefix
@@ -541,6 +548,117 @@ public final class ServedView {
         for (Object[] values : visible.values()) {
             indexPut(values);
         }
+    }
+
+    // ------------------------------------------------------------------ equality indexes (ADR-055)
+
+    /**
+     * How many columns of one view may carry an equality index. Each costs one entry per visible
+     * row, so this and the view's key ceiling together bound what the indexes can hold.
+     */
+    public static final int MAX_EQUALITY_INDEXES = 4;
+
+    /**
+     * Declared equality indexes, by the column each is over. Guarded by {@code this}, maintained in
+     * {@code commit}, {@code evict} and {@code restore} with the rows they point at.
+     */
+    private final Map<Integer, EqualityIndex<Key>> equalityIndexes = new java.util.LinkedHashMap<>();
+
+    private long indexLookups;
+    private long equalityIndexBuilds;
+
+    /**
+     * Keeps an equality index over {@code ordinal} from now on, built at once from the committed
+     * rows. Declaring one that is already kept does nothing, because two registrations sharing
+     * this view may each declare it.
+     *
+     * <p>Which columns may be indexed is judged at registration, against the planned output, by
+     * {@code ContinuousStatement.Create.indexOrdinal}; this refuses only what would be unsafe
+     * whoever asked.
+     *
+     * @throws PravahaException {@code PRV-2074} past {@link #MAX_EQUALITY_INDEXES}
+     */
+    public synchronized void index(int ordinal) {
+        if (ordinal < 0 || ordinal >= schema.fieldCount()) {
+            throw new IllegalArgumentException("view '" + name + "' has " + schema.fieldCount()
+                    + " columns, so there is no column " + ordinal + " to index");
+        }
+        if (equalityIndexes.containsKey(ordinal)) {
+            return;
+        }
+        if (equalityIndexes.size() >= MAX_EQUALITY_INDEXES) {
+            throw new PravahaException(
+                    com.ash.messaging.pravaha.sql.SqlErrors.INDEX_UNUSABLE,
+                    "view '" + name + "' already keeps " + MAX_EQUALITY_INDEXES + " equality indexes, on "
+                            + indexedColumnNames() + ", and that is the most one view keeps: each costs an entry "
+                            + "per row, and the view's ceiling bounds the rows, not the indexes. Index one "
+                            + "of those columns, or read '"
+                            + schema.field(ordinal).name() + "' by a scan.");
+        }
+        EqualityIndex<Key> index = new EqualityIndex<>(ordinal);
+        rebuild(index);
+        equalityIndexes.put(ordinal, index);
+    }
+
+    private void rebuild(EqualityIndex<Key> index) {
+        index.clear();
+        equalityIndexBuilds++;
+        for (Map.Entry<Key, Object[]> entry : visible.entrySet()) {
+            index.put(entry.getKey(), entry.getValue());
+        }
+    }
+
+    /** The columns an equality index is kept over, in the order they were declared. */
+    public synchronized List<Integer> indexedColumns() {
+        return List.copyOf(equalityIndexes.keySet());
+    }
+
+    private List<String> indexedColumnNames() {
+        List<String> names = new ArrayList<>();
+        equalityIndexes
+                .keySet()
+                .forEach(ordinal -> names.add(schema.field(ordinal).name()));
+        return names;
+    }
+
+    /**
+     * The committed rows whose column {@code ordinal} holds one of {@code values}, from that
+     * column's equality index: one probe per value, not a scan.
+     *
+     * <p>Each value must already be the column's stored class -- {@code ViewAccessPath} converts a
+     * literal before it asks -- because the index is filed by stored-value equality. A value given
+     * twice is probed once, so a row is never returned twice.
+     *
+     * @throws IllegalArgumentException when no index is kept over {@code ordinal}
+     */
+    public synchronized List<Object[]> committedWith(int ordinal, java.util.Collection<?> values) {
+        EqualityIndex<Key> index = equalityIndexes.get(ordinal);
+        if (index == null) {
+            throw new IllegalArgumentException("view '" + name + "' keeps no equality index over column " + ordinal
+                    + "; it keeps " + equalityIndexes.keySet());
+        }
+        indexLookups++;
+        List<Object[]> rows = new ArrayList<>();
+        for (Object value : new java.util.LinkedHashSet<>(values)) {
+            rows.addAll(index.rowsWith(value));
+        }
+        return rows;
+    }
+
+    /** Entries the equality index over {@code ordinal} holds; zero when there is none. */
+    public synchronized long indexEntries(int ordinal) {
+        EqualityIndex<Key> index = equalityIndexes.get(ordinal);
+        return index == null ? 0 : index.entries();
+    }
+
+    /** Reads answered by probing an equality index rather than by a scan. */
+    public long indexLookups() {
+        return indexLookups;
+    }
+
+    /** Times an equality index was built from the committed rows: once when declared, once per restore. */
+    public long equalityIndexBuilds() {
+        return equalityIndexBuilds;
     }
 
     /**
@@ -872,6 +990,12 @@ public final class ServedView {
         }
         committedFrontier = contents.frontier();
         appliedFrontier = Math.max(appliedFrontier, contents.frontier());
+        // The equality indexes are declared, not built on demand, so they are rebuilt here and now
+        // from the restored rows: a read by the indexed column straight after a restore must find
+        // them, and the index is never allowed to be a step behind the view it indexes.
+        for (EqualityIndex<Key> index : equalityIndexes.values()) {
+            rebuild(index);
+        }
     }
 
     /**
@@ -1019,6 +1143,9 @@ public final class ServedView {
                 Long written = writtenAt.get(key);
                 if (written != null && written < horizon) {
                     indexRemove(entry.getValue());
+                    for (EqualityIndex<Key> index : equalityIndexes.values()) {
+                        index.remove(key, entry.getValue());
+                    }
                     entries.remove();
                     writtenAt.remove(key);
                     // The weight goes with the row. Leaving it behind would mean a key that is

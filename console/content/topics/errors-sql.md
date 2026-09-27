@@ -4,10 +4,10 @@ slug: errors-sql
 category: errors
 order: 30
 icon: code-square
-summary: "PRV-2001 to PRV-2073: every way the planner refuses a query — syntax, names, operators and functions it will not run, unbounded state, parameters, sinks, and CREATE CONTINUOUS QUERY."
+summary: "PRV-2001 to PRV-2074: every way the planner refuses a query — syntax, names, operators and functions it will not run, unbounded state, parameters, sinks, and CREATE CONTINUOUS QUERY."
 badge: PRV-2XXX
 audience: Analysts, developers
-keywords: [syntax, validation, unknown column, unsupported, order by, limit, union, unbounded, group by, parameter, placeholder, keyed by, range, create continuous query, insert into, emit mode, retraction, append-only, sink]
+keywords: [syntax, validation, unknown column, unsupported, order by, limit, union, unbounded, group by, parameter, placeholder, keyed by, range, index, create continuous query, insert into, emit mode, retraction, append-only, sink]
 guide: continuous-queries#19-error-codes
 related: [sql-refusals, sql-reference, create-continuous-query, sql-parameters, errors-overview]
 ---
@@ -42,6 +42,8 @@ help's example streams: `txn`, `orders`, `shipments`, `trades`, `quotes` and `re
 | PRV-2070 | SQL_STATEMENT_MALFORMED | A `CREATE`/`DROP`/`PAUSE`/`RESUME`/`SHOW` statement without its shape |
 | PRV-2071 | SQL_KEY_COLUMN_UNKNOWN | `KEYED BY` names a column the query does not produce |
 | PRV-2072 | SQL_CLAUSE_NOT_BUILT | A clause of the design's grammar that is not built |
+| PRV-2073 | SQL_RANGE_NOT_ORDERED | `RANGE` over a column with no total order |
+| PRV-2074 | SQL_INDEX_UNUSABLE | `INDEX` over a column this engine keeps no equality index for |
 
 ## Reading the query
 
@@ -545,6 +547,32 @@ AS SELECT merchant, amount FROM txn
 
 The check runs at registration, against the columns the view will actually have, rather than at the
 first read that wanted the index.
+
+### PRV-2074 — `INDEX` over a column this engine keeps no equality index for
+
+`INDEX (column)` keeps an equality index over a column outside the key, and a read probes it with
+the literal it was given. That finds every row the `WHERE` clause keeps only where two values the
+filter calls equal are the same stored value. They are not for `FLOAT` (`0.0` and `-0.0`; `NaN` is
+equal to nothing), `DECIMAL` (`1.0` and `1.00`) or `BYTES`, so those are refused. So is the view's
+whole key, whose lookup is already a hash probe, and a fifth index on one view.
+
+<!-- sql: refused PRV-2074 -->
+```sql
+CREATE CONTINUOUS QUERY by_ratio
+    KEYED BY (txn_id) INDEX (ratio)
+AS SELECT txn_id, CAST(amount AS DOUBLE) AS ratio FROM txn
+```
+
+**Do:** index a whole-number, temporal, text or `BOOLEAN` column outside the key — or drop the
+`INDEX`; a read by that column still works, as a scan:
+
+```sql
+CREATE CONTINUOUS QUERY by_merchant
+    KEYED BY (txn_id) INDEX (merchant)
+AS SELECT txn_id, merchant, amount FROM txn
+```
+
+The check runs at registration, against the columns the view will actually have.
 
 ### PRV-2020 on `INSERT` — there is no DML surface
 

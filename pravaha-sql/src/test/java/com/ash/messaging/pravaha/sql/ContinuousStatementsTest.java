@@ -685,4 +685,62 @@ class ContinuousStatementsTest {
                     .isNotEmpty();
         }
     }
+
+    // ------------------------------------------------------------------ the equality index (ADR-055)
+
+    @Test
+    void anIndexClauseNamesOneColumnAndResolvesToItsOrdinal() {
+        ContinuousStatement.Create statement =
+                create("CREATE CONTINUOUS QUERY v KEYED BY (user_id) INDEX (region) AS SELECT 1");
+        assertThat(statement.indexColumn()).contains("region");
+        assertThat(statement.indexOrdinal(OUTPUT)).contains(1);
+        assertThat(statement.withIndexColumn("total").indexOrdinal(OUTPUT)).contains(2);
+        assertThat(create("CREATE CONTINUOUS QUERY v KEYED BY (user_id) AS SELECT 1")
+                        .indexOrdinal(OUTPUT))
+                .isEmpty();
+    }
+
+    @Test
+    void anIndexClauseTwiceOrOverTwoColumnsIsMalformed() {
+        assertThat(refusal("CREATE CONTINUOUS QUERY v KEYED BY (user_id) INDEX (region) INDEX (total) AS SELECT 1"))
+                .hasMessageContaining("PRV-2070")
+                .hasMessageContaining("INDEX is given twice");
+        assertThat(refusal("CREATE CONTINUOUS QUERY v KEYED BY (user_id) INDEX (region, total) AS SELECT 1"))
+                .hasMessageContaining("PRV-2070")
+                .hasMessageContaining("composite");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"price", "ratio", "blob"})
+    void anIndexOverATypeWhoseEqualityIsNotItsStoredValuesIsRefusedAndSaysWhy(String column) {
+        StreamSchema output = StreamSchema.builder("out")
+                .field("user_id", Types.string())
+                .field("price", Types.decimal(18, 4))
+                .field("ratio", Types.float64())
+                .field("blob", Types.bytes())
+                .field("flag", Types.bool())
+                .build();
+
+        assertThatThrownBy(() -> create(
+                                "CREATE CONTINUOUS QUERY v KEYED BY (user_id) INDEX (" + column + ") " + "AS SELECT 1")
+                        .indexOrdinal(output))
+                .isInstanceOfSatisfying(
+                        PravahaException.class, e -> assertThat(e.errorCode()).isEqualTo(SqlErrors.INDEX_UNUSABLE))
+                .hasMessageContaining("PRV-2074")
+                .hasMessageContaining("equality index");
+        assertThat(create("CREATE CONTINUOUS QUERY v KEYED BY (user_id) INDEX (flag) AS SELECT 1")
+                        .indexOrdinal(output))
+                .contains(4);
+    }
+
+    @Test
+    void anIndexOverTheWholeKeyIsRefusedAndOneOverPartOfAWiderKeyIsNot() {
+        assertThatThrownBy(() -> create("CREATE CONTINUOUS QUERY v KEYED BY (user_id) INDEX (user_id) AS SELECT 1")
+                        .indexOrdinal(OUTPUT))
+                .hasMessageContaining("PRV-2074")
+                .hasMessageContaining("whole key");
+        assertThat(create("CREATE CONTINUOUS QUERY v KEYED BY (user_id, region) INDEX (user_id) AS SELECT 1")
+                        .indexOrdinal(OUTPUT))
+                .contains(0);
+    }
 }

@@ -35,6 +35,7 @@ import com.ash.messaging.pravaha.api.PravahaException;
  * CREATE [OR REPLACE] CONTINUOUS QUERY name
  *     KEYED BY (column [, column]...)
  *     [RANGE (column)]
+ *     [INDEX (column)]
  *     [WRITING TO sink]
  *     [RETAIN FOR duration | RETAIN FOREVER]
  *     [WITH (option = value [, option = value]...)]
@@ -61,6 +62,12 @@ import com.ash.messaging.pravaha.api.PravahaException;
  * refused -- the one place the two words are not aliases, because widening a key somebody has just
  * written out changes what the view conflates and therefore every count over it.
  *
+ * <p>{@code INDEX (column)} asks for an equality index over one column outside the key: value to
+ * keys, kept in the view's own commit, so that {@code WHERE column = literal} (or {@code IN} a
+ * list of them) probes rather than scans (ADR-055). One column, because a list would read as a
+ * composite index, which this is not; whether the column can be indexed is judged against the
+ * planned output, not here.
+ *
  * <p>{@code WITH (...)} is read here and judged elsewhere, because which options exist depends on
  * what the statement is: a plain {@code CREATE} takes a registration's ({@code
  * RegistrationOptions}), {@code CREATE OR REPLACE} takes a replacement's ({@code
@@ -83,7 +90,7 @@ import com.ash.messaging.pravaha.api.PravahaException;
 public final class ContinuousStatements {
 
     static final String CREATE_SHAPE = "CREATE [OR REPLACE] CONTINUOUS QUERY <name> KEYED BY (<column>, ...) "
-            + "[RANGE (<column>)] [WRITING TO <sink>] [RETAIN FOR <duration> | RETAIN FOREVER] "
+            + "[RANGE (<column>)] [INDEX (<column>)] [WRITING TO <sink>] [RETAIN FOR <duration> | RETAIN FOREVER] "
             + "[WITH (<option> = <value>, ...)] AS <select>";
     static final String DROP_SHAPE = "DROP CONTINUOUS QUERY <name>";
     static final String PAUSE_SHAPE = "PAUSE CONTINUOUS QUERY <name>";
@@ -220,6 +227,7 @@ public final class ContinuousStatements {
             boolean keyedBy = false;
             String range = null;
             StatementLexer.Token rangeAt = null;
+            String index = null;
             String sink = null;
             ContinuousStatement.Retain retain = null;
             java.util.Map<String, String> options = new java.util.LinkedHashMap<>();
@@ -251,6 +259,7 @@ public final class ContinuousStatements {
                                 name,
                                 withRange(keys, keyedBy, range, rangeAt),
                                 Optional.ofNullable(range),
+                                Optional.ofNullable(index),
                                 Optional.ofNullable(sink),
                                 Optional.ofNullable(retain),
                                 select,
@@ -278,6 +287,18 @@ public final class ContinuousStatements {
                                             + "builds one");
                         }
                         range = ranged.get(0);
+                    }
+                    case "INDEX" -> {
+                        once(index == null, clause, "INDEX");
+                        List<String> indexed = columns();
+                        if (indexed.size() != 1) {
+                            throw malformed(
+                                    clause.start(),
+                                    "INDEX names " + indexed.size() + " columns and an equality index is "
+                                            + "kept over one. A list would read as a composite index, which "
+                                            + "this is not: name the one column a read will pin with = or IN");
+                        }
+                        index = indexed.get(0);
                     }
                     case "WRITING", "INTO" -> {
                         once(sink == null, clause, "the sink");
@@ -312,7 +333,7 @@ public final class ContinuousStatements {
                     default ->
                         throw unexpected(
                                 clause,
-                                "KEYED BY (...), RANGE (<column>), WRITING TO <sink>, RETAIN FOR <duration>, "
+                                "KEYED BY (...), RANGE (<column>), INDEX (<column>), WRITING TO <sink>, RETAIN FOR <duration>, "
                                         + "RETAIN FOREVER, WITH (...) or AS <select>");
                 }
             }

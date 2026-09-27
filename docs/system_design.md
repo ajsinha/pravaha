@@ -2008,7 +2008,7 @@ An incrementally-maintained view (§9) *is* a materialized table sitting in lane
 | **Multi-get** up to 1024 keys | p99 ≤ 500 µs | Scatter to owning lanes, gather |
 | **Prefix / range scan** on the key | p99 ≤ 2 ms per 1 k rows | Ordered index over the key when declared `INDEXED BY RANGE` |
 | **Full view scan** | Streaming | Consistent iterator at a pinned frontier |
-| **Secondary predicate** | Best effort | Scan + filter; the planner warns and suggests an index at registration |
+| **Secondary predicate** | Best effort | Scan + filter; an equality index when the registration declares `INDEX (column)` — `=` or `IN` on that column is one probe per value ([ADR-055](adr/055-an-equality-index-over-a-column-outside-the-key.md)). The warning and suggestion at registration are not built |
 
 Exposed identically over gRPC (Arrow batches), Avatica JDBC — so BI tools and `psql`-style clients work — and a plain REST/JSON endpoint for application developers who want neither.
 

@@ -46,7 +46,7 @@ distinct keys and never shrinks. ...
 | PRV-2021 | Expression | An expression or function the engine cannot compile |
 | PRV-2050 | Unbounded state | The query's state would grow without limit |
 | PRV-2060 to PRV-2063 | Parameters | See [parameters](/help/topics/sql-parameters) |
-| PRV-2070 to PRV-2073 | Statements | See [CREATE CONTINUOUS QUERY](/help/topics/create-continuous-query) |
+| PRV-2070 to PRV-2074 | Statements | See [CREATE CONTINUOUS QUERY](/help/topics/create-continuous-query) |
 
 The three rules underneath almost every refusal:
 

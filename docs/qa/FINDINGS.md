@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **410 findings carrying a
-status — 377 FIXED, 19 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 19 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 15 POST-GA and 4 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **413 findings carrying a
+status — 377 FIXED, 22 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 22 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 18 POST-GA and 4 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7046,4 +7046,21 @@ the lead.
 
 > **Status:** OPEN — not reproduced; found by reading, while deciding B3. `backfillRefusal` does not refuse postgres-cdc (its offsets are replayable and ordered), so `PluginSourceFeeds.openBackfill` opens a second plugin instance on the same binding and therefore the same slot (`pravaha_<table>` by default). PostgreSQL lets one connection use a slot at a time, so the new version's reader likely fails while the running one streams, and the two could confirm positions on one slot.
 > **Disposition:** POST-GA — a Testcontainers check first; then either a refusal naming the slot, or a slot of the replacement's own.
+
+## Found building B2, the equality index (2026-09-27), 3 findings
+
+### VIEWW-1 (MEDIUM) — a retraction that leaves a key's weight positive may leave the retracted row's values as the key's row
+
+> **Status:** OPEN — not reproduced; found by reading `ServedView.applyWeighted`. A key inserted as A and then as B (weight 2) and then retracted as A appears to keep A's values as its row, where the row still present is B. The equality index follows the view, so the two agree; the question is whether the view does.
+> **Disposition:** POST-GA — a Z-set property test on the view first.
+
+### IDXSHR-1 (LOW) — dropping one name of a shared computation keeps the index that name declared until restart
+
+> **Status:** OPEN — memory only, never an answer: the index stays on the shared view the other names still read.
+> **Disposition:** POST-GA — reference-count indexes by the names that declared them.
+
+### IDXVIS-1 (LOW) — nothing shows a user which access path a view read took
+
+> **Status:** OPEN — the counters (`indexLookups`, `scans`, `indexEntries`) exist in the view and its tests but reach no metric, API or console screen; true of ADR-049's paths too.
+> **Disposition:** POST-GA — expose them per view in the metrics and on the query page.
 

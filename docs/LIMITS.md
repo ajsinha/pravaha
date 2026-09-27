@@ -33,20 +33,24 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
   **Built for Kafka and for files read once through** ([ADR-054](adr/054-an-ordered-source-is-shared-at-an-exact-seam.md)): one reader per binding, each record to each query once and in order, and partitions a topic gains joined by every query sharing its reader. **Buildable:** Delta and JDBC, once their positions are shown to be totally ordered. postgres-cdc stays per query: its slot can be confirmed only up to the slowest member's checkpoint.
 
-- **A secondary index over a column that is not in a view's key.** The rest of the design's
-  `CREATE CONTINUOUS QUERY` grammar is built: `RANGE (column)` keeps an ordered index over the
-  key's last column, so a prefix-and-bounds read walks a run rather than the view, and a lookup by
-  the whole key is a hash probe on any view at all; `WITH (...)` on a plain `CREATE` takes
-  `retention`, `sink` and `keys`, the arguments a registration already had. What is not built is
-  design §17.2's other row — a predicate on a column outside the key, which is still a scan and a
-  filter, as that row itself says it is. `RANGE` over a column this engine has no total order for
-  (text, `FLOAT`, `DECIMAL`, `BYTES`, `BOOLEAN`) is refused at registration by name (`PRV-2073`),
-  as is a `WITH` option that does not exist (`PRV-8017`), `EMIT CHANGES WITH (...)` (`PRV-2072`),
-  and `INSERT INTO <sink> SELECT` (`PRV-2020`) — which carries neither the query's name nor its
-  key, so the refusal names `WRITING TO`, `WITH (sink = ...)` and `--sink` instead
+- **A secondary predicate is a probe only on a declared column, by equality.** The design's
+  `CREATE CONTINUOUS QUERY` grammar is built: `RANGE (column)` keeps an ordered index over the key's
+  last column, a lookup by the whole key is a hash probe on any view, and `INDEX (column)` (or `WITH
+  (index = 'column')`) keeps an equality index over one column outside the key, kept in the view's
+  own commit and journalled with the registration, so `WHERE column = literal` or `column IN (...)`
+  probes it ([ADR-055](adr/055-an-equality-index-over-a-column-outside-the-key.md)). What is still a
+  scan and a filter: a column nobody declared, a range on a non-key column, `<>`, an `OR` across
+  columns, and a partial key with no index. At most four equality indexes per view, on the heap and
+  bounded by the view's key ceiling; they do not spill, because the view does not. Refused at
+  registration by name: an `INDEX` over `FLOAT`, `DECIMAL`, `BYTES` or the view's whole key
+  (`PRV-2074`), `RANGE` over a column with no total order (`PRV-2073`), a `WITH` option that does
+  not exist (`PRV-8017`), `EMIT CHANGES WITH (...)` (`PRV-2072`), and `INSERT INTO <sink> SELECT`
+  (`PRV-2020`) — which carries neither the query's name nor its key, so the refusal names `WRITING
+  TO`, `WITH (sink = ...)` and `--sink` instead
   ([ADR-049](adr/049-an-ordered-index-over-the-keys-last-column.md)).
 
-  **Buildable:** a maintained secondary index (value → keys) declared on the view, updated with the view in the same commit.
+  **Buildable:** design §17.2's warning at registration that suggests an index, and a plan a user can
+  ask for that shows which access path a view read took (today the view's counters say it).
 
 - **The snapshot-and-change-feed splice: a boundary, not a gap.** Design §16.1's other backfill — a
   table snapshot joined to a change feed, deduplicated by the store's own version — is built and

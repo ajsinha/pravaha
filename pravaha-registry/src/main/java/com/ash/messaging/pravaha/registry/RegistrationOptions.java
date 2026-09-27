@@ -30,11 +30,12 @@ import com.ash.messaging.pravaha.serving.Retention;
  *
  * <p>The list is not a new surface. It is the arguments {@link QueryRegistry}'s registration
  * overloads already take, said in SQL rather than passed to a method: the view's retention, the
- * sink its changelog goes to, and the columns it is keyed by. Everything else a caller can choose
+ * sink its changelog goes to, the columns it is keyed by, and the column an equality index is kept
+ * over ({@code index}, the {@code INDEX (column)} clause said as a value, ADR-055). Everything else a caller can choose
  * about a registration is chosen by the statement itself, and an option that would be a second way
  * to say the same thing is refused as saying it twice rather than quietly winning.
  *
- * <p><strong>Why these three and nothing else.</strong> A {@code WITH} list is a place where
+ * <p><strong>Why these four and nothing else.</strong> A {@code WITH} list is a place where
  * unknown words go unnoticed, which is why {@code PRV-2072} refused the whole list until B8: an
  * ignored {@code 'retention' = '24h'} is a view kept for ever that somebody asked to keep for a
  * day. Accepting the list does not change that judgement, it moves it -- every option is either
@@ -51,22 +52,25 @@ import com.ash.messaging.pravaha.serving.Retention;
  * @param sink the sink binding the changelog is written to, or empty for a view-only registration
  * @param keyColumns the output columns the view is keyed by, by name, or empty when the statement
  *     said it with {@code KEYED BY}
+ * @param indexColumn the one column an equality index is kept over, or empty for none
  */
-public record RegistrationOptions(Optional<Retention> retention, Optional<String> sink, List<String> keyColumns) {
+public record RegistrationOptions(
+        Optional<Retention> retention, Optional<String> sink, List<String> keyColumns, Optional<String> indexColumn) {
 
     public RegistrationOptions {
         java.util.Objects.requireNonNull(retention, "retention");
         java.util.Objects.requireNonNull(sink, "sink");
         keyColumns = List.copyOf(keyColumns);
+        java.util.Objects.requireNonNull(indexColumn, "indexColumn");
     }
 
     /** Nothing said: the registry's defaults, and the statement's own clauses. */
     public static RegistrationOptions defaults() {
-        return new RegistrationOptions(Optional.empty(), Optional.empty(), List.of());
+        return new RegistrationOptions(Optional.empty(), Optional.empty(), List.of(), Optional.empty());
     }
 
     /** Every option this engine builds, in the order the refusal lists them. */
-    public static final List<String> KNOWN = List.of("retention", "sink", "keys");
+    public static final List<String> KNOWN = List.of("retention", "sink", "keys", "index");
 
     /** Reads a whole {@code WITH (...)} list. */
     public static RegistrationOptions of(Map<String, String> options) {
@@ -86,12 +90,14 @@ public record RegistrationOptions(Optional<Retention> retention, Optional<String
     public static RegistrationOptions with(RegistrationOptions options, String key, String value) {
         return switch (key) {
             case "retention" ->
-                new RegistrationOptions(Optional.of(retention(value)), options.sink(), options.keyColumns());
+                new RegistrationOptions(
+                        Optional.of(retention(value)), options.sink(), options.keyColumns(), options.indexColumn());
             case "sink" -> {
                 if (value.isBlank()) {
                     throw unknown("sink", "a sink option names a binding under pravaha.sinks; it cannot be empty");
                 }
-                yield new RegistrationOptions(options.retention(), Optional.of(value.strip()), options.keyColumns());
+                yield new RegistrationOptions(
+                        options.retention(), Optional.of(value.strip()), options.keyColumns(), options.indexColumn());
             }
             case "key", "keys" -> {
                 List<String> columns = new ArrayList<>();
@@ -106,7 +112,19 @@ public record RegistrationOptions(Optional<Retention> retention, Optional<String
                             "a keys option names the view's key columns, comma-separated, as the SELECT list "
                                     + "spells them; an empty one says nothing");
                 }
-                yield new RegistrationOptions(options.retention(), options.sink(), columns);
+                yield new RegistrationOptions(options.retention(), options.sink(), columns, options.indexColumn());
+            }
+            case "index" -> {
+                String column = value.strip();
+                if (column.isEmpty() || column.contains(",")) {
+                    throw unknown(
+                            "index",
+                            "index = '" + value + "' does not name one column. An equality index is kept over "
+                                    + "exactly one column outside the key, named as the SELECT list names it; a "
+                                    + "list would read as a composite index, which this is not");
+                }
+                yield new RegistrationOptions(
+                        options.retention(), options.sink(), options.keyColumns(), Optional.of(column));
             }
             default ->
                 throw unknown(
@@ -114,7 +132,8 @@ public record RegistrationOptions(Optional<Retention> retention, Optional<String
                         "'" + key + "' is not an option a registration takes, and it is refused rather than "
                                 + "ignored -- an ignored option is a setting somebody believes is in force. A "
                                 + "registration takes retention (a duration, or 'forever'), sink (a binding "
-                                + "under pravaha.sinks) and keys (the view's key columns, comma-separated). "
+                                + "under pravaha.sinks), keys (the view's key columns, comma-separated) and "
+                                + "index (one column to keep an equality index over). "
                                 + "backfill, backfill.rate.limit, cutover and rollback.retention belong to "
                                 + "CREATE OR REPLACE, which is the statement that runs one. The design's "
                                 + "consistency.default, parallelism and allowed.lateness are not built: "

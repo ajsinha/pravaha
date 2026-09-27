@@ -27,7 +27,8 @@ import com.ash.messaging.pravaha.runtime.plan.Predicate;
 import com.ash.messaging.pravaha.runtime.plan.ScanOperator;
 
 /**
- * Which rows of a view a read has to look at: all of them, one of them, or a run of them.
+ * Which rows of a view a read has to look at: all of them, one of them, a run of them, or the ones
+ * an equality index files under a value.
  *
  * <p>Design section 17.2 lists three access paths and, until B8, every read took the first. A read
  * of a view -- over Flight SQL, over {@code /api/v1/views/{name}/query}, or over the PostgreSQL
@@ -43,7 +44,7 @@ import com.ash.messaging.pravaha.runtime.plan.ScanOperator;
  * cannot prove a superset it returns empty, which means "scan". {@code ViewIndexEquivalenceTest}
  * asserts that equivalence over generated predicates rather than trusting the argument.
  *
- * <p>The two paths it can prove:
+ * <p>The three paths it can prove:
  *
  * <ul>
  *   <li><strong>The whole key by equality</strong> -- {@code WHERE user_id = 'u_42'} on a view keyed
@@ -52,10 +53,13 @@ import com.ash.messaging.pravaha.runtime.plan.ScanOperator;
  *       {@code WHERE user_id = 'u_42' AND window_end >= 1000 AND window_end < 2000}. The ordered
  *       index, which {@code RANGE (window_end)} declares and which {@link ServedView} builds on
  *       first use.
+ *   <li><strong>A column outside the key by equality, or {@code IN} a list</strong> -- {@code WHERE
+ *       region = 'eu'}, when the registration declared {@code INDEX (region)}. One probe of the
+ *       equality index per value (ADR-055).
  * </ul>
  *
- * <p>Anything else scans, including a predicate on a column outside the key, which is exactly what
- * design section 17.2's last row says it is: best effort, scan and filter.
+ * <p>Anything else scans, including a predicate on a column outside the key that nobody declared
+ * an index over: design section 17.2's last row, best effort, scan and filter.
  */
 final class ViewAccessPath {
 
@@ -70,9 +74,57 @@ final class ViewAccessPath {
         if (predicate.isEmpty()) {
             return Optional.empty();
         }
+        List<Predicate> conjuncts = conjunctsOf(predicate.get());
+        // The key's own paths first: a probe by the whole key is one row, and a range run is
+        // bounded by the key. Failing those, a declared equality index.
+        Optional<List<Object[]>> byKey = byKey(conjuncts, view);
+        return byKey.isPresent() ? byKey : byIndex(conjuncts, view);
+    }
+
+    /**
+     * The rows a declared equality index can prove are a superset of the answer (ADR-055).
+     *
+     * <p>A conjunct {@code column = literal}, or an {@code OR} whose every term is {@code column =
+     * literal} on the same column -- which is what {@code IN (...)} compiles to -- over a column
+     * the view indexes. Every row the whole conjunction keeps satisfies that conjunct, so holds one
+     * of those values, so is in one of those buckets. A literal that does not fit the column's
+     * stored type makes that conjunct unusable rather than the answer empty.
+     */
+    private static Optional<List<Object[]>> byIndex(List<Predicate> conjuncts, ServedView view) {
+        List<Integer> indexed = view.indexedColumns();
+        if (indexed.isEmpty()) {
+            return Optional.empty();
+        }
+        for (Predicate conjunct : conjuncts) {
+            List<Predicate> terms = conjunct instanceof Predicate.Or or ? or.parts() : List.of(conjunct);
+            Integer ordinal = null;
+            List<Object> values = new ArrayList<>(terms.size());
+            for (Predicate term : terms) {
+                Comparison comparison = comparisonOf(term);
+                Object value = comparison == null
+                                || comparison.op() != Predicate.Op.EQ
+                                || !indexed.contains(comparison.ordinal())
+                                || (ordinal != null && ordinal != comparison.ordinal())
+                        ? null
+                        : asStored(view.schema(), comparison.ordinal(), comparison.value());
+                if (value == null) {
+                    ordinal = null;
+                    break;
+                }
+                ordinal = comparison.ordinal();
+                values.add(value);
+            }
+            if (ordinal != null) {
+                return Optional.of(view.committedWith(ordinal, values));
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** The key's paths: a hash probe by the whole key, or a run of the ordered index. */
+    private static Optional<List<Object[]>> byKey(List<Predicate> conjuncts, ServedView view) {
         List<Integer> key = view.keyOrdinals();
         StreamSchema schema = view.schema();
-        List<Predicate> conjuncts = conjunctsOf(predicate.get());
 
         // An equality for each key column, and bounds for the last one. Nulls mean "not said".
         Object[] equal = new Object[key.size()];

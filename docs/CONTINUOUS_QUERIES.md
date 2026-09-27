@@ -1006,7 +1006,8 @@ says what that shared surface is and where the one asymmetry lies.
 |---|---|
 | The whole key by equality — `WHERE user_id = 'u_42'` on a view keyed by `user_id` | One hash probe. A view already *is* a map keyed by that, so nothing has to be declared and no index is built |
 | The key's leading columns by equality and its last between bounds — `WHERE user_id = 'u_42' AND window_end >= 1000 AND window_end < 2000` | The ordered index. Walks the run, not the view |
-| Anything else — a partial key, a column outside the key, an `OR` across keys | Every committed row, filtered. Best effort, and honest about it |
+| A column outside the key by equality or `IN` — `WHERE region = 'eu'`, `WHERE region IN ('eu', 'us')` — when the registration declared `INDEX (region)` | The equality index: one probe per value, not the view |
+| Anything else — a partial key, a column nobody declared an index over, an `OR` across columns, `<>` | Every committed row, filtered. Best effort, and honest about it |
 
 The filter runs either way, so which path a read takes changes what it costs and not what it says.
 `RANGE (column)` at registration is what tells you, *then*, that the column can be ordered at all
@@ -1017,7 +1018,10 @@ rather than an allocation. The ordered index holds one entry per row — a refer
 bounds it too; it is built the first time a range read needs it, maintained by every commit
 afterwards, and dropped and rebuilt on a restore. A row whose ordered column is `NULL` is in no
 index entry, which is the same thing SQL says about it: `NULL > 1000` is UNKNOWN, and `WHERE` reads
-that as false. All of this is the same for Flight SQL, for `GET /api/v1/views/{name}/query` and for
+that as false. The equality index `INDEX (column)` declares is different in one respect: it is
+built at registration and kept from then on, in the same commit as the rows, rather than on first
+use, because it is declared and a read straight after a restore must find it
+([ADR-055](adr/055-an-equality-index-over-a-column-outside-the-key.md)). All of this is the same for Flight SQL, for `GET /api/v1/views/{name}/query` and for
 the PostgreSQL gateway, because all three run the same reader.
 
 Or subscribe, and receive each committed change as it happens:
@@ -1412,6 +1416,7 @@ costs whatever was decided on the strength of it.
 CREATE [OR REPLACE] CONTINUOUS QUERY name
     KEYED BY (column [, column]...)
     [RANGE (column)]
+    [INDEX (column)]
     [WRITING TO sink]
     [RETAIN FOR duration | RETAIN FOREVER]
     [WITH (option = value [, option = value]...)]
@@ -1455,6 +1460,22 @@ SHOW   CONTINUOUS QUERIES
   out what the view conflates, and a key of `(a, b)` is a different view from one keyed by `a` —
   two rows sharing `a` and differing in `b` stop being one row, and every count over the view
   changes. The refusal shows both ways to say what was meant.
+- **`INDEX (column)`** keeps an equality index over one column outside the key — value to keys —
+  so that `WHERE column = literal`, or `column IN (...)`, probes it rather than scanning the view
+  ([ADR-055](adr/055-an-equality-index-over-a-column-outside-the-key.md)). It is maintained in the
+  view's own commit, from the row the view held rather than from the retraction that replaced it,
+  so it is never a step behind the view; it is written down with the registration and comes back
+  with it after a restart, rebuilt over whatever a checkpoint restored. One column per clause — a
+  list would read as a composite index, which this is not (`PRV-2070`) — and at most four per view.
+  Refused at registration with `PRV-2074`: `FLOAT`, `DECIMAL` and `BYTES`, whose equality in a
+  `WHERE` clause is not the equality of their stored values (`0.0` and `-0.0`; `1.0` and `1.00`),
+  and a column that is the view's whole key, which is a hash probe already. A column of a wider key
+  may be indexed — `WHERE user_id = 'u1'` on a view keyed by `(user_id, window_end)` is otherwise a
+  scan. Two names sharing one computation share its view and every index either declared. A
+  replacement keeps the name's indexes, carried to the new version by column name at the cutover;
+  `INDEX` on a `CREATE OR REPLACE` of a name that exists is refused (`PRV-2072`). An index costs one
+  entry per row it indexes, on the heap like the view it indexes, so the view's key ceiling bounds
+  it; it does not spill, because neither does the view.
 - **`OR REPLACE`** starts a blue/green replacement when the name already exists (§8.1), and is an
   ordinary `CREATE` when it does not — so the same script runs on the first deployment and on the
   tenth. It does **not** take the name from its readers: the new version is registered beside the
@@ -1468,12 +1489,13 @@ SHOW   CONTINUOUS QUERIES
   | `retention` | How long the view keeps a row, in event time: `'24h'`, `'7d'`, `'PT30M'`, `PT24H`, or `'forever'` | `RETAIN FOR <duration>` / `RETAIN FOREVER` |
   | `sink` | The binding under `pravaha.sinks` the changelog is written to | `WRITING TO <sink>`, `pravaha register --sink` |
   | `keys` | The view's key columns, comma-separated, as the `SELECT` list spells them | `KEYED BY (...)` (`pravaha register --keys` takes ordinals) |
+  | `index` | The one column an equality index is kept over | `INDEX (column)` |
 
   On `CREATE OR REPLACE` it takes a replacement's instead — `backfill`, `backfill.rate.limit`,
   `cutover`, `rollback.retention` (§8.1). Either way an option the engine does not build is refused
   by name with the list of the ones that do — `PRV-8017` on a registration, `PRV-4018` on a
   replacement — and so is the same setting said twice (`RETAIN FOR` and `retention`, or two
-  different sinks). An option's name may be bare, or quoted
+  different sinks, or `INDEX` and `index`). An option's name may be bare, or quoted
   as the design writes it: `WITH ('retention' = '24h')`. The short duration form is quoted, because
   `24h` is a number followed by a word to any lexer.
 
@@ -1874,6 +1896,7 @@ as a JUnit test that compiles and passes.
 | `PRV-2071` | `KEYED BY` names a column the query does not produce, or one twice — §10.1 |
 | `PRV-2072` | A clause of the design's `CREATE CONTINUOUS QUERY` that is not built: `EMIT CHANGES WITH (...)`, a `SERVE AS VIEW` naming another view — §10.1 |
 | `PRV-2073` | `RANGE (column)` over a column this engine has no total order for: text, `FLOAT`, `DECIMAL`, `BYTES`, `BOOLEAN` — §10.1 |
+| `PRV-2074` | `INDEX (column)` over a column this engine keeps no equality index for — `FLOAT`, `DECIMAL`, `BYTES`, or the view's whole key — or a fifth index on one view — §10.1 |
 | `PRV-8017` | A `WITH (...)` option this engine does not build, or one said twice — §10.1 |
 | `PRV-4013` | A backfill reached the end of the history without reaching its seam — §8.1 |
 | `PRV-4014` | A cutover before the new version had caught up, or at a position the two do not share — §8.1 |

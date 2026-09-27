@@ -68,8 +68,8 @@ public sealed interface ContinuousStatement
     }
 
     /**
-     * {@code CREATE CONTINUOUS QUERY name KEYED BY (...) [RANGE (...)] [WRITING TO sink] [RETAIN
-     * ...] [WITH (...)] AS select}.
+     * {@code CREATE CONTINUOUS QUERY name KEYED BY (...) [RANGE (...)] [INDEX (...)] [WRITING TO
+     * sink] [RETAIN ...] [WITH (...)] AS select}.
      *
      * @param keyColumns the key, by output column name; resolved to ordinals by {@link
      *     #keyOrdinals(StreamSchema)} once the {@code SELECT} has been planned. When {@code
@@ -77,6 +77,8 @@ public sealed interface ContinuousStatement
      *     index over it useful: the columns before it are probed, and it is scanned between bounds
      * @param rangeColumn the key's ordered column, from {@code RANGE (column)} -- design section
      *     17.2's "ordered index over the key when declared {@code INDEXED BY RANGE}"
+     * @param indexColumn the column an equality index is kept over, from {@code INDEX (column)}:
+     *     value to keys, maintained in the view's own commit (ADR-055)
      * @param select the query itself, exactly as written between {@code AS} and the end (less any
      *     trailing {@code EMIT CHANGES} or semicolon), so the text a listing shows is the user's
      */
@@ -84,6 +86,7 @@ public sealed interface ContinuousStatement
             String name,
             List<String> keyColumns,
             Optional<String> rangeColumn,
+            Optional<String> indexColumn,
             Optional<String> sink,
             Optional<Retain> retain,
             String select,
@@ -95,6 +98,7 @@ public sealed interface ContinuousStatement
             Objects.requireNonNull(name, "name");
             keyColumns = List.copyOf(keyColumns);
             Objects.requireNonNull(rangeColumn, "rangeColumn");
+            Objects.requireNonNull(indexColumn, "indexColumn");
             Objects.requireNonNull(sink, "sink");
             Objects.requireNonNull(retain, "retain");
             Objects.requireNonNull(select, "select");
@@ -115,18 +119,40 @@ public sealed interface ContinuousStatement
         /** A plain {@code CREATE}: no range index, no replacement, no options. */
         public Create(
                 String name, List<String> keyColumns, Optional<String> sink, Optional<Retain> retain, String select) {
-            this(name, keyColumns, Optional.empty(), sink, retain, select, false, java.util.Map.of());
+            this(name, keyColumns, Optional.empty(), Optional.empty(), sink, retain, select, false, java.util.Map.of());
         }
 
         /** This statement with its key taken from somewhere else -- a {@code WITH (keys = ...)} option. */
         public Create withKeyColumns(List<String> columns) {
-            return new Create(name, columns, rangeColumn, sink, retain, select, orReplace, options);
+            return new Create(name, columns, rangeColumn, indexColumn, sink, retain, select, orReplace, options);
         }
 
         /** This statement with the sink an option named. */
         public Create withSink(String sinkName) {
             return new Create(
-                    name, keyColumns, rangeColumn, Optional.ofNullable(sinkName), retain, select, orReplace, options);
+                    name,
+                    keyColumns,
+                    rangeColumn,
+                    indexColumn,
+                    Optional.ofNullable(sinkName),
+                    retain,
+                    select,
+                    orReplace,
+                    options);
+        }
+
+        /** This statement with the equality index an option named. */
+        public Create withIndexColumn(String column) {
+            return new Create(
+                    name,
+                    keyColumns,
+                    rangeColumn,
+                    Optional.ofNullable(column),
+                    sink,
+                    retain,
+                    select,
+                    orReplace,
+                    options);
         }
 
         @Override
@@ -181,6 +207,76 @@ public sealed interface ContinuousStatement
                 default -> "";
             };
         }
+
+        /**
+         * The ordinal of the column an equality index is to be kept over, or empty when the
+         * statement asked for none (ADR-055).
+         *
+         * <p>Checked against the columns the view will actually have, as {@link #rangeOrdinal} is,
+         * so that an index this engine cannot keep is refused at registration rather than
+         * discovered at the first read that wanted it.
+         *
+         * @throws PravahaException {@code PRV-2071} for a column the query does not produce;
+         *     {@code PRV-2074} for one whose values this engine cannot compare by equality the way
+         *     the filter does, or one that is the view's whole key
+         */
+        public Optional<Integer> indexOrdinal(StreamSchema output) {
+            if (indexColumn.isEmpty()) {
+                return Optional.empty();
+            }
+            String column = indexColumn.get();
+            int ordinal = ordinalOf(output, column);
+            com.ash.messaging.pravaha.api.data.TypeName type =
+                    output.field(ordinal).type().typeName();
+            if (!EQUATABLE_FOR_INDEX.contains(type)) {
+                throw new PravahaException(
+                        SqlErrors.INDEX_UNUSABLE,
+                        "INDEX (" + column + ") asks for an equality index over a " + type + " column, and "
+                                + "this engine keeps one only where two values the filter calls equal are "
+                                + "the same stored value. " + whyNotEqual(type) + " Drop the INDEX, or index "
+                                + "a column that is one of " + EQUATABLE_FOR_INDEX + ".");
+            }
+            List<Integer> key = keyOrdinals(output);
+            if (key.size() == 1 && key.get(0) == ordinal) {
+                throw new PravahaException(
+                        SqlErrors.INDEX_UNUSABLE,
+                        "INDEX (" + column + ") names the view's whole key. A lookup by the whole key is "
+                                + "already a hash probe on every view, so a second structure over the same "
+                                + "column would cost memory and answer nothing faster. Drop the INDEX.");
+            }
+            return Optional.of(ordinal);
+        }
+
+        private static String whyNotEqual(com.ash.messaging.pravaha.api.data.TypeName type) {
+            return switch (type) {
+                case FLOAT32, FLOAT64 ->
+                    "Under IEEE 754, 0.0 and -0.0 are equal to the filter and different stored values, "
+                            + "and NaN is equal to nothing, so an index would file one value under two "
+                            + "entries.";
+                case DECIMAL ->
+                    "1.0 and 1.00 are equal to the filter and different stored values, so an index "
+                            + "would find one of them and miss the other.";
+                case BYTES -> "Bytes are compared by content and stored as arrays, which have no value equality.";
+                default -> "A value of this type has no equality here that an index could be filed by.";
+            };
+        }
+
+        /**
+         * The types an equality index may be kept over: the ones whose stored value is equal
+         * exactly when the filter says two values are, so a probe by the literal finds every row
+         * the predicate keeps.
+         */
+        private static final java.util.Set<com.ash.messaging.pravaha.api.data.TypeName> EQUATABLE_FOR_INDEX =
+                java.util.Collections.unmodifiableSet(java.util.EnumSet.of(
+                        com.ash.messaging.pravaha.api.data.TypeName.INT8,
+                        com.ash.messaging.pravaha.api.data.TypeName.INT16,
+                        com.ash.messaging.pravaha.api.data.TypeName.INT32,
+                        com.ash.messaging.pravaha.api.data.TypeName.INT64,
+                        com.ash.messaging.pravaha.api.data.TypeName.DATE,
+                        com.ash.messaging.pravaha.api.data.TypeName.TIME,
+                        com.ash.messaging.pravaha.api.data.TypeName.TIMESTAMP_LTZ,
+                        com.ash.messaging.pravaha.api.data.TypeName.STRING,
+                        com.ash.messaging.pravaha.api.data.TypeName.BOOLEAN));
 
         /**
          * The types an ordered index may be kept over: whole numbers and the temporal types, whose

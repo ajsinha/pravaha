@@ -21,6 +21,14 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   unwired: its newest-row-per-key rule would double-retract on a weighted changelog such as
   `postgres-cdc`'s, whose own `snapshot.mode: initial` is already exact. A replacement still splices
   at an offset (ADR-046), and `backfill.adaptive` is still refused (`PRV-4018`).
+- **An equality index over a column outside a view's key**
+  ([ADR-055](adr/055-an-equality-index-over-a-column-outside-the-key.md)). `CREATE CONTINUOUS QUERY
+  ... INDEX (region)`, or `WITH (index = 'region')`, keeps value-to-keys in the view's own commit, so
+  `WHERE region = 'eu'` and `WHERE region IN ('eu', 'us')` probe instead of scanning, over Flight
+  SQL, REST and pgwire alike. The index is journalled with the registration (a new `X` record, which
+  an older build refuses by name), rebuilt over a restored checkpoint, and carried to a replacement by
+  column name. New code `PRV-2074` refuses an index over `FLOAT`, `DECIMAL`, `BYTES` or the view's
+  whole key.
 - **The server image runs on glibc, and Parquet's Snappy codec loads in it** (PORT-1,
   [ADR-053](adr/053-native-code-only-where-java-cannot.md)). Up to 0.1.3 the image was Alpine, where
   snappy-java cannot load, so the `feedfile` and `delta` plugins could not read a Snappy-compressed
@@ -38,7 +46,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   password; locally, run the engine with `--spring.profiles.active=dev,users`. New codes PRV-7010 to
   PRV-7021.
 
-Register: **410 findings — 377 fixed, 19 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **413 findings — 377 fixed, 22 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ---
 
