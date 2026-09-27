@@ -981,6 +981,27 @@ as NULL when it is absent. Declare the field `optional` if a column must be able
 A value that begins with `0x00` while no registry is configured is the mistake this format makes
 most often, so a refusal that follows one says so and names `schema.registry.url`.
 
+#### Compressed topics: snappy and zstd, not lz4
+
+Both sides read and write `none`, `gzip`, `snappy` and `zstd` batches: the source whatever the
+producer or the broker chose, `kafka-sink` through `kafka.compression.type`. `gzip` is the JDK's.
+`snappy` and `zstd` are snappy-java and zstd-jni, native code, and the only two native families the
+build allows, because Parquet has no other way to read its files
+([ADR-053](adr/053-native-code-only-where-java-cannot.md)); one version of each serves Parquet and
+Kafka. They load on glibc Linux, macOS, Windows and FreeBSD, from a library unpacked into
+`java.io.tmpdir`, which must allow executing files ([`DEPLOYMENT.md`](DEPLOYMENT.md), "Native code").
+`kafka-sink` loads the codec once at configuration, so a platform it does not load on is `PRV-5100`
+before the sink opens.
+
+**`lz4` is refused on both sides.** It would need lz4-java, a third native family the root pom's
+`enforce-portable-native-code` rule refuses. `kafka.compression.type: lz4` is `PRV-5100` at
+configuration; an lz4 batch stops the source's reader with `PRV-5107` naming the codec, and health
+turns `UNHEALTHY`. Before this, an lz4, snappy or zstd batch killed the reader's fetch thread with a
+`NoClassDefFoundError` that nothing caught: the query stopped receiving rows and every status said it
+was healthy. Proved against a real broker (`KafkaCompressedBrokerTest`): producer- and
+broker-compressed snappy and zstd topics read, snappy and zstd written by `kafka-sink` taking under
+half the log of the same rows uncompressed, and an lz4 topic refused by name.
+
 Proved against a real broker (Testcontainers): the source TCK; an aborted transaction skipped, and
 resumption from an offset between it and its markers exact; three partitions restarted from
 checkpointed positions with every record once; and through the registry's own checkpoints

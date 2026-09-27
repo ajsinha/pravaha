@@ -235,6 +235,16 @@
         <artifactId>snappy-java</artifactId>
         <version>1.1.10.4</version>
       </dependency>
+      <!--
+        zstd-jni, one of the two native families ADR-053 allows. Parquet asks for 1.5.0-1 and
+        kafka-clients for 1.5.6-4; pinned up past both, which is what requireUpperBoundDeps
+        demands, so a Parquet file and a zstd Kafka topic are read by the same library.
+      -->
+      <dependency>
+        <groupId>com.github.luben</groupId>
+        <artifactId>zstd-jni</artifactId>
+        <version>1.5.7-9</version>
+      </dependency>
       <dependency>
         <groupId>com.fasterxml.jackson.datatype</groupId>
         <artifactId>jackson-datatype-jsr310</artifactId>

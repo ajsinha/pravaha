@@ -439,9 +439,10 @@ The binding's options cannot make a sink or a source. For the **sink**: a requir
 unknown `format` or `mode`, a `kafka.*` property the sink sets itself or that would weaken its
 guarantee (`kafka.acks` below `all`, `kafka.enable.idempotence: false`, serializers, `kafka.ssl.*`)
 or that no Kafka client knows, SASL `PLAIN` without TLS, half a credential — or a compression codec
-whose library is not on the classpath. `none` and `gzip` work as shipped; lz4, snappy and zstd are
-native code the plugin does not bundle, and are refused by name rather than failing at the first
-write unless you add the codec's library yourself.
+it cannot write here. `none`, `gzip`, `snappy` and `zstd` work. `lz4` is refused by name: it needs
+lz4-java, a native library the build refuses (ADR-053). `snappy` and `zstd` are refused only on a
+platform where their native library does not load, which the sink checks at configuration rather
+than at the first write; the message names the codec and the temp directory it unpacks into.
 
 For the **source**: `bootstrap.servers`, `topic` or `schema` missing, a `format` other than `json`,
 `changelog`, `avro` or `protobuf`, a schema option that does not belong to the format (`schema.file`
@@ -507,8 +508,11 @@ without them.
 
 ### PRV-5107 — Kafka: read failed
 
-Fetching failed in a way retrying will not fix — an ACL revoked mid-stream, the topic deleted. The
-source's health turns `UNHEALTHY` with the reason. Fix the cause. A node restart resumes the query
+Fetching failed in a way retrying will not fix — an ACL revoked mid-stream, the topic deleted, or a
+batch the source cannot decompress. A batch compressed with `lz4` is never read: its library is native
+code the build refuses (ADR-053), so have the producers use `none`, `gzip`, `snappy` or `zstd`. A
+`snappy` or `zstd` batch fails only on a platform where that native library does not load; the
+message says so. The source's health turns `UNHEALTHY` with the reason. Fix the cause. A node restart resumes the query
 from its checkpoint's offsets; dropping and registering it instead starts it afresh from
 `start.from`.
 

@@ -64,8 +64,8 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   `kafka-sink` and `delta-sink`, and no others. Each is unit-tested without a server and again
   against a real one — Aerospike, PostgreSQL and a Kafka broker under Testcontainers, Delta tables
   on the local filesystem — so a machine without Docker skips those, by name, rather than passing.
-  `kafka-sink` writes JSON only, and ships no lz4, snappy or zstd codec (they are native code):
-  `none` and `gzip` compression work. **Delta is the only lakehouse format written**: there is no
+  `kafka-sink` writes JSON only, compressed with `none`, `gzip`, `snappy` or `zstd`; `lz4` is refused (see the boundary below).
+  **Delta is the only lakehouse format written**: there is no
   Iceberg or Hudi sink, and `delta-sink` writes unpartitioned or partitioned tables
   (`partition.columns`), creates no deletion vectors — and refuses to rewrite a table whose files
   carry them (`PRV-5055`) — and runs no compaction: `OPTIMIZE` and `VACUUM` belong to an engine that
@@ -73,7 +73,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   view as a retraction. Its upsert mode rewrites the data files holding a changed key, so a commit costs in proportion to the table
   rather than to the change.
 
-  **Buildable:** pure-Java lz4, snappy and zstd for `kafka-sink`; Avro and Protobuf output reusing the source's writers; an Iceberg sink without Spark. Compaction stays with the table's own engine.
+  **Buildable:** Avro and Protobuf output reusing the source's writers; an Iceberg sink without Spark. Compaction stays with the table's own engine.
 
 - **The Kafka source reads JSON, Avro and Protobuf — with no library for any of them.** JSON rows or
   `kafka-sink`'s changelog; Avro's binary encoding through a reader written here from the
@@ -156,6 +156,15 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   checkpoint's offsets (ADR-029) is at least once whatever the sink does.
 
   **A deliberate trade.** **Buildable for PostgreSQL:** `PREPARE TRANSACTION` is a real two-phase commit, so `jdbc-sink` could skip staging there. Kafka and Delta have no equivalent.
+
+- **Kafka's `lz4` codec.** The `kafka` source and `kafka-sink` read and write `none`, `gzip`, `snappy`
+  and `zstd`. `snappy` and `zstd` are snappy-java and zstd-jni, the two native libraries the build
+  allows because Parquet needs them, so they work on the platforms those are built for (glibc Linux,
+  macOS, Windows, FreeBSD). `lz4` would need lz4-java, a third native family: `kafka.compression.type:
+  lz4` is refused at configuration (`PRV-5100`) and an lz4 batch stops the source's reader (`PRV-5107`),
+  both naming the ADR ([`CONNECTORS.md`](CONNECTORS.md), "Compressed topics").
+
+  **Decided, not missing** ([ADR-053](adr/053-native-code-only-where-java-cannot.md)): allowing a third native family takes an ADR.
 
 - **The spill tier is survival, not capacity.** There is no RocksDB, by decision
   ([ADR-044](adr/044-no-rocksdb-the-mapped-tier-is-l1.md)): the memory-mapped overflow tier is

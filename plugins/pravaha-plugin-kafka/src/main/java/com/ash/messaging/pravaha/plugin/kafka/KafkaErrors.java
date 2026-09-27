@@ -23,7 +23,7 @@ public final class KafkaErrors {
     /**
      * A configuration that cannot be honoured: a missing or malformed option, a {@code kafka.*}
      * property that would break the delivery guarantee or that the sink or the source sets itself, a
-     * compression codec whose library is not on the classpath, or TLS and SASL options that do not fit
+     * compression codec it cannot write here (lz4, ADR-053), or TLS and SASL options that do not fit
      * together.
      */
     public static final ErrorCode BAD_CONFIGURATION = new ErrorCode(5100, "KAFKA_BAD_CONFIGURATION");
@@ -67,7 +67,10 @@ public final class KafkaErrors {
      */
     public static final ErrorCode RESUME_POINT_GONE = new ErrorCode(5106, "KAFKA_RESUME_POINT_GONE");
 
-    /** Fetching from the brokers failed in a way retrying will not fix: authorization, a deleted topic. */
+    /**
+     * Fetching from the brokers failed in a way retrying will not fix: authorization, a deleted topic, a
+     * batch compressed with lz4 (ADR-053) or with a native codec that does not load on this platform.
+     */
     public static final ErrorCode READ_FAILED = new ErrorCode(5107, "KAFKA_READ_FAILED");
 
     /**

@@ -122,7 +122,7 @@ text of each is in [`LIMITS.md`](docs/LIMITS.md). The order they get built in is
 | One read of an exactly-once source per query | A shared reader for Kafka, files, JDBC, CDC and Delta, as Aerospike and Cassandra already have. Its offsets become one checkpoint cut for every query it feeds |
 | A secondary index on a non-key column | A value-to-keys index maintained in the view's own commit. `RANGE` and whole-key lookups are already built ([ADR-049](docs/adr/049-an-ordered-index-over-the-keys-last-column.md)) |
 | The snapshot-and-change-feed splice | `SplicedReader` is built and tested and reached by nothing. Wiring it needs a snapshot read exposed from `jdbc` and `postgres-cdc`; `backfill.adaptive` follows |
-| More sinks and formats | lz4, snappy and zstd for `kafka-sink` in pure Java; Avro and Protobuf output; an Iceberg sink without Spark |
+| More sinks and formats | Avro and Protobuf output for `kafka-sink`; an Iceberg sink without Spark |
 | More sources | A MySQL binlog CDC source. Kafka partitions added after registration, picked up without a restart. Cassandra filter pushdown on key columns |
 | Native two-phase commit for PostgreSQL | `jdbc-sink` over PostgreSQL through `PREPARE TRANSACTION`, without the staging table's second write |
 | Spring Boot 3.2 to 3.4 | The profiles exist. Run the legs and add them to CI |
@@ -138,6 +138,9 @@ text of each is in [`LIMITS.md`](docs/LIMITS.md). The order they get built in is
 - There is no RocksDB, by decision ([ADR-044](docs/adr/044-no-rocksdb-the-mapped-tier-is-l1.md)).
   The memory-mapped tier is for surviving state larger than memory, not for capacity; both
   measurements are in the ADR.
+- Kafka's `lz4` codec is refused on both sides: it needs lz4-java, native code the build refuses
+  ([ADR-053](docs/adr/053-native-code-only-where-java-cannot.md)). `snappy` and `zstd` are read and
+  written, on the platforms their native libraries are built for.
 - Formats and stores: a proto3 scalar without `optional` has no NULL; an upsert tombstone does not say
   which row it deletes; a `TRUNCATE` names no rows to retract; Delta `OPTIMIZE` and `VACUUM` belong
   to an engine that has them.

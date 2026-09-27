@@ -1157,9 +1157,11 @@ pravaha:
   serializers, `security.protocol`, `ssl.*`) are refused with `PRV-5100`, as is a misspelled one.
   The target topic must exist (`PRV-5101`); an upsert sink on a topic that is not compacted is
   logged, not refused. TLS is the shared `tls.*` options ([`CONNECTOR_TLS.md`](CONNECTOR_TLS.md)).
-- **Compression:** `none` (the default) and `gzip`. The lz4, snappy and zstd codecs are native code
-  and not shipped; asking for one is refused with `PRV-5100` unless its library is on the plugin's
-  classpath.
+- **Compression:** `none` (the default), `gzip`, `snappy` and `zstd`, and the `kafka` source reads
+  the same four. `snappy` and `zstd` are native code (ADR-053): the sink loads the codec at
+  configuration and refuses with `PRV-5100` on a platform where it does not load, or where
+  `java.io.tmpdir` does not allow executing files. `lz4` is refused with `PRV-5100`, and an lz4
+  batch stops the source with `PRV-5107`.
 
 `delta-sink` maintains the query's answer in a **Delta Lake table**, on Delta Kernel and not Spark,
 and is transactional as the two above are:

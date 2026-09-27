@@ -35,7 +35,7 @@ The findings register tracks anything found along the way.
 
 | # | Item | Size | Why this order |
 |---|---|---|---|
-| A1 | `kafka-sink` lz4, snappy and zstd in pure Java (aircompressor: no native code, so the no-native rule holds) | S | Producers in the field default to these codecs |
+| A1 | **Built 2026-09-27.** `kafka-sink` and the `kafka` source read and write snappy and zstd through snappy-java and zstd-jni, the two native families ADR-053 allows; lz4 is refused by name on both sides | S | Producers in the field default to these codecs |
 | A2 | The Kafka source picks up partitions added after registration, through a periodic metadata refresh with the new partition's offsets entering the next checkpoint | S | A topic scaled out today is silently half-read until a restart |
 | A3 | Cassandra filter pushdown on partition-key and clustering columns, which needs no `ALLOW FILTERING` | S | Stops a full-table re-read each pass when the filter is on the key |
 | A4 | The console's tenants and quotas screen, on `GET /api/v1/tenants` | S | The API already exists |
