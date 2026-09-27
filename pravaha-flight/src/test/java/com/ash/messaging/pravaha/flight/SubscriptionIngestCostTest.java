@@ -134,7 +134,11 @@ final class SubscriptionIngestCostTest {
         // in-process subscriber costs a commit a filter into its buffer and a signal and nothing
         // else, and a Flight subscriber costs that plus a VectorSchemaRoot of its own and a
         // serialisation of every batch it is handed, on its own call thread.
-        assertThat(inProcess.get(20) * 2)
+        // Five times, not twice. The claim is that the cost is not linear -- twenty subscribers at a
+        // twentieth of one's rate -- and that is what this still fails. Twice was a statement about the
+        // machine: twenty subscriber threads woken per commit on a two-vCPU CI runner share the CPU with
+        // ingest, and measured 47% of the one-subscriber rate there while the claim held.
+        assertThat(inProcess.get(20) * 5)
                 .as(
                         "%n%s%nload average %s%nTwenty in-process subscribers must not cost twenty times "
                                 + "what one costs: what a commit does per subscriber is filter the changes "

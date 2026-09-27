@@ -65,6 +65,18 @@ _MODIFIERS = {"Alt": 1, "Control": 2, "Meta": 4, "Shift": 8}
 class Browser:
     """One headless Chrome, and the reader thread that sorts its answers from its events."""
 
+    def _stderr_tail(self) -> str:
+        try:
+            with open(os.path.join(str(self._profile), "chrome-stderr.log"), "rb") as log:
+                return log.read()[-800:].decode("utf-8", "replace").strip() or "(no stderr)"
+        except OSError:
+            return "(no stderr log)"
+
+    def _stderr_log(self) -> Any:
+        """Chrome's stderr, kept in its profile directory: when Chrome exits before answering, this
+        file is the only place that says why (a sandbox refused, a library missing)."""
+        return open(os.path.join(str(self._profile), "chrome-stderr.log"), "ab")
+
     def __init__(self, executable: str, *, extra_args: tuple[str, ...] = ()) -> None:
         self._profile = tempfile.mkdtemp(prefix="pravaha-chrome-")
         to_chrome_r, self._to_chrome_w = os.pipe()
@@ -86,13 +98,18 @@ class Browser:
                 "--disable-renderer-backgrounding", "--disable-background-timer-throttling",
                 "--disable-backgrounding-occluded-windows",
                 f"--user-data-dir={self._profile}", *extra_args, "about:blank"]
-        if os.geteuid() == 0:
+        # Root cannot use Chrome's sandbox, and neither can a CI runner: Ubuntu 24.04 restricts the
+        # unprivileged user namespaces it needs, and Chrome exits before answering anything. A CI
+        # runner is a throwaway VM running only this suite, so the sandbox protects nothing there.
+        if os.geteuid() == 0 or os.environ.get("CI"):
             args.insert(1, "--no-sandbox")
         # preexec_fn is safe here despite the console's server thread: the child runs only
         # fcntl and dup2 -- no allocation, no lock -- between fork and exec.
+        stderr_log = self._stderr_log()
         self._process = subprocess.Popen(args, pass_fds=(3, 4), preexec_fn=wire_descriptors,  # noqa: PLW1509
                                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                         stderr=subprocess.DEVNULL)
+                                         stderr=stderr_log)
+        stderr_log.close()  # the child holds its own copy
         os.close(to_chrome_r)
         os.close(from_chrome_w)
         self._write_lock = threading.Lock()
@@ -144,7 +161,7 @@ class Browser:
         with self._cond:
             while ident not in self._answers:
                 if self._closed:
-                    raise CdpError(f"Chrome exited while answering {method}")
+                    raise CdpError(f"Chrome exited while answering {method}: {self._stderr_tail()}")
                 left = deadline - time.monotonic()
                 if left <= 0:
                     raise CdpError(f"{method} had no answer in {timeout}s")

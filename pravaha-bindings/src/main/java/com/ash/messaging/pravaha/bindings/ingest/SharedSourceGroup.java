@@ -63,7 +63,8 @@ final class SharedSourceGroup {
         this.partitions = List.copyOf(partitions);
         List<SharedPartitionFeed> built = new ArrayList<>(partitions.size());
         for (SourcePartition partition : this.partitions) {
-            built.add(new SharedPartitionFeed(key.stream(), partition, plugin, key.binding(), policy));
+            built.add(new SharedPartitionFeed(
+                    key.stream(), partition, plugin, key.binding(), policy, plugin.orderedPositions()));
         }
         this.feeds = List.copyOf(built);
     }
@@ -98,10 +99,26 @@ final class SharedSourceGroup {
      * offer -- and it leaves the stronger sources alone rather than quietly weakening them.
      */
     static boolean canShare(SourceCapabilities capabilities) {
-        return whyNotShared(capabilities) == null;
+        return whyNotShared(capabilities, null) == null;
     }
 
-    /** Why a source is read once per query, in a sentence, or null when it is not. */
+    /**
+     * Why a source is read once per query, in a sentence, or null when it is not.
+     *
+     * <p>A source whose positions are ordered ({@code order} non-null) is shared whatever it promises,
+     * because a query joining its reader meets it at an exact seam rather than overlapping it
+     * (ADR-054): each record reaches each query once and in order. The refusals below are for the
+     * sources that cannot say where two positions stand.
+     */
+    static String whyNotShared(
+            SourceCapabilities capabilities, com.ash.messaging.pravaha.api.plugin.OrderedPositions order) {
+        if (order != null && capabilities != null && capabilities.replayableOffsets()) {
+            return null;
+        }
+        return whyNotShared(capabilities);
+    }
+
+    /** Why a source without ordered positions is read once per query, in a sentence, or null. */
     static String whyNotShared(SourceCapabilities capabilities) {
         if (capabilities == null) {
             return "the plugin declares no capabilities, so nothing is known about what sharing a reader "

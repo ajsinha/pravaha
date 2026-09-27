@@ -75,7 +75,7 @@ public interface StreamSourcePlugin extends PravahaPlugin {
 
     /**
      * How often the engine asks {@link #partitions} again while a query reads this source, to pick
-     * up partitions added since it began: a Kafka topic scaled out, say. {@link Duration#ZERO}, the
+     * up partitions added since it began: a Kafka topic scaled out, say. {@link java.time.Duration#ZERO}, the
      * default, means the list read when the query registered is the list for as long as it runs.
      *
      * <p>A source that answers more than zero must return every partition it returned before, with
@@ -95,5 +95,18 @@ public interface StreamSourcePlugin extends PravahaPlugin {
      */
     default PartitionReader createReaderForNewPartition(SourcePartition partition, ReadRequest request) {
         return createReader(partition, SourceOffset.BEGINNING, request);
+    }
+
+    /**
+     * How this binding's positions are ordered, or {@code null} when they are not (ADR-054).
+     *
+     * <p>Non-null promises two things: {@link OrderedPositions#compare} orders any two positions this
+     * plugin's readers hand out for one partition, and every reader {@link #createReader} returns is a
+     * {@link BoundedPartitionReader}. Together they let one reader be shared by queries at different
+     * positions, each receiving each record once and in order, even from a source that promises
+     * exactly-once or order. {@code null}, the default, keeps each such query on a reader of its own.
+     */
+    default OrderedPositions orderedPositions() {
+        return null;
     }
 }

@@ -152,6 +152,34 @@ So **a connector that overstates its guarantee gets different engine behaviour, 
 silent duplication.** Claim the weakest thing that is true. `SourceCapabilities.minimal()` is
 at-least-once with no pushdown and is the right starting point.
 
+### Ordered positions: one reader for many queries, even exactly-once ([ADR-054](adr/054-an-ordered-source-is-shared-at-an-exact-seam.md))
+
+By default a source that promises exactly-once or order gets **a reader per query**. Sharing one
+reader means a query joining late must be caught up, and without more information the catch-up
+overlaps the shared reader. Declare two more things and the engine shares the reader exactly:
+
+```java
+@Override
+public OrderedPositions orderedPositions() {          // null (the default): not ordered
+    return (a, b) -> Long.compare(offsetOf(a), offsetOf(b));
+}
+// ...and every reader createReader returns implements BoundedPartitionReader:
+int pollBefore(RecordSink sink, int maxRecords, SourceOffset bound);   // stop exactly at bound
+```
+
+- **`compare`** orders any two positions your readers hand out for one partition. `BEGINNING` comes
+  first. Return `null` from `orderedPositions()` for a configuration where that is not true. The
+  filesystem source returns `null` for a followed file, because a rotated file restarts its line count.
+- **`pollBefore`** reads only records before `bound`, and once none remain, `position()` must *equal*
+  `bound`. That equality is how the engine knows a catching-up query has arrived. Stop on the position
+  itself, not on a record count: positions with gaps (Kafka's transaction markers, a file's blank
+  lines) make "read the difference" overshoot.
+
+With both, a query that joins, resumes or restores behind the shared reader reads only the gap, up to
+exactly where the shared reader stands, and then joins the fan-out. One that restores ahead of it
+waits until the shared reader lands on its position. Each record reaches each query once, in order.
+Implemented today by `filesystem` (files read once through); Kafka is next.
+
 ---
 
 ## 3. Writing one: a worked example
