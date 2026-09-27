@@ -41,7 +41,7 @@ The findings register tracks anything found along the way.
 | A2 | **Built 2026-09-27.** The Kafka source picks up partitions added after registration, through a periodic metadata refresh (`partitions.refresh`) with the new partition's offsets entering the next checkpoint, and a checkpoint that names each offset's partition so a restore matches them across streams | S | A topic scaled out today is silently half-read until a restart |
 | A3 | **Built 2026-09-27.** Cassandra filter pushdown on partition-key and clustering columns, which needs no `ALLOW FILTERING`, shown in the feed description | S | Stops a full-table re-read each pass when the filter is on the key |
 | A4 | The console's tenants and quotas screen, on `GET /api/v1/tenants` | S | The API already exists |
-| A5 | Spring Boot 3.2, 3.3 and 3.4 legs run, and added to CI | S | The profiles exist; only running them is missing |
+| A5 | **Built 2026-09-27.** Spring Boot 3.2, 3.3 and 3.4 legs run (41 tests each, green, after pinning four runtime libraries the older BOMs downgrade), and in CI's `matrix` workflow | S | The profiles exist; only running them is missing |
 
 ### Tranche B: the engine (engine slot, serial)
 

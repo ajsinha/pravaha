@@ -1,9 +1,9 @@
 name: matrix
 
-# HAS THIS EVER RUN? Not as a GitHub Actions workflow, and two of its legs have never run
-# anywhere: the JDK 25 leg (no 25 on the development machine) and Spring Boot 3.2, 3.3 and 3.4
-# (only 3.5 has been run there). docs/REMAINING.md B12 lists those Boot legs by name. They are
-# written so that a leg CANNOT pass by testing something else -- see BootVersionTest below.
+# HAS THIS EVER RUN? Not as a GitHub Actions workflow. Its commands have run on the development
+# machine, all but the JDK 25 leg (there is no 25 there): the four Spring Boot legs, 3.2 to 3.5, ran
+# green on 2026-09-27 (41 tests each). They are written so that a leg CANNOT pass by testing
+# something else -- see BootVersionTest below.
 #
 # Java 21 is the baseline and the only JDK we compile with (design section 4.5). The 25 leg is a
 # *runtime* compatibility check: it runs the tests against artifacts compiled on 21, which is what
@@ -86,5 +86,5 @@ jobs:
           cache: maven
       # Each leg is a profile in pravaha-spring-boot-starter's pom, and BootVersionTest fails the leg
       # if the Boot on the test classpath is not the one the profile names -- so a leg cannot pass
-      # by quietly testing the default line. Only 3.5 has been run on the development machine.
+      # by quietly testing the default line. All four ran green on the development machine.
       - run: ./mvnw -B -pl pravaha-spring-boot-starter -am verify -DskipITs -Pboot-${{ matrix.boot }}

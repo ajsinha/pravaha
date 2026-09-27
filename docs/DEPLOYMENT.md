@@ -492,7 +492,7 @@ the shape a release tag takes from here.
 | `matrix` | JDK 21 | Command yes, workflow no |
 | `matrix` | JDK 25 | **No** — there is no 25 on the development machine |
 | `matrix` | Spring Boot 3.5 | Command yes |
-| `matrix` | Spring Boot 3.2, 3.3, 3.4 | **No**, anywhere |
+| `matrix` | Spring Boot 3.2, 3.3, 3.4 | Command yes (2026-09-27, 41 tests each). Workflow no |
 | `suites` | Python SDK | Command yes (`make -C sdk/python test`). Workflow no |
 | `suites` | console, headless Chrome | Command yes (`make -C console test`). Workflow no |
 | `packaging` | versions, CI helpers, chart, image | Every command green on the development machine; **no** workflow run |

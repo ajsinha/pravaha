@@ -108,14 +108,6 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
   **Buildable:** a MySQL binlog source, on the same model as ADR-041. `TRUNCATE` stays a refusal: it names no rows to retract.
 
-- **The Spring Boot starter on Boot versions other than 3.5.** The starter (ADR-020) has its
-  `@PravahaTest` slice, a read-only `pravaha` actuator endpoint and health contribution, and a
-  listener error handler. Its Boot matrix is Maven profiles (`-Pboot-3.2` to `-Pboot-3.5`) with a
-  test that fails a leg running a Boot other than the one it names; only the 3.5 leg (3.5.16) has
-  been run, and no CI job runs the others.
-
-  **Buildable and small:** run the 3.2–3.4 legs and add them to CI.
-
 - **The console has its persona surfaces but not the §23.20 release gate** — workbench, catalog,
   views, live results, operations with lane backpressure and per-operator numbers on the plan, a
   dead-letter screen, a backfill and cutover screen, a plugins screen built on the engine's

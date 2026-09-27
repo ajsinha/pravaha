@@ -31,6 +31,42 @@
         <artifactId>jspecify</artifactId>
         <version>1.0.1</version>
       </dependency>
+      <!--
+        The same reason, found by running the Boot 3.2 leg for the first time: Boot 3.2's BOM manages
+        commons-dbcp2 at 2.10.0 and HttpClient 5 at 5.2.3 / HttpCore 5 at 5.2.5, below what Calcite
+        (dbcp2 2.11.0) and Avatica (httpclient5 5.4.1, httpcore5 5.3.1) are built against, and
+        requireUpperBoundDeps refuses the downgrade. Pinned to what Boot 3.5, the server's line,
+        resolves, so every leg runs the engine on the classpath the server ships with. They reach
+        the engine at runtime only (Calcite's JDBC pooling, Avatica's remote driver), and Boot's own
+        HttpComponents support reads the same 5.x API. commons-logging is excluded from dbcp2 as the
+        Boot BOM excludes it: spring-jcl provides org.apache.commons.logging in every Boot app.
+      -->
+      <dependency>
+        <groupId>org.apache.commons</groupId>
+        <artifactId>commons-dbcp2</artifactId>
+        <version>2.13.0</version>
+        <exclusions>
+          <exclusion>
+            <groupId>commons-logging</groupId>
+            <artifactId>commons-logging</artifactId>
+          </exclusion>
+        </exclusions>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.httpcomponents.client5</groupId>
+        <artifactId>httpclient5</artifactId>
+        <version>5.5.2</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.httpcomponents.core5</groupId>
+        <artifactId>httpcore5</artifactId>
+        <version>5.3.6</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.httpcomponents.core5</groupId>
+        <artifactId>httpcore5-h2</artifactId>
+        <version>5.3.6</version>
+      </dependency>
       <dependency>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-dependencies</artifactId>
