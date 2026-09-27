@@ -372,7 +372,7 @@ streaming databases concentrate on Kafka and change data capture.
 **Where Pravaha stands.** **Partial.** Eight source types (files, feed directories, Delta, JDBC,
 Aerospike, Cassandra, PostgreSQL CDC, Kafka), two lookup sources and five sinks, all in the server
 jar (`ShippedConnectorsTest`). No Iceberg or Hudi sink, no change feed from any database but
-PostgreSQL, and `kafka-sink` writes JSON only ([README](../README.md), "What is not built"). A
+PostgreSQL ([README](../README.md), "What is not built"); `kafka-sink` writes JSON, Avro or Protobuf. A
 plugin SPI and its TCK let others add more ([`CONNECTORS.md`](CONNECTORS.md)).
 
 **Why it matters.** If your store is not on the list, you write a connector.

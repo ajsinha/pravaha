@@ -47,7 +47,7 @@ Three kinds, and a connector may be more than one:
 | Interface | What it does | Shipped examples |
 |---|---|---|
 | `StreamSourcePlugin` | Rows in. The thing a `FROM` clause reads | filesystem, feedfile, aerospike, delta, jdbc, cassandra, `postgres-cdc` (a changelog: deletes and before-images), `kafka` (a topic, one reader per partition, exactly once from the checkpoint's offsets) |
-| `StreamSinkPlugin` | Rows out — every commit of a query that names the sink at registration ([ADR-043](adr/043-how-a-continuous-query-names-its-sink.md)). A sink with a configured schema or key reports it through `schema()` and `keyColumns()`, and a registration that does not match is refused | filesystem (append-only), `aerospike-sink` (upsert and delete by key, composite keys), `jdbc-sink` (upsert and delete by key or append, into a table you create; transactional through a staging table, or on PostgreSQL through `PREPARE TRANSACTION` with `commit.mode: prepared`, so exactly once on a checkpointed node), `kafka-sink` (keyed JSON upserts with a tombstone for a retraction, or an explicit changelog, to a topic you create; transactional through a staging topic, so exactly once to a `read_committed` consumer on a checkpointed node), `delta-sink` (a Delta Lake table kept equal to the view by key, or a changelog of every change; one Delta commit per checkpoint, so exactly once on a checkpointed node) |
+| `StreamSinkPlugin` | Rows out — every commit of a query that names the sink at registration ([ADR-043](adr/043-how-a-continuous-query-names-its-sink.md)). A sink with a configured schema or key reports it through `schema()` and `keyColumns()`, and a registration that does not match is refused | filesystem (append-only), `aerospike-sink` (upsert and delete by key, composite keys), `jdbc-sink` (upsert and delete by key or append, into a table you create; transactional through a staging table, or on PostgreSQL through `PREPARE TRANSACTION` with `commit.mode: prepared`, so exactly once on a checkpointed node), `kafka-sink` (keyed upserts with a tombstone for a retraction, the value JSON, Avro or Protobuf, or an explicit JSON changelog, to a topic you create; transactional through a staging topic, so exactly once to a `read_committed` consumer on a checkpointed node), `delta-sink` (a Delta Lake table kept equal to the view by key, or a changelog of every change; one Delta commit per checkpoint, so exactly once on a checkpointed node) |
 | `LookupSourcePlugin` | Point lookups for a temporal join's right side | `aerospike-lookup`, `jdbc-lookup` — **with the suffix**: a plugin answers to the name it reports for itself, and these two report `aerospike-lookup` and `jdbc-lookup`. This row said "aerospike, jdbc" until CFG-4, so `pravaha.lookups.<n>.plugin: jdbc` copied from it was refused at startup with `PRV-5090` |
 
 ---
@@ -1085,6 +1085,16 @@ makes a repeated commit a no-op. The guarantee is exactly once **to a `read_comm
 every change is written twice. `KafkaSinkPlugin`'s class comment has the argument in full, and
 `KafkaSinkBrokerTest` the crashes — between prepare and commit, and inside a commit — proved against
 a broker.
+
+**Formats.** The value is JSON by default. In upsert mode `format: avro` writes Avro's binary
+encoding of the record in `schema.file` (`AvroRowWriter` over `AvroBinaryWriter`, written from the
+specification beside the source's reader; no `org.apache.avro`), behind the Confluent prefix when
+`schema.id` is set — the id is written as given and nothing is registered — and `format: protobuf`
+writes one `DynamicMessage` of `schema.message` in `schema.descriptor`. The key stays JSON and a
+retraction stays a tombstone. Columns map by name at registration, and a column the schema cannot
+hold exactly is `PRV-5108`; `mode: changelog` with either is `PRV-5100`, because the op and weight
+have no field to go in. `KafkaSinkFormatsTest` proves each by round trip through the source's own
+decoders, and `KafkaSourceFormatBrokerTest` through a broker.
 
 ### A transactional sink on a format with no delete: Delta
 

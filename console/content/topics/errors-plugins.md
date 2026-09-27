@@ -536,6 +536,12 @@ records after them cost nothing.
 Fix the binding's `schema` to match the producer, or the producer to match the stream. What each
 column accepts from each format is on [the Kafka source](/help/topics/source-kafka).
 
+**On `kafka-sink`** (`format: avro` or `protobuf`) it is raised the other way round: a column the
+schema cannot hold exactly — no field for it, a nullable column into a field that cannot be null, an
+`INT64` into an Avro `int`, a Protobuf unsigned integer, a `FLOAT64` into a `float`, or an Avro field
+no column fills that cannot be written null. What each column needs is on
+[the Kafka sink](/help/topics/sink-kafka).
+
 ### PRV-5109 — Kafka: schema registry unavailable
 
 The registry `schema.registry.url` names could not be read, so a record that carries a schema id
