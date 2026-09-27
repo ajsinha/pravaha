@@ -12,11 +12,15 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased (0.1.4-SNAPSHOT)
 
-- **`jdbc-sink` can commit through PostgreSQL\'s own two-phase commit** (`commit.mode: prepared`). Each
-  checkpoint\'s changes go straight into the table inside a transaction that `PREPARE TRANSACTION` holds
+- **`jdbc-sink` can commit through PostgreSQL's own two-phase commit** (`commit.mode: prepared`). Each
+  checkpoint's changes go straight into the table inside a transaction that `PREPARE TRANSACTION` holds
   and `COMMIT PREPARED` publishes: one write per change instead of two. It is opt-in, because the
   database must allow prepared transactions and the touched rows stay locked for a checkpoint
   interval. It is refused by name elsewhere.
+- **The snapshot-and-change-feed splice is a documented boundary.** `SplicedReader` stays
+  unwired: its newest-row-per-key rule would double-retract on a weighted changelog such as
+  `postgres-cdc`'s, whose own `snapshot.mode: initial` is already exact. A replacement still splices
+  at an offset (ADR-046), and `backfill.adaptive` is still refused (`PRV-4018`).
 - **The server image runs on glibc, and Parquet's Snappy codec loads in it** (PORT-1,
   [ADR-053](adr/053-native-code-only-where-java-cannot.md)). Up to 0.1.3 the image was Alpine, where
   snappy-java cannot load, so the `feedfile` and `delta` plugins could not read a Snappy-compressed
@@ -28,10 +32,13 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   behind the reader catches up to exactly where it stands, and one restored ahead waits for it. The
   Kafka source and the filesystem source (files read once through) implement it, so a thousand queries over one topic read it once, and partitions the topic gains are joined by every query sharing its reader.
 - **Users, passwords, API keys and sessions kept by the engine**
-  ([ADR-052](adr/052-the-engine-is-the-identity-authority.md), stage 1 of 6). The core is built and off
-  by default (`pravaha.identity.enabled`). New codes PRV-7010 to PRV-7021.
+  ([ADR-052](adr/052-the-engine-is-the-identity-authority.md), stages 1 to 3), with a REST API and
+  `pravaha login|user|key|session|password`. The console signs each person in against the engine and
+  acts as them; it keeps no password or engine token of its own. QA installs generate `admin`'s first
+  password; locally, run the engine with `--spring.profiles.active=dev,users`. New codes PRV-7010 to
+  PRV-7021.
 
-Register: **409 findings — 377 fixed, 18 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **410 findings — 377 fixed, 19 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ---
 

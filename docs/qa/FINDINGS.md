@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **409 findings carrying a
-status — 377 FIXED, 18 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 18 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 14 POST-GA and 4 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **410 findings carrying a
+status — 377 FIXED, 19 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 19 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 15 POST-GA and 4 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7041,4 +7041,9 @@ the lead.
 
 > **Status:** OPEN — `LifeDropTest.life067_droppingMidIngestDoesNotCorruptTheShutdownOrdering` failed once in `tools/verify-clean.sh` ("the drop must not hang the feeder thread") and passed three runs of its own immediately after. Either the wait is too short for a loaded machine or a drop can rarely leave the feeder parked; not yet told apart.
 > **Disposition:** POST-GA — record the feeder's stack when the wait expires, so the next occurrence says which.
+
+### CDCREPL-1 (MEDIUM) — replacing a query over a postgres-cdc stream probably contends for the running version's replication slot
+
+> **Status:** OPEN — not reproduced; found by reading, while deciding B3. `backfillRefusal` does not refuse postgres-cdc (its offsets are replayable and ordered), so `PluginSourceFeeds.openBackfill` opens a second plugin instance on the same binding and therefore the same slot (`pravaha_<table>` by default). PostgreSQL lets one connection use a slot at a time, so the new version's reader likely fails while the running one streams, and the two could confirm positions on one slot.
+> **Disposition:** POST-GA — a Testcontainers check first; then either a refusal naming the slot, or a slot of the replacement's own.
 

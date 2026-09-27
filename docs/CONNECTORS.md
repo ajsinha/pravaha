@@ -751,7 +751,9 @@ could hold in memory. `BackfillThrottle` governs the history scan only, because 
 feed would make the query fall behind the present in order to protect the store from the past.
 
 **`postgres-cdc` snapshots with `snapshot.mode: initial`**, and does not use `SplicedReader` to do
-it: PostgreSQL offers an exact seam of its own, and the part that seam leaves open — a checkpoint
+it, and must not: `SplicedReader` keeps the newest row per key, and this source's update is a `-1`
+and a `+1`, so a dropped snapshot row followed by its replayed `-1` would retract a row never added
+(see [`LIMITS.md`](LIMITS.md)). Besides, PostgreSQL offers an exact seam of its own, and the part that seam leaves open — a checkpoint
 cut half-way through the read — has an exact answer too. `InitialSnapshot` in the plugin carries the
 argument; in short:
 
