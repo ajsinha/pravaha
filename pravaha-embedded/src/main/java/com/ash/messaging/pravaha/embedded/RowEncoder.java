@@ -127,6 +127,11 @@ final class RowEncoder {
      * is full. The view is valid until the arena is reset.
      */
     BinaryRowView write(Object[] values, RowArena arena, long sequence) {
+        return write(values, arena, sequence, 1L);
+    }
+
+    /** {@link #write(Object[], RowArena, long)} at {@code weight}: {@code -1} is a retraction. */
+    BinaryRowView write(Object[] values, RowArena arena, long sequence, long weight) {
         int size = sizeOf(values);
         long handle = arena.allocate(size);
         if (handle == ArenaHandle.NULL) {
@@ -160,7 +165,7 @@ final class RowEncoder {
                 stamped = true;
             }
         }
-        writer.weight(1L).sequence(sequence);
+        writer.weight(weight).sequence(sequence);
         if (stamped) {
             writer.eventTimestampNanos(eventTime);
         }
