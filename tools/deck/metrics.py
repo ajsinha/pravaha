@@ -6,12 +6,12 @@ overflow: text simply spills out of its box. So the builder estimates, and the
 audit re-estimates. Both use the functions in this module, so the builder can
 never believe a box fits that the audit will then report.
 
-The deck is set in IBM Plex (brand/README.md). Plex is not installed everywhere a
-deck is opened, and the face a viewer substitutes is usually wider and taller than
-Plex, so the widths and line heights below are those of the likely substitute
-rather than of Plex itself: text that fits here fits with room under Plex.
+The deck is set in Source Sans 3, the console's face. It is not installed everywhere a
+deck is opened, and the face a viewer substitutes is usually wider and taller, so the
+widths and line heights below are those of the likely substitute rather than of
+Source Sans itself: text that fits here fits with room under the real face.
 
-Code is the exception. A proportional stand-in for IBM Plex Mono would collapse a
+Code is the exception. A proportional stand-in for a missing monospaced face would collapse a
 code block's indentation, so code is set in Consolas, which Office ships on every
 platform it runs on and LibreOffice maps to a monospaced face.
 
@@ -27,10 +27,10 @@ from typing import Any
 EMU = 914400.0
 SW, SH = 13.333, 7.5
 FOOTER_Y = SH - 0.55
-SANS = "IBM Plex Sans"
-HEAD = "IBM Plex Sans Condensed"
+SANS = "Source Sans 3"
+HEAD = "Source Sans 3"
 MONO = "Consolas"
-# line_spacing multiplies the face's own line box, not the point size. Plex's box is 1.30 em
+# line_spacing multiplies the face's own line box, not the point size. the substitute's box is 1.30 em
 # (ascender 1025 + descender 275 per 1000) and Noto Sans, the usual stand-in, 1.36 em; the
 # estimate is taken against the larger, over the 1.15 floor the builder never goes below.
 INTRINSIC = 1.12

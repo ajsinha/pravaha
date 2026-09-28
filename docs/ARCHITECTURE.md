@@ -288,8 +288,9 @@ fixed pool of one thread per core and `QueryRegistry` owns one runner, so a node
 follows its cores — `NodeScaleTest` measures 200 queries adding 24 platform threads where the same
 workload cost 400 before. `SharedClock` did the same for the watermark and checkpoint schedulers.
 
-**Built, off by default (W9-8):** `LaneMultiplexer` puts many pipelines on one lane and so shares
-the *inbox and arena* as well as the thread. With `pravaha.lane.multiplex.enabled`, `QueryRegistry`
+**Built, `auto` by default (W9-8):** `LaneMultiplexer` puts many pipelines on one lane and so shares
+the *inbox and arena* as well as the thread. With `pravaha.lane.multiplex.enabled` (`auto`: once a
+node hosts `auto-from`, 64, queries; `true`: from the first; `false`: never), `QueryRegistry`
 hosts registrations on a fixed set of shared lanes it owns (`QueryExecution.startOn`), so one query
 closing no longer stops a lane serving the rest. `SharedLanes` is the admission control: each
 registration goes to the least loaded shared lane below `max-queries-per-lane`, and one that fits

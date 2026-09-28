@@ -1,7 +1,7 @@
 """
-The deck design system: Pravaha's verdigris (brand/README.md: accent #0E7C7B,
-accent-deep #0A5C5B, accent-wash #DCEBEA, ink #0F1A1C, ground #EEF1F2) and
-IBM Plex -- Sans Condensed for headings, Sans for text; Consolas for code -- with
+The deck design system: the console's crimson (console/web/templates/base.html:
+accent #A51C30, #8A1626, #6E1120, tint #F6E6E9, ink #1A1A1A, canvas #F7F5F2) and its
+Source Sans 3 for headings and text; Consolas for code -- with
 the layout primitives every slide is drawn with.
 
 Every primitive that places text measures it with ``metrics`` -- the same
@@ -31,22 +31,22 @@ from pptx.util import Inches as In
 
 from metrics import FOOTER_Y, HEAD, MONO, SAFETY, SANS, SH, SW, est_lines, text_extent, text_h
 
-ACCENT = RGBColor(0x0E, 0x7C, 0x7B)
-ACCENT_D = RGBColor(0x0A, 0x5C, 0x5B)
-ACCENT_DD = RGBColor(0x07, 0x44, 0x43)
-ACCENT_L = RGBColor(0x37, 0xB0, 0xA8)
-WASH = RGBColor(0xDC, 0xEB, 0xEA)
-WASH_L = RGBColor(0xEE, 0xF6, 0xF5)
-INK = RGBColor(0x0F, 0x1A, 0x1C)
-SLATE = RGBColor(0x3E, 0x4D, 0x50)
-MUTED = RGBColor(0x5F, 0x6E, 0x71)
-RULE = RGBColor(0xCF, 0xDA, 0xDA)
-GROUND = RGBColor(0xEE, 0xF1, 0xF2)
+ACCENT = RGBColor(0xA5, 0x1C, 0x30)
+ACCENT_D = RGBColor(0x8A, 0x16, 0x26)
+ACCENT_DD = RGBColor(0x6E, 0x11, 0x20)
+ACCENT_L = RGBColor(0xC4, 0x38, 0x4B)
+WASH = RGBColor(0xF6, 0xE6, 0xE9)
+WASH_L = RGBColor(0xF7, 0xF5, 0xF2)
+INK = RGBColor(0x1A, 0x1A, 0x1A)
+SLATE = RGBColor(0x4A, 0x50, 0x58)
+MUTED = RGBColor(0x61, 0x66, 0x6E)
+RULE = RGBColor(0xE3, 0xDE, 0xD7)
+GROUND = RGBColor(0xF1, 0xEE, 0xE9)
 WHITE = RGBColor(0xFF, 0xFF, 0xFF)
 RETRACT = RGBColor(0x29, 0x33, 0x52)
-CODE_BG = RGBColor(0x0F, 0x1A, 0x1C)
-CODE_FG = RGBColor(0xDC, 0xEB, 0xEA)
-CODE_KW = RGBColor(0x6F, 0xD0, 0xC8)
+CODE_BG = RGBColor(0x1A, 0x1A, 0x1A)
+CODE_FG = RGBColor(0xF1, 0xEE, 0xE9)
+CODE_KW = RGBColor(0xE8, 0xB8, 0xC0)
 
 ML = 0.85
 CW = SW - 2 * ML
@@ -275,7 +275,7 @@ def content(title: str, kicker: str | None = None) -> tuple[Any, float]:
 
 
 def divider(num: str, title: str, sub: str, points: list[str]) -> Any:
-    """A verdigris part divider with its contents on the right."""
+    """A crimson part divider with its contents on the right."""
     _state["chapter"] = f"Part {num} · {title}"
     _state["n"] += 1
     sl = blank()

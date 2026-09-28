@@ -6,7 +6,7 @@
     three-line mark closes up into a solid block, so the tab icon trades a little fidelity
     for staying legible at the size it is actually seen.
   -->
-  <rect width="64" height="64" rx="14" fill="#0E7C7B"/>
+  <rect width="64" height="64" rx="14" fill="#A51C30"/>
   <g fill="none" stroke="#FFFFFF" stroke-width="7"
      stroke-linecap="round" stroke-linejoin="round">
     <path d="M8,25 Q20,13 32,25 T56,25" opacity="0.6"/>

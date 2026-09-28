@@ -71,7 +71,7 @@ def _intro(sl: Any, y: float, text: str | None) -> float:
 
 
 def _note(sl: Any, text: str | None) -> float:
-    """A verdigris-ruled note pinned above the footer; returns its top."""
+    """A crimson-ruled note pinned above the footer; returns its top."""
     if not text:
         return T.BODY_BOTTOM
     size = 12.0

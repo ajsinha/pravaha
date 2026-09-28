@@ -68,20 +68,20 @@ where they are either the output of a real run or answers the build checks
 | File | Purpose |
 |---|---|
 | `metrics.py` | The text estimator: greedy word-wrap simulation and paragraph heights. Shared by the builder and the audit, so the builder never believes a box fits that the audit then reports |
-| `theme.py` | The design system from `brand/README.md` — verdigris (`#0E7C7B`, `#0A5C5B`, `#DCEBEA`, ink `#0F1A1C`), IBM Plex Sans Condensed for headings and IBM Plex Sans for text — plus the flow mark drawn as shapes, tables, cards, stat bars, code panels, and `fitted()`, which shrinks a text block until it fits or raises `DoesNotFit` |
+| `theme.py` | The design system of the console (`console/web/templates/base.html`) — crimson (`#A51C30`, `#8A1626`, `#6E1120`, tint `#F6E6E9`, ink `#1A1A1A`, canvas `#F7F5F2`) and Source Sans 3 for headings and text — plus the flow mark drawn as shapes, tables, cards, stat bars, code panels, and `fitted()`, which shrinks a text block until it fits or raises `DoesNotFit` |
 | `layouts.py` | Slide kinds drawn from plain dictionaries: `title`, `divider`, `bullets`, `table`, `cards`, `stats`, `split`, `flow`, `code`, `context`. A spec's `source` becomes the slide's speaker notes |
 | `pravaha_deck.py`, `deck_part1.py` … `deck_part4.py` | The deck, as data: the title slide in `pravaha_deck.py`, the eleven parts in order in the four part modules. Split only to keep each file short; they are one deck and are meant to be read in order |
 | `build.py` | Builds the deck and sets the document properties (author, title, subject) explicitly |
 | `audit.py` | The geometry audit (below) |
 | `requirements.txt` | `python-pptx` and `pytest`, pinned |
 
-**Fonts.** The brand's faces are IBM Plex, which is not installed everywhere a deck is
-opened. The estimator therefore measures against the wider and taller face a viewer is
-likely to see instead, so text that fits the estimate fits with room under Plex. Code is
-set in Consolas rather than IBM Plex Mono: a proportional stand-in for a missing
-monospaced face collapses a code block's indentation, and Office ships Consolas on
-every platform it runs on. The console's own stylesheet currently carries a crimson
-theme; the deck follows `brand/README.md` and the mark, which are verdigris.
+**Fonts and colour.** The deck follows the console: crimson, and Source Sans 3, which is
+not installed everywhere a deck is opened. The estimator therefore measures against the
+wider and taller face a viewer is likely to see instead, so text that fits the estimate
+fits with room under Source Sans. Code is set in Consolas: a proportional stand-in for a
+missing monospaced face collapses a code block's indentation, and Office ships Consolas
+on every platform it runs on. Crimson is the owner's choice (2026-09-28);
+`brand/README.md` records it.
 
 A slide that cannot be made to fit **fails the build** naming the slide; the fix is to
 shorten the text or split the slide, never to lower the floor.

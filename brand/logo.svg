@@ -3,9 +3,9 @@
   <title>Pravaha — Ask once. Answer always.</title>
   <defs>
     <linearGradient id="pravaha-logo-flow" x1="0" y1="0" x2="1" y2="0.35">
-      <stop offset="0%"   stop-color="#0A5C5B"/>
-      <stop offset="55%"  stop-color="#0E7C7B"/>
-      <stop offset="100%" stop-color="#37B0A8"/>
+      <stop offset="0%"   stop-color="#8A1626"/>
+      <stop offset="55%"  stop-color="#A51C30"/>
+      <stop offset="100%" stop-color="#C4384B"/>
     </linearGradient>
   </defs>
 

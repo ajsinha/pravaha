@@ -2984,7 +2984,7 @@ for byte** so a hand edit fails the build.
 
 | Theme | For |
 |---|---|
-| `light` | Default. Verdigris on a cool white ground. |
+| `light` | Default. Crimson on a warm white ground (`brand/README.md`). |
 | `dark` | The same palette on a night ground — the operations default, and what an incident at 03:00 actually wants. |
 | `high-contrast` | WCAG AAA ratios throughout. |
 | `amber` | Amber on black. Long unbroken monitoring sessions. |

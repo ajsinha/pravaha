@@ -49,31 +49,32 @@ frame, rotate the mark, place it on a busy photograph, or apply a drop shadow.
 
 ## Colour
 
-The palette is drawn from verdigris -- oxidised copper, the colour of water on metal.
+The palette is crimson, the console's (`console/web/templates/base.html`), chosen by the owner on
+2026-09-28 so the product, the deck and every diagram carry one colour. It replaced an earlier
+verdigris palette that only the mark used.
 
 | Token | Light | Dark | Use |
 |---|---|---|---|
-| `accent` | `#0E7C7B` | `#3FB3AB` | Primary. The middle streamline. |
-| `accent-deep` | `#0A5C5B` | `#6FD0C8` | Gradient start, links, pressed states. |
-| `accent-wash` | `#DCEBEA` | `#12302F` | Selected rows, hover surfaces. |
-| `ink` | `#0F1A1C` | `#E4ECEC` | Body text. A near-black biased toward the accent, never pure `#000`. |
-| `ground` | `#EEF1F2` | `#0C1416` | Page background. |
-| `alert` | `#A8402A` | `#E08466` | **Semantic only** -- errors and critical state. Never decorative. |
+| `flow` (accent) | `#A51C30` | `#E47F92` | Primary. The middle streamline. |
+| `flow-d` (accent-deep) | `#8A1626` | `#DE6B81` | Gradient start, links, pressed states. |
+| `flow-l` (accent-light) | `#C4384B` | `#EC9EAC` | The light streamline, highlights. |
+| `ink` | `#1A1A1A` | `#ECECEF` | Body text, never pure `#000`. |
+| `canvas` (ground) | `#F7F5F2` | `#151517` | Page background. |
+| `stripe` (wash) | `#F1EEE9` | `#232329` | Selected rows, hover surfaces. |
+| `bad` (alert) | `#CC2200` | as the console | **Semantic only** -- errors and critical state. Never decorative. |
+| `retract` | `#293352` | as the console | A weight of −1. A retraction is not an error, so it never wears the alert. |
 
-Status colour (`ok`, `warn`, `critical`, `degraded`) is a separate ramp and never reuses
-the accent: a running query and a branded button must not share a hue (design section 23.4).
+Status colour (`ok`, `warn`, `bad`) is a separate ramp and never decorates: a running query and
+a branded button must not be told apart by hue alone (design section 23.4).
 
 ## Typography
 
 | Role | Face | Fallback |
 |---|---|---|
-| Display, headings | IBM Plex Sans Condensed | `system-ui, sans-serif` |
-| Body, UI | IBM Plex Sans | `system-ui, -apple-system, sans-serif` |
-| Code, data, metrics | IBM Plex Mono | `ui-monospace, SFMono-Regular, Menlo, monospace` |
-| प्रवाह | IBM Plex Sans Devanagari | `Noto Sans Devanagari, sans-serif` |
-
-The Devanagari cut is why this superfamily and not another: the name renders correctly in
-its own script, in a face that matches the Latin.
+| Display, headings | Source Serif 4 (console), Source Sans 3 (deck) | `Georgia, serif` / `system-ui, sans-serif` |
+| Body, UI | Source Sans 3 | `-apple-system, "Segoe UI", Roboto, sans-serif` |
+| Code, data, metrics | Source Code Pro | `Consolas, "SF Mono", Menlo, monospace` |
+| प्रवाह | Noto Sans Devanagari | `sans-serif` |
 
 Use `tabular-nums` everywhere digits align -- every metric, every table column, every
 latency figure.
