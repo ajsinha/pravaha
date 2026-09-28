@@ -1,0 +1,12 @@
+{
+  "$comment": "Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved. PROPRIETARY AND CONFIDENTIAL. The answer explain_refusal v1 asks for.",
+  "type": "object",
+  "properties": {
+    "meaning": {"type": "string"},
+    "cause": {"type": "string"},
+    "fix": {"type": "string"},
+    "rewrite": {"type": ["string", "null"]}
+  },
+  "required": ["meaning", "cause", "fix", "rewrite"],
+  "additionalProperties": false
+}
