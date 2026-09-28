@@ -315,5 +315,5 @@ and debugger call.
 ## Next
 
 You have registered, followed, replaced and debugged a query. The
-[case studies](../../examples/case-studies/README.md) are ten complete systems built from the same
+[case studies](../../examples/case-studies/README.md) are thirteen complete systems built from the same
 moves — start with one in your own domain.

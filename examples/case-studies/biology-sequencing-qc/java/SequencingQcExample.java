@@ -57,7 +57,7 @@ public final class SequencingQcExample {
             //    again -- even worded differently -- returns the same computation rather than a
             //    second one; the fingerprint is how you can tell.
             RegisteredQueryInfo registered =
-                    client.register("coverage_qc", read("01-continuous-coverage-qc.sql"), List.of(1));
+                    client.register("coverage_qc", read("01-continuous-coverage-qc.sql"), List.of(1, 2));
             System.out.println("registered " + registered);
 
             // 2. Ask it a question. The value is bound, never concatenated: a bound value is never

@@ -12,6 +12,7 @@ the index table has named it.
 """
 from __future__ import annotations
 
+import html
 import pathlib
 import re
 import sys
@@ -94,3 +95,27 @@ def test_links_go_to_the_study_the_setup_page_the_console_or_the_repository():
 
 def test_the_help_index_offers_the_case_studies(anonymous):
     assert 'href="/help/case-studies"' in anonymous.get("/help").text
+
+
+def _study_directories() -> list[str]:
+    studies = REPO_ROOT / "examples" / "case-studies"
+    return sorted(p.name for p in studies.iterdir() if p.is_dir())
+
+
+def test_there_is_one_card_per_study_directory_nothing_missing_and_nothing_extra(anonymous):
+    # The index table is the source of the cards, so a study directory nobody added to the table
+    # would be in the repository and missing from Help. Every directory, and only those.
+    page = anonymous.get("/help/case-studies")
+    assert page.status_code == 200
+    cards = sorted(set(re.findall(r'href="/help/case-studies/([\w-]+)"', page.text)))
+    assert cards == _study_directories()
+
+
+def test_each_card_opens_its_own_readme(anonymous):
+    for folder in _study_directories():
+        readme = (REPO_ROOT / "examples" / "case-studies" / folder / "README.md").read_text(encoding="utf-8")
+        title = case_studies.title_of(readme, folder)
+        page = anonymous.get(f"/help/case-studies/{folder}")
+        assert page.status_code == 200, folder
+        # The title as the page renders it: the renderer escapes HTML, so compare escaped.
+        assert html.escape(title, quote=False) in page.text, f"{folder} does not render its README's title"

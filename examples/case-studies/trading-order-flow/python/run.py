@@ -35,7 +35,7 @@ def main() -> None:
     with connect(args.url) as client:
         # 1. Register. It runs until dropped, maintaining the "order_rate" view. The same
         #    question registered twice is one computation with two names -- the fingerprint says so.
-        registered = client.register("order_rate", read("01-continuous-new-order-rate.sql"), [1])
+        registered = client.register("order_rate", read("01-continuous-new-order-rate.sql"), [1, 2])  # (trader_id, symbol)
         print("registered", registered)
 
         # 2. Ask it something. Values are bound, never interpolated into the SQL.

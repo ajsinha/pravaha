@@ -1,0 +1,39 @@
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+#
+# The node for the retail inventory study. Start it from the study's directory:
+#
+#   PRAVAHA_CDC_PASSWORD=pravaha \
+#   pravaha-server --spring.profiles.active=dev \
+#                  --spring.config.additional-location=file:./conf/application.yaml
+#
+# The source is mysql-cdc: the node registers with MySQL as a replica and reads the row-based binary
+# log, so an INSERT arrives as +1, a DELETE as -1 of the whole old row, and an UPDATE as -1 old and
+# +1 new -- in one transaction, at its commit. MySQL needs log_bin on, binlog_format ROW and
+# binlog_row_image FULL (8.0's defaults); SETUP.md starts one that has them.
+pravaha:
+  streams:
+    stock:
+      schema: "sku:STRING,warehouse:STRING,on_hand:INT32,reorder_point:INT32,updated_at:TIMESTAMP"
+      # When the row last changed. Nothing here windows on it, but a stream carrying a TIMESTAMP says
+      # which column is its event time, so that a window added later closes.
+      event-time: updated_at
+      out-of-orderness: 5s
+  sources:
+    stock:
+      plugin: mysql-cdc
+      options:
+        host: localhost
+        port: "3306"
+        user: pravaha_cdc
+        password: "${PRAVAHA_CDC_PASSWORD}"
+        # database.table. The stream takes the table's name, and every column, typed from
+        # information_schema; a declared schema is refused (PRV-5150), so nothing can drift.
+        table: inventory.stock
+        # The replica id this node registers as. Unique among everything replicating from this
+        # server; derived from the binding when left out.
+        server.id: "5401"
+        event.time: updated_at
+        # Changes only: rows already in the table before the node first starts are not read
+        # (snapshot.mode initial is not built yet), so start the node before loading the morning.

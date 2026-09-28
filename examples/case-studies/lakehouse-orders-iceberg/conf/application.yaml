@@ -1,0 +1,50 @@
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+#
+# The node for the lakehouse orders study. Start it from the study's directory, so the relative
+# paths below resolve there:
+#
+#   pravaha-server --spring.profiles.active=dev \
+#                  --spring.config.additional-location=file:./conf/application.yaml
+#
+# Nothing else is needed. The source is a CSV file the node follows as it grows; the sink is an
+# Apache Iceberg table in a directory, written by iceberg-core and iceberg-parquet without Spark,
+# with no metastore and no catalog service: the table's metadata files are its catalog. Both
+# plugins ship inside the server jar.
+pravaha:
+  streams:
+    order_line:
+      schema: "order_id:STRING,customer_id:STRING,region:STRING,category:STRING,amount_minor:INT64,ordered_at:TIMESTAMP"
+      # When the customer placed the order. Every hour below is cut on it.
+      event-time: ordered_at
+      # Web servers upload order files a little out of step; a minute covers it.
+      out-of-orderness: 1m
+      # An hour already written is kept for fifteen more minutes of event time. An order line that
+      # arrives in that time corrects it -- in the view, and in the Iceberg table, where upsert
+      # mode replaces the hour's row. After that, a line for the hour is dropped.
+      allowed-lateness: 15m
+  sources:
+    order_line:
+      plugin: filesystem
+      options:
+        path: ./data/order_lines.csv
+        schema: "order_id:STRING,customer_id:STRING,region:STRING,category:STRING,amount_minor:INT64,ordered_at:TIMESTAMP"
+        event.time: ordered_at
+        skip.header: "true"
+        follow: "true"
+  sinks:
+    # Where hourly_revenue writes as well as to its view: an Iceberg table the analysts' tools read.
+    # Upsert mode keeps the table equal to the view by key -- each checkpoint's changes are collapsed
+    # by (window_end, region), and one commit writes an equality delete for every key it touches and
+    # one data file of the rows that survive. A corrected hour replaces its row; nothing is appended
+    # twice. key.columns must be the key the query is registered with.
+    hourly_revenue_table:
+      plugin: iceberg-sink
+      options:
+        path: ./data/lake/hourly_revenue
+        schema: "window_end:TIMESTAMP,region:STRING,orders:INT64,revenue_minor:INT64,customers:INT64"
+        mode: upsert
+        key.columns: "window_end,region"
+        # One Iceberg snapshot per checkpoint, and a restore never commits one twice.
+        transactional: "true"

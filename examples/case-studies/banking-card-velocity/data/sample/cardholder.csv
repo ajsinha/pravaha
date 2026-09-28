@@ -1,0 +1,4 @@
+card_id,customer_id,risk_band,daily_limit_minor
+c-1001,cust-1,LOW,500000
+c-1002,cust-2,HIGH,100000
+c-1003,cust-3,MEDIUM,250000

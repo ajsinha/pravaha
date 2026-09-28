@@ -1,0 +1,38 @@
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+#
+# The node for the shared-Kafka payments study. Start it from the study's directory:
+#
+#   pravaha-server --spring.profiles.active=dev \
+#                  --spring.config.additional-location=file:./conf/application.yaml
+#
+# One source binding, one topic, and every query registered over the stream shares it: Kafka's
+# offsets are ordered and its reader can stop exactly at a position, so the engine keeps ONE reader
+# for the binding and fans each record out to every query, each exactly once and in order
+# (ADR-054). A query registered later catches up privately to exactly where the shared reader
+# stands, then joins it.
+pravaha:
+  streams:
+    payment:
+      schema: "payment_id:STRING,merchant:STRING,card_country:STRING,amount_minor:INT64,status:STRING,paid_at:TIMESTAMP"
+      # When the card was charged, by the acquirer's clock. The per-minute totals are cut on it.
+      event-time: paid_at
+      # Records from different partitions interleave; five seconds covers the skew.
+      out-of-orderness: 5s
+  sources:
+    payment:
+      plugin: kafka
+      options:
+        bootstrap.servers: "localhost:9092"
+        topic: payments
+        # Each record's value is a JSON object of the row's columns, matched by name.
+        format: json
+        schema: "payment_id:STRING,merchant:STRING,card_country:STRING,amount_minor:INT64,status:STRING,paid_at:TIMESTAMP"
+        event.time: paid_at
+        # Where a query with no checkpoint starts. Its position afterwards lives in the engine's
+        # checkpoint, never in a consumer group, which is what makes the source exactly once.
+        start.from: earliest
+        # Optional: the offsets of each durable checkpoint are committed here too, so
+        # kafka-consumer-groups and lag dashboards see the shared reader. A report, never a position.
+        monitoring.group: pravaha-payments

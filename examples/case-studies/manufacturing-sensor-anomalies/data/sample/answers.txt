@@ -1,0 +1,37 @@
+# The answers to sensor_reading.csv -- the shift, then its late phase (python3
+# data/generate_readings.py, then --phase late) -- worked out by hand. Checked by pravaha-it's
+# CaseStudyRunTest. Format: == <read file or SQL> [:: parameters].
+#
+# press-02 reads 720/724 in the first minute, climbs 780 + 25n in the second, and 940 + 8n in the
+# third. press-02-late (08:02:55, 991) arrives after the third minute closed but inside thirty
+# seconds of allowed lateness, so the minute is corrected to seven readings and a maximum of 991.
+== 03-read-one-machine.sql :: press-02
+2026-03-02T08:01:00Z | 6 | 720 | 724 | 28
+2026-03-02T08:02:00Z | 6 | 780 | 905 | 28
+2026-03-02T08:03:00Z | 7 | 940 | 991 | 28
+
+# press-01-stale (08:00:45, 999) is past the first minute's lateness: dropped, so press-01's first
+# minute keeps its six readings of 710-720.
+== 03-read-one-machine.sql :: press-01
+2026-03-02T08:01:00Z | 6 | 710 | 720 | 28
+2026-03-02T08:02:00Z | 6 | 710 | 720 | 28
+2026-03-02T08:03:00Z | 6 | 710 | 720 | 28
+
+# lathe-07 shakes at 180 um at 08:01:30 and 08:01:40; press-02 is over 95.0 C in the third minute.
+== 04-read-anomalous-minutes.sql :: 950, 150
+2026-03-02T08:02:00Z | lathe-07 | 609 | 180
+2026-03-02T08:03:00Z | press-02 | 991 | 28
+
+# Three closed minutes per machine; L1's readings are 2 x 18 plus the late one.
+== 05-read-line-summary.sql
+L1 | 6 | 37 | 991
+L2 | 3 | 18 | 609
+
+# A filter has no window to be late for: both late readings over 95.0 C are alarms.
+== SELECT reading_id, machine_id, line_id, temperature_dc, reading_time FROM overheat_alerts
+press-02-14 | press-02 | L1 | 956 | 2026-03-02T08:02:20Z
+press-02-15 | press-02 | L1 | 964 | 2026-03-02T08:02:30Z
+press-02-16 | press-02 | L1 | 972 | 2026-03-02T08:02:40Z
+press-02-17 | press-02 | L1 | 980 | 2026-03-02T08:02:50Z
+press-02-late | press-02 | L1 | 991 | 2026-03-02T08:02:55Z
+press-01-stale | press-01 | L1 | 999 | 2026-03-02T08:00:45Z

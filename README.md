@@ -259,7 +259,7 @@ density are photographed and audited by axe. The manual WCAG 2.2 AA audit is not
 | [Quickstart](docs/QUICKSTART.md) | Clone to a running continuous query |
 | [Concepts](docs/CONCEPTS.md) | The ideas everything follows from; most surprises are one of these working correctly |
 | [User guide](docs/USER_GUIDE.md) | The whole surface, task by task, in Java, Python and the shell |
-| [Case studies](examples/case-studies/) | Five worked systems: a store to stand up, a data model, a continuous query and the app code |
+| [Case studies](examples/case-studies/) | Thirteen worked systems: a data model, the data, the continuous queries and the app code, each run and checked by the build |
 | [Python API guide](docs/PYTHON_API_GUIDE.md) | Every REST and SDK call with a Python sample, for integration |
 | [Running from an IDE](docs/DEVELOPING_IN_AN_IDE.md) | The server in IntelliJ IDEA and the console in PyCharm |
 

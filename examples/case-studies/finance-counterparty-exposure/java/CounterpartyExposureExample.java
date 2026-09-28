@@ -57,7 +57,7 @@ public final class CounterpartyExposureExample {
             //    again -- even worded differently -- returns the same computation rather than a
             //    second one; the fingerprint is how you can tell.
             RegisteredQueryInfo registered =
-                    client.register("counterparty_exposure", read("01-continuous-hourly-exposure.sql"), List.of(1));
+                    client.register("counterparty_exposure", read("01-continuous-hourly-exposure.sql"), List.of(1, 2));
             System.out.println("registered " + registered);
 
             // 2. Ask it a question. The value is bound, never concatenated: a bound value is never

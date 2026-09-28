@@ -1,0 +1,4 @@
+sample_id,subject_id,panel,tissue
+s-01,subj-1,CARDIO_V3,BLOOD
+s-02,subj-2,CARDIO_V3,BLOOD
+s-03,subj-3,ONCO_V7,TUMOUR

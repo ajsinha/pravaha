@@ -1,0 +1,37 @@
+# The answers to ad_impression.csv and ad_click.csv (python3 data/generate_events.py), worked out
+# by hand. Checked by pravaha-it's CaseStudyRunTest. Format: == <read file or SQL> [:: parameters].
+#
+# Sixty impressions, ten seconds apart from 12:00:00, campaigns in turn: ten per campaign in each
+# five minutes. cost_micros is 1500 + (i % 4) * 250, so the sums differ by which i each campaign got.
+# The heartbeat at 12:25 moves both streams past 12:10; its own window stays open.
+== 04-read-campaign-impressions.sql
+2026-07-01T12:05:00Z | new-phone | 10 | 18250
+2026-07-01T12:05:00Z | summer-sale | 10 | 18750
+2026-07-01T12:05:00Z | travel | 10 | 18750
+2026-07-01T12:10:00Z | new-phone | 10 | 19250
+2026-07-01T12:10:00Z | summer-sale | 10 | 18750
+2026-07-01T12:10:00Z | travel | 10 | 18750
+
+# Every fourth impression is clicked (i = 0, 4, ... 56), except imp-008, whose click came twelve
+# minutes later; the click on imp-999 names nothing served. Travel is i = 20, 32, 44, 56.
+== 05-read-campaign-clicks.sql :: travel
+clk-005 | imp-020 | news-top | u-00 | 2026-07-01T12:03:50Z
+clk-009 | imp-032 | sports-side | u-12 | 2026-07-01T12:06:20Z
+clk-012 | imp-044 | video-pre | u-04 | 2026-07-01T12:08:50Z
+clk-015 | imp-056 | news-top | u-16 | 2026-07-01T12:10:05Z
+
+# Fourteen attributed clicks, every clicked impression having cost 1500 (i % 4 == 0).
+== 06-read-clicks-by-placement.sql
+news-top | 5 | 7500
+sports-side | 5 | 7500
+video-pre | 4 | 6000
+
+# Clicks by the minute they happened, in five-minute windows: clk-015 at 12:10:05 is in the third.
+== SELECT window_end, campaign_id, clicks, clicking_users FROM campaign_clicks
+2026-07-01T12:05:00Z | new-phone | 2 | 2
+2026-07-01T12:05:00Z | summer-sale | 2 | 2
+2026-07-01T12:05:00Z | travel | 1 | 1
+2026-07-01T12:10:00Z | new-phone | 3 | 3
+2026-07-01T12:10:00Z | summer-sale | 3 | 3
+2026-07-01T12:10:00Z | travel | 2 | 2
+2026-07-01T12:15:00Z | travel | 1 | 1

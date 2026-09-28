@@ -1,0 +1,32 @@
+# The answers to stock.csv (python3 data/generate_stock.py --changes), worked out by hand.
+# Checked by pravaha-it's CaseStudyRunTest. Format: == <read file or SQL> [:: parameters].
+#
+# An update arrives as -1 of the old row and +1 of the new, so each view ends holding exactly the
+# rows the table holds; a delete is -1 alone. After 09:30 the table is:
+#   sku-100 LDN 10/10, sku-100 MAN 22/10, sku-200 LDN 27/8, sku-300 LDN 2/5, sku-300 MAN 30/5
+# and sku-400 MAN is gone.
+== 03-read-one-sku.sql :: sku-100
+LDN | 10 | 10 | 2026-06-01T09:30:00Z
+MAN | 22 | 10 | 2026-06-01T09:15:00Z
+
+== 03-read-one-sku.sql :: sku-400
+(none)
+
+# LDN: 10 + 27 + 2 = 39 over three lines; MAN: 22 + 30 = 52 over two.
+== 04-read-warehouse-totals.sql
+LDN | 3 | 39
+MAN | 2 | 52
+
+# sku-200 dropped to 7 (under 8) at 09:05 and was topped up to 27 at 09:20: in, then out again.
+# sku-100 LDN at 10 is exactly its reorder point, which <= counts.
+== 05-read-low-stock-in-warehouse.sql :: LDN
+sku-100 | 10 | 10
+sku-300 | 2 | 5
+
+# sku-400 opened under its reorder point and was deleted: its alert went with the row.
+== 05-read-low-stock-in-warehouse.sql :: MAN
+(none)
+
+== SELECT sku, warehouse, on_hand FROM low_stock
+sku-100 | LDN | 10
+sku-300 | LDN | 2

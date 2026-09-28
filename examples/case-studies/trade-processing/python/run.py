@@ -36,7 +36,7 @@ def main() -> None:
     with connect(args.url) as client:
         # 1. Register. It runs until dropped, maintaining the "trade_feed" view. The same
         #    question registered twice is one computation with two names -- the fingerprint says so.
-        registered = client.register("trade_feed", read("01-continuous-trade-feed.sql"), [1])
+        registered = client.register("trade_feed", read("01-continuous-trade-feed.sql"), [0])  # trade_event_id
         print("registered", registered)
 
         # 2. Ask it something. Values are bound, never interpolated into the SQL.

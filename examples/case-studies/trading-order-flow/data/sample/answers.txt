@@ -1,0 +1,29 @@
+# The answers to order_event.csv and instrument.csv, worked out by hand. The first six events are
+# the ones the README inserts into aql (1767225600 is 2026-01-01T00:00:00Z); the seventh, at
+# 00:01:30, moves event time on. Checked by pravaha-it's CaseStudyRunTest.
+# Format: == <read file or SQL> [:: parameters].
+#
+# One-minute windows every ten seconds, five seconds of out-of-orderness: the last event takes the
+# watermark to 00:01:25, so every window ending at or before 00:01:20 has closed. Both views are
+# keyed by (trader_id, symbol), so each holds a line's latest closed minute.
+#
+# t-7's two NEW orders (00:00:00, 00:00:01) are last together in the window ending 00:01:00.
+== 03-read-trader-activity.sql :: t-7
+t-7 | VOD.L | 2 | 1000
+
+# t-9's orders at 00:00:03 and 00:00:20: the latest closed window, ending 00:01:20, holds only the
+# second -- the first left the minute ten seconds after 00:01:00.
+== 03-read-trader-activity.sql :: t-9
+t-9 | AAPL | 1 | 100
+
+# t-3's future at 00:01:30 is in windows that have not closed.
+== 03-read-trader-activity.sql :: t-3
+(none)
+
+== 04-read-busiest-by-asset-class.sql
+EQUITY | 2 | 3 | 1100
+
+# Both of t-7's orders were cancelled within two seconds; the first event on the stream is a NEW,
+# so this aggregate sees event time move before it sees a row at all.
+== SELECT window_end, trader_id, symbol, cancels FROM cancel_rate
+2026-01-01T00:01:00Z | t-7 | VOD.L | 2

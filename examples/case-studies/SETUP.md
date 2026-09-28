@@ -3,13 +3,15 @@
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
 
-Five of the case studies need somewhere for data to live. Two stores cover them: **Aerospike** for
-the studies that read a hot key-value store, **PostgreSQL** for the one that reads a ledger. You do
-not need both — each case study says which it uses.
+Seven of the case studies need somewhere for data to live. Four stores cover them: **Aerospike** for
+the studies that read a hot key-value store, **PostgreSQL** for the one that reads a ledger,
+**MySQL** for the one that captures a table's changes, and **Kafka** for the one that shares a
+topic. You need only the one your study uses — each case study says which.
 
-The other five — sensor anomalies, checkout funnel, click attribution, CDR fraud and delivery SLAs —
-need no store at all: their sources are CSV files the node follows, and each README says how to
-generate them. For those, only Java 21, the Python client and the node below apply.
+The other six — sensor anomalies, checkout funnel, click attribution, CDR fraud, delivery SLAs and
+the Iceberg lakehouse — need no store at all: their sources are CSV files the node follows, and each
+README says how to generate them. For those, only Java 21, the Python client and the node below
+apply.
 
 This page is the part that is identical everywhere. Each case study has its own section for the
 namespaces, tables and rows *it* needs, and you should read that after this.
@@ -110,6 +112,78 @@ docker exec -it pravaha-postgres psql -U pravaha -d pravaha
 
 ```bash
 docker rm -f pravaha-postgres
+```
+
+## MySQL
+
+For [the retail inventory study](retail-inventory-mysql/), which reads MySQL's binary log as a
+replica.
+
+### Start it
+
+```bash
+docker run -d --name pravaha-mysql \
+  -e MYSQL_ROOT_PASSWORD=pravaha \
+  -p 3306:3306 \
+  mysql:8.0
+```
+
+MySQL 8.0's defaults are what `mysql-cdc` needs: `log_bin` on, `binlog_format = ROW`,
+`binlog_row_image = FULL`, and binary-log transaction compression off. A server with any of them
+changed is refused at start (`PRV-5152`) with the statement that fixes it.
+
+### Check it is up
+
+```bash
+docker exec pravaha-mysql mysqladmin -uroot -ppravaha ping
+# expect: mysqld is alive
+```
+
+### The tool you will use to load data
+
+```bash
+docker exec -it pravaha-mysql mysql -uroot -ppravaha inventory
+```
+
+### Stop and wipe it
+
+```bash
+docker rm -f pravaha-mysql
+```
+
+## Kafka
+
+For [the shared-topic payments study](payments-shared-kafka/).
+
+### Start it
+
+```bash
+docker run -d --name pravaha-kafka -p 9092:9092 apache/kafka:3.8.0
+docker exec pravaha-kafka /opt/kafka/bin/kafka-topics.sh \
+  --bootstrap-server localhost:9092 --create --topic payments --partitions 3
+```
+
+The image runs a single broker in KRaft mode that advertises `localhost:9092`, so a node on the
+same machine reaches it without further configuration.
+
+### Check it is up
+
+```bash
+docker exec pravaha-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+# expect: payments
+```
+
+### The tool you will use to load data
+
+```bash
+docker exec -i pravaha-kafka /opt/kafka/bin/kafka-console-producer.sh \
+  --bootstrap-server localhost:9092 --topic payments
+```
+
+### Stop and wipe it
+
+```bash
+docker rm -f pravaha-kafka
 ```
 
 ## Python client

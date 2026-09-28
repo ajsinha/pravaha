@@ -1,0 +1,39 @@
+# The answers to trade.csv, counterparty.csv and book.csv, worked out by hand. The first four trade
+# events are the ones Step 4 of the README inserts; event 5 books a forward with a counterparty
+# nobody has onboarded yet. Checked by pravaha-it's CaseStudyRunTest.
+# Format: == <read file or SQL> [:: parameters].
+#
+# No window, so nothing waits on event time. Both views are keyed by trade_event_id, so the
+# amendment (event 4) sits beside the trade it amends (event 1) rather than replacing it.
+== 02-read-by-product-and-source.sql :: SWAP, MUREX
+1 | T-1001 | SWAP | MUREX | 2026-01-01T00:00:00Z | {"notional":5000000,"ccy":"GBP"}
+4 | T-1001 | SWAP | MUREX | 2026-01-01T00:00:03Z | {"notional":5500000,"ccy":"GBP","amend":1}
+
+== 03-read-counts-by-product.sql
+SWAP | MUREX | 2
+SWAP | CALYPSO | 1
+EQUITY | CALYPSO | 1
+FXFWD | MUREX | 1
+
+== 04-read-one-trade.sql :: T-1001
+1 | T-1001 | MUREX | {"notional":5000000,"ccy":"GBP"}
+4 | T-1001 | MUREX | {"notional":5500000,"ccy":"GBP","amend":1}
+
+# bk-1 is RATES: T-1001 twice (cp-1, ACME, GB) and T-1003 (cp-3, Cygnus, FR).
+== 06-read-enriched-by-desk.sql :: RATES
+T-1001 | SWAP | ACME Clearing Ltd | GB | RATES | {"notional":5000000,"ccy":"GBP"}
+T-1001 | SWAP | ACME Clearing Ltd | GB | RATES | {"notional":5500000,"ccy":"GBP","amend":1}
+T-1003 | SWAP | Cygnus Securities SA | FR | RATES | {"notional":250000,"ccy":"USD"}
+
+== 07-read-enriched-by-country-and-product.sql :: GB, SWAP
+T-1001 | ACME Clearing Ltd | GB | RATES | EMEA | {"notional":5000000,"ccy":"GBP"}
+T-1001 | ACME Clearing Ltd | GB | RATES | EMEA | {"notional":5500000,"ccy":"GBP","amend":1}
+
+== 08-read-desk-totals.sql
+EMEA | RATES | SWAP | 3
+EMEA | EQUITIES | EQUITY | 1
+APAC | FX | FXFWD | 1
+
+# LEFT, not inner: the forward with an unknown counterparty is in the feed, its name null.
+== SELECT trade_id, legal_name, country, desk FROM enriched_trade WHERE trade_id = 'T-1004'
+T-1004 | NULL | NULL | FX

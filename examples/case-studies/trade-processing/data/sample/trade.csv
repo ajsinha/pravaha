@@ -1,0 +1,6 @@
+trade_id,product_type,source_system,trade_event_id,trade_time,counterparty_id,book_id,trade_json
+T-1001,SWAP,MUREX,1,2026-01-01T00:00:00Z,cp-1,bk-1,"{""notional"":5000000,""ccy"":""GBP""}"
+T-1002,EQUITY,CALYPSO,2,2026-01-01T00:00:01Z,cp-2,bk-2,"{""qty"":1200,""sym"":""VOD.L""}"
+T-1003,SWAP,CALYPSO,3,2026-01-01T00:00:02Z,cp-3,bk-1,"{""notional"":250000,""ccy"":""USD""}"
+T-1001,SWAP,MUREX,4,2026-01-01T00:00:03Z,cp-1,bk-1,"{""notional"":5500000,""ccy"":""GBP"",""amend"":1}"
+T-1004,FXFWD,MUREX,5,2026-01-01T00:00:04Z,cp-9,bk-3,"{""notional"":1000000,""pair"":""EURUSD""}"

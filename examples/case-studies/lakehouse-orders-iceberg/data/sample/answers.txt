@@ -1,0 +1,32 @@
+# The answers to order_line.csv -- the morning, then its late phase (python3
+# data/generate_orders.py, then --phase late) -- worked out by hand. Checked by pravaha-it's
+# CaseStudyRunTest. Format: == <read file or SQL> [:: parameters].
+#
+# Line i is at 10:00 + 5i minutes, region [EU, UK, US][i % 3], category [books, garden, toys,
+# games][i % 4], customer c-(i % 7), amount 1000 + (i * 371) % 9000. Twelve lines an hour, four per
+# region. o-100 at 12:10 closes both hours; o-late (UK, 11:50, 4200) arrives after that and inside
+# fifteen minutes of allowed lateness, so the UK 11:00-12:00 row goes from 4 lines and 29970 to 5
+# and 34170. o-101 at 12:20 publishes the correction. The 12:00 hour stays open.
+#
+# UK is i = 1, 4, 7, 10 (10:00) and 13, 16, 19, 22 (11:00): 1371 + 2484 + 3597 + 4710 = 12162, and
+# 5823 + 6936 + 8049 + 9162 = 29970, plus 4200. Customers c-6, c-2, c-5, c-1 -- o-late's c-5 is
+# already one of them.
+== 04-read-one-region.sql :: UK
+2026-04-20T11:00:00Z | 4 | 12162 | 4
+2026-04-20T12:00:00Z | 5 | 34170 | 4
+
+== 04-read-one-region.sql :: EU
+2026-04-20T11:00:00Z | 4 | 10678 | 4
+2026-04-20T12:00:00Z | 4 | 28486 | 4
+
+== 03-read-region-totals.sql
+EU | 8 | 39164
+UK | 9 | 46332
+US | 8 | 45100
+
+# Each category has three lines an hour; o-late adds a fourth toys line to the second hour.
+== 05-read-category-mix.sql
+books | 6 | 28260
+garden | 6 | 30486
+toys | 7 | 36912
+games | 6 | 34938

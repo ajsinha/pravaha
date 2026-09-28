@@ -188,18 +188,22 @@ Register both, through the SDK:
 
 ```java
 try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:19090")) {
-    client.register("order_rate",  Files.readString(Path.of("sql/01-continuous-new-order-rate.sql")), List.of(1));
-    client.register("cancel_rate", Files.readString(Path.of("sql/02-continuous-cancel-rate.sql")), List.of(1));
+    client.register("order_rate",  Files.readString(Path.of("sql/01-continuous-new-order-rate.sql")), List.of(1, 2));
+    client.register("cancel_rate", Files.readString(Path.of("sql/02-continuous-cancel-rate.sql")), List.of(1, 2));
 }
 ```
 
 Or from a shell:
 
 ```bash
-pravaha register --name order_rate  --sql-file sql/01-continuous-new-order-rate.sql --keys 1
-pravaha register --name cancel_rate --sql-file sql/02-continuous-cancel-rate.sql --keys 1
+pravaha register --name order_rate  --sql-file sql/01-continuous-new-order-rate.sql --keys 1,2
+pravaha register --name cancel_rate --sql-file sql/02-continuous-cancel-rate.sql --keys 1,2
 pravaha queries
 ```
+
+Both views are keyed by `(trader_id, symbol)` — ordinals 1 and 2 — so each holds a trader's latest
+closed minute on each instrument. Keyed by `trader_id` alone, a trader working two symbols would keep
+only whichever minute closed last, and `03` would silently lose the other symbol.
 
 They have different plans, so they are **two computations with two copies of state** — which
 `pravaha queries` shows as two different fingerprints. That is the cost of not having `CASE`, stated

@@ -1,0 +1,33 @@
+# The answers to call_record.csv (python3 data/generate_cdrs.py), worked out by hand.
+# Checked by pravaha-it's CaseStudyRunTest. Format: == <read file or SQL> [:: parameters], then rows.
+#
+# The SIM box calls every ten seconds from 21:01:00 to 21:02:50, 25/30/35/40 seconds in turn.
+# The sliding window ending 21:02 holds 21:01:00-21:01:50: six calls, 25+30+35+40+25+30 = 185 s.
+# Those ending 21:03 to 21:06 hold all twelve: 3 x (25+30+35+40) = 390 s. The one ending 21:07
+# holds 21:02:00-21:02:50: 35+40+25+30+35+40 = 205 s.
+== 04-read-one-caller.sql :: '447700900666'
+2026-05-14T21:02:00Z | 6 | 6 | 185
+2026-05-14T21:03:00Z | 12 | 12 | 390
+2026-05-14T21:04:00Z | 12 | 12 | 390
+2026-05-14T21:05:00Z | 12 | 12 | 390
+2026-05-14T21:06:00Z | 12 | 12 | 390
+2026-05-14T21:07:00Z | 6 | 6 | 205
+
+# Only the SIM box reaches eight calls to eight numbers, in the four full windows.
+== 05-read-simbox-suspects.sql :: 8, 8
+447700900666 | 4 | 12 | 12
+
+# The two Solomon Islands calls; the 45-second call to Tuvalu is under a minute.
+== SELECT cdr_id, caller, callee_country, duration_s FROM premium_calls
+cdr-019 | 447700900123 | SB | 1260
+cdr-023 | 447700900123 | SB | 915
+
+== 06-read-premium-by-caller.sql
+447700900123 | SB | 2 | 2175
+
+# 21:00-21:05: the SIM box's twelve calls, then 447700900001 and 447700900123 with three each,
+# the tie broken by the remaining columns.
+== SELECT window_start, caller, calls, rn FROM top_callers
+2026-05-14T21:00:00Z | 447700900666 | 12 | 1
+2026-05-14T21:00:00Z | 447700900001 | 3 | 2
+2026-05-14T21:00:00Z | 447700900123 | 3 | 3

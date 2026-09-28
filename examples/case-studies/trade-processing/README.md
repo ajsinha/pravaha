@@ -186,14 +186,14 @@ pravaha register --name trade_feed --sql-file sql/01-continuous-trade-feed.sql -
 docker exec -it pravaha-aerospike aql
 ```
 ```sql
-INSERT INTO test.trade (PK, trade_event_id, trade_id, product_type, source_system, trade_time, trade_json)
-  VALUES (1, 1, 'T-1001', 'SWAP',   'MUREX',   1767225600000000000, '{"notional":5000000,"ccy":"GBP"}');
-INSERT INTO test.trade (PK, trade_event_id, trade_id, product_type, source_system, trade_time, trade_json)
-  VALUES (2, 2, 'T-1002', 'EQUITY', 'CALYPSO', 1767225601000000000, '{"qty":1200,"sym":"VOD.L"}');
-INSERT INTO test.trade (PK, trade_event_id, trade_id, product_type, source_system, trade_time, trade_json)
-  VALUES (3, 3, 'T-1003', 'SWAP',   'CALYPSO', 1767225602000000000, '{"notional":250000,"ccy":"USD"}');
-INSERT INTO test.trade (PK, trade_event_id, trade_id, product_type, source_system, trade_time, trade_json)
-  VALUES (4, 4, 'T-1001', 'SWAP',   'MUREX',   1767225603000000000, '{"notional":5500000,"ccy":"GBP","amend":1}');
+INSERT INTO test.trade (PK, trade_event_id, trade_id, product_type, source_system, trade_time, counterparty_id, book_id, trade_json)
+  VALUES (1, 1, 'T-1001', 'SWAP',   'MUREX',   1767225600000000000, 'cp-1', 'bk-1', '{"notional":5000000,"ccy":"GBP"}');
+INSERT INTO test.trade (PK, trade_event_id, trade_id, product_type, source_system, trade_time, counterparty_id, book_id, trade_json)
+  VALUES (2, 2, 'T-1002', 'EQUITY', 'CALYPSO', 1767225601000000000, 'cp-2', 'bk-2', '{"qty":1200,"sym":"VOD.L"}');
+INSERT INTO test.trade (PK, trade_event_id, trade_id, product_type, source_system, trade_time, counterparty_id, book_id, trade_json)
+  VALUES (3, 3, 'T-1003', 'SWAP',   'CALYPSO', 1767225602000000000, 'cp-3', 'bk-1', '{"notional":250000,"ccy":"USD"}');
+INSERT INTO test.trade (PK, trade_event_id, trade_id, product_type, source_system, trade_time, counterparty_id, book_id, trade_json)
+  VALUES (4, 4, 'T-1001', 'SWAP',   'MUREX',   1767225603000000000, 'cp-1', 'bk-1', '{"notional":5500000,"ccy":"GBP","amend":1}');
 ```
 
 Event 4 amends trade `T-1001`. Both events are in the feed, which is the point of keying on the

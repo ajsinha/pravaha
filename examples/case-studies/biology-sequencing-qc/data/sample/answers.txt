@@ -1,0 +1,27 @@
+# The answers to read_metric.csv and sample_manifest.csv, worked out by hand. Reads 1-5 and 9 are
+# the ones the README pastes into aql (1767225600 is 2026-01-01T00:00:00Z); 10 and 11 carry the run
+# into a second and third window. Checked by pravaha-it's CaseStudyRunTest.
+# Format: == <read file or SQL> [:: parameters].
+#
+# Thirty-second windows, five seconds of out-of-orderness: read 9 (00:00:40) closes the first,
+# read 11 (00:01:10) the second. Read 4 has MAPQ 12 and is filtered out. The view is keyed by
+# (run_id, sample_id), so it holds each sample's latest closed window.
+#
+# s-01: first window reads 1 and 2 (depth 52, 48: mean 50, two targets); second window read 9.
+== 02-read-one-sample.sql :: s-01
+s-01 | CARDIO_V3 | 1 | 50 | 60 | 1
+
+# s-02: first window read 3 alone (depth 9); second window read 10, depth 7 at MAPQ 45.
+== 02-read-one-sample.sql :: s-02
+s-02 | CARDIO_V3 | 1 | 7 | 45 | 1
+
+# s-03 read only in the first window.
+== 02-read-one-sample.sql :: s-03
+s-03 | ONCO_V7 | 1 | 61 | 60 | 1
+
+== 04-read-undercovered.sql :: 30
+run-A | s-02 | 7 | 1
+
+== 03-read-panel-summary.sql
+CARDIO_V3 | 2 | 2 | 45
+ONCO_V7 | 1 | 1 | 60

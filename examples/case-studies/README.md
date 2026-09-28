@@ -3,7 +3,7 @@
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
 
-Ten worked systems, each one a template you can copy into a real application. Every study has a
+Thirteen worked systems, each one a template you can copy into a real application. Every study has a
 business problem, a data model, the data to load, the continuous queries, and the SQL an application
 uses to read the answers — in **both Java and Python**.
 
@@ -23,6 +23,9 @@ demonstration stream. These studies assume you have seen that much.
 | [Click attribution](adtech-click-attribution/) | Advertising | none (CSV) | A **join between two streams** with a time bound, a window over a join, joining two views in the reader |
 | [Call-detail-record fraud](telecom-cdr-fraud/) | Telecommunications | none (CSV) | **Sliding** windows, an `IN` filter, a maintained **top-N** (`ROW_NUMBER … rn <= 3`) |
 | [Delivery SLA breaches](logistics-delivery-sla/) | Logistics | none (CSV) | An interval join to a **sink**, and a **`LEFT JOIN` with a time bound** that reports what did not happen |
+| [Stock levels from MySQL](retail-inventory-mysql/) | Retail | MySQL (binlog) | **Change data capture** with `mysql-cdc`: an update is `-1` old and `+1` new, so a low-stock alert clears itself |
+| [Order revenue into Iceberg](lakehouse-orders-iceberg/) | E-commerce / lakehouse | none (CSV) → Iceberg | A continuous aggregate maintained in an **Apache Iceberg table** by `iceberg-sink` in upsert mode; a late row corrects the table in place |
+| [Many desks, one topic](payments-shared-kafka/) | Payments | Kafka | Several queries over one topic sharing **one reader**, exactly once; an **equality index** on a column outside the key, `INDEX (merchant)` |
 
 **The first five need a store.** Read [`SETUP.md`](SETUP.md) first: it covers Java, Docker, the two
 stores and the Python virtualenv, and it explains the one Aerospike networking flag that otherwise
@@ -32,6 +35,11 @@ costs people an afternoon.
 follows as they grow, and their sinks are CSV files it appends to — both inside the server jar. Each
 generates its data with a script, starts a node from its own directory, and prints what the README
 shows: every output in those five READMEs was taken from a real run.
+
+**The last three show the newest connectors.** The MySQL and Kafka studies need a store —
+[`SETUP.md`](SETUP.md) starts both — and the Iceberg study needs nothing but the node: a CSV file in,
+an Iceberg table in a directory out. Their outputs are worked out by hand from the data their
+generators write, and the build runs their queries over that data and checks every one.
 
 ## What they have in common
 
@@ -77,6 +85,18 @@ The SQL in these studies is not illustrative. Each study declares its streams in
 [`CaseStudySqlTest`](../../pravaha-it/src/test/java/com/ash/messaging/pravaha/it/CaseStudySqlTest.java)
 plans every `.sql` file against the real engine, runs the read queries through the same path a client
 uses, and asserts that each README quotes the file rather than a retyping of it.
+
+Planning is not the same as being right, so every study also **runs**.
+[`CaseStudyRunTest`](../../pravaha-it/src/test/java/com/ash/messaging/pravaha/it/CaseStudyRunTest.java)
+starts an embedded engine — no server, no store, no Docker — registers each study's continuous
+queries, pushes in the rows of its `data/sample/`, and compares every read query's answer with
+`data/sample/answers.txt`, the answers worked out by hand. Where a study's source needs a store
+(Aerospike, PostgreSQL, MySQL, Kafka) the same rows are pushed straight into the stream, a change-data
+capture update as its `-1` and its `+1`, and dimension tables are served from an in-memory database
+through the `jdbc-lookup` plugin: what is proved is that the SQL gives the right answers to the rows
+the source would deliver. The test lists the directories here, so a study without a sample fails it.
+Running it found wrong view keys in four studies, and a defect in the engine's windowing that a
+filtered windowed query would have met on its first row; both are fixed.
 
 That matters more than it sounds. A case study is a template somebody will paste into production, so
 the worst thing it can contain is SQL that reads plausibly and the engine refuses — and `ORDER BY`,

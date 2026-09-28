@@ -34,6 +34,8 @@ import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 import com.ash.messaging.pravaha.serving.ServedView;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 import com.ash.messaging.pravaha.serving.ViewQuery;
+import com.ash.messaging.pravaha.sql.ContinuousStatement;
+import com.ash.messaging.pravaha.sql.ContinuousStatements;
 import com.ash.messaging.pravaha.sql.PravahaSchema;
 import com.ash.messaging.pravaha.sql.SqlPlanner;
 import com.ash.messaging.pravaha.sql.plan.ParameterMetadata;
@@ -72,7 +74,10 @@ class CaseStudySqlTest {
             "ecommerce-checkout-funnel",
             "adtech-click-attribution",
             "telecom-cdr-fraud",
-            "logistics-delivery-sla");
+            "logistics-delivery-sla",
+            "retail-inventory-mysql",
+            "lakehouse-orders-iceberg",
+            "payments-shared-kafka");
 
     private static Path studies() {
         return repoRoot().resolve("examples/case-studies");
@@ -85,6 +90,32 @@ class CaseStudySqlTest {
             path = path.getParent();
         }
         return path;
+    }
+
+    /**
+     * Every directory under examples/case-studies is in {@link #STUDIES}, and nothing else is. A study
+     * added without being listed here would have its SQL go unplanned.
+     */
+    @Test
+    void everyCaseStudyDirectoryIsListed() throws IOException {
+        try (Stream<Path> entries = Files.list(studies())) {
+            List<String> directories = entries.filter(Files::isDirectory)
+                    .map(p -> p.getFileName().toString())
+                    .sorted()
+                    .toList();
+            assertThat(STUDIES).containsExactlyInAnyOrderElementsOf(directories);
+        }
+    }
+
+    /**
+     * The {@code SELECT} of a continuous query file. A file may be a {@code CREATE CONTINUOUS QUERY}
+     * statement -- a study that declares an index has to be, since {@code INDEX (column)} is a clause
+     * of the statement -- and its {@code SELECT} is what is planned, exactly as the registry plans it.
+     */
+    private static String selectOf(String sql) {
+        return ContinuousStatements.recognize(sql)
+                .map(statement -> ((ContinuousStatement.Create) statement).select())
+                .orElse(sql);
     }
 
     @Test
@@ -122,7 +153,8 @@ class CaseStudySqlTest {
         for (Map.Entry<String, String> view : viewsOf(study).entrySet()) {
             PhysicalOperator plan = new PhysicalPlanBuilder()
                     .build(schemas.planner()
-                            .plan(read(studies().resolve(study).resolve("sql").resolve(view.getValue()))));
+                            .plan(selectOf(
+                                    read(studies().resolve(study).resolve("sql").resolve(view.getValue())))));
             catalog.register(
                     new ServedView(view.getKey(), rename(plan.outputSchema(), view.getKey()), List.of(0), 1_000));
         }
@@ -137,7 +169,7 @@ class CaseStudySqlTest {
             for (Path sql : sqlFiles(study, "continuous")) {
                 try {
                     PhysicalOperator plan =
-                            new PhysicalPlanBuilder().build(schemas.planner().plan(read(sql)));
+                            new PhysicalPlanBuilder().build(schemas.planner().plan(selectOf(read(sql))));
                     assertThat(plan.outputSchema().fieldCount()).isPositive();
                 } catch (RuntimeException e) {
                     failures.add(study + "/" + sql.getFileName() + ": " + firstLine(e));
@@ -255,6 +287,15 @@ class CaseStudySqlTest {
         for (String study : STUDIES) {
             String configured = Files.readString(studies().resolve(study).resolve("conf/application.yaml"));
             for (Map.Entry<String, String> declared : eventTimesOf(study).entrySet()) {
+                for (String timing : List.of("out-of-orderness", "allowed-lateness")) {
+                    String value = streamsOf(study)
+                            .getProperty("stream." + declared.getKey() + "." + timing, "")
+                            .strip();
+                    if (!value.isEmpty() && !configured.contains(timing + ": " + value)) {
+                        wrong.add(study + ": conf/application.yaml does not declare '" + timing + ": " + value
+                                + "' for stream '" + declared.getKey() + "', which its schema/streams.properties does");
+                    }
+                }
                 if (!configured.contains("event-time: " + declared.getValue())) {
                     wrong.add(study + ": conf/application.yaml does not declare 'event-time: " + declared.getValue()
                             + "' for stream '" + declared.getKey() + "', which its schema/streams.properties does");

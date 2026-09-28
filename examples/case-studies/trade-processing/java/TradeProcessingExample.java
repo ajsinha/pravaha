@@ -57,7 +57,7 @@ public final class TradeProcessingExample {
             //    again -- even worded differently -- returns the same computation rather than a
             //    second one; the fingerprint is how you can tell.
             RegisteredQueryInfo registered =
-                    client.register("trade_feed", read("01-continuous-trade-feed.sql"), List.of(1));
+                    client.register("trade_feed", read("01-continuous-trade-feed.sql"), List.of(0));
             System.out.println("registered " + registered);
 
             // 2. Ask it a question. The value is bound, never concatenated: a bound value is never

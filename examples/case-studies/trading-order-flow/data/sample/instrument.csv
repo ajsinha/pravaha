@@ -1,0 +1,4 @@
+instrument_id,symbol,asset_class,tick_minor
+i-1,VOD.L,EQUITY,1
+i-2,AAPL,EQUITY,1
+i-3,ESZ6,FUTURE,25
