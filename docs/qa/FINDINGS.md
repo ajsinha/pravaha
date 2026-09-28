@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **446 findings carrying a
-status — 386 FIXED, 46 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 46 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 39 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **449 findings carrying a
+status — 386 FIXED, 49 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 49 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 42 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7238,3 +7238,20 @@ the lead.
 
 > **Status:** OPEN — `test_register_sends_the_name_sql_keys_sink_and_retention` and `test_dead_letters_list_show_and_replay` in `sdk/python/tests/test_cli_flight.py` exited 3 (unreachable) once, then passed alone and in two further full runs. Probably the test Flight server's start-up racing the first call.
 > **Disposition:** POST-GA — make the fixture wait for the server to accept a connection before the first test.
+
+## Found building ADR-057, alerts (2026-09-28), 3 findings
+
+### ALERTDEPS-1 (LOW) — a view's listed dependants leave out its alerts
+
+> **Status:** OPEN — `GET /api/v1/queries/{name}`'s `dependants` and `registry.dependantsOf` list only queries; alerts are counted only where it matters most (a drop or replace of the view is refused naming `ALERT x`), so the lineage a person reads is incomplete.
+> **Disposition:** POST-GA — include alerts (and later sinks) in the dependants the API and console show.
+
+### ALERTPATH-1 (LOW) — an alert named `channels` cannot be reached by its detail path
+
+> **Status:** OPEN — the literal route `/api/v1/alerts/channels` shadows `/api/v1/alerts/{name}` for an alert of that name.
+> **Disposition:** POST-GA — refuse the name at CREATE ALERT, or move the channel list to `/api/v1/notifiers`.
+
+### CATMYPY-1 (LOW) — mypy reports two errors in the console's catalogue routes
+
+> **Status:** OPEN — `console/routes/catalog_routes.py` lines 88 and 95 fail `mypy`; the console's type check is not part of the gate, so it went unnoticed.
+> **Disposition:** POST-GA — fix them and run mypy on the console in the gate.
