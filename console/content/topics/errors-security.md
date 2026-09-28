@@ -4,10 +4,10 @@ slug: errors-security
 category: errors
 order: 80
 icon: shield-exclamation
-summary: "Not authenticated, not authorized, an unenforceable row filter, a setting the node will not start with, a sink write allowed only in part (PRV-7001 to 7005), and the node's own users, keys and sessions (PRV-7010 to 7021)."
+summary: "Not authenticated, not authorized, an unenforceable filter, a misconfigured node, a masked column compared (PRV-7001 to 7007); users, keys and sessions (7010 to 7021); the catalogue and its policies (7030 to 7040)."
 badge: PRV-7XXX
 audience: Everyone
-keywords: [password, lockout, api key, session, reset token, identity, unauthenticated, forbidden, unauthorized, 401, 403, token, bearer, credential, grant, row filter, policy, permissive, authenticated, allow-anonymous, audit, misconfigured]
+keywords: [mask, masked column, row filter policy, session_attribute, password, lockout, api key, session, reset token, identity, unauthenticated, forbidden, unauthorized, 401, 403, token, bearer, credential, grant, row filter, policy, permissive, authenticated, allow-anonymous, audit, misconfigured]
 guide: security
 related: [authentication, authorization, row-filters, audit, errors-overview]
 ---
@@ -23,13 +23,16 @@ correcting a policy — and a code that meant two of them would give the right a
 | PRV-7003 | SECURITY_FILTER_NOT_ENFORCEABLE | Whoever owns the view or the policy | Make the filter's column part of the view |
 | PRV-7004 | SECURITY_MISCONFIGURED | The operator | An edit to the node's security settings |
 | PRV-7005 | SECURITY_SINK_WRITE_NOT_FILTERABLE | Whoever owns the policy | Answer `mayWriteTo` with `allow()` or `deny()`, not with a row filter |
+| PRV-7006 | SECURITY_MASKED_COLUMN_USE | The caller | Compare, group, join or sort on a column that is not masked for you |
+| PRV-7007 | SECURITY_NARROWING_CHANGED | The caller | Subscribe again; the new stream shows what the new policy lets you see |
 
 How each travels:
 
 | Code | Flight status | PostgreSQL SQLSTATE | REST |
 |---|---|---|---|
 | PRV-7001 | `UNAUTHENTICATED` | `28000` | `401` from the bearer-token check |
-| PRV-7002, PRV-7003, PRV-7005 | `UNAUTHORIZED` | `42501` | `403` |
+| PRV-7002, PRV-7003, PRV-7005, PRV-7006 | `UNAUTHORIZED` | `42501` | `403` |
+| PRV-7007 | `UNAVAILABLE` (retry: subscribe again) | — | `409` |
 | PRV-7004 | — (the node does not start) | — | — |
 
 ## PRV-7001 — unauthenticated
@@ -180,7 +183,16 @@ because the person using them needs it to act.
 | PRV-7020 | IDENTITY_INVALID_REQUEST | A user name outside the allowed form, a user that exists, an unknown status, or a key life outside 1 to 365 days | Correct the request |
 | PRV-7021 | IDENTITY_NOT_FOUND | No user, or no session, by that name | Check the name |
 
-## PRV-7030 to PRV-7037 — the catalogue
+## PRV-7006 and PRV-7007 — masks and policy changes
+
+A mask (ADR-059 §4) replaces a column's value in everything you read, subscribe to or build on.
+**PRV-7006** refuses a query that uses a masked column where its value would be compared — a `WHERE`
+operand, a `GROUP BY` or join key, an `ORDER BY`, an aggregate's argument, a view's key, a tap filter:
+comparing it would tell you which rows share a value, which is what the mask hides. Select it to see
+the masked value. **PRV-7007** ends an open subscription whose row filters or masks changed; subscribe
+again. See [Row filters and masks](/help/topics/row-filters-and-masks).
+
+## PRV-7030 to PRV-7040 — the catalogue
 
 These come from the Pravaha Catalog (`pravaha.catalog.enabled`, ADR-059), which keeps grants in the
 engine. A read, subscription or registration the catalogue refuses is still `PRV-7002` — the code
@@ -197,3 +209,6 @@ every enforcement point throws — and these are the refusals only the catalogue
 | PRV-7035 | CATALOG_JOURNAL_FAILED | The catalogue journal cannot be read or written; a change is refused rather than lost | Check `pravaha.catalog.journal`'s permissions and disk |
 | PRV-7036 | CATALOG_OBJECT_EXISTS | `CREATE NAMESPACE` of one that exists | Add `IF NOT EXISTS` |
 | PRV-7037 | CATALOG_INVALID_REQUEST | A bad name, tag or grantee, a grant of `OWN`, or a user the node does not know | Correct the request; ownership moves with `OWNER TO` |
+| PRV-7038 | CATALOG_POLICY_INVALID | A row filter or mask with a subquery, a non-deterministic or unlisted function, a mask on another column or of another type, or a filter the object's columns cannot carry | Rewrite the expression the message names |
+| PRV-7039 | CATALOG_POLICY_CLAIM_MISSING | A policy reads `session_attribute('<claim>')` and your credential does not carry that claim | Sign in with one that does, or be exempted with `EXCEPT ROLE` |
+| PRV-7040 | CATALOG_POLICY_CONFLICT | Two masks on one column for one reader, or a policy dropped while still bound | Unbind one with `ALTER ... UNSET POLICY` |

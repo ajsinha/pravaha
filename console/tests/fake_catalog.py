@@ -46,6 +46,8 @@ class FakeCatalog:
         ):
             self.objects[item["name"]] = item
         self.grants: list[dict] = []
+        #: ADR-059 section 4: row filters and masks, and where each is bound.
+        self.policies: dict[str, dict] = {}
 
     # ------------------------------------------------------------------ who is asking
     def _me(self) -> dict:
@@ -124,7 +126,14 @@ class FakeCatalog:
         item = self._resolve(who, name)
         manager = bool(self._holds(who, "MANAGE", item["name"]))
         grants = [dict(g) for g in self.grants if g["object"] == item["name"] and (manager or self._covers(g, who))]
-        return {"object": dict(item), "grants": grants, "access": self._access(who, item)}
+        access = self._access(who, item)
+        reaching = self._reaching(item)
+        access["policies"] = [
+            {"policy": p["name"], "kind": p["kind"], "column": p["column"],
+             "applies": not any(r in who.get("roles", []) for r in p["exceptRoles"]),
+             "boundVia": "bound to " + (p["bindings"][0]["object"] or "TAG '" + p["bindings"][0]["tag"] + "'"),
+             "detail": p["expression"]} for p in reaching]
+        return {"object": dict(item), "grants": grants, "access": access, "policies": reaching}
 
     def _access(self, subject: dict, item: dict) -> dict:
         lines = []
@@ -194,6 +203,72 @@ class FakeCatalog:
                 self.grants.append(grant)
             made.append(grant)
         return made
+
+    # ------------------------------------------------------------------ row filters and masks
+    def _policy(self, who: dict, name: str) -> dict:
+        tenant = who.get("tenant") or "public"
+        for candidate in (name, f"{tenant}.{name}", f"{tenant}.default.{name}"):
+            if candidate in self.policies:
+                return self.policies[candidate]
+        raise EngineHttpError(404, f"PRV-7031 there is no POLICY {name} that you may see", "PRV-7031")
+
+    def _reaching(self, item: dict) -> list[dict]:
+        found = []
+        for policy in self.policies.values():
+            hits = [b for b in policy["bindings"]
+                    if b["object"] == item["name"] or (b["tag"] and b["tag"].split("=")[0] in item["tags"])]
+            if hits:
+                found.append(dict(policy, bindings=hits))
+        return found
+
+    def policy_list(self, on=None):
+        who = self._me()
+        if on:
+            return self._reaching(self._resolve(who, on))
+        return [dict(p) for p in self.policies.values()]
+
+    def create_policy(self, name, kind, expression, column="", except_roles=None, description=""):
+        who = self._me()
+        if "admin" not in who.get("roles", []):
+            raise EngineHttpError(403, f"PRV-7033 {who['username']} may not create a policy here", "PRV-7033")
+        if "RAND(" in expression.upper():
+            raise EngineHttpError(400, "PRV-7038 RAND does not answer the same way twice", "PRV-7038")
+        full = name if name.count(".") == 2 else f"{who.get('tenant') or 'public'}.default.{name}"
+        self.policies[full] = {"name": full, "kind": kind, "column": column or None, "expression": expression,
+                               "exceptRoles": list(except_roles or []), "owner": {"type": "USER", "name": who["username"]},
+                               "description": description, "tags": {}, "version": 1, "bindings": []}
+        return dict(self.policies[full])
+
+    def bind_policy(self, name, on="", tag=""):
+        who = self._me()
+        policy = self._policy(who, name)
+        if on:
+            item = self._resolve(who, on)
+            self._manage(who, item)
+            binding = {"object": item["name"], "tag": None, "boundBy": who["username"], "boundAt": "t"}
+        else:
+            if "admin" not in who.get("roles", []):
+                raise EngineHttpError(403, "PRV-7033 a tag binding needs MANAGE on the tenant", "PRV-7033")
+            binding = {"object": None, "tag": tag, "boundBy": who["username"], "boundAt": "t"}
+        policy["bindings"].append(binding)
+        return dict(binding)
+
+    def unbind_policy(self, name, on="", tag=""):
+        who = self._me()
+        policy = self._policy(who, name)
+        target = self._resolve(who, on)["name"] if on else None
+        before = len(policy["bindings"])
+        policy["bindings"] = [b for b in policy["bindings"]
+                              if not ((target and b["object"] == target) or (tag and b["tag"] == tag))]
+        return {"policy": policy["name"], "target": target or f"TAG '{tag}'",
+                "unbound": len(policy["bindings"]) < before}
+
+    def drop_policy(self, name):
+        who = self._me()
+        policy = self._policy(who, name)
+        if policy["bindings"]:
+            raise EngineHttpError(409, f"PRV-7040 {policy['name']} is still bound", "PRV-7040")
+        del self.policies[policy["name"]]
 
     def revoke(self, on, privileges, grantee_type, grantee):
         who = self._me()

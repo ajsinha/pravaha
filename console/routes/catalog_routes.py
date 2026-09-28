@@ -8,6 +8,8 @@ Proprietary and confidential. See LICENSE at the repository root.
                                 and (?user=) what someone else may, and why
     /admin/grants               the grants editor: grant, revoke, create a namespace, describe
                                 and tag an object
+    /admin/policies             row filters and masks (ADR-059 section 4): create, bind to an
+                                object or a tag, unbind, drop
 
 Every answer and every refusal is the engine's (``/api/v1/catalog``), called as the signed-in
 person. The console filters nothing and allows nothing: a person who may not manage an object
@@ -153,6 +155,74 @@ class CatalogRoutes(Routes):
             description = str(form.get("description") or "")
             return done(request, lambda: governance.create_namespace(name, description),
                         "governance.namespace_created", _grants_href(name), name=name)
+
+        # ---------------------------------------------- row filters and masks (ADR-059 s4)
+
+        def _policies_href(name: str = "") -> str:
+            return "/admin/policies" + ("?" + urlencode({"object": name}) if name else "")
+
+        @self.app.get("/admin/policies", response_class=HTMLResponse, tags=["ui"])
+        def policies_editor(request: Request, object: str = ""):
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            chosen = object.strip()
+            listed, error, off = [], None, False
+            try:
+                listed = governance.policies(chosen)
+            except ServiceError as exc:
+                if GovernanceService.is_off(exc):
+                    off = True
+                else:
+                    error = failure(exc, request, "the policies")
+            return self.page(request, "admin_policies.html", http_status=409 if off else 200,
+                             current="/admin", tab="policies", chosen=chosen, policies=listed,
+                             policies_error=error, catalog_off=off, flashes=take_flashes(request),
+                             **helpers)
+
+        @self.app.post("/admin/policies", tags=["ui"])
+        async def create_policy(request: Request):
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            form = await request.form()
+            name = str(form.get("name") or "").strip()
+            kind = str(form.get("kind") or "ROW_FILTER")
+            logger.info("'%s' asked the engine to create the %s %s", current_user(request), kind, name)
+            return done(request, lambda: governance.create_policy(
+                name, kind, str(form.get("expression") or ""), str(form.get("column") or ""),
+                str(form.get("except_roles") or ""), str(form.get("description") or "")),
+                "governance.policies.created", _policies_href(), name=name)
+
+        @self.app.post("/admin/policies/bind", tags=["ui"])
+        async def bind_policy(request: Request):
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            form = await request.form()
+            name = str(form.get("policy") or "").strip()
+            on, tag = str(form.get("object") or "").strip(), str(form.get("tag") or "").strip()
+            logger.info("'%s' asked the engine to bind %s to %s", current_user(request), name, on or tag)
+            return done(request, lambda: governance.bind_policy(name, on, tag), "governance.policies.bound",
+                        _policies_href(), name=name, where=on or f"TAG '{tag}'")
+
+        @self.app.post("/admin/policies/unbind", tags=["ui"])
+        async def unbind_policy(request: Request):
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            form = await request.form()
+            name = str(form.get("policy") or "").strip()
+            on, tag = str(form.get("object") or "").strip(), str(form.get("tag") or "").strip()
+            logger.info("'%s' asked the engine to unbind %s from %s", current_user(request), name, on or tag)
+            return done(request, lambda: governance.unbind_policy(name, on, tag), "governance.policies.unbound",
+                        _policies_href(), name=name, where=on or f"TAG '{tag}'")
+
+        @self.app.post("/admin/policies/drop", tags=["ui"])
+        async def drop_policy(request: Request):
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            form = await request.form()
+            name = str(form.get("policy") or "").strip()
+            logger.info("'%s' asked the engine to drop the policy %s", current_user(request), name)
+            return done(request, lambda: governance.drop_policy(name), "governance.policies.dropped",
+                        _policies_href(), name=name)
 
         @self.app.post("/admin/grants/describe", tags=["ui"])
         async def describe(request: Request):

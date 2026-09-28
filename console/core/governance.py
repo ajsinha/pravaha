@@ -108,6 +108,44 @@ class GovernanceService:
     def access(self, user: str, on: str) -> dict:
         return self._call(lambda: self._engine.access(user, on))
 
+    # ------------------------------------------------ row filters and masks (ADR-059 s4)
+
+    def policies(self, on: str = "") -> list[dict]:
+        return self._call(lambda: self._engine.policies(on.strip() or None), 503)
+
+    def create_policy(self, name: str, kind: str, expression: str, column: str = "",
+                      except_roles: str = "", description: str = "") -> dict:
+        # Shape only: whether the expression is one a policy may hold is the engine's to say.
+        if not (name or "").strip() or not (expression or "").strip():
+            raise ServiceError("a policy needs a name and an expression", status=400, code="PRV-7037")
+        if kind not in ("ROW_FILTER", "MASK"):
+            raise ServiceError("a policy is a ROW_FILTER or a MASK", status=400, code="PRV-7037")
+        if kind == "MASK" and not (column or "").strip():
+            raise ServiceError("a mask names the column it masks", status=400, code="PRV-7038")
+        roles = [r.strip() for r in (except_roles or "").split(",") if r.strip()]
+        return self._call(lambda: self._engine.create_policy(
+            name.strip(), kind, expression.strip(), (column or "").strip() if kind == "MASK" else "",
+            roles, description or ""))
+
+    def bind_policy(self, name: str, on: str = "", tag: str = "") -> dict:
+        self._place(name, on, tag)
+        return self._call(lambda: self._engine.bind_policy(name.strip(), on.strip(), tag.strip()))
+
+    def unbind_policy(self, name: str, on: str = "", tag: str = "") -> dict:
+        self._place(name, on, tag)
+        return self._call(lambda: self._engine.unbind_policy(name.strip(), on.strip(), tag.strip()))
+
+    def drop_policy(self, name: str) -> None:
+        if not (name or "").strip():
+            raise ServiceError("say which policy to drop", status=400, code="PRV-7037")
+        self._call(lambda: self._engine.drop_policy(name.strip()))
+
+    @staticmethod
+    def _place(name: str, on: str, tag: str) -> None:
+        if not (name or "").strip() or bool((on or "").strip()) == bool((tag or "").strip()):
+            raise ServiceError("a binding names a policy and exactly one of an object or a tag",
+                               status=400, code="PRV-7037")
+
     @staticmethod
     def _require(on: str, privileges: list[str], grantee_type: str, grantee: str) -> None:
         # Shape only, so a half-filled form is refused before it is sent; whether the grant is

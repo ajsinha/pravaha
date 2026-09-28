@@ -720,7 +720,8 @@
       "keys": "API keys",
       "sessions": "Sessions",
       "lanes": "Lanes",
-      "grants": "Grants"
+      "grants": "Grants",
+      "policies": "Policies"
     },
     "ai": {
       "title": "AI models",
@@ -2959,6 +2960,46 @@
       "save": "Save",
       "new_namespace": "New namespace",
       "create_namespace": "Create namespace"
+    },
+    "policies": {
+      "title": "Policies",
+      "heading": "Row filters and masks",
+      "lede": "A grant says whether someone may read; a policy says what they are shown. Each change is asked of the engine as you, which checks the expression and needs MANAGE where you bind it.",
+      "reaching": "Reaching an object",
+      "show": "Show",
+      "caption": "Row filters and masks you may see",
+      "col": {
+        "name": "Policy",
+        "expression": "Expression",
+        "except": "Except roles",
+        "bound": "Bound to",
+        "you": "For you"
+      },
+      "unbind": "unbind",
+      "unbind_label": "Unbind {name} from {where}",
+      "unbound_note": "not bound: narrows nothing",
+      "drop": "Drop",
+      "drop_label": "Drop {name}",
+      "none": "No row filters or masks you may see.",
+      "bind_title": "Bind a policy",
+      "object": "Stream or view",
+      "tag": "or tag (key or key=value)",
+      "bind": "Bind",
+      "bind_note": "One of an object (MANAGE on it) or a tag (MANAGE on the tenant: every object carrying it, now and later).",
+      "new": "New row filter or mask",
+      "row_filter": "Row filter",
+      "mask": "Mask",
+      "column": "Column (a mask)",
+      "create": "Create",
+      "expression_note": "Columns, pure functions, CASE, CAST, and session_attribute('claim'), current_user(), is_member('role'). Nothing is narrowed until it is bound.",
+      "created": "{name} created; bind it to take effect.",
+      "bound": "{name} is bound to {where}.",
+      "unbound": "{name} is unbound from {where}.",
+      "dropped": "{name} is dropped.",
+      "on_object": "Row filters and masks",
+      "edit": "Edit policies",
+      "applies": "applies",
+      "none_on_object": "No row filter or mask reaches it."
     }
   },
   "alerts": {

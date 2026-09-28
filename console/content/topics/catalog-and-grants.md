@@ -9,7 +9,7 @@ badge: SECURITY
 audience: Operators
 keywords: [catalog, catalogue, grant, revoke, namespace, owner, tags, comment, privilege, USE, SELECT, SUBSCRIBE, BUILD_ON, CREATE, WRITE, MODIFY, MANAGE, OWN, "SHOW GRANTS", "SHOW EFFECTIVE ACCESS", CatalogPolicy, ADR-059, PRV-7030, PRV-7031, PRV-7033, PRV-7034, "pravaha catalog", "pravaha grant", "pravaha access why"]
 guide: security
-related: [authorization, authentication, audit, errors-security, cli-reference]
+related: [row-filters-and-masks, authorization, authentication, audit, errors-security, cli-reference]
 ---
 
 With the catalogue on, **grants live in the engine**. Every governed object — a namespace, a
