@@ -181,4 +181,57 @@ public interface SecurityPolicy {
         return AccessDecision.deny(
                 "reading the audit trail is a permission of its own, and this node's " + "policy grants it to nobody");
     }
+
+    /**
+     * May this principal receive this view's changes live?
+     *
+     * <p>Separate from {@link #mayRead} since ADR-059: a dashboard may read without holding a stream
+     * open, and a feed consumer may subscribe to a view it may not scan. Defaults to {@link #mayRead},
+     * so a policy that never heard of the distinction answers as it always did.
+     */
+    default AccessDecision maySubscribe(Principal principal, String view) {
+        return mayRead(principal, view);
+    }
+
+    /**
+     * May this principal register a query that reads {@code input} -- a stream or a view the plan names
+     * directly (ADR-056's queries on queries)?
+     *
+     * <p>Defaults to {@link #mayRead}, which is what registration asked before ADR-059 made building on
+     * something a right of its own.
+     */
+    default AccessDecision mayBuildOn(Principal principal, String input) {
+        return mayRead(principal, input);
+    }
+
+    /**
+     * May this principal register a query over a view that derives from {@code source}, which the plan
+     * does not name itself?
+     *
+     * <p>Defaults to {@link #mayRead}: before ADR-059 a registration was a standing read of everything
+     * its chain reads, and a policy that says nothing else keeps that rule. A policy that grants
+     * building on a view as a right of its own (the catalogue's) answers this for itself.
+     */
+    default AccessDecision mayBuildThrough(Principal principal, String source) {
+        return mayRead(principal, source);
+    }
+
+    /**
+     * May this principal register a continuous query under {@code name}? Defaults to {@link
+     * #mayRegisterQuery(Principal)}; a policy that knows where the name will live answers here.
+     */
+    default AccessDecision mayRegisterQuery(Principal principal, String name) {
+        return mayRegisterQuery(principal);
+    }
+
+    /**
+     * Told that {@code owner} has registered {@code view} and the registration is journalled. A policy
+     * that keeps a record of objects -- the catalogue's (ADR-059), which makes the registrant the
+     * owner -- records it here; the default keeps nothing. Called at recovery too, for every
+     * registration the journal brings back.
+     */
+    default void registered(Principal owner, String view) {}
+
+    /** Told that {@code view} has been dropped. The default keeps nothing, so forgets nothing. */
+    default void dropped(String view) {}
 }
