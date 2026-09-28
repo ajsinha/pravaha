@@ -41,3 +41,6 @@ __pycache__/
 .ruff_cache/
 dependency-reduced-pom.xml
 .jqwik-database
+
+# Deck generator environment (tools/deck/GUIDE.md)
+tools/deck/.venv/
