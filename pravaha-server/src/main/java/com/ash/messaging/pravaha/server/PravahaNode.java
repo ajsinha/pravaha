@@ -229,6 +229,21 @@ public class PravahaNode implements SmartLifecycle {
 
     private NodeCatalog catalog;
 
+    /** pravaha.alerts.* and pravaha.notifiers.* (ADR-057). A setter, as setTenancy. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAlerts(
+            com.ash.messaging.pravaha.server.alerts.AlertProperties properties,
+            com.ash.messaging.pravaha.server.alerts.NotifierBindingProperties notifiers) {
+        alerts.configure(properties, notifiers);
+    }
+
+    private final NodeAlerts alerts = new NodeAlerts();
+
+    /** The node's alerts, once it has started (ADR-057). */
+    public Optional<com.ash.messaging.pravaha.registry.alert.AlertService> alerts() {
+        return alerts.service();
+    }
+
     /** This node's identity service, when {@code pravaha.identity.enabled} is set. */
     public Optional<com.ash.messaging.pravaha.identity.IdentityService> identity() {
         return credentials().identity();
@@ -542,16 +557,8 @@ public class PravahaNode implements SmartLifecycle {
         // BOTH halves to be true: an unauthenticated caller has to get in, and the policy has to
         // hand them everything once they are.
         //
-        // CFG-9/SX-12. This was computed from the policy alone, and the comment it replaces records
-        // the correction before it -- the version before that required authentication to be off
-        // entirely, which made allow-anonymous dead under `token`. One term keeps failing in one
-        // direction or the other, which is the signal that the question needs two.
-        //
-        // What the one-term version did: a node with authentication=token, a real token table,
-        // policy=permissive and allow-anonymous=false -- where BearerTokenFilter refuses every
-        // unauthenticated caller with a 401, which is exactly the posture an operator sets out to
-        // configure -- could not start. The only way to start it was allow-anonymous=true, which is
-        // a lie about the node.
+        // CFG-9/SX-12: one term (policy alone, or authentication alone) failed in one direction or the
+        // other -- token + permissive + allow-anonymous=false, which refuses every stranger, could not start.
         boolean unauthenticatedCallersGetIn = !security.authenticates() || security.isAllowAnonymous();
         boolean policyServesThemEverything = catalog != null && catalog.enabled()
                 ? catalog.servesEveryone()
@@ -1064,17 +1071,8 @@ public class PravahaNode implements SmartLifecycle {
                             + "accept: " + e.getMessage() + " Left as configured, every registration on this "
                             + "node would fail and the node would look healthy.");
         }
-        // The tick, validated in the same place and for the same reason (TIME-5, TIME-11).
-        // `tick <= idle-after` was checked in QueryExecution.generatingWatermarks and therefore
-        // once per *registration*: `tick: 5m` with `idle-after: 30s` started a node that logged
-        // both settings as in force, reported UP, recovered its journal and then refused every
-        // registration with PRV-1041 -- one bad value producing every query failing separately,
-        // which is exactly what the comment above says this block exists to avoid. And a tick of
-        // 0s, PT0.0005S or -1s was accepted and silently clamped to a millisecond.
-        //
-        // The bounds themselves are WatermarkTracker's, like the idle timeout's, so there is one
-        // copy of them and the log line below can be read as the effective settings because no
-        // other value can reach it.
+        // The tick, validated here and not per registration (TIME-5, TIME-11): `tick: 5m` over
+        // `idle-after: 30s` once started a node that then refused every registration. WatermarkTracker's bounds.
         try {
             com.ash.messaging.pravaha.runtime.time.WatermarkTracker.requireTick(watermarkTick, watermarkIdleAfter);
         } catch (RuntimeException e) {
@@ -1217,6 +1215,7 @@ public class PravahaNode implements SmartLifecycle {
         if (catalog != null && catalog.enabled()) {
             catalog.started(registry, journalPath.isPresent());
         }
+        alerts.start(registry, journalPath, auditSink()); // ADR-057: after recovery, so each finds its view
         if (journalPath.isEmpty()) {
             log.warn("pravaha.registry.journal is not set, so registered queries live only in memory and "
                     + "a restart will lose them without saying so");
@@ -1264,10 +1263,7 @@ public class PravahaNode implements SmartLifecycle {
         }
 
         if (pgwireEnabled) {
-            // The PostgreSQL wire protocol, read path only, so that psql, DBeaver, Grafana and every
-            // ORM can reach a maintained view without a Flight SQL driver -- which almost nothing
-            // ships, and which is why Gate P6's "DBeaver connects" criterion has never been tried.
-            //
+            // The PostgreSQL wire protocol, read path only: psql, DBeaver and Grafana without Flight SQL.
             // Same policy object and same audit sink as Flight and the registry: this is a transport,
             // and it must not become a second, weaker way to the data. PgWireConnection calls
             // ViewQuery.execute(sql, principal) exactly as PravahaFlightSqlProducer does.
@@ -1315,6 +1311,7 @@ public class PravahaNode implements SmartLifecycle {
         // Reverse of startup: stop accepting, then let go of the queries, then leave the cluster.
         closeQuietly("Flight server", flight);
         closeQuietly("PostgreSQL wire server", pgwire);
+        closeQuietly("alerts", alerts); // before the registry: they follow its views
         closeQuietly("registry", registry);
         // After the registry, because a running query may still be looking rows up in one.
         closeQuietly("dimension tables", lookupSources);

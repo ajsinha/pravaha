@@ -132,6 +132,11 @@ public class ApiExceptionHandler {
             case "PRV-7031" -> HttpStatus.NOT_FOUND;
             case "PRV-7032", "PRV-7037" -> HttpStatus.BAD_REQUEST;
             case "PRV-7034", "PRV-7035" -> HttpStatus.INTERNAL_SERVER_ERROR;
+            // ADR-057's alerts share the registry's range: an alert nobody may see is not there; a name
+            // taken, or a node serving no alerts, is a conflict with the node's state, not the request.
+            case "PRV-8040" -> HttpStatus.NOT_FOUND;
+            case "PRV-8041", "PRV-8047" -> HttpStatus.CONFLICT;
+            case "PRV-8044", "PRV-8046" -> HttpStatus.INTERNAL_SERVER_ERROR;
             default -> null;
         };
     }

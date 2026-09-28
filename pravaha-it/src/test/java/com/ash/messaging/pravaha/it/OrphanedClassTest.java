@@ -93,6 +93,7 @@ class OrphanedClassTest {
             Map.entry("PluginController", "Spring @RestController"),
             Map.entry("PermissionsController", "Spring @RestController"),
             Map.entry("CatalogController", "Spring @RestController"),
+            Map.entry("AlertController", "Spring @RestController"),
             Map.entry("LaneController", "Spring @RestController"),
             Map.entry("ReplacementController", "Spring @RestController"),
             Map.entry("StatusController", "Spring @RestController"),
