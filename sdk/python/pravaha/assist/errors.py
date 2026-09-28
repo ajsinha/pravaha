@@ -49,6 +49,11 @@ class BudgetExceeded(AssistError):
     """A request that would exceed a token budget, refused before it was sent."""
 
 
+class RegistrationRefused(AssistError):
+    """The assistant will not register a draft: nobody confirmed it, or the engine did not accept
+    it. Nothing was sent to the engine."""
+
+
 class ModelError(AssistError):
     """A model or its provider failed. Carries who failed, and what the router tried first."""
 
@@ -153,4 +158,5 @@ __all__ = [
     "ModelRateLimited",
     "ModelRefused",
     "ModelUnavailable",
+    "RegistrationRefused",
 ]

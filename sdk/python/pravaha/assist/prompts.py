@@ -8,7 +8,8 @@ A prompt is a file, not a string in the code: ``resources/prompts/<name>.v<N>.tx
 ``<name>.v<N>.schema.json``. Changing what the assistant asks is a new version -- the old file
 stays, so an answer can always be traced to the exact words that produced it (every result
 carries ``prompt: "<name>@v<N>"``). A prompt file is ``#`` comment lines, then a ``=== system``
-section and a ``=== user`` section; ``$name`` placeholders are filled with
+section and a ``=== user`` section, and optionally further named sections for later turns of the
+same conversation (``=== repair``); ``$name`` placeholders are filled with
 :class:`string.Template`, which fails loudly on one left unfilled.
 """
 
@@ -44,6 +45,8 @@ class Prompt:
     system: str
     user: str
     schema: Optional[Mapping[str, Any]]
+    #: Further named sections, for later turns (``repair``).
+    extra: Mapping[str, str] = dataclasses.field(default_factory=dict)
 
     @property
     def id(self) -> str:
@@ -56,16 +59,26 @@ class Prompt:
             string.Template(self.user).substitute(values),
         )
 
+    def render_section(self, section: str, **values: str) -> str:
+        """The named further section, with every ``$placeholder`` filled."""
+        if section not in self.extra:
+            raise LookupError(f"prompt {self.id} has no section {section!r}")
+        return string.Template(self.extra[section]).substitute(values)
+
 
 def _parse(name: str, version: int, text: str, schema: Optional[Mapping[str, Any]]) -> Prompt:
     body = "\n".join(line for line in text.splitlines() if not line.startswith("#"))
-    parts = re.split(r"^=== (system|user)\s*$", body, flags=re.MULTILINE)
+    parts = re.split(r"^=== ([a-z_]+)\s*$", body, flags=re.MULTILINE)
     sections: dict[str, str] = {}
     for i in range(1, len(parts) - 1, 2):
+        if parts[i] in sections:
+            raise ValueError(f"prompt {name} v{version} has two '=== {parts[i]}' sections")
         sections[parts[i]] = parts[i + 1].strip("\n")
-    if set(sections) != {"system", "user"}:
+    if not {"system", "user"} <= set(sections):
         raise ValueError(f"prompt {name} v{version} needs a '=== system' and a '=== user' section")
-    return Prompt(name, version, sections["system"].strip(), sections["user"].strip(), schema)
+    extra = {k: v.strip() for k, v in sections.items() if k not in ("system", "user")}
+    return Prompt(name, version, sections["system"].strip(), sections["user"].strip(), schema,
+                  extra)
 
 
 def prompt_versions(name: str) -> "list[int]":
@@ -133,6 +146,18 @@ class DialectCard:
         entry = self._document.get("codes", {}).get(code) or {}
         value = entry.get("means")
         return str(value) if value else None
+
+    def table(self) -> "list[tuple[str, str]]":
+        """Every code the guide's error table explains, with its line, in code order."""
+        return [(code, str(entry.get("means"))) for code, entry in
+                sorted(self._document.get("codes", {}).items()) if entry.get("means")]
+
+    def section(self, anchor: str) -> Optional[Excerpt]:
+        """One section of the card by its anchor, or ``None``."""
+        section = self._document.get("sections", {}).get(anchor)
+        if not section:
+            return None
+        return Excerpt(anchor, str(section.get("title", anchor)), str(section.get("text", "")))
 
     def excerpts(self, code: str, *, limit_chars: int = 14000) -> "list[Excerpt]":
         """The guide's sections about ``code``, in the guide's order, then its general advice on
