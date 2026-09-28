@@ -279,6 +279,14 @@ what a view is for. **Building on a view needs `BUILD_ON` on it**, so nobody der
 could not read. And subscribing is its own right, because a live stream is not a query: revoking it
 ends an open subscription within seconds.
 
+A grant says whether you may read; a **policy** says what you are shown. A **row filter** keeps some
+rows (`region = session_attribute('region')`), a **mask** replaces one column's value (`'XXXX-' ||
+RIGHT(card, 4)`); both are catalogue objects bound to a stream, a view or a tag, and apply to
+everyone but their `EXCEPT ROLE`s. They travel with the data: a query registered over a filtered,
+masked input computes over what its registrant was shown, so a view built on it can never show more,
+and a masked column can be shown but never compared — grouped, joined, sorted or filtered on — by
+someone it is masked for.
+
 ## 10. An alert says when a row enters an answer, and when it leaves
 
 An answer that is being computed can also be *watched*. An **alert** (ADR-057) follows one view's
