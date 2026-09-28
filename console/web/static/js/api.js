@@ -43,6 +43,9 @@
       error.status = response.status;
       error.code = payload.code;
       error.correlation = correlation;
+      /* The body too: a screen that draws the server's own account of a refusal (the assistant's
+         fragments) needs more than the one sentence. */
+      error.payload = payload;
       /* 5xx is worth retrying; a 400 means the request itself was rejected and
          retrying it unchanged will fail again, so offering a retry would be a
          lie about what the button does. */

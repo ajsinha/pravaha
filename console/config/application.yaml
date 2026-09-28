@@ -98,5 +98,22 @@ ui:
 api:
   prefix: "/api/v1"
 
+# The assistant (ADR-058): plain English to and from continuous SQL, through the models an
+# administrator configures in Admin · AI models. The configuration is the SDK's JSON file, shared
+# with `pravaha assist`; the console follows it, so a change made there or here is used by the
+# next request without a restart. No key is ever in it -- only the name of the variable or file.
+assist:
+  # Empty: $PRAVAHA_ASSIST_CONFIG, else assist.json in $PRAVAHA_CONFIG_DIR or ~/.config/pravaha.
+  config: "${PRAVAHA_ASSIST_CONFIG:}"
+  # The usage ledger the per-person daily budget counts against. Empty: assist-usage.json
+  # beside the configuration -- the same file `pravaha assist` uses there.
+  usage: "${PRAVAHA_ASSIST_USAGE:}"
+  # The console's assist log (JSON Lines): every configuration change with who made it and what
+  # it was before and after, and every request with who, which model, tokens and the verdict.
+  # Empty: console-assist-log.jsonl beside the configuration.
+  log: "${PRAVAHA_ASSIST_LOG:}"
+  # How often the console looks for a change another process stored.
+  watch_seconds: 1
+
 logging:
   level: "${LOG_LEVEL:INFO}"

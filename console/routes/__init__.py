@@ -9,6 +9,7 @@ engine logic.
 """
 from routes.admin_routes import AdminRoutes
 from routes.api_routes import ApiRoutes
+from routes.assist_routes import AssistRoutes
 from routes.auth_routes import AuthRoutes
 from routes.base import API, Routes
 from routes.catalog_routes import CatalogRoutes
@@ -19,7 +20,8 @@ from routes.ui_routes import UIRoutes
 # Order matters: `/queries/{name}` would swallow a literal path registered after
 # it, so the modules with the more specific paths register first. CatalogRoutes before
 # ProductRoutes, which reads the governance service it puts in the context.
-ALL_ROUTES = (AuthRoutes, PublicRoutes, ApiRoutes, CatalogRoutes, ProductRoutes, AdminRoutes, UIRoutes)
+ALL_ROUTES = (AuthRoutes, PublicRoutes, ApiRoutes, CatalogRoutes, ProductRoutes, AssistRoutes, AdminRoutes,
+              UIRoutes)
 
-__all__ = ["ALL_ROUTES", "API", "AdminRoutes", "ApiRoutes", "AuthRoutes", "CatalogRoutes", "ProductRoutes",
+__all__ = ["ALL_ROUTES", "API", "AdminRoutes", "ApiRoutes", "AssistRoutes", "AuthRoutes", "CatalogRoutes", "ProductRoutes",
            "PublicRoutes", "Routes", "UIRoutes"]

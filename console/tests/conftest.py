@@ -25,6 +25,15 @@ if (_SDK / "pravaha" / "__init__.py").exists() and str(_SDK) not in sys.path:
     for loaded in [m for m in sys.modules if m == "pravaha" or m.startswith("pravaha.")]:
         del sys.modules[loaded]
 
+# ADR-058 phase 3: the assistant's configuration, usage ledger and log default to the SDK's
+# directory (~/.config/pravaha). No test reads or writes a person's own: every console a test
+# builds without naming its own files gets this empty directory instead.
+import os
+import tempfile
+
+os.environ["PRAVAHA_CONFIG_DIR"] = tempfile.mkdtemp(prefix="pravaha-console-tests-")
+os.environ.pop("PRAVAHA_ASSIST_CONFIG", None)
+
 # The browser tests' fixtures -- a Chrome (skipping when there is none), a console on a real
 # port, a fresh tab -- available to every test module without each importing them.
 from browser_harness import chrome, console, page  # noqa: F401

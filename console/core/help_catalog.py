@@ -229,6 +229,9 @@ SCREEN_HELP: dict[str, list[str]] = {
     "dead-letters": ["dead-letters", "source-filesystem", "metrics-alerts"],
     "plugins": ["sources-overview", "sinks-overview", "connector-security"],
     "admin": ["authorization", "audit", "authentication", "catalog-and-grants"],
+    # ADR-058 phase 3: Admin · AI models, and an assist answer drawn as a page of its own.
+    "ai-models": ["admin-ai-models", "assistant"],
+    "assistant": ["assistant", "admin-ai-models"],
 }
 
 #: Each PRV range and the errors topic that explains it (the /help/codes browser and each

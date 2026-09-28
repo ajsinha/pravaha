@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_helpcards.html" import screenhelp, helplink %}
+{% import "_assist.html" as assist with context %}
 {% block title %}{{ t('workbench.title') }} — {{ app_name }}{% endblock %}
 {% block main_class %}container-fluid px-lg-4{% endblock %}
 {% block head %}
@@ -23,7 +24,8 @@
   <div class="fw-semibold">{{ t('workbench.refused') }}</div>
   <pre class="small mt-2 mb-2">{{ error }}</pre>
   {% if code %}<div class="small">{{ code }} —
-    <a href="/help/codes/{{ code }}">{{ t('workbench.what_code_means') }}</a></div>{% endif %}
+    <a href="/help/codes/{{ code }}">{{ t('workbench.what_code_means') }}</a>
+    {{ assist.explain_code(code, sql, 'workbench-refused') }}</div>{% endif %}
 </div>
 {% endif %}
 
@@ -64,9 +66,11 @@
   </aside>
 
   <section aria-label="{{ t('workbench.editor') }}">
+    {# ADR-058 phase 3: "Describe it" -- a draft from plain English, judged by the engine. #}
+    {{ assist.describe_panel() }}
     {# The island mounts here. Until it does -- or if it never does -- this is a working
        form: run the SQL once, or register it, with the server rendering the answer. #}
-    <div id="workbench-app" data-origin="{{ origin }}"{% if register_refused %} data-register-refused="{{ register_refused }}"{% endif %}>
+    <div id="workbench-app" data-origin="{{ origin }}"{% if assist_status('explain').ready %} data-assist-ready="1"{% endif %}{% if register_refused %} data-register-refused="{{ register_refused }}"{% endif %}>
       <form method="post" action="/workbench" id="run-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="card"><div class="card-body">
@@ -142,4 +146,5 @@
 <script type="application/json" id="wb-library">{{ library|tojson }}</script>
 {{ screenhelp('workbench') }}
 {% endblock %}
-{% block scripts %}<script type="module" src="/static/app/workbench.js?v={{ asset_version }}"></script>{% endblock %}
+{% block scripts %}<script type="module" src="/static/app/workbench.js?v={{ asset_version }}"></script>
+{{ assist.script() }}{% endblock %}
