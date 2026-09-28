@@ -46,6 +46,8 @@
           <dt class="col-4">{{ t('query.keyed_by') }}</dt><dd class="col-8">{% for k in detail.keyColumns or [] %}<span class="mono">{{ k.name }}</span> <span class="text-muted">(#{{ k.ordinal }})</span>{{ ', ' if not loop.last }}{% else %}—{% endfor %}</dd>
           <dt class="col-4">{{ t('query.retention') }}</dt><dd class="col-8 mono">{{ detail.retention or '—' }}</dd>
           <dt class="col-4">{{ t('query.reads') }}</dt><dd class="col-8">{% for r in detail.reads or [] %}<a class="mono" href="/catalog/streams/{{ r }}">{{ r }}</a>{{ ', ' if not loop.last }}{% else %}<span class="text-muted">—</span>{% endfor %}</dd>
+          {% if detail.readsFrom %}<dt class="col-4">{{ t('query.reads_from') }}</dt><dd class="col-8">{% for r in detail.readsFrom %}<a class="mono" href="/queries/{{ r }}">{{ r }}</a>{{ ', ' if not loop.last }}{% endfor %}</dd>{% endif %}
+          {% if detail.dependants %}<dt class="col-4">{{ t('query.dependants') }}</dt><dd class="col-8">{% for d in detail.dependants %}<a class="mono" href="/queries/{{ d }}">{{ d }}</a>{{ ', ' if not loop.last }}{% endfor %}</dd>{% endif %}
           <dt class="col-4">{{ t('query.sink') }}</dt><dd class="col-8">{% if detail.sink %}<span class="mono">{{ detail.sink.name }}</span>
             {% if detail.sink.attached %}<span class="chip ok">{{ t('query.writing') }}</span>{% else %}<span class="chip bad">{{ t('query.detached') }}</span>{% endif %}
             {% if detail.sink.rowsWritten is not none and detail.sink.rowsWritten >= 0 %}<span class="text-muted">{{ t('query.rows_written', n="{:,}".format(detail.sink.rowsWritten)) }}</span>{% endif %}

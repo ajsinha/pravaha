@@ -135,5 +135,15 @@ public final class SqlErrors {
      */
     public static final ErrorCode INDEX_UNUSABLE = new ErrorCode(2074, "SQL_INDEX_UNUSABLE");
 
+    /**
+     * A continuous query over another query's view uses a construct that cannot be maintained exactly
+     * over an input that retracts (ADR-056): a window, a join, top-N, {@code MIN}, {@code MAX},
+     * {@code COUNT(DISTINCT)}, or a {@code GROUP BY} over a column the grouped aggregate cannot hold.
+     *
+     * <p>Refused at registration, naming the construct. Filters, projections and unwindowed
+     * {@code COUNT}, {@code SUM} and {@code AVG} -- with or without a {@code GROUP BY} -- run.
+     */
+    public static final ErrorCode VIEW_INPUT_UNSUPPORTED = new ErrorCode(2075, "SQL_VIEW_INPUT_UNSUPPORTED");
+
     private SqlErrors() {}
 }

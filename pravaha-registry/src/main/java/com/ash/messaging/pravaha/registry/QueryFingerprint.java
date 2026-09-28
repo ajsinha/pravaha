@@ -99,6 +99,22 @@ public record QueryFingerprint(String value) {
             List<Integer> keyColumns,
             Retention retention,
             String tenant) {
+        return of(plan, rowFilters, keyColumns, retention, tenant, List.of());
+    }
+
+    /**
+     * As above, over other queries' answers too (ADR-056): each upstream's name and the fingerprint
+     * of the computation answering it, so identical SQL over one name shares a computation only while
+     * that name answers the same question. Nothing is added when there are none, so every fingerprint
+     * of a query over streams is what it always was.
+     */
+    public static QueryFingerprint of(
+            PhysicalOperator plan,
+            List<String> rowFilters,
+            List<Integer> keyColumns,
+            Retention retention,
+            String tenant,
+            List<String> upstreams) {
         // The plan's identity, not its explain text: the text summarises, and every summary was a way
         // for two different queries to share one computation (FP-1).
         StringBuilder canonical = new StringBuilder(PhysicalPlanBuilder.identity(plan));
@@ -112,6 +128,9 @@ public record QueryFingerprint(String value) {
         }
         canonical.append("\nkeys:").append(keyColumns);
         canonical.append("\nretention:").append(retention == null ? "unspecified" : retention.maxAge());
+        for (String upstream : upstreams) {
+            canonical.append("\nupstream:").append(upstream);
+        }
         return new QueryFingerprint(digest(canonical.toString()));
     }
 

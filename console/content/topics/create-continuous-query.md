@@ -7,7 +7,7 @@ icon: plus-square
 summary: "Registering a query in SQL: KEYED BY, WRITING TO, RETAIN FOR — and DROP, PAUSE, RESUME and SHOW. The full grammar, what each statement answers, and every way one is refused."
 badge: STATEMENTS
 audience: Analysts and developers
-keywords: [create continuous query, keyed by, range, index, writing to, retain for, retain forever, with, options, drop, pause, resume, show continuous queries, indexed by, into, emit changes, insert into, PRV-2070, PRV-2071, PRV-2072, PRV-2073, PRV-8017, PRV-6211]
+keywords: [create continuous query, queries on queries, over a view, follows, dependants, PRV-2075, PRV-8024, PRV-8025, PRV-8026, PRV-8027, keyed by, range, index, writing to, retain for, retain forever, with, options, drop, pause, resume, show continuous queries, indexed by, into, emit changes, insert into, PRV-2070, PRV-2071, PRV-2072, PRV-2073, PRV-8017, PRV-6211]
 guide: continuous-queries#101-the-statements-that-register-and-manage-queries
 related: [query-lifecycle, views-and-keys, sinks-overview, sql-parameters, sharing]
 ---
@@ -391,6 +391,41 @@ Saying the same thing twice is refused rather than decided by which came first:
 ```sql
 CREATE CONTINUOUS QUERY twice KEYED BY (txn_id) RETAIN FOR PT1H WITH (retention = '24h') AS SELECT txn_id FROM txn
 ```
+
+## Over another query's answer
+
+A query's `FROM` may name another registered query. It then **follows that query's answer** — the
+rows its view holds, then every change to them — rather than reading its view once, so answers can
+be layered: a cleaned feed, an aggregate of it, an alert condition over the aggregate.
+
+```text
+CREATE CONTINUOUS QUERY cleaned KEYED BY (user_id)
+AS SELECT user_id, region, amount FROM txn WHERE amount > 0
+
+CREATE CONTINUOUS QUERY by_region KEYED BY (region)
+AS SELECT region, SUM(amount) AS total, COUNT(*) AS n FROM cleaned GROUP BY region
+
+CREATE CONTINUOUS QUERY big_regions KEYED BY (region)
+AS SELECT region, total FROM by_region WHERE total > 100
+```
+
+- **What it is fed** is the upstream's answer as a reader sees it: each row once, and for every
+  commit the rows that left (weight −1) and the rows that entered (+1). A second row for a user
+  replaces the first in `cleaned`, so `by_region` sees an update, not a second row.
+- **What runs** over a view: filters, projections, computed columns, and `COUNT`, `SUM` and `AVG`,
+  with or without `GROUP BY` — a keyed `GROUP BY` is bounded here by the upstream's key ceiling.
+  Windows, joins, top-N, `MIN`, `MAX` and `COUNT(DISTINCT)` are refused with PRV-2075.
+- **Exactly once**: each query checkpoints what it has consumed of the one before it, and after a
+  restart is fed the difference, whichever of the two checkpointed later.
+- **Dropping** a query others read is refused with PRV-8024, naming them — drop them first; there is
+  no cascade. Replacing a member of a chain is PRV-8026, a replacement that would read its own
+  answer is PRV-8025, and a chain deeper than eight is PRV-8027. `RETAIN FOR` on a query over a view
+  is PRV-8026: retention belongs to the upstream.
+- **Who may**: registering over `cleaned` needs read access to `cleaned` and to every stream behind
+  it, and only views of your own tenant can be read this way.
+
+The query's page in the console shows what it **follows** and what it is **followed by**, and
+`GET /api/v1/queries/{name}` reports the same as `readsFrom` and `dependants`.
 
 ## What is still refused
 

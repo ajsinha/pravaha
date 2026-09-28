@@ -140,6 +140,8 @@ public final class QueryReplacements implements AutoCloseable {
             String resuming) {
         ContinuousQueryStatements.requireAdministrable(policy, audit, principal, name, "replace");
         RegisteredQuery serving = registry.require(name);
+        // ADR-056: a loop through other queries first, then anything a chain makes inexact.
+        registry.chains.refuseReplacement(name, sql, principal);
         QueryReplacement existing = byName.get(name);
         if (existing != null && existing.active()) {
             throw new PravahaException(

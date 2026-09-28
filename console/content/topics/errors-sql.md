@@ -4,7 +4,7 @@ slug: errors-sql
 category: errors
 order: 30
 icon: code-square
-summary: "PRV-2001 to PRV-2074: every way the planner refuses a query — syntax, names, operators and functions it will not run, unbounded state, parameters, sinks, and CREATE CONTINUOUS QUERY."
+summary: "PRV-2001 to PRV-2075: every way the planner refuses a query — syntax, names, operators and functions it will not run, unbounded state, parameters, sinks, and CREATE CONTINUOUS QUERY."
 badge: PRV-2XXX
 audience: Analysts, developers
 keywords: [syntax, validation, unknown column, unsupported, order by, limit, union, unbounded, group by, parameter, placeholder, keyed by, range, index, create continuous query, insert into, emit mode, retraction, append-only, sink]
@@ -44,6 +44,7 @@ help's example streams: `txn`, `orders`, `shipments`, `trades`, `quotes` and `re
 | PRV-2072 | SQL_CLAUSE_NOT_BUILT | A clause of the design's grammar that is not built |
 | PRV-2073 | SQL_RANGE_NOT_ORDERED | `RANGE` over a column with no total order |
 | PRV-2074 | SQL_INDEX_UNUSABLE | `INDEX` over a column this engine keeps no equality index for |
+| PRV-2075 | SQL_VIEW_INPUT_UNSUPPORTED | A query over another query's view uses what cannot be kept exact over it |
 
 ## Reading the query
 
@@ -573,6 +574,17 @@ AS SELECT txn_id, merchant, amount FROM txn
 ```
 
 The check runs at registration, against the columns the view will actually have.
+
+### PRV-2075 — a query over another query's answer that cannot be kept exact
+
+A continuous query whose `FROM` names a registered query follows that query's answer: its rows, then
+every change to them as a row leaving and a row entering. Filters, projections, and `COUNT`, `SUM`
+and `AVG` — with or without `GROUP BY` — are kept exact over that. A window, a join, top-N, `MIN`,
+`MAX` and `COUNT(DISTINCT)` are not, and are refused, naming the construct.
+
+**Do:** put the window, the join or the extreme in the upstream query, or read the view with a plain
+`SELECT`, which is a bounded read where every aggregate runs. See
+[CREATE CONTINUOUS QUERY](/help/topics/create-continuous-query#over-another-querys-answer).
 
 ### PRV-2020 on `INSERT` — there is no DML surface
 

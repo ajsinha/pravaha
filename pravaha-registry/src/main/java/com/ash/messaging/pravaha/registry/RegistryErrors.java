@@ -177,5 +177,24 @@ public final class RegistryErrors {
     /** A tenancy quota this node refuses to start with: a negative limit, or a blank tenant name (ADR-050). */
     public static final ErrorCode TENANCY_MISCONFIGURED = new ErrorCode(8023, "REGISTRY_TENANCY_MISCONFIGURED");
 
+    /**
+     * A query cannot be dropped while other queries read its view (ADR-056). The refusal names them;
+     * drop them first. There is no cascade: it would drop queries other people registered.
+     */
+    public static final ErrorCode QUERY_HAS_DEPENDANTS = new ErrorCode(8024, "REGISTRY_QUERY_HAS_DEPENDANTS");
+
+    /** A query would read, through other queries, its own view (ADR-056). The refusal names the loop. */
+    public static final ErrorCode QUERY_CYCLE = new ErrorCode(8025, "REGISTRY_QUERY_CYCLE");
+
+    /**
+     * Something about a query over a query that cannot be made exact and is refused rather than
+     * approximated (ADR-056): replacing a member of a chain, reading a name that is being replaced,
+     * a retention on a query over a view, or a restored checkpoint without the consumed answer.
+     */
+    public static final ErrorCode CHAIN_UNSUPPORTED = new ErrorCode(8026, "REGISTRY_CHAIN_UNSUPPORTED");
+
+    /** A chain of queries over queries deeper than {@code QueryChains.MAX_DEPTH} levels (ADR-056). */
+    public static final ErrorCode CHAIN_TOO_DEEP = new ErrorCode(8027, "REGISTRY_CHAIN_TOO_DEEP");
+
     private RegistryErrors() {}
 }

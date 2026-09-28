@@ -1157,6 +1157,8 @@
     "keyed_by": "Keyed by",
     "retention": "Retention",
     "reads": "Reads",
+    "reads_from": "Follows",
+    "dependants": "Followed by",
     "sink": "Sink",
     "writing": "writing",
     "detached": "detached",

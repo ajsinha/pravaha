@@ -88,6 +88,14 @@ public final class PhysicalPlanBuilder {
         return this;
     }
 
+    private MaintainedViews views = MaintainedViews.NONE;
+
+    /** Names the scans that read another query's view rather than a stream (ADR-056). */
+    public PhysicalPlanBuilder overMaintainedViews(MaintainedViews views) {
+        this.views = views == null ? MaintainedViews.NONE : views;
+        return this;
+    }
+
     /**
      * Binds this statement's {@code ?} placeholders for the plan about to be built.
      *
@@ -150,6 +158,8 @@ public final class PhysicalPlanBuilder {
 
         PhysicalOperator left = build(join.getLeft());
         PhysicalOperator right = build(join.getRight());
+        views.refuseOver(left, "a join");
+        views.refuseOver(right, "a join");
         int leftWidth = left.outputSchema().fields().size();
 
         List<Integer> leftKeys = new ArrayList<>();
@@ -402,6 +412,7 @@ public final class PhysicalPlanBuilder {
         }
 
         PhysicalOperator left = build(correlate.getLeft());
+        views.refuseOver(left, "a lookup join");
         RelNode right = correlate.getRight();
 
         RexNode condition = null;
@@ -696,6 +707,7 @@ public final class PhysicalPlanBuilder {
      * to the grouping, which is a no-op semantically for the same reason.
      */
     private PhysicalOperator buildGroupedWindow(Project project, PhysicalOperator input, RexCall window) {
+        views.refuseOver(input, "a window");
         String function = window.getOperator().getName().replace("$", "").toUpperCase(java.util.Locale.ROOT);
         int eventTimeOrdinal = -1;
         List<Long> intervals = new ArrayList<>();
@@ -792,6 +804,7 @@ public final class PhysicalPlanBuilder {
                     + windowing.getInputs().size());
         }
         PhysicalOperator input = build(windowing.getInput(0));
+        views.refuseOver(input, "a window");
         if (!(windowing.getCall() instanceof RexCall call)) {
             throw unsupported("cannot read the windowing call " + windowing.getCall());
         }
@@ -1059,6 +1072,8 @@ public final class PhysicalPlanBuilder {
         // refusing the query is the only intervention that reliably works. A global aggregate is
         // bounded by construction -- one row, whatever the input volume; a keyed one is not.
         //
+        // ADR-056: a query over a maintained view is bounded by that view's key ceiling.
+        boolean boundedInput = this.boundedInput || views.readsOnlyViews(input);
         // Over a bounded input the argument does not apply: a read of a maintained view scans a
         // finite set of rows and stops, so the accumulators are bounded by the scan and released
         // when it ends. KeyedAggregate executes those, capped at a group count that refuses rather

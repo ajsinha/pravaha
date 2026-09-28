@@ -766,6 +766,13 @@ public final class RegisteredQuery implements AutoCloseable {
             // was rather than forgotten by the first checkpoint after a restart.
             restoredSinks.forEach(
                     (name, restored) -> entries.putIfAbsent(SinkDelivery.STATE_PREFIX + name, restored.carried()));
+            // ADR-056: what this query has consumed of the answer it follows, at this same cut -- or,
+            // before its feed has opened, what the restored checkpoint said, carried as it was.
+            java.util.function.Supplier<byte[]> input = upstreamCut;
+            byte[] consumed = input != null ? input.get() : restoredUpstreamInput;
+            if (consumed != null) {
+                entries.put(QueryChains.INPUT_STATE, consumed);
+            }
             lastCut = Math.max(lastCut, checkpointId);
             return entries;
         }
@@ -784,6 +791,8 @@ public final class RegisteredQuery implements AutoCloseable {
      */
     void restoredFrom(com.ash.messaging.pravaha.state.checkpoint.Checkpoint checkpoint) {
         lastCut = Math.max(lastCut, checkpoint.id());
+        restored = true;
+        restoredUpstreamInput = checkpoint.operatorState().get(QueryChains.INPUT_STATE);
         byte[] contents = checkpoint.operatorState().get(QueryExecution.SERVED_VIEW_STATE);
         checkpoint.operatorState().forEach((key, bytes) -> {
             if (key.startsWith(SinkDelivery.STATE_PREFIX)) {
@@ -793,6 +802,25 @@ public final class RegisteredQuery implements AutoCloseable {
             }
         });
     }
+
+    /** Whether this computation's state came back from a checkpoint. */
+    boolean restored() {
+        return restored;
+    }
+
+    /** What a restored checkpoint recorded of the answer this query follows, or null (ADR-056). */
+    byte[] restoredUpstreamInput() {
+        return restoredUpstreamInput;
+    }
+
+    /** Where each checkpoint's cut reads what this query has consumed of the answer it follows. */
+    void cuttingUpstreamWith(java.util.function.Supplier<byte[]> cut) {
+        this.upstreamCut = cut;
+    }
+
+    private volatile boolean restored;
+    private volatile byte[] restoredUpstreamInput;
+    private volatile java.util.function.Supplier<byte[]> upstreamCut;
 
     /** What the restored checkpoint recorded for the sink of registration {@code name}, taken once. */
     java.util.Optional<SinkDelivery.Restored> claimRestoredSink(String name) {

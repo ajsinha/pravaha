@@ -38,6 +38,20 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   `RUNNING`, and fail on its first row with the other query's error (`PRV-3010`). `SharedLanes`
   skips a failed lane until the node restarts. A stalled query backpressures its own lane only, and
   loses nothing (`SharedLaneFateTest`).
+- **Queries on queries (ADR-056).** A continuous query whose `FROM` names another registered query now
+  *follows* that query's answer — its snapshot, then every change to it — instead of scanning its view
+  once. Layer answers: `cleaned` → `by_region` → `big_regions`. The downstream is fed the answer's
+  changes (a row leaving, a row entering), not the upstream's changelog, so an upsert upstream is an
+  update downstream rather than a second row. Filters, projections and unwindowed `COUNT`/`SUM`/`AVG` —
+  with a `GROUP BY` too, now continuous and checkpointed — run over a view; windows, joins, top-N,
+  `MIN`/`MAX` and `COUNT(DISTINCT)` are refused `PRV-2075`. Exactly once across the chain: the
+  downstream carries what it has consumed of the upstream's answer in its checkpoint and is fed the
+  difference on restore, whichever of the two checkpointed later. `DROP` of a query others read is
+  `PRV-8024`, naming them (no cascade); a replacement that would read its own answer is `PRV-8025`;
+  replacing a member of a chain, `RETAIN FOR` over a view and a restore without the consumed answer are
+  `PRV-8026`; a chain deeper than eight is `PRV-8027`. Reads are authorised against the upstream and
+  every stream behind it, and only the caller's own tenant's views can be read. `GET
+  /api/v1/queries/{name}` reports `readsFrom` and `dependants`, and the console's query page links them.
 - **A research paper, and an article version of it.** `docs/research/continuous-queries-as-maintained-answers.pdf`
   (LaTeX source beside it) and `-article.md`: *Continuous Queries as Maintained Answers — Exact Cuts, Exact
   Seams and Lossless Cutover in a Single-Node Streaming SQL Engine*. It states the Z-set model and the

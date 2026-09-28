@@ -434,7 +434,9 @@ public class QueryController {
                 feed(entry),
                 query.executionPaths(),
                 query.lanePlacement(),
-                query.sharedLane().orElse(null));
+                query.sharedLane().orElse(null),
+                listing.readsFrom(principal, entry, action),
+                listing.dependants(principal, entry, action));
     }
 
     /**
