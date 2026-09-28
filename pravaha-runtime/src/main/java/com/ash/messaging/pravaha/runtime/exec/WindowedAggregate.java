@@ -325,6 +325,16 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
             return;
         }
         watermark = watermarkNanos;
+        if (lastFiredWatermark == Long.MIN_VALUE && earliestWindowStart == Long.MAX_VALUE) {
+            // No row has reached this aggregate yet, so no window holds anything and there is
+            // nothing to fire. Firing "from the first window" would start at the epoch: a filter
+            // upstream that dropped the stream's first rows (cancel_rate's WHERE event_type =
+            // 'CANCEL' behind a NEW) would then walk fifty-six years of empty ten-second windows and
+            // stop the query with PRV-3022, blaming a timestamp nobody sent. Found by
+            // CaseStudyRunTest on the trading study.
+            lastFiredWatermark = watermark;
+            return;
+        }
         long from = lastFiredWatermark == Long.MIN_VALUE ? firstWindowStart() : lastFiredWatermark;
         // Corrections first: a consumer applying results in arrival order should see the fix for an
         // old window before the results of newer ones.

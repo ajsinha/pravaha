@@ -1,0 +1,4 @@
+book_id,desk,region,cost_centre
+bk-1,RATES,EMEA,CC-1100
+bk-2,EQUITIES,EMEA,CC-1200
+bk-3,FX,APAC,CC-1300

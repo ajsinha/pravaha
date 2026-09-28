@@ -1667,7 +1667,7 @@
         "kicker": "TUTORIALS",
         "heading": "Working through Pravaha",
         "title": "Tutorials",
-        "blurb": "Worked walkthroughs, end to end and with real calls, each run against a fresh install's demonstration stream: your first maintained view, following a view, changing a running query safely, investigating an incident, and joining two Aerospike sets with a CSV file. Worked systems in ten domains are in Help, under Case studies."
+        "blurb": "Worked walkthroughs, end to end and with real calls, each run against a fresh install's demonstration stream: your first maintained view, following a view, changing a running query safely, investigating an incident, and joining two Aerospike sets with a CSV file. Thirteen worked systems, each run and checked by the build, are in Help, under Case studies."
       }
     },
     "decision_records": "Decision records",

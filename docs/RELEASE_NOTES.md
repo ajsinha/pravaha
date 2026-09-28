@@ -44,6 +44,19 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   CLIENT` are refused by name (`PRV-5152`); a purged resume file is `PRV-5155`. Changes only:
   `snapshot.mode: initial` is refused. New codes `PRV-5150` to `PRV-5157`. Tested against a real
   MySQL 8 (`MySqlCdcIT`, `./mvnw -Pit -pl plugins/pravaha-plugin-mysql-cdc -am verify`).
+- **Thirteen case studies, every one run by the build.** Three new ones: `retail-inventory-mysql`
+  (`mysql-cdc`, low-stock alerts that clear themselves), `lakehouse-orders-iceberg` (`iceberg-sink`
+  in upsert mode, a late row corrected in the table) and `payments-shared-kafka` (three queries on
+  one shared Kafka reader, ADR-054; `INDEX (merchant)`, ADR-055). `CaseStudyRunTest` runs each
+  study's continuous queries in an embedded engine over its `data/sample/` and checks every read
+  against answers worked out by hand. It found four studies registering the wrong view key
+  (biology, finance, trading, trade processing) and fixed them.
+- **A windowed aggregate that is sent event time before its first row no longer walks from the
+  epoch.** With a filter ahead of it — `cancel_rate`'s `WHERE event_type = 'CANCEL'` behind a
+  `NEW` — the first watermark fired every empty window since 1970: `PRV-3022` for a ten-second
+  slide, and hundreds of thousands of empty windows for an hourly one. It now has nothing to fire.
+- **`PravahaEngine.retract(stream, rows...)`** pushes rows at weight −1, as a change-data-capture
+  source delivers a delete or the old half of an update.
 
 
 Register: **425 findings — 377 fixed, 34 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.

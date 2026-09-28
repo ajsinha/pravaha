@@ -225,6 +225,18 @@ public interface PravahaEngine extends AutoCloseable {
     /** {@link #push(String, Object[]...)} for a list of rows. */
     int push(String stream, List<Object[]> rows);
 
+    /**
+     * Pushes retractions into {@code stream}: each row at weight {@code -1}, as a change-data-capture
+     * source delivers a delete, or the old half of an update, whose new half is a {@link #push}.
+     *
+     * <p>A retraction withdraws a row an earlier push delivered, so it should carry that row's values
+     * exactly. Checked and committed as {@link #push(String, List)} is; the two are separate commits,
+     * so a reader between them sees the update's old row gone and its new row not yet there.
+     *
+     * @return how many computations the rows reached
+     */
+    int retract(String stream, Object[]... rows);
+
     /** Pushes one row given by column name; a column the map does not name is null. */
     int push(String stream, Map<String, ?> row);
 

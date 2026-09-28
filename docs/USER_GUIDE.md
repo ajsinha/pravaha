@@ -672,6 +672,7 @@ What the calls do:
 | `bindSource` / `bindLookup` / `bindSink(name, plugin, options)` | A plugin by the name it reports, with its options — `filesystem` is on the classpath already |
 | `register(name, sql, keyColumns...)` / `register(ContinuousQuery)` | A continuous query; `ContinuousQuery.named(..).retaining(..).writingTo(sink)` for retention or a sink |
 | `push(stream, rows...)` | Rows in column order (or a `Map` by name). The whole batch is checked first: one bad row delivers nothing (`PRV-8102`) |
+| `retract(stream, rows...)` | Rows at weight `-1`: a delete, or the old half of an update whose new half is a `push` — what a change-data-capture source delivers |
 | `advanceEventTime(stream, instant)` | Closes windows over pushed rows; a bound source's watermark advances on its own |
 | `query(sql, params...)` / `query(Class, sql, params...)` | SQL over the views, as rows or as records |
 | `subscribe(query, consumer)` | Every commit of a view, retractions as weight `-1` |

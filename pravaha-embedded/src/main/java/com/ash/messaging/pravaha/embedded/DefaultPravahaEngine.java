@@ -625,6 +625,16 @@ final class DefaultPravahaEngine implements PravahaEngine {
 
     @Override
     public int push(String stream, List<Object[]> rows) {
+        return deliver(stream, rows, 1L);
+    }
+
+    @Override
+    public int retract(String stream, Object[]... rows) {
+        return deliver(stream, rows == null ? List.of() : Arrays.asList(rows), -1L);
+    }
+
+    /** Validates every row, then hands each to every running query on the stream at {@code weight}. */
+    private int deliver(String stream, List<Object[]> rows, long weight) {
         RowEncoder encoder = encoderFor(stream);
         // Every row checked before any is delivered: a batch with one bad row delivers nothing.
         List<Object[]> validated = new ArrayList<>(rows.size());
@@ -647,7 +657,7 @@ final class DefaultPravahaEngine implements PravahaEngine {
                 sequence.accumulateAndGet(reached, Math::max);
             }
             for (Object[] values : validated) {
-                BinaryRowView row = write(encoder, values);
+                BinaryRowView row = write(encoder, values, weight);
                 for (Target target : targets) {
                     offer(target, row);
                 }
@@ -691,18 +701,18 @@ final class DefaultPravahaEngine implements PravahaEngine {
     }
 
     /** Writes one row into the push arena; the lane copies it on offer, so the arena is reused per row. */
-    private BinaryRowView write(RowEncoder encoder, Object[] values) {
+    private BinaryRowView write(RowEncoder encoder, Object[] values, long weight) {
         int size = encoder.sizeOf(values);
         if (pushArena == null) {
             pushArena = new RowArena(MemoryAccess.best(), Math.max(RowArena.DEFAULT_SLAB_BYTES, size), 1);
         }
         pushArena.reset();
-        BinaryRowView row = encoder.write(values, pushArena, sequence.incrementAndGet());
+        BinaryRowView row = encoder.write(values, pushArena, sequence.incrementAndGet(), weight);
         if (row == null) {
             // Larger than the slab: a one-off arena of its own size, kept for the next large row.
             pushArena.close();
             pushArena = new RowArena(MemoryAccess.best(), size, 1);
-            row = encoder.write(values, pushArena, sequence.get());
+            row = encoder.write(values, pushArena, sequence.get(), weight);
         }
         return row;
     }

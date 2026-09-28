@@ -1,0 +1,31 @@
+# The answers to dispatch.csv and delivery.csv (python3 data/generate_shipments.py), worked out by
+# hand. Checked by pravaha-it's CaseStudyRunTest. Format: == <read file or SQL> [:: parameters].
+#
+# Parcel i leaves depot [LHR1, MAN2, BRS3][i % 3] at 06:00 + 5i minutes. Between two and four hours
+# after dispatch: P1005 (150 min), P1009 (185), P1013 (140), P1017 (170). P1002 (250 min) is past
+# four hours, so it is neither late nor delivered in time; P1020 and P1023 never arrive.
+== SELECT shipment_id, depot, courier, dispatch_time, delivered_time FROM late_deliveries
+P1005 | BRS3 | van-11 | 2026-10-05T06:25:00Z | 2026-10-05T08:55:00Z
+P1009 | LHR1 | van-32 | 2026-10-05T06:45:00Z | 2026-10-05T09:50:00Z
+P1013 | MAN2 | van-31 | 2026-10-05T07:05:00Z | 2026-10-05T09:25:00Z
+P1017 | BRS3 | van-21 | 2026-10-05T07:25:00Z | 2026-10-05T10:15:00Z
+
+== 04-read-breaches-by-depot.sql
+BRS3 | 2
+MAN2 | 1
+LHR1 | 1
+
+== 05-read-one-shipment.sql :: P1009
+P1009 | LHR1 | van-32 | 2026-10-05T06:45:00Z | 2026-10-05T09:50:00Z
+
+# i = 2, 20, 23: all BRS3 (i % 3 == 2).
+== SELECT shipment_id, depot, dispatch_time FROM undelivered
+P1002 | BRS3 | 2026-10-05T06:10:00Z
+P1020 | BRS3 | 2026-10-05T07:40:00Z
+P1023 | BRS3 | 2026-10-05T07:55:00Z
+
+# Twenty-four parcels over the 06:00 and 07:00 hours, eight per depot.
+== 06-read-depot-dispatches.sql
+LHR1 | 8
+MAN2 | 8
+BRS3 | 8

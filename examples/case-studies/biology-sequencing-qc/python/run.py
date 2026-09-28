@@ -35,7 +35,7 @@ def main() -> None:
     with connect(args.url) as client:
         # 1. Register. It runs until dropped, maintaining the "coverage_qc" view. The same
         #    question registered twice is one computation with two names -- the fingerprint says so.
-        registered = client.register("coverage_qc", read("01-continuous-coverage-qc.sql"), [1])
+        registered = client.register("coverage_qc", read("01-continuous-coverage-qc.sql"), [1, 2])  # (run_id, sample_id)
         print("registered", registered)
 
         # 2. Ask it something. Values are bound, never interpolated into the SQL.

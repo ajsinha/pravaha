@@ -1,0 +1,4 @@
+counterparty_id,legal_name,country,lei
+cp-1,ACME Clearing Ltd,GB,213800AAAAAAAAAAAA01
+cp-2,Borealis Bank NV,NL,213800BBBBBBBBBBBB02
+cp-3,Cygnus Securities SA,FR,213800CCCCCCCCCCCC03

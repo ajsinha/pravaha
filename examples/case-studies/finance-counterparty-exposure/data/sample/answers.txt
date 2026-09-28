@@ -1,0 +1,22 @@
+# The answers to settlement.csv and counterparty.csv, worked out by hand. The first five payments
+# are the ones Step 6 of the README inserts into PostgreSQL; the sixth, at 10:01, is the payment in
+# the next hour that closes the 09:00 hour (its end plus one minute of out-of-orderness).
+# Checked by pravaha-it's CaseStudyRunTest. Format: == <read file or SQL> [:: parameters].
+#
+# The RECEIVE is filtered out. The view is keyed by (counterparty_id, currency), each line's
+# latest closed hour. cp-acme paid GBP twice (1,250,000 + 4,800,000) and USD once.
+== 02-read-one-counterparty.sql :: cp-acme
+cp-acme | GBP | AA | 2 | 6050000
+cp-acme | USD | AA | 1 | 900000
+
+# cp-cygnus's only payment is in the 10:00 hour, which has not closed.
+== 02-read-one-counterparty.sql :: cp-cygnus
+(none)
+
+== 04-read-over-threshold.sql :: GBP, 5000000
+cp-acme | GBP | 6050000 | 4800000
+
+== 03-read-exposure-by-rating.sql
+AA | GBP | 1 | 6050000
+AA | USD | 1 | 900000
+BBB | EUR | 1 | 19500000

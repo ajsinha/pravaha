@@ -1,0 +1,32 @@
+# The answers to checkout_event.csv (python3 data/generate_events.py), worked out by hand.
+# Checked by pravaha-it's CaseStudyRunTest. Format: == <read file or SQL> [:: parameters].
+#
+# Sixty sessions: every one reaches CART; i % 4 == 3 abandons (15), leaving 45 at CHECKOUT;
+# of those i % 5 == 4 abandons (9), leaving 36 at PAYMENT. App payments between 10:06 and 10:09
+# fail: five sessions. The rest, 31, ORDER. Baskets are 1999 + (i * 737) % 9000 minor units.
+== 03-read-funnel-totals.sql
+CART | 60 | 380430
+CHECKOUT | 45 | 277740
+PAYMENT | 36 | 220392
+ORDER | 31 | 177049
+PAYMENT_FAILED | 5 | 43343
+
+== 04-read-one-step.sql :: ORDER
+2026-11-27T10:05:00Z | web | 10 | 59008
+2026-11-27T10:05:00Z | app | 5 | 34004
+2026-11-27T10:10:00Z | app | 1 | 6109
+2026-11-27T10:10:00Z | web | 12 | 53904
+2026-11-27T10:15:00Z | web | 2 | 16016
+2026-11-27T10:15:00Z | app | 1 | 8008
+
+# One session in three is on the app: 20 carts, 15 checkouts, 12 payments, 5 failed, 7 ordered.
+== 05-read-device-funnel.sql :: app
+CART | 20
+CHECKOUT | 15
+PAYMENT | 12
+ORDER | 7
+PAYMENT_FAILED | 5
+
+# All five failures fall in the window ending 10:10; HAVING COUNT(*) >= 3 keeps it.
+== SELECT window_end, device, failures, basket_at_risk_minor FROM payment_failure_spikes
+2026-11-27T10:10:00Z | app | 5 | 43343

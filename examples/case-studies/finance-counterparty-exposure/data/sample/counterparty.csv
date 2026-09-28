@@ -1,0 +1,4 @@
+counterparty_id,legal_name,rating,limit_minor
+cp-acme,ACME Clearing Ltd,AA,50000000
+cp-borealis,Borealis Bank NV,BBB,20000000
+cp-cygnus,Cygnus Securities SA,A,35000000

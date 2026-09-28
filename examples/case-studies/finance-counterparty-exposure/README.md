@@ -322,6 +322,7 @@ The full list is [`docs/CONTINUOUS_QUERIES.md`](../../../docs/CONTINUOUS_QUERIES
 - **No `CASE`**, so no `SUM(CASE WHEN direction = 'PAY' THEN ... END)`. Two registrations instead.
 - **No `ORDER BY` / `LIMIT`.** Sort the largest exposures in your application.
 - **No `NUMERIC`/`DECIMAL` on the wire.** Minor units as `BIGINT`, which is what you want anyway.
-- **Only inner and lookup joins between streams.** `LEFT JOIN ... FOR SYSTEM_TIME AS OF` is a lookup
-  and is supported; a `LEFT JOIN` between two *streams* is refused, because an unmatched row would
-  have to be held forever in case its partner turns up.
+- **A `LEFT JOIN` between two streams needs a time bound.** `LEFT JOIN ... FOR SYSTEM_TIME AS OF` is
+  a lookup and is supported; a `LEFT JOIN` between two *streams* without a time bound is refused,
+  because an unmatched row would have to be held forever in case its partner turns up. With one it
+  runs — the [logistics study](../logistics-delivery-sla/) reports what did not arrive that way.
