@@ -44,3 +44,13 @@ dependency-reduced-pom.xml
 
 # Deck generator environment (tools/deck/GUIDE.md)
 tools/deck/.venv/
+# LaTeX build artefacts, should a paper be built in place
+docs/research/*.aux
+docs/research/*.log
+docs/research/*.out
+docs/research/*.toc
+docs/research/*.fls
+docs/research/*.fdb_latexmk
+docs/research/*.synctex.gz
+docs/research/*.bbl
+docs/research/*.blg
