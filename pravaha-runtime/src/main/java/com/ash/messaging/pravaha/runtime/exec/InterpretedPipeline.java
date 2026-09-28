@@ -601,6 +601,7 @@ public final class InterpretedPipeline implements AutoCloseable {
      */
     public void drivenContinuously() {
         globals.forEach(GlobalAggregate::drivenContinuously);
+        keyed.forEach(KeyedAggregate::drivenContinuously);
     }
 
     /**
@@ -864,7 +865,10 @@ public final class InterpretedPipeline implements AutoCloseable {
      * the same bytes. Into a windowed plan it is refused here, by version, rather than further in by
      * the aggregate's own format check.
      */
-    private static final int SNAPSHOT_VERSION = 6;
+    private static final int SNAPSHOT_VERSION = 7;
+
+    /** Version 7 without the grouped-aggregate section (ADR-056), read into a plan that has none. */
+    private static final int SNAPSHOT_VERSION_WITHOUT_KEYED = 6;
 
     /** Version 6 without the held-rows section, still read into a plan that has no top-N. */
     private static final int SNAPSHOT_VERSION_WITHOUT_HELD_ROWS = 5;
@@ -896,6 +900,10 @@ public final class InterpretedPipeline implements AutoCloseable {
             for (HeldRows operator : heldRows) {
                 operator.writeTo(out);
             }
+            out.writeInt(keyed.size());
+            for (KeyedAggregate aggregate : keyed) {
+                aggregate.writeTo(out);
+            }
         } catch (java.io.IOException e) {
             throw new PravahaException(RuntimeErrors.LANE_FAILED, "cannot snapshot this pipeline's state: " + e, e);
         }
@@ -920,11 +928,23 @@ public final class InterpretedPipeline implements AutoCloseable {
                                 + "than rejected.");
             }
             int version = in.readInt();
+            if (version != SNAPSHOT_VERSION && !keyed.isEmpty()) {
+                throw new PravahaException(
+                        RuntimeErrors.LANE_FAILED,
+                        "this snapshot is version " + version + ", written before grouped aggregates were "
+                                + "checkpointed, and this plan has " + keyed.size() + ": restoring it would resume "
+                                + "every group from nothing beside a view that holds their answers.");
+            }
+            boolean withoutKeyed = version == SNAPSHOT_VERSION_WITHOUT_KEYED;
             boolean withoutGlobals =
                     version == SNAPSHOT_VERSION_WITHOUT_GLOBALS && globals.isEmpty() && windowed.isEmpty();
             boolean oldWindowsButNone = version == SNAPSHOT_VERSION_WITH_OLD_WINDOWS && windowed.isEmpty();
             boolean withoutHeldRows = version == SNAPSHOT_VERSION_WITHOUT_HELD_ROWS && heldRows.isEmpty();
-            if (version != SNAPSHOT_VERSION && !withoutGlobals && !oldWindowsButNone && !withoutHeldRows) {
+            if (version != SNAPSHOT_VERSION
+                    && !withoutKeyed
+                    && !withoutGlobals
+                    && !oldWindowsButNone
+                    && !withoutHeldRows) {
                 throw new PravahaException(
                         RuntimeErrors.LANE_FAILED,
                         "this snapshot is version " + version + " and this engine writes version " + SNAPSHOT_VERSION
@@ -969,7 +989,7 @@ public final class InterpretedPipeline implements AutoCloseable {
             for (GlobalAggregate aggregate : globals) {
                 aggregate.readFrom(in);
             }
-            int heldCount = version == SNAPSHOT_VERSION ? in.readInt() : 0;
+            int heldCount = version == SNAPSHOT_VERSION || withoutKeyed ? in.readInt() : 0;
             if (heldCount != heldRows.size()) {
                 throw new PravahaException(
                         RuntimeErrors.LANE_FAILED,
@@ -979,6 +999,16 @@ public final class InterpretedPipeline implements AutoCloseable {
             }
             for (HeldRows operator : heldRows) {
                 operator.readFrom(in);
+            }
+            int keyedCount = version == SNAPSHOT_VERSION ? in.readInt() : 0;
+            if (keyedCount != keyed.size()) {
+                throw new PravahaException(
+                        RuntimeErrors.LANE_FAILED,
+                        "the checkpoint holds " + keyedCount + " grouped aggregates and this plan has " + keyed.size()
+                                + ": the query changed since the checkpoint was taken.");
+            }
+            for (KeyedAggregate aggregate : keyed) {
+                aggregate.readFrom(in);
             }
         } catch (java.io.IOException e) {
             throw new PravahaException(RuntimeErrors.LANE_FAILED, "cannot restore pipeline state: " + e, e);
@@ -1035,7 +1065,7 @@ public final class InterpretedPipeline implements AutoCloseable {
 
     /** Whether this pipeline holds any state worth checkpointing. */
     public boolean isStateful() {
-        return !windowed.isEmpty() || !joins.isEmpty() || !globals.isEmpty() || !heldRows.isEmpty();
+        return !windowed.isEmpty() || !joins.isEmpty() || !globals.isEmpty() || !heldRows.isEmpty() || !keyed.isEmpty();
     }
 
     /** Records dropped as too late, across every windowed operator in this pipeline. */
@@ -1262,6 +1292,8 @@ public final class InterpretedPipeline implements AutoCloseable {
                     KeyedAggregate aggregate = new KeyedAggregate(
                             a, a.input().outputSchema(), arena, downstream, KeyedAggregate.DEFAULT_MAX_GROUPS);
                     finishers.add(aggregate::emit);
+                    // A no-op until a lane drives it, which only a query over a view can (ADR-056).
+                    continuousEmitters.add(aggregate::emitIncremental);
                     keyed.add(aggregate);
                     onlyStreamOf(a.input()).ifPresent(stream -> {
                         partialAggregateTargets.put(stream, aggregate::processPartial);

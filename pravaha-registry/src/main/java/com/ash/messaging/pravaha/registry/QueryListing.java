@@ -168,6 +168,28 @@ public final class QueryListing {
         return List.copyOf(shared.stream().sorted().toList());
     }
 
+    /**
+     * Of {@code names}, the ones this caller may see, each decided exactly as {@link #find} decides
+     * it -- so the links between queries over queries (ADR-056) disclose no name the listing would
+     * not.
+     */
+    public List<String> visible(Principal principal, List<String> names, String action) {
+        return names.stream()
+                .filter(name -> find(principal, name, action).isPresent())
+                .sorted()
+                .toList();
+    }
+
+    /** The queries whose answers {@code entry} follows, that this caller may see (ADR-056). */
+    public List<String> readsFrom(Principal principal, Entry entry, String action) {
+        return visible(principal, registry.readsFrom(entry.name()), action);
+    }
+
+    /** The queries that follow {@code entry}'s answer, that this caller may see (ADR-056). */
+    public List<String> dependants(Principal principal, Entry entry, String action) {
+        return visible(principal, registry.dependantsOf(entry.name()), action);
+    }
+
     private Optional<Entry> decide(
             Principal principal, String name, RegisteredQuery query, AccessDecision byName, String action) {
         boolean restricted = byName.rowFilter().isPresent();

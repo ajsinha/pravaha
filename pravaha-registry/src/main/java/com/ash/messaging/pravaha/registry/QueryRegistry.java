@@ -353,7 +353,7 @@ public final class QueryRegistry implements AutoCloseable {
         this.views = views;
         this.policy = policy;
         this.audit = audit;
-        this.streams = identify(streams);
+        this.streams = StreamIdentities.identify(streams);
     }
 
     /**
@@ -364,32 +364,6 @@ public final class QueryRegistry implements AutoCloseable {
      */
     public StreamSchema[] streams() {
         return streams.clone();
-    }
-
-    /**
-     * Gives every stream in this catalogue an identity, so a row can say which one it came from.
-     *
-     * <p>Sequential from one, in the order the registry was given them. Zero is reserved for "nobody
-     * assigned one" and is what a schema built by hand carries, which is why it is reserved rather
-     * than simply unused: the one consumer that dispatches by this value refuses zero instead of
-     * treating it as a stream (W9-9).
-     *
-     * <p>Assigned here rather than derived from the name, and the alternative is worth naming
-     * because it is the tempting one. Hashing a stream name needs no plumbing at all and is how two
-     * streams come to share an identity silently -- one stream's rows delivered to the other's
-     * queries, the same defect as PF-10 and W8-8. A counter cannot collide.
-     *
-     * <p>A schema that already carries an id keeps it: a registry that re-wraps a schema another
-     * registry identified must not renumber it underneath the rows already written.
-     */
-    private static StreamSchema[] identify(StreamSchema[] given) {
-        StreamSchema[] identified = new StreamSchema[given.length];
-        int next = 1;
-        for (int i = 0; i < given.length; i++) {
-            identified[i] =
-                    given[i].streamId() == StreamSchema.UNASSIGNED_STREAM_ID ? given[i].withStreamId(next++) : given[i];
-        }
-        return identified;
     }
 
     /** Dimension tables registered queries may join against, by the name the SQL refers to. */
@@ -578,6 +552,29 @@ public final class QueryRegistry implements AutoCloseable {
                 .outputSchema();
     }
 
+    /** As {@link #outputSchemaOf(String)}, over the views {@code principal} could read too (ADR-056). */
+    public synchronized StreamSchema outputSchemaOf(String sql, Principal principal) {
+        return planAs(sql, BoundParameters.none(), principal).plan().outputSchema();
+    }
+
+    /** Plans {@code sql} as {@code principal}'s registration would: streams, lookups, and views. */
+    synchronized PreparedContinuousQuery planAs(String sql, BoundParameters parameters, Principal principal) {
+        return chains.plan(sql, parameters, principal, List.of(streams), List.copyOf(lookupSchemas.values()));
+    }
+
+    /** Queries over queries (ADR-056); derived from the plans, so nothing here has to be kept in step. */
+    final QueryChains chains = new QueryChains(this);
+
+    /** The registered queries whose answers {@code name} reads, or empty for a query over streams. */
+    public synchronized List<String> readsFrom(String name) {
+        return chains.readsFrom(name);
+    }
+
+    /** The registered names that read {@code name}'s answer; a drop is refused while there are any. */
+    public synchronized List<String> dependantsOf(String name) {
+        return chains.dependantsOf(name);
+    }
+
     /**
      * Registers a parameterised continuous query with values bound into it.
      *
@@ -691,8 +688,7 @@ public final class QueryRegistry implements AutoCloseable {
                             + "point read against it has nothing to look up");
         }
 
-        PreparedContinuousQuery prepared = PreparedContinuousQuery.of(
-                sql, parameters, java.util.List.of(streams), List.copyOf(lookupSchemas.values()));
+        PreparedContinuousQuery prepared = planAs(sql, parameters, principal);
         List<ParameterPlacement> placements = prepared.placements();
         PhysicalOperator plan = prepared.plan();
 
@@ -712,14 +708,15 @@ public final class QueryRegistry implements AutoCloseable {
             // Knowing which streams delete (HLP-3): a join or a filter over a change feed passes its
             // deletes on as retractions, and a sink that can only append would write them as rows.
             com.ash.messaging.pravaha.sql.plan.ChangelogAnalysis.checkAgainst(
-                    plan, feeds::retracts, sink.capabilities(), sinkName);
+                    plan, stream -> chains.retracts(stream) || feeds.retracts(stream), sink.capabilities(), sinkName);
             SinkShape.require(sink, plan.outputSchema(), keyColumns, sinkName);
         }
 
         // The policy's three questions, in RegistrationAuthorization: may they register, may they
         // read each source, and -- below -- may they write to the sink.
         List<String> rowFilters = RegistrationAuthorization.requireReads(
-                policy, audit, principal, action, name, sql, PlanSources.of(plan));
+                policy, audit, principal, action, name, sql, chains.provenance(plan));
+        chains.requireChainable(name, plan, retention, action);
 
         // SINK-3, and the reason it is asked here rather than beside mayRegisterQuery, is in
         // SinkAuthorization's own javadoc.
@@ -738,7 +735,10 @@ public final class QueryRegistry implements AutoCloseable {
         // Without them `--keys 1` and `--keys 0,1` over identical SQL shared one view, keyed as the
         // first registrant asked and with the second one's retention dropped, silently.
         return new Preparation(
-                plan, placements, QueryFingerprint.of(plan, rowFilters, keyColumns, retention, principal.tenant()));
+                plan,
+                placements,
+                QueryFingerprint.of(
+                        plan, rowFilters, keyColumns, retention, principal.tenant(), chains.identities(plan)));
     }
 
     private synchronized RegisteredQuery register(
@@ -1048,7 +1048,7 @@ public final class QueryRegistry implements AutoCloseable {
         ServedView view = new ServedView(name, schema, keyColumns, DEFAULT_MAX_KEYS, retention)
                 // SX-11. What the query reads, recorded on the view, so a reader is judged against
                 // the data and not against the name a registrant happened to choose for it.
-                .derivedFrom(PlanSources.of(plan));
+                .derivedFrom(chains.provenance(plan));
         ViewSink sink = new ViewSink(view, schema);
 
         // The engine, not a pipeline of our own. Until now the registry compiled an
@@ -1112,11 +1112,11 @@ public final class QueryRegistry implements AutoCloseable {
             if (delivery != null) {
                 delivery.attachTo(query, false);
             }
-            query.feedFrom(
-                    backfill == null
+            query.feedFrom(chains.open(name, execution, plan, query)
+                    .orElseGet(() -> backfill == null
                             ? feeds.open(name, execution, PlanSources.of(plan), query::commit, resumeFrom)
                             : feeds.openBackfill(
-                                    name, execution, PlanSources.of(plan), query::commit, resumeFrom, backfill));
+                                    name, execution, PlanSources.of(plan), query::commit, resumeFrom, backfill)));
         } catch (RuntimeException e) {
             // A feed that cannot open must not leave a half-started query behind holding a lane
             // thread and an arena. Fail the registration instead, with the execution released.
@@ -1134,7 +1134,7 @@ public final class QueryRegistry implements AutoCloseable {
      * registry's for the moments that change a name, and a registry method that took them the
      * other way round would eventually meet a cutover coming the other way.
      */
-    private volatile QueryReplacements replacements;
+    volatile QueryReplacements replacements;
 
     /**
      * The blue/green replacements of this registry's queries (ADR-046, design section 16.3).
@@ -1412,6 +1412,7 @@ public final class QueryRegistry implements AutoCloseable {
                     "'" + name + "' is being replaced, and dropping it now would leave the candidate running "
                             + "with nothing to take over. Abandon the replacement first, or roll it back.");
         }
+        chains.refuseDrop(name);
         // Journal first: see the note below on why this order is the only honest one.
         if (journal != null) {
             journal.recordDrop(name);

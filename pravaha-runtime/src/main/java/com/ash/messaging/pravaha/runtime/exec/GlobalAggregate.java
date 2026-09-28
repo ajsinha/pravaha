@@ -458,7 +458,7 @@ final class GlobalAggregate implements RowProcessor {
     // and the day that refusal is relaxed the set must not be the next thing forgotten.
     private static final int NO_SET = -1;
 
-    private static void writeDistinct(java.io.DataOutput out, java.util.Set<Object> values) throws java.io.IOException {
+    static void writeDistinct(java.io.DataOutput out, java.util.Set<Object> values) throws java.io.IOException {
         if (values == null) {
             out.writeInt(NO_SET);
             return;
@@ -505,7 +505,7 @@ final class GlobalAggregate implements RowProcessor {
         }
     }
 
-    private static java.util.Set<Object> readDistinct(java.io.DataInput in) throws java.io.IOException {
+    static java.util.Set<Object> readDistinct(java.io.DataInput in) throws java.io.IOException {
         int size = in.readInt();
         if (size == NO_SET) {
             return null;

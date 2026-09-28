@@ -343,6 +343,10 @@ public final class ApiDtos {
      * @param lane where the query's computation runs: {@code dedicated} (a lane of its own because it
      *     was registered {@code WITH (lane = 'dedicated')}), {@code shared} or {@code own}
      * @param sharedLane the shared lane it runs on when {@code lane} is {@code shared}, else null
+     * @param readsFrom the registered queries whose answers this one follows (ADR-056), that this
+     *     caller may see; empty for a query over streams
+     * @param dependants the registered queries that follow this one's answer, that this caller may
+     *     see; a drop is refused while there are any ({@code PRV-8024})
      */
     public record QueryDetail(
             String name,
@@ -361,7 +365,9 @@ public final class ApiDtos {
             QueryFeed feed,
             List<String> execution,
             String lane,
-            Integer sharedLane) {}
+            Integer sharedLane,
+            List<String> readsFrom,
+            List<String> dependants) {}
 
     /**
      * A registered query's view, described without reading it.

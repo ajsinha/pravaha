@@ -301,12 +301,27 @@ public final class ServedView {
         if (frontier < committedFrontier) {
             throw new IllegalArgumentException("frontier went backwards: " + frontier + " after " + committedFrontier);
         }
+        // ADR-056: what a following query is handed is how the ANSWER changed -- the row held
+        // under each touched key before and after -- not what was applied, which for a key upserted
+        // without a retraction is a second row the view never shows.
+        if (!answerListeners.isEmpty()) {
+            leaving = new ArrayList<>();
+            entering = new ArrayList<>();
+        }
         pending.forEach((key, values) -> {
             // The index entry goes with the row it points at, in this same critical section: the
             // previous row first, because an update that changed the ordered column would otherwise
             // leave the old entry behind and the index would answer with a row the view no longer
             // holds.
             Object[] replaced = visible.get(key);
+            if (leaving != null && !java.util.Arrays.deepEquals(replaced, values)) {
+                if (replaced != null) {
+                    leaving.add(replaced);
+                }
+                if (values != null) {
+                    entering.add(values);
+                }
+            }
             if (replaced != null) {
                 indexRemove(replaced);
                 // The equality indexes are told the row the view held, never the retraction: the
@@ -347,6 +362,7 @@ public final class ServedView {
         pendingWeight.clear();
         committedFrontier = frontier;
         evict();
+        handAnswerOver(frontier);
         if (visible.size() > maxKeys) {
             throw new PravahaException(
                     ServingErrors.VIEW_TOO_LARGE,
@@ -996,6 +1012,66 @@ public final class ServedView {
         for (EqualityIndex<Key> index : equalityIndexes.values()) {
             rebuild(index);
         }
+        // A follower's copy of the answer is now of a different answer: it is handed the restored
+        // one as a fresh snapshot and diffs it against what it holds (ADR-056).
+        for (AnswerListener listener : answerListeners) {
+            listener.onSnapshot(new ArrayList<>(visible.values()), committedFrontier);
+        }
+    }
+
+    // ------------------------------------------------------------------ following the answer
+
+    /** Followers of this view's answer (ADR-056); see {@link #followAnswer}. */
+    private final List<AnswerListener> answerListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    /** The rows leaving and entering the answer in the commit in progress; null when nobody follows. */
+    private List<Object[]> leaving;
+
+    private List<Object[]> entering;
+
+    /**
+     * Hands {@code listener} the committed answer now, and every change to it after, from inside
+     * the critical section of each commit (ADR-056).
+     *
+     * <p>The snapshot is taken and the listener registered under this view's monitor, which every
+     * commit takes too, so no commit falls between the two and none is seen twice. The listener is
+     * called under the monitor and must only queue: it runs on whatever thread commits.
+     */
+    public synchronized void followAnswer(AnswerListener listener) {
+        answerListeners.add(listener);
+        listener.onSnapshot(new ArrayList<>(visible.values()), committedFrontier);
+    }
+
+    /** Hands a follower the committed answer again, in the same critical section as any commit. */
+    public synchronized void resnapshotAnswer(AnswerListener listener) {
+        if (answerListeners.contains(listener)) {
+            listener.onSnapshot(new ArrayList<>(visible.values()), committedFrontier);
+        }
+    }
+
+    /** Stops handing {@code listener} this view's changes. */
+    public void unfollowAnswer(AnswerListener listener) {
+        answerListeners.remove(listener);
+    }
+
+    /** How many queries follow this view's answer. */
+    public int answerFollowers() {
+        return answerListeners.size();
+    }
+
+    private void handAnswerOver(long frontier) {
+        List<Object[]> left = leaving;
+        List<Object[]> entered = entering;
+        leaving = null;
+        entering = null;
+        if (left == null || (left.isEmpty() && entered.isEmpty())) {
+            return;
+        }
+        List<Object[]> leftView = java.util.Collections.unmodifiableList(left);
+        List<Object[]> enteredView = java.util.Collections.unmodifiableList(entered);
+        for (AnswerListener listener : answerListeners) {
+            listener.onAnswer(leftView, enteredView, frontier);
+        }
     }
 
     /**
@@ -1147,6 +1223,9 @@ public final class ServedView {
                         index.remove(key, entry.getValue());
                     }
                     entries.remove();
+                    if (leaving != null) {
+                        leaving.add(entry.getValue());
+                    }
                     writtenAt.remove(key);
                     // The weight goes with the row. Leaving it behind would mean a key that is
                     // evicted and then inserted again starts from its old count rather than from

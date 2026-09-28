@@ -117,7 +117,11 @@ final class KeyedAggregate implements RowProcessor {
             // A consolidated row contributes nothing and must not be counted.
             return;
         }
-        Group group = groups.computeIfAbsent(keyOf(row), key -> {
+        Key touched = keyOf(row);
+        if (continuous) {
+            dirty.add(touched);
+        }
+        Group group = groups.computeIfAbsent(touched, key -> {
             if (groups.size() >= maxGroups) {
                 throw new PravahaException(
                         RuntimeErrors.UNSUPPORTED_AGGREGATE,
@@ -148,7 +152,11 @@ final class KeyedAggregate implements RowProcessor {
         for (int i = 0; i < keyValues.length; i++) {
             keyValues[i] = partial.isNull(i) ? null : readOutputColumn(partial, i);
         }
-        Group group = groups.computeIfAbsent(new Key(keyValues), key -> {
+        Key touched = new Key(keyValues);
+        if (continuous) {
+            dirty.add(touched);
+        }
+        Group group = groups.computeIfAbsent(touched, key -> {
             if (groups.size() >= maxGroups) {
                 throw new PravahaException(
                         RuntimeErrors.UNSUPPORTED_AGGREGATE,
@@ -186,6 +194,12 @@ final class KeyedAggregate implements RowProcessor {
 
     /** Emits one row per surviving group. Called when the input ends. */
     void emit() {
+        if (continuous) {
+            // On a lane the view already holds every published answer, so the end of the input is
+            // one more change to it, never the whole answer again (CKPT-3's rule, for groups).
+            emitIncremental();
+            return;
+        }
         List<AggregateOperator.AggregateCall> calls = operator.aggregates();
         for (Map.Entry<Key, Group> entry : groups.entrySet()) {
             Group group = entry.getValue();
@@ -217,6 +231,178 @@ final class KeyedAggregate implements RowProcessor {
             arena.trimTo(handle, writer.sizeSoFar());
             downstream.process(view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
         }
+    }
+
+    /**
+     * Whether a lane drives this aggregate, so it publishes changed groups as the input moves rather
+     * than every group once when the input ends. Over a stream a keyed unwindowed aggregate is refused
+     * (PRV-2050); over a maintained view it is bounded by the view's key ceiling (ADR-056).
+     */
+    private boolean continuous;
+
+    /** Groups touched since the last publication, in the order first touched. */
+    private final Set<Key> dirty = new java.util.LinkedHashSet<>();
+
+    /** What each group last published, which is what its next publication retracts. */
+    private final Map<Key, long[]> published = new java.util.HashMap<>();
+
+    void drivenContinuously() {
+        this.continuous = true;
+    }
+
+    /**
+     * Publishes every group whose answer changed since the last call: a retraction of what it
+     * published before and an insert of what it holds now, as one batch (ADR-056).
+     *
+     * <p>A group whose rows have all been retracted retracts its last answer and is released, so
+     * the state held is the groups present in the input, not every group that ever was.
+     */
+    void emitIncremental() {
+        List<AggregateOperator.AggregateCall> calls = operator.aggregates();
+        for (Key key : dirty) {
+            Group group = groups.get(key);
+            long[] before = published.get(key);
+            long[] now = null;
+            if (group != null && group.rowCount > 0) {
+                now = new long[calls.size()];
+                for (int i = 0; i < now.length; i++) {
+                    now[i] = group.valueOf(i, calls.get(i));
+                }
+            }
+            if (group != null && group.rowCount <= 0) {
+                groups.remove(key);
+            }
+            if (Arrays.equals(before, now)) {
+                continue;
+            }
+            long timestamp = group == null ? 0 : group.lastTimestamp;
+            long sequence = group == null ? 0 : group.lastSequence;
+            if (before != null) {
+                writeGroup(key, before, -1L, timestamp, sequence);
+            }
+            if (now != null) {
+                writeGroup(key, now, 1L, timestamp, sequence);
+                published.put(key, now);
+            } else {
+                published.remove(key);
+            }
+        }
+        dirty.clear();
+    }
+
+    private void writeGroup(Key key, long[] values, long weight, long timestamp, long sequence) {
+        long handle = arena.allocate(layout.rowSize(256));
+        if (handle == ArenaHandle.NULL) {
+            throw new PravahaException(RuntimeErrors.ARENA_EXHAUSTED, "no room to emit a grouped aggregate result");
+        }
+        writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
+        Object[] keyValues = key.values;
+        for (int i = 0; i < keyValues.length; i++) {
+            writeKey(i, keyValues[i]);
+        }
+        for (int i = 0; i < values.length; i++) {
+            AggregateSlots.write(writer, keyValues.length + i, values[i], outputTypes[keyValues.length + i]);
+        }
+        writer.weight(weight).eventTimestampNanos(timestamp).sequence(sequence).commit();
+        arena.trimTo(handle, writer.sizeSoFar());
+        downstream.process(view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
+    }
+
+    /**
+     * Writes the groups and what each last published, so a restore resumes beside the restored view
+     * rather than publishing every group next to the answer it already holds (CKPT-2's rule).
+     */
+    void writeTo(java.io.DataOutput out) throws java.io.IOException {
+        int calls = operator.aggregates().size();
+        out.writeInt(calls);
+        out.writeInt(groups.size());
+        for (Map.Entry<Key, Group> entry : groups.entrySet()) {
+            writeKeyValues(out, entry.getKey());
+            Group group = entry.getValue();
+            out.writeLong(group.rowCount);
+            out.writeLong(group.lastTimestamp);
+            out.writeLong(group.lastSequence);
+            for (int i = 0; i < calls; i++) {
+                out.writeLong(group.sums[i]);
+                out.writeLong(group.counts[i]);
+                out.writeBoolean(group.seen[i]);
+                GlobalAggregate.writeDistinct(out, group.distincts.get(i));
+            }
+        }
+        out.writeInt(published.size());
+        for (Map.Entry<Key, long[]> entry : published.entrySet()) {
+            writeKeyValues(out, entry.getKey());
+            for (long value : entry.getValue()) {
+                out.writeLong(value);
+            }
+        }
+    }
+
+    /** Restores what {@link #writeTo} wrote, replacing whatever this aggregate held. */
+    void readFrom(java.io.DataInput in) throws java.io.IOException {
+        int calls = operator.aggregates().size();
+        int written = in.readInt();
+        if (written != calls) {
+            throw new java.io.IOException("the checkpointed grouped aggregate computes " + written
+                    + " values and this one computes " + calls + ": the query changed since the checkpoint was taken");
+        }
+        groups.clear();
+        published.clear();
+        dirty.clear();
+        int groupCount = in.readInt();
+        for (int g = 0; g < groupCount; g++) {
+            Key key = readKeyValues(in);
+            Group group = new Group(calls);
+            group.rowCount = in.readLong();
+            group.lastTimestamp = in.readLong();
+            group.lastSequence = in.readLong();
+            for (int i = 0; i < calls; i++) {
+                group.sums[i] = in.readLong();
+                group.counts[i] = in.readLong();
+                group.seen[i] = in.readBoolean();
+                group.distincts.set(i, GlobalAggregate.readDistinct(in));
+            }
+            groups.put(key, group);
+        }
+        int publishedCount = in.readInt();
+        for (int p = 0; p < publishedCount; p++) {
+            Key key = readKeyValues(in);
+            long[] values = new long[calls];
+            for (int i = 0; i < calls; i++) {
+                values[i] = in.readLong();
+            }
+            published.put(key, values);
+        }
+        // Every group is looked at again at the next publication: one whose accumulators moved
+        // after its last publication and before the cut publishes then, and the rest compare equal.
+        dirty.addAll(groups.keySet());
+        dirty.addAll(published.keySet());
+    }
+
+    private void writeKeyValues(java.io.DataOutput out, Key key) throws java.io.IOException {
+        out.writeInt(key.values.length);
+        for (Object value : key.values) {
+            out.writeBoolean(value != null);
+            if (value != null) {
+                GlobalAggregate.writeDistinct(out, java.util.Set.of(value));
+            }
+        }
+    }
+
+    private Key readKeyValues(java.io.DataInput in) throws java.io.IOException {
+        int length = in.readInt();
+        if (length != keyOrdinals.size()) {
+            throw new java.io.IOException("a checkpointed group key of " + length + " columns for a GROUP BY of "
+                    + keyOrdinals.size() + ": the query changed since the checkpoint was taken");
+        }
+        Object[] values = new Object[length];
+        for (int i = 0; i < length; i++) {
+            if (in.readBoolean()) {
+                java.util.Set<Object> one = GlobalAggregate.readDistinct(in);
+                values[i] = one == null || one.isEmpty() ? null : one.iterator().next();
+            }
+        }
+        return new Key(values);
     }
 
     private void writeKey(int outputOrdinal, Object value) {

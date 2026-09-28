@@ -187,7 +187,7 @@ public final class ContinuousQueryStatements {
 
         // The key by name, resolved against the columns the view would have. Planned the way register
         // plans it, so the ordinal is the one register will use whatever order the SELECT list is in.
-        StreamSchema output = registry.outputSchemaOf(statement.select());
+        StreamSchema output = registry.outputSchemaOf(statement.select(), principal);
         List<Integer> keys = statement.keyOrdinals(output);
         // RANGE (column): checked here, against the columns the view will actually have, so a
         // column this engine cannot order is refused at registration rather than at the first read

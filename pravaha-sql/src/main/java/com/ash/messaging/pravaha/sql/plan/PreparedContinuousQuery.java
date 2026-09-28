@@ -58,9 +58,27 @@ public record PreparedContinuousQuery(PhysicalOperator plan, List<ParameterPlace
             BoundParameters parameters,
             java.util.List<StreamSchema> streams,
             java.util.List<StreamSchema> lookups) {
+        return of(sql, parameters, streams, lookups, MaintainedViews.NONE);
+    }
+
+    /**
+     * Plans {@code sql} where some of {@code streams} are other queries' views (ADR-056): those scans
+     * are named to the builder, and the finished plan is checked for what cannot be maintained over
+     * an input that retracts ({@code PRV-2075}).
+     */
+    public static PreparedContinuousQuery of(
+            String sql,
+            BoundParameters parameters,
+            java.util.List<StreamSchema> streams,
+            java.util.List<StreamSchema> lookups,
+            MaintainedViews views) {
         var logical = plannerFor(streams, lookups).plan(sql);
-        return new PreparedContinuousQuery(
-                new PhysicalPlanBuilder().bind(parameters).build(logical), ParameterPlacement.of(logical));
+        PhysicalOperator plan = new PhysicalPlanBuilder()
+                .bind(parameters)
+                .overMaintainedViews(views)
+                .build(logical);
+        views.check(plan);
+        return new PreparedContinuousQuery(plan, ParameterPlacement.of(logical));
     }
 
     private static SqlPlanner plannerFor(java.util.List<StreamSchema> streams, java.util.List<StreamSchema> lookups) {
