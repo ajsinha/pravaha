@@ -63,11 +63,13 @@ import com.ash.messaging.pravaha.registry.SubscriptionOptions;
 import com.ash.messaging.pravaha.security.AccessDecision;
 import com.ash.messaging.pravaha.security.AuditEvent;
 import com.ash.messaging.pravaha.security.AuditSink;
+import com.ash.messaging.pravaha.security.Narrowing;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityErrors;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.serving.ReadAdmission;
 import com.ash.messaging.pravaha.serving.Retention;
+import com.ash.messaging.pravaha.serving.RowNarrowing;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 import com.ash.messaging.pravaha.serving.ViewQuery;
 import com.ash.messaging.pravaha.sql.ContinuousStatement;
@@ -975,6 +977,18 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
             for (int i = 2; i + 1 < pairsEnd; i += 2) {
                 equals.put(fields.get(i), fields.get(i + 1));
             }
+            // ADR-059 §4: what this principal is shown of the view -- its row filter and masks -- applied to
+            // the snapshot and every commit; a tap filter on a masked column would compare its real value.
+            Narrowing opened = policy.narrowing(principal, viewName);
+            RowNarrowing shown = RowNarrowing.of(query.outputSchema(), opened);
+            for (String column : equals.keySet()) {
+                if (shown.maskedColumns().stream().anyMatch(column::equalsIgnoreCase)) {
+                    throw new PravahaException(
+                            SecurityErrors.MASKED_COLUMN_USE,
+                            viewName + "." + column + " is masked for " + principal.id() + ", and a subscription's "
+                                    + "tap filter compares it; filter on another column");
+                }
+            }
             SubscriptionFilter filter = equals.isEmpty()
                     ? SubscriptionFilter.none()
                     : SubscriptionFilter.matching(query.outputSchema(), equals);
@@ -1075,6 +1089,20 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                                 return;
                             }
                             AccessDecision now = policy.maySubscribe(principal, viewName);
+                            Narrowing narrowedNow = now.allowed() ? policy.narrowing(principal, viewName) : opened;
+                            if (!narrowedNow.enforcesSameAs(opened)) {
+                                // A stream's meaning does not change half-way (ADR-059 §8): the rows held
+                                // were filtered and masked by the old policy. The client subscribes again.
+                                audit.record(
+                                        AuditEvent.of(principal, "subscribe.narrowing-changed", viewName, now, ""));
+                                listener.error(FlightErrors.failureOf(new PravahaException(
+                                                SecurityErrors.NARROWING_CHANGED,
+                                                "the row filters or masks that apply to " + principal.id() + " on '"
+                                                        + viewName + "' have changed, so this subscription has ended "
+                                                        + "rather than change what it means half-way; subscribe again"))
+                                        .toRuntimeException());
+                                return;
+                            }
                             if (!now.allowed()) {
                                 audit.record(AuditEvent.of(principal, "subscribe.withdrawn", viewName, now, ""));
                                 listener.error(FlightErrors.failureOf(
@@ -1092,7 +1120,9 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                         }
                         if (handed.mark() == null) {
                             queuedRows.addAndGet(-handed.changes().size());
-                            if (!handed.changes().isEmpty()) {
+                            List<com.ash.messaging.pravaha.serving.ViewChange> kept =
+                                    shown.applyChanges(handed.changes());
+                            if (!kept.isEmpty()) {
                                 // A mark on a plain subscription's batches too, carrying how many
                                 // whole commits this subscriber has lost so far (STRM-10). The
                                 // count reached an AuditSink -- once, when the subscription ended,
@@ -1105,7 +1135,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                                         listener,
                                         root,
                                         schema,
-                                        handed.changes(),
+                                        kept,
                                         new ControlWire.BatchMark(
                                                 ControlWire.BatchMark.COMMIT, Long.MIN_VALUE, droppedBatches.get()));
                             }
@@ -1114,10 +1144,10 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                                     listener,
                                     root,
                                     schema,
-                                    handed.changes(),
+                                    shown.applyChanges(handed.changes()),
                                     handed.mark().frontier());
                         } else {
-                            writeBatch(listener, root, schema, handed.changes(), handed.mark());
+                            writeBatch(listener, root, schema, shown.applyChanges(handed.changes()), handed.mark());
                         }
                     }
                     if (subscription.failure().isPresent()) {

@@ -23,6 +23,7 @@ import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.security.AccessDecision;
 import com.ash.messaging.pravaha.security.AuditEvent;
 import com.ash.messaging.pravaha.security.AuditSink;
+import com.ash.messaging.pravaha.security.Narrowing;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityErrors;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
@@ -94,6 +95,42 @@ final class RegistrationAuthorization {
         }
         Collections.sort(rowFilters);
         return rowFilters;
+    }
+
+    /**
+     * What policies narrow of each input the plan names, for the registrant (ADR-059 §4): the row filters
+     * and masks the query must read its inputs through, so its view holds only what the registrant may
+     * see and every query built on it carries that. Each narrowing is added to {@code rowFilters} -- the
+     * security predicates ADR-025 puts in the fingerprint -- so two registrants narrowed differently never
+     * share a computation.
+     *
+     * @return by input name, the narrowings that narrow something; empty when none does
+     */
+    static java.util.Map<String, Narrowing> narrowings(
+            SecurityPolicy policy,
+            AuditSink audit,
+            Principal principal,
+            String action,
+            String sql,
+            java.util.Collection<String> direct,
+            List<String> rowFilters) {
+        java.util.Map<String, Narrowing> narrowed = new java.util.TreeMap<>();
+        for (String input : direct) {
+            Narrowing narrowing = policy.narrowing(principal, input);
+            if (narrowing.isNone()) {
+                continue;
+            }
+            narrowed.put(input, narrowing);
+            rowFilters.add("narrowing " + input + " " + narrowing.fingerprint());
+            audit.record(AuditEvent.of(
+                    principal,
+                    action + ":narrowed",
+                    input,
+                    AccessDecision.allow(),
+                    String.join("; ", narrowing.because())));
+        }
+        Collections.sort(rowFilters);
+        return narrowed;
     }
 
     /**

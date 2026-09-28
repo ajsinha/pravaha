@@ -42,9 +42,16 @@ import java.util.Set;
  * SHOW EFFECTIVE ACCESS FOR USER name ON target
  * SHOW NAMESPACES
  *
+ * CREATE ROW FILTER name AS predicate [EXCEPT ROLE r [, r]...]
+ * CREATE MASK name ON COLUMN column AS expression [EXCEPT ROLE r [, r]...]
+ * ALTER STREAM|VIEW|QUERY name SET POLICY policy      ALTER ... UNSET POLICY policy
+ * ALTER TAG 'key[=value]' SET POLICY policy           ALTER TAG ... UNSET POLICY policy
+ * DROP ROW FILTER [IF EXISTS] name                    DROP MASK [IF EXISTS] name
+ * SHOW POLICIES [ON target]
+ *
  * privileges := ALL [PRIVILEGES] | privilege [, privilege]...   (BUILD_ON may be written BUILD ON)
  * target     := CATALOG | TENANT t | NAMESPACE [t.]ns | VIEW|QUERY [[t.]ns.]name
- *             | STREAM name | SOURCE name | SINK name | LOOKUP name
+ *             | STREAM name | SOURCE name | SINK name | LOOKUP name | POLICY [[t.]ns.]name
  * </pre>
  *
  * <p>Recognition is by the leading words only, as for the continuous-query statements: {@code GRANT},
@@ -83,7 +90,8 @@ public final class CatalogStatements {
             "SINK",
             "LOOKUP",
             "NOTIFIER",
-            "ALERT");
+            "ALERT",
+            "POLICY");
 
     private CatalogStatements() {}
 
@@ -102,10 +110,15 @@ public final class CatalogStatements {
         String second = word(head, 1);
         return switch (first) {
             case "GRANT", "REVOKE" -> true;
-            case "CREATE" -> second.equals("NAMESPACE");
+            case "CREATE" -> second.equals("NAMESPACE") || second.equals("MASK") || isRowFilter(head);
+            case "DROP" -> second.equals("MASK") || isRowFilter(head);
             case "COMMENT" -> second.equals("ON");
-            case "ALTER" -> KINDS.contains(second) && !second.equals("CATALOG");
-            case "SHOW" -> second.equals("GRANTS") || second.equals("EFFECTIVE") || second.equals("NAMESPACES");
+            case "ALTER" -> second.equals("TAG") || KINDS.contains(second) && !second.equals("CATALOG");
+            case "SHOW" ->
+                second.equals("GRANTS")
+                        || second.equals("EFFECTIVE")
+                        || second.equals("NAMESPACES")
+                        || second.equals("POLICIES");
             default -> false;
         };
     }
@@ -123,6 +136,11 @@ public final class CatalogStatements {
         return new Reader(sql).statement();
     }
 
+    /** {@code ROW FILTER} as the second and third words: {@code CREATE ROW}, alone, is not ours. */
+    private static boolean isRowFilter(List<Token> head) {
+        return word(head, 1).equals("ROW") && word(head, 2).equals("FILTER");
+    }
+
     private static String word(List<Token> tokens, int index) {
         return index < tokens.size() && tokens.get(index).kind == Kind.WORD
                 ? tokens.get(index).text.toUpperCase(Locale.ROOT)
@@ -132,11 +150,13 @@ public final class CatalogStatements {
     // ------------------------------------------------------------------------------ the reader
 
     private static final class Reader {
+        private final String sql;
         private final List<Token> tokens;
         private int at;
         private String shape = "a catalogue statement";
 
         Reader(String sql) {
+            this.sql = sql;
             this.tokens = new Lexer(sql).all();
         }
 
@@ -146,7 +166,8 @@ public final class CatalogStatements {
                     switch (first) {
                         case "GRANT" -> grant(true);
                         case "REVOKE" -> grant(false);
-                        case "CREATE" -> createNamespace();
+                        case "CREATE" -> isWord("NAMESPACE") ? createNamespace() : createPolicy();
+                        case "DROP" -> dropPolicy();
                         case "COMMENT" -> comment();
                         case "ALTER" -> alter();
                         default -> show();
@@ -217,6 +238,78 @@ public final class CatalogStatements {
             return new CatalogStatement.CreateNamespace(parts, ifNotExists, comment);
         }
 
+        private CatalogStatement createPolicy() {
+            PolicyDefinition.Type type = policyType();
+            shape = type == PolicyDefinition.Type.MASK
+                    ? "CREATE MASK <name> ON COLUMN <column> AS <expression> [EXCEPT ROLE <role>[, ...]]"
+                    : "CREATE ROW FILTER <name> AS <predicate> [EXCEPT ROLE <role>[, ...]]";
+            List<String> parts = name(3);
+            String column = "";
+            if (type == PolicyDefinition.Type.MASK) {
+                keyword("ON");
+                keyword("COLUMN");
+                column = part();
+            }
+            keyword("AS");
+            String expression = expression();
+            List<String> roles = new ArrayList<>();
+            if (isWord("EXCEPT")) {
+                at++;
+                keyword("ROLE");
+                do {
+                    roles.add(part());
+                } while (symbol(","));
+            }
+            return new CatalogStatement.CreatePolicy(type, parts, column, expression, roles);
+        }
+
+        private CatalogStatement dropPolicy() {
+            PolicyDefinition.Type type = policyType();
+            shape = "DROP " + type.words() + " [IF EXISTS] <name>";
+            boolean ifExists = false;
+            if (isWord("IF")) {
+                at++;
+                keyword("EXISTS");
+                ifExists = true;
+            }
+            return new CatalogStatement.DropPolicy(type, name(3), ifExists);
+        }
+
+        private PolicyDefinition.Type policyType() {
+            String word = nextWord();
+            if (word.equals("MASK")) {
+                return PolicyDefinition.Type.MASK;
+            }
+            keyword("FILTER");
+            return PolicyDefinition.Type.ROW_FILTER;
+        }
+
+        /**
+         * The policy's expression: every token up to {@code EXCEPT} outside parentheses, a {@code ;} or the
+         * end, as the text it was written in. Checked by {@link PolicyExpression}, not here.
+         */
+        private String expression() {
+            int first = at;
+            int depth = 0;
+            while (peek().kind != Kind.END) {
+                Token token = peek();
+                if (token.kind == Kind.SYMBOL && token.text.equals("(")) {
+                    depth++;
+                } else if (token.kind == Kind.SYMBOL && token.text.equals(")")) {
+                    depth--;
+                } else if (depth == 0 && token.kind == Kind.SYMBOL && token.text.equals(";")) {
+                    break;
+                } else if (depth == 0 && token.kind == Kind.WORD && token.text.equalsIgnoreCase("EXCEPT")) {
+                    break;
+                }
+                at++;
+            }
+            if (at == first) {
+                throw malformed("AS is followed by the policy's expression");
+            }
+            return sql.substring(tokens.get(first).from, tokens.get(at - 1).to);
+        }
+
         private CatalogStatement comment() {
             shape = "COMMENT ON <target> IS '<text>' | NULL";
             keyword("ON");
@@ -230,9 +323,29 @@ public final class CatalogStatements {
         }
 
         private CatalogStatement alter() {
-            shape = "ALTER <target> SET TAGS (...) | UNSET TAGS (...) | OWNER TO ROLE|USER <name> | SET NAMESPACE <ns>";
+            shape = "ALTER <target> SET TAGS (...) | UNSET TAGS (...) | OWNER TO ROLE|USER <name> | SET NAMESPACE <ns> "
+                    + "| SET POLICY <policy> | UNSET POLICY <policy>";
+            if (isWord("TAG")) {
+                at++;
+                shape = "ALTER TAG '<key>[=<value>]' SET POLICY <policy> | UNSET POLICY <policy>";
+                CatalogStatement.Target tag = new CatalogStatement.Target("TAG", List.of(tagText()));
+                String verb = nextWord();
+                if (!verb.equals("SET") && !verb.equals("UNSET")) {
+                    throw malformed("ALTER TAG takes SET POLICY or UNSET POLICY, not " + verb);
+                }
+                keyword("POLICY");
+                return verb.equals("SET")
+                        ? new CatalogStatement.SetPolicy(tag, name(3))
+                        : new CatalogStatement.UnsetPolicy(tag, name(3));
+            }
             CatalogStatement.Target target = target();
             String verb = nextWord();
+            if ((verb.equals("SET") || verb.equals("UNSET")) && isWord("POLICY")) {
+                at++;
+                return verb.equals("SET")
+                        ? new CatalogStatement.SetPolicy(target, name(3))
+                        : new CatalogStatement.UnsetPolicy(target, name(3));
+            }
             switch (verb) {
                 case "OWNER" -> {
                     keyword("TO");
@@ -273,9 +386,16 @@ public final class CatalogStatements {
 
         private CatalogStatement show() {
             shape = "SHOW GRANTS ON <target> | SHOW GRANTS TO ROLE|USER <name> | "
-                    + "SHOW EFFECTIVE ACCESS FOR USER <name> ON <target> | SHOW NAMESPACES";
+                    + "SHOW EFFECTIVE ACCESS FOR USER <name> ON <target> | SHOW NAMESPACES | SHOW POLICIES [ON <target>]";
             String what = nextWord();
             switch (what) {
+                case "POLICIES" -> {
+                    if (isWord("ON")) {
+                        at++;
+                        return new CatalogStatement.ShowPolicies(Optional.of(target()));
+                    }
+                    return new CatalogStatement.ShowPolicies(Optional.empty());
+                }
                 case "NAMESPACES" -> {
                     return new CatalogStatement.ShowNamespaces();
                 }
@@ -304,7 +424,7 @@ public final class CatalogStatements {
             String kind = nextWord();
             if (!KINDS.contains(kind)) {
                 throw malformed("expected what the statement is about -- CATALOG, TENANT, NAMESPACE, VIEW, QUERY, "
-                        + "STREAM, SOURCE, SINK or LOOKUP -- and found " + kind);
+                        + "STREAM, SOURCE, SINK, LOOKUP, NOTIFIER, ALERT or POLICY -- and found " + kind);
             }
             if (kind.equals("QUERY")) {
                 kind = "VIEW";
@@ -430,7 +550,8 @@ public final class CatalogStatements {
         END
     }
 
-    record Token(Kind kind, String text) {}
+    /** A token, and where it stands in the statement: {@code from} inclusive, {@code to} exclusive. */
+    record Token(Kind kind, String text, int from, int to) {}
 
     /** Words, "quoted identifiers", 'strings', and single-character symbols; {@code --} comments skipped. */
     private static final class Lexer {
@@ -466,7 +587,7 @@ public final class CatalogStatements {
         private Token next() {
             skipSpace();
             if (at >= sql.length()) {
-                return new Token(Kind.END, "<end>");
+                return new Token(Kind.END, "<end>", at, at);
             }
             char c = sql.charAt(at);
             if (Character.isLetter(c) || c == '_') {
@@ -474,24 +595,28 @@ public final class CatalogStatements {
                 while (at < sql.length() && (Character.isLetterOrDigit(sql.charAt(at)) || sql.charAt(at) == '_')) {
                     at++;
                 }
-                return new Token(Kind.WORD, sql.substring(start, at));
+                return new Token(Kind.WORD, sql.substring(start, at), start, at);
             }
             if (Character.isDigit(c)) {
                 int start = at;
-                while (at < sql.length() && (Character.isLetterOrDigit(sql.charAt(at)) || sql.charAt(at) == '_')) {
+                while (at < sql.length()
+                        && (Character.isLetterOrDigit(sql.charAt(at))
+                                || sql.charAt(at) == '_'
+                                || sql.charAt(at) == '.')) {
                     at++;
                 }
-                return new Token(Kind.WORD, sql.substring(start, at));
+                return new Token(Kind.WORD, sql.substring(start, at), start, at);
             }
             if (c == '"' || c == '\'') {
                 return quoted(c);
             }
             at++;
-            return new Token(Kind.SYMBOL, String.valueOf(c));
+            return new Token(Kind.SYMBOL, String.valueOf(c), at - 1, at);
         }
 
         private Token quoted(char quote) {
             StringBuilder text = new StringBuilder();
+            int start = at;
             at++;
             while (true) {
                 if (at >= sql.length()) {
@@ -508,7 +633,7 @@ public final class CatalogStatements {
                 }
                 text.append(c);
             }
-            return new Token(quote == '"' ? Kind.QUOTED : Kind.STRING, text.toString());
+            return new Token(quote == '"' ? Kind.QUOTED : Kind.STRING, text.toString(), start, at);
         }
 
         private void skipSpace() {

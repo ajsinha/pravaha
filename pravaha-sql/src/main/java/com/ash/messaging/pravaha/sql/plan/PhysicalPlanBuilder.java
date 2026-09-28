@@ -89,6 +89,13 @@ public final class PhysicalPlanBuilder {
     }
 
     private MaintainedViews views = MaintainedViews.NONE;
+    private java.util.function.UnaryOperator<PhysicalOperator> scanGuard = scan -> scan;
+
+    /** ADR-059 §4: {@code guard}'s operators -- a principal's row filter and masks -- above every scan. */
+    public PhysicalPlanBuilder guardingScans(java.util.function.UnaryOperator<PhysicalOperator> guard) {
+        this.scanGuard = guard == null ? scan -> scan : guard;
+        return this;
+    }
 
     /** Names the scans that read another query's view rather than a stream (ADR-056). */
     public PhysicalPlanBuilder overMaintainedViews(MaintainedViews views) {
@@ -505,7 +512,7 @@ public final class PhysicalPlanBuilder {
         if (table == null) {
             throw unsupported("scan of " + scan.getTable().getQualifiedName() + " is not backed by a Pravaha stream");
         }
-        return ScanOperator.of(table.streamSchema().name(), table.streamSchema());
+        return scanGuard.apply(ScanOperator.of(table.streamSchema().name(), table.streamSchema()));
     }
 
     private PhysicalOperator buildFilter(Filter filter) {

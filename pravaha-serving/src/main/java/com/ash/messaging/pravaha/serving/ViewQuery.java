@@ -189,7 +189,8 @@ public final class ViewQuery {
         java.util.Optional<String> named = plannerForParsing().referencedTable(sql);
         AccessDecision authorized = named.isPresent() ? authorizeRead(principal, named.get(), sql) : null;
 
-        PhysicalOperator plan = planFor(sql);
+        RelNode rel = relFor(sql);
+        PhysicalOperator plan = physicalOf(rel, BoundParameters.none());
         String source = sourceViewOf(plan);
 
         // Normally the parsed name and the planned source are the same string, and the decision
@@ -206,11 +207,13 @@ public final class ViewQuery {
         // audit log saying ALLOW for a read that returned nothing, and an investigator reading the
         // log alone would conclude it succeeded. Both facts are now recorded: the policy allowed,
         // and the read was refused anyway.
+        RowNarrowing narrowing;
         try {
             if (decision.rowFilter().isPresent()) {
                 plan = withRowFilter(plan, view, decision.rowFilter().get());
             }
             plan = authorizeProvenance(plan, view, principal, "query", sql);
+            narrowing = narrowed(rel, view, source, principal, sql);
         } catch (PravahaException refused) {
             audit.record(AuditEvent.of(
                     principal,
@@ -225,17 +228,39 @@ public final class ViewQuery {
         // authorized could have used, and before any planning work that would otherwise be done on
         // behalf of a read this node has no capacity for.
         try (ReadAdmission.Lease lease = admission.acquire(principal)) {
-            return run(plan, view);
+            return run(plan, view, narrowing);
         }
     }
 
-    private Result run(PhysicalOperator plan, ServedView view) {
+    /**
+     * The row filters and masks the policy's objects put on this read (ADR-059 §4), compiled for the view,
+     * with the plan checked for a masked column used where it would be compared ({@code PRV-7006}).
+     * Applied to the view's rows before the query's own plan sees them, so every operator of the query --
+     * its WHERE, its GROUP BY -- works on what the reader is shown, never on a value masked from them.
+     */
+    private RowNarrowing narrowed(RelNode rel, ServedView view, String source, Principal principal, String sql) {
+        com.ash.messaging.pravaha.security.Narrowing narrowing = policy.narrowing(principal, source);
+        if (narrowing.isNone()) {
+            return RowNarrowing.NONE;
+        }
+        RowNarrowing compiled = RowNarrowing.of(view.schema(), narrowing);
+        com.ash.messaging.pravaha.sql.plan.MaskedColumnUse.refuse(
+                rel, java.util.Map.of(source, compiled.maskedColumns()), List.of());
+        audit.record(AuditEvent.of(
+                principal, "query.narrowed", source, AccessDecision.allow(), String.join("; ", narrowing.because())));
+        return compiled;
+    }
+
+    private Result run(PhysicalOperator plan, ServedView view, RowNarrowing narrowing) {
         List<Object[]> results = new ArrayList<>();
         // Which rows this read has to look at (design section 17.2). A lookup by the whole key is a
         // hash probe and a run of the key's ordered last column is an index walk; everything else
         // is every row, as before. The plan below is untouched either way, so the filter runs over
         // whatever comes back and the answer does not depend on which path was taken.
-        List<Object[]> rows = ViewAccessPath.rowsFor(plan, view).orElseGet(view::scan);
+        //
+        // ADR-059 §4: then narrowed -- the policy's row filter on the real values, its masks after --
+        // before the query's plan sees a row.
+        List<Object[]> rows = narrowing.apply(ViewAccessPath.rowsFor(plan, view).orElseGet(view::scan));
         RowLayout inputLayout = RowLayout.of(view.schema());
         StreamSchema outputSchema = plan.outputSchema();
         long expiry = deadlineNanos == 0L ? Long.MAX_VALUE : System.nanoTime() + deadlineNanos;
@@ -641,8 +666,9 @@ public final class ViewQuery {
             plan = withRowFilter(plan, view, decision.rowFilter().get());
         }
         plan = authorizeProvenance(plan, view, principal, "query", prepared.sql());
+        RowNarrowing narrowing = narrowed(prepared.rel(), view, sourceViewOf(plan), principal, prepared.sql());
         try (ReadAdmission.Lease lease = admission.acquire(principal)) {
-            return run(plan, view);
+            return run(plan, view, narrowing);
         }
     }
 
@@ -836,7 +862,7 @@ public final class ViewQuery {
         operator.inputs().forEach(input -> collectScans(input, into));
     }
 
-    private static void write(BinaryRowWriter writer, StreamSchema schema, Object[] values) {
+    static void write(BinaryRowWriter writer, StreamSchema schema, Object[] values) {
         for (int ordinal = 0; ordinal < schema.fields().size(); ordinal++) {
             Object value = values[ordinal];
             if (value == null) {

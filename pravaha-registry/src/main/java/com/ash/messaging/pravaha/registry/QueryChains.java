@@ -92,6 +92,22 @@ final class QueryChains {
             Principal principal,
             List<StreamSchema> streams,
             List<StreamSchema> lookups) {
+        return plan(sql, parameters, principal, streams, lookups, java.util.Map.of(), List.of());
+    }
+
+    /**
+     * As {@link #plan(String, BoundParameters, Principal, List, List)}, reading each input {@code
+     * narrowings} names through that narrowing (ADR-059 §4), and refusing a masked column used as one of
+     * {@code keyColumns} or compared.
+     */
+    PreparedContinuousQuery plan(
+            String sql,
+            BoundParameters parameters,
+            Principal principal,
+            List<StreamSchema> streams,
+            List<StreamSchema> lookups,
+            java.util.Map<String, com.ash.messaging.pravaha.security.Narrowing> narrowings,
+            List<Integer> keyColumns) {
         Set<String> taken = new java.util.HashSet<>();
         streams.forEach(stream -> taken.add(stream.name()));
         lookups.forEach(lookup -> taken.add(lookup.name()));
@@ -106,7 +122,8 @@ final class QueryChains {
             registry.find(name).ifPresent(query -> views.add(inputSchema(name, query.view())));
         }
         if (views.isEmpty()) {
-            return PreparedContinuousQuery.of(sql, parameters, streams, lookups);
+            return PreparedContinuousQuery.of(
+                    sql, parameters, streams, lookups, MaintainedViews.NONE, narrowings, keyColumns);
         }
         List<StreamSchema> all = new ArrayList<>(streams);
         all.addAll(views);
@@ -115,7 +132,9 @@ final class QueryChains {
                 parameters,
                 all,
                 lookups,
-                MaintainedViews.of(views.stream().map(StreamSchema::name).toList()));
+                MaintainedViews.of(views.stream().map(StreamSchema::name).toList()),
+                narrowings,
+                keyColumns);
     }
 
     private static boolean mentions(String sql, String name) {

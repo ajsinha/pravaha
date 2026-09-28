@@ -146,6 +146,42 @@
         "responses" : [ "200", "default" ]
       }
     },
+    "/api/v1/catalog/policies" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ "query:object" ],
+        "responses" : [ "200", "default" ]
+      },
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ ],
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/catalog/policies/{name}" : {
+      "delete" : {
+        "hasBody" : false,
+        "parameters" : [ "path:name" ],
+        "responses" : [ "200", "default" ]
+      },
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ "path:name" ],
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/catalog/policies/{name}/bindings" : {
+      "delete" : {
+        "hasBody" : false,
+        "parameters" : [ "path:name", "query:object", "query:tag" ],
+        "responses" : [ "200", "default" ]
+      },
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ "path:name" ],
+        "responses" : [ "200", "default" ]
+      }
+    },
     "/api/v1/debug/sessions" : {
       "get" : {
         "hasBody" : false,

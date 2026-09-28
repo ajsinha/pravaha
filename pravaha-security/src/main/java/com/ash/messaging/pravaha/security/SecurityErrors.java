@@ -67,5 +67,26 @@ public final class SecurityErrors {
      */
     public static final ErrorCode SINK_WRITE_NOT_FILTERABLE = new ErrorCode(7005, "SECURITY_SINK_WRITE_NOT_FILTERABLE");
 
+    /**
+     * A column masked for this reader used where its value would be compared rather than shown
+     * (ADR-059 §4): a join key, a group key, a filter operand, a sort key, an aggregate's argument, a
+     * view's key column or a subscription's tap filter.
+     *
+     * <p>A mask replaces what is served; comparing the column would let the reader learn the value's
+     * equality classes or its order, which is what the mask exists to hide. Refused at plan time,
+     * naming the column and the use.
+     */
+    public static final ErrorCode MASKED_COLUMN_USE = new ErrorCode(7006, "SECURITY_MASKED_COLUMN_USE");
+
+    /**
+     * An open subscription ended because the row filters or column masks that apply to its principal
+     * changed (ADR-059 §8).
+     *
+     * <p>A stream's meaning does not change half-way: what the subscriber holds was filtered and masked
+     * by the old policy, and the new one would make every later change mean something else. The client
+     * subscribes again and starts from what the new policy lets it see.
+     */
+    public static final ErrorCode NARROWING_CHANGED = new ErrorCode(7007, "SECURITY_NARROWING_CHANGED");
+
     private SecurityErrors() {}
 }

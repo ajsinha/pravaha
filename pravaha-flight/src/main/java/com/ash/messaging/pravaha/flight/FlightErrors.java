@@ -82,6 +82,12 @@ public final class FlightErrors {
             // through a row filter, which a sink cannot take -- but the client's move is the same,
             // and a registration refused on the policy's answer is not a malformed request.
             case "PRV-7002", "PRV-7003", "PRV-7005" -> CallStatus.UNAUTHORIZED;
+            // ADR-059 §4's refusals are the same move for the client: a masked column compared, a claim
+            // a policy reads and the credential lacks, a policy the catalogue cannot apply.
+            case "PRV-7006", "PRV-7038", "PRV-7039", "PRV-7040" -> CallStatus.UNAUTHORIZED;
+            // A subscription ended because its policies changed: subscribing again is the answer, and
+            // UNAVAILABLE is what a client already retries.
+            case "PRV-7007" -> CallStatus.UNAVAILABLE;
             // Admission. Retryable, and saying so is the difference between a client that backs off
             // and one that hammers a node that is already full.
             case "PRV-4026", "PRV-4027", "PRV-4028", "PRV-6105" -> CallStatus.RESOURCE_EXHAUSTED;

@@ -18,7 +18,7 @@ package com.ash.messaging.pravaha.catalog;
 import com.ash.messaging.pravaha.api.ErrorCode;
 
 /**
- * The catalogue's codes, PRV-7030 to PRV-7037 (ADR-059).
+ * The catalogue's codes, PRV-7030 to PRV-7040 (ADR-059).
  *
  * <p>In the security range because every one of them is about who may do what to which object. A
  * read, a subscription or a registration the catalogue refuses is still {@code PRV-7002
@@ -62,6 +62,27 @@ public final class CatalogErrors {
 
     /** A request the catalogue cannot carry out as written: a bad name, tag or grantee, or a grant of {@code OWN}. */
     public static final ErrorCode INVALID_REQUEST = new ErrorCode(7037, "CATALOG_INVALID_REQUEST");
+
+    /**
+     * A row filter or mask the catalogue will not hold or bind (ADR-059 §4): a subquery, a
+     * non-deterministic function, a function not on the policy list, a mask naming a column other than
+     * its own or producing another type, a filter naming a column the object does not carry, or one
+     * that is true for every row.
+     */
+    public static final ErrorCode POLICY_INVALID = new ErrorCode(7038, "CATALOG_POLICY_INVALID");
+
+    /**
+     * A policy that applies to the caller reads a claim with {@code session_attribute} that their
+     * credential does not carry. Refused rather than guessed: an absent region is not "every region"
+     * and not "none".
+     */
+    public static final ErrorCode POLICY_CLAIM_MISSING = new ErrorCode(7039, "CATALOG_POLICY_CLAIM_MISSING");
+
+    /**
+     * Two policies that cannot both hold: two masks on one column for the same reader, a policy dropped
+     * while it is still bound, a binding that already exists, or a filter bound where a mask was meant.
+     */
+    public static final ErrorCode POLICY_CONFLICT = new ErrorCode(7040, "CATALOG_POLICY_CONFLICT");
 
     private CatalogErrors() {}
 }

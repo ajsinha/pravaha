@@ -26,6 +26,7 @@ import java.util.stream.Collectors;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.security.AccessDecision;
+import com.ash.messaging.pravaha.security.Narrowing;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
 
@@ -49,7 +50,8 @@ import com.ash.messaging.pravaha.security.SecurityPolicy;
  * </table>
  *
  * <p>A registration makes its registrant the owner of the new view ({@link #registered}); a drop forgets
- * it and its grants ({@link #dropped}). No row filters yet: they arrive as catalogue objects in phase 2.
+ * it and its grants ({@link #dropped}). Row filters and masks are catalogue objects ({@link PolicyService})
+ * and reach every enforcement point through {@link #narrowing}.
  */
 public final class CatalogPolicy implements SecurityPolicy {
 
@@ -80,6 +82,15 @@ public final class CatalogPolicy implements SecurityPolicy {
     @Override
     public AccessDecision mayRead(Principal principal, String view) {
         return decide(principal, Privilege.SELECT, target(principal, view), "read '" + view + "'");
+    }
+
+    /**
+     * The row filters and masks bound to {@code object} -- directly or through one of its tags -- that
+     * apply to {@code principal} (ADR-059 §4), bound to their session. Cached until the catalogue changes.
+     */
+    @Override
+    public Narrowing narrowing(Principal principal, String object) {
+        return service.policies().narrowing(principal, target(principal, object));
     }
 
     @Override

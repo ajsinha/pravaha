@@ -114,6 +114,17 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
 
     private static final System.Logger LOG = System.getLogger(SinkDelivery.class.getName());
 
+    /**
+     * Says what registration {@code name}'s sink is promised, where an operator will see it.
+     *
+     * <p>At registration and once, because the answer depends on the sink's declaration and on
+     * whether this node checkpoints, and neither changes while the query runs. An operator who reads
+     * "at-least-once" here knows before the first reconciliation that duplicates are possible.
+     */
+    void announce(String name) {
+        LOG.log(System.Logger.Level.INFO, "query '" + name + "' writes to sink '" + sinkName() + "', " + guarantee());
+    }
+
     /** Used when the sink declares no preference. */
     private static final int DEFAULT_MAX_BATCH_ROWS = 1024;
 

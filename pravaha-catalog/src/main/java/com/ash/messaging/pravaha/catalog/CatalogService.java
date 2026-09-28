@@ -50,18 +50,34 @@ public final class CatalogService {
      */
     public record AccessLine(Privilege privilege, boolean allowed, List<String> via, String refusal) {}
 
-    /** What {@code SHOW EFFECTIVE ACCESS} answers. */
-    public record EffectiveAccess(String object, String user, List<AccessLine> lines) {}
+    /**
+     * What {@code SHOW EFFECTIVE ACCESS} answers: each privilege, and each row filter and mask that
+     * reaches the object with whether it narrows this user (ADR-059 §4).
+     */
+    public record EffectiveAccess(
+            String object, String user, List<AccessLine> lines, List<PolicyService.PolicyLine> policies) {
+
+        public EffectiveAccess(String object, String user, List<AccessLine> lines) {
+            this(object, user, lines, List.of());
+        }
+    }
 
     private final Catalog catalog;
     private final CatalogAccess access;
     private final AuditSink audit;
+    private final PolicyService policies;
     private volatile Function<String, Optional<Principal>> users = id -> Optional.empty();
 
     public CatalogService(Catalog catalog, AuditSink audit) {
         this.catalog = catalog;
         this.access = new CatalogAccess(catalog);
         this.audit = audit == null ? AuditSink.NONE : audit;
+        this.policies = new PolicyService(this, this.audit);
+    }
+
+    /** Row filters and masks (ADR-059 §4). */
+    public PolicyService policies() {
+        return policies;
     }
 
     public Catalog catalog() {
@@ -78,6 +94,14 @@ public final class CatalogService {
      */
     public void resolvingUsersWith(Function<String, Optional<Principal>> resolver) {
         this.users = resolver == null ? id -> Optional.empty() : resolver;
+    }
+
+    /**
+     * The principal {@code userId} signs in as -- roles and tenant, as the node's identity store or token
+     * table says -- for deciding on their behalf when they are not the caller: an alert runs as its owner.
+     */
+    public Optional<Principal> principalOf(String userId) {
+        return userId == null ? Optional.empty() : users.apply(userId);
     }
 
     // ------------------------------------------------------------------------- name resolution
@@ -109,6 +133,7 @@ public final class CatalogService {
                     }
                     case "VIEW" -> resolveView(caller, parts);
                     case "ALERT" -> resolveCreated(ObjectKind.ALERT, caller, parts);
+                    case "POLICY" -> resolvePolicy(caller, parts);
                     default -> resolveInfrastructure(ObjectKind.named(target.kind()), parts);
                 };
         CatalogObject object = found.filter(o -> visible(caller, o)).orElseThrow(() -> noSuch(target.written()));
@@ -154,6 +179,17 @@ public final class CatalogService {
             }
         }
         throw noSuch(name);
+    }
+
+    /** A row filter or mask: {@code name} in the caller's default namespace, {@code ns.name}, or in full. */
+    private Optional<CatalogObject> resolvePolicy(Principal caller, List<String> parts) {
+        Optional<CatalogObject> found =
+                switch (parts.size()) {
+                    case 1 -> catalog.object(CatalogNames.defaultNamespaceOf(caller.tenant()) + "." + parts.get(0));
+                    case 2 -> catalog.object(caller.tenant() + "." + parts.get(0) + "." + parts.get(1));
+                    default -> catalog.object(String.join(".", parts));
+                };
+        return found.filter(o -> o.kind() == ObjectKind.POLICY);
     }
 
     private Optional<CatalogObject> resolveView(Principal caller, List<String> parts) {
@@ -322,7 +358,7 @@ public final class CatalogService {
                     verdict.allowed() ? access.reasons(subject, privilege, object.fullName()) : List.of(),
                     verdict.allowed() ? "" : verdict.via()));
         }
-        return new EffectiveAccess(object.fullName(), subject.id(), lines);
+        return new EffectiveAccess(object.fullName(), subject.id(), lines, policies.lines(subject, object));
     }
 
     // -------------------------------------------------------------------------------- changes

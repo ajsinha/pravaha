@@ -132,6 +132,11 @@ public class ApiExceptionHandler {
             case "PRV-7031" -> HttpStatus.NOT_FOUND;
             case "PRV-7032", "PRV-7037" -> HttpStatus.BAD_REQUEST;
             case "PRV-7034", "PRV-7035" -> HttpStatus.INTERNAL_SERVER_ERROR;
+            // Phase 2's policies: an expression the catalogue will not hold is the request's fault; a
+            // conflict (two masks, a bound policy dropped) is with the catalogue's state. A masked column
+            // compared, a claim missing, keep the range's 403; a stream ended by a changed policy is 409.
+            case "PRV-7038" -> HttpStatus.BAD_REQUEST;
+            case "PRV-7040", "PRV-7007" -> HttpStatus.CONFLICT;
             // ADR-057's alerts share the registry's range: an alert nobody may see is not there; a name
             // taken, or a node serving no alerts, is a conflict with the node's state, not the request.
             case "PRV-8040" -> HttpStatus.NOT_FOUND;
