@@ -108,6 +108,9 @@ final class Alert implements AnswerListener {
     private StreamSchema schema;
     private int[] keyOrdinals;
     private AlertCondition condition = AlertCondition.always();
+    private com.ash.messaging.pravaha.serving.RowNarrowing narrowing =
+            com.ash.messaging.pravaha.serving.RowNarrowing.NONE;
+    private String narrowedBy = "";
     private String following = "WAITING";
     private String problem;
     private final Map<RowKey, Object[]> matching = new java.util.HashMap<>();
@@ -142,7 +145,19 @@ final class Alert implements AnswerListener {
 
     /** Starts following {@code followed}: its snapshot arrives at once, under its monitor. */
     void follow(ServedView followed) {
+        follow(followed, com.ash.messaging.pravaha.serving.RowNarrowing.NONE, "");
+    }
+
+    /**
+     * Starts following {@code followed} as its owner is shown it (ADR-059 §4): every snapshot and change
+     * passes {@code shown} before the condition sees it.
+     *
+     * @param by what {@code shown} enforces, to notice when the policies behind it change
+     */
+    void follow(ServedView followed, com.ash.messaging.pravaha.serving.RowNarrowing shown, String by) {
         synchronized (this) {
+            this.narrowing = shown;
+            this.narrowedBy = by;
             this.view = followed;
             this.schema = followed.schema();
             this.keyOrdinals =
@@ -153,6 +168,10 @@ final class Alert implements AnswerListener {
             this.problem = null;
         }
         followed.followAnswer(this);
+    }
+
+    synchronized String narrowedBy() {
+        return narrowedBy;
     }
 
     synchronized void broken(String why) {
@@ -292,7 +311,7 @@ final class Alert implements AnswerListener {
 
     private void applySnapshot(List<Object[]> rows, Instant now) {
         Map<RowKey, Object[]> after = new LinkedHashMap<>();
-        for (Object[] row : rows) {
+        for (Object[] row : narrowing.apply(rows)) {
             if (condition.holds(row)) {
                 after.put(keyOf(row), row);
             }
@@ -320,10 +339,10 @@ final class Alert implements AnswerListener {
 
     private void applyChange(List<Object[]> leaving, List<Object[]> entering, Instant now) {
         Map<RowKey, Object[]> after = new LinkedHashMap<>();
-        for (Object[] row : leaving) {
+        for (Object[] row : narrowing.apply(leaving)) {
             after.put(keyOf(row), null);
         }
-        for (Object[] row : entering) {
+        for (Object[] row : narrowing.apply(entering)) {
             after.put(keyOf(row), row);
         }
         after.forEach((key, row) -> {

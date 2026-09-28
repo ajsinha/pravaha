@@ -30,7 +30,7 @@ from typing import Any, NoReturn, Optional, Sequence, TextIO
 
 import pravaha
 from pravaha.assist.errors import AssistConfigError, AssistError
-from pravaha.cli import _alerts, _assist, _catalog, _flight, _http, _identity
+from pravaha.cli import _alerts, _assist, _catalog, _flight, _http, _identity, _policy
 from pravaha.cli._common import (
     EXIT_OK,
     EXIT_REFUSED,
@@ -62,7 +62,8 @@ dlq, debug and alert create/drop speak Arrow Flight to --url; every other comman
 HTTP API at --http.
 
 Destructive commands (drop, abandon, finish, lanes rebalance, key revoke, user disable, revoke,
-catalog owner, alert drop) say what they would do and change nothing unless given --yes.
+catalog owner, policy unbind, policy drop, alert drop) say what they would do and change nothing
+unless given --yes.
 
 Offline -- planning or running SQL with no server -- is the Java tool `pravaha-engine`
 (validate --schema, explain --schema, run).
@@ -564,6 +565,40 @@ def build_parser() -> _Parser:
     v = add("why", "Which grant, through which role, namespace or ownership.")
     v.add_argument("user_name", metavar="<user>")
     v.add_argument("object", metavar="<object>")
+
+    # ---------------------------------------------------- row filters and masks (ADR-059 s4)
+    p = b.add("policy", _policy.policy, "Row filters and column masks: define, bind, unbind, drop.")
+    add = b.verbs(p, _policy.policy)
+    v = add("ls", "Row filters and masks you may see, and where each is bound.")
+    v.add_argument("--on", metavar="OBJECT", help="only those reaching this stream or view")
+    v = add("show", "One policy: its expression, EXCEPT ROLEs, owner and bindings.")
+    v.add_argument("name", metavar="<policy>")
+    for verb, summary in (
+        ("create-filter", "Define a row filter (CREATE on the namespace); bind it to take effect."),
+        ("create-mask", "Define a column mask (CREATE on the namespace); bind it to take effect."),
+    ):
+        v = add(verb, summary)
+        v.add_argument("name", metavar="<policy>")
+        if verb == "create-mask":
+            v.add_argument("--column", metavar="C", help="the column it masks")
+        v.add_argument("--as", dest="as_expression", metavar="EXPR",
+                       help="the predicate or expression, e.g. \"region = session_attribute('region')\"")
+        v.add_argument("--except-role", action="append", metavar="ROLE",
+                       help="a role it does not narrow (repeatable)")
+        v.add_argument("--comment", help="its description")
+    for verb, summary in (
+        ("bind", "Bind to a stream or view (MANAGE on it) or a tag (MANAGE on the tenant)."),
+        ("unbind", "Unbind from a stream, view or tag."),
+    ):
+        v = add(verb, summary)
+        v.add_argument("name", metavar="<policy>")
+        v.add_argument("--on", metavar="OBJECT")
+        v.add_argument("--tag", metavar="KEY[=VALUE]")
+        if verb == "unbind":
+            _yes(v, "unbind it")
+    v = add("drop", "Drop a policy (MANAGE; refused while bound).")
+    v.add_argument("name", metavar="<policy>")
+    _yes(v, "drop it")
 
     # ------------------------------------------------------------------ alerts (ADR-057)
     p = b.add("alerts", _alerts.alerts, "Alerts: what is firing, and pause, snooze or acknowledge one.")

@@ -72,10 +72,46 @@ public record PreparedContinuousQuery(PhysicalOperator plan, List<ParameterPlace
             java.util.List<StreamSchema> streams,
             java.util.List<StreamSchema> lookups,
             MaintainedViews views) {
+        return of(sql, parameters, streams, lookups, views, java.util.Map.of(), List.of());
+    }
+
+    /**
+     * Plans {@code sql} as its registrant is allowed to read it (ADR-059 §4): each input a policy narrows
+     * for them is read through that narrowing -- the row filter directly above its scan, then its masks --
+     * so the view computes over exactly what the registrant may see, and every query built on the view
+     * carries it. A masked column used where it would be compared, or as one of {@code keyColumns}, is
+     * refused with {@code PRV-7006}.
+     *
+     * @param narrowings by input name, what the registrant is shown of it; an input absent is read whole
+     */
+    public static PreparedContinuousQuery of(
+            String sql,
+            BoundParameters parameters,
+            java.util.List<StreamSchema> streams,
+            java.util.List<StreamSchema> lookups,
+            MaintainedViews views,
+            java.util.Map<String, com.ash.messaging.pravaha.security.Narrowing> narrowings,
+            List<Integer> keyColumns) {
         var logical = plannerFor(streams, lookups).plan(sql);
+        java.util.Map<String, NarrowingPlan> guards = new java.util.HashMap<>();
+        java.util.Map<String, java.util.Set<String>> masked = new java.util.HashMap<>();
+        for (StreamSchema stream : streams) {
+            com.ash.messaging.pravaha.security.Narrowing narrowing = narrowings.get(stream.name());
+            if (narrowing != null && !narrowing.isNone()) {
+                NarrowingPlan guard = NarrowingPlan.compile(stream, narrowing);
+                guards.put(stream.name(), guard);
+                masked.put(stream.name(), guard.maskedColumns());
+            }
+        }
+        MaskedColumnUse.refuse(logical, masked, keyColumns);
         PhysicalOperator plan = new PhysicalPlanBuilder()
                 .bind(parameters)
                 .overMaintainedViews(views)
+                .guardingScans(scan -> {
+                    NarrowingPlan guard =
+                            guards.get(((com.ash.messaging.pravaha.runtime.plan.ScanOperator) scan).streamName());
+                    return guard == null ? scan : guard.over(scan);
+                })
                 .build(logical);
         views.check(plan);
         return new PreparedContinuousQuery(plan, ParameterPlacement.of(logical));

@@ -164,8 +164,12 @@ HTTP (`--http`):
 | `alerts [ls]`, `alerts channels`, `alerts show A` | `GET /api/v1/alerts`, `/alerts/channels`, `/alerts/{name}` |
 | `alerts pause A`, `alerts resume A`, `alerts snooze A DURATION`, `alerts ack A [--key 'c=v, c=v']` | `POST /api/v1/alerts/{name}/pause`, `/resume`, `/snooze`, `/ack` |
 
-The catalogue commands (ADR-059) need a node with `pravaha.catalog.enabled`; `revoke` and `catalog
-owner` change nothing without `--yes`.
+| `policy ls [--on O]`, `policy show P` | `GET /api/v1/catalog/policies[?object=]`, `/catalog/policies/{name}` |
+| `policy create-filter P --as EXPR [--except-role R]... [--comment]`, `policy create-mask P --column C --as EXPR [--except-role R]...` | `POST /api/v1/catalog/policies` |
+| `policy bind P --on O \| --tag k[=v]`, `policy unbind P --on O \| --tag k[=v] [--yes]`, `policy drop P [--yes]` | `POST`, `DELETE /api/v1/catalog/policies/{name}/bindings`, `DELETE /catalog/policies/{name}` |
+
+The catalogue commands (ADR-059) need a node with `pravaha.catalog.enabled`; `revoke`, `catalog
+owner`, `policy unbind` and `policy drop` change nothing without `--yes`.
 
 The alert commands (ADR-057): `alerts show` prints every key's state (`FIRING`, `PENDING`, `CLEARING`,
 `CLEARED`), what the channels were last told and are owed, and the recent notifications; `alert

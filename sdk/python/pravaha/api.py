@@ -563,6 +563,73 @@ class EngineApi:
         oneself, or by a manager of the object. ``GET /api/v1/catalog/access``."""
         return dict(self._rest.get("/api/v1/catalog/access", {"user": user, "object": on}) or {})
 
+    # ---------------------------------------------- row filters and masks (ADR-059 section 4)
+
+    def policies(self, *, on: Optional[str] = None) -> "list[dict[str, Any]]":
+        """Row filters and masks this principal may see -- or, with ``on``, those reaching that
+        stream or view, bound to it or to one of its tags: ``name``, ``kind`` (``ROW_FILTER`` or
+        ``MASK``), ``column``, ``expression``, ``exceptRoles``, ``owner``, ``description``, ``tags``,
+        ``version`` and ``bindings`` (each an ``object`` or a ``tag``).
+        ``GET /api/v1/catalog/policies``."""
+        return _items(
+            self._rest.get("/api/v1/catalog/policies", {"object": on} if on else None), "items"
+        )
+
+    def policy(self, name: str) -> dict[str, Any]:
+        """One row filter or mask, and where it is bound. ``GET /api/v1/catalog/policies/{name}``."""
+        return dict(self._rest.get("/api/v1/catalog/policies/" + _segment(name)) or {})
+
+    def create_policy(
+        self,
+        name: str,
+        kind: str,
+        expression: str,
+        *,
+        column: Optional[str] = None,
+        except_roles: Optional[Sequence[str]] = None,
+        description: str = "",
+    ) -> dict[str, Any]:
+        """Creates a row filter (``kind="ROW_FILTER"``) or a mask (``kind="MASK"``, naming its
+        ``column``), owned by the caller; needs ``CREATE`` on the namespace. Nothing is narrowed
+        until it is bound. ``POST /api/v1/catalog/policies``."""
+        body: dict[str, Any] = {
+            "name": name,
+            "kind": kind,
+            "expression": expression,
+            "exceptRoles": list(except_roles or []),
+            "description": description,
+        }
+        if column:
+            body["column"] = column
+        return dict(self._rest.post("/api/v1/catalog/policies", body) or {})
+
+    def bind_policy(
+        self, name: str, *, on: Optional[str] = None, tag: Optional[str] = None
+    ) -> dict[str, Any]:
+        """Binds a policy to one stream or view (``on``; ``MANAGE`` on it) or to every object of
+        its tenant carrying ``tag`` (``key`` or ``key=value``; ``MANAGE`` on the tenant).
+        ``POST /api/v1/catalog/policies/{name}/bindings``."""
+        body = {"object": on, "tag": tag}
+        return dict(
+            self._rest.post("/api/v1/catalog/policies/" + _segment(name) + "/bindings", body) or {}
+        )
+
+    def unbind_policy(
+        self, name: str, *, on: Optional[str] = None, tag: Optional[str] = None
+    ) -> dict[str, Any]:
+        """Unbinds a policy from an object or a tag; ``unbound`` says whether it was bound there.
+        ``DELETE /api/v1/catalog/policies/{name}/bindings``."""
+        query = {key: value for key, value in (("object", on), ("tag", tag)) if value}
+        return dict(
+            self._rest.delete("/api/v1/catalog/policies/" + _segment(name) + "/bindings", query)
+            or {}
+        )
+
+    def drop_policy(self, name: str) -> None:
+        """Drops a row filter or mask; refused (``PRV-7040``) while it is bound anywhere.
+        ``DELETE /api/v1/catalog/policies/{name}``."""
+        self._rest.delete("/api/v1/catalog/policies/" + _segment(name))
+
     # ------------------------------------------------------------------ alerts (ADR-057)
 
     def alerts(self) -> "list[dict[str, Any]]":

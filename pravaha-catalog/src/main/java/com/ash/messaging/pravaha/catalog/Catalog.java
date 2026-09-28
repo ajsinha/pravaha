@@ -58,6 +58,8 @@ public final class Catalog {
     private final Map<String, CatalogObject> objects = new LinkedHashMap<>();
     private final Map<ObjectKind, Map<String, String>> byEngineName = new EnumMap<>(ObjectKind.class);
     private final List<Grant> grants = new ArrayList<>();
+    private final Map<String, PolicyDefinition> policies = new LinkedHashMap<>();
+    private final List<PolicyBinding> bindings = new ArrayList<>();
     private String importedPolicy;
     private volatile long generation;
     private Supplier<Map<ObjectKind, Collection<String>>> infrastructure = Map::of;
@@ -88,6 +90,11 @@ public final class Catalog {
     /** Where the journal is, or empty for an in-memory catalogue. */
     public Optional<Path> journalFile() {
         return Optional.ofNullable(journal.file());
+    }
+
+    /** The catalogue's clock, for a record made outside this class. */
+    Instant now() {
+        return clock.instant();
     }
 
     /** Moves on at every change; {@link CatalogAccess} drops its cache when it does. */
@@ -137,6 +144,26 @@ public final class Catalog {
     /** Every grant, in the order made. */
     public synchronized List<Grant> grants() {
         return List.copyOf(grants);
+    }
+
+    /** The row filter or mask called {@code fullName} (ADR-059 §4). */
+    public synchronized Optional<PolicyDefinition> policy(String fullName) {
+        return Optional.ofNullable(policies.get(fullName));
+    }
+
+    /** Every row filter and mask, in the order created. */
+    public synchronized List<PolicyDefinition> policies() {
+        return List.copyOf(policies.values());
+    }
+
+    /** Every binding of every policy, in the order made. */
+    public synchronized List<PolicyBinding> bindings() {
+        return List.copyOf(bindings);
+    }
+
+    /** Where {@code policy} is bound. */
+    public synchronized List<PolicyBinding> bindingsOf(String policy) {
+        return bindings.stream().filter(b -> b.policy().equals(policy)).toList();
     }
 
     /** The policy imported into grants once, if any (ADR-059's migration). */
@@ -394,6 +421,70 @@ public final class Catalog {
     }
 
     /**
+     * Records a row filter or mask and the object that carries its owner, description and version, in
+     * one journal write: a crash cannot leave a policy object with nothing to enforce.
+     */
+    public synchronized CatalogObject createPolicy(
+            PolicyDefinition definition, Grantee owner, String description, String by) {
+        String fullName = definition.fullName();
+        if (CatalogNames.depth(fullName) != 3) {
+            throw new PravahaException(
+                    CatalogErrors.INVALID_REQUEST,
+                    "'" + fullName + "' is not a policy name; a policy is <name>, <namespace>.<name> or "
+                            + "<tenant>.<namespace>.<name>");
+        }
+        CatalogObject taken = objects.get(fullName);
+        if (taken != null) {
+            throw new PravahaException(
+                    CatalogErrors.OBJECT_EXISTS,
+                    "'" + fullName + "' is already the catalogue's name for a "
+                            + taken.kind().name().toLowerCase(java.util.Locale.ROOT));
+        }
+        Instant now = clock.instant();
+        CatalogObject created =
+                new CatalogObject(fullName, ObjectKind.POLICY, "", owner, description, Map.of(), now, by, now, by, 1);
+        journal.append(List.of(encode(created), encode(definition)));
+        index(created);
+        policies.put(fullName, definition);
+        changed();
+        return created;
+    }
+
+    /** Binds a policy where {@code binding} says; binding it where it is bound already changes nothing. */
+    public synchronized PolicyBinding bind(PolicyBinding binding) {
+        for (PolicyBinding existing : bindings) {
+            if (existing.samePlace(binding)) {
+                return existing;
+            }
+        }
+        journal.append(List.of(encode("b", binding)));
+        bindings.add(binding);
+        changed();
+        return binding;
+    }
+
+    /** Removes one binding; whether there was one. */
+    public synchronized boolean unbind(PolicyBinding place) {
+        if (bindings.stream().noneMatch(place::samePlace)) {
+            return false;
+        }
+        journal.append(List.of(encode("ub", place)));
+        bindings.removeIf(place::samePlace);
+        changed();
+        return true;
+    }
+
+    /** Forgets a policy: its object, its definition and its grants. Bindings must be gone already. */
+    public synchronized void dropPolicy(String fullName) {
+        if (!policies.containsKey(fullName)) {
+            return;
+        }
+        journal.append(List.of(List.of("x", fullName)));
+        forget(fullName);
+        changed();
+    }
+
+    /**
      * Imports a deployment's policy as grants, once (ADR-059's migration): the grants and the marker
      * saying it happened are one journal write, so a crash cannot leave half an import to be repeated.
      */
@@ -469,6 +560,10 @@ public final class Catalog {
             }
         }
         grants.removeIf(g -> g.object().equals(fullName));
+        policies.remove(fullName);
+        // A dropped object takes its direct bindings with it: a new object of the same name starts clean,
+        // as it does for grants. A dropped policy takes its own.
+        bindings.removeIf(b -> b.object().equals(fullName) || b.policy().equals(fullName));
     }
 
     private void applyMove(String from, String to) {
@@ -482,6 +577,15 @@ public final class Catalog {
             return false;
         });
         grants.addAll(moved);
+        List<PolicyBinding> rebound = new ArrayList<>();
+        bindings.removeIf(b -> {
+            if (b.object().equals(from)) {
+                rebound.add(new PolicyBinding(b.policy(), to, "", "", b.boundBy(), b.boundAt()));
+                return true;
+            }
+            return false;
+        });
+        bindings.addAll(rebound);
         if (object != null && !object.engineName().isEmpty()) {
             byEngineName
                     .computeIfAbsent(object.kind(), k -> new LinkedHashMap<>())
@@ -494,13 +598,15 @@ public final class Catalog {
     }
 
     private int liveRecordCount() {
-        return objects.size() + grants.size() + (importedPolicy == null ? 0 : 1);
+        return objects.size() + grants.size() + policies.size() + bindings.size() + (importedPolicy == null ? 0 : 1);
     }
 
     private List<List<String>> liveRecords() {
         List<List<String>> live = new ArrayList<>();
         objects.values().forEach(o -> live.add(encode(o)));
         grants.forEach(g -> live.add(encode(g)));
+        policies.values().forEach(p -> live.add(encode(p)));
+        bindings.forEach(b -> live.add(encode("b", b)));
         if (importedPolicy != null) {
             live.add(List.of("i", importedPolicy, clock.instant().toString()));
         }
@@ -537,6 +643,28 @@ public final class Catalog {
                 g.grantee().encode(),
                 g.grantedBy(),
                 g.grantedAt().toString());
+    }
+
+    private static List<String> encode(PolicyDefinition p) {
+        List<String> fields =
+                new ArrayList<>(List.of("p", p.fullName(), p.type().name(), p.column(), p.expression()));
+        fields.addAll(p.exceptRoles());
+        return fields;
+    }
+
+    private static List<String> encode(String kind, PolicyBinding b) {
+        return List.of(
+                kind,
+                b.policy(),
+                b.object(),
+                b.tagKey(),
+                b.tagValue(),
+                b.boundBy(),
+                b.boundAt().toString());
+    }
+
+    private static PolicyBinding binding(List<String> f) {
+        return new PolicyBinding(f.get(1), f.get(2), f.get(3), f.get(4), f.get(5), Instant.parse(f.get(6)));
     }
 
     private void apply(List<String> f) {
@@ -578,6 +706,25 @@ public final class Catalog {
                 grants.removeIf(wanted::sameAllow);
             }
             case "i" -> importedPolicy = f.get(1);
+            case "p" ->
+                policies.put(
+                        f.get(1),
+                        new PolicyDefinition(
+                                f.get(1),
+                                PolicyDefinition.Type.valueOf(f.get(2)),
+                                f.get(3),
+                                f.get(4),
+                                java.util.Set.copyOf(f.subList(5, f.size()))));
+            case "b" -> {
+                PolicyBinding binding = binding(f);
+                if (bindings.stream().noneMatch(binding::samePlace)) {
+                    bindings.add(binding);
+                }
+            }
+            case "ub" -> {
+                PolicyBinding place = binding(f);
+                bindings.removeIf(place::samePlace);
+            }
             default ->
                 throw new PravahaException(
                         CatalogErrors.JOURNAL_FAILED,

@@ -126,11 +126,26 @@ public class CatalogController {
     /** One privilege's answer: held or not, through what, or why not. */
     public record AccessLineDto(String privilege, boolean allowed, List<String> via, String refusal) {}
 
-    /** What a user may do to an object, privilege by privilege. */
-    public record AccessDto(String object, String user, List<AccessLineDto> privileges) {}
+    /**
+     * A row filter or mask reaching the object, and whether it narrows this user (ADR-059 §4).
+     *
+     * @param detail what it binds to for them, or which {@code EXCEPT ROLE} exempts them
+     */
+    public record PolicyLineDto(
+            String policy, String kind, String column, boolean applies, String boundVia, String detail) {}
 
-    /** An object with the grants on it the caller may see, and what the caller themselves may do. */
-    public record ObjectDetail(CatalogObjectDto object, List<GrantDto> grants, AccessDto access) {}
+    /** What a user may do to an object, privilege by privilege, and the policies that narrow it. */
+    public record AccessDto(String object, String user, List<AccessLineDto> privileges, List<PolicyLineDto> policies) {}
+
+    /**
+     * An object with the grants on it the caller may see, what the caller themselves may do, and the row
+     * filters and masks reaching it -- bound to it or to one of its tags.
+     */
+    public record ObjectDetail(
+            CatalogObjectDto object,
+            List<GrantDto> grants,
+            AccessDto access,
+            List<PolicyController.PolicyDto> policies) {}
 
     public record ObjectPage(List<CatalogObjectDto> items) {}
 
@@ -193,7 +208,10 @@ public class CatalogController {
         return new ObjectDetail(
                 CatalogObjectDto.of(object),
                 service.grantsOn(caller, object).stream().map(GrantDto::of).toList(),
-                caller.isAnonymous() ? null : access(service.effectiveAccess(caller, caller.id(), object)));
+                caller.isAnonymous() ? null : access(service.effectiveAccess(caller, caller.id(), object)),
+                service.policies().on(caller, object).stream()
+                        .map(PolicyController.PolicyDto::of)
+                        .toList());
     }
 
     @PatchMapping("/objects/{name}")
@@ -311,7 +329,17 @@ public class CatalogController {
         for (CatalogService.AccessLine line : effective.lines()) {
             lines.add(new AccessLineDto(line.privilege().name(), line.allowed(), line.via(), line.refusal()));
         }
-        return new AccessDto(effective.object(), effective.user(), lines);
+        List<PolicyLineDto> policies = new ArrayList<>();
+        for (com.ash.messaging.pravaha.catalog.PolicyService.PolicyLine line : effective.policies()) {
+            policies.add(new PolicyLineDto(
+                    line.policy().fullName(),
+                    line.policy().type().name(),
+                    line.policy().column().isEmpty() ? null : line.policy().column(),
+                    line.applies(),
+                    line.boundVia(),
+                    line.detail()));
+        }
+        return new AccessDto(effective.object(), effective.user(), lines, policies);
     }
 
     private CatalogService service() {

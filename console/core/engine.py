@@ -851,6 +851,35 @@ class Engine:
         """``GET catalog/access``: what ``user`` may do to ``on``, and through which grant."""
         return dict(self._identity("GET", "/catalog/access", query={"user": user, "object": on}) or {})
 
+    # Row filters and masks (ADR-059 section 4): the same door, and the engine checks every
+    # expression and every binding.
+
+    def policies(self, on: str | None = None) -> list[dict]:
+        """``GET catalog/policies``: the policies this person may see, or those reaching ``on``."""
+        return _items(self._identity("GET", "/catalog/policies", query={"object": on} if on else None), "items")
+
+    def create_policy(self, name: str, kind: str, expression: str, column: str = "",
+                      except_roles: list[str] | None = None, description: str = "") -> dict:
+        """``POST catalog/policies``: a ROW_FILTER or a MASK (naming its column); CREATE on the namespace."""
+        body = {"name": name, "kind": kind, "expression": expression, "column": column or None,
+                "exceptRoles": list(except_roles or []), "description": description}
+        return dict(self._identity("POST", "/catalog/policies", body) or {})
+
+    def bind_policy(self, name: str, on: str = "", tag: str = "") -> dict:
+        """``POST catalog/policies/{name}/bindings``: to an object (MANAGE on it) or a tag (MANAGE on the tenant)."""
+        return dict(self._identity("POST", "/catalog/policies/" + _segment(name) + "/bindings",
+                                   {"object": on or None, "tag": tag or None}) or {})
+
+    def unbind_policy(self, name: str, on: str = "", tag: str = "") -> dict:
+        """``DELETE catalog/policies/{name}/bindings``: ``unbound`` says whether it was bound there."""
+        query = {key: value for key, value in (("object", on), ("tag", tag)) if value}
+        return dict(self._identity("DELETE", "/catalog/policies/" + _segment(name) + "/bindings",
+                                   query=query) or {})
+
+    def drop_policy(self, name: str) -> None:
+        """``DELETE catalog/policies/{name}``: refused (PRV-7040) while it is bound anywhere."""
+        self._identity("DELETE", "/catalog/policies/" + _segment(name))
+
     # ------------------------------------------------------------------ alerts (ADR-057)
     #
     # Every call is /api/v1/alerts as the signed-in person: who may see an alert (SELECT), pause,

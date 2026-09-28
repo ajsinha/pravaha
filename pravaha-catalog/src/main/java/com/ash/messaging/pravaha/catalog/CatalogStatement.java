@@ -37,7 +37,12 @@ public sealed interface CatalogStatement
                 CatalogStatement.ShowGrantsOn,
                 CatalogStatement.ShowGrantsTo,
                 CatalogStatement.ShowEffectiveAccess,
-                CatalogStatement.ShowNamespaces {
+                CatalogStatement.ShowNamespaces,
+                CatalogStatement.CreatePolicy,
+                CatalogStatement.SetPolicy,
+                CatalogStatement.UnsetPolicy,
+                CatalogStatement.DropPolicy,
+                CatalogStatement.ShowPolicies {
 
     /** The statement's leading words, for an audit record or a message. */
     String verb();
@@ -46,8 +51,10 @@ public sealed interface CatalogStatement
      * What a statement names.
      *
      * @param kind {@code CATALOG}, {@code TENANT}, {@code NAMESPACE}, {@code VIEW} (also written {@code
-     *     QUERY}), {@code STREAM}, {@code SOURCE}, {@code SINK} or {@code LOOKUP}
-     * @param parts the dotted name as written; empty for {@code CATALOG}
+     *     QUERY}), {@code STREAM}, {@code SOURCE}, {@code SINK}, {@code LOOKUP}, {@code NOTIFIER}, {@code
+     *     ALERT}, {@code POLICY}, or -- only as what {@code ALTER TAG ... SET POLICY} binds -- {@code TAG}
+     * @param parts the dotted name as written; empty for {@code CATALOG}; for {@code TAG}, the one
+     *     {@code 'key'} or {@code 'key=value'}
      */
     record Target(String kind, List<String> parts) {
         public Target {
@@ -154,6 +161,71 @@ public sealed interface CatalogStatement
         @Override
         public String verb() {
             return "SHOW NAMESPACES";
+        }
+    }
+
+    /**
+     * {@code CREATE ROW FILTER name AS predicate [EXCEPT ROLE r, ...]} or {@code CREATE MASK name ON COLUMN
+     * col AS expression [EXCEPT ROLE r, ...]} (ADR-059 §4). Defines a policy; binding it is separate.
+     *
+     * @param column the masked column; empty for a row filter
+     * @param expression the text between {@code AS} and {@code EXCEPT} (or the end), as written
+     */
+    record CreatePolicy(
+            PolicyDefinition.Type type, List<String> parts, String column, String expression, List<String> exceptRoles)
+            implements CatalogStatement {
+        public CreatePolicy {
+            parts = List.copyOf(parts);
+            exceptRoles = List.copyOf(exceptRoles);
+        }
+
+        @Override
+        public String verb() {
+            return "CREATE " + type.words();
+        }
+    }
+
+    /** {@code ALTER STREAM|VIEW name SET POLICY p} or {@code ALTER TAG 'k[=v]' SET POLICY p}. */
+    record SetPolicy(Target target, List<String> policy) implements CatalogStatement {
+        public SetPolicy {
+            policy = List.copyOf(policy);
+        }
+
+        @Override
+        public String verb() {
+            return "ALTER " + target.kind() + " SET POLICY";
+        }
+    }
+
+    /** {@code ALTER STREAM|VIEW name UNSET POLICY p} or {@code ALTER TAG 'k[=v]' UNSET POLICY p}. */
+    record UnsetPolicy(Target target, List<String> policy) implements CatalogStatement {
+        public UnsetPolicy {
+            policy = List.copyOf(policy);
+        }
+
+        @Override
+        public String verb() {
+            return "ALTER " + target.kind() + " UNSET POLICY";
+        }
+    }
+
+    /** {@code DROP ROW FILTER [IF EXISTS] name} or {@code DROP MASK [IF EXISTS] name}. */
+    record DropPolicy(PolicyDefinition.Type type, List<String> parts, boolean ifExists) implements CatalogStatement {
+        public DropPolicy {
+            parts = List.copyOf(parts);
+        }
+
+        @Override
+        public String verb() {
+            return "DROP " + type.words();
+        }
+    }
+
+    /** {@code SHOW POLICIES [ON target]}: every policy the caller may see, or those reaching one object. */
+    record ShowPolicies(Optional<Target> on) implements CatalogStatement {
+        @Override
+        public String verb() {
+            return "SHOW POLICIES";
         }
     }
 }

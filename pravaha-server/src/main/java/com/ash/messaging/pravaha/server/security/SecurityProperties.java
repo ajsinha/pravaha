@@ -428,7 +428,7 @@ public class SecurityProperties {
                     principalIdOf(entry.getKey(), spec),
                     spec.getTenant(),
                     new LinkedHashSet<>(spec.getRoles()),
-                    Map.of());
+                    spec.getClaims());
             verifier = verifier == null
                     ? StaticTokenVerifier.of(entry.getKey(), principal)
                     : verifier.and(entry.getKey(), principal);
@@ -457,8 +457,8 @@ public class SecurityProperties {
             TokenSpec spec = entry.getValue();
             String configured = principalIdOf(entry.getKey(), spec);
             if (id.equals(configured)) {
-                return java.util.Optional.of(
-                        new Principal(configured, spec.getTenant(), new LinkedHashSet<>(spec.getRoles()), Map.of()));
+                return java.util.Optional.of(new Principal(
+                        configured, spec.getTenant(), new LinkedHashSet<>(spec.getRoles()), spec.getClaims()));
             }
         }
         return java.util.Optional.empty();
@@ -501,6 +501,21 @@ public class SecurityProperties {
 
         public void setRoles(List<String> roles) {
             this.roles = roles == null ? new LinkedHashSet<>() : new LinkedHashSet<>(roles);
+        }
+
+        /**
+         * What a row filter reads with {@code session_attribute('<name>')} (ADR-059 §4): {@code region:
+         * EU}. A policy that reads a claim this credential does not carry refuses its reads with {@code
+         * PRV-7039} rather than guess.
+         */
+        private Map<String, String> claims = new LinkedHashMap<>();
+
+        public Map<String, String> getClaims() {
+            return claims;
+        }
+
+        public void setClaims(Map<String, String> claims) {
+            this.claims = claims == null ? new LinkedHashMap<>() : new LinkedHashMap<>(claims);
         }
     }
 }

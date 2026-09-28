@@ -379,8 +379,45 @@ decides, and every deployment written before it was configured against the polic
 Every change is an audit event (`catalog.grant`, `catalog.revoke`, `catalog.owner`, …), allowed or
 refused. The statements, the REST endpoints (`/api/v1/catalog/...`), the CLI (`pravaha catalog`,
 `pravaha grant`, `pravaha access why`) and the console's grants editor all go through one service
-with one set of rules. Row filters and masks as catalogue objects, lineage and sharing are later
-phases of ADR-059 and are not built.
+with one set of rules. Lineage, labels, contracts and sharing are later phases of ADR-059 and are
+not built.
+
+## Row filters and masks as catalogue objects (ADR-059 §4)
+
+With the catalogue on, row filters and **column masks** are catalogue objects (kind `POLICY`) with an
+owner, description, tags and version, journalled with the grants. A policy is defined once and bound
+where it applies:
+
+```sql
+CREATE ROW FILTER sales.region_scope AS region = session_attribute('region') EXCEPT ROLE finance_admin;
+CREATE MASK sales.card_last4 ON COLUMN card AS 'XXXX-' || RIGHT(card, 4) EXCEPT ROLE payments_ops;
+ALTER STREAM orders SET POLICY sales.region_scope;     -- MANAGE on the object
+ALTER TAG 'pii' SET POLICY sales.card_last4;           -- MANAGE on the tenant: every object tagged pii, now and later
+SHOW POLICIES ON VIEW payments;
+```
+
+| Rule | As built |
+|---|---|
+| Who is narrowed | Every reader of the object except holders of an `EXCEPT ROLE` — not its owner, not `admin` |
+| Several filters | AND together |
+| Masks | One per column per reader; two are refused (`PRV-7040`). A mask keeps its column's type and reads only that column |
+| Expressions | Columns, literals, operators, `CASE`, `CAST`, a fixed list of pure functions, `session_attribute('claim')`, `current_user()`, `is_member('role')`. Subqueries, non-deterministic and unlisted functions are refused (`PRV-7038`); a filter true for every row is refused (`PRV-7003`) |
+| Claims | Bound as SQL literals with their quotes doubled; a claim the reader lacks is refused (`PRV-7039`). Static tokens carry claims under `pravaha.security.tokens.<t>.claims` |
+| Tag bindings | Reach objects of the policy's own tenant only; a direct binding reaches every reader of the object |
+| A masked column compared | Refused at plan time with `PRV-7006`: filter operand, group, join, sort or ranking key, aggregate argument, a view's key column, a subscription's tap filter, an alert's `WHERE` |
+| A changed policy | Ends open subscriptions of the readers it affects with `PRV-7007`; an alert follows again under the new policy |
+
+**Where they are enforced.** On a read (Flight statements and prepared statements — scans and point
+reads alike — and the PostgreSQL gateway, text and binary), the view's rows pass the filter and then
+the masks *before* the query's own plan sees them, so every operator of the query works on what the
+reader is shown. On a subscription, the snapshot and every commit pass the same operators, each
+change keeping its weight. On a registration, the filter and masks of each input are put into the
+plan directly above that input's scan: the view computes over what its registrant may see, and every
+query built on it carries that (a view does not launder its inputs). The narrowing is part of the
+fingerprint, so two registrants narrowed differently never share a computation. An alert runs as its
+owner and sees the view through the owner's policies. There is no REST path that serves a view's rows.
+
+## What is not built
 
 ## Transport
 
@@ -424,8 +461,8 @@ each individually valid but do not match each other lets the node start and repo
 
 ## What is not built
 
-- **Column masking and per-column policy** — deliberately out of ADR-031 until a deployment asks
-  (ADR-028: a feature earns its place)
+- **Column tags** — a tag-bound mask names a column and applies to that column of each tagged object;
+  tagging columns themselves (and classification that follows lineage) is ADR-059 phase 3
 - **OIDC / JWT verification out of the box** — `TokenVerifier` is the seam; no implementation ships
 - **mTLS between nodes**, certificate rotation — deferred with multi-node execution
   ([ADR-034](adr/034-distribution-deferred.md)). Wave 8 was survival on one node, not
@@ -435,6 +472,9 @@ each individually valid but do not match each other lets the node start and repo
 - **Security review and SBOM** — Wave 11 (the GA wave, which moved down one when ADR-036 inserted the scale wave)
 
 ## A conditional entitlement cannot subscribe
+
+This section is about a `SecurityPolicy` that answers with `AccessDecision.allowWithRowFilter`. A
+row filter kept in the catalogue (above) is enforced on a subscription, per change.
 
 **A principal whose `AccessDecision` carries a row filter is refused on `subscribe`**, and is the one
 path that refuses it. Reading the same view works and applies the filter; a subscription does not,

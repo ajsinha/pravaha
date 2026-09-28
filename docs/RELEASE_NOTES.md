@@ -12,6 +12,23 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **The Pravaha Catalog, phase 2: row filters and column masks as catalogue objects (ADR-059 §4).**
+  `CREATE ROW FILTER p AS <predicate> [EXCEPT ROLE r, ...]` and `CREATE MASK p ON COLUMN c AS
+  <expression> [EXCEPT ROLE ...]` define a policy (kind `POLICY`: owner, description, tags, version,
+  journalled); `ALTER STREAM|VIEW o SET|UNSET POLICY p` binds it to one object and `ALTER TAG
+  'k[=v]' SET|UNSET POLICY p` to every object of the tenant carrying the tag, now and later; `DROP ROW
+  FILTER|MASK` (refused while bound) and `SHOW POLICIES [ON o]`. Expressions read the object's
+  columns and `session_attribute('claim')`, `current_user()`, `is_member('role')`; subqueries,
+  non-deterministic and unlisted functions are refused. Filters AND together; a reader holding an
+  `EXCEPT ROLE` is exempt. Enforced on Flight reads and point reads, pgwire (text and binary),
+  subscriptions (snapshot and every commit), registrations (the input's filter and masks go into the
+  plan, into the fingerprint, and on into every query built on the view) and alerts (as their owner).
+  A masked column used as a filter operand, group, join or sort key, aggregate argument, view key or
+  tap filter is refused (`PRV-7006`); a changed policy ends affected subscriptions (`PRV-7007`). `SHOW
+  EFFECTIVE ACCESS` lists the filters and masks that apply and why. `/api/v1/catalog/policies`,
+  `pravaha policy ls|show|create-filter|create-mask|bind|unbind|drop`, policies on the console's object
+  page and an Admin → Policies editor. Static tokens gain `claims`. New codes `PRV-7006`, `PRV-7007`,
+  `PRV-7038` to `PRV-7040`. `SecurityPolicy` gains `narrowing`, defaulting to none.
 - **The assistant in the console, phase 3 (ADR-058): Admin · AI models, "Describe it", and
   Explain.** An administrator configures several providers and models at once in **Admin · AI
   models** and **switches between them while the console runs**: providers (configured, and every

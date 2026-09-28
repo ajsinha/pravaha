@@ -379,6 +379,21 @@ class FakeEngine:
     def revoke(self, on, privileges, grantee_type, grantee):
         return self.governed.revoke(on, privileges, grantee_type, grantee)
 
+    def policies(self, on=None):
+        return self.governed.policy_list(on)
+
+    def create_policy(self, name, kind, expression, column="", except_roles=None, description=""):
+        return self.governed.create_policy(name, kind, expression, column, except_roles, description)
+
+    def bind_policy(self, name, on="", tag=""):
+        return self.governed.bind_policy(name, on, tag)
+
+    def unbind_policy(self, name, on="", tag=""):
+        return self.governed.unbind_policy(name, on, tag)
+
+    def drop_policy(self, name):
+        return self.governed.drop_policy(name)
+
     def access(self, user, on):
         return self.governed.access(user, on)
 

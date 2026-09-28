@@ -727,6 +727,20 @@ public final class QueryRegistry implements AutoCloseable {
         // read each source, and -- below -- may they write to the sink.
         List<String> rowFilters = RegistrationAuthorization.requireReads(
                 policy, audit, principal, action, name, sql, PlanSources.of(plan), chains.provenance(plan));
+        var narrowings = RegistrationAuthorization.narrowings(
+                policy, audit, principal, action, sql, PlanSources.of(plan), rowFilters);
+        if (!narrowings.isEmpty()) { // ADR-059 §4: read each input as the registrant is shown it
+            prepared = chains.plan(
+                    sql,
+                    parameters,
+                    principal,
+                    List.of(streams),
+                    List.copyOf(lookupSchemas.values()),
+                    narrowings,
+                    keyColumns);
+            plan = prepared.plan();
+            placements = prepared.placements();
+        }
         chains.requireChainable(name, plan, retention, action);
 
         // SINK-3, and the reason it is asked here rather than beside mayRegisterQuery, is in
@@ -850,21 +864,8 @@ public final class QueryRegistry implements AutoCloseable {
     }
 
     /**
-     * Says what a registration's sink is promised, where an operator will see it.
-     *
-     * <p>At registration and once, because the answer depends on the sink's declaration and on
-     * whether this node checkpoints, and neither changes while the query runs. An operator who reads
-     * "at-least-once" here knows before the first reconciliation that duplicates are possible.
-     */
-    private static void announce(String name, SinkDelivery delivery) {
-        LOG.log(
-                System.Logger.Level.INFO,
-                "query '" + name + "' writes to sink '" + delivery.sinkName() + "', " + delivery.guarantee());
-    }
-
-    /**
      * What a registration's sink is promised -- exactly-once, effectively-once or at-least-once, and
-     * why -- or empty when it writes only to its view. The same words {@link #announce} logs.
+     * why -- or empty when it writes only to its view. The same words {@link SinkDelivery#announce} logs.
      */
     public synchronized java.util.Optional<String> sinkGuarantee(String queryName) {
         return java.util.Optional.ofNullable(deliveries.get(queryName)).map(SinkDelivery::guarantee);
@@ -915,7 +916,7 @@ public final class QueryRegistry implements AutoCloseable {
                 // before this sink existed.
                 delivery.attachTo(existing, true);
                 deliveries.put(name, delivery);
-                announce(name, delivery);
+                delivery.announce(name);
             }
             try {
                 declaring.indexes().forEach(existing.view()::index);
@@ -940,7 +941,7 @@ public final class QueryRegistry implements AutoCloseable {
         views.register(query.view());
         if (delivery != null) {
             deliveries.put(name, delivery);
-            announce(name, delivery);
+            delivery.announce(name);
         }
         try {
             declaring.indexes().forEach(query.view()::index);

@@ -55,6 +55,7 @@ installed `pravaha` if there is one, and otherwise the CLI from `sdk/python` (wi
 | `audit`, `tenants`, `permissions` | HTTP | Authorization decisions, quotas, what you may do |
 | `catalog ls`, `search`, `namespaces`, `show`, `create-namespace`, `comment`, `tag`, `move`, `owner` | HTTP | The Pravaha Catalog: namespaces, owners, descriptions, tags (`owner` needs `--yes`) |
 | `grant`, `revoke`, `grants`, `access why` | HTTP | Grants, and why a user may or may not (`revoke` needs `--yes`) |
+| `policy ls`, `show`, `create-filter`, `create-mask`, `bind`, `unbind`, `drop` | HTTP | Row filters and column masks (`unbind` and `drop` need `--yes`) |
 | `alerts ls`, `channels`, `show`, `pause`, `resume`, `snooze`, `ack` | HTTP | Alerts: what is firing, and quieting or acknowledging one |
 | `alert create`, `alert drop` | Flight | `CREATE ALERT` / `DROP ALERT`, as `query --sql` would send them (`drop` needs `--yes`) |
 | `login`, `logout`, `whoami`, `password`, `user`, `key`, `session` | HTTP | Identity |
@@ -565,6 +566,26 @@ through which grant, role, namespace or ownership — for yourself, or for anyon
 manage (`PRV-7033` otherwise). `revoke` and `catalog owner` take something away from somebody, so
 they print what they would do and change nothing without `--yes`. See
 [Catalog and grants](/help/topics/catalog-and-grants).
+
+## Row filters and masks
+
+```text
+pravaha policy ls [--on <object>]
+pravaha policy show <policy>
+pravaha policy create-filter <policy> --as <predicate> [--except-role R]... [--comment TEXT]
+pravaha policy create-mask   <policy> --column <c> --as <expression> [--except-role R]... [--comment TEXT]
+pravaha policy bind   <policy> --on <object> | --tag key[=value]
+pravaha policy unbind <policy> --on <object> | --tag key[=value] --yes
+pravaha policy drop   <policy> --yes
+```
+
+A policy is defined, then bound: nothing is narrowed until `bind`. `--as` is the expression as SQL
+would write it — `"region = session_attribute('region')"`, `"'XXXX-' || RIGHT(card, 4)"` — and the
+engine refuses a subquery, a non-deterministic or unlisted function (`PRV-7038`). Binding to an
+object needs `MANAGE` on it; to a tag, `MANAGE` on the tenant. `ls --on payments` lists what reaches
+a view, directly or by one of its tags. `unbind` widens what an object shows and `drop` removes a
+policy (refused with `PRV-7040` while it is still bound), so both change nothing without `--yes`.
+See [Row filters and masks](/help/topics/row-filters-and-masks).
 
 ## Alerts
 

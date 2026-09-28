@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% from "_admin_head.html" import admin_head with context %}
+{% import "_states.html" as states %}
+{% import "_people.html" as people %}
+{% block title %}{{ t('governance.policies.title') }} — {{ app_name }}{% endblock %}
+{% block content %}
+{#- ADR-059 section 4: row filters and masks. Every form posts to the console, which asks the engine as
+    the signed-in person; the engine checks the expression and the binding (CREATE on the namespace,
+    MANAGE on the object or the tenant), and a refusal comes back as the flash with its code. -#}
+{{ admin_head('policies', t('governance.policies.heading')) }}
+<p class="lede">{{ t('governance.policies.lede') }}</p>
+
+{{ people.flashes(flashes) }}
+
+{% if catalog_off %}
+<div class="state" id="catalog-off"><h2>{{ t('governance.off.title') }}</h2><p>{{ t('governance.off.body') }} <code>pravaha.catalog.enabled</code> (<a href="/help/codes/PRV-7030">PRV-7030</a>).</p></div>
+{% else %}
+{% if policies_error %}
+{{ states.error(policies_error, retry_href='/admin/policies', id='policies-error', title=t('governance.error')) }}
+{% endif %}
+
+<form method="get" action="/admin/policies" class="d-flex gap-2 align-items-end mb-3" id="policies-filter-form">
+  <div><label class="form-label small" for="policies-object">{{ t('governance.policies.reaching') }}</label>
+    <input class="form-control form-control-sm mono" id="policies-object" name="object" value="{{ chosen }}" autocomplete="off"></div>
+  <button class="btn btn-sm btn-outline-secondary" type="submit">{{ t('governance.policies.show') }}</button>
+</form>
+
+{% if policies %}
+<div class="table-responsive"><table class="table table-sm small" id="policies-table">
+  <caption class="visually-hidden">{{ t('governance.policies.caption') }}</caption>
+  <thead><tr><th scope="col">{{ t('governance.policies.col.name') }}</th><th scope="col">{{ t('governance.col.kind') }}</th><th scope="col">{{ t('governance.policies.col.expression') }}</th><th scope="col">{{ t('governance.policies.col.except') }}</th><th scope="col">{{ t('governance.policies.col.bound') }}</th><th scope="col">{{ t('people.col.actions') }}</th></tr></thead>
+  <tbody>{% for p in policies %}<tr data-policy="{{ p.name }}">
+    <td class="mono">{{ p.name }}</td>
+    <td><span class="chip mute">{{ p.kind }}</span>{% if p.column %} <span class="mono">{{ p.column }}</span>{% endif %}</td>
+    <td class="mono">{{ p.expression }}</td>
+    <td class="mono">{{ (p.exceptRoles or [])|join(', ') or '—' }}</td>
+    <td>{% for b in p.bindings or [] %}<form method="post" action="/admin/policies/unbind" class="d-inline m-0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="policy" value="{{ p.name }}">
+        <input type="hidden" name="object" value="{{ b.object or '' }}">
+        <input type="hidden" name="tag" value="{{ b.tag or '' }}">
+        <span class="chip mute mono" data-binding="{{ b.object or ('TAG ' ~ b.tag) }}">{{ b.object or ('TAG ' ~ b.tag) }}</span>
+        <button class="btn btn-sm btn-link text-danger p-0" type="submit" aria-label="{{ t('governance.policies.unbind_label', name=p.name, where=(b.object or b.tag)) }}">{{ t('governance.policies.unbind') }}</button>
+      </form>{% else %}<span class="text-muted">{{ t('governance.policies.unbound_note') }}</span>{% endfor %}</td>
+    <td><form method="post" action="/admin/policies/drop" class="m-0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="policy" value="{{ p.name }}">
+        <button class="btn btn-sm btn-outline-danger" type="submit" aria-label="{{ t('governance.policies.drop_label', name=p.name) }}">{{ t('governance.policies.drop') }}</button>
+      </form></td></tr>{% endfor %}</tbody>
+</table></div>
+{% else %}<p class="small text-muted" id="policies-none">{{ t('governance.policies.none') }}</p>{% endif %}
+
+<form method="post" action="/admin/policies/bind" class="card mb-3" id="bind-form" aria-labelledby="bind-form-title"><div class="card-body">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <h2 class="h6" id="bind-form-title">{{ t('governance.policies.bind_title') }}</h2>
+  <div class="d-flex flex-wrap gap-2 align-items-end">
+    <div><label class="form-label small" for="bind-policy">{{ t('governance.policies.col.name') }}</label>
+      <input class="form-control form-control-sm mono" id="bind-policy" name="policy" required autocomplete="off"></div>
+    <div><label class="form-label small" for="bind-object">{{ t('governance.policies.object') }}</label>
+      <input class="form-control form-control-sm mono" id="bind-object" name="object" value="{{ chosen }}" autocomplete="off"></div>
+    <div><label class="form-label small" for="bind-tag">{{ t('governance.policies.tag') }}</label>
+      <input class="form-control form-control-sm mono" id="bind-tag" name="tag" autocomplete="off" aria-describedby="bind-note"></div>
+    <button class="btn btn-sm btn-primary" type="submit">{{ t('governance.policies.bind') }}</button>
+  </div>
+  <div class="form-text small" id="bind-note">{{ t('governance.policies.bind_note') }}</div>
+</div></form>
+
+<form method="post" action="/admin/policies" class="card" id="policy-form" aria-labelledby="policy-form-title"><div class="card-body">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <h2 class="h6" id="policy-form-title">{{ t('governance.policies.new') }}</h2>
+  <div class="row g-2 align-items-end">
+    <div class="col-md-3"><label class="form-label small" for="policy-name">{{ t('governance.policies.col.name') }}</label>
+      <input class="form-control form-control-sm mono" id="policy-name" name="name" required autocomplete="off"></div>
+    <div class="col-md-2"><label class="form-label small" for="policy-kind">{{ t('governance.col.kind') }}</label>
+      <select class="form-select form-select-sm" id="policy-kind" name="kind"><option value="ROW_FILTER">{{ t('governance.policies.row_filter') }}</option><option value="MASK">{{ t('governance.policies.mask') }}</option></select></div>
+    <div class="col-md-2"><label class="form-label small" for="policy-column">{{ t('governance.policies.column') }}</label>
+      <input class="form-control form-control-sm mono" id="policy-column" name="column" autocomplete="off"></div>
+    <div class="col-md-5"><label class="form-label small" for="policy-expression">{{ t('governance.policies.col.expression') }}</label>
+      <input class="form-control form-control-sm mono" id="policy-expression" name="expression" required autocomplete="off" aria-describedby="policy-note"></div>
+    <div class="col-md-4"><label class="form-label small" for="policy-except">{{ t('governance.policies.col.except') }}</label>
+      <input class="form-control form-control-sm mono" id="policy-except" name="except_roles" autocomplete="off"></div>
+    <div class="col-md-6"><label class="form-label small" for="policy-description">{{ t('governance.col.description') }}</label>
+      <input class="form-control form-control-sm" id="policy-description" name="description" autocomplete="off"></div>
+    <div class="col-md-2"><button class="btn btn-sm btn-primary" type="submit">{{ t('governance.policies.create') }}</button></div>
+  </div>
+  <div class="form-text small" id="policy-note">{{ t('governance.policies.expression_note') }}</div>
+</div></form>
+{% endif %}
+{% endblock %}

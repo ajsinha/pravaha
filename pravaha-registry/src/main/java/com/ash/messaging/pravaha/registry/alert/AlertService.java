@@ -250,9 +250,29 @@ public final class AlertService implements Alerting, AutoCloseable {
             return;
         }
         try {
-            alert.follow(query.get().view());
+            alert.follow(query.get().view(), access.narrowingFor(d, query.get().view()), access.narrowingOf(d));
         } catch (PravahaException e) {
             alert.broken(e.getMessage());
+        }
+    }
+
+    /**
+     * Follows again when the policies narrowing the owner's view have changed (ADR-059 §8): the rows it
+     * holds were filtered and masked by the old ones, and a fresh snapshot under the new ones replaces
+     * them rather than mixing two meanings.
+     */
+    private void refollowIfNarrowingChanged(Alert alert) {
+        String now;
+        try {
+            now = access.narrowingOf(alert.definition());
+        } catch (PravahaException e) {
+            alert.unfollow();
+            alert.broken(e.getMessage());
+            return;
+        }
+        if (!now.equals(alert.narrowedBy())) {
+            alert.unfollow();
+            attach(alert);
         }
     }
 
@@ -265,6 +285,8 @@ public final class AlertService implements Alerting, AutoCloseable {
         for (Alert alert : alerts.values()) {
             if (retryWaiting && !alert.following()) {
                 attach(alert);
+            } else if (alert.following()) {
+                refollowIfNarrowingChanged(alert);
             }
             for (Alert.Dispatch dispatch : alert.tick(now)) {
                 deliver(dispatch);

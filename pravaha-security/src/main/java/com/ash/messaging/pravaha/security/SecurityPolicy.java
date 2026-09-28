@@ -245,6 +245,23 @@ public interface SecurityPolicy {
      */
     default void registered(Principal owner, String view) {}
 
+    /**
+     * What policies narrow of {@code object} for {@code principal}: the row filter and column masks that
+     * apply to every read, subscription and registration through it (ADR-059 §4). Asked after the
+     * principal has been allowed; a narrowing never allows anything.
+     *
+     * <p>Defaults to {@link Narrowing#NONE}. A policy that answers with {@link AccessDecision#rowFilter}
+     * keeps doing so; this is where a policy that keeps filters and masks as objects -- the catalogue's --
+     * says what applies.
+     *
+     * @param object the view or stream, as the engine names it
+     * @throws com.ash.messaging.pravaha.api.PravahaException when a policy that applies cannot be bound
+     *     to this principal -- a claim it reads that their credential does not carry
+     */
+    default Narrowing narrowing(Principal principal, String object) {
+        return Narrowing.NONE;
+    }
+
     /** Told that {@code view} has been dropped. The default keeps nothing, so forgets nothing. */
     default void dropped(String view) {}
 }

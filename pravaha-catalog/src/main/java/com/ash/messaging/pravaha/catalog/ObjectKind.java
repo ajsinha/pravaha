@@ -25,8 +25,9 @@ import com.ash.messaging.pravaha.api.PravahaException;
  * What a governed object is (ADR-059 §1).
  *
  * <p>A registered continuous query and the view it keeps are one object with two facets; it is kept
- * as {@link #VIEW}, and {@code ON QUERY} in a statement names the same object. {@link #ALERT} and
- * {@link #POLICY} are reserved for the phases that build them: nothing creates one yet.
+ * as {@link #VIEW}, and {@code ON QUERY} in a statement names the same object. {@link #ALERT} is
+ * ADR-057's; {@link #POLICY} is a row filter or a mask (phase 2), created by {@code CREATE ROW FILTER}
+ * and {@code CREATE MASK}.
  */
 public enum ObjectKind {
     NAMESPACE(EnumSet.allOf(Privilege.class)),
@@ -72,7 +73,7 @@ public enum ObjectKind {
             throw new PravahaException(
                     CatalogErrors.INVALID_REQUEST,
                     "'" + word + "' is not a kind of object; they are NAMESPACE, VIEW (or QUERY), STREAM, SOURCE, "
-                            + "SINK, LOOKUP, NOTIFIER and ALERT");
+                            + "SINK, LOOKUP, NOTIFIER, ALERT and POLICY");
         }
     }
 }

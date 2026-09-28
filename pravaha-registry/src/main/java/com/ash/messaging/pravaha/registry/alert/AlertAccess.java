@@ -81,6 +81,57 @@ final class AlertAccess {
         }
     }
 
+    /**
+     * What the alert's owner is shown of the view it follows (ADR-059 §4): an alert runs as its owner, so
+     * it sees the view through the owner's row filters and masks -- the rows their filter keeps, their
+     * masked values in every notification. A condition or a key on a masked column is refused ({@code
+     * PRV-7006}): the alert would compare, or follow rows by, a value its owner may not see.
+     */
+    com.ash.messaging.pravaha.serving.RowNarrowing narrowingFor(
+            AlertDefinition alert, com.ash.messaging.pravaha.serving.ServedView view) {
+        com.ash.messaging.pravaha.security.Narrowing narrowing = policy.narrowing(ownerOf(alert), alert.view());
+        com.ash.messaging.pravaha.serving.RowNarrowing compiled =
+                com.ash.messaging.pravaha.serving.RowNarrowing.of(view.schema(), narrowing);
+        for (String masked : compiled.maskedColumns()) {
+            for (com.ash.messaging.pravaha.sql.AlertStatement.Condition condition : alert.where()) {
+                if (condition.column().equalsIgnoreCase(masked)) {
+                    throw maskedUse(alert, masked, "its WHERE compares it");
+                }
+            }
+            for (int key : view.keyOrdinals()) {
+                if (view.schema().field(key).name().equals(masked)) {
+                    throw maskedUse(alert, masked, "it is a key of the view, which the alert follows rows by");
+                }
+            }
+        }
+        return compiled;
+    }
+
+    /** What {@link #narrowingFor} enforces, as text: an alert whose narrowing changes follows again. */
+    String narrowingOf(AlertDefinition alert) {
+        return policy.narrowing(ownerOf(alert), alert.view()).fingerprint();
+    }
+
+    /** The owner as they sign in -- roles included, for EXCEPT ROLE and is_member -- or as recorded. */
+    private Principal ownerOf(AlertDefinition alert) {
+        Principal recorded = new Principal(alert.owner(), alert.tenant(), java.util.Set.of(), java.util.Map.of());
+        if (policy instanceof CatalogPolicy catalog) {
+            return catalog.service()
+                    .principalOf(alert.owner())
+                    .filter(p -> p.tenant().equals(alert.tenant()))
+                    .orElse(recorded);
+        }
+        return recorded;
+    }
+
+    private static PravahaException maskedUse(AlertDefinition alert, String column, String why) {
+        return new PravahaException(
+                SecurityErrors.MASKED_COLUMN_USE,
+                "the alert '" + alert.name() + "' runs as " + alert.owner() + ", for whom " + alert.view() + "."
+                        + column + " is masked, and " + why
+                        + ". An alert sees what its owner is shown; compare another column");
+    }
+
     /** Whether the caller may see the alert at all. Not audited: a listing asks it of every alert. */
     boolean maySee(Principal principal, AlertDefinition alert) {
         return decide(principal, alert, Privilege.SELECT).allowed();

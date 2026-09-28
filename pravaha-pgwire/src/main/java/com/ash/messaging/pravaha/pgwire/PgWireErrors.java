@@ -177,6 +177,8 @@ public final class PgWireErrors {
             // only through a row filter, is the same shape from the other end: the write does not
             // happen, and no credential changes that.
             case "PRV-7002", "PRV-7003", "PRV-7005" -> "42501";
+            // ADR-059 §4: a masked column compared, a claim missing, a policy that cannot apply.
+            case "PRV-7006", "PRV-7038", "PRV-7039", "PRV-7040" -> "42501";
             // 53400 configuration_limit_exceeded / 53000 insufficient_resources: admission refused
             // the read. Retryable, and saying so is the difference between a client that backs off
             // and one that hammers a node that is already full.

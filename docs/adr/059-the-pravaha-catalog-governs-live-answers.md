@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted; phase 1 built — see *Phase 1, as built* below. Phases 2 to 4 (policies, lineage and labels, contracts, sharing, history, search beyond names/descriptions/tags) are not built |
+| Status | Accepted; phases 1–2 built — see *Phase 1, as built* and *Phase 2, as built* below. Phases 3 and 4 (lineage and labels, contracts, sharing, history, search beyond names/descriptions/tags) are not built |
 | Date | 2026-09-28 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-025 (security predicates in the fingerprint), ADR-031 (authorization at the Pravaha layer — **superseded in part**: grants move into the engine), ADR-050 (tenancy), ADR-052 (the engine is the identity authority), ADR-056 (queries on queries), ADR-057 (alerts), ADR-058 (plain English) |
@@ -105,26 +105,74 @@ audit event; `SHOW` answers from the journal, so it is exact.
 
 ### 4. Policies: row filters and column masks, as objects
 
+A policy is **defined** once and **bound** separately — one grammar, not two: the definition says what
+it does, a binding says where, and each is its own right and its own audit event.
+
 ```sql
-CREATE ROW FILTER sales.region_scope ON COLUMN region
+CREATE ROW FILTER sales.region_scope
   AS region = session_attribute('region')          -- the principal's claim, from ADR-052
   EXCEPT ROLE finance_admin;
-CREATE MASK sales.card_last4 ON COLUMN card_number
+CREATE MASK sales.card_last4 ON COLUMN card_number  -- a mask names the column it masks
   AS 'XXXX-XXXX-XXXX-' || RIGHT(card_number, 4)
   EXCEPT ROLE payments_ops;
-ALTER STREAM sales.orders SET POLICY sales.region_scope;
-ALTER TAG 'pii' SET POLICY sales.card_last4;          -- tag-based: every column tagged pii
+ALTER STREAM sales.orders SET POLICY sales.region_scope;   -- one object (UNSET POLICY unbinds)
+ALTER TAG 'pii' SET POLICY sales.card_last4;               -- every object tagged pii: its card_number
+DROP ROW FILTER sales.region_scope;                        -- refused while it is bound
+SHOW POLICIES [ON VIEW sales.hourly_revenue];
 ```
 
-- A row filter is a boolean expression over the object's columns and the principal's attributes; it
-  is planned and **soundness-checked** by the rules ADR-031 already built (no function that could
-  leak, no always-true filter — `SECURITY: an always-true row filter is refused` is in the tree).
-- A mask is an expression that replaces a column's value in everything read, subscribed or built on;
-  a masked column cannot be used as a join key, group key or index by someone it is masked for (they
-  would learn the value's equality classes), which the planner refuses with a named code.
-- **Tag-bound policies** apply to every column or object carrying the tag, now and later — the way
-  governance keeps up with a growing catalogue without a grant per column.
-- ADR-031's "row filters are programmatic-only" ends: the catalogue is where they are configured.
+Semantics, as built (phase 2):
+
+- **What an expression may say.** The object's columns, literals, operators, `CASE`, `CAST`, a fixed
+  list of pure scalar functions (`UPPER`, `LOWER`, `TRIM`, `SUBSTRING`, `CHAR_LENGTH`, `CONCAT`/`||`,
+  `COALESCE`, `NULLIF`, `ABS`, `ROUND`, `FLOOR`, `CEIL`, `MOD`, `LEFT`, `RIGHT`, `REPLACE`,
+  `POSITION`, `REGEXP_EXTRACT`, `SPLIT_INDEX`, `SIGN`), and three session functions:
+  `session_attribute('claim')`, `current_user()`, `is_member('role')`. Refused at `CREATE` with
+  `PRV-7038`: a subquery (`SELECT`, `EXISTS`, `VALUES`, …), a non-deterministic function (`RAND`,
+  `CURRENT_TIMESTAMP`, …), any function not on the list — ADR-031's "no function that could leak" as
+  an allow-list — a parameter, a second statement. A mask may name only its own column and must keep
+  its type (checked by planning it over that column alone). At binding the node plans the expression
+  over the object's own columns; a filter naming a column the object lacks, or one the planner folds
+  to true for every row, is refused (ADR-031's rules, reused).
+- **Binding to the principal.** Session functions become SQL literals — a claim as a string with its
+  quotes doubled, a membership as `TRUE`/`FALSE`, the user as a string — before the planner sees the
+  text, so no claim can end its literal. A claim the principal lacks is refused with `PRV-7039`,
+  never guessed.
+- **Who is narrowed.** Every reader of the object except holders of one of the policy's `EXCEPT
+  ROLE`s. Ownership and the `admin` role do not exempt — a policy narrows whatever grant let you in.
+- **Several row filters on one object AND together.** Two masks on one column for one reader are
+  refused (`PRV-7040`) rather than one chosen; binding a second mask directly is refused at binding.
+- **Where each applies.** A filter or mask applies to every read (scan and point read), subscription
+  (snapshot and every commit) and `BUILD_ON` through the object. A registration reads each input it
+  names through the registrant's narrowing of that input — the filter directly above the input's
+  scan, the masks above it — so the view holds only what its registrant may see; every query built on
+  it (ADR-056 chains) inherits that by construction, and the view's own policies then narrow its
+  readers. A registration keyed by, or comparing, a column masked for its registrant is refused.
+- **Alerts run as their owner.** An alert follows its view through the owner's narrowing of the
+  view — the owner's filter decides which rows can fire, the owner's masks are what notifications
+  carry; a `WHERE` or a view key on a column masked for the owner breaks the alert with `PRV-7006`.
+  When the owner's narrowing changes, the alert follows again from a fresh snapshot.
+- **Tag-bound policies** reach every object of the policy's own tenant carrying the tag, now and
+  later: a binding is asked at every decision, not copied onto objects. A tag-bound mask masks the
+  tagged object's column of its name; an object without that column has nothing of it to hide. A
+  direct binding reaches every reader of the object, whatever their tenant; a tag binding never
+  reaches another tenant's objects or the node's.
+- **A masked column is shown, never compared.** Used by someone it is masked for as a filter operand,
+  a group key, a join key, a sort or ranking key, an aggregate's argument, a registered view's key
+  column, a subscription's tap filter or an alert's condition, it is refused at plan time with
+  `PRV-7006` (from Calcite's column origins, so `UPPER(card)` is `card`). The mask is also applied
+  before any operator, so even a use the check could not trace compares only masked values.
+- **The fingerprint** carries each input's effective narrowing (ADR-025), so two principals with
+  different policies never share a computation, and two with the same one do.
+- **A changed policy ends open subscriptions** of the principals it affects with `PRV-7007` (at the
+  next two-second re-check, alongside `SUBSCRIBE`), rather than change what a stream means half-way.
+  A running registration keeps the narrowing it was registered with (it is its fingerprint) until it
+  is replaced or the node restarts, when recovery re-plans it under the policies then in force.
+- `SHOW EFFECTIVE ACCESS` lists, after the privileges, each policy reaching the object and whether it
+  narrows the user — the bound expression, or the `EXCEPT ROLE` that exempts them — and through which
+  binding.
+- ADR-031's "row filters are programmatic-only" ends: the catalogue is where they are configured. A
+  `SecurityPolicy` answering with `AccessDecision.allowWithRowFilter` keeps working as before.
 
 ### 5. Live lineage, to the column, with the running state
 
@@ -301,6 +349,33 @@ per principal/privilege/object and dropped whenever the catalogue's generation m
 grants by `DROP ALERT` and reconciled at start like views. Notifier channels are a new kind,
 `NOTIFIER`, under `node.notifiers` (`WRITE`, `MANAGE`, `OWN`), and a `NOTIFY` needs `WRITE` on each.
 A query cannot be registered under an alert's catalogue name, nor an alert under an object's.
+
+## Phase 2, as built
+
+**Where.** `pravaha-catalog`: `PolicyDefinition`, `PolicyBinding`, `PolicyExpression` (the checks and
+the binding to a principal), `PolicyService` (create, bind, unbind, drop, list, the narrowing per
+principal and object, cached until the catalogue changes); `Catalog` journals policies (`p`) and
+bindings (`b`, `ub`) with the rest. `pravaha-security`: `Narrowing` and `SecurityPolicy.narrowing`,
+which `CatalogPolicy` answers. `pravaha-sql`: `NarrowingPlan` (a narrowing compiled into a filter over
+the scan and a computation replacing masked columns, keeping the scan's schema), `MaskedColumnUse`,
+and the builder's scan guard. `pravaha-serving`: `RowNarrowing` applies it to rows and changes.
+Enforced in `ViewQuery` (Flight and pgwire reads), Flight's subscription path, `QueryRegistry` via
+`RegistrationAuthorization.narrowings` and `QueryChains`, and `AlertService`. `pravaha-server`:
+`PolicyCheck` (binding-time check against the object's columns), `/api/v1/catalog/policies`, token
+claims. Codes `PRV-7006`, `PRV-7007`, `PRV-7038`–`7040`.
+
+**Decisions phase 2 took that the design left open.** Binding is separate from definition (above).
+A mask names its column at `CREATE`, and a tag binding applies it to that column of each tagged
+object — columns carry no tags of their own until phase 3's classification. Masks are enforced where
+rows leave an object, before any operator of the reader's query, rather than by rewriting the
+reader's projection: one place covers scans, point reads, prepared statements, pgwire and
+subscriptions alike. There is no REST endpoint that serves a view's rows, so there was no REST read
+to mask.
+
+**Not in phase 2**: column-level tags and tags that follow lineage (phase 3); a running registration
+re-planned when its inputs' policies change (it is re-planned at replacement or restart); a lookup
+key on a masked stream column is not refused (the lookup sees the masked value); the console's help
+cards on the Catalog and Admin screens do not yet list the policies topic.
 
 **Not in phase 1**: row filters and masks as objects, tag-bound policies (phase 2); lineage and
 computed labels (phase 3); contracts, shares, access history, search over columns, OpenLineage

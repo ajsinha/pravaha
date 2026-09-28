@@ -120,6 +120,8 @@ final class NodeCatalog {
      */
     void started(QueryRegistry registry, boolean journalled) {
         Catalog catalog = policy().service().catalog();
+        // ADR-059 §4: a binding is checked against the object's own columns before it is recorded.
+        policy().service().policies().checkingWith(new PolicyCheck(registry, streams)::check);
         int forgotten = journalled ? catalog.reconcileViews(new HashSet<>(registry.names())) : 0;
         log.info(
                 "catalog: governing access (ADR-059) from {}; authority={}, imported policy={}, {} objects, {} "
