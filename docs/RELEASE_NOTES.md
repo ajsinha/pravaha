@@ -289,7 +289,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   source delivers a delete or the old half of an update.
 
 
-Register: **449 findings — 386 fixed, 49 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **452 findings — 386 fixed, 52 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ---
 

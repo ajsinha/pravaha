@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **449 findings carrying a
-status — 386 FIXED, 49 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 49 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 42 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **452 findings carrying a
+status — 386 FIXED, 52 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 52 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 45 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7255,3 +7255,20 @@ the lead.
 
 > **Status:** OPEN — `console/routes/catalog_routes.py` lines 88 and 95 fail `mypy`; the console's type check is not part of the gate, so it went unnoticed.
 > **Disposition:** POST-GA — fix them and run mypy on the console in the gate.
+
+## Found building ADR-059 phase 2, policies (2026-09-28), 3 findings
+
+### TAUTOFILTER-1 (MEDIUM) — a row filter that is always true is accepted unless it is literally TRUE
+
+> **Status:** OPEN — the always-true refusal (`SECURITY: an always-true row filter is refused`) sees only a filter the planner folds to `TRUE`; `region = region` or `1 = 1 OR region = 'x'` are accepted as if they restricted something, so an administrator can believe a filter is in force that lets every row through. `ViewQuery`'s comment claims more than the check does.
+> **Disposition:** POST-GA — normalise the predicate (reflexive comparisons, constant disjuncts) before the check, and refuse what still cannot be shown to restrict; correct the comment.
+
+### STORECLAIMS-1 (MEDIUM) — identity-store users carry no claims, so claim-based policies refuse them
+
+> **Status:** OPEN — `session_attribute('claim')` reads the principal's claims; static tokens gained `claims`, but users in the identity store (ADR-052) have none, so any policy reading a claim refuses them with PRV-7039, and a query narrowed that way cannot be restored for such an owner at restart.
+> **Disposition:** POST-GA — user attributes in the identity store (administered like roles), surfaced as claims.
+
+### CAT201-1 (LOW) — catalogue POST endpoints answer 201 while the OpenAPI document says 200
+
+> **Status:** OPEN — grants, namespaces (phase 1) and policies (phase 2) return 201 Created; the generated document and `api/openapi.lock.json` record 200, and the P-5 status check covers only `/api/v1/streams`.
+> **Disposition:** POST-GA — annotate the responses and widen the status check to every POST.
