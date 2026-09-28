@@ -151,8 +151,12 @@ class StateCompactionTest extends StateTestSupport {
 
     @Test
     void state093_nothingCallsCompactSoTheJournalGrowsForTheLifeOfTheDeployment(@TempDir Path dir) throws Exception {
+        // The registry journal's compact(), which is what this case is about. The catalogue keeps a
+        // journal of its own (ADR-059) that compacts itself at start; that is a different file with
+        // its own tests, and it says nothing about whether the registry journal grows for ever.
         List<String> compactCallers = grep("\\.compact(", repoRoot()).stream()
                 .filter(l -> l.contains("/src/main/"))
+                .filter(l -> !l.contains("/pravaha-catalog/"))
                 .toList();
         assertThat(compactCallers).as("no shipped code calls compact()").isEmpty();
 
