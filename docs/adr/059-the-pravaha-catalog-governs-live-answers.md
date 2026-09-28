@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Proposed — design only; nothing below is built |
+| Status | Accepted; phase 1 built — see *Phase 1, as built* below. Phases 2 to 4 (policies, lineage and labels, contracts, sharing, history, search beyond names/descriptions/tags) are not built |
 | Date | 2026-09-28 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-025 (security predicates in the fingerprint), ADR-031 (authorization at the Pravaha layer — **superseded in part**: grants move into the engine), ADR-050 (tenancy), ADR-052 (the engine is the identity authority), ADR-056 (queries on queries), ADR-057 (alerts), ADR-058 (plain English) |
@@ -248,3 +248,55 @@ the sink and its lineage, and an export of that lineage in OpenLineage form is t
    computed delivery/freshness labels, freshness objectives (with ADR-057), classification propagation.
 4. **Contracts, sharing, history, search**: stream contracts, cross-tenant shares, access time travel,
    entitlement-filtered search, OpenLineage export.
+
+## Phase 1, as built
+
+**Where.** `pravaha-catalog`: `Catalog` (objects, grants, the import marker; journalled by
+`CatalogJournal` — length-prefixed `ControlWire` records, owner-only, fsync'd per change, a torn tail
+dropped, compacted atomically at open once 256 records are stale), `CatalogAccess` (decisions, cached
+per principal/privilege/object and dropped whenever the catalogue's generation moves), `CatalogService`
+(every rule, once, for SQL, REST, CLI and console; every change an `AuditEvent`),
+`CatalogStatements`/`CatalogStatementExecutor` (the §3 statements, plus `ALTER VIEW … SET NAMESPACE`,
+`CREATE NAMESPACE IF NOT EXISTS`, `ON CATALOG`, `ON TENANT` and `SHOW NAMESPACES`) and `CatalogPolicy`.
+`pravaha-server`: `NodeCatalog`, `pravaha.catalog.*`, `/api/v1/catalog/...`. Codes `PRV-7030`–`7037`.
+
+**Decisions phase 1 took that the design left open.**
+
+- **Off by default** (`pravaha.catalog.enabled: false`). Turning it on changes who decides, every
+  existing deployment, test and embedded engine was written against `pravaha.security.policy`, and an
+  anonymous development node would otherwise be refused everything on upgrade. With it on,
+  `pravaha.catalog.authority: import` (the default) makes switching safe: the configured policy is
+  imported once as grants meaning what it meant (`permissive` → every privilege on `*` to `ROLE
+  public`; `authenticated` → `USE`, `SELECT`, `SUBSCRIBE`, `BUILD_ON`, `CREATE`, `WRITE`, `MODIFY` on
+  `*` to `ROLE authenticated`), recorded, and a later start whose policy setting differs — or a
+  catalogue holding grants it never imported a policy for — refuses with `PRV-7034`.
+  `authority: catalog` is the deployment choosing the catalogue alone.
+- **Names.** Engine names stay single identifiers, unique on the node (ADR-050), and the catalogue
+  records where each lives: a registration lands in `<tenant>.default` and moves with `ALTER VIEW …
+  SET NAMESPACE`, taking its grants. The hierarchy is `*` → tenant → namespace → object. What the node
+  is configured with (streams, sources, sinks, lookups) belongs to no tenant and is catalogued under
+  the pseudo-tenant `node` (`node.streams.orders`), recorded when first named; a grant there reaches
+  every tenant, as ADR-050 left reads and sinks unscoped.
+- **USE.** Every privilege on an object also needs `USE` on its namespace, except that a principal
+  may always use their own tenant's `default` namespace and the node's — so every name that resolved
+  before the catalogue still does. `CREATE NAMESPACE` needs `CREATE` on the tenant.
+- **Implicit roles** `public` (every caller) and `authenticated` (every verified caller) exist so a
+  policy can be imported exactly. The **`admin` role** holds every right, and owns what the catalogue
+  creates on its own account.
+- **BUILD_ON and chains.** A registration asks `mayBuildOn` of each input its plan names; a source
+  reached only through an upstream view is asked `mayBuildThrough`, which the catalogue allows (the
+  view's owner held `BUILD_ON` on it). Reading a view is `SELECT` on the view alone: `mayReadThrough`
+  replaces the SX-11 source check under the catalogue, and keeps it (defaulting to `mayRead`) under
+  any other policy.
+- **Administering** (`mayAdminister`: pause, resume, replace, drop) is `MODIFY` or `MANAGE`; the SPI
+  has one question for all four, so phase 1 does not separate drop from pause.
+- **Audit read** is the `admin` role, a `pravaha.security.audit-readers` role, or `MANAGE` on `*`.
+- **Mid-stream revocation** of `SUBSCRIBE` came for free: Flight re-asks the policy every two seconds
+  on an open subscription, and now asks `maySubscribe`.
+- `SHOW` and the REST reads answer from the live, journalled state; a name the caller may not see is
+  answered exactly as a missing one (`PRV-7031`).
+
+**Not in phase 1**: row filters and masks as objects, tag-bound policies (phase 2); lineage and
+computed labels (phase 3); contracts, shares, access history, search over columns, OpenLineage
+(phase 4); the PostgreSQL gateway runs no catalogue statement (it is read-only and refuses them with
+its read-only code); an embedded engine keeps its own `SecurityPolicy` and so no catalogue.

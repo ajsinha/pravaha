@@ -566,6 +566,23 @@ Three files hold what a customer would call their data, and all three are now cr
 | Checkpoints | Serialised operator state, which is the aggregated data itself |
 | The dead-letter queue | The raw bytes of every record that failed |
 
+Two more hold who may do what: the identity store (`pravaha.identity.store`, ADR-052) and, with the
+catalogue on, the **catalogue journal** — every namespace, owner, description, tag and grant.
+
+### The catalogue (ADR-059)
+
+| Setting | Default | Means |
+|---|---|---|
+| `pravaha.catalog.enabled` | `false` | The engine keeps grants and enforces them through `CatalogPolicy`; `GRANT`, `REVOKE` and `/api/v1/catalog` work |
+| `pravaha.catalog.journal` | `catalog.journal` beside `pravaha.registry.journal`; memory when that is unset | The append-only, fsync'd, owner-only file the catalogue is kept in and replayed from; compacted at start once it holds 256 more records than are live |
+| `pravaha.catalog.authority` | `import` | `import`: the first start imports `pravaha.security.policy` as grants, once; a later start with a different policy refuses with `PRV-7034`. `catalog`: grants alone decide and the policy setting is ignored |
+
+Back the catalogue journal up with the registry journal: a registry restored without it brings the
+queries back owned by nobody the catalogue knows (the `admin` role still holds everything), and one
+restored without the registry forgets, at the next start, the views it no longer runs — the node
+logs how many (`catalog: … forgot N views the registry no longer runs`). Turning the catalogue on
+logs `catalog: governing access (ADR-059) from <file>; authority=…, imported policy=…` once at start.
+
 The dead-letter queue is written only when something asks for one: `pravaha-engine run --dlq <file>`, or
 `pravaha.dlq.directory` on a server (one `<query>.dlq` per query). Without it a record that cannot be
 decoded still fails loudly rather than being discarded: the `run` command exits non-zero naming the

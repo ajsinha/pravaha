@@ -155,6 +155,14 @@ HTTP (`--http`):
 | `user [list]`, `user create N --roles a,b [...]`, `user disable N [--yes]`, `enable N`, `roles N --roles`, `reset N` | `/api/v1/users...` |
 | `key [list] [--all]`, `key create N [--roles] [--days] [--for U]`, `rotate K`, `revoke K [--yes]`, `report` | `/api/v1/keys...` |
 | `session [list] [--all]`, `session end I` | `/api/v1/sessions...` |
+| `catalog ls [--namespace] [--kind]`, `catalog search T`, `catalog namespaces`, `catalog show O` | `GET /api/v1/catalog/objects[?q=]`, `/catalog/namespaces`, `/catalog/objects/{name}` |
+| `catalog create-namespace N [--comment] [--if-not-exists]` | `POST /api/v1/catalog/namespaces` |
+| `catalog comment O TEXT`, `catalog tag O k[=v]... [--unset k]`, `catalog move V --namespace NS`, `catalog owner O --role R \| --user U [--yes]` | `PATCH /api/v1/catalog/objects/{name}` |
+| `grant PRIVS O --role R \| --user U`, `revoke PRIVS O --role R \| --user U [--yes]`, `grants --on O \| --role R \| --user U` | `POST`, `DELETE`, `GET /api/v1/catalog/grants` |
+| `access why USER O` | `GET /api/v1/catalog/access` |
+
+The catalogue commands (ADR-059) need a node with `pravaha.catalog.enabled`; `revoke` and `catalog
+owner` change nothing without `--yes`.
 
 A password left out is asked for without echo on a terminal, or read from stdin with
 `--password-stdin` / `--new-stdin`.

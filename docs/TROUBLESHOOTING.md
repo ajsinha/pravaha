@@ -122,6 +122,14 @@ unknown **column** of a view that does exist is still `PRV-2002`, which is the r
 | `PRV-7019` default admin password | The bootstrap user `admin` still has its published default password (ADR-052), and this node is not the dev profile, so it refuses to start. Change the password, or set `pravaha.identity.allow-default-admin-password` to run like this on purpose |
 | `PRV-7020` identity request invalid | An identity request that cannot be carried out as written: a user name outside `[a-z][a-z0-9._-]{1,63}`, a user that exists, a status other than `active` or `disabled`, a key life outside 1 to `pravaha.identity.key.max-days` |
 | `PRV-7021` identity not found | No user, or no session, by that name |
+| `PRV-7030` catalog disabled | A catalogue statement (`GRANT`, `SHOW GRANTS`, `CREATE NAMESPACE`, …) or `/api/v1/catalog` call on a node whose catalogue is off (`pravaha.catalog.enabled: false`). Who may do what is decided by `pravaha.security.policy` there, and there are no grants to show or change. Turn the catalogue on (ADR-059) |
+| `PRV-7031` catalog: no such object | No object by that name that you may see. The same answer for a name that does not exist and one in a namespace you may not `USE`, so it confirms nothing. `SHOW NAMESPACES` and `pravaha catalog ls` list what you may |
+| `PRV-7032` privilege not applicable | A privilege that means nothing on that kind of object — `WRITE` on a view, `CREATE` on a sink, `SUBSCRIBE` on a stream. The message lists what applies there |
+| `PRV-7033` catalog: manage required | Changing an object's grants, description or tags needs `MANAGE` (or ownership) on it; giving it away needs ownership; creating a namespace needs `CREATE` on the tenant; asking what someone else may do needs `MANAGE`. Ask the object's owner or an administrator |
+| `PRV-7034` two authorities | The catalogue imported `pravaha.security.policy` once and the setting now says something else, or the catalogue holds grants it never imported a policy for. The node refuses to start rather than obey one of two authorities silently. Set `pravaha.catalog.authority: catalog` to let the catalogue alone decide, or restore the setting it imported |
+| `PRV-7035` catalog journal failed | The catalogue journal (`pravaha.catalog.journal`, by default `catalog.journal` beside the registry journal) cannot be read or appended to, or holds a record a newer version wrote. A change is refused rather than acknowledged and lost at the next restart. Check the file's permissions and the disk |
+| `PRV-7036` catalog: object exists | `CREATE NAMESPACE` of a namespace that exists. Add `IF NOT EXISTS` if that is fine |
+| `PRV-7037` catalog request invalid | A catalogue request that cannot be carried out as written: a name part with a dot, quote or space, a tag key over 128 characters, a grantee that is not `ROLE <name>` or `USER <name>`, a grant of `OWN` (ownership is transferred with `OWNER TO`), or a user this node does not know |
 | `PRV-1050` missing field | A JSON request body left out a field the endpoint requires — today a null `sql` on `/validate` or `/explain`. Returned as **400**, not as a 200 with `valid:false`: a malformed request is not a query that failed to validate, and the distinction matters to anything reading the response programmatically. It used to surface as a raw `NullPointerException` message dressed in a `PRV-` code (API-F9). Deliberately 1xxx rather than 2xxx — a `PRV-2xxx` would send the reader to the SQL documentation for a request that carried no SQL. An *empty* `sql` is not this: the console sends one between keystrokes and the lexer already refuses it precisely |
 | `PRV-1053` malformed text | A string in a request body that is not well-formed text — today an unpaired UTF-16 surrogate, half of a character, which no UTF-8 encoder can carry: every one substitutes U+FFFD, so the name or the SQL the server would store, log and quote back is not the one that was sent. Refused as **400** in the deserializer, before the body becomes an argument, because a stream registered under such a name is a key no later request can address — not by URL, not in SQL, and over Flight only as `?`. Over Flight the same text is refused with the same code: the Java SDK refuses it before sending, because protobuf and `String.getBytes` would deliver `?` in its place, and the server refuses a control request whose bytes are not UTF-8 rather than decoding them into replacement characters |
 | `PRV-1051` invalid parameter | A query parameter the endpoint could not read — today on `GET /api/v1/audit`: a `since` or `until` that is not an ISO-8601 instant (`2026-09-19T08:00:00Z`), a `decision` that is neither `allow` nor `deny`, a `cursor` that is not a previous page's `nextCursor`. Returned as **400** naming the parameter rather than the filter being dropped: an audit search that ignored a malformed `since` would answer a different question and look right |
@@ -1017,6 +1025,14 @@ client models the error rather than an empty object.
 | `PRV-7019` | IDENTITY_DEFAULT_ADMIN_PASSWORD | security |
 | `PRV-7020` | IDENTITY_INVALID_REQUEST | security |
 | `PRV-7021` | IDENTITY_NOT_FOUND | security |
+| `PRV-7030` | CATALOG_DISABLED | security |
+| `PRV-7031` | CATALOG_NO_SUCH_OBJECT | security |
+| `PRV-7032` | CATALOG_PRIVILEGE_NOT_APPLICABLE | security |
+| `PRV-7033` | CATALOG_MANAGE_REQUIRED | security |
+| `PRV-7034` | CATALOG_TWO_AUTHORITIES | security |
+| `PRV-7035` | CATALOG_JOURNAL_FAILED | security |
+| `PRV-7036` | CATALOG_OBJECT_EXISTS | security |
+| `PRV-7037` | CATALOG_INVALID_REQUEST | security |
 | `PRV-8001` | REGISTRY_NAME_IN_USE | registry |
 | `PRV-8002` | REGISTRY_NO_SUCH_QUERY | registry |
 | `PRV-8003` | REGISTRY_ILLEGAL_TRANSITION | registry |
