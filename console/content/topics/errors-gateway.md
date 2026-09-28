@@ -114,8 +114,9 @@ which retrying clients already treat as retryable. See
 
 Enable it with `pravaha.pgwire.enabled` and give it TLS with `pravaha.pgwire.tls.certificate` and
 `pravaha.pgwire.tls.key`; `psql`'s `sslmode=require` then negotiates on the same port. The gateway is
-**read-only** and **text-format only**, and it answers a named set of catalog queries — enough for
-`psql` and JDBC drivers — rather than guessing. See [The PostgreSQL gateway](/help/topics/pgwire).
+**read-only**, it sends text or — when a driver asks, as Npgsql and so Power BI do — binary, and it
+answers a named set of catalog queries — enough for `psql`, JDBC drivers, Npgsql and Power BI — rather
+than guessing. See [The PostgreSQL gateway](/help/topics/pgwire).
 
 ### PRV-6200 — pgwire unsupported type
 
@@ -186,11 +187,12 @@ completion. SQLSTATE `34000`.
 
 ### PRV-6209 — pgwire unsupported wire format
 
-A `Bind` parameter, or a requested result column, in **binary** format. The gateway is text-format
-only, in both directions; a driver that asks for binary is refused by name rather than handed bytes
-decoded as though they were text, which is how a number becomes garbage instead of an error. Most
-drivers can be told to use text (for the PostgreSQL JDBC driver, set `binaryTransfer=false` in the
-connection URL).
+A `Bind` parameter in **binary** format for a type the gateway does not decode in binary (anything but
+the booleans, integers, floats, text, `date` and `timestamptz`), or a result format code other than
+`0` (text) or `1` (binary). Binary **results** are served for every type the gateway sends — Npgsql,
+and so Power BI, asks for them on every query. A value the gateway cannot decode is refused by name
+rather than read as though it were something else, which is how a number becomes garbage instead of an
+error. Send the parameter as text.
 
 ### PRV-6210 — pgwire unsupported parameter syntax
 

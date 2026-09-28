@@ -4,17 +4,17 @@ slug: pgwire
 category: reading
 order: 40
 icon: server
-summary: "Reading maintained views from psql, DBeaver, Grafana or any PostgreSQL driver: turning the gateway on, connecting, the types it sends, what it refuses (writes, PRV-6211, BYTES and TIME), and TLS on the same port."
+summary: "Reading maintained views from psql, DBeaver, Grafana, Power BI or any PostgreSQL driver: turning the gateway on, connecting, the types it sends, what it refuses (writes, PRV-6211, BYTES and TIME), and TLS on the same port."
 badge: GATEWAY
 audience: Developers
-keywords: [psql, postgres, postgresql, pgwire, dbeaver, grafana, jdbc, pgjdbc, 5432, sslmode, "25006", read-only, "\\d", PRV-6211, PRV-6200]
+keywords: [psql, postgres, postgresql, pgwire, dbeaver, grafana, jdbc, pgjdbc, npgsql, power bi, 5432, sslmode, "25006", read-only, "\\d", PRV-6211, PRV-6200]
 guide: architecture
-related: [point-reads, client-snippets, authentication, tls, consistency]
+related: [point-reads, client-snippets, power-bi, authentication, tls, consistency]
 ---
 
 Almost nothing a person already has installed speaks Arrow Flight SQL; almost everything speaks
 PostgreSQL. The PostgreSQL gateway is a second door onto the same rooms: it speaks the PostgreSQL v3
-wire protocol so that `psql`, DBeaver, Grafana, an ORM or a notebook can **read** a maintained view with
+wire protocol so that `psql`, DBeaver, Grafana, [Power BI](/help/topics/power-bi), an ORM or a notebook can **read** a maintained view with
 the driver it already has. It is a transport and nothing more — every read goes through the same
 planner, the same `ViewQuery` path, the same authorization and the same audit trail as a Flight read.
 It is **read-only**, and **off by default**.
@@ -28,7 +28,8 @@ It is **read-only**, and **off by default**.
 | Listens on | `pravaha.pgwire.host` (default `0.0.0.0`) : `pravaha.pgwire.port` (default `5432`) |
 | Protocol | Simple **and** extended query protocol (Parse/Bind/Describe/Execute/Sync); `$1`-style parameters |
 | Announces itself as | PostgreSQL `9.4.26 (Pravaha)` — the version whose catalogue queries `psql` sends and the shim answers |
-| Catalogue | A minimal read-only `pg_catalog` (`pg_class`, `pg_namespace`, `pg_attribute`, `version()`, `current_schema()`), filtered by what you may read — so `\d` and a driver's `getTables()` work |
+| Catalogue | A minimal read-only `pg_catalog` (`pg_class`, `pg_namespace`, `pg_attribute`, `version()`, `current_schema()`), Npgsql's type loading (`pg_type`) and the `information_schema` questions Npgsql's `GetSchema` and Power BI's navigator ask — all filtered by what you may read — so `\d`, a driver's `getTables()` and Power BI's navigator work |
+| Tested clients | `psql`, pgjdbc 42.7 (simple and extended protocol) and **Npgsql 4.0.17** — the driver inside Power BI — each driven by the module's own tests. DBeaver connects through pgjdbc |
 | Authentication | The **password** is the node's credential (a bearer token under `authentication: token`); the user name is informational |
 | Writes | None. `INSERT`/`UPDATE`/`DELETE` are refused by the planner; continuous-query statements with PRV-6211 (SQLSTATE `25006`) |
 | TLS | `pravaha.pgwire.tls.certificate` and `pravaha.pgwire.tls.key` (PEM chain, PKCS#8 key): the gateway then answers `SSLRequest` on the same port. **Off until both are set** — see below |
@@ -264,7 +265,12 @@ Values are sent as text, with these PostgreSQL types in `RowDescription`:
 guessing an encoding, and refuses *before* describing the result, so a client gets a clean error
 rather than a truncated result set it might treat as complete. Select the other columns.
 
-Binary parameter or result formats are refused with PRV-6209; the gateway speaks text.
+Results go out in **text** unless a client's `Bind` asks for **binary**, which Npgsql (so Power BI)
+does for every query; the gateway then sends PostgreSQL's own binary format for each type above. One
+difference follows from that format: a binary `timestamptz` is a count of **microseconds**, so a
+value's sub-microsecond digits are truncated (toward the past) where the text form keeps all nine.
+A binary **parameter** is decoded for the fixed-width types and text; any other binary parameter is
+refused with PRV-6209.
 
 ## What it refuses, and the SQLSTATE a client sees
 
@@ -274,6 +280,7 @@ Binary parameter or result formats are refused with PRV-6209; the gateway speaks
 | `INSERT`, `UPDATE`, `DELETE` | PRV-2020, by the planner — the same answer Flight gives | `42000` |
 | A column of type `BYTES` or `TIME` | PRV-6200 | `0A000` |
 | `COPY`, `DECLARE`/`FETCH` cursors | Refused by name as unsupported (PRV-6201) | `0A000` |
+| `DISCARD ALL` | Accepted: forgets the session's named statements and portals, which is all the session state there is. Npgsql sends it whenever it reuses a pooled connection | — |
 | A `SET` outside the accepted list | PRV-6204 | `0A000` |
 | A catalogue query shape the shim does not recognise | PRV-6205 | `0A000` |
 | A view that does not exist | PRV-4023, the serving layer's own code | `42P01` undefined_table. It was PRV-2002 and the generic `42000` until finding L-3: the serving layer answered PRV-4023 only over an empty catalogue and let the planner's SQL-validation failure through otherwise. An unknown **column** of a view that does exist is still PRV-2002 and `42000`, deliberately — a confident "no such table" would send you looking in the wrong place |
@@ -311,10 +318,17 @@ PRV code, which is the part to search for.
     The default port is PostgreSQL's own. On a host that already runs PostgreSQL the gateway fails to
     bind; set `pravaha.pgwire.port` to something else rather than fight over it.
 
-!!! warning "Pitfall: `ORDER BY` and `LIMIT` from a BI tool"
-    Tools add `ORDER BY` and `LIMIT` to preview a table. Both are refused (PRV-2020) because a read
-    names a total order over a live view; configure the tool to preview without them, or narrow with
-    `WHERE`.
+!!! warning "Pitfall: `ORDER BY` from a BI tool"
+    Tools add `ORDER BY` to preview or rank a table. It is refused (PRV-2020) because a read names a
+    total order over a live view; configure the tool to preview without it, or rank in the continuous
+    query. A `LIMIT n` that ends the outermost `SELECT` — a preview's `LIMIT 1000`, Power BI's
+    `LIMIT 1000001` — is taken off by the gateway and applied to the answer, which is exact for a
+    `LIMIT` with no `ORDER BY`: it asks for *any* `n` rows. A `LIMIT` anywhere else, or with `OFFSET`,
+    reaches the planner and is refused (PRV-2020).
+
+!!! tip "`public.` names a view"
+    Every view is a table in schema `public`, so `FROM public.hourly_spend` and
+    `FROM "public"."hourly_spend"` read `hourly_spend`, as the catalogue says. No other schema exists.
 
 !!! warning "Pitfall: a join between two views"
     A read names exactly one view; a tool that joins two is refused with PRV-4025. Do the join in a

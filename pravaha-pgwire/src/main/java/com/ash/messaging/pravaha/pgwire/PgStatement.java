@@ -42,8 +42,14 @@ sealed interface PgStatement {
         return List.of();
     }
 
-    /** An ordinary query over a view, already planned and authorized by {@link ViewQuery#prepare}. */
-    record ForView(ViewQuery.Prepared prepared) implements PgStatement {
+    /**
+     * An ordinary query over a view, already planned and authorized by {@link ViewQuery#prepare}.
+     *
+     * @param limit the statement's trailing top-level {@code LIMIT}, which {@link PgTrailingLimit}
+     *     took off before planning and the gateway applies to the answer, or {@link
+     *     PgTrailingLimit#NONE}
+     */
+    record ForView(ViewQuery.Prepared prepared, long limit) implements PgStatement {
         @Override
         public java.util.Optional<StreamSchema> resultSchema() {
             return java.util.Optional.of(prepared.resultSchema());

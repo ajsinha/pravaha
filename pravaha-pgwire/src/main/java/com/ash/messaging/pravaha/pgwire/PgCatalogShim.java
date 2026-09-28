@@ -87,12 +87,14 @@ final class PgCatalogShim {
     private final SecurityPolicy policy;
     private final PgOidRegistry oids;
     private final String serverVersion;
+    private final PgInformationSchema informationSchema;
 
     PgCatalogShim(ViewCatalog catalog, SecurityPolicy policy, PgOidRegistry oids, String serverVersion) {
         this.catalog = Objects.requireNonNull(catalog, "catalog");
         this.policy = Objects.requireNonNull(policy, "policy");
         this.oids = Objects.requireNonNull(oids, "oids");
         this.serverVersion = Objects.requireNonNull(serverVersion, "serverVersion");
+        this.informationSchema = new PgInformationSchema(catalog);
     }
 
     /**
@@ -110,6 +112,14 @@ final class PgCatalogShim {
         }
         if (!looksLikeCatalogQuery(sql)) {
             return Optional.empty();
+        }
+        Optional<ViewQuery.Result> types = tryNpgsqlTypeLoading(sql);
+        if (types.isPresent()) {
+            return types;
+        }
+        Optional<ViewQuery.Result> standard = informationSchema.tryAnswer(sql, visibleViews(principal));
+        if (standard.isPresent()) {
+            return standard;
         }
         Optional<ViewQuery.Result> listing = tryRelationListing(sql, principal);
         if (listing.isPresent()) {
@@ -149,8 +159,9 @@ final class PgCatalogShim {
                 PgWireErrors.UNSUPPORTED_CATALOG_QUERY,
                 "this looks like a pg_catalog query this gateway does not recognise: " + preview(sql)
                         + ". PgCatalogShim answers the specific query shapes psql (at the server_version this "
-                        + "gateway announces) and a JDBC driver's own metadata calls send -- table and column "
-                        + "listing, chiefly -- and refuses anything else by name rather than approximate a "
+                        + "gateway announces), a JDBC driver's own metadata calls, Npgsql's type loading and "
+                        + "GetSchema, and Power BI's navigator send -- table and column listing, chiefly -- "
+                        + "and refuses anything else by name rather than approximate a "
                         + "PostgreSQL function or join this server has never implemented.");
     }
 
@@ -195,6 +206,93 @@ final class PgCatalogShim {
         int paren = expr.indexOf('(');
         String base = paren >= 0 ? expr.substring(0, paren) : expr;
         return base.toLowerCase(Locale.ROOT);
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // Npgsql's type loading: three statements, sent as one batch every time a connection opens.
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * Npgsql 4.0's {@code PostgresDatabaseInfo.GenerateTypesQuery} -- the driver Power BI bundles --
+     * sends these three on every connection open, with type loading on (the default, and not
+     * something Power BI lets a user turn off), and fails the open if any is refused. Each is
+     * recognised by the join only it makes:
+     *
+     * <ol>
+     *   <li>"Load all supported types": {@code pg_proc.proname='array_recv'} over {@code pg_type AS
+     *       a}. Answered with the ten base types this gateway puts on the wire ({@link PgTypes#oidOf}'s
+     *       range), under their real PostgreSQL oids and names -- and nothing else: no arrays, ranges,
+     *       enums or domains, because no column here is ever one. Npgsql binds its readers to these by
+     *       name, and a type it is not told about is one it reads as unknown, which is correct for a
+     *       type this server never sends.
+     *   <li>"Load field definitions for (free-standing) composite types": none exist. Empty.
+     *   <li>"Load enum fields": none exist. Empty.
+     * </ol>
+     *
+     * <p>Npgsql reads all three as text ({@code AllResultTypesAreUnknown}), by column name.
+     */
+    private static final Pattern NPGSQL_TYPES_MARKER = Pattern.compile(
+            "pg_proc\\.proname\\s*=\\s*'array_recv'.*FROM\\s+pg_type\\s+AS\\s+a\\b",
+            Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+
+    private static final Pattern NPGSQL_COMPOSITES_MARKER = Pattern.compile(
+            "JOIN\\s+pg_attribute\\s+AS\\s+att\\s+ON\\s*\\(\\s*att\\.attrelid\\s*=\\s*typ\\.typrelid\\s*\\)",
+            Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern NPGSQL_ENUMS_MARKER = Pattern.compile(
+            "SELECT\\s+pg_type\\.oid\\s*,\\s*enumlabel\\s+FROM\\s+pg_enum\\b", Pattern.CASE_INSENSITIVE);
+
+    /** (oid, typname) of every type this gateway can put on the wire, as PostgreSQL numbers them. */
+    private static final Object[][] WIRE_TYPES = {
+        {PgTypes.OID_BOOL, "bool"},
+        {PgTypes.OID_INT8, "int8"},
+        {PgTypes.OID_INT2, "int2"},
+        {PgTypes.OID_INT4, "int4"},
+        {PgTypes.OID_TEXT, "text"},
+        {PgTypes.OID_FLOAT4, "float4"},
+        {PgTypes.OID_FLOAT8, "float8"},
+        {PgTypes.OID_DATE, "date"},
+        {PgTypes.OID_TIMESTAMPTZ, "timestamptz"},
+        {PgTypes.OID_NUMERIC, "numeric"},
+    };
+
+    private static Optional<ViewQuery.Result> tryNpgsqlTypeLoading(String sql) {
+        if (NPGSQL_TYPES_MARKER.matcher(sql).find()) {
+            StreamSchema schema = StreamSchema.builder("npgsql_types")
+                    .field("nspname", Types.string())
+                    .field("typname", Types.string())
+                    .field("oid", Types.int32())
+                    .field("typrelid", Types.int32())
+                    .field("typbasetype", Types.int32())
+                    .field("type", Types.string())
+                    .field("elemoid", Types.int32())
+                    .field("ord", Types.int32())
+                    .build();
+            List<Object[]> rows = new ArrayList<>();
+            for (Object[] type : WIRE_TYPES) {
+                // A base type ('b'): no relation, no base type, no element, sorted first (ord 0).
+                rows.add(new Object[] {"pg_catalog", type[1], type[0], 0, 0, "b", 0, 0});
+            }
+            return Optional.of(new ViewQuery.Result(schema, rows));
+        }
+        if (NPGSQL_COMPOSITES_MARKER.matcher(sql).find()) {
+            return Optional.of(new ViewQuery.Result(
+                    StreamSchema.builder("npgsql_composite_fields")
+                            .field("oid", Types.int32())
+                            .field("attname", Types.string())
+                            .field("atttypid", Types.int32())
+                            .build(),
+                    List.of()));
+        }
+        if (NPGSQL_ENUMS_MARKER.matcher(sql).find()) {
+            return Optional.of(new ViewQuery.Result(
+                    StreamSchema.builder("npgsql_enum_labels")
+                            .field("oid", Types.int32())
+                            .field("enumlabel", Types.string())
+                            .build(),
+                    List.of()));
+        }
+        return Optional.empty();
     }
 
     // ------------------------------------------------------------------------------------------
@@ -632,7 +730,11 @@ final class PgCatalogShim {
             "pg_tablespace",
             "pg_description",
             "pg_attrdef",
-            "pg_collation");
+            "pg_collation",
+            "pg_proc",
+            "pg_enum",
+            "pg_range",
+            "information_schema.");
 
     private static boolean looksLikeCatalogQuery(String sql) {
         for (String marker : DOMAIN_MARKERS) {

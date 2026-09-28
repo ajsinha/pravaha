@@ -35,9 +35,10 @@ import com.ash.messaging.pravaha.api.data.TypeName;
  * and this costs one array per row -- the same trade {@code ValueCollectingWriter} makes one layer
  * down, and for the same reason: a request/response query is dominated by the client's round trip.
  *
- * <p><strong>Text format only.</strong> Every {@code RowDescription} declares format code 0 and
- * every {@code DataRow} honours it. Binary format is an optimisation for a later slice; declaring
- * text and sending binary is the specific way to make a driver read a float as garbage.
+ * <p><strong>Each column in the format its {@code Bind} asked for.</strong> Text by default; binary
+ * when a client asks, as Npgsql (so Power BI) does on every query. The {@code RowDescription} and
+ * the {@code DataRow}s after it take their format codes from the same array, because declaring one
+ * format and sending the other is the specific way to make a driver read a float as garbage.
  */
 final class PgBackend {
 
@@ -67,8 +68,14 @@ final class PgBackend {
 
     private static final int AUTH_CLEARTEXT_PASSWORD = 3;
 
-    /** Text, as opposed to binary. Slice 1 sends nothing else. */
+    /** Text: the protocol's default, and what psql and pgjdbc ask for. */
     static final short FORMAT_TEXT = 0;
+
+    /** Binary: what Npgsql, and so Power BI, asks for by default. See {@link PgTypes#encodeBinary}. */
+    static final short FORMAT_BINARY = 1;
+
+    /** No format codes at all: every column text, the protocol's own default. */
+    static final short[] ALL_TEXT = new short[0];
 
     /** {@code ReadyForQuery}'s transaction status: idle, and this server is always idle. */
     static final char STATUS_IDLE = 'I';
@@ -154,18 +161,35 @@ final class PgBackend {
      * that looks them up find something else entirely.
      */
     void rowDescription(StreamSchema schema) throws IOException {
+        rowDescription(schema, ALL_TEXT);
+    }
+
+    /**
+     * {@code RowDescription} with each column's format as {@code Bind} asked for it: no codes (all
+     * text), one code for every column, or one code per column -- the protocol's three shapes.
+     */
+    void rowDescription(StreamSchema schema, short[] formats) throws IOException {
         send(ROW_DESCRIPTION, body -> {
             body.writeShort(schema.fields().size());
-            for (Field field : schema.fields()) {
+            for (int ordinal = 0; ordinal < schema.fields().size(); ordinal++) {
+                Field field = schema.field(ordinal);
                 cstring(body, field.name());
                 body.writeInt(0); // table OID: not a table
                 body.writeShort(0); // column attribute number: not a table
                 body.writeInt(PgTypes.oidOf(field));
                 body.writeShort(PgTypes.typeSizeOf(field.type().typeName()));
                 body.writeInt(PgTypes.typeModifierOf(field));
-                body.writeShort(FORMAT_TEXT);
+                body.writeShort(formatOf(formats, ordinal));
             }
         });
+    }
+
+    /** The format of column {@code ordinal} under {@code Bind}'s result format codes. */
+    static short formatOf(short[] formats, int ordinal) {
+        if (formats.length == 0) {
+            return FORMAT_TEXT;
+        }
+        return formats.length == 1 ? formats[0] : formats[ordinal];
     }
 
     /** No rows: what {@link #rowDescription} answers with for a statement that returns none. */
@@ -217,11 +241,18 @@ final class PgBackend {
 
     /** One row, text format, {@code -1} for a NULL. */
     void dataRow(Object[] values, StreamSchema schema) throws IOException {
+        dataRow(values, schema, ALL_TEXT);
+    }
+
+    /** One row, each column in the format {@code formats} names for it, {@code -1} for a NULL. */
+    void dataRow(Object[] values, StreamSchema schema, short[] formats) throws IOException {
         send(DATA_ROW, body -> {
             body.writeShort(values.length);
             for (int ordinal = 0; ordinal < values.length; ordinal++) {
                 TypeName type = schema.field(ordinal).type().typeName();
-                byte[] encoded = PgTypes.encode(type, values[ordinal]);
+                byte[] encoded = formatOf(formats, ordinal) == FORMAT_BINARY
+                        ? PgTypes.encodeBinary(type, values[ordinal])
+                        : PgTypes.encode(type, values[ordinal]);
                 if (encoded == null) {
                     // -1, the protocol's NULL. Distinct from a zero length, which is the empty
                     // string: two different values that a client must be able to tell apart.

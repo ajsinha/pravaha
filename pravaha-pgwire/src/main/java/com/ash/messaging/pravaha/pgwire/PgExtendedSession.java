@@ -151,8 +151,14 @@ final class PgExtendedSession {
                     .schema();
             return new PgStatement.ForCatalog(statement, parameterCount, schema);
         }
-        String rewritten = PgParameterSyntax.toQuestionMarks(statement);
-        return new PgStatement.ForView(queries.prepare(rewritten, principal));
+        // A trailing top-level LIMIT n -- Power BI's DirectQuery sentinel -- comes off before
+        // planning and is applied to the answer at Execute, and a `public.` schema qualifier is
+        // dropped; see PgTrailingLimit and PgPublicSchema for why each is exact.
+        Optional<PgTrailingLimit.Split> limited = PgTrailingLimit.split(statement);
+        String unlimited = limited.map(PgTrailingLimit.Split::sql).orElse(statement);
+        long limit = limited.map(PgTrailingLimit.Split::limit).orElse(PgTrailingLimit.NONE);
+        String rewritten = PgParameterSyntax.toQuestionMarks(PgPublicSchema.unqualify(unlimited));
+        return new PgStatement.ForView(queries.prepare(rewritten, principal), limit);
     }
 
     // -------------------------------------------------------------------------------------
@@ -172,12 +178,10 @@ final class PgExtendedSession {
                 rawValues[i] = r.lengthPrefixedValueOrNull();
             }
             short[] resultFormats = readFormatCodes(r);
-            for (int i = 0; i < resultFormats.length; i++) {
-                requireTextFormat(resultFormats[i]);
-            }
+            requireKnownFormats(resultFormats, statement);
 
             BoundParameters parameters = bindParameters(statement, paramFormats, rawValues);
-            portals.put(portalName, new PgPortal(statement, parameters));
+            portals.put(portalName, new PgPortal(statement, parameters, resultFormats));
             backend.bindComplete();
         } catch (PravahaException refused) {
             fail(backend, refused);
@@ -201,13 +205,27 @@ final class PgExtendedSession {
         return codes.length == 1 ? codes[0] : codes[index];
     }
 
-    private static void requireTextFormat(short format) {
-        if (format != PgBackend.FORMAT_TEXT) {
+    /**
+     * Result formats: text (0) and binary (1) are the only two the protocol defines, and both are
+     * served -- binary because Npgsql, the driver inside Power BI, asks for it on every query. More
+     * than one code must be one per result column, as the protocol requires.
+     */
+    private static void requireKnownFormats(short[] formats, PgStatement statement) {
+        for (short format : formats) {
+            if (format != PgBackend.FORMAT_TEXT && format != PgBackend.FORMAT_BINARY) {
+                throw new PravahaException(
+                        PgWireErrors.UNSUPPORTED_WIRE_FORMAT,
+                        "result format code " + format + " was requested; the protocol defines 0 (text) and "
+                                + "1 (binary), and this gateway serves both.");
+            }
+        }
+        int columns =
+                statement.resultSchema().map(schema -> schema.fields().size()).orElse(0);
+        if (formats.length > 1 && formats.length != columns) {
             throw new PravahaException(
-                    PgWireErrors.UNSUPPORTED_WIRE_FORMAT,
-                    "binary result format was requested; this gateway sends text only, in every "
-                            + "RowDescription and every DataRow it has ever produced. Bind without "
-                            + "requesting binary results.");
+                    PgWireErrors.PROTOCOL_VIOLATION,
+                    "Bind sent " + formats.length + " result format codes for a statement with " + columns
+                            + " result columns; the protocol allows none, one for all, or exactly one per column.");
         }
     }
 
@@ -235,6 +253,9 @@ final class PgExtendedSession {
             PgFrontend.MessageReader r = message.reader();
             char kind = r.char8();
             String name = r.cstring();
+            // A statement's formats are not known until it is bound, and the protocol says to
+            // describe them as zero (text) until then; a portal's are whatever its Bind asked for.
+            short[] formats = kind == 'P' ? requirePortal(name).resultFormats() : PgBackend.ALL_TEXT;
             PgStatement statement =
                     switch (kind) {
                         case 'S' -> requireStatement(name);
@@ -250,7 +271,7 @@ final class PgExtendedSession {
             }
             Optional<StreamSchema> schema = statement.resultSchema();
             if (schema.isPresent()) {
-                backend.rowDescription(schema.get());
+                backend.rowDescription(schema.get(), formats);
             } else {
                 backend.noData();
             }
@@ -303,7 +324,8 @@ final class PgExtendedSession {
                             "a catalog statement validated at Parse stopped being one by Execute"));
         }
         if (portal.statement() instanceof PgStatement.ForView forView) {
-            return queries.execute(forView.prepared(), portal.parameters(), principal);
+            return PgTrailingLimit.apply(
+                    queries.execute(forView.prepared(), portal.parameters(), principal), forView.limit());
         }
         throw new IllegalStateException("ForSet and Empty are handled before runOnce is reached");
     }
@@ -313,8 +335,9 @@ final class PgExtendedSession {
         StreamSchema schema = portal.result().schema();
         int start = portal.cursor();
         int end = maxRows <= 0 ? rows.size() : Math.min(rows.size(), start + maxRows);
+        short[] formats = portal.resultFormats();
         for (int i = start; i < end; i++) {
-            backend.dataRow(rows.get(i), schema);
+            backend.dataRow(rows.get(i), schema, formats);
         }
         portal.advanceTo(end);
         if (end < rows.size()) {
@@ -345,6 +368,17 @@ final class PgExtendedSession {
         }
         // An unrecognised kind byte is not refused either, for the same reason: Close never fails.
         backend.closeComplete();
+    }
+
+    /**
+     * {@code DISCARD ALL}: every named statement and portal forgotten, as PostgreSQL's own {@code
+     * DEALLOCATE ALL} and {@code CLOSE ALL} would. Those are the whole of the session state this server
+     * keeps -- there are no temporary tables, advisory locks or session settings to reset -- so this
+     * is the complete effect, not an approximation of it.
+     */
+    void discardAll() {
+        statements.clear();
+        portals.clear();
     }
 
     /** Ends this Sync-delimited sequence: clears any error state, and answers {@code ReadyForQuery}. */

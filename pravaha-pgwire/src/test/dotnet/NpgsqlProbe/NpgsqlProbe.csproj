@@ -1,0 +1,34 @@
+<!--
+  Project Pravaha: Ask once. Answer always.
+
+  Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>.
+  All rights reserved.
+
+  PROPRIETARY AND CONFIDENTIAL.
+
+  This file is the confidential and proprietary property of Ashutosh Sinha.
+  Unauthorised copying, use, modification, distribution or disclosure of this
+  file, via any medium, is strictly prohibited except with the express prior
+  written permission of the copyright holder.
+
+  See the LICENSE file in the root of this repository for the full terms.
+
+  The real .NET PostgreSQL driver, driven against pravaha-pgwire by NpgsqlClientTest. Npgsql 4.0.17
+  is pinned because it is the version Power BI Desktop bundles (since the October 2024 release) and
+  the on-premises data gateway ships (since June 2025): the one Power BI's PostgreSQL connector
+  actually loads. Npgsql 4.1 and later are not what Power BI runs, so passing against them would
+  prove nothing about Power BI. Built by the test into target/, never into this directory.
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RollForward>Major</RollForward>
+    <NoWarn>NU1902;NU1903;NU1904</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="4.0.17" />
+  </ItemGroup>
+</Project>
