@@ -12,6 +12,7 @@ environment should not drag pyarrow in unless it is going to talk to a server.
 
 from typing import Any
 
+from pravaha.api import EngineApi
 from pravaha.consistency import Consistency
 from pravaha.debug import (
     DebugSession,
@@ -63,6 +64,7 @@ __all__ = [
     "connect",
     "Consistency",
     "DebugSession",
+    "EngineApi",
     "DebugStep",
     "Endpoint",
     "Fixture",

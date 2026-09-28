@@ -3,32 +3,36 @@
 # Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 # Proprietary and confidential; see the LICENSE file in the root of this repository.
 #
-# The CLI. Every example in the documentation types `pravaha`, so this is what makes them true.
+# The command line for a running engine: the Python CLI in sdk/python/pravaha/cli (docs/CLI.md).
+# Every example in the documentation types `pravaha`, so this is what makes them true from a
+# checkout. The offline Java tool (validate/explain/run with no server) is bin/pravaha-engine.
+#
+# An installed `pravaha` (pip install "pravaha[flight]") is preferred when there is one that is
+# not this script; otherwise the CLI runs from the source tree, with the SDK's own virtualenv
+# when it exists (it has pyarrow, which the Flight commands need) and python3 when it does not.
 set -euo pipefail
 
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-jar="${PRAVAHA_CLI_JAR:-}"
+self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+root="$(cd "$(dirname "$self")/.." && pwd)"
 
-if [[ -z "$jar" ]]; then
-  # Installed layout first (bin/ beside lib/), then a development tree.
-  for candidate in "$here/../lib/pravaha-cli.jar" "$here/../pravaha-cli/target/"pravaha-cli-*-cli.jar; do
-    if [[ -f "$candidate" ]]; then jar="$candidate"; break; fi
-  done
+if [[ -z "${PRAVAHA_CLI_FROM_SOURCE:-}" ]]; then
+  while IFS= read -r candidate; do
+    [[ -n "$candidate" ]] || continue
+    resolved="$(cd "$(dirname "$candidate")" && pwd)/$(basename "$candidate")"
+    if [[ "$resolved" != "$self" ]]; then
+      exec "$candidate" "$@"
+    fi
+  done < <(type -ap pravaha 2>/dev/null || true)
 fi
 
-if [[ -z "$jar" || ! -f "$jar" ]]; then
-  echo "pravaha: cannot find the CLI jar." >&2
-  echo "  Build it with:  ./mvnw -pl pravaha-cli -am install -DskipTests" >&2
-  echo "  Or point at it: PRAVAHA_CLI_JAR=/path/to/pravaha-cli-<version>-cli.jar" >&2
-  exit 2
+python="${PRAVAHA_PYTHON:-}"
+if [[ -z "$python" ]]; then
+  if [[ -x "$root/sdk/python/.venv/bin/python" ]]; then
+    python="$root/sdk/python/.venv/bin/python"
+  else
+    python="python3"
+  fi
 fi
 
-# Arrow allocates off-heap through java.nio internals that the module system closes by default.
-# Without these a Flight call fails inside putNext and the client sees RST_STREAM with nothing
-# explaining why -- which cost an afternoon of looking at the client for a fault in the JVM's
-# module configuration.
-exec "${JAVA_HOME:+$JAVA_HOME/bin/}java" \
-  --add-opens=java.base/java.nio=ALL-UNNAMED \
-  --add-opens=java.base/java.lang=ALL-UNNAMED \
-  ${PRAVAHA_JAVA_OPTS:-} \
-  -jar "$jar" "$@"
+export PYTHONPATH="$root/sdk/python${PYTHONPATH:+:$PYTHONPATH}"
+exec "$python" -m pravaha.cli "$@"
