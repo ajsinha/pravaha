@@ -5,7 +5,7 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 
 **Store:** MySQL 8, read through its binary log · **Time to first result:** about fifteen minutes ·
 **Shows:** change data capture with `mysql-cdc`, updates as `-1`/`+1`, a filter whose rows leave as
-well as arrive, deletes
+well as arrive, deletes, an alert that clears itself
 
 ## The problem
 
@@ -250,11 +250,72 @@ The 09:15 update never appears: its old row and its new one are both above the r
 the filter passes neither half. An alert that *clears* is a `-1` — a consumer that only listened
 for rows arriving would page the buyer about toasters for ever.
 
+## Step 7 — let the engine page the buyers, and clear the page
+
+Step 6 is a program you run and keep running. An **alert** ([ADR-057](../../../docs/adr/057-alerts.md))
+is the engine doing it: it follows `low_stock`'s answer, and for each line says when its row
+**enters** — the update that takes it to its reorder point — and when it **leaves** — the delivery
+that tops it up, or the `DELETE`. The node's configuration binds a channel called `buyers` that writes
+each notification to the node's log (`plugin: log`, in [`conf/application.yaml`](conf/application.yaml));
+point it at a real receiver with the webhook shown below.
+
+```bash
+pravaha query --url grpc://localhost:19090 --sql \
+  "CREATE ALERT low_stock_alert ON low_stock NOTIFY buyers
+   WITH (severity = 'warning', include = (on_hand, reorder_point))"
+```
+
+Run it before Step 4, and the morning says, in order:
+
+```text
+FIRED   sku-400 MAN   on_hand 3 of 4     09:00, opened under its reorder point
+FIRED   sku-200 LDN   on_hand 7 of 8     09:05, the update crosses it
+FIRED   sku-300 LDN   on_hand 2 of 5     09:10
+CLEARED sku-200 LDN                      09:20, the delivery -- its -1 takes the line out
+CLEARED sku-400 MAN                      09:25, the DELETE
+FIRED   sku-100 LDN   on_hand 10 of 10   09:30, <= counts
+```
+
+The 09:15 update to `sku-100 MAN` says nothing: it is above its reorder point before and after.
+Nothing here polls the table and nothing here guesses that a line recovered: the clear is the
+retraction the binary log delivered.
+
+```bash
+pravaha alerts show low_stock_alert --http http://localhost:18080
+pravaha alerts snooze low_stock_alert 2h        # a stock-take: say nothing, catch up after
+pravaha alerts ack low_stock_alert --key "sku=sku-300, warehouse=LDN"
+```
+
+**What it promises.** The alert's state is exactly once — each decision is journalled beside the
+registry journal before anything is sent — so a node restarted mid-morning does not page about lines
+that were already low, and a delivery that arrived while it was down is still announced as a clear.
+Delivery is at least once, with the same `Idempotency-Key` on every attempt, so a receiver that must
+page once de-duplicates on it. A line that flaps around its reorder point during a busy hour is what
+`WITH (clear_after = '15m')` and `dedupe = '30m'` are for. `pravaha-it`'s
+[`RetailLowStockAlertEndToEndTest`](../../../pravaha-it/src/test/java/com/ash/messaging/pravaha/it/alerts/RetailLowStockAlertEndToEndTest.java)
+replays this morning on a real node through a signed webhook, restarting the node after 09:15.
+
+**A webhook instead of the log.** In `conf/application.yaml`, replace the `buyers` channel:
+
+```yaml
+  notifiers:
+    buyers:
+      plugin: webhook
+      options:
+        url: https://hooks.example.com/buyers
+        secret-env: PRAVAHA_BUYERS_HOOK_SECRET   # the HMAC key; never written into this file
+```
+
+Each notification is then a signed JSON `POST` (`X-Pravaha-Signature: sha256=` HMAC of
+`<timestamp>.<body>`), retried with backoff. How a receiver verifies it is in
+[`OPERATIONS.md`](../../../docs/OPERATIONS.md), *Alerts and notifier channels*.
+
 ## Making this yours
 
 | To change | Do this |
 |---|---|
 | The alert threshold | The `WHERE`. `on_hand <= reorder_point / 2` for "critically low" is a second registration |
+| Who is paged, and when | The alert: `WHERE warehouse = 'LDN'` for one warehouse's buyers, `fire_after = '10m'` to ignore a till's brief dip, `severity = 'critical'` on the "critically low" view |
 | Another table | Another source binding, one table each. The stream takes the table's name |
 | A replica rather than the primary | Point `host` at it; it needs its own binary log (`log_replica_updates`, on by default in 8.0) |
 | Rows already in the table | Not yet: `snapshot.mode: initial` is refused (`PRV-5150`). Start the node first, or touch each row once |

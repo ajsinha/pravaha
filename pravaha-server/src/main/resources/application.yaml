@@ -421,6 +421,29 @@ pravaha:
     # decides and pravaha.security.policy is not consulted.
     authority: import
 
+  # Alerts (ADR-057): CREATE ALERT ... NOTIFY <channel>. Every decision about every key is journalled
+  # before anything is sent (exactly-once state); a notification is sent until the channel accepts it,
+  # under the same Idempotency-Key every time (at-least-once delivery).
+  alerts:
+    enabled: true
+    # Unset: alerts.journal beside pravaha.registry.journal, or memory when that is unset too.
+    journal: ""
+    # After a restart, how long a firing key missing from the restored answer waits before it may clear.
+    recovery-grace: 30s
+    # How long a notification a channel did not accept waits before it is sent again.
+    redeliver-after: 60s
+    delivery-threads: 2
+  # The channels an alert may NOTIFY, like pravaha.sinks. A secret is never written here: the webhook
+  # reads its HMAC key from secret-env or secret-file, and refuses secret/token/password options.
+  # notifiers:
+  #   buyers:
+  #     plugin: webhook
+  #     options:
+  #       url: https://hooks.example.com/pravaha
+  #       secret-env: PRAVAHA_BUYERS_HOOK_SECRET
+  #   ops-log:
+  #     plugin: log
+
   registry:
     # Where registered continuous queries are written down. Unset means they live only in memory and
     # a restart loses them -- which the node warns about at startup rather than leaving to be found

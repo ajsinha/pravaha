@@ -1059,6 +1059,50 @@ own row arrays.
 
 ---
 
+### 3.2 Alerts: told when a row enters a view, and when it leaves
+
+An **alert** follows a view's answer the way a query over it does (§3.1) and, instead of computing
+another answer, tells somebody ([ADR-057](adr/057-alerts.md)). A key **fires** when its row enters the
+view — inserted, or updated across the view's `WHERE` — and **clears** when it leaves — deleted, or
+updated back:
+
+```text
+CREATE ALERT low_stock_alert ON low_stock
+  WHERE warehouse = 'LDN'
+  NOTIFY buyers
+  WITH (severity = 'warning', dedupe = '10m', include = (on_hand, reorder_point));
+```
+
+Clearing is honest because the view is kept by retractions: the delivery that tops a line up is the
+old row at −1, the row leaves `low_stock`, and the alert is told so in the same commit. Because it
+follows the **answer** and not the changelog, an upsert across the threshold is seen as the old row
+leaving and the new one entering, which a consumer of a keyed view's changelog does not see.
+
+- **The condition** is comparisons of the view's own columns with literals — `= != <> < <= > >=`,
+  `IS [NOT] NULL` — joined by `AND`. `OR`, arithmetic and two columns are refused (`PRV-2072`,
+  `PRV-2070`): put the question in a query over the view and alert on that. A column the view does not
+  have, a literal of the wrong type, an unknown option or a view that is not registered is `PRV-8042`.
+- **What is true and what is said are kept apart.** `fire_after` and `clear_after` decide what is true
+  (in or out for that long first). `dedupe` (the least time between two notifications about one key),
+  `PAUSE`, `SNOOZE` and `resend_every` (reminders until `ACK`) decide what is said: a transition held
+  back is sent when they allow, and only if it still differs from what was last said, so the receiver's
+  picture converges on the truth without losing a clear.
+- **State is exactly once, delivery at least once.** Every decision is journalled and forced before
+  anything is sent; a restart neither re-fires a firing key nor loses a clear that was decided and not
+  yet delivered. A notification is sent until the channel accepts it, under an **idempotency key** that
+  is the same on every attempt: a receiver that must act once de-duplicates on it.
+- **Channels** are plugins bound under `pravaha.notifiers.<name>`, like sinks: `webhook` (JSON,
+  HMAC-signed, retried with backoff) and `log` (OPERATIONS, "Alerts and notifier channels"). `NOTIFY`
+  naming one that is not bound is `PRV-8043`.
+- **Its view cannot be dropped from under it.** `DROP CONTINUOUS QUERY` of a view an alert follows is
+  `PRV-8024`, naming `ALERT <name>`; `CREATE OR REPLACE` of it is `PRV-8026`.
+- **Who may** (under the catalogue): creating needs `CREATE`, `SELECT` on the view and `WRITE` on each
+  channel; seeing it `SELECT` on the alert; pausing, snoozing and acknowledging `MODIFY`; altering and
+  dropping `MANAGE`. An alert you may not see is `PRV-8040`, as if it did not exist.
+
+`GET /api/v1/alerts/{name}` shows every key's state and the recent notifications; `pravaha alerts` and
+the console's **Alerts** screen show the same. The statements are in §10.2.
+
 ## 4. Reading the answer
 
 ```bash
@@ -1625,6 +1669,47 @@ has never heard of.
 engine. The PostgreSQL gateway is read-only and refuses all five with `PRV-6211`
 (SQLSTATE `25006`).
 
+### 10.2 The statements that manage alerts
+
+```
+CREATE ALERT [IF NOT EXISTS] name ON view
+    [WHERE column op literal [AND column op literal]...]
+    NOTIFY channel [, channel]...
+    [WITH (option = value [, option = value]...)]
+
+ALTER  ALERT name SET (option = value [, ...])
+ALTER  ALERT name NOTIFY channel [, channel]...
+DROP   ALERT [IF EXISTS] name
+PAUSE  ALERT name
+RESUME ALERT name
+SNOOZE ALERT name FOR duration
+ACK    ALERT name
+SHOW   ALERTS
+```
+
+- **`ON view`** names a registered query's view; under the catalogue, `namespace.view` too. Another
+  tenant's view is a name that does not exist (`PRV-8042`).
+- **`op`** is `=`, `!=` (or `<>`), `<`, `<=`, `>`, `>=`, or `IS NULL` / `IS NOT NULL`; a literal is a
+  number, a `'string'`, `TRUE` or `FALSE`.
+- **Options**: `severity` — `info`, `warning` (the default) or `critical`; `fire_after` (or `for`),
+  `clear_after`, `dedupe`, `resend_every` — durations, `0` for none (the default); `include = (col,
+  ...)` — the columns a notification carries (all by default); `snooze` — on `CREATE`, a snooze to
+  start with. A duration is `30s`, `10m`, `2h`, `1d`, `250ms` or ISO-8601 (`PT10M`). An option not in
+  that list is refused (`PRV-8042`).
+- **`ALTER ALERT … SET (...)`** changes options and keeps the rest; **`… NOTIFY`** replaces the
+  channels. The condition and the view are not altered: drop and create, because every key's state is
+  about the old condition. `ALTER ALERT name SET TAGS`, `UNSET TAGS` and `OWNER TO` are the
+  catalogue's statements (ADR-059), not these.
+- **`RESUME`** ends a pause or a snooze; **`SNOOZE … FOR`** takes `'2h'`, `2h` or `PT2H`; **`ACK`**
+  acknowledges every key firing now (REST and `pravaha alerts ack --key` take one).
+- **Answers.** `SHOW ALERTS` answers a row per alert you may see: `name`, `view`, `state` (`ACTIVE`,
+  `PAUSED`, `SNOOZED`), `following` (`FOLLOWING`, or `WAITING` for a view that did not come back),
+  `condition`, `channels`, `severity`, `firing`, `pending`, `owner`, `delivery_error`. The others answer
+  `name`, `state` and a `detail`.
+- **Where they run.** Wherever `CREATE CONTINUOUS QUERY` runs on a node. An embedded engine runs no
+  alert service and refuses them with `PRV-8047`; the PostgreSQL gateway refuses them with `PRV-6211`.
+  An alert and a query cannot share a name (`PRV-8041`).
+
 ---
 
 ## 11. Projection — `SELECT`
@@ -1989,6 +2074,11 @@ as a JUnit test that compiles and passes.
 | `PRV-8025` | A `CREATE OR REPLACE` whose new version would read, through other queries, its own answer — §3.1 |
 | `PRV-8026` | Something about a query over a query that cannot be made exact: replacing a member of a chain, reading a name being replaced, `RETAIN FOR` over a view, a restore without the consumed answer — §3.1 |
 | `PRV-8027` | A chain of queries over queries deeper than eight — §3.1 |
+| `PRV-8040` | No alert by that name that you may see — §3.2 |
+| `PRV-8041` | `CREATE ALERT` of a name an alert, a query or a catalogue object already has — §10.2 |
+| `PRV-8042` | An alert whose view, condition, option or duration cannot be kept — §3.2, §10.2 |
+| `PRV-8043` | `NOTIFY` names a channel no `pravaha.notifiers.<name>` binds — §3.2 |
+| `PRV-8047` | An alert statement where no alert service runs (an embedded engine) — §10.2 |
 | `PRV-8017` | A `WITH (...)` option this engine does not build, or one said twice — §10.1 |
 | `PRV-4013` | A backfill reached the end of the history without reaching its seam — §8.1 |
 | `PRV-4014` | A cutover before the new version had caught up, or at a position the two do not share — §8.1 |

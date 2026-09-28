@@ -37,3 +37,9 @@ pravaha:
         event.time: updated_at
         # Changes only: rows already in the table before the node first starts are not read
         # (snapshot.mode initial is not built yet), so start the node before loading the morning.
+  # ADR-057: the channel the README's low_stock_alert notifies. The log channel writes each
+  # notification to the node's log; README Step 7 shows the webhook, whose secret is read from the
+  # environment variable it names and never written here.
+  notifiers:
+    buyers:
+      plugin: log

@@ -131,6 +131,7 @@ Flight (`--url`):
 | `subscribe --view V [--filter c=v,...] [--snapshot] [--limit N] [--reconnect [--reconnect-timeout S]] [--buffer-rows N] [--overflow CONFLATE\|DROP_OLDEST\|FAIL]` | `Client.subscribe` |
 | `dlq list --name V [--offset N] [--limit N]`, `dlq show --name V --id I`, `dlq replay --name V --id I[,I]` | `Client.dead_letters`, `dead_letter`, `replay_dead_letters` |
 | `debug fork \| checkpoints \| step \| state \| inspect \| view \| fixture \| sessions \| end` (flags as the Java CLI) | `Client.debug_*` |
+| `alert create A --on V --notify C[,C] [--where COND] [--severity] [--fire-after D] [--clear-after D] [--dedupe D] [--resend-every D] [--include c,c] [--print-sql]`, `alert drop A [--if-exists] [--yes]` | `Client.query` with the `CREATE ALERT` / `DROP ALERT` statement it writes |
 
 HTTP (`--http`):
 
@@ -160,9 +161,16 @@ HTTP (`--http`):
 | `catalog comment O TEXT`, `catalog tag O k[=v]... [--unset k]`, `catalog move V --namespace NS`, `catalog owner O --role R \| --user U [--yes]` | `PATCH /api/v1/catalog/objects/{name}` |
 | `grant PRIVS O --role R \| --user U`, `revoke PRIVS O --role R \| --user U [--yes]`, `grants --on O \| --role R \| --user U` | `POST`, `DELETE`, `GET /api/v1/catalog/grants` |
 | `access why USER O` | `GET /api/v1/catalog/access` |
+| `alerts [ls]`, `alerts channels`, `alerts show A` | `GET /api/v1/alerts`, `/alerts/channels`, `/alerts/{name}` |
+| `alerts pause A`, `alerts resume A`, `alerts snooze A DURATION`, `alerts ack A [--key 'c=v, c=v']` | `POST /api/v1/alerts/{name}/pause`, `/resume`, `/snooze`, `/ack` |
 
 The catalogue commands (ADR-059) need a node with `pravaha.catalog.enabled`; `revoke` and `catalog
 owner` change nothing without `--yes`.
+
+The alert commands (ADR-057): `alerts show` prints every key's state (`FIRING`, `PENDING`, `CLEARING`,
+`CLEARED`), what the channels were last told and are owed, and the recent notifications; `alert
+create` writes the `CREATE ALERT` statement and sends it over Flight exactly as `pravaha query --sql`
+would (`--print-sql` prints it instead); `alert drop` changes nothing without `--yes`.
 
 A password left out is asked for without echo on a terminal, or read from stdin with
 `--password-stdin` / `--new-stdin`.

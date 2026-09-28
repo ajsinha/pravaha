@@ -797,6 +797,29 @@ cannot be kept exact over an input that retracts is refused rather than approxim
 A downstream whose upstream fails stops following it with `PRV-8004`, naming the upstream, and keeps
 answering at the frontier it reached: its feed is reported stopped, as any source's is.
 
+## An alert is refused, silent, or not delivered (`PRV-8040` … `PRV-8047`)
+
+An alert follows a view's answer and notifies when a key's row enters it and when it leaves
+([ADR-057](adr/057-alerts.md), [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §3.2).
+
+| Code | What happened | What to do |
+|---|---|---|
+| `PRV-8040` | No alert by that name that you may see — the same answer for one that does not exist and one you hold no `SELECT` on | `SHOW ALERTS` or `pravaha alerts ls` lists what you may see |
+| `PRV-8041` | `CREATE ALERT` of a name an alert already has, or a continuous query has, or (under the catalogue) another object has in your `default` namespace | Choose another name, or add `IF NOT EXISTS` |
+| `PRV-8042` | The view is not registered or not yours to see; a `WHERE` or `include` column is not the view's; a literal of the wrong type; an unknown option; a severity that is not `info`, `warning` or `critical`; a duration that is not one | Correct the statement; the message names the part. A condition richer than `column op literal AND ...` belongs in a query over the view |
+| `PRV-8043` | `NOTIFY` names a channel the node does not bind | Bind it under `pravaha.notifiers.<name>` (OPERATIONS, "Alerts and notifier channels"); `pravaha alerts channels` lists them |
+| `PRV-8044` | `alerts.journal` cannot be read or appended to. A decision is not acted on unless it is journalled | Check the file (beside the registry journal, or `pravaha.alerts.journal`), its permissions and the disk |
+| `PRV-8045` | A channel did not accept a notification after its retries. Recorded on the alert — its delivery error, and a `FAILED` line in its history — never thrown to a caller | Fix the receiver. The notification is sent again every `pravaha.alerts.redeliver-after`, under the same idempotency key, until it is accepted |
+| `PRV-8046` | The node refused to start: a `pravaha.notifiers.<name>` binding names a plugin not on the classpath, has no URL, writes a secret into the configuration (`secret`, `token`, `password`), or names an environment variable that is not set or a file that cannot be read | Correct the binding; a secret is given by `secret-env` or `secret-file`, never inline |
+| `PRV-8047` | An alert statement or `/api/v1/alerts` call where no alert service runs: an embedded engine, or `pravaha.alerts.enabled: false` | Run it against a node with its alert service on |
+
+**An alert that says nothing.** Look at `pravaha alerts show <name>`: `following` other than
+`FOLLOWING` means its view is not registered (it waits for it); `PAUSED` or `SNOOZED` hold every
+notification back until resumed; a key in `PENDING` is waiting out `fire_after`; one in `CLEARING`
+is waiting out `clear_after`; `owed` shows what the channels have not been told yet — held back by
+`dedupe`, or not delivered (`delivery`). **An alert that said something twice** is at-least-once
+delivery doing its job after a retry or a restart: both carry the same `Idempotency-Key`.
+
 ## `PRV-1052` — an HTTP request that reached no endpoint
 
 Every non-2xx response on `/api/v1/**` is an `ApiError` — `code`, `message`, `helpUrl`,
@@ -1060,6 +1083,14 @@ client models the error rather than an empty object.
 | `PRV-8025` | REGISTRY_QUERY_CYCLE | registry (queries on queries) |
 | `PRV-8026` | REGISTRY_CHAIN_UNSUPPORTED | registry (queries on queries) |
 | `PRV-8027` | REGISTRY_CHAIN_TOO_DEEP | registry (queries on queries) |
+| `PRV-8040` | ALERT_NO_SUCH_ALERT | registry (alerts) |
+| `PRV-8041` | ALERT_EXISTS | registry (alerts) |
+| `PRV-8042` | ALERT_DEFINITION_INVALID | registry (alerts) |
+| `PRV-8043` | ALERT_NO_SUCH_CHANNEL | registry (alerts) |
+| `PRV-8044` | ALERT_JOURNAL_FAILED | registry (alerts) |
+| `PRV-8045` | ALERT_DELIVERY_FAILED | registry (alerts) |
+| `PRV-8046` | ALERT_NOTIFIER_MISCONFIGURED | registry (alerts) |
+| `PRV-8047` | ALERT_NOT_SERVED | registry (alerts) |
 | `PRV-8101` | EMBEDDED_UNKNOWN_STREAM | registry (embedded engine) |
 | `PRV-8102` | EMBEDDED_ROW_REJECTED | registry (embedded engine) |
 | `PRV-8103` | EMBEDDED_BACKPRESSURE | registry (embedded engine) |

@@ -12,6 +12,29 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **Alerts (ADR-057): told when a row enters a view, and when it leaves.** `CREATE ALERT name ON
+  view [WHERE column op literal AND ...] NOTIFY channel [, ...] [WITH (severity, fire_after,
+  clear_after, dedupe, resend_every, include, snooze)]`, `ALTER`, `DROP`, `PAUSE`, `RESUME`, `SNOOZE
+  … FOR`, `ACK ALERT` and `SHOW ALERTS`, wherever `CREATE CONTINUOUS QUERY` runs. An alert follows its
+  view's answer (ADR-056): a key fires when its row enters — an insert, or an update across the
+  threshold — and clears when it leaves — a delete, or the update back — so a clear is a retraction the
+  alert was handed, not a guess. What is true and what is said are kept apart: `fire_after` and
+  `clear_after` decide the first; `dedupe`, pause, snooze and reminders (until `ACK`) only hold the
+  second back, and the receivers are told the difference when they allow — a flap folds into its end
+  state and a clear is never lost. **Exactly-once state, at-least-once delivery**: every decision is
+  journalled (`alerts.journal`) and forced before anything is sent, so a restart neither re-fires a
+  firing key nor forgets a clear it owed, and every attempt carries the same `Idempotency-Key`.
+  Notifier channels are plugins (`NotifierPlugin`) bound under `pravaha.notifiers.<name>`: `webhook`
+  (JSON, HMAC-SHA256-signed over `<timestamp>.<body>`, retries with backoff and timeouts, `format:
+  slack`; the secret only by `secret-env` / `secret-file`) and `log`; a channel the node cannot open
+  refuses the start. An alert is a catalogue object (`ALERT`: `SELECT`, `MODIFY`, `MANAGE`), a `NOTIFY`
+  needs `WRITE` on the channel (new kind `NOTIFIER`), and a view an alert follows cannot be dropped
+  (`PRV-8024`). `/api/v1/alerts` (list, detail with per-key state and recent notifications, channels,
+  pause/resume/snooze/ack), `pravaha alerts ls|show|channels|pause|resume|snooze|ack`, `pravaha alert
+  create|drop`, and the console's Alerts screens (from the command palette, under Operations). The
+  retail case study's low-stock alert runs end to end on a real node with a signed webhook and a
+  restart (`RetailLowStockAlertEndToEndTest`). New codes `PRV-8040` to `PRV-8047`. Not built: `email`,
+  `teams` and `pagerduty` channels (designed in ADR-057), freshness-objective alerts.
 - **Power BI reads views through the PostgreSQL gateway, in Import and DirectQuery.** Power BI's
   PostgreSQL connector runs Npgsql 4.0.17, and until now it could not open a connection: Npgsql's
   type-loading query was refused (PRV-6205), and so, after it, would have been every query — Npgsql
