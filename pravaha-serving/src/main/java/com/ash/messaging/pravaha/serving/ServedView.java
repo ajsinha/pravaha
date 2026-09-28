@@ -122,6 +122,17 @@ public final class ServedView {
 
     private final Map<Key, Long> pendingWeight = new LinkedHashMap<>();
 
+    /**
+     * The rows of each key that holds more than one distinct row, committed (VIEWW-1).
+     *
+     * <p>Sparse: a key holding one row at a time -- nearly every key -- has no entry, and its row
+     * and weight are the ones in {@link #visible} and {@link #weights}.
+     */
+    private final Map<Key, KeyRows> rowsOf = new HashMap<>();
+
+    /** The same, as the overlay has changed it; a null value means the key is back to one row. */
+    private final Map<Key, KeyRows> pendingRowsOf = new HashMap<>();
+
     private volatile long committedFrontier = Long.MIN_VALUE;
     private volatile long appliedFrontier = Long.MIN_VALUE;
     private long updates;
@@ -242,6 +253,10 @@ public final class ServedView {
      * update arrives as −1 then +1 and nets to the new values; a retraction of a key inserted twice
      * leaves it present with weight 1; and a weight of 0 changes nothing, because it is the row that
      * says two changes cancelled.
+     *
+     * <p>When two different rows with the key are present at once, the key shows the one that most
+     * recently gained weight, and a retraction takes weight from the row it names -- so withdrawing
+     * one of them leaves the other showing, never the row just withdrawn (VIEWW-1).
      */
     private void applyWeighted(Key key, Object[] values, long weight, long frontier) {
         if (weight == 0) {
@@ -251,11 +266,53 @@ public final class ServedView {
         if (net <= 0) {
             // A tombstone, kept in the overlay so a consistent read does not see the removal early.
             pending.put(key, null);
+            stageRows(key, null);
             removals++;
         } else {
-            pending.put(key, values);
+            pending.put(key, rowAfter(key, values, weight, net - weight));
             pendingTime.put(key, frontier);
             updates++;
+        }
+    }
+
+    /**
+     * The row a still-present key shows after one change of {@code weight} to {@code values}.
+     *
+     * @param before the key's net weight before the change
+     */
+    private Object[] rowAfter(Key key, Object[] values, long weight, long before) {
+        KeyRows rows = pendingRowsOf.containsKey(key) ? pendingRowsOf.get(key) : rowsOf.get(key);
+        if (rows == null) {
+            Object[] current = before <= 0 ? null : pending.containsKey(key) ? pending.get(key) : visible.get(key);
+            if (current == null || KeyRows.same(current, values)) {
+                // Absent until now, or the same row again: one row, which the view's own maps hold.
+                return values;
+            }
+            if (weight < 0) {
+                // The key's only row, whatever values the retraction carries: summing the key's
+                // weight is all this ever needed.
+                return current;
+            }
+            KeyRows two = KeyRows.of(current, before, values, weight);
+            stageRows(key, two);
+            return two.shown();
+        }
+        // Copied before the first change since the commit: the committed rows are what a
+        // checkpoint writes, and they must not move until the overlay does.
+        KeyRows changed = pendingRowsOf.containsKey(key) ? rows : rows.copy();
+        if (weight > 0) {
+            changed.add(values, weight);
+        } else {
+            changed.retract(values, -weight);
+        }
+        stageRows(key, changed.size() > 1 ? changed : null);
+        return changed.shown();
+    }
+
+    /** Records a key's rows in the overlay; null when it holds one row or none. */
+    private void stageRows(Key key, KeyRows rows) {
+        if (rows != null || pendingRowsOf.containsKey(key) || rowsOf.containsKey(key)) {
+            pendingRowsOf.put(key, rows);
         }
     }
 
@@ -342,9 +399,17 @@ public final class ServedView {
                 weights.remove(key);
             }
         });
+        pendingRowsOf.forEach((key, rows) -> {
+            if (rows == null) {
+                rowsOf.remove(key);
+            } else {
+                rowsOf.put(key, rows);
+            }
+        });
         pending.clear();
         pendingTime.clear();
         pendingWeight.clear();
+        pendingRowsOf.clear();
         committedFrontier = frontier;
         evict();
         if (visible.size() > maxKeys) {
@@ -764,7 +829,15 @@ public final class ServedView {
     public synchronized List<ViewChange> committedRows() {
         List<ViewChange> rows = new ArrayList<>(visible.size());
         for (Map.Entry<Key, Object[]> entry : visible.entrySet()) {
-            rows.add(new ViewChange(entry.getValue(), weights.getOrDefault(entry.getKey(), 1L)));
+            KeyRows several = rowsOf.get(entry.getKey());
+            if (several != null) {
+                // Every row of the key with its own weight: a subscriber's copy is the Z-set, and a
+                // later retraction names one of these rows, not the key (VIEWW-1). The row the key
+                // shows comes last, so a reader that overwrites by key ends on it.
+                several.forEach((values, weight) -> rows.add(new ViewChange(values, weight)));
+            } else {
+                rows.add(new ViewChange(entry.getValue(), weights.getOrDefault(entry.getKey(), 1L)));
+            }
         }
         return rows;
     }
@@ -823,15 +896,18 @@ public final class ServedView {
             out.writeInt(SNAPSHOT_MAGIC);
             out.writeInt(SNAPSHOT_VERSION);
             out.writeLong(committedFrontier);
-            out.writeInt(visible.size());
-            for (Map.Entry<Key, Object[]> entry : visible.entrySet()) {
-                Object[] values = entry.getValue();
+            List<ViewChange> rows = committedRows();
+            out.writeInt(rows.size());
+            for (ViewChange row : rows) {
+                // A key holding several rows writes each, the row it shows last; a restore sums them
+                // back into one key (VIEWW-1). Every row of a key was written at the key's time.
+                Object[] values = row.values();
                 out.writeInt(values.length);
                 for (int column = 0; column < values.length; column++) {
                     writeValue(out, values[column], column);
                 }
-                out.writeLong(weights.getOrDefault(entry.getKey(), 1L));
-                out.writeLong(writtenAt.getOrDefault(entry.getKey(), committedFrontier));
+                out.writeLong(row.weight());
+                out.writeLong(writtenAt.getOrDefault(keyOf(values), committedFrontier));
             }
         } catch (java.io.IOException e) {
             throw new IllegalStateException("could not snapshot view '" + name + "'", e);
@@ -982,10 +1058,23 @@ public final class ServedView {
         pending.clear();
         pendingWeight.clear();
         pendingTime.clear();
+        rowsOf.clear();
+        pendingRowsOf.clear();
         for (SnapshotRow row : contents.rows()) {
             Key key = keyOf(row.values());
-            visible.put(key, row.values());
-            weights.put(key, row.weight());
+            Object[] earlier = visible.put(key, row.values());
+            Long earlierWeight = weights.put(key, row.weight());
+            if (earlier != null) {
+                // A second row of the same key: the key holds several, and the last is shown.
+                KeyRows several = rowsOf.get(key);
+                if (several == null) {
+                    several = KeyRows.empty();
+                    several.add(earlier, earlierWeight);
+                    rowsOf.put(key, several);
+                }
+                several.add(row.values(), row.weight());
+                weights.put(key, earlierWeight + row.weight());
+            }
             writtenAt.put(key, row.writtenAt());
         }
         committedFrontier = contents.frontier();
@@ -1152,6 +1241,7 @@ public final class ServedView {
                     // evicted and then inserted again starts from its old count rather than from
                     // nothing, and a later retraction would not be enough to remove it.
                     weights.remove(key);
+                    rowsOf.remove(key);
                     evicted++;
                 }
             }
