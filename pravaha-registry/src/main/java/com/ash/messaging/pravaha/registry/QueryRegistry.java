@@ -1064,7 +1064,7 @@ public final class QueryRegistry implements AutoCloseable {
         // caller -- and taking rows one at a time let a commit land between an update's retraction
         // and its insert and publish the answer as gone (VIEW-1).
         Optional<SharedLanes.Placement> placement =
-                declaring.dedicatedLane() || sharedLaneCount == 0 || byFingerprint.size() < shareFrom
+                declaring.ownsALane() || sharedLaneCount == 0 || byFingerprint.size() < shareFrom
                         ? Optional.empty()
                         : sharedLanes().place();
         QueryExecution execution = (placement.isPresent()

@@ -155,7 +155,10 @@ public final class QueryReplacement {
         String version = candidate.fingerprint().shortForm();
         this.deployment.startShadow(
                 version.equals(serving.fingerprint().shortForm())
-                        ? version + (candidate.dedicatedLane() ? "@dedicated-lane" : "@shared-lane")
+                        ? version
+                                + (candidate.dedicatedLane()
+                                        ? "@dedicated-lane"
+                                        : candidate.sharedLane().isEmpty() ? "@own-lane" : "@shared-lane")
                         : version);
     }
 

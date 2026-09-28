@@ -190,7 +190,7 @@ public final class QueryReplacements implements AutoCloseable {
                 ? serving.dedicatedLane()
                 : options.lane() == ReplacementOptions.Lane.DEDICATED;
         RegisteredQuery candidate = registry.declaring(
-                new Declaring(List.of(), dedicated),
+                new Declaring(List.of(), dedicated, options.lane() == ReplacementOptions.Lane.OWN),
                 () -> registry.startShadow(name, sql, keyColumns, principal, retention, sink, directory, plan));
         QueryReplacement replacement;
         try {

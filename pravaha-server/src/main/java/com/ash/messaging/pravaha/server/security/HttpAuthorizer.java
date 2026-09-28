@@ -88,6 +88,22 @@ public class HttpAuthorizer {
         }
     }
 
+    /**
+     * Refuses unless this caller holds the {@code admin} role, recording the attempt either way. For
+     * actions on the node as a whole -- a lane rebalance -- which no one query's permission covers.
+     */
+    public void requireNodeAdmin(HttpServletRequest request, String action) {
+        Principal principal = principalOf(request);
+        boolean admin = principal.roles().contains("admin");
+        AccessDecision decision = admin
+                ? AccessDecision.allow()
+                : AccessDecision.deny(principal.id() + " does not hold the admin role, which " + action + " needs");
+        audit.record(com.ash.messaging.pravaha.security.AuditEvent.of(principal, "http.admin", action, decision, ""));
+        if (!admin) {
+            throw new PravahaException(SecurityErrors.FORBIDDEN, decision.reason());
+        }
+    }
+
     /** Refuses unless this caller may change what the node serves. */
     public void requireAdminister(HttpServletRequest request, String what) {
         Principal principal = principalOf(request);

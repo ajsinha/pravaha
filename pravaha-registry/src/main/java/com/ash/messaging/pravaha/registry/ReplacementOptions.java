@@ -54,7 +54,14 @@ public record ReplacementOptions(
         DEDICATED,
 
         /** The node's lane-sharing mode decides, as for a registration that did not say. */
-        SHARED
+        SHARED,
+
+        /**
+         * A lane of its own for this version, without pinning it there: what an administrator's
+         * rebalance moves a query from a shared lane onto. Not journalled as {@code dedicated}, so a
+         * restart places the query by the node's mode again.
+         */
+        OWN
     }
 
     /** The first four decisions, keeping the running version's lane. */
@@ -204,11 +211,13 @@ public record ReplacementOptions(
                         switch (value.strip().toLowerCase(Locale.ROOT)) {
                             case "dedicated" -> Lane.DEDICATED;
                             case "shared" -> Lane.SHARED;
+                            case "own" -> Lane.OWN;
                             default ->
                                 throw new PravahaException(
                                         BackfillErrors.SOURCE_UNSUPPORTED,
-                                        "lane = '" + value + "' is neither 'dedicated' (a lane of its own) nor "
-                                                + "'shared' (the node's lane-sharing mode decides).");
+                                        "lane = '" + value + "' is not 'dedicated' (a lane of its own, kept), "
+                                                + "'own' (a lane of its own for now, as a rebalance moves a query) "
+                                                + "or 'shared' (the node's lane-sharing mode decides).");
                         });
             default ->
                 throw new PravahaException(

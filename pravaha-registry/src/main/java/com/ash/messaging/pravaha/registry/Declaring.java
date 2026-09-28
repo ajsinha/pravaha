@@ -28,7 +28,7 @@ import com.ash.messaging.pravaha.api.PravahaException;
  * @param indexes output ordinals an equality index is kept over
  * @param dedicatedLane the query runs on a lane of its own whatever the node's lane-sharing mode
  */
-record Declaring(List<Integer> indexes, boolean dedicatedLane) {
+record Declaring(List<Integer> indexes, boolean dedicatedLane, boolean ownLane) {
 
     /** A registration that declares neither. */
     static final Declaring NOTHING = new Declaring(List.of(), false);
@@ -37,13 +37,24 @@ record Declaring(List<Integer> indexes, boolean dedicatedLane) {
         indexes = List.copyOf(indexes);
     }
 
+    Declaring(List<Integer> indexes, boolean dedicatedLane) {
+        this(indexes, dedicatedLane, false);
+    }
+
+    /** Whether the computation this starts must not be placed on a shared lane. */
+    boolean ownsALane() {
+        return dedicatedLane || ownLane;
+    }
+
     /**
      * Whether a replacement declaring this, over the same computation as {@code existing}, is a move
      * between lanes: {@code existing} is the version serving the name being replaced, and the lane
      * choice differs. Anything else with the same fingerprint would cut over to itself.
      */
     boolean moves(RegisteredQuery existing, RegisteredQuery serving) {
-        return existing == serving && existing.dedicatedLane() != dedicatedLane;
+        return existing == serving
+                && (existing.dedicatedLane() != dedicatedLane
+                        || (ownLane && existing.sharedLane().isPresent()));
     }
 
     /** A computation just started for this registration, marked dedicated when it asked to be. */
