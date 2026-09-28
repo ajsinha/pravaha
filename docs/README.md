@@ -12,6 +12,7 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 | [User guide](USER_GUIDE.md) | The whole surface, task by task, in Java / Python / shell | When you start building |
 | [Running from an IDE](DEVELOPING_IN_AN_IDE.md) | The engine in IntelliJ IDEA and the console in PyCharm: run configurations, debugging, tests | When you change the code |
 | [Python integration guide](PYTHON_API_GUIDE.md) | Every Python SDK call and every REST endpoint, with a verified sample each | When you connect an application |
+| [The assistant](ASSIST.md) | Plain English to and from continuous SQL through any model, with the engine as the judge: configuration, providers, runtime switching, plugins, security | When you want a query or a refusal explained |
 | [Case studies](../examples/case-studies/) | Five worked systems with stores, data and code to copy | When you want a template |
 
 ## Reference

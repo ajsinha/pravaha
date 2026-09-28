@@ -12,6 +12,21 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **The assistant, phase 1 (ADR-058): `pravaha explain-sql` and `pravaha why`, through any model,
+  with the engine as the judge.** `pravaha.assist` in the Python SDK, standard library only: a
+  provider protocol with `anthropic` (Messages API), `openai` and `openai-compatible` (Chat
+  Completions — vLLM, LM Studio, llama.cpp, gateways), `ollama` and `fake`, each normalising its
+  failures into four errors, and third-party providers by entry point. A router with fallback chains
+  (a refusal does not fall through), per-request and per-user daily token budgets, and runtime
+  reconfiguration — validated immutable snapshots swapped atomically, a JSON file store other
+  processes watch, and an `AssistAdmin` facade whose every change is an audit record — so an
+  administrator can switch models while the console runs. `explain-sql` grounds the model in the
+  engine's plan; `why` in the engine's diagnostics and a dialect card generated from
+  [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md), and a rewrite it proposes is validated by the
+  engine before it is shown. `pravaha assist models|providers|check|use|enable|disable`. Keys by
+  environment variable or secret file only; no rows are ever sent. 135 tests, none touching a
+  network beyond `127.0.0.1` (`cd sdk/python && .venv/bin/python -m pytest -q tests/test_assist_*.py`).
+  [`ASSIST.md`](ASSIST.md); the console's *The assistant* help page.
 - **A view keeps every row of a key, and shows the one that most recently gained weight (VIEWW-1).**
   A key inserted as `A` and then as `B`, with `A` then retracted, went on showing `A` — the row just
   withdrawn. `ServedView` now keeps each distinct row of a key with its own weight (only for a key

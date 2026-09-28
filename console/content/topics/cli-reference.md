@@ -577,6 +577,39 @@ token from  file
 ends. `user disable` and `key revoke` print what would happen unless `--yes`. `user`, `key --all`,
 `key report` and `session --all` need the admin role. See [Authentication](/help/topics/authentication).
 
+## The assistant
+
+Three commands ask a language model you configure — any provider, several at once — with the engine
+as the judge: the model is given the engine's own plan or refusal, and a rewrite it proposes is
+validated by the engine before it is shown as working. The configuration is
+`~/.config/pravaha/assist.json`; see [The assistant](/help/topics/assistant).
+
+```text
+pravaha explain-sql (--sql <sql> | --sql-file <path> | --query <name>) [--level physical|logical]
+                    [--show-plan] [--profile P] [--model ID]
+pravaha why PRV-nnnn [--sql <sql> | --sql-file <path>] [--no-check] [--profile P] [--model ID]
+pravaha assist models | providers | check [--model ID,ID]
+pravaha assist use <profile> <id>[,<fallback>...] [--default] [--yes]
+pravaha assist enable <id> [--yes] | disable <id> [--yes]
+```
+
+`explain-sql` sends the SQL and the plan `POST /api/v1/queries/explain` gives for it; SQL the engine
+refuses is its refusal, exit `1`, and no model is asked. `why` with no statement needs no engine at
+all; with `--sql` the model is given the engine's own diagnostics, and the rewrite line says
+`the engine accepts it`, `the engine refuses it too` or `not checked`. Which model answered, and its
+tokens, is a note on stderr; `--json` prints the whole result, including the engine's plan or verdict.
+
+```bash
+pravaha why PRV-2050 --sql "SELECT customer, COUNT(*) FROM orders GROUP BY customer"
+pravaha assist use explain local-llama,claude --yes
+```
+
+A model failure exits `1` with the normalised error — `ModelUnavailable`, `ModelRateLimited` (with
+its retry-after), `ModelRefused`, `ModelOutputError`, or `BudgetExceeded` — and a wrong assistant
+configuration (no model, a key written in the file, a key variable not set) exits `2`. `assist use`,
+`enable` and `disable` print the change and make none without `--yes`; `disable` is refused while a
+profile's chain names the model.
+
 ## Refusal codes you may see
 
 The CLI prints whatever the engine says; these are the ones its commands most often meet. Each links

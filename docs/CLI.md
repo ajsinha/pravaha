@@ -159,6 +159,21 @@ HTTP (`--http`):
 A password left out is asked for without echo on a terminal, or read from stdin with
 `--password-stdin` / `--new-stdin`.
 
+The assistant (ADR-058; configured in `~/.config/pravaha/assist.json` — see [`ASSIST.md`](ASSIST.md)):
+
+| Command | What it does |
+|---|---|
+| `explain-sql (--sql \| --sql-file \| --query NAME) [--level physical\|logical] [--show-plan] [--profile P] [--model ID]` | A query in plain English, grounded in `POST /api/v1/queries/explain` (and `GET /api/v1/queries/{name}` for `--query`) |
+| `why PRV-nnnn [--sql \| --sql-file] [--no-check] [--profile P] [--model ID]` | What the refusal means and what to change, grounded in `POST /api/v1/queries/validate` and the guide; a proposed rewrite is validated too. With no statement it needs no engine |
+| `assist models`, `assist providers` | The configured models (key variable set or not, the chains naming each) and every provider type, built-in or installed |
+| `assist check [--model ID,ID]` | Ping each enabled model as cheaply as its API allows (exit `1` if one failed) |
+| `assist use PROFILE ID[,FALLBACK...] [--default] [--yes]`, `assist enable\|disable ID [--yes]` | Change the stored configuration; a running console following the file picks it up |
+
+A model that failed exits `1` with the normalised error on stderr (`ModelUnavailable`,
+`ModelRateLimited` with its retry-after, `ModelRefused`, `ModelOutputError`, or `BudgetExceeded`);
+a wrong assistant configuration — no model, a key written in the file, a key variable not set —
+exits `2` and asked no model. Which model answered, and its tokens, is a note on stderr.
+
 ## pravaha-engine
 
 `pravaha-engine validate`, `explain` and `run` embed the engine and plan or run SQL in their own

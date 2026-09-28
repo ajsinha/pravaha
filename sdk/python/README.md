@@ -150,6 +150,41 @@ Every command takes `--url`/`--http`/`--token` (or `PRAVAHA_URL`/`PRAVAHA_HTTP`/
 Planning or running SQL with no server is the Java tool `pravaha-engine`. The full reference is
 [`docs/CLI.md`](../../docs/CLI.md) and the console's *CLI reference* help page.
 
+## The assistant
+
+`pravaha.assist` explains a continuous query in plain English, and explains a refusal and what to
+change, through any language model you configure — with the engine as the judge: the model is given
+the engine's own plan or refusal, and a rewrite it proposes is validated by the engine before it is
+shown as working (ADR-058, phase 1). Standard library only, like the rest of the SDK.
+
+```python
+from pravaha.api import EngineApi
+from pravaha.assist import Assistant, FileConfigStore, ModelRouter
+
+router = ModelRouter.from_store(FileConfigStore())       # ~/.config/pravaha/assist.json
+assistant = Assistant(router, EngineApi("https://engine:18080", token=token))
+why = assistant.explain_refusal("PRV-2050", "SELECT customer, COUNT(*) FROM orders GROUP BY customer")
+print(why.fix, why.rewrite, why.rewrite_verdict["valid"], why.answered_by["modelId"])
+```
+
+```bash
+pravaha why PRV-2050                       # no engine needed
+pravaha explain-sql --query hourly_spend
+pravaha assist models; pravaha assist check; pravaha assist use explain claude,llama --yes
+```
+
+- **Providers:** `anthropic`, `openai`, `openai-compatible` (vLLM, LM Studio, llama.cpp, gateways),
+  `ollama` and `fake`, over `urllib`; another is a package declaring an entry point in the
+  `pravaha.assist.providers` group.
+- **`ModelRouter`:** profiles to fallback chains (falling through only when a model is unavailable
+  or rate-limited), per-request and per-user daily token budgets, and `reconfigure`/`follow` to
+  switch models while running; **`AssistAdmin`** is the administration facade, each change validated,
+  stored and answered as an audit record.
+- **Keys** by environment variable or secret file only; a key in the configuration is refused.
+
+The configuration, every provider, runtime reconfiguration, a complete provider plugin and the
+security notes are in [`docs/ASSIST.md`](../../docs/ASSIST.md).
+
 ## Install
 
 ```bash
@@ -191,7 +226,8 @@ happened here once, silently, to sixteen of them.
 sdk/python/
 ├── pyproject.toml      the build and the dependencies
 ├── Makefile            install, test, lint, typecheck, build
-├── pravaha/            the package
+├── pravaha/            the package (pravaha/assist/: the assistant, its prompts and dialect card)
+├── tools/              build_dialect_card.py: regenerates the card from docs/CONTINUOUS_QUERIES.md
 └── tests/
 ```
 

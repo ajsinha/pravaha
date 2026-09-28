@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Proposed — design only; nothing below is built |
+| Status | Accepted; phase 1 built — the `pravaha.assist` core in the Python SDK: the provider protocol and the `fake`, `anthropic`, `openai`, `openai-compatible` and `ollama` providers (standard library only, discovered by entry point); `ModelRouter` with fallback chains, per-request and per-user daily budgets and runtime reconfiguration; the JSON configuration store, its watcher and the `AssistAdmin` facade; the explain-a-query and explain-a-refusal tasks with versioned prompts and a dialect card generated from `CONTINUOUS_QUERIES.md`; `pravaha explain-sql`, `pravaha why` and `pravaha assist models\|providers\|check\|use\|enable\|disable`. Phases 2–4 are not built. See [`docs/ASSIST.md`](../ASSIST.md) |
 | Date | 2026-09-28 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-024 (the console reaches the engine only through its API), ADR-031 (authorization at the Pravaha layer), ADR-050 (tenancy), ADR-052 (the engine is the identity authority), ADR-053 (native code only where Java cannot), ADR-056 (queries on queries), ADR-057 (alerts) |
@@ -119,6 +119,42 @@ budgets:
   prompt and marked cacheable where the provider supports prompt caching; identical requests within
   a short window are answered from a local cache keyed by the catalogue version.
 
+### 1a. Runtime configuration
+
+Added when phase 1 was built, at the owner's requirement that several providers and models be
+configured at once and that an administrator can switch between them while the console runs (the
+admin screen itself is phase 3; the core it needs is built and tested now).
+
+- **An immutable, validated snapshot.** `AssistConfig` holds the providers, models, profiles and
+  their chains, budgets and which models are enabled, with a `version`, `changed_at` and
+  `changed_by`. Validation is complete before anything is applied: unknown provider types,
+  duplicate ids, unknown fields, a chain naming an unknown or disabled model, a default profile that
+  does not exist, and — checked in the process that will use it — a key variable that is not set or
+  a secret file others may read. Each is a named problem; nothing is applied.
+- **Atomic swap.** `ModelRouter.reconfigure(config)` validates, then replaces the snapshot under a
+  lock. A request reads the snapshot once when it starts, so requests in flight finish on the old
+  configuration and new ones use the new; none sees half of each.
+- **A store, shared between processes.** `AssistConfigStore` (load, save against the version the
+  change was built from, watch) with a file implementation: JSON written to a temporary file with
+  mode `0600` and renamed into place, and a watch that polls the file. A router that `follow`s the
+  store applies what another process stores, and keeps out — and records — what does not validate
+  in its own process. The store refuses any document holding a key, on load and on save.
+- **An administration facade.** `AssistAdmin` lists providers (built-in and discovered) with their
+  capabilities, adds, updates, removes, enables and disables providers and models, sets a profile's
+  chain (its order is the fallback order), the default profile and the budgets, and pings a model.
+  Each change is validated, persisted, applied through `reconfigure`, and answered as an audit
+  record (who, what, before and after, the version) for the caller to log. Disabling a model a chain
+  still names is refused, so what answers is always a decision someone made.
+- **The format is JSON, not the YAML sketched in §1.** The file is written by programs as well as
+  people and must round-trip exactly; JSON is the only format the standard library reads and writes
+  on every supported Python. YAML would add PyYAML to an SDK with no dependencies; the standard
+  library's TOML is read-only and 3.11+. A `.yaml` or `.toml` file is refused with directions. The
+  fields are §1's, with providers named separately from models so that two models can share one
+  provider's endpoint and key reference.
+- **OpenAI through Chat Completions.** The one wire shape OpenAI and every compatible server speak,
+  so `openai` and `openai-compatible` share one implementation; the Responses API adds nothing these
+  tasks use.
+
 ### 2. The task: from a description to a registered query
 
 ```text
@@ -227,9 +263,11 @@ A harness, `pravaha assist eval`, runs a golden set against any configured model
 
 ## Phases
 
-1. `pravaha.assist` core: the provider protocol, `fake`, `anthropic`, `openai`, `openai-compatible`,
-   `ollama`; the router with fallback and budgets; the explain and why-refused tasks; CLI
-   `pravaha explain-sql` and `pravaha why`.
+1. **Built.** `pravaha.assist` core: the provider protocol, `fake`, `anthropic`, `openai`,
+   `openai-compatible`, `ollama`; the router with fallback and budgets; runtime configuration (§1a);
+   the explain and why-refused tasks; CLI `pravaha explain-sql`, `pravaha why` and `pravaha assist`.
+   Deferred from it: streaming (`stream` stays optional in the protocol; no built-in implements it),
+   prompt caching and the short-window answer cache (§1), and "describe a view".
 2. Drafting with context, judge and repair; `pravaha ask`; the golden set and `pravaha assist eval`.
 3. The console's Describe-it panel and Explain buttons; the assist audit events and usage view.
 4. The remaining providers (`azure-openai`, `bedrock`, `vertex`), local-only tenants, sample values
