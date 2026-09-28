@@ -103,14 +103,35 @@ public final class CatalogPolicy implements SecurityPolicy {
         return AccessDecision.allow();
     }
 
+    /**
+     * Allowed: reading a view needs {@code SELECT} on the view and not on the streams behind it -- that
+     * is the point of a view (ADR-059 §2) -- and the view's owner needed {@code BUILD_ON} on each of them
+     * to register it, which is where SX-11's "a view named for one thing reading another" is now refused.
+     */
+    @Override
+    public AccessDecision mayReadThrough(Principal principal, String source) {
+        return AccessDecision.allow();
+    }
+
     @Override
     public AccessDecision mayRegisterQuery(Principal principal) {
         String namespace = CatalogNames.defaultNamespaceOf(principal.tenant());
         return decide(principal, Privilege.CREATE, namespace, "register a query in " + namespace);
     }
 
+    /**
+     * {@code CREATE} on the caller's default namespace -- or, for a name the catalogue already records
+     * as a view the caller may modify, that: the journal bringing a query back at start re-registers it
+     * as its owner, and an owner does not need {@code CREATE} to keep what they already made.
+     */
     @Override
     public AccessDecision mayRegisterQuery(Principal principal, String name) {
+        Optional<CatalogObject> existing = service.catalog().byEngineName(ObjectKind.VIEW, name);
+        if (existing.isPresent()
+                && access.check(principal, Privilege.MODIFY, existing.get().fullName())
+                        .allowed()) {
+            return AccessDecision.allow();
+        }
         return mayRegisterQuery(principal);
     }
 

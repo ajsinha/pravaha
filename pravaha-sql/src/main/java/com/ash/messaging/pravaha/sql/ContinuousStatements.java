@@ -106,7 +106,8 @@ public final class ContinuousStatements {
      * hand it to a planner that would call it a syntax error.
      */
     public static boolean isContinuousStatement(String sql) {
-        return sql != null && shapeOf(sql).isPresent();
+        return sql != null
+                && (shapeOf(sql).isPresent() || com.ash.messaging.pravaha.catalog.CatalogStatements.recognizes(sql));
     }
 
     /**
@@ -119,6 +120,16 @@ public final class ContinuousStatements {
     public static Optional<ContinuousStatement> recognize(String sql) {
         if (sql == null) {
             return Optional.empty();
+        }
+        if (com.ash.messaging.pravaha.catalog.CatalogStatements.recognizes(sql)) {
+            // ADR-059's statements, read by the catalogue's own reader and refused with this module's
+            // code for a statement that has the wrong shape, as every statement here is.
+            try {
+                return Optional.of(new ContinuousStatement.Governance(
+                        com.ash.messaging.pravaha.catalog.CatalogStatements.parse(sql)));
+            } catch (com.ash.messaging.pravaha.catalog.CatalogStatements.Malformed e) {
+                throw new PravahaException(SqlErrors.STATEMENT_MALFORMED, e.getMessage());
+            }
         }
         Optional<String> shape = shapeOf(sql);
         if (shape.isEmpty()) {

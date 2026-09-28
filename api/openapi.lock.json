@@ -42,6 +42,61 @@
         "responses" : [ "200", "default" ]
       }
     },
+    "/api/v1/catalog/access" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ "query:object", "query:user" ],
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/catalog/grants" : {
+      "delete" : {
+        "hasBody" : false,
+        "parameters" : [ "query:grantee", "query:granteeType", "query:object", "query:privileges" ],
+        "responses" : [ "200", "default" ]
+      },
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ "query:grantee", "query:granteeType", "query:object" ],
+        "responses" : [ "200", "default" ]
+      },
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ ],
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/catalog/namespaces" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ ],
+        "responses" : [ "200", "default" ]
+      },
+      "post" : {
+        "hasBody" : true,
+        "parameters" : [ ],
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/catalog/objects" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ "query:kind", "query:namespace", "query:q" ],
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/catalog/objects/{name}" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ "path:name" ],
+        "responses" : [ "200", "default" ]
+      },
+      "patch" : {
+        "hasBody" : true,
+        "parameters" : [ "path:name" ],
+        "responses" : [ "200", "default" ]
+      }
+    },
     "/api/v1/debug/sessions" : {
       "get" : {
         "hasBody" : false,

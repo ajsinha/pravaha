@@ -520,6 +520,17 @@ public final class IdentityService {
         return store.users.values().stream().map(IdentityService::view).toList();
     }
 
+    /**
+     * The principal {@code username} signs in as -- their tenant and roles, no claims -- for a question
+     * about what they may do (ADR-059's {@code SHOW EFFECTIVE ACCESS}). Empty for no such user.
+     */
+    public synchronized Optional<Principal> principalOfUser(String username) {
+        Identities.User user = username == null ? null : store.users.get(username);
+        return user == null
+                ? Optional.empty()
+                : Optional.of(new Principal(user.username(), tenantOf(user), user.roles(), Map.of()));
+    }
+
     public synchronized UserView me(Principal who) {
         return view(requireUser(who.id()));
     }

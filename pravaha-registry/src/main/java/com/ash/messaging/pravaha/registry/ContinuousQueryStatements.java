@@ -99,6 +99,7 @@ public final class ContinuousQueryStatements {
         return switch (statement) {
             case ContinuousStatement.Create create -> CREATED;
             case ContinuousStatement.Show show -> LISTING;
+            case ContinuousStatement.Governance governance -> GovernanceStatements.schemaOf(governance.statement());
             default -> CHANGED;
         };
     }
@@ -123,6 +124,8 @@ public final class ContinuousQueryStatements {
                 yield changed(resume.name(), "RUNNING");
             }
             case ContinuousStatement.Show show -> listing(principal);
+            case ContinuousStatement.Governance governance ->
+                GovernanceStatements.execute(policy, governance.statement(), principal);
         };
     }
 

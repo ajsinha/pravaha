@@ -97,11 +97,16 @@ public final class CatalogService {
                                 ? known
                                 : Optional.of(catalog.ensureNamespace(tenant));
                     }
-                    case "NAMESPACE" ->
-                        catalog.object(
-                                parts.size() == 1
-                                        ? CatalogNames.namespace(caller.tenant(), parts.get(0))
-                                        : CatalogNames.namespace(parts.get(0), parts.get(1)));
+                    case "NAMESPACE" -> {
+                        String name = parts.size() == 1
+                                ? CatalogNames.namespace(caller.tenant(), parts.get(0))
+                                : CatalogNames.namespace(parts.get(0), parts.get(1));
+                        // A namespace every principal may use exists as soon as somebody names it: a
+                        // tenant's default before anything is registered in it, and the node's own.
+                        yield catalog.object(name).isPresent() || !CatalogAccess.implicitlyUsable(caller, name)
+                                ? catalog.object(name)
+                                : Optional.of(catalog.ensureNamespace(name));
+                    }
                     case "VIEW" -> resolveView(caller, parts);
                     default -> resolveInfrastructure(ObjectKind.named(target.kind()), parts);
                 };

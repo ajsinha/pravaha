@@ -197,7 +197,7 @@ public final class QueryListing {
             if (stream.equals(query.view().name())) {
                 continue;
             }
-            AccessDecision behind = policy.mayRead(principal, stream);
+            AccessDecision behind = policy.mayReadThrough(principal, stream);
             if (!behind.allowed()) {
                 audit.record(AuditEvent.of(
                         principal,

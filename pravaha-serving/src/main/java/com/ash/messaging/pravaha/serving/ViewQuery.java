@@ -492,7 +492,7 @@ public final class ViewQuery {
                 // double every audit event for the ordinary case.
                 continue;
             }
-            AccessDecision decision = policy.mayRead(principal, stream);
+            AccessDecision decision = policy.mayReadThrough(principal, stream);
             audit.record(AuditEvent.of(principal, action, stream, decision, sql));
             if (!decision.allowed()) {
                 throw new PravahaException(

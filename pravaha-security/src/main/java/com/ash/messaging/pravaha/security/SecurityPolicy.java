@@ -217,6 +217,19 @@ public interface SecurityPolicy {
     }
 
     /**
+     * May this principal read the rows of {@code source} that reach them through a view they are
+     * reading -- a stream in the view's provenance?
+     *
+     * <p>Defaults to {@link #mayRead}: SX-11 made a read follow the data a view reads rather than the
+     * name it was registered under, and a policy that says nothing else keeps that rule. The catalogue
+     * (ADR-059) answers it differently -- reading a view needs the view's grant, not its sources',
+     * because registering the view already needed {@code BUILD_ON} on them.
+     */
+    default AccessDecision mayReadThrough(Principal principal, String source) {
+        return mayRead(principal, source);
+    }
+
+    /**
      * May this principal register a continuous query under {@code name}? Defaults to {@link
      * #mayRegisterQuery(Principal)}; a policy that knows where the name will live answers here.
      */
