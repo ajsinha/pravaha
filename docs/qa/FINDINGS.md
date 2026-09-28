@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **437 findings carrying a
-status — 385 FIXED, 38 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 38 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 32 POST-GA and 6 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **440 findings carrying a
+status — 386 FIXED, 40 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 40 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 33 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7188,3 +7188,19 @@ the lead.
 
 > **Status:** OPEN — not reproduced; found by reading. `QueryCheckpoints.restore` catches a failed restore and starts the query from nothing, but `execution.restore` may already have put back some operators' state before it threw.
 > **Disposition:** POST-GA — a test that fails a restore half-way; then reset the execution's state before starting over, or refuse the query with a named code.
+
+## Found making Power BI read Pravaha (2026-09-28), 3 findings
+
+### PGBI-1 (HIGH) — Npgsql, and so Power BI, could not open a connection to the PostgreSQL gateway
+
+> **Status:** FIXED — confirmed against the real Npgsql 4.0.17 (the version Power BI Desktop and the on-premises data gateway bundle): its type-loading query was refused PRV-6205 and every binary-result query PRV-6209. The gateway now answers Npgsql's `pg_type` loading and Power BI's `information_schema` navigator queries (filtered by what the principal may read), serves binary results for every type it sends, accepts `DISCARD ALL`, reads `"public"."view"` as the view and takes a trailing top-level `LIMIT n` off before planning. `NpgsqlClientTest` (a real .NET Npgsql client; skips without dotnet), `PowerBiGatewayTest`, `PgPowerBiTextTest`; help topic `power-bi`.
+
+### DECSUM-1 (MEDIUM) — SUM over a DECIMAL view column fails with an internal error in a read
+
+> **Status:** OPEN — `select sum("_"."avg_ticket") from "public"."rr" "_"` fails "field 0 ('a0') is DECIMAL, not INT64 in schema rr_projected_aggregated", with no PRV code: neither an answer nor a named refusal. Found through Power BI's DirectQuery SQL.
+> **Disposition:** POST-GA — answer it (a DECIMAL sum), or refuse it by name.
+
+### AVGINT-1 (LOW) — AVG of an integer column is an integer, where PostgreSQL clients expect numeric
+
+> **Status:** OPEN — documented engine behaviour (AVG over integers truncates), but a PostgreSQL client such as Power BI computes averages expecting PostgreSQL's numeric result, so its averages over integer columns are truncated. The power-bi topic says so.
+> **Disposition:** NOTE — a compatibility choice: keep it documented, or return a numeric AVG over the gateway.
