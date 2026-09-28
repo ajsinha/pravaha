@@ -282,6 +282,7 @@ density are photographed and audited by axe. The manual WCAG 2.2 AA audit is not
 | [Architecture](docs/ARCHITECTURE.md) | How it is put together, and why each part is shaped that way |
 | [System design](docs/system_design.md) | The full specification |
 | [Decision records](docs/adr/) | Every architectural decision, including the ones later reversed |
+| [Research paper](docs/research/continuous-queries-as-maintained-answers.pdf) · [article](docs/research/continuous-queries-as-maintained-answers-article.md) | *Continuous Queries as Maintained Answers*: the model, and why subscription, recovery, reader sharing and replacement are exact — each claim marked with the test that carries it, or marked argued |
 | [Handover](docs/HANDOVER.md) | Current state, and what to pick up next |
 | [What is left](docs/REMAINING.md) | The build strategy for the gaps, in tranches |
 | [Release notes](docs/RELEASE_NOTES.md) | What each tagged release contains |

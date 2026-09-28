@@ -12,6 +12,16 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **A research paper, and an article version of it.** `docs/research/continuous-queries-as-maintained-answers.pdf`
+  (LaTeX source beside it) and `-article.md`: *Continuous Queries as Maintained Answers — Exact Cuts, Exact
+  Seams and Lossless Cutover in a Single-Node Streaming SQL Engine*. It states the Z-set model and the
+  operator laws, and proves, under assumptions it lists, that a snapshot subscription gets every later
+  commit once, that a checkpoint is one cut (and a two-phase sink exactly once), that an ordered source's
+  shared reader hands each query each record once (ADR-054), and that a replacement cuts over losslessly
+  (ADR-046). Every claim names the test that carries it or says it is argued; the paper reports that
+  `pravaha-algebra` is tested but imported by no running module, and quotes only measurements already in
+  the repository, with their conditions. Licensed CC BY-NC-ND 4.0 (`docs/research/LICENSE`); the software
+  stays proprietary. Built with `latexmk -pdf`.
 - **The Java CLI is now `pravaha-engine`, and keeps only what needs the engine in-process:
   `validate`, `explain`, `run` and `version`.** `bin/pravaha` is renamed `bin/pravaha-engine`
   (`PRAVAHA_CLI_JAR` becomes `PRAVAHA_ENGINE_JAR`; the container image installs

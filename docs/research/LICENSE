@@ -1,0 +1,62 @@
+RESEARCH MATERIALS LICENCE
+
+Copyright © 2026 Ashutosh Sinha <ajsinha@gmail.com>.
+
+The works in this directory:
+
+  • "Continuous Queries as Maintained Answers: Exact Cuts, Exact Seams and
+    Lossless Cutover in a Single-Node Streaming SQL Engine"
+    (continuous-queries-as-maintained-answers.tex,
+     continuous-queries-as-maintained-answers.pdf)
+
+  • "Continuous Queries as Maintained Answers" — the article version of the
+    same work (continuous-queries-as-maintained-answers-article.md)
+
+are licensed under the Creative Commons
+Attribution-NonCommercial-NoDerivatives 4.0 International Licence
+(CC BY-NC-ND 4.0).
+
+  Human-readable summary:  https://creativecommons.org/licenses/by-nc-nd/4.0/
+  Full legal code:         https://creativecommons.org/licenses/by-nc-nd/4.0/legalcode
+
+YOU ARE FREE TO
+
+  Share — copy and redistribute the material in any medium or format, for
+  non-commercial purposes, provided you give appropriate credit.
+
+UNDER THE FOLLOWING TERMS
+
+  Attribution   — You must give appropriate credit, provide a link to this
+                  licence, and indicate if changes were made.
+  NonCommercial — You may not use the material for commercial purposes.
+  NoDerivatives — If you remix, transform or build upon the material, you may
+                  not distribute the modified material.
+
+HOW TO ATTRIBUTE
+
+  Ashutosh Sinha, "Continuous Queries as Maintained Answers: Exact Cuts, Exact
+  Seams and Lossless Cutover in a Single-Node Streaming SQL Engine" (2026),
+  licensed under CC BY-NC-ND 4.0.
+  https://creativecommons.org/licenses/by-nc-nd/4.0/
+
+SCOPE
+
+  This licence applies ONLY to the files listed above. Everything else in this
+  repository — the source code, the design, architecture and decision records,
+  the documentation, tooling, presentation decks and brand assets, including
+  the Pravaha name, the flow mark and the slogan "Ask once. Answer always." — is
+  proprietary and All Rights Reserved. See ../../LICENSE.
+
+QUOTED MATERIAL
+
+  These works cite and briefly describe scholarly publications and software
+  owned by others. Those works are not covered by this licence and remain the
+  property of their respective owners. See ../../THIRD-PARTY-NOTICES.md for the
+  third-party components Pravaha itself uses.
+
+RESERVED RIGHTS
+
+  The Author reserves all rights not expressly granted, including the right to
+  publish these works elsewhere and to grant separate terms on request.
+
+  Enquiries: Ashutosh Sinha — ajsinha@gmail.com

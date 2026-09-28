@@ -34,6 +34,7 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 | [TLS](CONNECTOR_TLS.md) | Every encrypted connection Pravaha makes or accepts — connector, server and SDK — and the configuration that turns each one on. The single source of truth for TLS |
 | [System design](system_design.md) | The full specification |
 | [Decisions (ADRs)](adr/) | Every architectural decision, with the reasoning and the alternatives rejected |
+| [Research paper](research/continuous-queries-as-maintained-answers.pdf) · [article](research/continuous-queries-as-maintained-answers-article.md) | *Continuous Queries as Maintained Answers*: Z-sets, and the four hand-overs made exact at a position — a subscription from a snapshot, a checkpoint, a shared reader, a replacement — with the test behind each claim, or "argued" where there is none. LaTeX source beside it; CC BY-NC-ND 4.0 |
 
 ## Project
 
