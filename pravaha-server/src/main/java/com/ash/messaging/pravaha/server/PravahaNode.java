@@ -220,6 +220,15 @@ public class PravahaNode implements SmartLifecycle {
         return credentials;
     }
 
+    /** pravaha.catalog.* (ADR-059): when enabled, the catalogue is the authority. A setter, as setTenancy. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCatalog(com.ash.messaging.pravaha.server.governance.CatalogProperties properties) {
+        catalog = new NodeCatalog(
+                properties, security, journalPath, this::auditSink, this::identity, streams, sinks, sources);
+    }
+
+    private NodeCatalog catalog;
+
     /** This node's identity service, when {@code pravaha.identity.enabled} is set. */
     public Optional<com.ash.messaging.pravaha.identity.IdentityService> identity() {
         return credentials().identity();
@@ -544,7 +553,9 @@ public class PravahaNode implements SmartLifecycle {
         // configure -- could not start. The only way to start it was allow-anonymous=true, which is
         // a lie about the node.
         boolean unauthenticatedCallersGetIn = !security.authenticates() || security.isAllowAnonymous();
-        boolean policyServesThemEverything = !(securityPolicy() instanceof AuthenticatedOnlyPolicy);
+        boolean policyServesThemEverything = catalog != null && catalog.enabled()
+                ? catalog.servesEveryone()
+                : !(securityPolicy() instanceof AuthenticatedOnlyPolicy);
         boolean open = unauthenticatedCallersGetIn && policyServesThemEverything;
         if (open && !security.isAllowAnonymous()) {
             throw new PravahaException(
@@ -720,7 +731,11 @@ public class PravahaNode implements SmartLifecycle {
         return new SourceBinding(binding.streamName(), binding.plugin(), options);
     }
 
-    private SecurityPolicy securityPolicy() {
+    /** The policy every transport authorizes against: one object, so HTTP and the engine cannot disagree. */
+    public SecurityPolicy securityPolicy() {
+        if (catalog != null && catalog.enabled()) {
+            return catalog.policy(); // ADR-059: the catalogue's grants decide
+        }
         // CFG-21. The name is validated by SecurityProperties, which is where the refusal has to
         // live for an operator to meet it before Tomcat's own startup failure buries it.
         return switch (security.trimmedPolicy()) {
@@ -1199,6 +1214,9 @@ public class PravahaNode implements SmartLifecycle {
                             refusal,
                             refusal.code().map(code -> " [" + code.code() + "]").orElse("")));
         });
+        if (catalog != null && catalog.enabled()) {
+            catalog.started(registry, journalPath.isPresent());
+        }
         if (journalPath.isEmpty()) {
             log.warn("pravaha.registry.journal is not set, so registered queries live only in memory and "
                     + "a restart will lose them without saying so");

@@ -340,9 +340,47 @@ refused with the policy's reason), and for every view and stream the caller coul
 they read it (`full`, or `filtered` — the predicate is not repeated) and whether they may administer
 it. Views come from the caller's own listing (the `QueryListing` rule `GET /api/v1/queries` and
 Flight's `pravaha.list` use), so a view hidden from them is absent rather than listed with a "no".
-There is no endpoint to change a grant: the engine is not where grants live — `SecurityPolicy` is an
-SPI a deployment implements against its own identity system, and the configured policies have none
-to edit. The console's **Admin · Access** screen shows it.
+With the catalogue off, there is no endpoint to change a grant: `SecurityPolicy` is an SPI a
+deployment implements against its own identity system, and the configured policies have none to
+edit. **With the catalogue on, grants live in the engine** and are changed with `GRANT` and `REVOKE`
+— see the next section. The console's **Admin · Access** screen shows the answers either way.
+
+## The Pravaha Catalog: grants kept in the engine (ADR-059)
+
+`pravaha.catalog.enabled: true` makes the engine keep a catalogue — every governed object, its owner,
+description, tags and version, and the grants on it — journalled append-only and fsync'd beside the
+registry journal (`catalog.journal`, or `pravaha.catalog.journal`), replayed at start, and consulted by
+a built-in policy, `CatalogPolicy`, at every enforcement point this document describes. Nothing about
+*where* the checks are changes; only where the answers come from:
+
+| The engine asks | The catalogue answers with |
+|---|---|
+| may this principal read a view or stream | `SELECT` on it |
+| may it subscribe | `SUBSCRIBE` on the view — separate from `SELECT`, and re-asked every two seconds on an open Flight subscription, so a revocation ends the stream with `PRV-7002` |
+| may it register | `CREATE` on its tenant's `default` namespace, and `BUILD_ON` on every input the query names |
+| may it drop, pause, resume or replace | `MODIFY` (or `MANAGE`) on the view |
+| may it write to a sink | `WRITE` on the sink |
+| may it read the audit trail | the `admin` role, a `pravaha.security.audit-readers` role, or `MANAGE` on the whole catalogue |
+
+Grants are allow-only, to roles and users, inherited from the catalogue, a tenant and a namespace
+down to every object in it; an owner holds everything on what they own; the `admin` role holds
+everything; a tenant is a wall (a grant inside `acme` reaches only `acme`'s principals). Registering
+makes the registrant the owner. Reading a view needs `SELECT` on the view and **not** on the streams
+behind it — under the catalogue the rule that stops a view laundering its sources is `BUILD_ON` at
+registration, not a check of the sources at every read (the SX-11 check remains for any other
+policy, through `SecurityPolicy.mayReadThrough`).
+
+**Migration.** `pravaha.catalog.authority: import` (the default) imports `pravaha.security.policy`
+once, as grants meaning what it meant, and records that it did; a later start with a different policy
+configured refuses (`PRV-7034`) rather than run with two authorities. `authority: catalog` imports
+nothing and ignores the policy setting. The catalogue is **off by default** because it changes who
+decides, and every deployment written before it was configured against the policy.
+
+Every change is an audit event (`catalog.grant`, `catalog.revoke`, `catalog.owner`, …), allowed or
+refused. The statements, the REST endpoints (`/api/v1/catalog/...`), the CLI (`pravaha catalog`,
+`pravaha grant`, `pravaha access why`) and the console's grants editor all go through one service
+with one set of rules. Row filters and masks as catalogue objects, lineage and sharing are later
+phases of ADR-059 and are not built.
 
 ## Transport
 

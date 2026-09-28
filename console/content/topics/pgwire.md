@@ -305,7 +305,7 @@ SELECT user_id, spend FROM hourly_spend ORDER BY spend DESC
 
 ```text
 pravaha=> CREATE CONTINUOUS QUERY big KEYED BY (txn_id) AS SELECT txn_id, amount FROM txn WHERE amount > 1000;
-ERROR:  PRV-6211  the PostgreSQL gateway is read-only: it does not register, drop, pause, resume or list continuous queries. Send the statement over Flight SQL instead -- an SDK's query(), `pravaha query --sql`, or the console's workbench -- where it runs as your principal.
+ERROR:  PRV-6211  the PostgreSQL gateway is read-only: it does not register, drop, pause, resume or list continuous queries, or show or change the catalogue's grants (ADR-059). Send the statement over Flight SQL instead -- an SDK's query(), `pravaha query --sql`, or the console's workbench -- where it runs as your principal.
 ```
 
 Anything the gateway does not map to a more specific SQLSTATE arrives as `42000` — a name that does not

@@ -28,6 +28,11 @@
     </dependency>
     <dependency>
       <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-catalog</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
       <artifactId>pravaha-sql</artifactId>
       <version>${project.version}</version>
     </dependency>

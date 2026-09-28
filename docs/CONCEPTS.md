@@ -264,6 +264,21 @@ A caller that steps the engine by hand — a test, an embedder — waits with
 `Subscription.awaitQuiet(timeout)`, and `Subscription.pending()` says how far behind a subscriber
 is right now.
 
+## 9. Who may do what is kept with the answer (the Pravaha Catalog)
+
+A view is an answer still being computed, so governing it means governing more than a scan: who may
+**read** it, who may **subscribe** to its changes, who may **build** another query on it, who may
+change it. With the catalogue on (ADR-059), every governed object — a namespace, a query and its
+view, a stream, a sink — has an owner, a description, tags and a version, and the grants on it live
+in the engine beside the registrations, journalled the same way. Names are `tenant.namespace.object`;
+a query registered as `revenue` lands in its registrant's tenant's `default` namespace, owned by the
+registrant. A grant on a namespace reaches everything in it, now and later.
+
+Two rules carry the weight. **Reading a view needs the view's grant, not its sources'** — that is
+what a view is for. **Building on a view needs `BUILD_ON` on it**, so nobody derives from what they
+could not read. And subscribing is its own right, because a live stream is not a query: revoking it
+ends an open subscription within seconds.
+
 ---
 
 ## Where to go next

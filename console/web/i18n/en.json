@@ -709,7 +709,8 @@
       "users": "Users",
       "keys": "API keys",
       "sessions": "Sessions",
-      "lanes": "Lanes"
+      "lanes": "Lanes",
+      "grants": "Grants"
     },
     "access": {
       "title": "Access",
@@ -2614,5 +2615,85 @@
     "submit": "Set password",
     "back": "Back to sign in",
     "invalid": "That reset token is not valid: it was mistyped, has been used, or is more than an hour old. Ask for another."
+  },
+  "governance": {
+    "tab": "Objects and grants",
+    "search": "Search names, descriptions, owners and tags",
+    "search_button": "Search",
+    "namespace": "Namespace",
+    "any_namespace": "Any namespace",
+    "edit_grants": "Edit grants",
+    "error": "The catalogue is not answering",
+    "caption": "Governed objects you may see",
+    "visibility_note": "Only what the engine lets you USE is listed; a search never shows an object you may not see.",
+    "failed": "The engine refused: {detail}",
+    "granted": "Granted {privileges} on {object} to {grantee}.",
+    "revoked": "Revoked {privilege} on {object} from {grantee}; it takes effect at their next read.",
+    "namespace_created": "Namespace {name} created; you own it.",
+    "described": "{object} is updated.",
+    "back": "Objects",
+    "off": {
+      "title": "The catalogue is off on this engine",
+      "body": "Who may do what is decided by the engine's configured policy, and there are no grants to show or change. An administrator turns it on with"
+    },
+    "none": {
+      "title": "Nothing you may see",
+      "body": "The catalogue shows the objects in namespaces you may use. Ask an owner for USE on a namespace."
+    },
+    "col": {
+      "object": "Object",
+      "kind": "Kind",
+      "owner": "Owner",
+      "description": "Description",
+      "tags": "Tags",
+      "privilege": "Privilege",
+      "to": "Granted to",
+      "by": "Granted by",
+      "when": "When"
+    },
+    "object": {
+      "title": "Catalogue object",
+      "what": "catalogue object",
+      "about": "About it",
+      "engine_name": "Engine name",
+      "version": "Version",
+      "created": "Created",
+      "updated": "Last changed",
+      "you_may": "What you may do",
+      "grants": "Grants on it",
+      "no_grants": "No grants you may see."
+    },
+    "why": {
+      "title": "Why may someone, or not?",
+      "user": "User",
+      "ask": "Ask the engine",
+      "allowed": "Allowed",
+      "because": "Because",
+      "yes": "yes",
+      "no": "no"
+    },
+    "grants": {
+      "title": "Grants",
+      "heading": "Who may do what, to which object",
+      "lede": "Grants live in the engine. Each change here is asked of the engine as you, needs MANAGE on the object, and is recorded in the audit trail.",
+      "object": "Object",
+      "object_note": "A full name (acme.sales.revenue), a namespace, or a view as you would write it.",
+      "open": "Open",
+      "add": "Grant",
+      "privileges": "Privileges",
+      "to": "To",
+      "role": "Role",
+      "user": "User",
+      "grantee": "Name",
+      "grant": "Grant",
+      "revoke": "Revoke",
+      "revoke_label": "Revoke {privilege} from {grantee}",
+      "describe": "Description and tags",
+      "set_tags": "Tags (key=value, key)",
+      "unset_tags": "Remove tags",
+      "save": "Save",
+      "new_namespace": "New namespace",
+      "create_namespace": "Create namespace"
+    }
   }
 }

@@ -154,17 +154,15 @@ public class PravahaServerApplication {
      * against nothing at all.
      */
     @Bean
-    public com.ash.messaging.pravaha.security.SecurityPolicy pravahaSecurityPolicy(
-            com.ash.messaging.pravaha.server.security.SecurityProperties security) {
+    public com.ash.messaging.pravaha.security.SecurityPolicy pravahaSecurityPolicy(PravahaNode node) {
         // CFG-21. One validator, in SecurityProperties, reached from its own @PostConstruct as well
         // as from here -- so the refusal an operator reads arrives while the properties bean is
-        // being built rather than four Caused-by levels under a Tomcat startup failure. This used
-        // to carry a second copy of the switch, and a second copy of the message.
-        return switch (security.trimmedPolicy()) {
-            case "permissive" -> com.ash.messaging.pravaha.security.SecurityPolicy.PERMISSIVE;
-            default ->
-                new com.ash.messaging.pravaha.server.security.AuthenticatedOnlyPolicy(security.getAuditReaders());
-        };
+        // being built rather than four Caused-by levels under a Tomcat startup failure.
+        //
+        // ADR-059. Taken from the node rather than built again from the same key: with the catalogue
+        // on, the policy holds the grants, and a second instance would be a second catalogue that the
+        // HTTP surface consulted and nothing else changed.
+        return node.securityPolicy();
     }
 
     /**

@@ -66,8 +66,9 @@ final class RegistrationAuthorization {
             String action,
             String name,
             String sql,
+            java.util.Collection<String> direct,
             Iterable<String> sources) {
-        AccessDecision decision = policy.mayRegisterQuery(principal);
+        AccessDecision decision = policy.mayRegisterQuery(principal, name);
         audit.record(AuditEvent.of(principal, action, name, decision, sql));
         if (!decision.allowed()) {
             throw new PravahaException(
@@ -75,7 +76,11 @@ final class RegistrationAuthorization {
         }
         List<String> rowFilters = new ArrayList<>();
         for (String source : sources) {
-            AccessDecision read = policy.mayRead(principal, source);
+            // ADR-059: building on what the plan names is BUILD_ON; a source reached only through an
+            // upstream view is asked separately, so a policy can grant a view without its sources.
+            AccessDecision read = direct.contains(source)
+                    ? policy.mayBuildOn(principal, source)
+                    : policy.mayBuildThrough(principal, source);
             audit.record(AuditEvent.of(principal, action + ":source", source, read, sql));
             if (!read.allowed()) {
                 throw new PravahaException(

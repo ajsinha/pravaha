@@ -37,7 +37,8 @@ public sealed interface ContinuousStatement
                 ContinuousStatement.Drop,
                 ContinuousStatement.Pause,
                 ContinuousStatement.Resume,
-                ContinuousStatement.Show {
+                ContinuousStatement.Show,
+                ContinuousStatement.Governance {
 
     /** The statement's own words, for a message or an audit record: {@code CREATE CONTINUOUS QUERY}. */
     String verb();
@@ -393,6 +394,23 @@ public sealed interface ContinuousStatement
         @Override
         public String verb() {
             return "SHOW CONTINUOUS QUERIES";
+        }
+    }
+
+    /**
+     * A statement that reads or changes the catalogue (ADR-059): {@code GRANT}, {@code REVOKE},
+     * {@code CREATE NAMESPACE}, {@code COMMENT ON}, {@code ALTER ... SET TAGS | OWNER TO}, {@code SHOW
+     * GRANTS} and the rest, parsed by {@link com.ash.messaging.pravaha.catalog.CatalogStatements}. Carried
+     * here so that every surface that runs these statements runs those too, through one door.
+     */
+    record Governance(com.ash.messaging.pravaha.catalog.CatalogStatement statement) implements ContinuousStatement {
+        public Governance {
+            Objects.requireNonNull(statement, "statement");
+        }
+
+        @Override
+        public String verb() {
+            return statement.verb();
         }
     }
 }

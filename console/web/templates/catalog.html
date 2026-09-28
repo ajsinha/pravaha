@@ -17,9 +17,47 @@
   <a href="/catalog?tab=streams" {% if tab == 'streams' %}aria-current="page"{% endif %}>{{ t('catalog.tab.streams') }}<span class="count">{{ '?' if streams_error else streams|length }}</span></a>
   <a href="/catalog?tab=queries" {% if tab == 'queries' %}aria-current="page"{% endif %}>{{ t('catalog.tab.queries') }}<span class="count">{{ '?' if queries_error else queries|length }}</span></a>
   <a href="/catalog?tab=sinks" {% if tab == 'sinks' %}aria-current="page"{% endif %}>{{ t('catalog.tab.sinks') }}</a>
+  <a href="/catalog?tab=objects" {% if tab == 'objects' %}aria-current="page"{% endif %}>{{ t('governance.tab') }}</a>
 </nav>
 
-{% if tab == 'streams' %}
+{% if tab == 'objects' %}
+  {#- ADR-059: the engine's catalogue, as it shows it to this person. Nothing is filtered here:
+      what is listed is what the engine says this person may USE. -#}
+  <form method="get" action="/catalog" class="d-flex flex-wrap gap-2 align-items-end mb-3" id="objects-search" role="search">
+    <input type="hidden" name="tab" value="objects">
+    <div><label class="form-label small" for="objects-q">{{ t('governance.search') }}</label>
+      <input class="form-control form-control-sm" id="objects-q" name="q" value="{{ q }}" autocomplete="off"></div>
+    <div><label class="form-label small" for="objects-ns">{{ t('governance.namespace') }}</label>
+      <select class="form-select form-select-sm mono" id="objects-ns" name="namespace">
+        <option value="">{{ t('governance.any_namespace') }}</option>
+        {% for n in namespaces %}<option value="{{ n.name }}" {% if n.name == namespace %}selected{% endif %}>{{ n.name }}</option>{% endfor %}
+      </select></div>
+    <button class="btn btn-sm btn-outline-secondary" type="submit">{{ t('governance.search_button') }}</button>
+    {% if is_admin %}<a class="btn btn-sm btn-link" href="/admin/grants">{{ t('governance.edit_grants') }} &rarr;</a>{% endif %}
+  </form>
+  {% if catalog_off %}
+  <div class="state" id="catalog-off"><h2>{{ t('governance.off.title') }}</h2><p>{{ t('governance.off.body') }} <code>pravaha.catalog.enabled</code> (<a href="/help/codes/PRV-7030">PRV-7030</a>).</p></div>
+  {% elif objects_error %}
+  {{ states.error(objects_error, retry_href='/catalog?tab=objects', id='objects-error', title=t('governance.error')) }}
+  {% elif not objects %}
+  <div class="state"><h2>{{ t('governance.none.title') }}</h2><p>{{ t('governance.none.body') }}</p></div>
+  {% else %}
+  <div class="card"><div class="table-responsive"><table class="table mb-0" id="objects-table">
+    <caption class="visually-hidden">{{ t('governance.caption') }}</caption>
+    <thead><tr><th scope="col">{{ t('governance.col.object') }}</th><th scope="col">{{ t('governance.col.kind') }}</th><th scope="col">{{ t('governance.col.owner') }}</th><th scope="col">{{ t('governance.col.description') }}</th><th scope="col">{{ t('governance.col.tags') }}</th></tr></thead>
+    <tbody>
+    {% for o in objects %}
+    <tr data-object="{{ o.name }}"><th scope="row" class="fw-normal"><a class="mono" href="/catalog/objects/{{ o.name|urlencode }}">{{ o.name }}</a></th>
+      <td><span class="chip mute">{{ o.kind }}</span></td>
+      <td class="mono small">{{ owner_text(o.owner) }}</td>
+      <td class="small">{{ o.description or '—' }}</td>
+      <td class="small">{% for tag in tag_pairs(o.tags) %}<span class="chip mute me-1">{{ tag }}</span>{% else %}<span class="text-muted">—</span>{% endfor %}</td></tr>
+    {% endfor %}
+    </tbody></table></div></div>
+  <p class="small text-muted mt-2">{{ t('governance.visibility_note') }}</p>
+  {% endif %}
+
+{% elif tab == 'streams' %}
   {% if streams_error %}
   {{ states.error(streams_error, retry_href='/catalog?tab=streams', id='streams-error', title=t('catalog.streams_error.title'),
                   hint=t('catalog.streams_error.where') ~ ' ' ~ (engine_http or t('catalog.streams_error.unset')) ~ '.') }}

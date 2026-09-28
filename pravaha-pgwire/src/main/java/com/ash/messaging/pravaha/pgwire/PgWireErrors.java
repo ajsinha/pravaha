@@ -146,7 +146,8 @@ public final class PgWireErrors {
             throw new PravahaException(
                     READ_ONLY,
                     "the PostgreSQL gateway is read-only: it does not register, drop, pause, resume or list "
-                            + "continuous queries. Send the statement over Flight SQL instead -- an SDK's "
+                            + "continuous queries, or show or change the catalogue's grants (ADR-059). Send the "
+                            + "statement over Flight SQL instead -- an SDK's "
                             + "query(), `pravaha query --sql`, or the console's workbench -- where it runs as "
                             + "your principal.");
         }

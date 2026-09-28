@@ -715,7 +715,7 @@ public final class QueryRegistry implements AutoCloseable {
         // The policy's three questions, in RegistrationAuthorization: may they register, may they
         // read each source, and -- below -- may they write to the sink.
         List<String> rowFilters = RegistrationAuthorization.requireReads(
-                policy, audit, principal, action, name, sql, chains.provenance(plan));
+                policy, audit, principal, action, name, sql, PlanSources.of(plan), chains.provenance(plan));
         chains.requireChainable(name, plan, retention, action);
 
         // SINK-3, and the reason it is asked here rather than beside mayRegisterQuery, is in
@@ -970,6 +970,7 @@ public final class QueryRegistry implements AutoCloseable {
             journal.recordRegistration(
                     name, sql, keyColumns, principal.id(), retention, parameters, sinkName, declaring);
         }
+        policy.registered(principal, name); // ADR-059: the catalogue records its owner
     }
 
     /** Registration during recovery: the journal is being read, so nothing is written back to it. */
@@ -1417,6 +1418,7 @@ public final class QueryRegistry implements AutoCloseable {
         if (journal != null) {
             journal.recordDrop(name);
         }
+        policy.dropped(name);
         byName.remove(name);
         tenants.release(name);
         // This name's sink alone. Another name on the same computation may write to a sink of its

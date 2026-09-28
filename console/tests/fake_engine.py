@@ -22,6 +22,7 @@ import re
 import sys
 import time
 
+from fake_catalog import FakeCatalog
 from fake_identity import ADMIN, ADMIN_PASSWORD, FakeIdentity
 
 from core import credential
@@ -92,6 +93,9 @@ class FakeEngine:
         self.down = down
         #: ADR-052's users, sessions and keys; the console signs in against this.
         self.identity = FakeIdentity(force_change=force_change, clock=clock, max_sessions=max_sessions)
+        #: ADR-059's catalogue: objects, owners, tags and grants; ``governed.on = False`` is a node
+        #: whose catalogue is off.
+        self.governed = FakeCatalog(self)
         #: Calls that fail, and calls that take this many seconds, by method name (``_check``).
         self.failing: dict[str, Exception] = {}
         self.slow: dict[str, float] = {}
@@ -346,6 +350,34 @@ class FakeEngine:
 
     def rebalance_status(self):
         return self.rebalance(True)
+
+    # ADR-059: the catalogue, as core.engine.Engine calls it (fake_catalog keeps the contract)
+    def catalog_objects(self, namespace=None, kind=None, search=None):
+        return self.governed.catalog_objects(namespace, kind, search)
+
+    def catalog_object(self, name):
+        return self.governed.catalog_object(name)
+
+    def catalog_namespaces(self):
+        return self.governed.catalog_namespaces()
+
+    def create_namespace(self, name, description=""):
+        return self.governed.create_namespace(name, description)
+
+    def change_catalog_object(self, name, fields):
+        return self.governed.change_catalog_object(name, fields)
+
+    def grants(self, on=None, grantee_type=None, grantee=None):
+        return self.governed.grant_list(on, grantee_type, grantee)
+
+    def grant(self, on, privileges, grantee_type, grantee):
+        return self.governed.grant(on, privileges, grantee_type, grantee)
+
+    def revoke(self, on, privileges, grantee_type, grantee):
+        return self.governed.revoke(on, privileges, grantee_type, grantee)
+
+    def access(self, user, on):
+        return self.governed.access(user, on)
 
     # Flight half
     def health(self):

@@ -927,7 +927,8 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
             // exist, versus a policy refusal for one that does -- and the two replies distinguish
             // them. The owner's third constraint is that a user receives only the data they are
             // authorized for, and which names exist is data.
-            AccessDecision decision = policy.mayRead(principal, viewName);
+            // SUBSCRIBE, not SELECT (ADR-059): receiving changes live is a right of its own.
+            AccessDecision decision = policy.maySubscribe(principal, viewName);
             audit.record(AuditEvent.of(principal, "subscribe", viewName, decision, filterText(fields)));
             if (!decision.allowed()) {
                 throw new PravahaException(
@@ -1073,7 +1074,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                                         .toRuntimeException());
                                 return;
                             }
-                            AccessDecision now = policy.mayRead(principal, viewName);
+                            AccessDecision now = policy.maySubscribe(principal, viewName);
                             if (!now.allowed()) {
                                 audit.record(AuditEvent.of(principal, "subscribe.withdrawn", viewName, now, ""));
                                 listener.error(FlightErrors.failureOf(

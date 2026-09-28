@@ -8,6 +8,10 @@
   </parent>
   <artifactId>pravaha-catalog</artifactId>
   <name>Pravaha :: catalog</name>
+  <description>The Pravaha Catalog (ADR-059): every governed object, its owner, its metadata and its
+    grants, journalled like registrations and consulted by CatalogPolicy on every read, subscribe and
+    registration. Spring-free and below the SQL module, so the statements that change it are parsed
+    and answered here.</description>
   <dependencies>
     <dependency>
       <groupId>com.ash.messaging</groupId>
@@ -17,6 +21,11 @@
     <dependency>
       <groupId>com.ash.messaging</groupId>
       <artifactId>pravaha-common</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-security</artifactId>
       <version>${project.version}</version>
     </dependency>
   </dependencies>

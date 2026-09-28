@@ -408,6 +408,19 @@ pravaha:
 #       path: /opt/pravaha/data/outgoing/audit_trail.csv
 #       schema: "id:INT64,user_id:STRING,amount:INT64"
 
+  # The Pravaha Catalog (ADR-059): namespaces, owners, descriptions, tags and grants, kept by this node
+  # and enforced on every read, subscribe and registration. Off by default; with it on, the catalogue
+  # is the authority for who may do what, changed with GRANT and REVOKE without a restart.
+  catalog:
+    enabled: false
+    # The append-only file grants are kept in. Unset: catalog.journal beside pravaha.registry.journal,
+    # or memory (grants lost on restart) when that is unset too.
+    journal: ""
+    # import: the first start imports pravaha.security.policy as grants, once, and a later start whose
+    # policy setting differs refuses with PRV-7034 (two authorities). catalog: the catalogue alone
+    # decides and pravaha.security.policy is not consulted.
+    authority: import
+
   registry:
     # Where registered continuous queries are written down. Unset means they live only in memory and
     # a restart loses them -- which the node warns about at startup rather than leaving to be found

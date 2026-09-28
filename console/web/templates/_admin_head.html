@@ -22,6 +22,8 @@
   <a href="/admin/sessions" {% if tab == 'sessions' %}aria-current="page"{% endif %}>{{ t('admin.tab.sessions') }}</a>
   {% endif %}
   <a href="/admin/lanes" {% if tab == 'lanes' %}aria-current="page"{% endif %}>{{ t('admin.tab.lanes') }}</a>
+  {# ADR-059: the grants editor. Anyone may open it; the engine decides what each of them may change. #}
+  <a href="/admin/grants" {% if tab == 'grants' %}aria-current="page"{% endif %}>{{ t('admin.tab.grants') }}</a>
   <a href="/plugins">{{ t('admin.tab.plugins') }}</a>
 </nav>
 {% endmacro %}

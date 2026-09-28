@@ -126,6 +126,12 @@ public class ApiExceptionHandler {
             case "PRV-7012", "PRV-7017", "PRV-7020" -> HttpStatus.BAD_REQUEST;
             case "PRV-7015", "PRV-7018" -> HttpStatus.FORBIDDEN;
             case "PRV-7021" -> HttpStatus.NOT_FOUND;
+            // ADR-059's catalogue: off is a conflict with how the node is configured, not a refusal of
+            // the caller; an unknown (or unseeable) object is 404; a bad request is 400.
+            case "PRV-7030", "PRV-7036" -> HttpStatus.CONFLICT;
+            case "PRV-7031" -> HttpStatus.NOT_FOUND;
+            case "PRV-7032", "PRV-7037" -> HttpStatus.BAD_REQUEST;
+            case "PRV-7034", "PRV-7035" -> HttpStatus.INTERNAL_SERVER_ERROR;
             default -> null;
         };
     }

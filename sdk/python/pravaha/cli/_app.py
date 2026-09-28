@@ -29,7 +29,7 @@ from typing import Any, NoReturn, Optional, Sequence, TextIO
 
 import pravaha
 from pravaha.assist.errors import AssistConfigError, AssistError
-from pravaha.cli import _assist, _flight, _http, _identity
+from pravaha.cli import _assist, _catalog, _flight, _http, _identity
 from pravaha.cli._common import (
     EXIT_OK,
     EXIT_REFUSED,
@@ -59,8 +59,8 @@ _OVERVIEW = """\
 Transport: query, subscribe, register, queries, pause, resume, drop, the replacement commands,
 dlq and debug speak Arrow Flight to --url; every other command asks the node's HTTP API at --http.
 
-Destructive commands (drop, abandon, finish, lanes rebalance, key revoke, user disable) say what
-they would do and change nothing unless given --yes.
+Destructive commands (drop, abandon, finish, lanes rebalance, key revoke, user disable, revoke,
+catalog owner) say what they would do and change nothing unless given --yes.
 
 Offline -- planning or running SQL with no server -- is the Java tool `pravaha-engine`
 (validate --schema, explain --schema, run).
@@ -476,6 +476,59 @@ def build_parser() -> _Parser:
         v = add(verb, f"{verb.capitalize()} a configured model.")
         v.add_argument("model_id", metavar="<model-id>")
         _yes(v, "store the change")
+
+    # ------------------------------------------------------------------ the catalogue (ADR-059)
+    p = b.add("catalog", _catalog.catalog, "The catalogue: objects, namespaces, owners, tags.")
+    add = b.verbs(p, _catalog.catalog)
+    v = add("ls", "Objects you may see.")
+    v.add_argument("--namespace", metavar="TENANT.NS")
+    v.add_argument("--kind", help="NAMESPACE, VIEW, STREAM, SINK, SOURCE or LOOKUP")
+    v = add("search", "Objects whose name, description, owner or a tag matches.")
+    v.add_argument("object", metavar="<text>")
+    add("namespaces", "Namespaces you may use.")
+    v = add("show", "One object: owner, description, tags, grants and what you may do.")
+    v.add_argument("object", metavar="<object>")
+    v = add("create-namespace", "Create a namespace; you own it (CREATE on the tenant).")
+    v.add_argument("object", metavar="<name>")
+    v.add_argument("--comment", help="its description")
+    v.add_argument("--if-not-exists", action="store_true")
+    v = add("comment", "Describe an object (MANAGE).")
+    v.add_argument("object", metavar="<object>")
+    v.add_argument("text", metavar="<text>", nargs="?")
+    v = add("tag", "Set or unset tags on an object (MANAGE).")
+    v.add_argument("object", metavar="<object>")
+    v.add_argument("tags", metavar="key[=value]", nargs="*")
+    v.add_argument("--unset", metavar="K1,K2", help="tags to remove")
+    v = add("move", "Move a view into a namespace, with its grants.")
+    v.add_argument("object", metavar="<view>")
+    v.add_argument("--namespace", metavar="NS")
+    v = add("owner", "Give an object to another role or user (its owner only).")
+    v.add_argument("object", metavar="<object>")
+    v.add_argument("--role")
+    v.add_argument("--user")
+    _yes(v, "give it away")
+
+    for name, run, summary in (
+        ("grant", _catalog.grant, "Grant privileges on an object to a role or user (MANAGE)."),
+        ("revoke", _catalog.revoke, "Revoke privileges on an object from a role or user (MANAGE)."),
+    ):
+        p = b.add(name, run, summary)
+        p.add_argument("privileges", metavar="<privileges>", nargs="?",
+                       help="SELECT,SUBSCRIBE,... or ALL")
+        p.add_argument("object", metavar="<object>", nargs="?")
+        p.add_argument("--role")
+        p.add_argument("--user")
+        if name == "revoke":
+            _yes(p, "revoke them")
+    p = b.add("grants", _catalog.grants, "Grants on an object, or to a role or user.")
+    p.add_argument("--on", metavar="OBJECT")
+    p.add_argument("--role")
+    p.add_argument("--user")
+    p = b.add("access", _catalog.access, "Why a user may (or may not) do something to an object.")
+    add = b.verbs(p, _catalog.access, required=True)
+    v = add("why", "Which grant, through which role, namespace or ownership.")
+    v.add_argument("user_name", metavar="<user>")
+    v.add_argument("object", metavar="<object>")
 
     for made in b.made:
         _global_options(made, suppress=True)

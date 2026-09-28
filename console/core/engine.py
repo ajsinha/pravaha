@@ -797,6 +797,60 @@ class Engine:
         """``GET lanes/rebalance``: the rebalance running or last run, or what one would do (admin)."""
         return dict(self._identity("GET", "/lanes/rebalance") or {})
 
+    # ------------------------------------------------------------------ the catalogue (ADR-059)
+    #
+    # Grants live in the engine: every call here is its /api/v1/catalog endpoint, made as the
+    # signed-in person, and every rule -- who may see an object, who may grant on it -- is the
+    # engine's. A node with the catalogue off answers PRV-7030, and the screens say so.
+
+    def catalog_objects(self, namespace: str | None = None, kind: str | None = None,
+                        search: str | None = None) -> list[dict]:
+        """``GET catalog/objects``: the objects this person may see, with owner, description, tags."""
+        query = {k: v for k, v in (("namespace", namespace), ("kind", kind), ("q", search)) if v}
+        return _items(self._identity("GET", "/catalog/objects", query=query or None), "items")
+
+    def catalog_object(self, name: str) -> dict:
+        """``GET catalog/objects/{name}``: the object, the grants on it this person may see, and
+        what this person may do to it."""
+        return dict(self._identity("GET", "/catalog/objects/" + _segment(name)) or {})
+
+    def catalog_namespaces(self) -> list[dict]:
+        """``GET catalog/namespaces``: the namespaces this person may use."""
+        return _items(self._identity("GET", "/catalog/namespaces"), "items")
+
+    def create_namespace(self, name: str, description: str = "") -> dict:
+        """``POST catalog/namespaces``: needs CREATE on the tenant; the person owns it."""
+        return dict(self._identity("POST", "/catalog/namespaces",
+                                   {"name": name, "description": description}) or {})
+
+    def change_catalog_object(self, name: str, fields: dict) -> dict:
+        """``PATCH catalog/objects/{name}``: description, setTags, unsetTags, owner, namespace."""
+        return dict(self._identity("PATCH", "/catalog/objects/" + _segment(name), fields) or {})
+
+    def grants(self, on: str | None = None, grantee_type: str | None = None,
+               grantee: str | None = None) -> list[dict]:
+        """``GET catalog/grants``: on an object, or to a role or user."""
+        query: dict = {"object": on} if on else {}
+        if grantee:
+            query.update({"granteeType": grantee_type or "USER", "grantee": grantee})
+        return _items(self._identity("GET", "/catalog/grants", query=query or None), "items")
+
+    def grant(self, on: str, privileges: list[str], grantee_type: str, grantee: str) -> list[dict]:
+        """``POST catalog/grants``: needs MANAGE on the object."""
+        return _items(self._identity("POST", "/catalog/grants", {
+            "object": on, "privileges": list(privileges), "granteeType": grantee_type,
+            "grantee": grantee}), "items")
+
+    def revoke(self, on: str, privileges: list[str], grantee_type: str, grantee: str) -> None:
+        """``DELETE catalog/grants``: needs MANAGE on the object."""
+        self._identity("DELETE", "/catalog/grants", query={
+            "object": on, "privileges": ",".join(privileges), "granteeType": grantee_type,
+            "grantee": grantee})
+
+    def access(self, user: str, on: str) -> dict:
+        """``GET catalog/access``: what ``user`` may do to ``on``, and through which grant."""
+        return dict(self._identity("GET", "/catalog/access", query={"user": user, "object": on}) or {})
+
 
 def _segment(value: str) -> str:
     """One path segment, escaped: a username or a key id is never a path of its own."""

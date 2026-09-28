@@ -42,6 +42,24 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   environment variable or secret file only; no rows are ever sent. 135 tests, none touching a
   network beyond `127.0.0.1` (`cd sdk/python && .venv/bin/python -m pytest -q tests/test_assist_*.py`).
   [`ASSIST.md`](ASSIST.md); the console's *The assistant* help page.
+- **The Pravaha Catalog, phase 1: grants live in the engine (ADR-059).** `pravaha.catalog.enabled`
+  (off by default) makes the engine keep every governed object — namespaces (`tenant.namespace.object`;
+  an unqualified name is in `<tenant>.default`), views, streams, sinks — with an owner, description,
+  tags and version, and the grants on it: `USE`, `SELECT`, `SUBSCRIBE`, `BUILD_ON`, `CREATE`, `WRITE`,
+  `MODIFY`, `MANAGE`, `OWN`; allow-only, to roles and users, inherited down; owners and the `admin`
+  role hold everything; tenants are walls. Journalled beside the registry journal and replayed at
+  start. A built-in `CatalogPolicy` answers every existing check, so nothing about where checks happen
+  changed: subscribing asks `SUBSCRIBE` (and a revocation ends an open Flight subscription), a
+  registration asks `BUILD_ON` on each input it names and makes the registrant the owner.
+  `GRANT`, `REVOKE`, `CREATE NAMESPACE`, `COMMENT ON`, `ALTER … SET|UNSET TAGS | OWNER TO | SET
+  NAMESPACE`, `SHOW GRANTS ON|TO`, `SHOW EFFECTIVE ACCESS FOR USER … ON …` and `SHOW NAMESPACES` run
+  wherever `CREATE CONTINUOUS QUERY` does; `/api/v1/catalog/{objects,namespaces,grants,access}`;
+  `pravaha catalog ls|search|show|…`, `pravaha grant|revoke|grants`, `pravaha access why`; the
+  console's Catalog → Objects and grants tab, object pages and Admin → Grants. `authority: import`
+  imports the configured policy once and refuses to start (`PRV-7034`) if it later disagrees. New
+  codes `PRV-7030` to `PRV-7037`. `SecurityPolicy` gains `maySubscribe`, `mayBuildOn`,
+  `mayBuildThrough`, `mayReadThrough`, a named `mayRegisterQuery` and `registered`/`dropped`, each
+  defaulting to what it meant before.
 - **A view keeps every row of a key, and shows the one that most recently gained weight (VIEWW-1).**
   A key inserted as `A` and then as `B`, with `A` then retracted, went on showing `A` — the row just
   withdrawn. `ServedView` now keeps each distinct row of a key with its own weight (only for a key
