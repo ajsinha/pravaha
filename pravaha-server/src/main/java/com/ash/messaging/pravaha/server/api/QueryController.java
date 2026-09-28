@@ -432,7 +432,9 @@ public class QueryController {
                         .orElse(null),
                 view.derivedFrom().stream().sorted().toList(),
                 feed(entry),
-                query.executionPaths());
+                query.executionPaths(),
+                query.lanePlacement(),
+                query.sharedLane().orElse(null));
     }
 
     /**

@@ -78,6 +78,22 @@ class AccountService:
     def end_session(self, session_id: str) -> None:
         self._call(self._engine.end_session, session_id)
 
+    # ------------------------------------------------------------------ lanes
+    def lanes(self) -> dict:
+        """The node's lane summary and where every query runs, dedicated and own lanes first."""
+        summary = self._call(self._engine.lanes)
+        order = {"dedicated": 0, "own": 1, "shared": 2}
+        placements = sorted(self._call(self._engine.lane_placements),
+                            key=lambda q: (order.get(q.get("lane") or "", 3), q.get("sharedLane") or 0,
+                                           q.get("name") or ""))
+        return {"summary": summary, "queries": placements}
+
+    def rebalance(self, dry_run: bool) -> dict:
+        return self._call(self._engine.rebalance, dry_run)
+
+    def rebalance_status(self) -> dict:
+        return self._call(self._engine.rebalance_status)
+
     # ------------------------------------------------------------------ users (admin)
     def users(self) -> list[dict]:
         rows = [user_record(u) for u in self._call(self._engine.users)]

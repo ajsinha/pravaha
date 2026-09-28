@@ -355,6 +355,27 @@ AS SELECT merchant, amount FROM txn
 | `retention` | How long the view keeps a row, in event time: `'24h'`, `'7d'`, `'PT30M'`, `PT24H`, `'forever'` | `RETAIN FOR` / `RETAIN FOREVER` |
 | `sink` | The binding the changelog is written to | `WRITING TO <sink>` |
 | `keys` | The key columns, comma-separated | `KEYED BY (...)` |
+| `index` | The one column an equality index is kept over | `INDEX (column)` |
+| `lane` | `'dedicated'`: a lane of its own whatever the node's lane-sharing mode. `'shared'` (the default): the node's `pravaha.lane.multiplex.enabled` decides | — |
+
+A query whose isolation matters more than the megabyte its own inbox costs says so at registration,
+and keeps a lane of its own on a node that shares lanes — its failure cannot take a shared lane's
+other queries down, and theirs cannot take it down
+([Sharing lanes](/help/topics/lane-sharing#keeping-one-query-on-its-own-lane)):
+
+```sql
+CREATE CONTINUOUS QUERY settlement_totals
+    KEYED BY (txn_id)
+    WITH (lane = 'dedicated')
+AS SELECT txn_id, amount FROM txn
+```
+
+Anything but `'dedicated'` or `'shared'` is refused with PRV-8017. On `CREATE OR REPLACE`, `lane`
+moves a running query between a shared lane and one of its own at the cutover — with the SQL
+unchanged if that is all you want to change; a replacement that does not say keeps the running
+version's lane. `CREATE OR REPLACE` also takes `lane = 'own'`: a lane of its own for the new
+version without pinning it, which is what an administrator's [rebalance](/help/topics/lane-sharing#seeing-placements-and-rebalancing-by-hand)
+uses; a restart places such a query by the node's mode again.
 
 An option this engine does not build is refused by name with PRV-8017 and the list of the ones that
 do — an ignored option is a setting you believe is in force:
@@ -398,7 +419,7 @@ INSERT INTO audit_trail SELECT txn_id, amount FROM txn
 |---|---|---|
 | `RANGE` over text, `FLOAT`, `DECIMAL`, `BYTES` or `BOOLEAN` | PRV-2073 | Drop the `RANGE` — the key still works as a key — or range-scan a whole-number or temporal column |
 | `INDEX` over `FLOAT`, `DECIMAL`, `BYTES` or the whole key | PRV-2074 | Index a whole-number, temporal, text or `BOOLEAN` column outside the key |
-| A `WITH` option that does not exist, or one said twice | PRV-8017 (PRV-4018 on a replacement) | `retention`, `sink`, `keys`, `index` on a `CREATE`; `backfill`, `backfill.rate.limit`, `cutover`, `rollback.retention` on a `CREATE OR REPLACE` |
+| A `WITH` option that does not exist, or one said twice | PRV-8017 (PRV-4018 on a replacement) | `retention`, `sink`, `keys`, `index`, `lane` on a `CREATE`; `backfill`, `backfill.rate.limit`, `cutover`, `rollback.retention`, `lane` on a `CREATE OR REPLACE` |
 | `EMIT CHANGES WITH (...)` | PRV-2072 | `EMIT CHANGES` alone, or nothing |
 | `SERVE AS VIEW other` | PRV-2072 | A query and its view are one name — the one clients put in `FROM` |
 | `INSERT INTO <sink> SELECT` | PRV-2020 | `WRITING TO <sink>`, `WITH (sink = '<sink>')`, or `pravaha register --sink` |

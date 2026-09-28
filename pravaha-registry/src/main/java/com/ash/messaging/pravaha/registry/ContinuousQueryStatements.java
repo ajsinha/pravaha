@@ -137,8 +137,11 @@ public final class ContinuousQueryStatements {
         // judged by the vocabulary a registration has (B8). A replacement's list is read below, by
         // ReplacementOptions, because the two statements do not take the same options and an option
         // that belongs to the other one is refused by name rather than accepted and dropped.
+        // lane = 'dedicated': a lane of its own whatever the node's lane-sharing mode.
+        boolean dedicatedLane = false;
         if (!statement.orReplace() && !statement.options().isEmpty()) {
             RegistrationOptions options = RegistrationOptions.of(statement.options());
+            dedicatedLane = options.dedicatedLane();
             if (options.retention().isPresent()) {
                 if (retention != null) {
                     throw new PravahaException(
@@ -172,6 +175,14 @@ public final class ContinuousQueryStatements {
                 }
                 statement = statement.withIndexColumn(options.indexColumn().get());
             }
+        } else if (statement.orReplace() && statement.options().containsKey("lane")) {
+            // CREATE OR REPLACE of a name that turns out to be new registers it, on the lane it asked for.
+            dedicatedLane = ReplacementOptions.with(
+                                    ReplacementOptions.defaults(),
+                                    "lane",
+                                    statement.options().get("lane"))
+                            .lane()
+                    == ReplacementOptions.Lane.DEDICATED;
         }
 
         // The key by name, resolved against the columns the view would have. Planned the way register
@@ -200,8 +211,8 @@ public final class ContinuousQueryStatements {
         String name = statement.name();
         String select = statement.select();
         Retention kept = retention;
-        RegisteredQuery query = registry.declaringIndexes(
-                index.map(List::of).orElse(List.of()),
+        RegisteredQuery query = registry.declaring(
+                new Declaring(index.map(List::of).orElse(List.<Integer>of()), dedicatedLane),
                 () -> register(registry, name, select, keys, principal, sink, kept));
         return new ViewQuery.Result(CREATED, List.<Object[]>of(new Object[] {
             statement.name(),

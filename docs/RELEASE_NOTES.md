@@ -28,6 +28,21 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   moved. `true` and `false` keep their meaning. The node's `lanes:` status line says which mode is in
   force. An embedded `QueryRegistry` still shares nothing unless asked
   (`multiplexingLanes(lanes, ceiling, shareFrom)`).
+- **`WITH (lane = 'dedicated')`: one query on a lane of its own, whatever the node's mode.** A
+  registration option (`'dedicated'` or `'shared'`, the default; anything else is PRV-8017),
+  journalled with the registration as a new `L` record so a restart keeps it -- a build that predates
+  it refuses the journal by name. On `CREATE OR REPLACE`, `lane` moves a running query between a
+  shared lane and its own at a lossless cutover, with the SQL unchanged if that is all that changes; a
+  replacement that does not say keeps the running version's lane. A dedicated registration that
+  would join a computation already on a shared lane is refused with PRV-8017. `GET /api/v1/queries`
+  and `/{name}` gain `lane` (`dedicated` | `shared` | `own`) and `sharedLane`; the new
+  `GET /api/v1/lanes` summarises placement (mode, `autoFrom`, per-lane counts, own-lane, dedicated
+  and hosted computations). Placements are not rebalanced when queries are dropped — until an
+  administrator asks: **Admin → Lanes** in the console (every query's lane, the mode, each shared
+  lane's fill, and a preview-then-run rebalance for the `admin` role), `pravaha lanes` and
+  `pravaha lanes rebalance [--yes]`, and `GET|POST /api/v1/lanes/rebalance`. It moves shared queries
+  onto lanes of their own while there is room under `auto-from`, oldest first and one at a time, each
+  by a blue/green replacement with `lane = 'own'` (new: a lane of its own without pinning it).
 - **`iceberg-sink`, an Apache Iceberg sink** (`plugins/pravaha-plugin-iceberg`), on iceberg-core and
   iceberg-parquet 1.2.1, not Spark. A table on the local filesystem; `mode: upsert` (the default)
   keeps it equal to the view by key through equality deletes (format version 2), and

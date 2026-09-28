@@ -778,6 +778,25 @@ class Engine:
     def end_session(self, session_id: str) -> None:
         self._identity("DELETE", "/sessions/" + _segment(session_id))
 
+    # ------------------------------------------------------------------ lanes
+    def lanes(self) -> dict:
+        """``GET lanes``: the node's lane-sharing mode and how full each shared lane is."""
+        return dict(self._identity("GET", "/lanes") or {})
+
+    def lane_placements(self) -> list[dict]:
+        """``GET queries``, reduced to where each query runs: name, state, lane, sharedLane."""
+        return [{k: q.get(k) for k in ("name", "state", "lane", "sharedLane")}
+                for q in (self._identity("GET", "/queries") or []) if isinstance(q, dict)]
+
+    def rebalance(self, dry_run: bool) -> dict:
+        """``POST lanes/rebalance``: the plan with ``dry_run``, otherwise the run it starts (admin)."""
+        return dict(self._identity("POST", "/lanes/rebalance", {},
+                                   {"dryRun": "true"} if dry_run else None) or {})
+
+    def rebalance_status(self) -> dict:
+        """``GET lanes/rebalance``: the rebalance running or last run, or what one would do (admin)."""
+        return dict(self._identity("GET", "/lanes/rebalance") or {})
+
 
 def _segment(value: str) -> str:
     """One path segment, escaped: a username or a key id is never a path of its own."""

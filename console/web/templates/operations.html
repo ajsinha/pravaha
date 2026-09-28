@@ -105,7 +105,7 @@
    shared lane a query reads high here because a neighbour's writer is waiting, and telling
    those apart is the whole reason this table is beside the one above. #}
 <h2>{{ t('operations.lanes.heading') }}</h2>
-<p class="small text-muted">{{ t('operations.lanes.lede') }}</p>
+<p class="small text-muted">{{ t('operations.lanes.lede') }} <a href="/admin/lanes" id="ops-lanes-where">{{ t('operations.lanes.where') }}</a></p>
 {% if snapshot.lanes %}
 <div class="card"><div class="table-responsive"><table class="table table-sm mb-0" id="ops-lanes">
   <thead><tr><th>{{ t('operations.lanes.col.lane') }}</th><th>{{ t('operations.lanes.col.blocked') }}</th>

@@ -166,9 +166,6 @@ public final class QueryRegistry implements AutoCloseable {
     /** Computations placed on lanes of their own before registrations start sharing: zero shares at once. */
     private int shareFrom;
 
-    /** Which shared lane each hosted computation is on. Absent means a lane of its own. */
-    private final Map<QueryFingerprint, Integer> sharedLaneOf = new java.util.HashMap<>();
-
     private synchronized SharedLanes sharedLanes() {
         if (sharedLanes == null) {
             sharedLanes =
@@ -199,7 +196,7 @@ public final class QueryRegistry implements AutoCloseable {
      * own -- because multiplexing is off, or because admission control found no lane for it.
      */
     public synchronized java.util.Optional<Integer> sharedLaneOf(String name) {
-        return java.util.Optional.ofNullable(sharedLaneOf.get(require(name).fingerprint()));
+        return require(name).sharedLane();
     }
 
     /**
@@ -212,8 +209,8 @@ public final class QueryRegistry implements AutoCloseable {
      */
     public synchronized int queriesOnOwnLanes() {
         return byFingerprint.size()
-                - (int) byFingerprint.keySet().stream()
-                        .filter(sharedLaneOf::containsKey)
+                - (int) byFingerprint.values().stream()
+                        .filter(query -> query.sharedLane().isPresent())
                         .count();
     }
 
@@ -818,13 +815,15 @@ public final class QueryRegistry implements AutoCloseable {
         tenants.requireSameTenant(audit, principal, name, sql);
         tenants.admit(audit, principal, "replace", name, sql, byFingerprint.values(), false, true);
         RegisteredQuery existing = byFingerprint.get(prepared.fingerprint());
-        if (existing != null && !existing.state().isTerminal()) {
+        // The same computation is a replacement only when it moves the name between lanes.
+        if (existing != null && !existing.state().isTerminal() && !declaring.moves(existing, byName.get(name))) {
             throw new PravahaException(
                     com.ash.messaging.pravaha.backfill.BackfillErrors.REPLACEMENT_IN_PROGRESS,
                     "the new version of '" + name + "' is the same computation as '" + existing.name()
                             + "', which is already running: replacing a query with one that normalises to the "
                             + "same plan would cut over to itself. Registrations that ask the same question "
-                            + "share one computation, so point readers at '" + existing.name() + "' instead.");
+                            + "share one computation, so point readers at '" + existing.name() + "' instead, or "
+                            + "say lane = 'dedicated' or 'shared' to move it between lanes.");
         }
         return start(
                 name,
@@ -891,6 +890,7 @@ public final class QueryRegistry implements AutoCloseable {
         RegisteredQuery existing = byFingerprint.get(fingerprint);
         if (existing != null && !existing.state().isTerminal()) {
             // The same question, asked again. One computation, one copy of the state, two names.
+            declaring.join(name, existing, existing.sharedLane().isPresent(), journal);
             existing.addName(name);
             byName.put(name, existing);
             // The other two things a registration does, which this path used to skip -- so sharing,
@@ -907,7 +907,7 @@ public final class QueryRegistry implements AutoCloseable {
                 announce(name, delivery);
             }
             try {
-                declaring.forEach(existing.view()::index);
+                declaring.indexes().forEach(existing.view()::index);
                 journalRegistration(name, sql, keyColumns, principal, retention, parameters, sinkName);
             } catch (RuntimeException e) {
                 deliveries.remove(name);
@@ -932,7 +932,7 @@ public final class QueryRegistry implements AutoCloseable {
             announce(name, delivery);
         }
         try {
-            declaring.forEach(query.view()::index);
+            declaring.indexes().forEach(query.view()::index);
             journalRegistration(name, sql, keyColumns, principal, retention, parameters, sinkName);
         } catch (RuntimeException e) {
             deliveries.remove(name);
@@ -982,14 +982,14 @@ public final class QueryRegistry implements AutoCloseable {
             BoundParameters parameters,
             String sinkName,
             String checkpointDirectory,
-            List<Integer> indexed) {
+            Declaring declared) {
         RegistryJournal suspended = journal;
         journal = null;
         String directory = recoveringInto;
         recoveringInto = checkpointDirectory;
         try {
-            return declaringIndexes(
-                    indexed, () -> register(name, sql, keyColumns, principal, retention, parameters, sinkName));
+            return declaring(
+                    declared, () -> register(name, sql, keyColumns, principal, retention, parameters, sinkName));
         } finally {
             journal = suspended;
             recoveringInto = directory;
@@ -997,15 +997,14 @@ public final class QueryRegistry implements AutoCloseable {
     }
 
     /**
-     * Runs one registration that also declares equality indexes over these output columns
-     * (ADR-055): kept on the view before the registration is acknowledged, and journalled in the
-     * same append as the registration, so a restart never brings the query back without them.
-     * Held for the length of one call, as {@link #recoveringInto} is.
+     * Runs one registration that also declares equality indexes over output columns (ADR-055) and
+     * perhaps a lane of its own: the indexes kept on the view before the registration is acknowledged,
+     * both journalled with it so a restart never brings the query back without them. Held for the
+     * length of one call, as {@link #recoveringInto} is.
      */
-    synchronized RegisteredQuery declaringIndexes(
-            List<Integer> indexed, java.util.function.Supplier<RegisteredQuery> registration) {
-        List<Integer> previous = declaring;
-        declaring = List.copyOf(indexed);
+    synchronized <T> T declaring(Declaring declared, java.util.function.Supplier<T> registration) {
+        Declaring previous = declaring;
+        declaring = declared;
         try {
             return registration.get();
         } finally {
@@ -1013,8 +1012,8 @@ public final class QueryRegistry implements AutoCloseable {
         }
     }
 
-    /** The equality indexes the registration in progress declares; see {@link #declaringIndexes}. */
-    private List<Integer> declaring = List.of();
+    /** What the registration in progress declares; see {@link #declaring}. */
+    private Declaring declaring = Declaring.NOTHING;
 
     /**
      * The checkpoint directory a registration being replayed keeps, when it is not the one its name
@@ -1064,9 +1063,10 @@ public final class QueryRegistry implements AutoCloseable {
         // the lane has finished it. The view is committed from other threads -- the feed's timer, a
         // caller -- and taking rows one at a time let a commit land between an update's retraction
         // and its insert and publish the answer as gone (VIEW-1).
-        Optional<SharedLanes.Placement> placement = sharedLaneCount == 0 || byFingerprint.size() < shareFrom
-                ? Optional.empty()
-                : sharedLanes().place();
+        Optional<SharedLanes.Placement> placement =
+                declaring.ownsALane() || sharedLaneCount == 0 || byFingerprint.size() < shareFrom
+                        ? Optional.empty()
+                        : sharedLanes().place();
         QueryExecution execution = (placement.isPresent()
                         ? QueryExecution.startOn(placement.get().group(), name, plan, sink::laneOutput, lookups, access)
                         : QueryExecution.start(plan, 1, laneConfig, access, sink::laneOutput, lookups, laneRunner()))
@@ -1123,8 +1123,8 @@ public final class QueryRegistry implements AutoCloseable {
             execution.close();
             throw e;
         }
-        placement.ifPresent(where -> sharedLaneOf.put(fingerprint, where.index()));
-        return query;
+        placement.ifPresent(where -> query.placedOnSharedLane(where.index()));
+        return declaring.placed(query);
     }
 
     /**
@@ -1431,7 +1431,6 @@ public final class QueryRegistry implements AutoCloseable {
         views.remove(name);
         if (query.dropName(name)) {
             byFingerprint.remove(query.fingerprint());
-            sharedLaneOf.remove(query.fingerprint());
             query.close();
             // The checkpoints go with the computation. They are a fallback for a query that exists;
             // once nothing holds this one open they are state outliving its owner, and they
@@ -1480,7 +1479,6 @@ public final class QueryRegistry implements AutoCloseable {
         // directions: a hosted query's close only removes its pipelines and deliberately leaves the
         // lane running for the queries still on it, so somebody has to close the lane itself -- and
         // it can only finish while its runner is still stepping it.
-        sharedLaneOf.clear();
         SharedLanes shared = sharedLanes;
         sharedLanes = null;
         if (shared != null) {

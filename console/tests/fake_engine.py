@@ -322,6 +322,31 @@ class FakeEngine:
     def end_session(self, session_id):
         return self._as_identity(lambda t: self.identity.end_session(t, session_id))
 
+    # Lanes: every fake query shares lane 0 but the first, which owns one.
+    def lanes(self):
+        self._check()
+        shared = max(0, len(self._queries) - 1)
+        return {"mode": "auto", "autoFrom": 1, "maxQueriesPerLane": 300,
+                "sharedLanes": [{"lane": 0, "queries": shared}], "ownLaneQueries": min(1, len(self._queries)),
+                "dedicatedQueries": 0, "hosted": len(self._queries)}
+
+    def lane_placements(self):
+        self._check()
+        return [{"name": q.name, "state": q.state, "lane": "own" if i == 0 else "shared",
+                 "sharedLane": None if i == 0 else 0} for i, q in enumerate(self._queries)]
+
+    def rebalance(self, dry_run):
+        self._check()
+        if "admin" not in self._as_identity(lambda t: self.identity.me(t)).get("roles", []):
+            raise EngineHttpError(403, "PRV-7002 a lane rebalance needs the admin role")
+        self.rebalances = getattr(self, "rebalances", 0) + (0 if dry_run else 1)
+        return {"mode": "auto", "autoFrom": 1, "room": 0, "running": not dry_run, "ownLaneQueries": 1,
+                "moves": [{"name": q.name, "fromSharedLane": 0, "status": "planned" if dry_run else "waiting",
+                           "detail": ""} for q in self._queries[1:2]]}
+
+    def rebalance_status(self):
+        return self.rebalance(True)
+
     # Flight half
     def health(self):
         if self.down:

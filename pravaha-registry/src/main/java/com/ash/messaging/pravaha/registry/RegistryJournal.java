@@ -120,6 +120,17 @@ public final class RegistryJournal {
      */
     private static final String INDEX = "X";
 
+    /**
+     * A live name whose computation keeps a lane of its own ({@code lane = 'dedicated'}): the name,
+     * then {@code dedicated}.
+     *
+     * <p>Follows its {@code R}, {@code W} or {@code C} record as {@code X} does, in the same append
+     * when written with a registration, and like {@code X} applies to the name's current
+     * registration only. A kind of its own, so a build that predates it refuses it by name rather
+     * than replaying the query onto a shared lane its registrant asked it never to share.
+     */
+    private static final String LANE = "L";
+
     private final Path file;
 
     public RegistryJournal(Path file) {
@@ -136,7 +147,8 @@ public final class RegistryJournal {
             List<String> parameters,
             String sink,
             String checkpointDirectory,
-            List<Integer> indexed) {
+            List<Integer> indexed,
+            boolean dedicatedLane) {
 
         public Entry {
             keyColumns = List.copyOf(keyColumns);
@@ -145,6 +157,20 @@ public final class RegistryJournal {
             sink = sink == null || sink.isEmpty() ? null : sink;
             checkpointDirectory =
                     checkpointDirectory == null || checkpointDirectory.isEmpty() ? null : checkpointDirectory;
+        }
+
+        /** A registration on whatever lane the node's lane-sharing mode gives it. */
+        public Entry(
+                String name,
+                String sql,
+                List<Integer> keyColumns,
+                String owner,
+                Retention retention,
+                List<String> parameters,
+                String sink,
+                String checkpointDirectory,
+                List<Integer> indexed) {
+            this(name, sql, keyColumns, owner, retention, parameters, sink, checkpointDirectory, indexed, false);
         }
 
         /** A registration keeping no equality index. */
@@ -162,7 +188,23 @@ public final class RegistryJournal {
 
         /** This registration, keeping equality indexes over these output columns. */
         public Entry withIndexed(List<Integer> columns) {
-            return new Entry(name, sql, keyColumns, owner, retention, parameters, sink, checkpointDirectory, columns);
+            return new Entry(
+                    name,
+                    sql,
+                    keyColumns,
+                    owner,
+                    retention,
+                    parameters,
+                    sink,
+                    checkpointDirectory,
+                    columns,
+                    dedicatedLane);
+        }
+
+        /** This registration, on a lane of its own whatever the node's lane-sharing mode. */
+        public Entry withDedicatedLane() {
+            return new Entry(
+                    name, sql, keyColumns, owner, retention, parameters, sink, checkpointDirectory, indexed, true);
         }
 
         /** A registration checkpointing into the directory its name implies. */
@@ -254,11 +296,31 @@ public final class RegistryJournal {
             BoundParameters parameters,
             String sink,
             List<Integer> indexed) {
+        recordRegistration(name, sql, keyColumns, owner, retention, parameters, sink, indexed, false);
+    }
+
+    /**
+     * Appends a registration, the equality indexes its view keeps and whether it keeps a lane of its
+     * own, in one write.
+     */
+    public void recordRegistration(
+            String name,
+            String sql,
+            List<Integer> keyColumns,
+            String owner,
+            Retention retention,
+            BoundParameters parameters,
+            String sink,
+            List<Integer> indexed,
+            boolean dedicatedLane) {
         List<String> encoded = new ArrayList<>();
         for (int index = 0; index < parameters.size(); index++) {
             encoded.add(encodeParameter(parameters.at(index)));
         }
-        append(registration(name, sql, keyColumns, owner, retention, encoded, sink), indexRecord(name, indexed));
+        append(
+                registration(name, sql, keyColumns, owner, retention, encoded, sink),
+                indexRecord(name, indexed),
+                dedicatedLane ? laneRecord(name) : null);
     }
 
     /**
@@ -279,6 +341,37 @@ public final class RegistryJournal {
     /** Appends the equality indexes {@code name}'s current registration keeps, replacing any before. */
     public void recordIndexes(String name, List<Integer> indexed) {
         append(indexRecord(name, indexed));
+    }
+
+    /** As the overload above, with what the registration declares beyond its SQL. */
+    void recordRegistration(
+            String name,
+            String sql,
+            List<Integer> keyColumns,
+            String owner,
+            Retention retention,
+            BoundParameters parameters,
+            String sink,
+            Declaring declared) {
+        recordRegistration(
+                name,
+                sql,
+                keyColumns,
+                owner,
+                retention,
+                parameters,
+                sink,
+                declared.indexes(),
+                declared.dedicatedLane());
+    }
+
+    /** Appends that {@code name}'s current registration keeps a lane of its own. */
+    public void recordDedicatedLane(String name) {
+        append(laneRecord(name));
+    }
+
+    private static List<String> laneRecord(String name) {
+        return List.of(LANE, name, "dedicated");
     }
 
     private static List<String> indexRecord(String name, List<Integer> indexed) {
@@ -446,6 +539,13 @@ public final class RegistryJournal {
             }
             return;
         }
+        if (LANE.equals(kind) && fields.size() >= 3) {
+            Entry laneEntry = live.get(fields.get(1));
+            if (laneEntry != null && "dedicated".equals(fields.get(2))) {
+                live.put(laneEntry.name(), laneEntry.withDedicatedLane());
+            }
+            return;
+        }
         if (REPLACEMENT_ENDED.equals(kind) && fields.size() >= 2) {
             pending.remove(fields.get(1));
             return;
@@ -588,6 +688,9 @@ public final class RegistryJournal {
                 }
                 // After the record it belongs to, since an R or a C clears what the name indexed.
                 rewritten.recordIndexes(entry.name(), entry.indexed());
+                if (entry.dedicatedLane()) {
+                    rewritten.recordDedicatedLane(entry.name());
+                }
             }
             for (Pending each : pending) {
                 rewritten.recordReplacementStarted(each);

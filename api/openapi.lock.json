@@ -129,6 +129,25 @@
         "responses" : [ "200", "default" ]
       }
     },
+    "/api/v1/lanes" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ ],
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/lanes/rebalance" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ ],
+        "responses" : [ "200", "default" ]
+      },
+      "post" : {
+        "hasBody" : false,
+        "parameters" : [ "query:dryRun" ],
+        "responses" : [ "200", "default" ]
+      }
+    },
     "/api/v1/me/permissions" : {
       "get" : {
         "hasBody" : false,

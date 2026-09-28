@@ -109,7 +109,8 @@ public final class PravahaCli {
                 case "replacements" -> new ServerCommand(out, err).replacements(rest);
                 case "subscribe" -> new ServerCommand(out, err).subscribe(rest);
                 case "dlq" -> new DlqCommand(out, err).run(rest);
-                case "login", "password", "user", "key", "session" -> new IdentityCommand(out, err).run(command, rest);
+                case "login", "password", "user", "key", "session", "lanes" ->
+                    new IdentityCommand(out, err).run(command, rest);
                 // The time-travel debugger (ADR-048). Its own command with verbs of its own,
                 // because a session is a conversation rather than a single call.
                 case "debug" -> new DebugCommand(out, err).run(rest);
@@ -224,6 +225,12 @@ public final class PravahaCli {
                 List.of(
                         "  session   list [--all] | end <id>   [--token t] [--http ...]",
                         "            Sessions: your own, or everyone's with admin."));
+        commands.put(
+                "lanes",
+                List.of(
+                        "  lanes     [rebalance [status] [--yes]]   [--token t] [--http ...]",
+                        "            Where every query runs. rebalance shows the plan; --yes moves shared queries",
+                        "            onto lanes of their own while there is room under auto-from (admin role)."));
         commands.put(
                 "password",
                 List.of(
