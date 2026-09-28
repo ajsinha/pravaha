@@ -233,7 +233,11 @@ pravaha_lane_shared_queries{lane="3"} 1.0
 
 ## What it costs
 
-- **Fate.** One failing pipeline takes the whole shared lane down. A query at `state_fraction` 0.95
+- **Fate.** One failing pipeline takes the whole shared lane down — every query on it, and no other:
+  the other shared lanes and queries on lanes of their own keep answering, and a registration after
+  the failure is never placed on the dead lane (it stays out of placement until the node restarts).
+  Pace is shared the same way: a query that stalls fills its lane's inbox, so its lane-mates are held
+  back with it and nobody else is. A query at `state_fraction` 0.95
   on a shared lane is a risk to up to `max-queries-per-lane` others — configure
   [spill](/help/topics/state-spill) before sharing, so reaching a ceiling slows a query instead of
   killing a lane.

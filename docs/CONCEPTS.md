@@ -137,6 +137,16 @@ overwrite by key from a change that changed nothing (STRM-1). `ViewChange.isRetr
 `isInsertion()` are both false for one built by hand — insertion is `weight > 0`, not
 `!isRetraction()`.
 
+**A view shows one row per key; its input may hold several.** Two different rows with the same key
+can both be present — `A` inserted, then `B`, is weight 1 on each and 2 on the key. The view keeps
+each of them with its own weight, and the key **shows the row that most recently gained weight** and
+is still present. A retraction takes weight from the row it names, so withdrawing `A` leaves `B`
+showing and withdrawing `B` brings `A` back; it never leaves the key showing the row just withdrawn
+(VIEWW-1). The key is present while its rows' weights sum positive, as above. A subscription's
+snapshot carries every row of such a key with its own weight, the shown one last, so a copy kept as a
+Z-set matches the view and one that overwrites by key ends on the row the view shows. A key holding
+one row at a time — nearly every key of a `GROUP BY` or a keyed projection — pays nothing for this.
+
 ## 5. Sharing is by fingerprint, not by name or text
 
 Two registrations whose plans normalise to the same thing are **one computation with two names**,

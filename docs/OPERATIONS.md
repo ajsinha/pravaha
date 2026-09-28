@@ -266,7 +266,11 @@ pravaha:
 When sharing, registered queries run as pipelines on a fixed set of shared lanes, and a lane's inbox
 and arena serve every query on it. A shared lane shares its fate: a query whose pipeline throws —
 including one refused with `PRV-4001` for its state — kills the lane, and every query on it with it,
-where a lane per query loses one. **The default, `auto`, takes both sides of that trade in turn:**
+where a lane per query loses one. Exactly those: queries on the other shared lanes and on lanes of
+their own keep running and answering, a dead lane is placed on no longer (until the node restarts),
+and a query that stops making progress backs up only its own lane's inbox — its lane-mates are
+backpressured with it, nobody else is, and nothing accepted is lost (`SharedLaneFateTest`).
+**The default, `auto`, takes both sides of that trade in turn:**
 the first `auto-from` (64) queries each own a lane, where isolation is cheap, and every registration
 after them shares, where a megabyte per idle query is what bounds the node. Running queries are never
 moved. `true` shares from the first query; `false` never shares.
@@ -911,6 +915,16 @@ that would retain more than the limit, which protects the disk at the price of t
 invalidated slot (`wal_status = 'lost'`) cannot be resumed — the WAL it needed is gone — and the
 source refuses it rather than resuming from wherever PostgreSQL now is. Choose the limit as "how long
 a Pravaha outage may last" times "WAL written per hour".
+
+**Replacing a query over this source is refused** (`PRV-4018`, naming the slot, before anything
+opens). A replacement's backfill would be a second reader of the binding's slot, and PostgreSQL
+streams a slot to one connection at a time — measured: the second reader waited for the slot and
+failed with `PRV-5117` ("is active for PID"). Nor is there history to replay: "from the beginning"
+is the slot's confirmed position, and a slot of the replacement's own would start now, holding
+nothing the running version has read. To change the query, drop it and register the new version
+(with `snapshot.mode: initial` to count the rows already in the table), or register the new version
+under another name on a second binding with a `slot` of its own and drop the old one once it has
+caught up. `mysql-cdc` is refused the same way, for its replica `server.id`.
 
 **Dropping a slot nobody will read again.** A registration that is dropped for good, a node that is
 decommissioned, a test environment torn down: the slot does not go with them. Drop it on the
@@ -1738,7 +1752,10 @@ computation, not a durable one. Confirm or roll back before a planned restart.
 replace a query whose computation is shared with another name (`PRV-8003`); or replace a query whose
 streams cannot be replayed — a table scan's position names where its pass began rather than the
 record it was taken after, so there is no offset a history and a live stream could meet at
-(`PRV-4018`, before anything starts).
+(`PRV-4018`, before anything starts). Nor one over `postgres-cdc` or `mysql-cdc`: the running
+version is the one reader of its replication slot or replica id, and a second could neither start
+beside it nor replay what it has read (`PRV-4018` names the slot or id; see *Change data capture:
+the replication slot*). A debug fork of such a query is refused for the same reason (`PRV-8012`).
 
 ## Debugging a live query: the operator's side
 

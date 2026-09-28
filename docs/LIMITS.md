@@ -122,7 +122,15 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   `binlog_expire_logs_seconds` cannot be resumed (`PRV-5155`). `TRUNCATE`, `ALTER`, `DROP` or `RENAME`
   of the captured table stops it (`PRV-5156`).
 
-  **Buildable:** `mysql-cdc`'s initial snapshot, TLS and GTID positions. `TRUNCATE` stays a refusal: it names no rows to retract.
+  **Neither CDC source can be replaced in place** (`CREATE OR REPLACE`, `PRV-4018` naming the slot or
+  replica id): the running version is the one reader of the binding's replication slot or replica
+  connection, and a second could neither start beside it nor replay what it has read (CDCREPL-1).
+  Drop and register the new version, or register it on a second binding with a slot (`server.id`)
+  of its own. A debug fork is refused the same way (`PRV-8012`).
+
+  **Buildable:** `mysql-cdc`'s initial snapshot, TLS and GTID positions. A CDC replacement that
+  catches up on a slot of its own from an initial snapshot, for a query whose running version also
+  began from one. `TRUNCATE` stays a refusal: it names no rows to retract.
 
 
 ## Boundaries: limits of the stores, the formats or a decision
