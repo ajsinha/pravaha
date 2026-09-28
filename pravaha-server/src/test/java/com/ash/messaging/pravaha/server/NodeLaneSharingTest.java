@@ -63,8 +63,13 @@ class NodeLaneSharingTest {
     }
 
     private static PravahaNode node(boolean multiplex) {
+        return node(String.valueOf(multiplex), 0);
+    }
+
+    private static PravahaNode node(String mode, int autoFrom) {
         LaneProperties lanes = new LaneProperties();
-        lanes.getMultiplex().setEnabled(multiplex);
+        lanes.getMultiplex().setEnabled(mode);
+        lanes.getMultiplex().setAutoFrom(autoFrom);
         // One shared lane, so two queries that may share one have to.
         lanes.getMultiplex().setLanes(1);
         lanes.getMultiplex().setMaxQueriesPerLane(10);
@@ -267,5 +272,62 @@ class NodeLaneSharingTest {
         } finally {
             node.stop();
         }
+    }
+
+    @Test
+    void underAutoTheFirstQueriesOwnALaneAndLaterOnesShare() {
+        PravahaNode node = node("auto", 2);
+        node.start();
+        try {
+            QueryRegistry registry = node.registry().orElseThrow();
+            RegisteredQuery first = countOver(registry, "q_one", "txn");
+            countOver(registry, "q_two", "orders");
+            // Different SQL, or the registry would host one computation for both and place nothing.
+            RegisteredQuery third = registry.register(
+                    "q_three",
+                    "SELECT COUNT(*) AS n, SUM(amount) AS total FROM txn WHERE amount > 0",
+                    List.of(0),
+                    Principal.ANONYMOUS);
+            registry.register(
+                    "q_four",
+                    "SELECT COUNT(*) AS n, SUM(amount) AS total FROM orders WHERE amount > 0",
+                    List.of(0),
+                    Principal.ANONYMOUS);
+
+            assertThat(registry.sharedLaneOf("q_one")).isEmpty();
+            assertThat(registry.sharedLaneOf("q_two")).isEmpty();
+            assertThat(registry.sharedLaneOf("q_three")).contains(0);
+            assertThat(registry.sharedLaneOf("q_four")).contains(0);
+            assertThat(registry.queriesOnOwnLanes()).isEqualTo(2);
+
+            // One on a lane of its own and one on the shared lane, over one stream: each its own count.
+            feed(registry, first, "txn", 100);
+            feed(registry, third, "txn", 40);
+            assertThat(answer(registry.require("q_one"))).containsExactly(1L, 100L);
+            assertThat(answer(registry.require("q_three"))).containsExactly(1L, 40L);
+            assertThat(node.describe())
+                    .contains(
+                            "lanes: auto (a lane each until 2 queries are hosted, then shared), queries per lane [2] of at most 10; 2 on lanes of their own");
+        } finally {
+            node.stop();
+        }
+    }
+
+    @Test
+    void autoIsTheDefaultAndAWrongModeIsRefusedByName() {
+        LaneProperties.Multiplex multiplex = new LaneProperties().getMultiplex();
+        assertThat(multiplex.mode()).isEqualTo("auto");
+        assertThat(multiplex.shareFrom()).isEqualTo(LaneProperties.Multiplex.DEFAULT_AUTO_FROM);
+        assertThat(multiplex.effectiveLanes()).isPositive();
+        multiplex.setEnabled("TRUE");
+        assertThat(multiplex.shareFrom()).isZero();
+        multiplex.setEnabled("false");
+        assertThat(multiplex.effectiveLanes()).isZero();
+        multiplex.setEnabled("sometimes");
+        org.assertj.core.api.Assertions.assertThatThrownBy(multiplex::mode)
+                .hasMessageContaining("auto, true or false, not 'sometimes'");
+        multiplex.setEnabled("auto");
+        multiplex.setAutoFrom(-1);
+        org.assertj.core.api.Assertions.assertThatThrownBy(multiplex::mode).hasMessageContaining("auto-from");
     }
 }

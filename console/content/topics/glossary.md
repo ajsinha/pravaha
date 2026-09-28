@@ -157,7 +157,7 @@ same key supersedes the first. Part of the query's identity. → [Views and keys
 → [Sizing and lanes](/help/topics/sizing-lanes)
 
 **Lane sharing.** Letting many queries share a fixed set of lanes (`pravaha.lane.multiplex.*`) instead
-of holding one apiece; a shared lane shares its fate. → [Lane sharing](/help/topics/lane-sharing)
+of holding one apiece; a shared lane shares its fate. On by default once a node hosts 64 queries (`auto`). → [Lane sharing](/help/topics/lane-sharing)
 
 **Lookup.** A dimension table a query *asks* rather than consumes — `jdbc-lookup`, `aerospike-lookup` —
 joined with `FOR SYSTEM_TIME AS OF`. It never advances event time and holds no checkpointed state.

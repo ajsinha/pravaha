@@ -144,7 +144,8 @@ What one registered query costs in memory, and how its lane waits. See
 | `pravaha.docs.base-url` | *unset* | Where a failure's help link points, with the code on the end — this console's own help, for most deployments. **No default**: unset, the engine prints no link and says where to look instead, because a link that does not resolve reads as a network problem at the worst moment (DOCX-21). A value that is not an absolute http/https URL is refused at startup with `PRV-1029` |
 | `pravaha.lane.backpressure.high-watermark` | `0.8` | Inbox fill at which a query's source is paused. The pair is validated at startup: a high watermark outside (0, 1] or a low one at or above it is refused, naming both keys, rather than clamped |
 | `pravaha.lane.backpressure.low-watermark` | `0.5` | Fill at which the source is resumed. The gap is what stops a saturated source pausing and resuming on alternate polls; widen it where a pause is expensive to undo, such as an Aerospike scan throttle |
-| `pravaha.lane.multiplex.enabled` | `false` | Let queries share a fixed set of lanes instead of one apiece. A shared lane shares its fate |
+| `pravaha.lane.multiplex.enabled` | `auto` | Let queries share a fixed set of lanes instead of one apiece: `auto` once `auto-from` queries are hosted, `true` always, `false` never. A shared lane shares its fate |
+| `pravaha.lane.multiplex.auto-from` | `64` | Under `auto`, queries that own a lane before registrations start sharing |
 | `pravaha.lane.multiplex.lanes` | `0` | Shared lanes; `0` means one per available processor |
 | `pravaha.lane.multiplex.max-queries-per-lane` | `300` | The ceiling per shared lane; a query that fits nowhere (or reads more than one stream) gets a lane of its own |
 

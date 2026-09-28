@@ -12,6 +12,14 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **Lane sharing is on by default, as `auto`.** `pravaha.lane.multiplex.enabled` was a boolean,
+  `false` by default; it is now `auto` (the default), `true` or `false`, with
+  `pravaha.lane.multiplex.auto-from` (64). Under `auto` a node's first 64 queries each own a lane
+  -- a failing query takes down only itself -- and every registration after them is placed on a
+  shared lane, saving about 1 MiB of inbox and arena per idle query. Running queries are never
+  moved. `true` and `false` keep their meaning. The node's `lanes:` status line says which mode is in
+  force. An embedded `QueryRegistry` still shares nothing unless asked
+  (`multiplexingLanes(lanes, ceiling, shareFrom)`).
 - **`iceberg-sink`, an Apache Iceberg sink** (`plugins/pravaha-plugin-iceberg`), on iceberg-core and
   iceberg-parquet 1.2.1, not Spark. A table on the local filesystem; `mode: upsert` (the default)
   keeps it equal to the view by key through equality deletes (format version 2), and

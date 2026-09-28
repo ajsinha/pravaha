@@ -58,7 +58,7 @@ pravaha-server --spring.profiles.active=dev
 
 ```text
 ... lane sizing: batch=512, inbox=2048x512B, arena=4194304B x8, wait=BACKOFF_PARK -- about 1024 KiB held per idle query
-... lanes: one per query (pravaha.lane.multiplex.enabled is false)
+... lanes: auto (a lane each until 64 queries are hosted, then shared), queries per lane [] of at most 300; 0 on lanes of their own
 ... security: authentication=none, policy=permissive, audit=none, flight transport=PLAINTEXT
 ... WARN pravaha.checkpoint.directory is not set, so registered queries keep no checkpoints: ...
 ... WARN pravaha.registry.journal is not set, so registered queries live only in memory and ...
@@ -142,7 +142,8 @@ pravaha:
       slab-bytes: 4194304
       max-slabs: 8
     multiplex:
-      enabled: false
+      enabled: auto              # auto | true | false
+      auto-from: 64
       lanes: 0
       max-queries-per-lane: 300
 

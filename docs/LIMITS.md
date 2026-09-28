@@ -23,7 +23,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 ## Buildable: work that is simply not done yet
 
 - **One read of a source per query, for sources that promise exactly-once or order.** With
-  `pravaha.lane.multiplex.enabled` (off by default) any registered query shares a lane — inbox,
+  lane sharing (`pravaha.lane.multiplex.enabled`, `auto` by default: from the 65th query) any registered query shares a lane — inbox,
   arena and thread — whatever it reads, joins included, and a reader shared by several queries
   writes each row into a shared lane once for all of them (LANE-2). But only a source that
   declares at-least-once and no order gets a shared reader (SRC-3; Aerospike and Cassandra today):

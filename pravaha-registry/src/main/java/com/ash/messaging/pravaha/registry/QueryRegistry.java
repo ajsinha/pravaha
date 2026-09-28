@@ -163,6 +163,9 @@ public final class QueryRegistry implements AutoCloseable {
 
     private int maxQueriesPerSharedLane;
 
+    /** Computations placed on lanes of their own before registrations start sharing: zero shares at once. */
+    private int shareFrom;
+
     /** Which shared lane each hosted computation is on. Absent means a lane of its own. */
     private final Map<QueryFingerprint, Integer> sharedLaneOf = new java.util.HashMap<>();
 
@@ -287,6 +290,28 @@ public final class QueryRegistry implements AutoCloseable {
      * after: a lane already carrying queries cannot be resized under them.
      */
     public synchronized QueryRegistry multiplexingLanes(int lanes, int maxQueriesPerLane) {
+        return multiplexingLanes(lanes, maxQueriesPerLane, 0);
+    }
+
+    /**
+     * As {@link #multiplexingLanes(int, int)}, sharing only once {@code shareFrom} computations are hosted:
+     * the node's {@code auto} mode. The first {@code shareFrom} each own a lane, as with multiplexing off,
+     * and every registration after them is placed on a shared lane. Nothing already running is moved.
+     */
+    public synchronized QueryRegistry multiplexingLanes(int lanes, int maxQueriesPerLane, int shareFrom) {
+        if (shareFrom < 0) {
+            throw new IllegalArgumentException("sharing cannot start before the first query, got " + shareFrom);
+        }
+        this.shareFrom = shareFrom;
+        return multiplexingLanesNow(lanes, maxQueriesPerLane);
+    }
+
+    /** How many computations own a lane before sharing starts; zero when sharing starts at once. */
+    public synchronized int sharingFrom() {
+        return shareFrom;
+    }
+
+    private QueryRegistry multiplexingLanesNow(int lanes, int maxQueriesPerLane) {
         if (lanes < 0) {
             throw new IllegalArgumentException("shared lane count cannot be negative, got " + lanes);
         }
@@ -1039,8 +1064,9 @@ public final class QueryRegistry implements AutoCloseable {
         // the lane has finished it. The view is committed from other threads -- the feed's timer, a
         // caller -- and taking rows one at a time let a commit land between an update's retraction
         // and its insert and publish the answer as gone (VIEW-1).
-        Optional<SharedLanes.Placement> placement =
-                sharedLaneCount == 0 ? Optional.empty() : sharedLanes().place();
+        Optional<SharedLanes.Placement> placement = sharedLaneCount == 0 || byFingerprint.size() < shareFrom
+                ? Optional.empty()
+                : sharedLanes().place();
         QueryExecution execution = (placement.isPresent()
                         ? QueryExecution.startOn(placement.get().group(), name, plan, sink::laneOutput, lookups, access)
                         : QueryExecution.start(plan, 1, laneConfig, access, sink::laneOutput, lookups, laneRunner()))

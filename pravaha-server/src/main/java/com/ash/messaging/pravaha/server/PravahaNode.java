@@ -950,7 +950,9 @@ public class PravahaNode implements SmartLifecycle {
                 Boolean.getBoolean(com.ash.messaging.pravaha.common.memory.MemoryAccess.FFM_PROPERTY));
         // W9-8. The registry could host queries on shared lanes and no node ever asked it to.
         registry.multiplexingLanes(
-                lanes.getMultiplex().effectiveLanes(), lanes.getMultiplex().getMaxQueriesPerLane());
+                lanes.getMultiplex().effectiveLanes(),
+                lanes.getMultiplex().getMaxQueriesPerLane(),
+                lanes.getMultiplex().shareFrom());
         // The debugger's bounds (ADR-048): how many forks this node will hold, how long an
         // abandoned one lives, and how far a step will read. Given before anything can fork.
         registry.configuredWith(debugConfiguration);
@@ -1463,7 +1465,10 @@ public class PravahaNode implements SmartLifecycle {
         if (current.maxQueriesPerSharedLane() == 0) {
             return "lanes: one per query (pravaha.lane.multiplex.enabled is false)";
         }
-        return "lanes: shared, queries per lane " + current.pipelinesPerSharedLane() + " of at most "
+        String when = current.sharingFrom() > 0
+                ? "auto (a lane each until " + current.sharingFrom() + " queries are hosted, then shared)"
+                : "shared";
+        return "lanes: " + when + ", queries per lane " + current.pipelinesPerSharedLane() + " of at most "
                 + current.maxQueriesPerSharedLane() + "; " + current.queriesOnOwnLanes()
                 + " on lanes of their own";
     }

@@ -16,10 +16,14 @@ at the default sizing. [Sizing the inbox down](/help/topics/sizing-lanes) is one
 thousand queries cheap. **Sharing lanes** is the other: registered queries run as pipelines on a
 fixed set of shared lanes, and a lane's inbox and arena serve every query on it.
 
-It is **off by default, deliberately**. A shared lane shares its fate: a query whose pipeline throws
--- including one refused with PRV-4001 for its state — kills the lane, and every query on it with
-it. A lane per query loses one. A node already reaches its query target without sharing, so this is
-a memory trade a deployment chooses, not a default it inherits.
+The default is **`auto`**. Sharing saves memory and costs isolation: a shared lane shares its fate,
+so a query whose pipeline throws -- including one refused with PRV-4001 for its state — kills the
+lane, and every query on it with it, where a lane per query loses one. On a node with a few dozen
+queries the memory is small and the isolation is worth it; on a node with thousands the memory is
+the node. So under `auto` the first **64** queries (`auto-from`) each own a lane, and every
+registration after them is placed on a shared lane. Queries already running are never moved: a node
+that shrinks back below the threshold keeps the placements it made. `true` shares from the first
+query, `false` never shares.
 
 ## The settings
 
@@ -27,14 +31,16 @@ a memory trade a deployment chooses, not a default it inherits.
 pravaha:
   lane:
     multiplex:
-      enabled: true
+      enabled: auto              # auto | true | false
+      auto-from: 64              # auto: queries that own a lane before sharing starts
       lanes: 0                   # 0 = one per available processor
       max-queries-per-lane: 300
 ```
 
 | Key | Default | What it decides |
 |---|---|---|
-| `pravaha.lane.multiplex.enabled` | `false` | Whether registrations are placed on shared lanes at all |
+| `pravaha.lane.multiplex.enabled` | `auto` | `auto`: share once `auto-from` queries are hosted; `true`: share from the first; `false`: never. Anything else is refused at startup |
+| `pravaha.lane.multiplex.auto-from` | `64` | Under `auto`, how many queries own a lane before registrations start sharing. Negative is refused at startup |
 | `pravaha.lane.multiplex.lanes` | `0` | How many shared lanes. `0` means one per available processor. Negative is refused at startup |
 | `pravaha.lane.multiplex.max-queries-per-lane` | `300` | The ceiling on queries one shared lane carries. Below 1 is refused at startup |
 

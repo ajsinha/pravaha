@@ -508,8 +508,12 @@ pravaha:
       low-watermark: 0.5
 
     # Registered queries share `lanes` lanes, at most `max-queries-per-lane` to each, instead of
-    # holding one lane -- and one inbox -- apiece. OFF by default: a shared lane shares its fate, so
-    # a query whose pipeline fails takes every query on its lane down with it.
+    # holding one lane -- and one inbox, about 1 MiB idle -- apiece. A shared lane shares its fate: a
+    # query whose pipeline fails takes every query on its lane down with it. So `enabled` is a mode:
+    #   auto  (the default) -- the first `auto-from` queries own a lane each; registrations after
+    #         that share. A small node keeps the isolation, a big one takes the saving. Queries
+    #         already running are never moved, so a node that shrinks back keeps what it placed.
+    #   true  -- share from the first query.   false -- never share.
     #
     # A registration lands on the least loaded shared lane below the ceiling that carries no other
     # query over the same stream (two would each count the other's rows). One that fits nowhere, or
@@ -517,7 +521,8 @@ pravaha:
     # Zero lanes means one per available processor. Watch pravaha_lane_shared_queries{lane=} and
     # pravaha_lane_own_queries, or the "lanes:" line of the node's status.
     multiplex:
-      enabled: false
+      enabled: auto
+      auto-from: 64
       lanes: 0
       max-queries-per-lane: 300
 

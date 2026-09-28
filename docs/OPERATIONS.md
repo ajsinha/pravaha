@@ -207,7 +207,8 @@ pravaha:
 | `pravaha.lane.arena.max-slabs` | 8 | The lane arena's ceiling, `slab-bytes × max-slabs` |
 | `pravaha.lane.backpressure.high-watermark` | 0.8 | Inbox fill at which the source feeding a query is paused |
 | `pravaha.lane.backpressure.low-watermark` | 0.5 | Fill at which it is let go again; must be below the high one, or the node refuses to start naming both keys |
-| `pravaha.lane.multiplex.enabled` | `false` | Whether registered queries share lanes, and so share inboxes (below) |
+| `pravaha.lane.multiplex.enabled` | `auto` | Whether registered queries share lanes, and so share inboxes (below): `auto` once `auto-from` are hosted, `true` always, `false` never |
+| `pravaha.lane.multiplex.auto-from` | 64 | Under `auto`, how many queries own a lane before registrations start sharing |
 | `pravaha.lane.multiplex.lanes` | 0 | How many shared lanes; 0 means one per available processor |
 | `pravaha.lane.multiplex.max-queries-per-lane` | 300 | The ceiling on queries one shared lane carries |
 
@@ -256,16 +257,19 @@ The other way to take the inbox out of the per-query arithmetic is to stop givin
 pravaha:
   lane:
     multiplex:
-      enabled: true
+      enabled: auto              # auto (default) | true | false
+      auto-from: 64
       lanes: 0                   # one per available processor
       max-queries-per-lane: 300
 ```
 
-With it on, registered queries run as pipelines on a fixed set of shared lanes, and a lane's inbox
-and arena serve every query on it. **It is off by default, deliberately.** A shared lane shares its
-fate: a query whose pipeline throws — including one refused with `PRV-4001` for its state — kills
-the lane, and every query on it with it, where a lane per query loses one. A node already reaches
-its query target without sharing (W9-11), so this is a memory trade a deployment chooses.
+When sharing, registered queries run as pipelines on a fixed set of shared lanes, and a lane's inbox
+and arena serve every query on it. A shared lane shares its fate: a query whose pipeline throws —
+including one refused with `PRV-4001` for its state — kills the lane, and every query on it with it,
+where a lane per query loses one. **The default, `auto`, takes both sides of that trade in turn:**
+the first `auto-from` (64) queries each own a lane, where isolation is cheap, and every registration
+after them shares, where a megabyte per idle query is what bounds the node. Running queries are never
+moved. `true` shares from the first query; `false` never shares.
 
 A registration is placed by one rule: **the least loaded shared lane below
 `max-queries-per-lane` wins**, by query count, lowest number on a tie. What the query reads does not
@@ -992,9 +996,12 @@ hold. What changed is the arithmetic: `NodeScaleTest` measures **200 queries add
 threads**, 0.12 each, where the same workload cost 400 before this wave (a lane and a watermark
 clock each). Ten times as many queries adds none.
 
-By default a lane runs exactly *one* query's pipeline. `LaneMultiplexer` — which puts many
-pipelines on one lane and so shares the inbox and arena as well as the thread — is turned on with
-`pravaha.lane.multiplex.enabled` (an embedder: `QueryRegistry.multiplexingLanes(lanes, ceiling)`),
+Until a node hosts `auto-from` (64) queries a lane runs exactly *one* query's pipeline. After that
+`LaneMultiplexer` — which puts many pipelines on one lane and so shares the inbox and arena as well
+as the thread — takes each new registration (`pravaha.lane.multiplex.enabled`: `auto` by default,
+`true` from the first query, `false` never; an embedder:
+`QueryRegistry.multiplexingLanes(lanes, ceiling, shareFrom)`, and an embedded registry shares nothing
+unless asked),
 and the registry then places each registration on a shared lane under a per-lane ceiling (see
 *Sharing lanes between queries*, W9-8). Keyed aggregates remain single-lane (ADR-034).
 
@@ -2023,9 +2030,10 @@ Listed because you will meet them, not to be thorough:
   that reaches its ceiling dies with `PRV-4001` and takes its lane with it; with it, join and
   windowed-aggregate state spills to mapped files and the query slows instead (ADR-037 B2),
   `COUNT(DISTINCT)` included (ADR-044). The ceiling is visible before it arrives either way (B1)
-- **By default a lane runs one query on a node.** The thread is shared (`LaneRunner`); the inbox
-  and the arena are not, so per-query off-heap is ~1 MiB idle. `pravaha.lane.multiplex.enabled`
-  shares them (off by default, because a shared lane shares its fate), for any query, joins included.
+- **A node's first 64 queries run a lane each.** The thread is shared (`LaneRunner`); the inbox
+  and the arena are not, so per-query off-heap is ~1 MiB idle. Past `auto-from` (64) new
+  registrations share them (`pravaha.lane.multiplex.enabled: auto`, the default; a shared lane shares
+  its fate, which is why the first 64 do not), for any query, joins included.
   A shared reader writes each row into a shared lane once for every query on it (LANE-2); a source
   promising exactly-once or order still reads once per query
 - **N Aerospike-backed queries over one set are one scan**, throttled to `scan.interval.ms` and

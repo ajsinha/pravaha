@@ -200,19 +200,58 @@ public class LaneProperties {
         /** Design section 13.7: ten thousand queries on a node sized by cores is about 300 a lane. */
         public static final int DEFAULT_MAX_QUERIES_PER_LANE = 300;
 
-        private boolean enabled;
+        /** Queries a node hosts on lanes of their own before {@code auto} starts sharing. */
+        public static final int DEFAULT_AUTO_FROM = 64;
+
+        /**
+         * {@code auto} (the default), {@code true} or {@code false}. Sharing a lane saves its inbox and arena,
+         * about 1 MiB idle per query, and costs isolation: a slow or failing query holds up the others on
+         * its lane. {@code auto} keeps the isolation while a node is small and takes the saving once it is
+         * not -- the first {@link #autoFrom} computations each own a lane, and registrations after that
+         * share. Queries already running are never moved.
+         */
+        private String enabled = "auto";
+
+        private int autoFrom = DEFAULT_AUTO_FROM;
 
         /** Zero means one per lane-runner thread, which is one per available processor. */
         private int lanes;
 
         private int maxQueriesPerLane = DEFAULT_MAX_QUERIES_PER_LANE;
 
-        public boolean isEnabled() {
+        public String getEnabled() {
             return enabled;
         }
 
-        public void setEnabled(boolean enabled) {
+        public void setEnabled(String enabled) {
             this.enabled = enabled;
+        }
+
+        public int getAutoFrom() {
+            return autoFrom;
+        }
+
+        public void setAutoFrom(int autoFrom) {
+            this.autoFrom = autoFrom;
+        }
+
+        /** {@code auto}, {@code true} or {@code false}; anything else is refused by name. */
+        public String mode() {
+            String mode = enabled == null ? "auto" : enabled.strip().toLowerCase(java.util.Locale.ROOT);
+            if (!mode.equals("auto") && !mode.equals("true") && !mode.equals("false")) {
+                throw new IllegalArgumentException(
+                        "pravaha.lane.multiplex.enabled is auto, true or false, not '" + enabled + "'");
+            }
+            if (mode.equals("auto") && autoFrom < 0) {
+                throw new IllegalArgumentException(
+                        "pravaha.lane.multiplex.auto-from cannot be negative, got " + autoFrom);
+            }
+            return mode;
+        }
+
+        /** How many computations own a lane before sharing starts: zero with {@code true}. */
+        public int shareFrom() {
+            return mode().equals("auto") ? autoFrom : 0;
         }
 
         public int getLanes() {
@@ -237,7 +276,7 @@ public class LaneProperties {
          * processor, so each can step a shared lane without any waiting on another.
          */
         public int effectiveLanes() {
-            if (!enabled) {
+            if (mode().equals("false")) {
                 return 0;
             }
             if (lanes < 0) {

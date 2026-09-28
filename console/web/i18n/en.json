@@ -1027,7 +1027,7 @@
         "queries": "Queries on it"
       },
       "none_title": "No lane is shared",
-      "none_body": "Lane sharing is off (pravaha.lane.multiplex.enabled), so every query holds a lane and an inbox of its own and there is no shared lane to be blocked. That is not a table of idle lanes: there are none."
+      "none_body": "Every query here holds a lane and an inbox of its own, so there is no shared lane to be blocked. That is not a table of idle lanes: there are none. By default (pravaha.lane.multiplex.enabled: auto) a node starts sharing lanes once it hosts 64 queries, keeping a lane apiece while isolation is cheap; true shares from the first query, false never."
     },
     "operators": {
       "on": "Per-operator numbers are on for this node, so a query's plan carries rows, state, watermark and a sampled self time for each of its operators. ",

@@ -104,7 +104,8 @@ that guessed would have to *move* a lane to correct itself — the one thing con
 
 ### Lane vs *query* — one to one by default
 
-One lane runs one query unless `pravaha.lane.multiplex.enabled` is set. Then `LaneMultiplexer` puts
+One lane runs one query until lane sharing applies: `pravaha.lane.multiplex.enabled` is `auto` by
+default, sharing once a node hosts `auto-from` (64) queries, `true` from the first, `false` never. Then `LaneMultiplexer` puts
 up to `max-queries-per-lane` pipelines on each of a fixed set of shared lanes, dispatching by the
 route in each row's header so idle queries are never consulted (W9-8). Each hosted input has a route
 of its own, so what a query is fed alone reaches it alone, and a reader shared by several queries
