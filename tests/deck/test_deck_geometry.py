@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see LICENSE at the repository root.
 """
 The deck, checked by the same tool that claims to check it.
 

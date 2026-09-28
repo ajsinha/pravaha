@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see LICENSE at the repository root.
 """
 Text metrics shared by the deck builder and the geometry audit.
 

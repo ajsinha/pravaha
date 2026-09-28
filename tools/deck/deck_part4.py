@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see LICENSE at the repository root.
 """
 The deck, as data. Parts 10 and 11: the thirteen case studies, four in depth,
 and what is measured, what is not built, and where to start.

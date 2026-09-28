@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see LICENSE at the repository root.
 """
 The one Pravaha deck, as data: the title slide here, and the eleven parts in
 order in ``deck_part1`` to ``deck_part4``.

@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see LICENSE at the repository root.
 """
 The deck design system: the console's crimson (console/web/templates/base.html:
 accent #A51C30, #8A1626, #6E1120, tint #F6E6E9, ink #1A1A1A, canvas #F7F5F2) and its
