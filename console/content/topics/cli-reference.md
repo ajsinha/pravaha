@@ -4,10 +4,10 @@ slug: cli-reference
 category: reference
 order: 50
 icon: terminal
-summary: "Every pravaha command and flag — query, register, subscribe, lifecycle, blue/green, dead letters, the debugger, status, lanes, audit and identity — with output, --json, exit codes and the refusals it prints; and pravaha-engine for SQL with no server."
+summary: "Every pravaha command and flag — query, register, subscribe, lifecycle, blue/green, dead letters, the debugger, status, lanes, audit, identity and the assistant — with output, --json, exit codes and the refusals it prints; and pravaha-engine for SQL with no server."
 badge: REFERENCE
 audience: Developers
-keywords: [cli, pravaha, pravaha-engine, command line, query, register, queries, subscribe, pause, resume, drop, replace, cutover, rollback, dlq, debug, status, health, streams, views, describe, plan, lanes, rebalance, audit, tenants, permissions, login, logout, whoami, user, key, session, version, "--url", "--http", "--token", "--insecure-token", "--json", "--yes", "--sql-file", "--params", "--filter", "--snapshot", "--reconnect", PRAVAHA_URL, PRAVAHA_HTTP, PRAVAHA_TOKEN, NO_COLOR, exit code]
+keywords: [cli, pravaha, pravaha-engine, command line, query, register, queries, subscribe, pause, resume, drop, replace, cutover, rollback, dlq, debug, status, health, streams, views, describe, plan, lanes, rebalance, audit, tenants, permissions, login, logout, whoami, user, key, session, version, ask, explain-sql, why, assist, "--url", "--http", "--token", "--insecure-token", "--json", "--yes", "--sql-file", "--params", "--filter", "--snapshot", "--reconnect", PRAVAHA_URL, PRAVAHA_HTTP, PRAVAHA_TOKEN, NO_COLOR, exit code]
 guide: quickstart
 related: [choosing-a-client, client-snippets, sdk-reference, http-api, subscriptions, lane-sharing, authentication]
 ---
@@ -610,19 +610,39 @@ ends. `user disable` and `key revoke` print what would happen unless `--yes`. `u
 
 ## The assistant
 
-Three commands ask a language model you configure — any provider, several at once — with the engine
-as the judge: the model is given the engine's own plan or refusal, and a rewrite it proposes is
+Four commands ask a language model you configure — any provider, several at once — with the engine
+as the judge: the model is given the engine's own catalogue, plan or refusal, and SQL it proposes is
 validated by the engine before it is shown as working. The configuration is
 `~/.config/pravaha/assist.json`; see [The assistant](/help/topics/assistant).
 
 ```text
+pravaha ask "<description>" [--name N] [--repairs 0-3] [--register [--yes]] [--show-context]
+            [--profile P] [--model ID]
 pravaha explain-sql (--sql <sql> | --sql-file <path> | --query <name>) [--level physical|logical]
                     [--show-plan] [--profile P] [--model ID]
 pravaha why PRV-nnnn [--sql <sql> | --sql-file <path>] [--no-check] [--profile P] [--model ID]
 pravaha assist models | providers | check [--model ID,ID]
 pravaha assist use <profile> <id>[,<fallback>...] [--default] [--yes]
 pravaha assist enable <id> [--yes] | disable <id> [--yes]
+pravaha assist eval [--profile P] [--model ID] [--limit N] [--case ID,...] [--run [--prefix P]
+                    [--settle S]] [--full]
 ```
+
+`ask` drafts a continuous query from a description. The model is told only what the engine lists for
+you — the streams and views you may read, the sinks you may write to — with the guide's rules and a
+few worked examples; the engine validates and explains the draft, and a refusal gets up to three
+repair turns (`--repairs`), none of which may change what the query reads. It prints the
+`CREATE CONTINUOUS QUERY` statement, the engine's plan, the sink's guarantee, the model's assumptions
+and questions, and every turn; if the model has questions, the engine is not asked. Exit `1` when the
+engine still refuses after the repairs. **Nothing is registered unless you say so:** `--register`
+registers an accepted draft after you confirm at the terminal, or with `--yes`, through the ordinary
+registration call under your credentials (so it needs `--url`).
+
+`assist eval` scores a model on the golden set built from the case studies — accepted by the engine,
+the same streams and the same plan and key as the reference; the three negative cases must be refused
+or asked about — and prints a table with each case's repair turns, tokens and time. Exit `1` if a
+scored case failed. `--run` registers each draft and its reference under `--prefix`, compares the
+engine's fingerprints and answers, and drops them: for a test node only.
 
 `explain-sql` sends the SQL and the plan `POST /api/v1/queries/explain` gives for it; SQL the engine
 refuses is its refusal, exit `1`, and no model is asked. `why` with no statement needs no engine at
@@ -631,6 +651,7 @@ all; with `--sql` the model is given the engine's own diagnostics, and the rewri
 tokens, is a note on stderr; `--json` prints the whole result, including the engine's plan or verdict.
 
 ```bash
+pravaha ask "orders per customer per minute" --name orders_per_minute --register --url grpc://localhost:19090
 pravaha why PRV-2050 --sql "SELECT customer, COUNT(*) FROM orders GROUP BY customer"
 pravaha assist use explain local-llama,claude --yes
 ```

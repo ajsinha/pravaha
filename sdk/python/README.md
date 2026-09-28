@@ -152,10 +152,11 @@ Planning or running SQL with no server is the Java tool `pravaha-engine`. The fu
 
 ## The assistant
 
-`pravaha.assist` explains a continuous query in plain English, and explains a refusal and what to
-change, through any language model you configure — with the engine as the judge: the model is given
-the engine's own plan or refusal, and a rewrite it proposes is validated by the engine before it is
-shown as working (ADR-058, phase 1). Standard library only, like the rest of the SDK.
+`pravaha.assist` drafts a continuous query from a plain-English description, explains a continuous
+query, and explains a refusal and what to change, through any language model you configure — with
+the engine as the judge: the model is given the engine's own catalogue, plan or refusal, and SQL it
+proposes is validated by the engine before it is shown as working. A draft is registered only when a
+person confirms it (ADR-058, phases 1 and 2). Standard library only, like the rest of the SDK.
 
 ```python
 from pravaha.api import EngineApi
@@ -165,13 +166,26 @@ router = ModelRouter.from_store(FileConfigStore())       # ~/.config/pravaha/ass
 assistant = Assistant(router, EngineApi("https://engine:18080", token=token))
 why = assistant.explain_refusal("PRV-2050", "SELECT customer, COUNT(*) FROM orders GROUP BY customer")
 print(why.fix, why.rewrite, why.rewrite_verdict["valid"], why.answered_by["modelId"])
+
+draft = assistant.draft("orders per customer per minute")   # judged by the engine; not registered
+print(draft.status, draft.statement(), draft.plan, [t.verdict.words() for t in draft.turns])
+# assistant.register(draft, confirmed=True, client=client)  # only a person, only when accepted
 ```
 
 ```bash
+pravaha ask "stock lines at or below their reorder point"   # --register asks first; --yes in scripts
 pravaha why PRV-2050                       # no engine needed
 pravaha explain-sql --query hourly_spend
 pravaha assist models; pravaha assist check; pravaha assist use explain claude,llama --yes
+pravaha assist eval --model claude         # score a model on the case studies' golden set
 ```
+
+- **Drafting:** the context comes from the engine (only what you may read; no rows), the model
+  answers a fixed schema, the engine validates and explains, up to three repair turns that may not
+  change what the query reads; `Draft` carries the statement, the engine's verdict and plan, the
+  sink's guarantee, assumptions, questions, every turn, the model and its tokens.
+- **Evaluation:** `Evaluator` and `pravaha assist eval` score a model on a golden set generated from
+  `examples/case-studies/`, by the engine's plan (or, with `--run`, its fingerprint or answer).
 
 - **Providers:** `anthropic`, `openai`, `openai-compatible` (vLLM, LM Studio, llama.cpp, gateways),
   `ollama` and `fake`, over `urllib`; another is a package declaring an entry point in the

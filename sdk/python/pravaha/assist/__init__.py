@@ -10,10 +10,13 @@ Three layers, each replaceable::
     (tasks)               (profiles, fallback,     (anthropic | openai | openai-compatible |
                            budgets, reconfigure)    ollama | fake | any entry point)
 
-Phase 1 is built: the provider protocol and five built-in providers, the router with fallback,
-budgets and runtime reconfiguration, the configuration store and its administration facade, and
-the two tasks that need no confirmation -- :meth:`Assistant.explain_query` and
-:meth:`Assistant.explain_refusal`. Drafting a query from a description is phase 2. ::
+Phases 1 and 2 are built: the provider protocol and five built-in providers, the router with
+fallback, budgets and runtime reconfiguration, the configuration store and its administration
+facade; the two tasks that need no confirmation -- :meth:`Assistant.explain_query` and
+:meth:`Assistant.explain_refusal`; drafting a query from a description with the engine as the
+judge -- :meth:`Assistant.draft`, registered only by a person through
+:meth:`Assistant.register`; and the evaluation harness over the golden set
+(:mod:`pravaha.assist.evaluate`). ::
 
     from pravaha.api import EngineApi
     from pravaha.assist import Assistant, FileConfigStore, ModelRouter
@@ -28,11 +31,13 @@ Standard library only: the SDK's base install gains no dependency for any of it.
 from pravaha.assist._http import request_json, retry_after
 from pravaha.assist.admin import AssistAdmin, AuditRecord
 from pravaha.assist.assistant import (
+    DRAFT_PROFILE,
     EXPLAIN_PROFILE,
     Assistant,
     QueryExplanation,
     RefusalExplanation,
 )
+from pravaha.assist.context import ContextBuilder, DraftContext, Example, load_examples
 from pravaha.assist.config import AssistConfig, Budgets, ModelConfig, ProviderConfig
 from pravaha.assist.errors import (
     AssistConfigError,
@@ -43,7 +48,10 @@ from pravaha.assist.errors import (
     ModelRateLimited,
     ModelRefused,
     ModelUnavailable,
+    RegistrationRefused,
 )
+from pravaha.assist.drafting import Draft, Turn, Verdict
+from pravaha.assist.evaluate import CaseResult, EvalReport, Evaluator, GoldenCase, load_golden_set
 from pravaha.assist.prompts import DialectCard, Prompt, load_card, load_prompt
 from pravaha.assist.provider import (
     BaseProvider,
@@ -80,6 +88,20 @@ from pravaha.assist.store import (
 )
 
 __all__ = [
+    "load_golden_set",
+    "load_examples",
+    "Verdict",
+    "Turn",
+    "RegistrationRefused",
+    "GoldenCase",
+    "Example",
+    "Evaluator",
+    "EvalReport",
+    "DraftContext",
+    "Draft",
+    "ContextBuilder",
+    "CaseResult",
+    "DRAFT_PROFILE",
     "ENTRY_POINT_GROUP",
     "EXPLAIN_PROFILE",
     "AssistAdmin",

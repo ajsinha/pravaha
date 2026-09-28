@@ -3,18 +3,21 @@
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
-The assistant explains a continuous query in plain English, and explains a refusal — what
-`PRV-2050` means for *this* statement and what to change. It asks a language model you configure,
+The assistant drafts a continuous query from a plain-English description, explains a continuous
+query in plain English, and explains a refusal — what `PRV-2050` means for *this* statement and
+what to change. It asks a language model you configure,
 any provider, several at once, and it never trusts what the model says on its own: the model is
 given the engine's own plan and the engine's own words, and any SQL the model proposes goes back to
 the engine before you are told it works. The design is [ADR-058](adr/058-plain-english-to-continuous-sql.md).
 
-**What is built (phase 1):** the `pravaha.assist` package in the Python SDK — the provider protocol,
-five built-in providers, the router with fallback chains, budgets and runtime reconfiguration, the
-configuration store and its administration facade, and two tasks: `pravaha explain-sql` and
-`pravaha why`. **Not yet:** drafting a query from a description (`pravaha ask`, phase 2), the
-console's panel and admin screen (phase 3), and the `azure-openai`, `bedrock` and `vertex`
-providers (phase 4).
+**What is built (phases 1 and 2):** the `pravaha.assist` package in the Python SDK — the provider
+protocol, five built-in providers, the router with fallback chains, budgets and runtime
+reconfiguration, the configuration store and its administration facade; the explain tasks
+`pravaha explain-sql` and `pravaha why`; **drafting a query from a description**, `pravaha ask`,
+judged by the engine with up to three repair turns and registered only when a person confirms it;
+and the **evaluation harness**, `pravaha assist eval`, over a golden set built from the case
+studies. **Not yet:** the console's panel and admin screen (phase 3), and the `azure-openai`,
+`bedrock` and `vertex` providers (phase 4).
 
 - [Quick start](#quick-start)
 - [Configuration](#configuration)
@@ -22,6 +25,8 @@ providers (phase 4).
 - [How a model is chosen](#how-a-model-is-chosen)
 - [Changing the configuration while it runs](#changing-the-configuration-while-it-runs)
 - [The two tasks](#the-two-tasks)
+- [Drafting a query: `pravaha ask`](#drafting-a-query-pravaha-ask)
+- [Measuring a model: `pravaha assist eval`](#measuring-a-model-pravaha-assist-eval)
 - [Commands](#commands)
 - [From Python](#from-python)
 - [Writing a provider plugin](#writing-a-provider-plugin)
@@ -51,7 +56,7 @@ providers (phase 4).
        {"id": "claude", "provider": "anthropic", "model": "claude-opus-5"},
        {"id": "llama", "provider": "local", "model": "llama3.1:70b"}
      ],
-     "profiles": {"explain": ["llama", "claude"]},
+     "profiles": {"explain": ["llama", "claude"], "draft": ["claude", "llama"]},
      "budgets": {"per_user_daily_tokens": 200000, "per_request_max_tokens": 8000}
    }
    ```
@@ -64,6 +69,7 @@ providers (phase 4).
    pravaha why PRV-2050                   # no engine needed
    pravaha why PRV-2050 --sql "SELECT customer, COUNT(*) FROM orders GROUP BY customer"
    pravaha explain-sql --query hourly_spend
+   pravaha ask "orders per customer per minute"          # drafts; registers nothing
    ```
 
 `pravaha why` with no statement works offline: it needs a model and nothing else. With `--sql` and
@@ -88,7 +94,7 @@ fields are the same.)
 |---|---|
 | `providers` | A list. Each has an `id` (named by models), a `type` (a built-in, or a plugin's name — [Providers](#providers)), and optionally `endpoint`, `api_key_env` **or** `api_key_file`, `timeout_s` (default 60) and `options` (passed to the provider). Several may share a type: two gateways, two accounts |
 | `models` | A list. Each has an `id` (named by profiles and `--model`), a `provider` (a provider's `id`), `model` (the provider's own model name), and optionally `enabled` (default `true`), `timeout_s` and `options` — merged over the provider's |
-| `profiles` | Profile → an ordered list of model ids: the fallback chain. The tasks ask for `explain` |
+| `profiles` | Profile → an ordered list of model ids: the fallback chain. The explain tasks ask for `explain`, `ask` and `assist eval` for `draft` (the strongest model you have); a profile not configured falls back to `default_profile` |
 | `default_profile` | The chain used when a task's profile is not configured |
 | `budgets` | `per_request_max_tokens` and `per_user_daily_tokens`; either may be left out |
 | `debug` | `true` keeps each provider's raw answer on the response (`PRAVAHA_ASSIST_DEBUG=1` does the same) |
@@ -230,10 +236,151 @@ the guide changes and the card was not rebuilt.
 and its `.schema.json`, likewise `explain_refusal`). Changing what the assistant asks is a new
 version; every result names the prompt that produced it (`explain_query@v1`).
 
+## Drafting a query: `pravaha ask`
+
+```bash
+pravaha ask "stock lines at or below their reorder point, and tell me when they recover"
+pravaha ask "orders per customer per minute" --name orders_per_minute --register   # asks first
+pravaha ask "..." --register --yes --url grpc://engine:19090                      # no prompt
+pravaha ask "..." --json
+```
+
+```text
+ describe ──► context ──► draft ──► engine validate/explain ──► repair (≤ 3) ──► present ──► confirm ──► register
+```
+
+**1. The context comes from the engine, never from the model's memory.** Under your own token the
+assistant asks `GET /api/v1/me/permissions`, `/api/v1/streams`, `/api/v1/queries`,
+`/api/v1/views/{name}` and `/api/v1/sinks` — only what the API answers you — and gives the model:
+
+- the **streams you may read** (the engine's listing, intersected with the streams your permissions
+  name), each with its columns and types, its event-time column and out-of-orderness. A stream you
+  cannot read is never named to the model;
+- the **views you may read** — registered queries a continuous query may follow (ADR-056) — with
+  their key, retention and, for the twenty most relevant, their columns; a view the engine refuses to
+  describe is left out entirely;
+- the **sinks you may see**, with the guarantee each gives (`EXACTLY_ONCE`, `EFFECTIVELY_ONCE`,
+  `AT_LEAST_ONCE`) and whether it accepts retractions;
+- the **dialect**: the guide's error table, then its sections on aggregation, unwindowed `GROUP BY`,
+  when a window emits, joins, queries on queries and what to do when refused — from the dialect card;
+- **two to four worked examples** from `examples/case-studies/`, chosen by similarity to your
+  description (and preferring examples over streams you can read here).
+
+**No row is ever read.** The context is ordered deterministically and held to a **size budget**:
+24,000 characters, or less when a `per_request_max_tokens` budget is configured (what it leaves after
+the answer, the prompt's own words and a repair turn — 12,000 characters under a budget of 8,000
+tokens). What is least relevant to the description is left out first, and what was left out is
+named — in the prompt ("left out for size; ask if you need one") and on the result
+(`context.omitted`).
+
+**2. The draft is a fixed JSON Schema** (`draft_query@v1`): `name`, `sql` (one `SELECT`), `keys`
+(output column names), `options` (`retention`, `index`, `sink`, `lane`), `explanation`,
+`assumptions` ("I took `amount` to be in cents"), `questions` and `confidence`. **If the model has
+questions, they are printed and the engine is asked nothing**: answer them in a new description.
+
+**3. The engine is the judge.** The `SELECT` goes to `POST /api/v1/queries/validate`, and when it is
+valid to `/explain` for the physical plan. Before a draft is called accepted the assistant also makes
+the checks the engine only makes at registration and the API cannot be asked — that the key and the
+index name columns the engine says the `SELECT` produces (the engine's `PRV-2071` and `PRV-2074`),
+that the sink is one you may see, that the retention is a duration the engine reads — and labels them
+`by: "assistant"`, never as the engine's words.
+
+**4. Repair: at most three turns, and never a looser question.** A refusal goes back to the model with
+the `PRV` code, the engine's sentence and the dialect card's sections about that code. Each repair
+turn carries the description and catalogue, the model's last answer and what was wrong with it — not
+every earlier turn — so each costs about the same. The prompt tells the model never to loosen the
+question, and the assistant checks it: **a repair must read the same streams and views as the first
+draft**. One that does not is refused by the assistant ("that is a different question") and never
+sent to the engine. A draft still refused after the last turn is presented as refused, in the
+engine's own words, exit `1`. Every turn — its SQL, its verdict, whether it kept the question, the
+model and its tokens — is on the result.
+
+**5. Present.** The statement (`CREATE CONTINUOUS QUERY … KEYED BY … AS SELECT …`, ready to paste),
+the model's explanation, **the engine's own plan**, the sink's guarantee, the assumptions and
+questions, the turns, and which model answered at what cost. When a running query you may see has
+the same plan, key and retention, you are told and offered to read it instead: the engine would
+share one computation (ADR-025).
+
+**6. Registration is yours.** `--register` registers only a draft the engine accepted, and only
+after you confirm — at a terminal it asks; `--yes` confirms in a script; with neither and no terminal
+it registers nothing, says so, and exits `0`. Registration is the ordinary client call under your own
+credentials (`Client.register`, or the draft's `CREATE` statement through `Client.query` when it
+declares an index or a lane, which `register` cannot carry), so it is authorized exactly like a
+statement you typed; it speaks Flight, so it needs `--url`. The model has no tool: nothing it says is
+executed.
+
+**What the engine exposes, and what is approximated.** The HTTP API gives **no fingerprint for SQL
+that is not registered**: `POST /api/v1/queries/explain` answers `level`, `plan`, `outputFields` and,
+with `format=graph`, `graph`; a fingerprint appears only on a registered query (`GET /api/v1/queries`,
+`/views/{name}`, and a registration's answer). So "the same computation as a running query" is
+decided by comparing the engine's physical plan text for the draft with its plan for each running
+query that reads the same inputs, whitespace-normalised, plus the key and retention — labelled
+`match: "plan"`. The plan text is a summary written for people (the fingerprint hashes each
+operator's identity, a different rendering), so two plans that print alike are very likely, not
+certainly, one computation; registering says for sure. **Guarantees** are what `GET /api/v1/sinks`
+reports for the chosen sink on this node; lane placement is not predicted.
+
+**Exit codes:** `0` accepted, or the model asked questions; `1` refused after the repair turns (or,
+with `--register`, questions instead of a draft), a model failure, a budget; `2` configuration; `3`
+the engine could not be reached.
+
+## Measuring a model: `pravaha assist eval`
+
+```bash
+pravaha assist eval                                   # the default profile's chain, every case
+pravaha assist eval --model claude --json > claude.json
+pravaha assist eval --model llama --case retail-inventory-mysql,negative --limit 10
+pravaha assist eval --run --url grpc://localhost:19090 --prefix assist_eval_   # a test node only
+```
+
+**The golden set** (`pravaha/assist/resources/golden-set.json`) is generated by
+`sdk/python/tools/build_examples.py`, with the worked examples, from each case study's README and
+`sql/*-continuous-*.sql`: one **reference** case per continuous query — the README's heading for it
+and the paragraph that explains it as the description, the file as the reference SQL, and
+`schema/views.properties` for its key — and three **negative** cases that must be refused or must
+raise a question:
+
+| Case | What it asks for | Why it must not be accepted |
+|---|---|---|
+| `negative/unbounded-group-by` | each card's approved authorisations, forever, no window | an unwindowed `GROUP BY` over a stream is `PRV-2050`; a window answers a different question |
+| `negative/join-without-time-bound` | every click matched to its impression however late | a stream–stream join keeps bounded state; a time bound changes what was asked |
+| `negative/stream-does-not-exist` | refunds per region per hour, from a `refunds` stream | there is none; answering from `order_line` is a different question |
+
+**Scoring by meaning, not text.** Each case is drafted exactly as `pravaha ask` would, with the case's
+own worked example taken out of the prompt (it would be the answer). A **reference** case passes when
+the engine accepts the draft, the draft reads the same streams as the reference, and it is the same
+computation: by **plan** (the engine's physical plan for both equal, and the same key), or with
+`--run` by **fingerprint** or **answer** (below). A **negative** case passes when the draft is refused
+or asks a question; an accepted one is a model that loosened the question, and is reported as one.
+A case whose streams this engine does not have is **skipped**, not failed.
+
+Recorded per case: the outcome, how it was shown equal, whether the inputs and key match, repair
+turns, tokens, latency and the model that answered; the report table ends with a summary — passed
+of scored, references accepted and equal, negatives caught, tokens, repair turns, time and models.
+`--json` gives the same (`--full` adds every draft). Exit `0` when every scored case passed, `1`
+otherwise, so a provider change is a regression test away. Compare models by running it once per
+`--model`.
+
+**The engine it runs against** needs the case studies' streams: start a node with a study's
+`conf/application.yaml` (examples/case-studies/SETUP.md), or several studies' streams in one
+configuration. Without `--run` nothing is registered — only the catalogue, `validate` and `explain`
+are called — so it is safe against any engine you may read, but only cases whose streams it has are
+scored.
+
+**`--run`** also registers each accepted draft whose plan differs from its reference, and the
+reference, under `--prefix` (`assist_eval_ref_<view>` and `assist_eval_draft_<view>`), compares the
+fingerprints the engine answers, and when they differ waits `--settle` seconds and reads both views,
+comparing their rows as multisets — the `CaseStudyRunTest` idea, on whatever sample data the node is
+fed. Both are dropped afterwards, whatever happened. It needs `--url` (Flight) and the register
+permission, and it is **for a test node started with the case studies' data, never a production
+engine**: it registers computations there, however briefly. With no data flowing both views stay
+empty and the case says so rather than passing.
+
 ## Commands
 
 | Command | What it does |
 |---|---|
+| `ask "<description>" [--name N] [--repairs 0-3] [--register [--yes]] [--show-context] [--profile P] [--model ID]` | Draft a continuous query, judged by the engine; `--register` registers it once you confirm (needs `--url`). Profile `draft` by default |
 | `explain-sql (--sql S \| --sql-file F \| --query NAME) [--level physical\|logical] [--show-plan] [--profile P] [--model ID]` | A query in plain English, grounded in the engine's plan |
 | `why PRV-nnnn [--sql S \| --sql-file F] [--no-check] [--profile P] [--model ID]` | What the refusal means and what to change; `--no-check` skips validating a proposed rewrite |
 | `assist models` | Every configured model: its provider, key variable (set or not — never its value), enabled, and the chains naming it (`explain#1*`: first in `explain`, the default profile) |
@@ -241,11 +388,13 @@ version; every result names the prompt that produced it (`explain_query@v1`).
 | `assist check [--model ID,ID]` | Ping each enabled model as cheaply as its API allows; exit `1` if any failed |
 | `assist use PROFILE ID[,FALLBACK...] [--default] [--yes]` | Set a profile's chain |
 | `assist enable ID [--yes]`, `assist disable ID [--yes]` | Enable or disable a model |
+| `assist eval [--profile P] [--model ID] [--limit N] [--case ID,...] [--run [--prefix P] [--settle S]] [--full]` | Score a model on the golden set; exit `1` if a scored case failed |
 
 All take `--json`. **Exit codes** keep the CLI's contract: `0` done; `1` a model failed — the
 normalised error on stderr (`ModelRateLimited: … (retry after 12 s)`; with `--json`, `{"error":
 {"kind", "alias", "provider", "model", "retryAfter", …}}`) — or a budget refused the request, or the
-engine refused the SQL; `2` the assistant's configuration is wrong (nothing was sent to any model);
+engine refused the SQL (for `ask`, still refused after its repair turns), or an evaluation case
+failed; `2` the assistant's configuration is wrong (nothing was sent to any model);
 `3` the engine could not be reached. Notes, including which model answered and what it cost, go to
 stderr; the answer to stdout.
 
@@ -268,8 +417,26 @@ print(explained.summary, *explained.steps, sep="\n")
 
 answer = router.ask("One sentence: what is event time?", profile="explain")   # any question
 print(answer.text, answer.model_id, answer.usage.total_tokens)
+
+draft = assistant.draft("orders per customer per minute")    # nothing is registered
+print(draft.status, draft.verdict.words())                   # accepted | refused | questions
+print(draft.statement(), draft.plan, draft.assumptions, draft.questions, sep="\n")
+for turn in draft.turns:
+    print(turn.number, turn.kind, turn.verdict.words(), turn.answered_by["modelId"], turn.tokens)
+if draft.accepted and input("register? ") == "y":             # your application's confirmation
+    from pravaha import connect
+    with connect("grpc://engine:19090", token=token) as client:
+        print(assistant.register(draft, confirmed=True, client=client))
+
+from pravaha.assist import Evaluator
+report = Evaluator(assistant, model="claude").run(limit=5)
+print(report.summary())
 watch.stop()
 ```
+
+`Assistant.register` raises `RegistrationRefused` — having sent nothing — without `confirmed=True`
+or for a draft the engine did not accept. `ContextBuilder(api).build(description)` gives the
+context on its own (what the model would be told, and what was left out).
 
 ## Writing a provider plugin
 
@@ -362,14 +529,22 @@ when it is used. A plugin that raises something other than the four errors is tr
 ## Security
 
 - **The engine is the judge and the security boundary, unchanged.** The assistant calls only
-  `explain`, `validate` and `describe`, with your own token; nothing it does can register, drop,
-  replace or read a view. A rewrite is a proposal, validated by the engine and labelled with its
-  verdict. The engine has no model dependency, no outbound call and no new permission.
+  `explain`, `validate`, `describe` and the catalogue's listings (streams, queries, views, sinks,
+  your permissions), with your own token; nothing it does on its own can register, drop, replace or
+  read a view. A rewrite or a draft is a proposal, validated by the engine and labelled with its
+  verdict. The one call that changes anything is `Assistant.register` / `ask --register`, which
+  needs your confirmation and an accepted draft and goes through the ordinary client under your
+  credentials, authorized like any statement you typed (`assist eval --run` registers too, under a
+  prefix, and drops what it registered — on a test node). The engine has no model dependency, no
+  outbound call and no new permission.
 - **No data is sent by default.** What leaves the machine is what the task needs: the SQL, the
   engine's plan for it, what the engine says about a registered query (keys, retention, sink), the
-  engine's refusal text, and excerpts of `CONTINUOUS_QUERIES.md`. **No rows are ever sent** — the
-  assistant never reads a view. Deployments that may not send even schemas off-site configure only
-  local providers (`ollama`, or `openai-compatible` on their own hardware).
+  engine's refusal text, excerpts of `CONTINUOUS_QUERIES.md`, and — for `ask` — the names, columns
+  and types of the streams, views and sinks **you may read**, and worked examples from the case
+  studies. A stream you may not read is never named. **No rows are ever sent** — the assistant never
+  reads a view (only `assist eval --run` does, on a test node, and it sends no rows to a model).
+  Deployments that may not send even schemas off-site configure only local providers (`ollama`, or
+  `openai-compatible` on their own hardware).
 - **Keys by environment or secret file only**, read when a provider is built; a key in the
   configuration is refused on load, on save and on every change, and never appears in an error, in
   `assist models` (which says only whether the variable is set) or in an audit record.
@@ -386,6 +561,7 @@ when it is used. A plugin that raises something other than the four errors is tr
 cd sdk/python
 .venv/bin/python -m pytest -q tests/test_assist_*.py     # no network: fake provider, local HTTP
 .venv/bin/python tools/build_dialect_card.py             # after editing docs/CONTINUOUS_QUERIES.md
+.venv/bin/python tools/build_examples.py                 # after editing a case study
 ```
 
 The `fake` provider plays a script, never touching a network: each reply is text, or
@@ -393,3 +569,10 @@ The `fake` provider plays a script, never touching a network: each reply is text
 "output", "message", "retry_after"}`; the last reply repeats. Configure it with the model option
 `replies`, or `FakeProvider(replies=[...])` from Python; `ping: "fail"` makes `check` fail. No test
 calls a real model API.
+
+Drafting and evaluation are tested against `tests/engine_support.py`, a stand-in for the engine's
+HTTP API on 127.0.0.1 that answers the catalogue, permissions, `validate` and `explain` by rule, and
+a stand-in client for registration (`test_assist_drafting.py`, `test_assist_eval.py`). The worked
+examples and the golden set (`resources/examples.json`, `resources/golden-set.json`) are generated
+from `examples/case-studies/` and a test fails when a study changes and they were not rebuilt; the
+negative cases are written in `tools/build_examples.py`.

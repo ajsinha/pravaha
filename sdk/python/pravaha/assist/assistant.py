@@ -1,5 +1,5 @@
-"""``Assistant``: the tasks, grounded in the engine. Phase 1 builds the two that need no
-confirmation -- explain a query, and explain a refusal.
+"""``Assistant``: the tasks, grounded in the engine -- explain a query, explain a refusal
+(phase 1), and draft a query from a description, which only a person may register (phase 2).
 
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 PROPRIETARY AND CONFIDENTIAL. See the LICENSE file for the full terms.
@@ -17,8 +17,15 @@ works.
   card. A rewrite the model proposes is validated by the engine and reported with its verdict;
   it is never presented as working on the model's say-so.
 
-Nothing here registers, drops or reads data: the only engine calls are explain, validate and
-describe, under the caller's own credentials.
+* :meth:`Assistant.draft` builds the context from the engine, asks the model for a draft in a
+  fixed schema, and has the engine judge it, with up to three repair turns
+  (:mod:`pravaha.assist.drafting`).
+* :meth:`Assistant.register` is the one call that changes anything, and it is the caller's: it
+  refuses unless ``confirmed=True`` and the engine accepted the draft, and registers through the
+  ordinary client under the caller's credentials.
+
+Otherwise nothing here registers, drops or reads data: the engine calls are explain, validate
+and the catalogue's listings, under the caller's own credentials.
 """
 
 from __future__ import annotations
@@ -26,8 +33,17 @@ from __future__ import annotations
 import dataclasses
 import json
 import re
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Sequence
 
+from pravaha.assist.context import DEFAULT_BUDGET_CHARS, ContextBuilder, DraftContext, Example
+from pravaha.assist.drafting import (
+    DRAFT_ANSWER_TOKENS,
+    DRAFT_PROFILE,
+    MAX_REPAIRS,
+    Draft,
+    Drafter,
+)
+from pravaha.assist.drafting import register as _register
 from pravaha.assist.errors import AssistConfigError
 from pravaha.assist.prompts import DialectCard, Prompt, load_card, load_prompt
 from pravaha.assist.provider import ChatRequest, Message
@@ -40,6 +56,9 @@ if TYPE_CHECKING:
 EXPLAIN_PROFILE = "explain"
 CODE = re.compile(r"^PRV-\d{4}$")
 _ANSWER_TOKENS = 1500
+#: What a draft request spends besides the context: the prompt's own words and schema (about
+#: 1100 tokens) and, on a repair turn, the last answer and the guide's excerpts (about 2000).
+_PROMPT_AND_REPAIR_TOKENS = 3500
 
 
 @dataclasses.dataclass(frozen=True)
@@ -129,10 +148,15 @@ class Assistant:
         api: "Optional[EngineApi]" = None,
         *,
         card: Optional[DialectCard] = None,
+        client: Any = None,
+        context_budget_chars: Optional[int] = None,
     ) -> None:
         self.router = router
         self.api = api
         self._card = card
+        #: A :class:`pravaha.client.Client`, for :meth:`register` only.
+        self.client = client
+        self.context_budget_chars = context_budget_chars
 
     @property
     def card(self) -> DialectCard:
@@ -289,9 +313,62 @@ class Assistant:
             answered_by=answer.answered_by(),
         )
 
+    # ------------------------------------------------------------------ draft a query (phase 2)
+
+    def context_budget(self) -> int:
+        """The context's size in characters: as constructed, else what the per-request token
+        budget leaves after the answer, the prompt's own words and a repair turn, else
+        :data:`~pravaha.assist.context.DEFAULT_BUDGET_CHARS`."""
+        if self.context_budget_chars is not None:
+            return self.context_budget_chars
+        cap = self.router.config.budgets.per_request_max_tokens
+        if cap is None:
+            return DEFAULT_BUDGET_CHARS
+        room = (int(cap) - DRAFT_ANSWER_TOKENS - _PROMPT_AND_REPAIR_TOKENS) * 4
+        return max(4000, min(DEFAULT_BUDGET_CHARS, room))
+
+    def context_builder(self, examples: Optional[Sequence[Example]] = None) -> ContextBuilder:
+        api = self._engine("drafting a query")
+        return ContextBuilder(api, card=self.card, examples=examples,
+                              budget_chars=self.context_budget())
+
+    def draft(
+        self,
+        description: str,
+        *,
+        name: Optional[str] = None,
+        profile: Optional[str] = None,
+        model: Optional[str] = None,
+        max_repairs: int = MAX_REPAIRS,
+        context: Optional[DraftContext] = None,
+    ) -> Draft:
+        """A continuous query for ``description``, judged by the engine. The result is
+        ``accepted`` (the engine validated and planned it), ``refused`` (still refused after
+        ``max_repairs`` repair turns, in the engine's words) or ``questions`` (the model could
+        not decide, and the engine was not asked). Nothing is registered."""
+        api = self._engine("drafting a query")
+        drafter = Drafter(self.router, api, self.card, context_builder=self.context_builder())
+        return drafter.draft(description, name=name, profile=profile, model=model,
+                             max_repairs=max_repairs, context=context)
+
+    def register(
+        self,
+        draft: Draft,
+        *,
+        confirmed: bool = False,
+        name: Optional[str] = None,
+        client: Any = None,
+    ) -> dict[str, Any]:
+        """Registers ``draft`` -- only with ``confirmed=True``, only when the engine accepted
+        it, and only through the ordinary client under the caller's own credentials. Raises
+        :class:`~pravaha.assist.errors.RegistrationRefused` otherwise, having sent nothing."""
+        return _register(draft, client if client is not None else self.client,
+                         confirmed=confirmed, name=name)
+
 
 __all__ = [
     "Assistant",
+    "DRAFT_PROFILE",
     "EXPLAIN_PROFILE",
     "QueryExplanation",
     "RefusalExplanation",

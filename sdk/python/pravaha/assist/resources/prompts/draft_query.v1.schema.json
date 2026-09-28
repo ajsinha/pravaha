@@ -1,0 +1,27 @@
+{
+  "$comment": "Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved. PROPRIETARY AND CONFIDENTIAL. The answer draft_query v1 asks for: the fixed schema of ADR-058 §2.",
+  "type": "object",
+  "properties": {
+    "name": {"type": "string"},
+    "sql": {"type": "string"},
+    "keys": {"type": "array", "items": {"type": "string"}},
+    "options": {
+      "type": "object",
+      "properties": {
+        "retention": {"type": ["string", "null"]},
+        "index": {"type": ["string", "null"]},
+        "sink": {"type": ["string", "null"]},
+        "lane": {"type": ["string", "null"], "enum": ["dedicated", "shared", null]}
+      },
+      "required": ["retention", "index", "sink", "lane"],
+      "additionalProperties": false
+    },
+    "explanation": {"type": "string"},
+    "assumptions": {"type": "array", "items": {"type": "string"}},
+    "questions": {"type": "array", "items": {"type": "string"}},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+  },
+  "required": ["name", "sql", "keys", "options", "explanation", "assumptions", "questions",
+               "confidence"],
+  "additionalProperties": false
+}

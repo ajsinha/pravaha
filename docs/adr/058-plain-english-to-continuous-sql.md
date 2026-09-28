@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted; phase 1 built — the `pravaha.assist` core in the Python SDK: the provider protocol and the `fake`, `anthropic`, `openai`, `openai-compatible` and `ollama` providers (standard library only, discovered by entry point); `ModelRouter` with fallback chains, per-request and per-user daily budgets and runtime reconfiguration; the JSON configuration store, its watcher and the `AssistAdmin` facade; the explain-a-query and explain-a-refusal tasks with versioned prompts and a dialect card generated from `CONTINUOUS_QUERIES.md`; `pravaha explain-sql`, `pravaha why` and `pravaha assist models\|providers\|check\|use\|enable\|disable`. Phases 2–4 are not built. See [`docs/ASSIST.md`](../ASSIST.md) |
+| Status | Accepted; phases 1–2 built. Phase 1 — the `pravaha.assist` core in the Python SDK: the provider protocol and the `fake`, `anthropic`, `openai`, `openai-compatible` and `ollama` providers (standard library only, discovered by entry point); `ModelRouter` with fallback chains, per-request and per-user daily budgets and runtime reconfiguration; the JSON configuration store, its watcher and the `AssistAdmin` facade; the explain-a-query and explain-a-refusal tasks with versioned prompts and a dialect card generated from `CONTINUOUS_QUERIES.md`; `pravaha explain-sql`, `pravaha why` and `pravaha assist models\|providers\|check\|use\|enable\|disable`. Phase 2 — drafting (`Assistant.draft`, `pravaha ask`): a context built from the engine under the caller's credentials, the fixed draft schema, the engine as judge with up to three repair turns that may not change what the query reads, registration only on a person's confirmation; and the golden set generated from the case studies with `pravaha assist eval` (§2a records what the API exposes and what is approximated). Phases 3–4 are not built. See [`docs/ASSIST.md`](../ASSIST.md) |
 | Date | 2026-09-28 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-024 (the console reaches the engine only through its API), ADR-031 (authorization at the Pravaha layer), ADR-050 (tenancy), ADR-052 (the engine is the identity authority), ADR-053 (native code only where Java cannot), ADR-056 (queries on queries), ADR-057 (alerts) |
@@ -195,6 +195,27 @@ Three smaller tasks reuse the same machinery and are worth building first becaus
 confirmation step: **explain a query** (SQL → English), **explain a refusal** (a PRV code and the
 statement → what to change), and **describe a view** (schema and plan → a sentence for the catalogue).
 
+### 2a. What the engine's API exposes for the judge, recorded when phase 2 was built
+
+- **No fingerprint for unregistered SQL.** `POST /api/v1/queries/explain` answers `level`, `plan`,
+  `outputFields` and, with `format=graph`, `graph`; `validate` answers `valid`, `diagnostics` and
+  `outputFields`. A fingerprint exists only for a registered query (`GET /api/v1/queries`,
+  `/views/{name}`, a registration's answer). So "the same computation as a running query" (step 5)
+  and "equal to the reference" (§4) compare the engine's physical plan text, whitespace-normalised,
+  with the key and retention — the parts of a fingerprint the API shows. The plan text is a summary
+  for people (the fingerprint hashes each operator's identity), so equal plans are strong evidence,
+  not proof; the result says `match: "plan"`. `assist eval --run` registers both and compares the
+  engine's fingerprints, then answers. An `explain` that returned the fingerprint would remove the
+  approximation; the engine was not changed for it.
+- **Registration-time checks the API cannot be asked.** `validate` plans a `SELECT`; the key, index,
+  sink and retention are checked only when a query is registered. The assistant checks them against
+  what the engine answered (`outputFields`, `/api/v1/sinks`) and labels those verdicts
+  `by: "assistant"`, never as the engine's.
+- **Guarantees** are what `GET /api/v1/sinks` reports for the chosen sink (`guarantee`,
+  `acceptsRetractions`); lane placement is not predicted.
+- **"Never loosen the question"** is in the prompt and enforced: a repair must read the same streams
+  and views as the first draft, or it is refused by the assistant and not sent to the engine.
+
 ### 3. Safety, security and cost
 
 - **The engine is the security boundary, unchanged.** The assistant acts with the person's
@@ -268,7 +289,9 @@ A harness, `pravaha assist eval`, runs a golden set against any configured model
    the explain and why-refused tasks; CLI `pravaha explain-sql`, `pravaha why` and `pravaha assist`.
    Deferred from it: streaming (`stream` stays optional in the protocol; no built-in implements it),
    prompt caching and the short-window answer cache (§1), and "describe a view".
-2. Drafting with context, judge and repair; `pravaha ask`; the golden set and `pravaha assist eval`.
+2. **Built.** Drafting with context, judge and repair; `pravaha ask`; the golden set and
+   `pravaha assist eval` (§2a). Deferred from it: sample values for opted-in columns (phase 4), the
+   short-window answer cache, and the assist audit events (phase 3).
 3. The console's Describe-it panel and Explain buttons; the assist audit events and usage view.
 4. The remaining providers (`azure-openai`, `bedrock`, `vertex`), local-only tenants, sample values
    for opted-in columns.

@@ -10,8 +10,9 @@ Exit codes are a contract scripts rely on:
 * ``2`` -- the command line or a setting was wrong, and nothing was sent;
 * ``3`` -- nothing answered at the engine's address.
 
-The assistant's commands (``explain-sql``, ``why``, ``assist``) keep the contract: a model that
-failed exits ``1`` with the normalised error, a wrong assistant configuration exits ``2``.
+The assistant's commands (``ask``, ``explain-sql``, ``why``, ``assist``) keep the contract: a
+model that failed exits ``1`` with the normalised error, a wrong assistant configuration exits
+``2``; ``ask`` exits ``1`` when the engine still refuses the draft after its repair turns.
 
 Every option that says how to reach the engine (``--url``, ``--http``, ``--token``, ``--json``,
 the TLS options...) is accepted before the command or after it, because the Java CLI took them
@@ -65,8 +66,9 @@ catalog owner) say what they would do and change nothing unless given --yes.
 Offline -- planning or running SQL with no server -- is the Java tool `pravaha-engine`
 (validate --schema, explain --schema, run).
 
-The assistant (explain-sql, why, assist) asks a configured model, with the engine as the judge;
-see docs/ASSIST.md. A model failure exits 1, a wrong assistant configuration 2.
+The assistant (ask, explain-sql, why, assist) asks a configured model, with the engine as the
+judge; see docs/ASSIST.md. A model failure exits 1, a wrong assistant configuration 2; ask exits 1
+when the engine still refuses the draft after its repair turns. Only --register registers.
 
 pravaha <command> --help prints one command's flags without contacting anything.
 Exit codes: 0 ok, 1 the engine refused (its PRV code on stderr), 2 usage, 3 cannot reach the engine.
@@ -444,6 +446,22 @@ def build_parser() -> _Parser:
     v.add_argument("target", metavar="<id>")
 
     # ------------------------------------------------------------------ the assistant (ADR-058)
+    p = b.add("ask", _assist.ask,
+              "Draft a continuous query from a description (asks a model; the engine judges it).")
+    p.add_argument("description", nargs="+", metavar="<description>",
+                   help="what the query should answer, in plain English")
+    p.add_argument("--name", help="the view's name (default: the model's suggestion)")
+    p.add_argument("--repairs", type=int, default=3, metavar="N",
+                   help="repair turns after a refusal, 0 to 3 (default 3)")
+    p.add_argument("--register", action="store_true",
+                   help="register the draft if the engine accepts it: asks to confirm on a "
+                        "terminal, or pass --yes (needs --url: registration is a Flight call)")
+    p.add_argument("--yes", "-y", action="store_true",
+                   help="with --register, register without asking")
+    p.add_argument("--show-context", action="store_true",
+                   help="also print what the model was told about the catalogue")
+    _assist_options(p, "draft")
+
     p = b.add("explain-sql", _assist.explain_sql,
               "A query in plain English, grounded in the engine's plan (asks a model).")
     _sql_options(p)
@@ -476,6 +494,22 @@ def build_parser() -> _Parser:
         v = add(verb, f"{verb.capitalize()} a configured model.")
         v.add_argument("model_id", metavar="<model-id>")
         _yes(v, "store the change")
+    v = add("eval", "Score a model on the golden set: drafts judged by the engine, compared with "
+                    "the case studies' reference SQL.")
+    v.add_argument("--profile", help="the profile whose chain answers (default: draft)")
+    v.add_argument("--model", metavar="ID", help="ask only this configured model")
+    v.add_argument("--limit", type=int, metavar="N", help="only the first N cases")
+    v.add_argument("--case", metavar="ID[,ID]",
+                   help="only these cases, or every case of a study (adtech-click-attribution)")
+    # dest is not "run": that is the attribute every parser's set_defaults names its command by.
+    v.add_argument("--run", dest="register_and_compare", action="store_true",
+                   help="also register each draft and its reference under --prefix, compare the "
+                        "engine's fingerprints and answers, and drop them (a node with the case "
+                        "studies' data; needs --url)")
+    v.add_argument("--prefix", default="assist_eval_", help="name prefix for --run's registrations")
+    v.add_argument("--settle", type=float, default=5.0, metavar="S",
+                   help="seconds --run waits before comparing answers (default 5)")
+    v.add_argument("--full", action="store_true", help="with --json, include every draft")
 
     # ------------------------------------------------------------------ the catalogue (ADR-059)
     p = b.add("catalog", _catalog.catalog, "The catalogue: objects, namespaces, owners, tags.")
@@ -535,8 +569,8 @@ def build_parser() -> _Parser:
     return parser
 
 
-def _assist_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--profile", help="the profile whose chain answers (default: explain, "
+def _assist_options(parser: argparse.ArgumentParser, profile: str = "explain") -> None:
+    parser.add_argument("--profile", help=f"the profile whose chain answers (default: {profile}, "
                                           "else the configured default)")
     parser.add_argument("--model", metavar="ID", help="ask only this configured model")
 

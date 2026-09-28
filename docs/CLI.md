@@ -171,11 +171,12 @@ The assistant (ADR-058; configured in `~/.config/pravaha/assist.json` — see [`
 
 | Command | What it does |
 |---|---|
-| `explain-sql (--sql \| --sql-file \| --query NAME) [--level physical\|logical] [--show-plan] [--profile P] [--model ID]` | A query in plain English, grounded in `POST /api/v1/queries/explain` (and `GET /api/v1/queries/{name}` for `--query`) |
+| `ask "<description>" [--name N] [--repairs 0-3] [--register [--yes]] [--show-context] [--profile P] [--model ID]` | Drafts a continuous query from the description: the context from `GET /api/v1/me/permissions`, `/streams`, `/queries`, `/views/{name}` and `/sinks` (only what you may read), judged by `POST /api/v1/queries/validate` and `/explain`, up to three repair turns. Prints the statement, the engine's plan, assumptions, questions and every turn. `--register` registers an accepted draft once you confirm (at a terminal, or `--yes`) through the Flight `register` call under your credentials, so it needs `--url`. Exit `1` when still refused after the repairs |
 | `why PRV-nnnn [--sql \| --sql-file] [--no-check] [--profile P] [--model ID]` | What the refusal means and what to change, grounded in `POST /api/v1/queries/validate` and the guide; a proposed rewrite is validated too. With no statement it needs no engine |
 | `assist models`, `assist providers` | The configured models (key variable set or not, the chains naming each) and every provider type, built-in or installed |
 | `assist check [--model ID,ID]` | Ping each enabled model as cheaply as its API allows (exit `1` if one failed) |
 | `assist use PROFILE ID[,FALLBACK...] [--default] [--yes]`, `assist enable\|disable ID [--yes]` | Change the stored configuration; a running console following the file picks it up |
+| `assist eval [--profile P] [--model ID] [--limit N] [--case ID,...] [--run [--prefix P] [--settle S]] [--full]` | Scores a model on the golden set built from the case studies: each draft judged by the engine and compared with the reference by plan; negative cases must be refused or asked about. Cases whose streams the engine lacks are skipped. `--run` also registers draft and reference under `--prefix`, compares fingerprints and answers, and drops both (a test node; needs `--url`). Exit `1` if a scored case failed |
 
 A model that failed exits `1` with the normalised error on stderr (`ModelUnavailable`,
 `ModelRateLimited` with its retry-after, `ModelRefused`, `ModelOutputError`, or `BudgetExceeded`);

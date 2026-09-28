@@ -1,5 +1,5 @@
-"""The ``pravaha`` commands of the assistant (ADR-058): ``explain-sql``, ``why``, and ``assist``
-(``models``, ``providers``, ``check``, ``use``, ``enable``, ``disable``).
+"""The ``pravaha`` commands of the assistant (ADR-058): ``ask``, ``explain-sql``, ``why``, and
+``assist`` (``models``, ``providers``, ``check``, ``use``, ``enable``, ``disable``, ``eval``).
 
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 PROPRIETARY AND CONFIDENTIAL. See the LICENSE file for the full terms.
@@ -8,12 +8,15 @@ The configuration is the JSON file :func:`pravaha.assist.default_config_path` na
 (``$PRAVAHA_ASSIST_CONFIG``, else ``assist.json`` beside the saved token). A model failure exits
 ``1`` with the normalised error (``ModelUnavailable``, ``ModelRateLimited``, ``ModelRefused``,
 ``ModelOutputError``, ``BudgetExceeded``); a configuration that is wrong exits ``2`` and sent
-nothing; an engine that cannot be reached exits ``3``, as everywhere.
+nothing; an engine that cannot be reached exits ``3``, as everywhere. ``ask`` exits ``1`` when
+the engine still refuses the draft after its repair turns, and ``assist eval`` when a scored case
+failed.
 """
 
 from __future__ import annotations
 
 import getpass
+import sys
 from typing import Any, Optional
 
 from pravaha.assist import (
@@ -24,6 +27,8 @@ from pravaha.assist import (
     ModelRouter,
     default_config_path,
 )
+from pravaha.assist.drafting import Draft
+from pravaha.assist.evaluate import CaseResult, EvalReport, Evaluator
 from pravaha.cli._common import EXIT_OK, EXIT_REFUSED, Context, UsageError, csv
 
 _CODE_HELP = "a refusal code, such as PRV-2050"
@@ -144,6 +149,138 @@ def why(ctx: Context) -> int:
     return EXIT_OK
 
 
+# ---------------------------------------------------------------------------------- ask
+
+
+def confirm_on_terminal(ctx: Context, question: str) -> bool:
+    """``question`` answered ``y`` at a terminal; ``False`` with no terminal to ask at."""
+    if not sys.stdin.isatty():
+        return False
+    ctx.out.err.write(question + " [y/N] ")
+    ctx.out.err.flush()
+    return sys.stdin.readline().strip().lower() in ("y", "yes")
+
+
+def _turns_word(count: int) -> str:
+    return f"{count} repair turn{'s' if count != 1 else ''}"
+
+
+def _verdict_line(ctx: Context, draft: Draft) -> str:
+    if draft.status == "accepted":
+        after = f" after {_turns_word(draft.repairs)}" if draft.repairs else ""
+        return ctx.out.good(f"the engine accepts it{after}")
+    if draft.status == "questions":
+        return ctx.out.bold("the model needs answers before it can draft this")
+    who = "the engine" if draft.verdict.by == "engine" else "the assistant"
+    code = f"{draft.verdict.code}  " if draft.verdict.code else ""
+    return ctx.out.bad(f"refused by {who} after {_turns_word(draft.repairs)}: "
+                       f"{code}{draft.verdict.message or ''}")
+
+
+def _print_draft(ctx: Context, draft: Draft) -> None:
+    out = ctx.out
+    out.line(_verdict_line(ctx, draft))
+    if draft.sql:
+        out.line()
+        statement = draft.statement() if draft.keys else draft.sql
+        for line in statement.splitlines():
+            out.line("  " + line)
+    if draft.explanation:
+        out.line()
+        out.line(out.bold("What it does"))
+        out.line("  " + draft.explanation)
+    if draft.plan:
+        out.line()
+        out.line(out.bold("The engine's plan (physical)"))
+        for line in draft.plan.rstrip().splitlines():
+            out.line("  " + line)
+    if draft.guarantees:
+        out.line()
+        g = draft.guarantees
+        if g.get("sink"):
+            out.fields([("sink", g["sink"]), ("guarantee", g.get("guarantee")),
+                        ("retractions", "accepted" if g.get("acceptsRetractions")
+                         else "not accepted: append only")])
+        else:
+            out.fields([("sink", "none"), ("guarantee", g.get("note"))])
+    for title, items in (("Assumptions", draft.assumptions), ("Questions", draft.questions)):
+        if items:
+            out.line()
+            out.line(out.bold(title))
+            for item in items:
+                out.line(f"  - {item}")
+    if draft.same_as:
+        out.line()
+        out.line(out.bold("Already running"))
+        for same in draft.same_as:
+            out.line(f"  - {same.get('name')} (fingerprint {same.get('fingerprint')}, same plan): "
+                     f"{same.get('reuse')}")
+    out.line()
+    out.line(out.bold("Turns"))
+    for turn in draft.turns:
+        note = "" if turn.intent_kept else "  (changed what the query reads)"
+        out.line(f"  {turn.number}. {turn.kind:<6}  {turn.verdict.words()}{note}")
+
+
+def ask(ctx: Context) -> int:
+    description = " ".join(ctx.arg("description", [])).strip()
+    if not description:
+        raise UsageError('describe the query you want: pravaha ask "..."')
+    repairs = int(ctx.arg("repairs", 3))
+    if not 0 <= repairs <= 3:
+        raise UsageError("--repairs is 0 to 3")
+    if ctx.arg("yes") and not ctx.arg("register"):
+        raise UsageError("--yes confirms --register; without --register nothing is registered")
+    router = _router()
+    assistant = Assistant(router, ctx.api)
+    draft = assistant.draft(description, name=ctx.arg("name"), profile=ctx.arg("profile"),
+                            model=ctx.arg("model"), max_repairs=repairs)
+    registered: Optional[dict[str, Any]] = None
+    register_note: Optional[str] = None
+    if ctx.arg("register"):
+        if not draft.accepted:
+            register_note = "not registered: the engine has not accepted the draft"
+        elif ctx.confirmed() or confirm_on_terminal(
+                ctx, f"Register {draft.name} under your own credentials?"):
+            registered = assistant.register(draft, confirmed=True, client=ctx.client)
+        else:
+            register_note = ("not registered: nobody confirmed it (run again with --register "
+                             "--yes, or run the statement above with `pravaha query`)")
+    if ctx.out.json_mode:
+        ctx.out.json({**draft.to_dict(), "registered": registered, "registerNote": register_note})
+    else:
+        _print_draft(ctx, draft)
+        if ctx.arg("show_context"):
+            ctx.out.line()
+            ctx.out.line(ctx.out.bold("What the model was told"))
+            for key, value in draft.context.items():
+                ctx.out.line(f"  {key}: {value}")
+        if registered is not None:
+            ctx.out.line()
+            ctx.out.line(ctx.out.good("registered ") + str(registered.get("name"))
+                         + ctx.out.dim(f"  state={registered.get('state')}  "
+                                       f"fingerprint={registered.get('fingerprint')}"))
+        _answered(ctx, dict(draft.answered_by), draft.prompt)
+        context = draft.context
+        ctx.out.note(
+            f"{draft.tokens} tokens over {len(draft.turns)} turn"
+            f"{'s' if len(draft.turns) != 1 else ''}; context: "
+            f"{len(context.get('streams', []))} streams, {len(context.get('views', []))} views, "
+            f"{len(context.get('sinks', []))} sinks; examples: "
+            f"{', '.join(context.get('examples', [])) or 'none'}")
+        omitted = context.get("omitted") or {}
+        if omitted:
+            ctx.out.note("left out of the prompt for size: " + "; ".join(
+                f"{kind}: {', '.join(names)}" for kind, names in omitted.items()))
+        if register_note:
+            ctx.out.note(register_note)
+    if draft.status == "refused":
+        return EXIT_REFUSED
+    if ctx.arg("register") and draft.status == "questions":
+        return EXIT_REFUSED
+    return EXIT_OK
+
+
 # ---------------------------------------------------------------------------------- assist
 
 
@@ -159,6 +296,8 @@ def assist(ctx: Context) -> int:
         return _use(ctx)
     if verb in ("enable", "disable"):
         return _toggle(ctx, verb)
+    if verb == "eval":
+        return _eval(ctx)
     raise UsageError(f"unknown verb {verb!r}")  # pragma: no cover - argparse refuses it first
 
 
@@ -282,3 +421,62 @@ def _toggle(ctx: Context, verb: str) -> int:
     record = admin.enable_model(model_id) if verb == "enable" else admin.disable_model(model_id)
     _print_change(ctx, record, applied)
     return EXIT_OK
+
+
+def _progress(ctx: Context) -> Any:
+    def report(result: CaseResult) -> None:
+        mark = {True: "pass", False: "FAIL", None: "skip"}[result.passed]
+        ctx.out.note(f"{mark}  {result.id}  {result.outcome}")
+    return report
+
+
+def _eval(ctx: Context) -> int:
+    router = _router()
+    run = bool(ctx.arg("register_and_compare"))
+    assistant = Assistant(router, ctx.api)
+    evaluator = Evaluator(
+        assistant, profile=ctx.arg("profile"), model=ctx.arg("model"), run=run,
+        client=ctx.client if run else None, prefix=ctx.arg("prefix", "assist_eval_"),
+        settle_s=float(ctx.arg("settle", 5.0)),
+        progress=None if ctx.out.json_mode else _progress(ctx),
+    )
+    limit = ctx.arg("limit")
+    report = evaluator.run(limit=int(limit) if limit is not None else None,
+                           only=csv(ctx.arg("case")))
+    if ctx.out.json_mode:
+        ctx.out.json(report.to_dict(full=bool(ctx.arg("full"))))
+    else:
+        _print_report(ctx, report)
+    return EXIT_OK if report.all_passed else EXIT_REFUSED
+
+
+def _print_report(ctx: Context, report: EvalReport) -> None:
+    rows = []
+    for r in report.results:
+        rows.append({
+            "id": r.id,
+            "kind": r.kind,
+            "outcome": r.outcome,
+            "equal": r.equal or "-",
+            "pass": {True: "yes", False: "NO", None: "skip"}[r.passed],
+            "repairs": r.repairs,
+            "tokens": r.tokens,
+            "ms": f"{r.latency_ms:.0f}",
+            "reason": r.reason if len(r.reason) <= 90 else r.reason[:89] + "…",
+        })
+    ctx.out.table(rows, [("id", "CASE"), "kind", "outcome", "equal", "pass", "repairs", "tokens",
+                         ("ms", "MS"), "reason"])
+    summary = report.summary()
+    ctx.out.line()
+    ctx.out.fields([
+        ("passed", f"{summary['passed']} of {summary['scored']} scored "
+                   f"({summary['skipped']} skipped, {summary['errors']} errors)"),
+        ("references", f"{summary['referencesAccepted']} of {summary['references']} accepted, "
+                       f"{summary['referencesEqual']} equal to the reference"),
+        ("negatives", f"{summary['negativesCaught']} of {summary['negatives']} refused or asked"),
+        ("cost", f"{summary['tokens']} tokens, {summary['repairs']} repair turns, "
+                 f"{summary['latencyMs'] / 1000.0:.1f} s drafting"),
+        ("models", ", ".join(summary["models"]) or "-"),
+        ("mode", "--run: registered, compared and dropped" if report.run
+                 else "plans compared, nothing registered"),
+    ])
