@@ -100,6 +100,8 @@ public final class ContinuousQueryStatements {
             case ContinuousStatement.Create create -> CREATED;
             case ContinuousStatement.Show show -> LISTING;
             case ContinuousStatement.Governance governance -> GovernanceStatements.schemaOf(governance.statement());
+            case ContinuousStatement.Alert alert ->
+                com.ash.messaging.pravaha.registry.alert.AlertStatementRunner.schemaOf(alert.statement());
             default -> CHANGED;
         };
     }
@@ -126,6 +128,8 @@ public final class ContinuousQueryStatements {
             case ContinuousStatement.Show show -> listing(principal);
             case ContinuousStatement.Governance governance ->
                 GovernanceStatements.execute(policy, governance.statement(), principal);
+            // ADR-057: the node's alert service, or PRV-8047 where there is none.
+            case ContinuousStatement.Alert alert -> registry.alerting().execute(alert.statement(), principal);
         };
     }
 

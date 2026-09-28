@@ -38,7 +38,8 @@ public sealed interface ContinuousStatement
                 ContinuousStatement.Pause,
                 ContinuousStatement.Resume,
                 ContinuousStatement.Show,
-                ContinuousStatement.Governance {
+                ContinuousStatement.Governance,
+                ContinuousStatement.Alert {
 
     /** The statement's own words, for a message or an audit record: {@code CREATE CONTINUOUS QUERY}. */
     String verb();
@@ -405,6 +406,23 @@ public sealed interface ContinuousStatement
      */
     record Governance(com.ash.messaging.pravaha.catalog.CatalogStatement statement) implements ContinuousStatement {
         public Governance {
+            Objects.requireNonNull(statement, "statement");
+        }
+
+        @Override
+        public String verb() {
+            return statement.verb();
+        }
+    }
+
+    /**
+     * A statement about an alert (ADR-057): {@code CREATE ALERT}, {@code ALTER ALERT}, {@code DROP
+     * ALERT}, {@code PAUSE}, {@code RESUME}, {@code SNOOZE}, {@code ACK ALERT} and {@code SHOW ALERTS},
+     * read by {@link AlertStatements}. Carried here so every surface that runs these statements runs
+     * those too, through one door.
+     */
+    record Alert(AlertStatement statement) implements ContinuousStatement {
+        public Alert {
             Objects.requireNonNull(statement, "statement");
         }
 

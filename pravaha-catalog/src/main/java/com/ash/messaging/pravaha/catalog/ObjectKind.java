@@ -33,6 +33,8 @@ public enum ObjectKind {
     STREAM(EnumSet.of(Privilege.SELECT, Privilege.BUILD_ON, Privilege.MODIFY, Privilege.MANAGE, Privilege.OWN)),
     SOURCE(EnumSet.of(Privilege.MANAGE, Privilege.OWN)),
     SINK(EnumSet.of(Privilege.WRITE, Privilege.MANAGE, Privilege.OWN)),
+    /** A notifier channel an alert may name in {@code NOTIFY} (ADR-057): {@code pravaha.notifiers.*}. */
+    NOTIFIER(EnumSet.of(Privilege.WRITE, Privilege.MANAGE, Privilege.OWN)),
     VIEW(EnumSet.of(
             Privilege.SELECT,
             Privilege.SUBSCRIBE,
@@ -70,7 +72,7 @@ public enum ObjectKind {
             throw new PravahaException(
                     CatalogErrors.INVALID_REQUEST,
                     "'" + word + "' is not a kind of object; they are NAMESPACE, VIEW (or QUERY), STREAM, SOURCE, "
-                            + "SINK and LOOKUP");
+                            + "SINK, LOOKUP, NOTIFIER and ALERT");
         }
     }
 }

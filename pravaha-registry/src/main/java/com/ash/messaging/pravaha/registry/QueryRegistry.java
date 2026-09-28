@@ -575,6 +575,17 @@ public final class QueryRegistry implements AutoCloseable {
         return chains.dependantsOf(name);
     }
 
+    /** ADR-057's alerts: they follow views -- a drop is refused while they do -- and run their statements. */
+    private volatile Alerting alerting = Alerting.NONE;
+
+    public void alertingWith(Alerting alerts) {
+        this.alerting = alerts == null ? Alerting.NONE : alerts;
+    }
+
+    public Alerting alerting() {
+        return alerting;
+    }
+
     /**
      * Registers a parameterised continuous query with values bound into it.
      *
@@ -1052,12 +1063,8 @@ public final class QueryRegistry implements AutoCloseable {
                 .derivedFrom(chains.provenance(plan));
         ViewSink sink = new ViewSink(view, schema);
 
-        // The engine, not a pipeline of our own. Until now the registry compiled an
-        // InterpretedPipeline and drove it on the caller's thread, which is why a registered query
-        // had no lane, no arena, no checkpointing and no watermarks: everything the runtime offers
-        // belonged to the other path, and the server ran this one.
-        //
-        // W9-8: when multiplexing, admission control picks the shared lane, and a query it cannot
+        // The engine, not a pipeline of our own (a registered query once had no lane, arena, checkpoints
+        // or watermarks). W9-8: when multiplexing, admission control picks the shared lane, and a query it cannot
         // place runs on a lane of its own exactly as it would with multiplexing off.
         //
         // Each lane writes through its own laneOutput, which applies a batch to the view only when
@@ -1435,18 +1442,11 @@ public final class QueryRegistry implements AutoCloseable {
         if (query.dropName(name)) {
             byFingerprint.remove(query.fingerprint());
             query.close();
-            // The checkpoints go with the computation. They are a fallback for a query that exists;
-            // once nothing holds this one open they are state outliving its owner, and they
-            // accumulate for the life of the deployment -- 52 directories for 2 live queries, in a
-            // QA run of 50 register/drop cycles.
-            // The name the checkpointer was STARTED with, not the one being dropped. For a shared
-            // computation those differ, so deleting by the dropped name removed nothing and left the
-            // directory orphaned. Both are mine, from the same change.
+            // The checkpoints go with the computation (52 directories for 2 live queries otherwise),
+            // under the name the checkpointer was STARTED with, which a shared computation's drop differs from.
             query.checkpointDirectory().ifPresent(checkpoints::delete);
         }
-        // The journal entry was written before anything was released: a drop the client is told
-        // failed must not have destroyed the computation, and a drop that succeeded must survive a
-        // restart. Recording it here instead meant neither was guaranteed.
+        // Journalled before anything was released: a failed drop destroys nothing; a drop survives a restart.
     }
 
     @Override

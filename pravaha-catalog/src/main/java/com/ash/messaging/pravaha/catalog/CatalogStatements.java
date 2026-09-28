@@ -72,8 +72,18 @@ public final class CatalogStatements {
         }
     }
 
-    static final Set<String> KINDS =
-            Set.of("CATALOG", "TENANT", "NAMESPACE", "VIEW", "QUERY", "STREAM", "SOURCE", "SINK", "LOOKUP");
+    static final Set<String> KINDS = Set.of(
+            "CATALOG",
+            "TENANT",
+            "NAMESPACE",
+            "VIEW",
+            "QUERY",
+            "STREAM",
+            "SOURCE",
+            "SINK",
+            "LOOKUP",
+            "NOTIFIER",
+            "ALERT");
 
     private CatalogStatements() {}
 

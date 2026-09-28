@@ -126,6 +126,7 @@ public final class CatalogNames {
             case SOURCE -> NODE + ".sources";
             case SINK -> NODE + ".sinks";
             case LOOKUP -> NODE + ".lookups";
+            case NOTIFIER -> NODE + ".notifiers";
             default -> throw new IllegalArgumentException(kind + " is not configured on the node");
         };
     }
@@ -135,7 +136,8 @@ public final class CatalogNames {
         return kind == ObjectKind.STREAM
                 || kind == ObjectKind.SOURCE
                 || kind == ObjectKind.SINK
-                || kind == ObjectKind.LOOKUP;
+                || kind == ObjectKind.LOOKUP
+                || kind == ObjectKind.NOTIFIER;
     }
 
     /** A tenant's default namespace. */
