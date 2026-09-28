@@ -66,6 +66,11 @@ A snapshot subscriber that falls more than 64 commits behind is ended with `PRV-
 skipped past a commit; subscribe again. A server older than the SDK refuses `snapshot=True` with
 `PRV-6102`.
 
+`subscribe(..., reconnect=True)` survives a server restart: the stream is opened again with backoff
+(250 ms to 10 s, for up to `reconnect_timeout` seconds, default 300, `None` for ever), and the first
+batch after has `batch.reconnected` set. With `snapshot=True` that batch is a fresh snapshot --
+replace your copy with it and nothing is lost. A refusal that will not change is raised at once.
+
 The surface deliberately mirrors the Java SDK: same concepts, same names, same defaults, so a
 team running both does not have to hold two mental models.
 

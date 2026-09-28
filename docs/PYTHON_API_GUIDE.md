@@ -213,6 +213,23 @@ the server's default under pressure is to *conflate* (keep the latest value per 
 the intermediate weights a copy is built from. With `FAIL`, a subscriber that falls too far behind
 has its stream ended with `PRV-6105` — subscribe again and start from a fresh snapshot.
 
+**Or let the SDK do it: `reconnect=True`.** A stream ended by a server restart, by a broken
+connection or by `PRV-6105` is then opened again, with backoff from 0.25 s to 10 s, for up to
+`reconnect_timeout` seconds (default 300; `None` for ever) without a stream. With `snapshot=True`
+the first batch after reopening is a fresh snapshot (`batch.snapshot` and `batch.reconnected` both
+set): start the copy again from it.
+
+```python
+for batch in client.subscribe("big_payments", snapshot=True, overflow="FAIL", reconnect=True):
+    if batch.snapshot:
+        copy = Counter()
+    for row in batch:
+        copy[tuple(row.to_dict().items())] += row.weight
+```
+
+A refusal that will not change — the name was dropped (`PRV-8018`), a filter names no column — is
+raised at once rather than retried.
+
 ### Polling instead of subscribing
 
 For a dashboard that refreshes every few seconds, `query()` is simpler and costs one round trip. A

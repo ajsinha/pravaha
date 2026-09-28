@@ -380,6 +380,34 @@ In process the same event closes the `Subscription`, puts the reason in `failure
 `subscriberCount()` to zero — which after a drop it never did, so the number an operator reads as
 "nobody is watching this" was permanently wrong.
 
+### Surviving a restart: reconnect
+
+The SDKs can do the "reconnect" in the table above for you. Ask for it when you subscribe, and a
+stream that a restart ended -- or that broke with no diagnosis, or ended with `PRV-6105` for falling
+behind -- is opened again, with backoff from 250 ms to 10 s, for up to five minutes without a stream
+(configurable; or for ever). A refusal that will not change, such as a dropped name, is still raised
+at once.
+
+```python
+for batch in client.subscribe("large_payments", snapshot=True, reconnect=True):
+    if batch.snapshot:
+        copy = {}                      # a fresh snapshot, first and after every reconnect: replace
+    apply(copy, batch)
+```
+
+```java
+ReconnectingSubscription s = client.subscribeFromSnapshot("large_payments", Map.of(),
+        ReconnectingSubscription.Reconnect.defaults().onReconnected(copy::clear), copy::apply);
+s.run();                               // blocks; s.close() from another thread ends it
+```
+
+**Pair it with a snapshot subscription.** The first batch after reopening is then a fresh snapshot
+of the view -- replace what you hold with it, and nothing committed while the node was down is lost
+or counted twice. A plain subscription resumes at the next commit, and what was committed in between
+is not delivered; Python marks that batch `batch.reconnected`, Java calls `onReconnected` before it.
+Calls other than subscriptions need nothing: they fail with `PRV-1040` (retryable) while the node
+is down and work again as soon as it is back.
+
 ## 5. Manage what is running
 
 ```sql

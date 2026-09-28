@@ -787,6 +787,34 @@ public final class PravahaFlightClient implements AutoCloseable {
         return subscribe(view, Map.of(), onBatch);
     }
 
+    /**
+     * {@link #subscribe(String, Map, Consumer)} that opens itself again when a server restart ends
+     * it; see {@link ReconnectingSubscription}. Commits made while the stream was down are not
+     * delivered: to lose nothing, use {@link #subscribeFromSnapshot(String, Map,
+     * ReconnectingSubscription.Reconnect, Consumer)}.
+     */
+    public ReconnectingSubscription subscribe(
+            String view,
+            Map<String, String> filters,
+            ReconnectingSubscription.Reconnect reconnect,
+            Consumer<ChangeBatch> onBatch) {
+        return new ReconnectingSubscription(delivery -> subscribe(view, filters, delivery), onBatch, reconnect);
+    }
+
+    /**
+     * {@link #subscribeFromSnapshot(String, Map, Consumer)} that opens itself again when a server
+     * restart ends it. The first batch after reopening is a fresh snapshot of the view: replace what
+     * you hold with it, and nothing committed while the stream was down is lost.
+     */
+    public ReconnectingSubscription subscribeFromSnapshot(
+            String view,
+            Map<String, String> filters,
+            ReconnectingSubscription.Reconnect reconnect,
+            Consumer<ChangeBatch> onBatch) {
+        return new ReconnectingSubscription(
+                delivery -> subscribeFromSnapshot(view, filters, delivery), onBatch, reconnect);
+    }
+
     // ------------------------------------------------------------------ the debugger (ADR-048)
 
     /**

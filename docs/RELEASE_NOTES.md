@@ -12,6 +12,14 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **SDK subscriptions survive a server restart.** Python: `subscribe(..., reconnect=True,
+  reconnect_timeout=300)`; Java: `subscribe(view, filters, Reconnect, onBatch)` and
+  `subscribeFromSnapshot(view, filters, Reconnect, onBatch)` returning a `ReconnectingSubscription`.
+  A stream ended by a restart, a broken connection or `PRV-6105` is reopened with backoff (250 ms to
+  10 s) until the limit; a refusal that will not change is raised at once. With a snapshot
+  subscription the first batch after reopening is a fresh snapshot, so a copy loses nothing
+  (`batch.reconnected` in Python, `Reconnect.onReconnected` in Java). `JavaSdkReconnectTest`
+  restarts a real server under a subscriber; `test_reconnect.py`.
 - **Lane sharing is on by default, as `auto`.** `pravaha.lane.multiplex.enabled` was a boolean,
   `false` by default; it is now `auto` (the default), `true` or `false`, with
   `pravaha.lane.multiplex.auto-from` (64). Under `auto` a node's first 64 queries each own a lane

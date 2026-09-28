@@ -28,6 +28,7 @@ from __future__ import annotations
 import base64
 import dataclasses
 import re
+import time
 import urllib.parse
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Iterator, List, Optional, Sequence
@@ -292,11 +293,16 @@ class ChangeBatch(List[Any]):
     """
 
     def __init__(self, rows: "Sequence[Row]", *, snapshot: bool = False,
-                 frontier: Optional[int] = None, dropped_before: int = 0) -> None:
+                 frontier: Optional[int] = None, dropped_before: int = 0,
+                 reconnected: bool = False) -> None:
         super().__init__(rows)
         self.snapshot = snapshot
         self.frontier = frontier
         self.dropped_before = dropped_before
+        #: True on the first batch after ``subscribe(..., reconnect=True)`` opened the stream
+        #: again. With ``snapshot=True`` that batch is a fresh snapshot: replace what you hold
+        #: with it. Without, commits made while the stream was down were not delivered.
+        self.reconnected = reconnected
 
     def missed_anything(self) -> bool:
         """Whether anything was lost before this batch."""
@@ -819,6 +825,8 @@ class Client(DebugCommands):
         snapshot: bool = False,
         buffer_rows: Optional[int] = None,
         overflow: Optional[str] = None,
+        reconnect: bool = False,
+        reconnect_timeout: Optional[float] = 300.0,
     ) -> Iterator[ChangeBatch]:
         """Yields one list of rows per commit, for as long as you keep iterating.
 
@@ -864,7 +872,59 @@ class Client(DebugCommands):
         ``(10000, CONFLATE)``; until this was carried on the ticket it was the *only* thing a
         remote subscriber could have. Whatever is lost is reported on each batch as
         ``batch.dropped_before`` (STRM-10).
+
+        **Surviving a restart.** A server that restarts ends every stream it serves. By default
+        that ends this generator with :class:`ConnectError` (``PRV-1040``, retryable) or simply
+        ends it. With ``reconnect=True`` the subscription opens itself again instead: after the
+        stream ends, after a retryable failure, and after ``PRV-6105`` (fell too far behind),
+        retrying with backoff from 0.25 s up to 10 s between attempts, for at most
+        ``reconnect_timeout`` seconds without a stream open (``None``: for ever). A refusal that
+        will not change -- the view was dropped, a filter names no column -- is raised at once.
+        The first batch after reopening has ``batch.reconnected`` set. Pair it with
+        ``snapshot=True``: that batch is then a fresh snapshot of the view, so replacing what you
+        hold with it loses nothing. A plain subscription resumes at the next commit, and what was
+        committed while it was down is not delivered.
         """
+        opened = self._subscription_ticket(view, filters, snapshot, buffer_rows, overflow)
+        if not reconnect:
+            yield from self._batches(self._open_subscription(opened))
+            return
+        yield from self._reconnecting(opened, reconnect_timeout)
+
+    def _reconnecting(self, ticket: Any, timeout: Optional[float]) -> Iterator[ChangeBatch]:
+        delay = _RECONNECT_FIRST_DELAY
+        down_since: Optional[float] = None
+        reopened = False
+        while True:
+            streaming = False
+            try:
+                reader = self._open_subscription(ticket)
+                streaming = True
+                down_since, delay = None, _RECONNECT_FIRST_DELAY
+                for batch in self._batches(reader):
+                    if reopened:
+                        batch.reconnected, reopened = True, False
+                    yield batch
+            except PravahaError as failure:
+                code = getattr(failure, "engine_code", None)
+                # A stream that breaks after it opened, with no diagnosis from the engine, is the
+                # transport going away under it -- a restart -- whatever status gRPC chose for it.
+                if not (failure.retryable or code == "PRV-6105" or (streaming and code is None)):
+                    raise
+                if down_since is None:
+                    down_since = time.monotonic()
+                elif timeout is not None and time.monotonic() - down_since >= timeout:
+                    raise
+                _sleep(delay)
+                delay = min(delay * 2, _RECONNECT_MAX_DELAY)
+            else:
+                # The server closed the stream without an error, which is what a node shutting
+                # down does. The next attempt finds out whether it is back.
+                _sleep(_RECONNECT_FIRST_DELAY)
+            reopened = True
+
+    def _subscription_ticket(self, view: str, filters: Optional[dict[str, Any]], snapshot: bool,
+                             buffer_rows: Optional[int], overflow: Optional[str]) -> Any:
         pairs: list[Any] = []
         for column, value in (filters or {}).items():
             pairs.append(str(column))
@@ -875,16 +935,20 @@ class Client(DebugCommands):
             if capacity < 1:
                 raise QueryError(f"a subscriber's buffer must hold at least one row, not {capacity}")
             preference = f"rows={capacity};overflow={(overflow or 'CONFLATE').upper()}"
-        ticket = _flight.Ticket(
+        return _flight.Ticket(
             _subscribe_ticket(view, pairs, snapshot=snapshot, preference=preference)
         )
+
+    def _open_subscription(self, ticket: Any) -> Any:
         try:
-            reader = self._client.do_get(ticket, self._call_options)
+            return self._client.do_get(ticket, self._call_options)
         except Exception as exc:
             # A refused subscription -- an unknown view, a filter naming a column the view does
             # not have -- surfaces here, before a single batch. Converted like every other
             # failure so callers catch one exception type rather than pyarrow's several.
             raise _failure(exc) from exc
+
+    def _batches(self, reader: Any) -> Iterator[ChangeBatch]:
         try:
             parts: list[Any] = []
             for chunk in reader:
@@ -1218,6 +1282,12 @@ _ACTION_DROP = "pravaha.drop"
 _ACTION_LIST = "pravaha.list"
 _ACTION_PAUSE = "pravaha.pause"
 _ACTION_RESUME = "pravaha.resume"
+
+#: Backoff between attempts to reopen a ``reconnect=True`` subscription, in seconds.
+_RECONNECT_FIRST_DELAY = 0.25
+_RECONNECT_MAX_DELAY = 10.0
+#: Indirected so a test can wait without waiting.
+_sleep = time.sleep
 _ACTION_REPLACE = "pravaha.replace"
 _ACTION_REPLACEMENT = "pravaha.replacement"
 _ACTION_CUTOVER = "pravaha.cutover"
