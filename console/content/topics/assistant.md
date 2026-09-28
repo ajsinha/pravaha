@@ -4,25 +4,26 @@ slug: assistant
 category: reference
 order: 60
 icon: robot
-summary: "Plain English to and from continuous SQL through any model you configure — explain a query, explain a refusal — with the engine as the judge: configuration, providers, fallback, budgets, switching models at runtime, and security."
+summary: "Plain English to and from continuous SQL through any model you configure — draft a query from a description, explain a query, explain a refusal — with the engine as the judge and you as the one who registers: configuration, providers, fallback, budgets, switching models at runtime, measuring a model, and security."
 badge: ADR-058
 audience: Developers and administrators
-keywords: [assistant, assist, llm, model, ai, explain-sql, why, explain a refusal, provider, anthropic, openai, openai-compatible, ollama, vllm, fallback, profile, chain, budget, api_key_env, assist.json, ModelRouter, AssistAdmin, entry point, plugin]
+keywords: [assistant, assist, llm, model, ai, ask, draft, describe, repair, golden set, eval, evaluation, explain-sql, why, explain a refusal, provider, anthropic, openai, openai-compatible, ollama, vllm, fallback, profile, chain, budget, api_key_env, assist.json, ModelRouter, AssistAdmin, entry point, plugin]
 guide: python-sdk
 related: [cli-reference, sql-refusals, reading-a-plan, errors-sql, sdk-reference]
 ---
 
-The assistant explains a continuous query in plain English and explains a refusal — what a code such
-as PRV-2050 means for *your* statement and what to change. It asks a language model you configure:
+The assistant drafts a continuous query from a description in plain English, explains a continuous
+query, and explains a refusal — what a code such as PRV-2050 means for *your* statement and what to
+change. It asks a language model you configure:
 any provider, several at once, with fallback between them. **The engine stays the judge.** The model
 is given the engine's own plan or the engine's own refusal, never its memory of what Pravaha accepts,
 and any SQL it proposes is validated by the engine before you are told it works. The engine itself
 gains no model dependency, no outbound call and no new permission; the assistant lives in the Python
 SDK and the command line.
 
-Built so far (phase 1 of ADR-058): `pravaha explain-sql`, `pravaha why`, and `pravaha assist` to see,
-check and switch models. Drafting a query from a description, and this console's own panel and model
-administration screen, come later.
+Built so far (phases 1 and 2 of ADR-058): `pravaha ask` to draft a query, `pravaha explain-sql`,
+`pravaha why`, `pravaha assist` to see, check and switch models, and `pravaha assist eval` to measure
+one. This console's own "Describe it" panel and model administration screen come later.
 
 ## Configure a model
 
@@ -45,7 +46,7 @@ Then `~/.config/pravaha/assist.json` (or the path in `PRAVAHA_ASSIST_CONFIG`):
     {"id": "claude", "provider": "anthropic", "model": "claude-opus-5"},
     {"id": "llama", "provider": "local", "model": "llama3.1:70b"}
   ],
-  "profiles": {"explain": ["llama", "claude"]},
+  "profiles": {"explain": ["llama", "claude"], "draft": ["claude", "llama"]},
   "budgets": {"per_user_daily_tokens": 200000, "per_request_max_tokens": 8000}
 }
 ```
@@ -92,6 +93,81 @@ Which model answered, how long it took and what it cost are on stderr. `--json` 
 result: the answer, the engine's plan or verdict, the prompt version, and the model that answered
 after which others were tried.
 
+## Draft a query from a description
+
+```bash
+pravaha ask "stock lines at or below their reorder point, and tell me when they recover"
+pravaha ask "orders per customer per minute" --name orders_per_minute --register
+```
+
+What happens, in order:
+
+1. **The context comes from the engine**, under your own credentials: the streams you may read (with
+   their columns, event-time column and lateness), the views you may read, the sinks you may write
+   to and the guarantee each gives, the guide's rules on windows, joins and refusals, and two to
+   four worked examples from the case studies most like your description. A stream you cannot read
+   is never named to the model, and no row is ever read. Everything is held to a size budget; what
+   is least relevant is left out first, and named.
+2. **The model drafts** a fixed shape: a name, one `SELECT`, the key, the options (retention, index,
+   sink, lane), an explanation, its assumptions, its questions and its confidence. **If it has
+   questions, you get the questions** — the engine is not asked anything until the description is
+   clear enough.
+3. **The engine judges it**: validate, then explain. The assistant also checks what the engine only
+   checks at registration — the key and index name real output columns, the sink is one you may see,
+   the retention is a duration — and says it made those checks, not the engine.
+4. **A refusal is repaired**, at most three times: the model is given the PRV code, the engine's
+   sentence and the guide's section about that code. **It may not loosen your question** — a repair
+   that reads different streams than the first draft is refused as "a different question" and never
+   sent to the engine. Still refused after three turns, the draft is shown as refused, in the
+   engine's words, and the command exits 1.
+5. **You see** the `CREATE CONTINUOUS QUERY` statement, the model's explanation, the engine's own
+   plan, the sink's guarantee, the assumptions and questions, every turn, and which model answered at
+   what cost. If a running query you can see has the same plan, key and retention, you are told and
+   offered to read that instead.
+
+```text
+the engine accepts it after 1 repair turn
+
+  CREATE CONTINUOUS QUERY low_stock
+    KEYED BY (sku, warehouse)
+  AS
+  SELECT sku, warehouse, on_hand, reorder_point, updated_at FROM stock WHERE on_hand <= reorder_point
+
+Turns
+  1. draft   refused by the engine: PRV-2002  Column 'reorder_level' not found
+  2. repair  accepted by the engine
+```
+
+**Registration is yours.** `--register` registers only a draft the engine accepted, and only once you
+confirm — it asks at a terminal; `--yes` confirms in a script; otherwise nothing is registered. It is
+the ordinary registration call under your own credentials (so it needs `--url`), authorized exactly
+like a statement you typed. The model has no way to register anything.
+
+**One approximation, stated.** The engine's API has no fingerprint for SQL that is not registered, so
+"the same as a running query" compares the engine's plan text, key and retention. Registering tells
+you for sure: the fingerprint the engine answers is exact.
+
+## Measure a model
+
+```bash
+pravaha assist eval --model claude
+pravaha assist eval --model llama --case retail-inventory-mysql,negative --json
+```
+
+A golden set ships with the SDK, generated from the case studies: one case per continuous query (its
+description and reference SQL), plus three that must be refused or must raise a question — an
+aggregate kept forever with no window, a join between two streams with no time bound, and a stream
+that does not exist. Each is drafted exactly as `ask` would (without its own worked example), then
+scored **by meaning, not text**: the engine accepted it, it reads the same streams as the reference,
+and the engine's plan and the key equal the reference's. A negative case passes only if refused or
+asked about — a model that quietly answers a different question is caught. The report gives each
+case's outcome, repair turns, tokens and time, and a summary; exit 1 if a scored case failed.
+
+It needs an engine with the case studies' streams (start a node with a study's configuration); cases
+whose streams are missing are skipped. `--run` also registers the draft and the reference under a
+prefix, compares the engine's fingerprints — or their answers on the node's sample data — and drops
+both: use it on a test node, never a production engine.
+
 ## Providers
 
 | Type | Speaks | Key |
@@ -129,18 +205,20 @@ Both refusals are `BudgetExceeded`.
 
 | Exit | Means |
 |---|---|
-| `0` | Answered |
-| `1` | A model failed (the normalised error on stderr), a budget refused the request, or the engine refused the SQL |
+| `0` | Answered — for `ask`, a draft the engine accepts, or the model's questions |
+| `1` | A model failed (the normalised error on stderr), a budget refused the request, the engine refused the SQL (for `ask`, still refused after the repair turns), or an evaluation case failed |
 | `2` | The assistant's configuration is wrong — nothing was sent to any model |
 | `3` | The engine could not be reached |
 
 ## Security
 
 - **No rows are ever sent.** What leaves your machine is the SQL, the engine's plan or refusal, what
-  the engine reports about a registered query, and excerpts of the guide. A deployment that may not
+  the engine reports about a registered query, excerpts of the guide, and — for `ask` — the names,
+  columns and types of what you may read. A deployment that may not
   send even that off-site configures only `ollama` or `openai-compatible` on its own hardware.
-- **Your credentials, your permissions.** The assistant only explains and validates, with your own
-  token; it has no way to register, drop or read a view, whatever a model says.
+- **Your credentials, your permissions.** The assistant explains, validates and lists the catalogue
+  with your own token. The only thing that registers is you — `ask --register`, after you confirm, as
+  any registration of yours; the model has no way to register, drop or read a view, whatever it says.
 - **Keys by environment variable or secret file only**; never in the configuration, an error
   message, `assist models` or an audit record.
 - The full reference — every field, the provider table, runtime reconfiguration from Python, and a
