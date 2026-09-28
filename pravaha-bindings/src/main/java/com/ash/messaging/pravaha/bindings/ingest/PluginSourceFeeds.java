@@ -569,7 +569,7 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
      * or take rows they were about to be handed. A fork must not be able to affect the query it
      * forked from, and this is the sharpest way it could.
      *
-     * <p>The refusals are the same three {@link #backfillRefusal} gives, for the same reasons and
+     * <p>The refusals are the ones {@link #backfillRefusal} gives, for the same reasons and
      * with the same words, because "can this be rewound to that position" is one question. They
      * are raised before any reader opens, so a fork that cannot be honest is refused rather than
      * started and quietly reading from the present.
@@ -653,6 +653,12 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                         + "' does not order the records within a partition -- its position names where a scan "
                         + "began rather than the record it was taken after -- so there is no offset the "
                         + "history and the live stream can meet at exactly");
+            }
+            // CDCREPL-1: resumable by the one reader that holds it is not readable by a second.
+            java.util.Optional<String> oneReader = plugin.secondReaderRefusal();
+            if (oneReader.isPresent()) {
+                return java.util.Optional.of(
+                        "the '" + binding.plugin() + "' source bound to '" + stream + "' " + oneReader.get());
             }
             return java.util.Optional.empty();
         } finally {

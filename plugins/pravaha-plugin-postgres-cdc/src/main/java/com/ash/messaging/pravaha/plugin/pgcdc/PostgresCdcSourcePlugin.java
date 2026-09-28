@@ -177,6 +177,28 @@ public final class PostgresCdcSourcePlugin implements StreamSourcePlugin {
                 false);
     }
 
+    /**
+     * A replacement's backfill or a debug fork cannot read this binding beside the query reading it
+     * (CDCREPL-1).
+     *
+     * <p>Both would stream the same slot, and PostgreSQL streams a slot to one connection at a time:
+     * the second reader waited for the slot and failed with {@code PRV-5117} ("is active for PID").
+     * Nor would it have anything to replay if it could start: "from the beginning" is the slot's
+     * confirmed position, and everything before it is released. A slot of the replacement's own
+     * would stream, but it starts now and holds none of the history the running version has read,
+     * so its backfill would start from empty state and call itself caught up.
+     */
+    @Override
+    public Optional<String> secondReaderRefusal() {
+        requireConfigured();
+        return Optional.of("streams replication slot '" + options.slot() + "', which PostgreSQL streams to one "
+                + "connection at a time -- the running version holds it -- and which keeps no WAL from before "
+                + "its confirmed position, so a second reader could neither start beside the running version nor "
+                + "replay what it has already read. Replace it by dropping it and registering the new version "
+                + "(with snapshot.mode: initial to count the rows already in the table), or register the new "
+                + "version under another name on a binding with a slot of its own");
+    }
+
     @Override
     public List<StreamSchema> discoverSchemas() {
         requireOpen();

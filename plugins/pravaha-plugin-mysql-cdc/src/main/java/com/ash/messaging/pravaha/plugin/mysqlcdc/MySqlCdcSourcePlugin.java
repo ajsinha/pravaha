@@ -118,6 +118,26 @@ public final class MySqlCdcSourcePlugin implements StreamSourcePlugin {
                 false);
     }
 
+    /**
+     * A replacement's backfill or a debug fork cannot read this binding beside the query reading it
+     * (CDCREPL-1, found by reading beside its postgres-cdc twin).
+     *
+     * <p>A second reader of the binding registers as a replica under the same {@code server.id},
+     * and the server drops the older of two replica connections with one id -- the running version
+     * and the second reader would displace each other on every reconnect. And "from the beginning"
+     * is the binlog position this plugin opened at, not the history the running version has read,
+     * so a backfill would start from empty state and call itself caught up.
+     */
+    @Override
+    public java.util.Optional<String> secondReaderRefusal() {
+        requireConfigured();
+        return java.util.Optional.of("reads the binlog as replica server.id " + options.serverId() + ", and the "
+                + "server keeps one connection per replica id -- a second reader would displace the running "
+                + "version -- and a new reader's beginning is the binlog position it opens at, not the history "
+                + "the running version has read. Replace it by dropping it and registering the new version, or "
+                + "register the new version under another name on a binding with a server.id of its own");
+    }
+
     @Override
     public List<StreamSchema> discoverSchemas() {
         requireOpen();

@@ -1310,6 +1310,14 @@ The design's `backfill.parallelism`, `backfill.window` and `backfill.adaptive` a
 name** with `PRV-4018`: a backfill reads each partition once, from the beginning, at the rate you
 set, and nothing here probes the store's own latency to adapt to.
 
+**A query over `postgres-cdc` or `mysql-cdc` cannot be replaced** (`PRV-4018`, naming the slot or
+the replica id). The running version is the one reader of the binding's replication slot, which
+PostgreSQL streams to one connection at a time and which keeps nothing before its confirmed
+position; a `mysql-cdc` binding is one replica connection, and its beginning is where it opened. A
+backfill could neither start beside the running version nor replay what it has read. Drop the query
+and register the new version, or register it under another name on a binding with its own `slot`
+(or `server.id`) — see [`OPERATIONS.md`](OPERATIONS.md), *Change data capture: the replication slot*.
+
 **What a reader sees.** A read of the name resolves to one version's view or the other's and never a
 mixture, and neither is behind the other, so the answer to the old question up to the seam is
 followed by the answer to the new question after it — with no gap and nothing counted twice.
@@ -1337,7 +1345,7 @@ side effect.
 | `PRV-4014` | A cutover before the candidate caught up, or when the two versions could not be brought to the same position |
 | `PRV-4016` | A cutover, rollback or status for a name nothing is replacing |
 | `PRV-4017` | A second replacement of one name; a new version that is the same computation as the old; a drop while a candidate is running |
-| `PRV-4018` | A stream nothing is bound to or that cannot be replayed; an option this engine does not build; a rate above the ceiling; a changed sink or retention |
+| `PRV-4018` | A stream nothing is bound to or that cannot be replayed, or a CDC stream whose slot or replica id the running version holds; an option this engine does not build; a rate above the ceiling; a changed sink or retention |
 | `PRV-4019` | The subscription you were holding: the view was replaced |
 | `PRV-8003` | The query's computation is shared with another name — a replacement moves one name, and a shared computation cannot tell which name a subscriber arrived through |
 | `PRV-7002` | You may not administer this name. A replacement requires the same permission a drop does, reading its status included |

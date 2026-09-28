@@ -124,6 +124,7 @@ in [`LIMITS.md`](docs/LIMITS.md). What is left is below.
 | Piece | Not yet |
 |---|---|
 | `mysql-cdc` | An initial snapshot (`snapshot.mode: initial` is refused), TLS, GTID positions that survive a failover |
+| `postgres-cdc`, `mysql-cdc` | Replacing a running query in place: `CREATE OR REPLACE` is refused (`PRV-4018`) because the running version is the slot's one reader; drop and register |
 | `iceberg-sink` | Object stores, catalog services, partitioned tables, schema evolution; it writes local-filesystem tables |
 | One reader per ordered source ([ADR-054](docs/adr/054-an-ordered-source-is-shared-at-an-exact-seam.md)) | Delta and JDBC, until their positions are shown to be totally ordered; CDC sources keep a reader per query (a slot or binlog client each) |
 | Equality index ([ADR-055](docs/adr/055-an-equality-index-over-a-column-outside-the-key.md)) | A way for a user to see which access path a read took |
@@ -133,8 +134,7 @@ in [`LIMITS.md`](docs/LIMITS.md). What is left is below.
 - The eight-lane scaling target: measured at 28–42 % of linear against 90 %, on a laptop, with no
   reference hardware (below).
 - The manual WCAG 2.2 AA audit, which is a person's task.
-- The [findings register](docs/qa/FINDINGS.md) holds open findings, none GA-blocking; a few are worth
-  closing before a customer sees them, among them `VIEWW-1` and `CDCREPL-1`.
+- The [findings register](docs/qa/FINDINGS.md) holds open findings, none GA-blocking.
 
 **Boundaries: limits of a store, a format or a recorded decision.** More code would not remove these.
 

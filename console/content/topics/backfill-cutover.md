@@ -119,6 +119,6 @@ whose plan normalises to the computation already running — a cutover to itself
 |---|---|
 | The cutover button will not enable | Partitions on the live stream has not reached the total. The candidate is still reading history |
 | `PRV-4014` from a cutover that looked ready | The source is busy enough that the two versions never stop at the same record. Try again, or quieten it. Nothing changed |
-| `PRV-4018` when starting | The stream's source cannot replay, or its positions do not order its records. A backfill needs both |
+| `PRV-4018` when starting | The stream's source cannot replay, or its positions do not order its records. A backfill needs both. Or it is `postgres-cdc` or `mysql-cdc`: the running version is the slot's (or replica id's) one reader, so drop and register the new version instead |
 | Readers see `PRV-4019` and stop | That is the cutover. They subscribe again |
 | The rollback window says *closed* | The retention ran out. Registering the old SQL again is the way back, and it is a fresh backfill |

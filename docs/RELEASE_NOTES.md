@@ -12,6 +12,32 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **A view keeps every row of a key, and shows the one that most recently gained weight (VIEWW-1).**
+  A key inserted as `A` and then as `B`, with `A` then retracted, went on showing `A` — the row just
+  withdrawn. `ServedView` now keeps each distinct row of a key with its own weight (only for a key
+  holding more than one; a one-row key costs nothing more), a retraction takes weight from the row it
+  names, a checkpoint and a subscription's snapshot carry each row with its weight, and a restore
+  rebuilds them. `ViewZSetPropertyTest` checks latest and consistent reads, a checkpoint mid-schedule
+  and the snapshot against a Z-set model over 2,000 schedules; it fails 5 of 5 on the old code.
+  [`CONCEPTS.md`](CONCEPTS.md) §4 states the rule.
+- **Replacing a query over `postgres-cdc` or `mysql-cdc` is refused, naming the slot or replica id
+  (CDCREPL-1).** Against a real PostgreSQL, the replacement's backfill waited 15 s for the running
+  version's slot and failed with `PRV-5117` ("replication slot … is active for PID"); a slot's
+  "beginning" is its confirmed position, so there was no history to replay either. Now `PRV-4018`
+  before anything opens, and a debug fork `PRV-8012`. A plugin says so through a new SPI default,
+  `StreamSourcePlugin.secondReaderRefusal()`. `PostgresCdcReplacementTest`, `MySqlCdcSecondReaderTest`.
+- **ADR-054's exact seam is tested against a real Kafka broker (SEAMKAFKA-1).** Transactional
+  producers with aborted transactions put markers and gaps beside every position; a query joining
+  behind the shared reader while records arrive, one restored ahead of it across a 20,000-record gap,
+  one restored behind and one from nothing each count every committed record once and none aborted,
+  in topic order (`KafkaExactSharingBrokerTest`). Nothing needed fixing; a reader that handed over the
+  record on its bound loses exactly that record for the query waiting there, and the test catches it.
+- **A dead shared lane is no longer placed on (LANEFATE-1).** A failing pipeline takes down exactly
+  the queries on its shared lane — tested now, with the other shared lane and a lane of its own
+  answering throughout — but a registration after the failure could land on the dead lane, report
+  `RUNNING`, and fail on its first row with the other query's error (`PRV-3010`). `SharedLanes`
+  skips a failed lane until the node restarts. A stalled query backpressures its own lane only, and
+  loses nothing (`SharedLaneFateTest`).
 - **A research paper, and an article version of it.** `docs/research/continuous-queries-as-maintained-answers.pdf`
   (LaTeX source beside it) and `-article.md`: *Continuous Queries as Maintained Answers — Exact Cuts, Exact
   Seams and Lossless Cutover in a Single-Node Streaming SQL Engine*. It states the Z-set model and the

@@ -21,6 +21,7 @@ import java.util.Optional;
 import java.util.function.Supplier;
 
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
+import com.ash.messaging.pravaha.runtime.lane.Lane;
 import com.ash.messaging.pravaha.runtime.lane.LaneConfig;
 import com.ash.messaging.pravaha.runtime.lane.LaneGroup;
 import com.ash.messaging.pravaha.runtime.lane.LaneMultiplexer;
@@ -81,11 +82,23 @@ final class SharedLanes implements AutoCloseable {
     /** Where a hosted query went: the lane's index, for an operator, and its group, for the engine. */
     record Placement(int index, LaneGroup group) {}
 
-    /** The lane the next query should be hosted on, or empty for a lane of its own. */
+    /**
+     * The lane the next query should be hosted on, or empty for a lane of its own.
+     *
+     * <p>Never a lane that has failed (LANEFATE-1). A pipeline that throws stops its lane's one
+     * thread, and every query on it with it; the failed queries stay registered, so their pipelines
+     * stay counted, and the dead lane could still be the least loaded one. A query placed there was
+     * accepted, reported RUNNING, and failed on its first row with the other query's error. The slot
+     * stays out of placement until the node restarts: the queries on it keep their views, frozen and
+     * refused, and closing their lane under them is the restart's job.
+     */
     Optional<Placement> place() {
         int best = -1;
         int bestCount = Integer.MAX_VALUE;
         for (int i = 0; i < lanes.length; i++) {
+            if (failed(i)) {
+                continue;
+            }
             int count = pipelinesOn(i);
             if (count >= ceiling) {
                 continue;
@@ -112,6 +125,10 @@ final class SharedLanes implements AutoCloseable {
 
     private static LaneMultiplexer multiplexer(LaneGroup group) {
         return (LaneMultiplexer) group.lane(0).processor();
+    }
+
+    private boolean failed(int index) {
+        return lanes[index] != null && lanes[index].lane(0).state() == Lane.State.FAILED;
     }
 
     private int pipelinesOn(int index) {

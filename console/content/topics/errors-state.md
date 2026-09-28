@@ -273,8 +273,12 @@ running. Cut over, roll back or abandon the first.
 ### PRV-4018 — this cannot be backfilled
 
 A stream nothing is bound to, or whose source cannot be replayed or does not order the records within
-a partition (a table scan reports where its pass began rather than the record it was taken after); an
-option this engine does not build (`backfill.parallelism`, `backfill.window`, `backfill.adaptive`); a
+a partition (a table scan reports where its pass began rather than the record it was taken after); a
+change-data-capture stream, whose one reader the running version already is — a `postgres-cdc`
+replication slot streams to one connection at a time and keeps nothing before its confirmed position,
+and a `mysql-cdc` replica id is one connection to the server — so the message names the slot or the
+id, and the way round is to drop the query and register the new version, or register it under another
+name on a binding with a slot or `server.id` of its own; an option this engine does not build (`backfill.parallelism`, `backfill.window`, `backfill.adaptive`); a
 rate above the ceiling the replacement was started with; or a `WRITING TO` or `RETAIN` that would
 change the name's sink or retention while replacing it. The message names which.
 

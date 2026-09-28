@@ -109,4 +109,20 @@ public interface StreamSourcePlugin extends PravahaPlugin {
     default OrderedPositions orderedPositions() {
         return null;
     }
+
+    /**
+     * Why a second reader of this binding cannot be opened beside a running one to replay from an
+     * earlier position, in a sentence naming what stands in the way, or empty when it can.
+     *
+     * <p>A replacement's backfill and a debug fork each open readers of their own on a binding a
+     * running query is already reading, and read from a position the running query has passed. A
+     * source whose read is a single server-side consumer -- a PostgreSQL replication slot, which
+     * streams to one connection at a time and keeps nothing before its confirmed position -- can do
+     * neither, whatever its capabilities say about resuming one reader from its own checkpoint
+     * (CDCREPL-1). Asked of a configured plugin, before {@code open}, so the refusal costs no
+     * connection. Empty by default.
+     */
+    default java.util.Optional<String> secondReaderRefusal() {
+        return java.util.Optional.empty();
+    }
 }
