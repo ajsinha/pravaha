@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **425 findings carrying a
-status — 377 FIXED, 34 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 34 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 30 POST-GA and 4 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **428 findings carrying a
+status — 379 FIXED, 35 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 35 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 30 POST-GA and 5 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7127,3 +7127,18 @@ the lead.
 
 > **Status:** OPEN — It surfaces as rows rejected per value, to the dead-letter queue, or a stopped stream.
 > **Disposition:** POST-GA — compare column types, not only their count.
+
+## Found running every case study end to end (2026-09-28), 3 findings
+
+### WINFIRE-1 (HIGH) — a windowed aggregate that saw a watermark before its first row fired windows from the epoch
+
+> **Status:** FIXED — `WindowedAggregate` now has nothing to fire until a row arrives. Before, a watermark ahead of the first row walked every window from 1970: hourly windows about 492,000 empty ones, and `cancel_rate` in trading-order-flow stopped with PRV-3022. On a node the READMEs' own inserts reached it the same way. `CaseStudyRunTest`; `pravaha-runtime` and `pravaha-embedded` suites.
+
+### CASEKEY-1 (MEDIUM) — four case studies keyed views too coarsely, so rows overwrote each other
+
+> **Status:** FIXED — biology-sequencing-qc (run_id → run_id, sample_id), finance-counterparty-exposure (counterparty_id → counterparty_id, currency), trading-order-flow (trader_id → trader_id, symbol), and trade-processing's clients (trade_id → trade_event_id, as its README). `CaseStudyRunTest` compares every view with hand-worked answers.
+
+### EMBWM-1 (LOW) — rows pushed into the embedded engine never move its watermark
+
+> **Status:** OPEN — documented: no window closes until `advanceEventTime` is called, which is easy to miss for an embedder expecting a node's behaviour.
+> **Disposition:** NOTE — the embedded engine leaves event time to its host by design; a sentence in USER_GUIDE and the embedded javadoc says so.
