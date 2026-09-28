@@ -25,7 +25,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.ash.messaging.pravaha.api.PravahaException;
-import com.ash.messaging.pravaha.registry.LaneRebalancer;
+import com.ash.messaging.pravaha.registry.LaneRebalance;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.server.security.HttpAuthorizer;
 
@@ -41,7 +41,7 @@ public class LaneController {
 
     private final RegistryAccess registry;
     private final HttpAuthorizer authorizer;
-    private final LaneRebalancer rebalancer = new LaneRebalancer();
+    private final LaneRebalance rebalancer = new LaneRebalance();
 
     public LaneController(RegistryAccess registry, HttpAuthorizer authorizer) {
         this.registry = registry;
@@ -50,21 +50,21 @@ public class LaneController {
 
     @GetMapping("/rebalance")
     @Operation(summary = "The rebalance running or last run, or what one would do now (admin)")
-    public LaneRebalancer.Plan rebalance(HttpServletRequest http) {
+    public LaneRebalance.Plan rebalance(HttpServletRequest http) {
         authorizer.requireNodeAdmin(http, "a lane rebalance");
         return rebalancer.status(registry());
     }
 
     @PostMapping("/rebalance")
     @Operation(summary = "Move shared queries onto lanes of their own while there is room under auto-from (admin)")
-    public LaneRebalancer.Plan start(
+    public LaneRebalance.Plan start(
             @RequestParam(name = "dryRun", defaultValue = "false") boolean dryRun, HttpServletRequest http) {
         authorizer.requireNodeAdmin(http, "a lane rebalance");
         QueryRegistry hosted = registry();
         return dryRun ? rebalancer.plan(hosted) : rebalancer.start(hosted, authorizer.principalOf(http));
     }
 
-    LaneRebalancer rebalancer() {
+    LaneRebalance rebalancer() {
         return rebalancer;
     }
 

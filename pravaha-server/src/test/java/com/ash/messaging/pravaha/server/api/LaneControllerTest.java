@@ -25,7 +25,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
-import com.ash.messaging.pravaha.registry.LaneRebalancer;
+import com.ash.messaging.pravaha.registry.LaneRebalance;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.Principal;
@@ -63,11 +63,11 @@ class LaneControllerTest {
                     .hasMessageContaining("admin role");
             assertThatThrownBy(() -> controller.rebalance(as(DANA))).isInstanceOf(PravahaException.class);
 
-            LaneRebalancer.Plan plan = controller.start(true, as(ADMIN));
+            LaneRebalance.Plan plan = controller.start(true, as(ADMIN));
             assertThat(plan.mode()).isEqualTo("auto");
             assertThat(plan.autoFrom()).isEqualTo(2);
             assertThat(plan.running()).isFalse();
-            assertThat(plan.moves()).extracting(LaneRebalancer.Move::name).containsExactly("q_three");
+            assertThat(plan.moves()).extracting(LaneRebalance.Move::name).containsExactly("q_three");
             assertThat(registry.sharedLaneOf("q_three"))
                     .as("a dry run moves nothing")
                     .isPresent();

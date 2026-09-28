@@ -38,7 +38,7 @@ import com.ash.messaging.pravaha.security.Principal;
  * twice. One at a time because each move briefly runs the query twice. A move a replacement refuses
  * (a source that cannot replay its history, say) is reported and the rebalance goes on.
  */
-public final class LaneRebalancer {
+public final class LaneRebalance {
 
     /** How long one move may take before the rebalance gives up on it and goes on. */
     private static final Duration MOVE_LIMIT = Duration.ofMinutes(30);

@@ -38,7 +38,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /** An administrator's lane rebalance: room under auto-from goes to queries already sharing, when asked. */
 @Timeout(120)
-class LaneRebalancerTest {
+class LaneRebalanceTest {
 
     private static final StreamSchema TXN = StreamSchema.builder("txn")
             .field("user_id", Types.string())
@@ -78,7 +78,7 @@ class LaneRebalancerTest {
         assertThat(registry.sharedLaneOf("later")).isPresent();
         await(() -> total(views) == 78L);
 
-        LaneRebalancer rebalancer = new LaneRebalancer();
+        LaneRebalance rebalancer = new LaneRebalance();
         assertThat(rebalancer.plan(registry).moves())
                 .as("no room: nothing to do")
                 .isEmpty();
@@ -88,10 +88,10 @@ class LaneRebalancerTest {
                 .as("dropping a query moves nothing by itself")
                 .isPresent();
 
-        LaneRebalancer.Plan plan = rebalancer.plan(registry);
+        LaneRebalance.Plan plan = rebalancer.plan(registry);
         assertThat(plan.mode()).isEqualTo("auto");
         assertThat(plan.room()).isEqualTo(1);
-        assertThat(plan.moves()).extracting(LaneRebalancer.Move::name).containsExactly("totals");
+        assertThat(plan.moves()).extracting(LaneRebalance.Move::name).containsExactly("totals");
         assertThat(plan.moves().get(0).status()).isEqualTo("planned");
         assertThat(registry.sharedLaneOf("totals"))
                 .as("a dry run changes nothing")
@@ -100,7 +100,7 @@ class LaneRebalancerTest {
         rebalancer.start(registry, ADMIN);
         rebalancer.awaitIdle(Duration.ofSeconds(60));
 
-        LaneRebalancer.Plan done = rebalancer.status(registry);
+        LaneRebalance.Plan done = rebalancer.status(registry);
         assertThat(done.running()).isFalse();
         assertThat(done.moves().get(0).status())
                 .as(done.moves().get(0).detail())
