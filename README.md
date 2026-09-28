@@ -200,8 +200,11 @@ pravaha subscribe --view user_volume --filter user_id=u1
 ```
 
 `SHOW CONTINUOUS QUERIES` and `DROP` / `PAUSE` / `RESUME CONTINUOUS QUERY` manage what is running —
-or `pravaha queries`, `pause`, `resume` and `drop`, with `pravaha register` taking a registration as
-arguments; `run`, `explain` and `validate` work without a server. The [**Quickstart**](docs/QUICKSTART.md) takes a clone to a running,
+or `pravaha queries`, `pause`, `resume` and `drop --yes`, with `pravaha register` taking a registration
+as arguments, and `pravaha status`, `describe`, `lanes` and `audit` asking the node's HTTP API.
+`pravaha` is the Python CLI, built on the Python SDK (`pip install "pravaha[flight]"`, or `bin/pravaha`
+from a checkout; [`docs/CLI.md`](docs/CLI.md)); planning and running SQL with no server is the Java
+tool `pravaha-engine` (`validate`, `explain`, `run`). The [**Quickstart**](docs/QUICKSTART.md) takes a clone to a running,
 changing view in about ten minutes.
 
 ## How it is built
@@ -260,6 +263,7 @@ density are photographed and audited by axe. The manual WCAG 2.2 AA audit is not
 | [Concepts](docs/CONCEPTS.md) | The ideas everything follows from; most surprises are one of these working correctly |
 | [User guide](docs/USER_GUIDE.md) | The whole surface, task by task, in Java, Python and the shell |
 | [Case studies](examples/case-studies/) | Thirteen worked systems: a data model, the data, the continuous queries and the app code, each run and checked by the build |
+| [CLI](docs/CLI.md) | `pravaha`, the command line for a running engine, and `pravaha-engine` for SQL with no server |
 | [Python API guide](docs/PYTHON_API_GUIDE.md) | Every REST and SDK call with a Python sample, for integration |
 | [Running from an IDE](docs/DEVELOPING_IN_AN_IDE.md) | The server in IntelliJ IDEA and the console in PyCharm |
 

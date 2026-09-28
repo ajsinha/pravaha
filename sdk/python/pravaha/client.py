@@ -29,10 +29,10 @@ import base64
 import dataclasses
 import re
 import time
-import urllib.parse
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Iterator, List, Optional, Sequence
 
+from pravaha.api import EngineApi
 from pravaha.debug import DebugCommands
 from pravaha.endpoint import Endpoint
 from pravaha.errors import PravahaError, configure_docs_base_from_environment, require_well_formed
@@ -428,7 +428,7 @@ class Client(DebugCommands):
             if options.token
             else _flight.FlightCallOptions()
         )
-        self._rest: Optional[RestClient] = None
+        self._api: Optional[EngineApi] = None
         kwargs = _flight_client_tls_kwargs(options.tls) if options.endpoint.tls else {}
         try:
             self._client = _flight.FlightClient(self._uri, **kwargs)
@@ -999,31 +999,38 @@ class Client(DebugCommands):
     # ---------------------------------------------------------------------------------
 
     def _http(self) -> "RestClient":
-        if self._rest is None:
+        return self.http_api.rest
+
+    @property
+    def http_api(self) -> EngineApi:
+        """The engine's HTTP API (:class:`pravaha.api.EngineApi`) with this client's token, TLS
+        and timeout: the calls that have no Flight form -- the catalogue, validation, plans,
+        lanes, identity, audit and health. Every HTTP method on this class delegates to it.
+
+        Raises :class:`ApiError` when :attr:`ClientOptions.http_url` was not set, naming it."""
+        if self._api is None:
             if not self._options.http_url:
                 raise ApiError(
                     0,
                     "this client has no HTTP URL for the engine; set ClientOptions.http_url "
                     "(the engine's HTTP port, 18080 by default, not the Flight port)",
                 )
-            self._rest = RestClient(
+            self._api = EngineApi(
                 self._options.http_url,
                 token=self._options.token,
                 timeout_seconds=self._options.request_timeout_seconds,
                 tls=self._options.tls if self._options.http_url.startswith("https://") else None,
                 allow_insecure_token=self._options.allow_insecure_token,
             )
-        return self._rest
+        return self._api
 
     def streams(self) -> "list[dict[str, Any]]":
-        """Every stream this principal may read: ``name``, ``version``, ``fields``,
-        ``eventTime``, ``outOfOrderness`` (ISO-8601) and ``source`` (the plugin that feeds
-        it, if bound). ``GET /api/v1/streams``."""
-        return list(self._http().get("/api/v1/streams") or [])
+        """Every stream this principal may read. See :meth:`EngineApi.streams`."""
+        return self.http_api.streams()
 
     def stream(self, name: str) -> dict[str, Any]:
-        """One stream. ``GET /api/v1/streams/{name}``."""
-        return dict(self._http().get("/api/v1/streams/" + _segment(name)) or {})
+        """One stream. See :meth:`EngineApi.stream`."""
+        return self.http_api.stream(name)
 
     def declare_stream(
         self,
@@ -1033,136 +1040,71 @@ class Client(DebugCommands):
         event_time: str | None = None,
         out_of_orderness: str | None = None,
     ) -> dict[str, Any]:
-        """Declares a stream from ``name:TYPE,...``, with its event-time column and how late
-        its rows may be (ISO-8601, such as ``"PT10S"``). An administrative act; the server
-        refuses it to a principal who may not change what it serves. ``POST /api/v1/streams``."""
-        body: dict[str, Any] = {"name": name, "schema": schema}
-        if event_time:
-            body["eventTime"] = event_time
-        if out_of_orderness:
-            body["outOfOrderness"] = out_of_orderness
-        return dict(self._http().post("/api/v1/streams", body) or {})
+        """Declares a stream from ``name:TYPE,...``. See :meth:`EngineApi.declare_stream`."""
+        return self.http_api.declare_stream(
+            name, schema, event_time=event_time, out_of_orderness=out_of_orderness
+        )
 
     def validate(self, sql: str) -> dict[str, Any]:
-        """Plans ``sql`` without running it: ``valid``, ``diagnostics`` (each with ``code``,
-        ``message``, ``helpUrl`` and, when the parser knew it, ``range`` -- 1-based lines and
-        columns, end column inclusive), ``outputFields`` and ``elapsedMicros``. An invalid
-        query is an answer, not an error. ``POST /api/v1/queries/validate``."""
-        return dict(self._http().post("/api/v1/queries/validate", {"sql": sql}) or {})
+        """Plans ``sql`` without running it. See :meth:`EngineApi.validate`."""
+        return self.http_api.validate(sql)
 
     def explain(self, sql: str, level: str = "physical", *, graph: bool = False) -> dict[str, Any]:
-        """The plan, as ``plan`` text at ``level`` (``physical``, ``logical`` or ``codegen``),
-        and with ``graph=True`` also as ``graph``: ``nodes`` and ``edges``.
-        ``POST /api/v1/queries/explain``."""
-        query = {"level": level, "format": "graph" if graph else "text"}
-        return dict(self._http().post("/api/v1/queries/explain", {"sql": sql}, query) or {})
+        """The plan at ``level``, and with ``graph=True`` as nodes and edges too.
+        See :meth:`EngineApi.explain`."""
+        return self.http_api.explain(sql, level, graph=graph)
 
     def describe_queries(self) -> "list[dict[str, Any]]":
-        """Every registered query this principal may see, described in full: keys by name and
-        ordinal, retention, sink and whether it is still attached, rows in, the other names
-        sharing the computation, and ``feed`` -- each source partition's state and, for one
-        that stopped, its ``failure`` (code, message, help URL) and ``stoppedAt``. Visibility is exactly :meth:`queries`'s. ``GET /api/v1/queries``."""
-        return list(self._http().get("/api/v1/queries") or [])
+        """Every registered query this principal may see, described in full; visibility is
+        exactly :meth:`queries`'s. See :meth:`EngineApi.describe_queries`."""
+        return self.http_api.describe_queries()
 
     def describe_query(self, name: str) -> dict[str, Any]:
-        """One registered query, as :meth:`describe_queries` describes it.
-        ``GET /api/v1/queries/{name}``."""
-        return dict(self._http().get("/api/v1/queries/" + _segment(name)) or {})
+        """One registered query. See :meth:`EngineApi.describe_query`."""
+        return self.http_api.describe_query(name)
 
     def dead_letters_http(self, name: str, *, offset: int = 0, limit: int = 50) -> dict[str, Any]:
-        """A page of a query's dead letters over HTTP, newest first, with the queue's totals.
-
-        The same answer :meth:`dead_letters` gives over Flight, in the API's JSON shape: an
-        ``entries`` list, and ``total``, ``evicted``, ``retention`` and ``configured`` beside
-        it. An entry's ``raw`` is ``null`` with ``withheld`` saying why when this caller reads
-        the view through a row filter. ``GET /api/v1/queries/{name}/dead-letters``.
-        """
-        return dict(
-            self._http().get(
-                "/api/v1/queries/" + _segment(name) + "/dead-letters",
-                {"offset": offset, "limit": limit},
-            )
-            or {}
-        )
+        """The same page :meth:`dead_letters` gives over Flight, in the API's JSON shape.
+        See :meth:`EngineApi.dead_letters`."""
+        return self.http_api.dead_letters(name, offset=offset, limit=limit)
 
     def dead_letter_count(self, name: str) -> dict[str, Any]:
-        """How deep a query's queue is, and what retention has taken, without any of the
-        records. The call a dashboard polls, because fetching a page of records with their
-        bytes to learn a number would be reading production data to draw a line.
-        ``GET /api/v1/queries/{name}/dead-letters/count``."""
-        return dict(self._http().get("/api/v1/queries/" + _segment(name) + "/dead-letters/count") or {})
+        """How deep a query's queue is, without any of the records.
+        See :meth:`EngineApi.dead_letter_count`."""
+        return self.http_api.dead_letter_count(name)
 
     def replay_dead_letters_http(self, name: str, ids: Sequence[str]) -> dict[str, Any]:
-        """Feeds chosen dead letters back through the query, over HTTP.
-
-        A new row at the query's current frontier, not a rewind. Not idempotent.
-        ``POST /api/v1/queries/{name}/dead-letters/replay``.
-        """
-        return dict(
-            self._http().post(
-                "/api/v1/queries/" + _segment(name) + "/dead-letters/replay",
-                {"ids": list(ids)},
-            )
-            or {}
-        )
+        """Feeds chosen dead letters back through the query, over HTTP: a new row at the
+        query's current frontier, not a rewind. See :meth:`EngineApi.replay_dead_letters`."""
+        return self.http_api.replay_dead_letters(name, ids)
 
     def query_plan(self, name: str) -> dict[str, Any]:
-        """The plan a registered query is running, as ``nodes`` and ``edges``, with the
-        query-level numbers the engine measures under ``query`` -- including how long its
-        writers spent unable to place a row. ``operatorMetrics`` carries rows in, rows out,
-        state bytes, the watermark and a sampled self time per node, keyed by the same node
-        ids ``nodes`` uses, and ``bottleneck`` names the node most of the query's own time
-        went into. It is ``None`` when nothing was measuring -- the query is not registered,
-        the node runs with ``pravaha.metrics.operators`` off, or the caller is entitled only
-        to a row-filtered slice -- and ``metricsNote`` says which.
-        ``GET /api/v1/queries/{name}/plan``."""
-        return dict(self._http().get("/api/v1/queries/" + _segment(name) + "/plan") or {})
+        """The plan a registered query is running, with its operator metrics.
+        See :meth:`EngineApi.query_plan`."""
+        return self.http_api.query_plan(name)
 
     def replacement_http(self, name: str) -> dict[str, Any]:
-        """The replacement of ``name`` in the API's JSON shape, over HTTP.
-
-        The same answer :meth:`replacement` gives over Flight, plus the one field the Flight
-        row does not carry: ``history``, the versions that have served this name and the
-        frontier each took over at, oldest first, as the engine words them. The control wire
-        lays a status out as a flat list of strings (ADR-046) and a variable-length list of
-        sentences has no place in one, so the audit trail is answered where a list is a list.
-        ``historyEntries`` is the same trail in parts, one per sentence: ``fromFrontier`` (the
-        input position the version took over at, ``None`` for the first) and ``version`` (its
-        fingerprint), for a caller that formats them itself.
-
-        Everything else is as :meth:`replacement`: ``state``, ``sql``, ``candidate``,
-        ``replacing``, ``sink``, ``options``, ``owner``, ``startedAt``, ``cutOverAt``,
-        ``rollbackUntil``, ``rollbackAvailable``, a ``backfill`` object and ``failure``.
-        Takes the administer permission, reading included. A name that is not being replaced
-        is refused with ``PRV-4017`` rather than answered with nothing, because "there is no
-        replacement" and "there is no such query" are different answers and only the second
-        is safe to give a caller who may not read the name.
-        ``GET /api/v1/queries/{name}/replacement``.
-        """
-        return dict(self._http().get("/api/v1/queries/" + _segment(name) + "/replacement") or {})
+        """The replacement of ``name`` in the API's JSON shape, plus the ``history`` the Flight
+        row cannot carry. Refused with ``PRV-4017`` when the name is not being replaced.
+        See :meth:`EngineApi.replacement`."""
+        return self.http_api.replacement(name)
 
     def describe_view(self, name: str) -> dict[str, Any]:
-        """A view's ``schema``, ``keyColumns``, ``retention``, ``sink`` and ``fingerprint``,
-        without reading it. ``GET /api/v1/views/{name}``."""
-        return dict(self._http().get("/api/v1/views/" + _segment(name)) or {})
+        """A view's schema, key, retention, sink and fingerprint, without reading it.
+        See :meth:`EngineApi.describe_view`."""
+        return self.http_api.describe_view(name)
 
     def sinks(self) -> "list[dict[str, Any]]":
-        """The sinks this node binds that this principal may see: ``plugin``, ``fields``,
-        ``keyColumns``, ``emitModes``, ``acceptsRetractions`` and the visible ``writers``.
-        Never a binding's options. ``GET /api/v1/sinks``."""
-        return list(self._http().get("/api/v1/sinks") or [])
+        """The sinks this node binds that this principal may see. See :meth:`EngineApi.sinks`."""
+        return self.http_api.sinks()
 
     def status(self) -> dict[str, Any]:
-        """The node: identity, version, engine state, plugin health. ``GET /api/v1/status``."""
-        return dict(self._http().get("/api/v1/status") or {})
+        """The node: identity, version, engine state, plugin health. See :meth:`EngineApi.status`."""
+        return self.http_api.status()
 
     def plugins(self) -> "list[dict[str, Any]]":
-        """Every plugin the node can load: ``name``, ``version``, ``requiredApiVersion``,
-        ``compatible``, ``loaded``, ``kinds`` (``source``/``sink``/``lookup``), declared
-        ``capabilities``, manifest ``settings`` (names only), ``health`` (with ``reported``:
-        whether a live instance said so) and the ``bindings`` this principal may see. Never a
-        binding's options. ``GET /api/v1/plugins``."""
-        return list(self._http().get("/api/v1/plugins") or [])
+        """Every plugin the node can load. See :meth:`EngineApi.plugins`."""
+        return self.http_api.plugins()
 
     def audit(
         self,
@@ -1176,51 +1118,30 @@ class Client(DebugCommands):
         limit: int | None = None,
         cursor: str | None = None,
     ) -> dict[str, Any]:
-        """One page of the node's recorded authorization decisions, newest first: ``events``
-        (each with ``sequence``, ``at``, ``principal``, ``action``, ``target``, ``decision``,
-        ``reason``, ``detail``), ``nextCursor`` (pass back as ``cursor``; ``None`` on the last
-        page), and what the readable window holds (``capacity``, ``retained``, ``evicted``,
-        ``oldestRetained``). ``since``/``until`` are ISO-8601 instants; ``decision`` is
-        ``"allow"`` or ``"deny"``.
-
-        A permission of its own: a principal the policy does not let read the trail gets
-        :class:`ApiError` with status 403, however much else it may read -- and the attempt is
-        recorded either way. ``GET /api/v1/audit``."""
-        query = {
-            name: value
-            for name, value in (
-                ("since", since),
-                ("until", until),
-                ("principal", principal),
-                ("view", view),
-                ("action", action),
-                ("decision", decision),
-                ("limit", limit),
-                ("cursor", cursor),
-            )
-            if value not in (None, "")
-        }
-        return dict(self._http().get("/api/v1/audit", query or None) or {})
+        """One page of the node's recorded authorization decisions, newest first. A permission
+        of its own: :class:`ApiError` with status 403 otherwise. See :meth:`EngineApi.audit`."""
+        return self.http_api.audit(
+            since=since,
+            until=until,
+            principal=principal,
+            view=view,
+            action=action,
+            decision=decision,
+            limit=limit,
+            cursor=cursor,
+        )
 
     def permissions(self) -> dict[str, Any]:
-        """What the node's policy lets this principal do: ``register``, ``readAudit`` (each
-        ``allowed`` with a ``reason`` when not), and for each view and stream it may see, how
-        it may ``read`` it (``full`` or ``filtered``) and whether it may ``administer`` it.
-        ``GET /api/v1/me/permissions``."""
-        return dict(self._http().get("/api/v1/me/permissions") or {})
+        """What the node's policy lets this principal do. See :meth:`EngineApi.permissions`."""
+        return self.http_api.permissions()
 
     def tenants(self) -> dict[str, Any]:
-        """The admission quotas in force and each tenant's use against them (ADR-050):
-        ``scope`` (``all`` for a principal who may read the audit trail, otherwise ``own``),
-        ``defaults`` (``maxQueries`` and ``maxStateKeys``, ``None`` meaning no limit), and
-        ``tenants``, each with its use and the registrations refused for it. A principal who
-        may not read the audit trail is shown its own tenant and no other.
-        ``GET /api/v1/tenants``."""
-        return dict(self._http().get("/api/v1/tenants") or {})
+        """The admission quotas in force and each tenant's use. See :meth:`EngineApi.tenants`."""
+        return self.http_api.tenants()
 
     def metrics_text(self) -> str:
-        """The node's Prometheus exposition, unparsed. ``GET /actuator/prometheus``."""
-        return self._http().text("/actuator/prometheus")
+        """The node's Prometheus exposition, unparsed. See :meth:`EngineApi.metrics_text`."""
+        return self.http_api.metrics_text()
 
     def close(self) -> None:
         self._client.close()
@@ -1422,11 +1343,6 @@ def _dead_letter_of(row: Sequence[str]) -> "DeadLetter":
         replay=_at(row, 10) or "NEW",
         replayed_at=_at(row, 11),
     )
-
-
-def _segment(name: str) -> str:
-    """A name as one URL path segment, so a name cannot address a different endpoint."""
-    return urllib.parse.quote(str(name), safe="")
 
 
 def _number(text: str) -> int:

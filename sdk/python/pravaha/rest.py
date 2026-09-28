@@ -40,7 +40,9 @@ class ApiError(PravahaError):
     The message is the engine's own.
     """
 
-    def __init__(self, status: int, message: str, code: str | None = None) -> None:
+    def __init__(
+        self, status: int, message: str, code: str | None = None, body: Any = None
+    ) -> None:
         number = _number_of(code)
         if number is None:
             number = 1040 if status == 0 else 1041
@@ -49,6 +51,10 @@ class ApiError(PravahaError):
         self.engine_code = code
         #: The engine's own words, without the ``PRV-nnnn`` prefix ``str()`` adds.
         self.message = message
+        #: The decoded JSON body of the refusal, or ``None`` when it had none or was not JSON.
+        #: A health probe answers ``503`` with the same document it answers ``200`` with, and
+        #: reading that document is the point of asking.
+        self.body = body
 
 
 def _number_of(code: str | None) -> int | None:
@@ -99,6 +105,29 @@ class RestClient:
     def post(self, path: str, body: Any, query: dict[str, Any] | None = None) -> Any:
         return json.loads(self._call("POST", path, body, query).decode("utf-8") or "null")
 
+    def put(self, path: str, body: Any, query: dict[str, Any] | None = None) -> Any:
+        return self.request("PUT", path, body, query)
+
+    def patch(self, path: str, body: Any, query: dict[str, Any] | None = None) -> Any:
+        return self.request("PATCH", path, body, query)
+
+    def delete(self, path: str, query: dict[str, Any] | None = None) -> Any:
+        return self.request("DELETE", path, None, query)
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        body: Any = None,
+        query: dict[str, Any] | None = None,
+    ) -> Any:
+        """Any verb, with the same headers, TLS and error decoding as :meth:`get` and :meth:`post`.
+
+        The decoded JSON answer, or ``None`` for an empty one -- ``204 No Content`` is how the
+        engine answers a logout, a revocation or a password change.
+        """
+        return json.loads(self._call(method.upper(), path, body, query).decode("utf-8") or "null")
+
     def text(self, path: str) -> str:
         return self._call("GET", path, None, None, accept="text/plain").decode("utf-8", errors="replace")
 
@@ -132,7 +161,7 @@ class RestClient:
                 code = str(body_json["code"]) if body_json.get("code") else None
             else:
                 message, code = payload.decode("utf-8", errors="replace")[:500] or str(exc), None
-            raise ApiError(exc.code, message, code) from exc
+            raise ApiError(exc.code, message, code, body_json) from exc
         except (urllib.error.URLError, OSError) as exc:
             reason = getattr(exc, "reason", exc)
             raise ApiError(0, f"the engine's HTTP API at {self._base} did not answer: {reason}") from exc

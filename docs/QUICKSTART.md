@@ -357,7 +357,7 @@ keyboard paths, deep links and the eight states of §23.12 are *implemented*, no
 ## 8. Clean up
 
 ```bash
-pravaha drop --name user_volume
+pravaha drop --name user_volume --yes
 ```
 
 The computation goes when its **last** name goes — if somebody else registered the same question,

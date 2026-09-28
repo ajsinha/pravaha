@@ -20,7 +20,8 @@ catalogue, validation, plans, status and audit. Anything one Flight client can d
 
 | You are… | Use | Reads | Subscribes | Registers / drops | Catalogue, plans, status |
 |---|---|---|---|---|---|
-| At a shell, trying things | **`pravaha` CLI** | yes | yes (prints each commit) | yes | `validate`, `explain` |
+| At a shell, a script, an operator's terminal | **`pravaha` CLI** (Python, on the Python SDK) | yes | yes (prints each commit) | yes | yes — `status`, `streams`, `describe`, `plan`, `lanes`, `audit`… |
+| Trying SQL with no server at all | **`pravaha-engine`** (Java, offline) | over a file (`run`) | no | no | `validate`, `explain` against a `--schema` |
 | A JVM service | **Java SDK** (`pravaha-sdk-java-flight`) | yes | yes, with weights | yes | via the HTTP API |
 | A Python service, a notebook, a dataframe | **Python SDK** (`pravaha`) | yes, `.to_table()` | yes, with weights | yes | yes (`http_url`) |
 | A BI tool or an existing Flight SQL / JDBC / ADBC driver | **Flight SQL driver** | yes | no | the `CREATE`/`DROP` statements | no |
@@ -46,6 +47,9 @@ SELECT window_end, spend FROM hourly_spend WHERE user_id = ?
 
 ## The CLI
 
+`pravaha` is the Python SDK as a command: `pip install "pravaha[flight]"`, or `bin/pravaha` from a
+checkout.
+
 ```bash
 pravaha query --url grpc://localhost:19090 \
     --sql "SELECT window_end, spend FROM hourly_spend WHERE user_id = ?" --params u1
@@ -54,12 +58,18 @@ pravaha query --url grpc://localhost:19090 \
 ```text
 window_end           spend
 1789808400000000000  1650
-1 row
 ```
 
-Timestamps print as nanoseconds since the epoch, UTC — the value as Arrow carries it. Other commands:
-`register`, `queries`, `pause`, `resume`, `drop`, `subscribe --view <name> [--filter col=value]`,
-and the offline `run`, `validate` and `explain`. With a credential add `--token "$PRAVAHA_TOKEN"`.
+(`1 row` goes to stderr.) Timestamps print as nanoseconds since the epoch, UTC — the value as Arrow
+carries it. `--json` makes any command's output JSON, and the exit code says what happened: `0` done,
+`1` the engine refused (its code on stderr), `2` a usage error, `3` nothing answered. Other commands:
+`register`, `queries`, `pause`, `resume`, `drop --yes`, `subscribe --view <name> [--filter col=value]
+[--snapshot]`, the blue/green and dead-letter commands, and over the HTTP API (`--http`, port 18080)
+`status`, `health`, `streams`, `views`, `describe`, `plan`, `validate`, `lanes`, `audit`, `tenants`,
+`permissions`, and `login`/`user`/`key`/`session`. With a credential, `pravaha login --user <name>
+--save` once, or pass `--token "$PRAVAHA_TOKEN"`. Planning or running SQL with no server is the Java
+tool `pravaha-engine` (`validate`, `explain`, `run`). Every command:
+[CLI reference](/help/topics/cli-reference).
 
 ## The Java SDK
 

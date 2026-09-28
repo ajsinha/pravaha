@@ -69,7 +69,7 @@ pravaha register  --name card_velocity --sql-file sql/01-continuous-card-velocit
 pravaha queries
 pravaha query     --sql "SELECT card_id, auth_count FROM card_velocity WHERE card_id = ?" --params c-1002
 pravaha subscribe --view card_velocity --filter risk_band=HIGH
-pravaha drop      --name card_velocity
+pravaha drop      --name card_velocity --yes
 ```
 
 The store-backed studies share a shape worth copying: a high-volume **stream**, a slow-moving

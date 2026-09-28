@@ -1723,7 +1723,7 @@ answer and the new one, at a checkpoint boundary.
 **Keep the way back open.** The replaced version keeps running for `rollback.retention` (an hour by
 default), so `pravaha rollback --name spend` is one swap and a few milliseconds rather than a second
 backfill. It costs a retained computation — its state, its lanes, its feed — which is the price of
-an instant rollback and the reason the window is not indefinite. `pravaha finish --name spend`
+an instant rollback and the reason the window is not indefinite. `pravaha finish --name spend --yes`
 releases it early when you are satisfied; after that there is nothing to roll back to, and the
 status says so (`rollback_available: false`).
 

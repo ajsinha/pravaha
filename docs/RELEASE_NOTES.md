@@ -23,6 +23,21 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   `pravaha-engine` prints where it went and exits 2. The jar no longer bundles the Java SDK.
   `deploy/docker/smoke.sh` lists queries with `GET /api/v1/queries` and registers and reads over
   Flight with the Python CLI on the host.
+- **`pravaha` is a Python CLI on the Python SDK.** Everything that talks to a running engine is
+  now `sdk/python/pravaha/cli` — the `pravaha` console script of `pip install "pravaha[flight]"`,
+  `python -m pravaha.cli`, or `bin/pravaha` from a checkout — with no protocol code of its own:
+  Flight commands call `Client`, HTTP ones the new `pravaha.api.EngineApi` (stdlib only, no
+  pyarrow), which `Client`'s HTTP methods now delegate to and which adds lanes, rebalance, health
+  and the identity endpoints; `RestClient` gains `put`/`patch`/`delete`. Every Java CLI command
+  and flag still works; new are `status`, `health`, `version` (CLI and node), `metrics`, `plugins`,
+  `sinks`, `streams`, `views`, `describe` (with the lane), `plan`, `validate`/`explain` against the
+  node, `audit`, `tenants`, `permissions`, `whoami`, `logout`, `dlq count` and
+  `subscribe --reconnect`. `--json` on every command; `--url`/`--http`/`--token` or
+  `PRAVAHA_URL`/`PRAVAHA_HTTP`/`PRAVAHA_TOKEN`, then `login --save`'s `0600` token file; exit `0`
+  ok, `1` engine refusal, `2` usage, `3` unreachable. `drop`, `abandon`, `finish`,
+  `lanes rebalance`, `key revoke` and `user disable` only say what they would do without `--yes`.
+  The offline `validate --schema`, `explain --schema` and `run` are the Java `pravaha-engine`.
+  [`docs/CLI.md`](CLI.md); `test_cli.py`, `test_cli_flight.py`, `test_api.py`.
 - **SDK subscriptions survive a server restart.** Python: `subscribe(..., reconnect=True,
   reconnect_timeout=300)`; Java: `subscribe(view, filters, Reconnect, onBatch)` and
   `subscribeFromSnapshot(view, filters, Reconnect, onBatch)` returning a `ReconnectingSubscription`.
