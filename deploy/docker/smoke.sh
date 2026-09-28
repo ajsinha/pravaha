@@ -36,8 +36,8 @@
 #
 # On a machine where the daemon is reached through a group:
 #   sg docker -c "deploy/docker/smoke.sh --image pravaha-b12:local"
-# The CLI runs on the HOST, from pravaha-cli/target, because the image deliberately does not
-# carry a second copy of the engine.
+# The client runs on the HOST (the Python CLI, and curl), because the image deliberately does not
+# carry a client, or Python.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -90,13 +90,18 @@ trap cleanup EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 ok()   { echo "ok:   $*"; }
 
-# ---------------------------------------------------------------- the CLI, on the host
+# ---------------------------------------------------------------- the client, on the host
 
-cli_jar="$(ls -1 "$root"/pravaha-cli/target/pravaha-cli-*-cli.jar 2>/dev/null | head -1 || true)"
-[[ -n "$cli_jar" ]] || fail "no CLI jar in pravaha-cli/target. Build it:
-      ./mvnw -o -pl pravaha-cli -am package -DskipTests"
+# Registering a query and reading a view's rows happen over Flight, and REST has no verb for
+# either, so those two steps use the Python CLI on the host (bin/pravaha; the image carries no
+# Python and needs none). Everything REST can answer -- which queries are registered -- is asked
+# with curl instead, so the least tooling possible stands between this script and the node.
+[[ -x "$root/bin/pravaha" ]] || fail "no bin/pravaha: the Python CLI registers and reads over Flight.
+      pip install the Pravaha Python SDK (sdk/python) so bin/pravaha can run"
 
-pravaha() { PRAVAHA_CLI_JAR="$cli_jar" "$root/bin/pravaha" "$@" --url "grpc://127.0.0.1:$flight_port"; }
+pravaha() { "$root/bin/pravaha" "$@" --url "grpc://127.0.0.1:$flight_port"; }
+# The names of the registered queries, from GET /api/v1/queries.
+queries() { curl -sf "http://127.0.0.1:$http_port/api/v1/queries" 2>/dev/null || true; }
 
 # ---------------------------------------------------------------- the deployment's own files
 
@@ -201,9 +206,9 @@ pravaha register --name by_user --sql-file "$work/by_user.sql" --keys 0 >/dev/nu
   || { "$docker_bin" logs "$name" 2>&1 | tail -40; fail "register over Flight :$flight_port"; }
 ok "registered by_user over Flight :$flight_port"
 
-listing="$(pravaha queries)"
+listing="$(queries)"
 grep -q 'by_user' <<<"$listing" || fail "by_user is not in: $listing"
-ok "pravaha queries lists it"
+ok "GET /api/v1/queries lists it"
 
 # ---------------------------------------------------------------- 4. read the view
 
@@ -289,7 +294,7 @@ done
   fail "the second container never became ready"
 }
 
-listing="$(pravaha queries)"
+listing="$(queries)"
 grep -q 'by_user' <<<"$listing" || fail "by_user did not come back from the journal:
 $listing"
 ok "a NEW container on the same volume recovered the registration"

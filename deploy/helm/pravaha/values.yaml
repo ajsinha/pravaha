@@ -134,7 +134,7 @@ service:
   type: ClusterIP
   # The HTTP port: operator pages, the REST read API and the actuator probes.
   httpPort: 18080
-  # The Flight SQL port: the SDKs, the CLI and the console, and the only way to register a query.
+  # The Flight SQL port: the SDKs, the Python CLI and the console, and the only way to register a query.
   flightPort: 19090
   # Annotations for the Service, e.g. an internal load balancer's.
   annotations: {}

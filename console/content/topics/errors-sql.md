@@ -13,7 +13,7 @@ related: [sql-refusals, sql-reference, create-continuous-query, sql-parameters, 
 ---
 
 The 2xxx range is the planner speaking. Every code here is raised **before anything runs** — by the
-workbench as you type, by `pravaha validate`, by `POST /api/v1/queries/validate`, and at
+workbench as you type, by `pravaha-engine validate`, by `POST /api/v1/queries/validate`, and at
 registration — so meeting one costs a rewrite, not an incident. That is the point: a query Pravaha
 cannot run is refused when it is planned, with a code and an explanation, and never accepted and then
 approximated.

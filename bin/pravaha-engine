@@ -3,30 +3,30 @@
 # Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 # Proprietary and confidential; see the LICENSE file in the root of this repository.
 #
-# The CLI. Every example in the documentation types `pravaha`, so this is what makes them true.
+# pravaha-engine: validate, explain and run with the engine in-process, no server. Commands that
+# talk to a running engine (query, register, queries, subscribe, ...) are the Python CLI's, `pravaha`.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-jar="${PRAVAHA_CLI_JAR:-}"
+jar="${PRAVAHA_ENGINE_JAR:-}"
 
 if [[ -z "$jar" ]]; then
   # Installed layout first (bin/ beside lib/), then a development tree.
-  for candidate in "$here/../lib/pravaha-cli.jar" "$here/../pravaha-cli/target/"pravaha-cli-*-cli.jar; do
+  for candidate in "$here/../lib/pravaha-engine.jar" "$here/../pravaha-cli/target/"pravaha-cli-*-cli.jar; do
     if [[ -f "$candidate" ]]; then jar="$candidate"; break; fi
   done
 fi
 
 if [[ -z "$jar" || ! -f "$jar" ]]; then
-  echo "pravaha: cannot find the CLI jar." >&2
+  echo "pravaha-engine: cannot find the engine CLI jar." >&2
   echo "  Build it with:  ./mvnw -pl pravaha-cli -am install -DskipTests" >&2
-  echo "  Or point at it: PRAVAHA_CLI_JAR=/path/to/pravaha-cli-<version>-cli.jar" >&2
+  echo "  Or point at it: PRAVAHA_ENGINE_JAR=/path/to/pravaha-cli-<version>-cli.jar" >&2
   exit 2
 fi
 
 # Arrow allocates off-heap through java.nio internals that the module system closes by default.
-# Without these a Flight call fails inside putNext and the client sees RST_STREAM with nothing
-# explaining why -- which cost an afternoon of looking at the client for a fault in the JVM's
-# module configuration.
+# Without these the engine's Arrow paths fail with nothing explaining why -- which cost an
+# afternoon of looking at the client for a fault in the JVM's module configuration.
 exec "${JAVA_HOME:+$JAVA_HOME/bin/}java" \
   --add-opens=java.base/java.nio=ALL-UNNAMED \
   --add-opens=java.base/java.lang=ALL-UNNAMED \

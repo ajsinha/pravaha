@@ -8,8 +8,9 @@
   </parent>
   <artifactId>pravaha-cli</artifactId>
   <name>Pravaha :: cli</name>
-  <description>The pravaha command. Its dev mode runs a full engine in-process with fixtures, no Docker and
-    no cluster, so the loop from idea to output is seconds rather than minutes (design 24.1).</description>
+  <description>The pravaha-engine command: validate, explain and run with a full engine in-process, no
+    Docker and no cluster, so the loop from idea to output is seconds rather than minutes (design 24.1).
+    Commands against a running engine are the Python CLI's (pravaha).</description>
 
   <properties>
     <jacoco.line.coverage>0.70</jacoco.line.coverage>
@@ -45,6 +46,9 @@
       <groupId>com.ash.messaging</groupId>
       <artifactId>pravaha-sdk-java-flight</artifactId>
       <version>${project.version}</version>
+      <!-- Test only: pravaha-engine never talks to a server. The error-code cases under qa.errc
+           drive in-process Flight servers through the published SDK. -->
+      <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>com.ash.messaging</groupId>
@@ -110,7 +114,7 @@
                 One jar that runs, because the documentation has been telling readers to type
                 `pravaha` since the first quickstart and the build produced a plain jar with no
                 main class and no dependencies. Every example in the repository assumed a binary
-                that did not exist.
+                that did not exist. bin/pravaha-engine launches this jar; the classifier stays `cli`.
 
                 shade rather than Spring Boot's repackage: this module has no Spring, and a
                 shaded jar can be launched by `java -jar` or wrapped in a two-line script without

@@ -3,7 +3,7 @@
 The smallest useful query: select two columns from the rows that match a predicate.
 
 ```bash
-pravaha run \
+pravaha-engine run \
   --sql "SELECT user_id, amount FROM txn WHERE status = 'COMPLETED' AND amount > 100" \
   --schema 'txn_id:INT64,user_id:STRING,amount:INT64,status:STRING' \
   --in  examples/01-filter-and-project/transactions.csv \
@@ -29,7 +29,7 @@ and the rows were decoded into an off-heap arena and pushed through a filter and
 Look at the plan:
 
 ```bash
-pravaha explain --level all \
+pravaha-engine explain --level all \
   --sql "SELECT user_id, amount FROM txn WHERE status = 'COMPLETED' AND amount > 100" \
   --schema 'txn_id:INT64,user_id:STRING,amount:INT64,status:STRING'
 ```

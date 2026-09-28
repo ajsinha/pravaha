@@ -1620,7 +1620,7 @@ than 64 columns, `SELECT a, b, c, …` naming that many, or a join or aggregate 
 wide, all hit the same ceiling: every row is built by `BinaryRowWriter`, which tracks which fields
 have been written in a single 64-bit `long` — one bit per field — and cannot represent a 65th. It is
 architectural, not a setting to raise, and it binds the width of the answer regardless of which
-clause made it wide. `pravaha validate` accepts a 1,000-column projection without complaint, because
+clause made it wide. `pravaha-engine validate` accepts a 1,000-column projection without complaint, because
 nothing writes a row during validation; the ceiling is only met once rows start moving, which is the
 worst time to meet it. If a query is this wide, split it into several narrower ones. See
 [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) for the exact refusal.

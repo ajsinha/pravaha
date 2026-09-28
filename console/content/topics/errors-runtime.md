@@ -164,7 +164,7 @@ PRV-3030  BinaryRowWriter tracks written fields in a long bitmask and so support
 <stream> has 65
 ```
 
-**When** it fires matters: `pravaha validate` accepts a 1,000-column projection, because nothing
+**When** it fires matters: `pravaha-engine validate` accepts a 1,000-column projection, because nothing
 writes a row during validation. The ceiling is met when rows start moving. **Do:** project fewer
 columns, or split a wide query into several narrower ones.
 

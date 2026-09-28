@@ -192,7 +192,7 @@ wrapper that checks a flag. The number and the method are in `OPERATIONS.md`.
 |---|---|---|
 | `BUSY_SPIN` | `Thread.onSpinWait()` | Lowest latency, burns a core |
 | `SPIN_THEN_YIELD` | Spin, then yield | `LaneConfig.defaults()`, so a lane built directly through the runtime API. Nothing that registers a query uses it |
-| `BACKOFF_PARK` | Escalates to parking | **The default for every registered query** — `QueryRegistry`'s own, `pravaha.lane.wait-strategy` on a node, and `pravaha run`. Many lanes per thread; the runner parks **once for the whole runner** rather than once per lane, so a thousand idle queries do not wake a thousand times to discover they are still idle |
+| `BACKOFF_PARK` | Escalates to parking | **The default for every registered query** — `QueryRegistry`'s own, `pravaha.lane.wait-strategy` on a node, and `pravaha-engine run`. Many lanes per thread; the runner parks **once for the whole runner** rather than once per lane, so a thousand idle queries do not wake a thousand times to discover they are still idle |
 
 Spinning costs a core per handful of idle queries — nine idle registrations once burned 92 % of one —
 which is why nothing that registers queries spins by default. A node running one latency-critical

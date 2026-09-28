@@ -349,8 +349,10 @@ to edit. The console's **Admin · Access** screen shows it.
 TLS is the client default; `grpc://` plaintext has to be spelled out. Both SDKs refuse to send a token
 over plaintext unless explicitly permitted.
 
-**True of the CLI too, since P-3.** `ClientOptions.Builder.build()` has always refused a token over a
-plaintext endpoint — but `bin/pravaha`'s `ServerCommand.connect(args)` set `allowInsecureToken(true)`
+**True of the CLI too, since P-3.** (This was the Java CLI. Its server-talking commands have since
+moved to the Python CLI, `pravaha`; what is left in Java, `pravaha-engine`, talks to no server and
+carries no token.) `ClientOptions.Builder.build()` has always refused a token over a
+plaintext endpoint — but the Java CLI's `ServerCommand.connect(args)` set `allowInsecureToken(true)`
 unconditionally, on every server-talking command, on every invocation with `--token`, with no flag to
 opt out and nothing printed. The SDK's refusal was real and switched off for every CLI user, and a
 wire capture showed the literal token in the clear on `queries`, `query`, `register`, `pause`,

@@ -15,9 +15,6 @@
  */
 package com.ash.messaging.pravaha.it.debug;
 
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -30,7 +27,6 @@ import org.junit.jupiter.api.io.TempDir;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
-import com.ash.messaging.pravaha.cli.PravahaCli;
 import com.ash.messaging.pravaha.sdk.flight.DebugSessionInfo;
 import com.ash.messaging.pravaha.sdk.flight.DebugStatePage;
 import com.ash.messaging.pravaha.sdk.flight.DebugStepReport;
@@ -47,7 +43,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * The debugger through the surfaces a person actually uses: a real node, the Flight actions, the
- * Java SDK and the CLI (ADR-048).
+ * Java SDK (ADR-048). The terminal half is the Python CLI's, over the same Flight actions.
  *
  * <p>{@code DebugSessionTest} proves the engine; this proves the wire. The control wire is a flat
  * list of strings and a step's report is not flat -- it carries three variable-length lists -- so
@@ -71,7 +67,7 @@ class DebugSurfacesEndToEndTest {
     private static final String SQL = "SELECT COUNT(*) AS n, SUM(amount) AS total FROM txn";
 
     @Test
-    void aSessionCanBeForkedSteppedInspectedAndExportedOverFlightAndFromTheCli(@TempDir Path dir) throws Exception {
+    void aSessionCanBeForkedSteppedInspectedAndExportedOverFlight(@TempDir Path dir) throws Exception {
         Path input = dir.resolve("txn.csv");
         Files.writeString(input, "ann,100\nbob,250\n");
 
@@ -144,43 +140,16 @@ class DebugSurfacesEndToEndTest {
             assertThat(fixture.className()).isEqualTo("SpendGoesUpFixtureTest");
             assertThat(fixture.source()).contains(SQL).contains("harness.row(\"txn\"");
 
-            // And from the CLI, against the same node: the two ends of the journey design 23.9
-            // says a terminal is good for.
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            int code = new PravahaCli(new PrintStream(out, true, StandardCharsets.UTF_8), System.err)
-                    .run(new String[] {"debug", "sessions", "--url", url});
-            assertThat(code).isZero();
-            assertThat(out.toString(StandardCharsets.UTF_8))
-                    .as("the CLI lists the session the SDK opened")
-                    .contains(session.id())
-                    .contains("spend");
-
-            ByteArrayOutputStream stepped = new ByteArrayOutputStream();
-            assertThat(new PravahaCli(new PrintStream(stepped, true, StandardCharsets.UTF_8), System.err)
-                            .run(new String[] {
-                                "debug", "step", "--session", session.id(), "--step", "watermark:1", "--url", url
-                            }))
-                    .isZero();
-            assertThat(stepped.toString(StandardCharsets.UTF_8)).contains("WATERMARK");
-
-            Path written = dir.resolve("fixtures");
-            assertThat(new PravahaCli(
-                                    new PrintStream(new ByteArrayOutputStream(), true, StandardCharsets.UTF_8),
-                                    System.err)
-                            .run(new String[] {
-                                "debug",
-                                "fixture",
-                                "--session",
-                                session.id(),
-                                "--name",
-                                "spend goes up",
-                                "--out",
-                                written.toString(),
-                                "--url",
-                                url
-                            }))
-                    .isZero();
-            assertThat(written.resolve("SpendGoesUpFixtureTest.java")).exists();
+            // The session listing and a watermark step: what a terminal client (the Python CLI's
+            // `pravaha debug sessions` and `debug step --step watermark:1`) asks the same node for.
+            assertThat(client.debugSessions())
+                    .as("the node lists the session the SDK opened, with the query it forked")
+                    .anySatisfy(listed -> {
+                        assertThat(listed.id()).isEqualTo(session.id());
+                        assertThat(listed.query()).isEqualTo("spend");
+                    });
+            DebugStepReport watermark = client.debugStep(session.id(), "watermark:1");
+            assertThat(watermark.kind() + " " + watermark.stopped()).contains("WATERMARK");
 
             client.debugEnd(session.id());
             assertThat(client.debugSessions()).extracting(DebugSessionInfo::id).doesNotContain(session.id());

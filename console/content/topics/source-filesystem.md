@@ -282,7 +282,7 @@ else is checked.
     which column carries each row's time. On a **server** node you need not write it: when
     `pravaha.streams.<name>.event-time` is declared and the binding has no `event.time`, the node
     passes the declared column down for you (the `sources bound` log line then lists `event.time`
-    last). Everywhere else — the embedded engine, `pravaha run` — set it yourself. Without it every
+    last). Everywhere else — the embedded engine, `pravaha-engine run` — set it yourself. Without it every
     row carries the time it was *read*, the watermark runs at wall-clock, and rows dated in the past
     are dropped as late: the query reports `RUNNING`, ingests every row, and its view stays empty.
 

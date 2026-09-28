@@ -124,7 +124,7 @@ million, and the failure arrives weeks after deployment.
 2. **Read the range page** — [SQL codes](/help/topics/errors-sql#prv-2050-unbounded-state) — which
    says an unwindowed `GROUP BY` over a stream keeps one accumulator per key for ever, and that the
    fix is almost always a window.
-3. **Reproduce it without registering anything.** The workbench, `pravaha validate` or
+3. **Reproduce it without registering anything.** The workbench, `pravaha-engine validate` or
    `POST /api/v1/queries/validate` plans the SQL and returns the same code:
 
 <!-- sql: refused PRV-2050 -->

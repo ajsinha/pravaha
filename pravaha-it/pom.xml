@@ -152,6 +152,14 @@
       <version>${project.version}</version>
       <scope>test</scope>
     </dependency>
+    <!-- Named, not inherited: pravaha-cli (pravaha-engine) no longer carries a client, and the
+         end-to-end tests here talk to their nodes through the Java SDK. -->
+    <dependency>
+      <groupId>com.ash.messaging</groupId>
+      <artifactId>pravaha-sdk-java-flight</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <!-- PluginSourceFeeds, SourceBinding, PluginSinks and friends: the Spring-free plugin
            bindings the server and the embedded engine share. -->

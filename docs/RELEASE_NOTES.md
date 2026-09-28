@@ -12,6 +12,17 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **The Java CLI is now `pravaha-engine`, and keeps only what needs the engine in-process:
+  `validate`, `explain`, `run` and `version`.** `bin/pravaha` is renamed `bin/pravaha-engine`
+  (`PRAVAHA_CLI_JAR` becomes `PRAVAHA_ENGINE_JAR`; the container image installs
+  `lib/pravaha-engine.jar`). Every command that talked to a running engine is removed from it —
+  `query`, `register`, `queries`, `drop`, `pause`, `resume`, `replace`, `cutover`, `rollback`,
+  `abandon`, `finish`, `throttle`, `pause-backfill`, `resume-backfill`, `replacements`,
+  `subscribe`, `dlq`, `login`, `password`, `user`, `key`, `session`, `lanes` and `debug` — and
+  lives in the Python CLI, `pravaha`, with the same names and flags. Typing one of them into
+  `pravaha-engine` prints where it went and exits 2. The jar no longer bundles the Java SDK.
+  `deploy/docker/smoke.sh` lists queries with `GET /api/v1/queries` and registers and reads over
+  Flight with the Python CLI on the host.
 - **SDK subscriptions survive a server restart.** Python: `subscribe(..., reconnect=True,
   reconnect_timeout=300)`; Java: `subscribe(view, filters, Reconnect, onBatch)` and
   `subscribeFromSnapshot(view, filters, Reconnect, onBatch)` returning a `ReconnectingSubscription`.

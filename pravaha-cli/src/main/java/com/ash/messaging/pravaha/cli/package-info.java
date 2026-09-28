@@ -14,7 +14,7 @@
  * See the LICENSE file in the root of this repository for the full terms.
  */
 /**
- * The {@code pravaha} command-line tool.
+ * The {@code pravaha-engine} command-line tool: validate, explain and run with the engine in-process.
  *
  * <p>Exists because the inner loop is a competitive lever (design 24.1): Flink's most-cited weakness
  * is that the path from idea to first output takes minutes and a cluster. Shipping the CLI in Wave 2

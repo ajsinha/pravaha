@@ -226,8 +226,8 @@ query 'big_txn_feed' writes to sink 'large_payments', at-least-once: the sink ap
     empties the file every time the sink opens, a restart included, and so throws that output away.
     Use it only where each start should write a fresh file.
 
-!!! note "`pravaha run` replaces its output"
-    A one-shot `pravaha run --out` writes the whole answer in one go, so it opens its output with
+!!! note "`pravaha-engine run` replaces its output"
+    A one-shot `pravaha-engine run --out` writes the whole answer in one go, so it opens its output with
     `append: false`: running it twice leaves one answer in the file, not two.
 
 !!! warning "Pitfall: a delimiter that appears in the data"

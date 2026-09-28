@@ -3,7 +3,7 @@
 ## A global aggregate works
 
 ```bash
-pravaha run \
+pravaha-engine run \
   --sql "SELECT COUNT(*), SUM(amount) FROM txn WHERE status = 'COMPLETED'" \
   --schema 'txn_id:INT64,user_id:STRING,amount:INT64,status:STRING' \
   --in  examples/02-aggregate/transactions.csv \
@@ -16,7 +16,7 @@ Output: `3,700`
 ## A keyed aggregate is refused, on purpose
 
 ```bash
-pravaha validate \
+pravaha-engine validate \
   --sql "SELECT user_id, COUNT(*) FROM txn GROUP BY user_id" \
   --schema 'txn_id:INT64,user_id:STRING,amount:INT64,status:STRING'
 ```

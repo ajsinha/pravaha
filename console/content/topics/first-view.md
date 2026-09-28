@@ -26,7 +26,7 @@ anybody else can reach the node.
 |---|---|---|
 | Java 21 | `java -version` | Any OpenJDK 21 |
 | `JAVA_HOME` points at it | `echo $JAVA_HOME` | `export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64` — distributions that ship several JDKs often leave `javac` and `java` on different versions |
-| Python 3.11+ | `python3 --version` | Only for the Python step |
+| Python 3.11+ | `python3 --version` | For `pravaha`, the CLI, and the Python step |
 | `psql` | `psql --version` | Only for the PostgreSQL step |
 
 ## 1. Build, and put the launchers on your PATH
@@ -36,12 +36,14 @@ From a checkout of the repository:
 ```bash
 ./mvnw -q -DskipTests install
 export PATH="$PWD/bin:$PATH"
-pravaha --help
+pravaha-engine --help
 ```
 
 The build produces the engine node (`pravaha-server/target/pravaha-server-<version>-app.jar`,
-launched by `bin/pravaha-server`) and the CLI (`pravaha-cli/target/pravaha-cli-<version>-cli.jar`,
-launched by `bin/pravaha`). The first build takes a few minutes.
+launched by `bin/pravaha-server`) and `pravaha-engine` (`pravaha-cli/target/pravaha-cli-<version>-cli.jar`,
+launched by `bin/pravaha-engine`), which validates, explains and runs a query with no server. The
+first build takes a few minutes. `pravaha`, the command that talks to the running node, is the
+Python CLI: it comes with the Python SDK (`pip install './sdk/python[flight]'`).
 
 ## 2. Describe the node in one file
 

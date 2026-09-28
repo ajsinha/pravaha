@@ -91,8 +91,42 @@ class PravahaCliTest {
     void oneCommandsHelpIsNotEveryCommandsHelp() {
         // The whole point is that it answers about the command asked for. Printing the full usage
         // would pass the test above and leave the flags just as hard to find.
-        assertThat(run("drop", "--help")).isZero();
-        assertThat(stdout()).contains("--name").doesNotContain("--out-schema");
+        assertThat(run("explain", "--help")).isZero();
+        assertThat(stdout()).contains("--level").doesNotContain("--out-schema");
+    }
+
+    @Test
+    void aCommandThatMovedToThePythonCliSaysWhereItWentAndExitsTwo() {
+        // The remote commands left this binary for the Python CLI. The documentation sent readers
+        // here for them for a long time, so "unknown command" would be the least useful answer.
+        for (String command : PravahaCli.MOVED) {
+            out.reset();
+            err.reset();
+            assertThat(run(command, "--url", "grpc://localhost:1"))
+                    .as("`pravaha-engine %s` is a usage error here", command)
+                    .isEqualTo(2);
+            assertThat(stderr())
+                    .as("`pravaha-engine %s` names where it went", command)
+                    .isEqualTo("'" + command + "' is in the Python CLI now: pip install the Pravaha Python SDK "
+                            + "and run `pravaha " + command + "`" + System.lineSeparator());
+            assertThat(stdout()).isEmpty();
+        }
+    }
+
+    @Test
+    void aMovedCommandAskedForHelpStillSaysWhereItWent() {
+        assertThat(run("queries", "--help")).isEqualTo(2);
+        assertThat(stderr()).contains("Python CLI").contains("`pravaha queries`");
+    }
+
+    @Test
+    void theUsageNamesTheEngineAndPointsAtThePythonCli() {
+        assertThat(run("--help")).isZero();
+        assertThat(stdout())
+                .contains("pravaha-engine <command>")
+                .contains("Python CLI")
+                .doesNotContain("subscribe --view")
+                .doesNotContain("--url");
     }
 
     @Test
@@ -135,7 +169,7 @@ class PravahaCliTest {
     @Test
     void versionPrints() {
         assertThat(run("version")).isZero();
-        assertThat(stdout()).contains("pravaha");
+        assertThat(stdout()).startsWith("pravaha-engine ");
     }
 
     @Test
@@ -288,39 +322,6 @@ class PravahaCliTest {
         // Plan and execute time are reported separately: planning is paid once at registration and
         // execution per record, and a slow run needs to say which half is slow.
         assertThat(stdout()).contains("3 in, 1 out").contains("plan").contains("execute");
-    }
-
-    /**
-     * API-F7. Against nothing listening, every one of the seven server commands failed with the
-     * bare stderr text {@code PRV-1041  io exception} — no host, no port, no scheme.
-     *
-     * <p>An operator debugging "why did my script print `io exception` and exit 1" had nothing to
-     * go on, not even whether the default endpoint had been used because {@code --url} went into a
-     * different flag. The transport's own text is true of any socket anywhere; the one thing this
-     * process knows and that message does not is where it was pointed.
-     */
-    @Test
-    void apiF7_aDeadServerRefusalNamesTheAddressItWasTalkingTo() {
-        int code = run("queries", "--url", "grpc://localhost:1");
-
-        assertThat(code).isNotZero();
-        assertThat(stderr()).contains("grpc://localhost:1").contains("--url");
-    }
-
-    /**
-     * API-F7's other half. {@code subscribe} wrote its success banner to <strong>stdout</strong>
-     * before the connection was known to have failed, so a caller reading stdout alone — or a
-     * pipeline consuming it — saw an apparent confirmation from a command that exited 1.
-     */
-    @Test
-    void apiF7_subscribeWritesNoSuccessBannerToStdoutWhenItCannotConnect() {
-        int code = run("subscribe", "--view", "anything", "--url", "grpc://localhost:1");
-
-        assertThat(code).isNotZero();
-        assertThat(stdout())
-                .as("stdout carries the rows; a note to a person belongs on stderr, and a note "
-                        + "about a connection that failed belongs nowhere")
-                .doesNotContain("subscribed to");
     }
 
     /**

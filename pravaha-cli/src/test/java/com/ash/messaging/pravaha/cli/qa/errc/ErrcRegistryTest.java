@@ -50,7 +50,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * entry for (E5: since commit e0b6395, {@code category()} no longer throws for 8xxx -- see
  * {@code docs/qa/logs/ERRC.md} for the reconfirmation).
  *
- * <p>Surface: the CLI against a real, in-process {@link PravahaFlightServer}/{@link QueryRegistry}
+ * <p>Surface: the server verbs, through the Java SDK ({@code SdkVerbs}), against a real, in-process
+ * {@link PravahaFlightServer}/{@link QueryRegistry}
  * (ERRC-097..100), and {@link QueryRegistry}/{@link RegistryJournal} directly for the journal cases
  * (ERRC-101..103), which are startup/recovery concerns with no Flight surface at all.
  */
