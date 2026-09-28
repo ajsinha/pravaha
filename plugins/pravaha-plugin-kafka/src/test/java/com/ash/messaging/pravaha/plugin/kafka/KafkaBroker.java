@@ -177,6 +177,12 @@ final class KafkaBroker {
         }
     }
 
+    /** Sends without waiting: inside a transaction, which its commit or abort completes. */
+    static void sendAsync(
+            KafkaProducer<byte[], byte[]> producer, String topic, int partition, String key, String value) {
+        producer.send(new ProducerRecord<>(topic, partition, bytes(key), bytes(value)));
+    }
+
     private static byte[] bytes(String text) {
         return text == null ? null : text.getBytes(StandardCharsets.UTF_8);
     }
