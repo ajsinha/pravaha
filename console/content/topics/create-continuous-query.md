@@ -373,7 +373,9 @@ AS SELECT txn_id, amount FROM txn
 Anything but `'dedicated'` or `'shared'` is refused with PRV-8017. On `CREATE OR REPLACE`, `lane`
 moves a running query between a shared lane and one of its own at the cutover — with the SQL
 unchanged if that is all you want to change; a replacement that does not say keeps the running
-version's lane.
+version's lane. `CREATE OR REPLACE` also takes `lane = 'own'`: a lane of its own for the new
+version without pinning it, which is what an administrator's [rebalance](/help/topics/lane-sharing#seeing-placements-and-rebalancing-by-hand)
+uses; a restart places such a query by the node's mode again.
 
 An option this engine does not build is refused by name with PRV-8017 and the list of the ones that
 do — an ignored option is a setting you believe is in force:

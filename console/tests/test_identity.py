@@ -607,3 +607,33 @@ def test_the_catalogue_is_cached_per_person(engine):
     b = engine.identity.login("ann", "Ann-password-12")["token"]
     with credential.bound(credential.Credential(b)):
         assert services.catalog.streams() == [], "another person's answer is not reused"
+
+
+# ============================================================ lanes
+
+def test_everyone_signed_in_sees_where_each_query_runs_but_only_an_admin_is_offered_a_rebalance(admin, engine):
+    ann = _person(engine)
+    page = ann.get("/admin/lanes")
+    assert page.status_code == 200
+    assert 'id="lanes-table"' in page.text and 'data-lane="own"' in page.text and 'data-lane="shared"' in page.text
+    assert "auto — a lane each until 1 queries are hosted" in page.text
+    assert 'id="lanes-admins-only"' in page.text and 'id="rebalance-preview"' not in page.text
+    assert 'href="/admin/lanes"' in admin.get("/admin/access").text
+
+
+def test_a_rebalance_is_previewed_before_it_can_run_and_runs_only_when_posted(admin, engine):
+    plain = admin.get("/admin/lanes").text
+    assert 'id="rebalance-preview"' in plain and 'id="rebalance-run"' not in plain
+    preview = admin.get("/admin/lanes?preview=1").text
+    assert 'id="rebalance-moves"' in preview and "planned" in preview and 'id="rebalance-run"' in preview
+    assert getattr(engine, "rebalances", 0) == 0
+    done = admin.post("/admin/lanes/rebalance").text
+    assert "Rebalance started." in done
+    assert engine.rebalances == 1
+
+
+def test_a_rebalance_posted_without_the_admin_role_is_refused_by_the_engine(engine):
+    ann = _person(engine)
+    page = ann.post("/admin/lanes/rebalance").text
+    assert "PRV-7002" in page and "admin role" in page
+    assert getattr(engine, "rebalances", 0) == 0

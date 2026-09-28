@@ -10,6 +10,7 @@ Proprietary and confidential. See LICENSE at the repository root.
     /admin/users            ADR-052: create a person, set roles, disable or enable, issue a reset
     /admin/keys             every API key by its keyId (never a secret), revoke, the key report
     /admin/sessions         every session, and ending one
+    /admin/lanes            where every query runs; an administrator's lane rebalance
 
 Each screen is the engine's answer (``GET /api/v1/me/permissions``, ``GET /api/v1/audit``,
 ``GET /api/v1/tenants``)
@@ -36,7 +37,7 @@ from routes.auth_routes import (
     take_flashes,
     take_issued,
 )
-from routes.base import Routes, failure, sign_in_first
+from routes.base import Routes, failure, session_roles, sign_in_first
 
 logger = logging.getLogger(__name__)
 
@@ -270,6 +271,38 @@ class AdminRoutes(Routes):
             logger.info("'%s' revoked key %s", current_user(request), key_id)
             return outcome(request, lambda: accounts.revoke_key(key_id), "admin.keys.revoked",
                            "/admin/keys", key_id=key_id)[1]
+
+        @self.app.get("/admin/lanes", response_class=HTMLResponse, tags=["ui"])
+        def lanes(request: Request, preview: str = ""):
+            """Where every query runs. For an administrator, the rebalance: its plan (``?preview=1``),
+            or the one running or last run. A rebalance never starts from a GET."""
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            placement, error, denied = load(accounts.lanes, request, "where queries run")
+            plan = plan_error = None
+            if "admin" in session_roles(request):
+                plan, plan_error, _ = load(
+                    (lambda: accounts.rebalance(True)) if preview else accounts.rebalance_status,
+                    request, "the rebalance plan")
+            return self.page(request, "admin_lanes.html", http_status=403 if denied else 200,
+                             current="/admin", tab="lanes", placement=placement, lanes_error=error,
+                             denied=denied, plan=plan, plan_error=plan_error, previewing=bool(preview),
+                             flashes=take_flashes(request))
+
+        @self.app.post("/admin/lanes/rebalance", tags=["ui"])
+        def lanes_rebalance(request: Request):
+            """Starts a rebalance. The engine refuses anyone without the admin role, whatever this
+            console shows them; the refusal comes back as the page's flash."""
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            try:
+                accounts.rebalance(False)
+            except ServiceError as exc:
+                flash(request, self.t("admin.people.failed", detail=_said(exc)), "danger")
+                return RedirectResponse("/admin/lanes", status_code=303)
+            logger.info("'%s' started a lane rebalance", current_user(request))
+            flash(request, self.t("admin.lanes.started"), "success")
+            return RedirectResponse("/admin/lanes", status_code=303)
 
         @self.app.get("/admin/sessions", response_class=HTMLResponse, tags=["ui"])
         def all_sessions(request: Request, user: str = ""):

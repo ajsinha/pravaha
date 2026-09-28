@@ -296,6 +296,15 @@ it does with it off. What that costs is the inbox sharing exists to save, and it
 under `auto-from`, go to new registrations; nothing running moves to fill them. A restart re-places
 every query in journal order.
 
+**An administrator rebalances by hand.** Console **Admin → Lanes** shows where every query runs and,
+for the `admin` role, previews and runs a rebalance; `pravaha lanes` and
+`pravaha lanes rebalance [--yes]` do the same from a shell, over `GET /api/v1/lanes`,
+`GET|POST /api/v1/lanes/rebalance` (`?dryRun=true` for the plan). The room under `auto-from` goes to
+shared queries, oldest first, one at a time, each moved by a blue/green replacement with the SQL
+unchanged and `lane = 'own'` (a lane of its own, not pinned: a restart re-places it by the mode), then
+the old version released. Queries answering to several names or already being replaced are skipped; a
+move a replacement refuses is reported and the rest go on.
+
 **Keeping one query on its own lane.** `CREATE CONTINUOUS QUERY ... WITH (lane = 'dedicated')` puts
 that query on a lane of its own whatever `enabled` says — for the few whose isolation is worth an
 inbox. It is journalled with the registration (an `L` record, which an older build refuses by name

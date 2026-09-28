@@ -59,8 +59,9 @@ with sharing off. Turning a memory setting on never makes a node accept fewer qu
 
 **Placements are not rebalanced automatically.** When queries are dropped, the slots they free on
 shared lanes, and the headroom under `auto-from`, are used by new registrations; nothing already
-running moves to fill them. A restart re-places every query in journal order, the order they were
-first registered, so the placements after a restart can differ from the ones before it.
+running moves to fill them — until an administrator [rebalances](#seeing-placements-and-rebalancing-by-hand).
+A restart re-places every query in journal order, the order they were first registered, so the
+placements after a restart can differ from the ones before it.
 
 ## Keeping one query on its own lane
 
@@ -176,6 +177,28 @@ shipped_orders  shared lane 0   all four tied at one; lowest number. A join shar
 Four inboxes for five queries rather than five — and the saving grows with the number of queries,
 whatever they read. A thousand queries over one Aerospike set fill the shared lanes up to the
 ceiling, and the set's one reader writes each record into each lane once.
+
+
+## Seeing placements, and rebalancing by hand
+
+**Admin → Lanes** in the console lists every query and the lane it runs on — dedicated, a lane of its
+own, or shared lane *n* — with the node's mode and how full each shared lane is. `pravaha lanes` prints
+the same from a shell, and `GET /api/v1/lanes` with `GET /api/v1/queries` answer it over HTTP.
+
+When drops have left room under `auto-from`, an administrator can hand that room to queries already
+sharing: **Admin → Lanes → Preview the plan**, then **Rebalance now** (or `pravaha lanes rebalance` for
+the plan and `pravaha lanes rebalance --yes` to run it; `POST /api/v1/lanes/rebalance?dryRun=true`
+and `POST /api/v1/lanes/rebalance` over HTTP). It never runs by itself, and it needs the `admin` role.
+
+The oldest shared queries move first, **one at a time**, each by a blue/green replacement with its SQL
+unchanged and `lane = 'own'` — a lane of its own without pinning it the way `dedicated` does — then the
+old version is released, so no answer is lost or counted twice. One at a time because each move runs the
+query twice until its cutover and re-reads its source's history. A query that answers to several names,
+or is already being replaced, is skipped and says why; a move whose source cannot replay its history is
+reported as failed and the rest go on. `GET /api/v1/lanes/rebalance` (the page, reloaded, or
+`pravaha lanes rebalance status`) shows how each move went. A restart re-places every query by the
+node's mode again, so a moved query keeps its own lane only until then — use `lane = 'dedicated'` for
+one that must.
 
 ## Watching it
 

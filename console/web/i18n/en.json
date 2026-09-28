@@ -708,7 +708,8 @@
       "tenants": "Tenants",
       "users": "Users",
       "keys": "API keys",
-      "sessions": "Sessions"
+      "sessions": "Sessions",
+      "lanes": "Lanes"
     },
     "access": {
       "title": "Access",
@@ -930,6 +931,45 @@
       "whose": "Whose sessions",
       "filter": "Show",
       "everyone": "Everyone's"
+    },
+    "lanes": {
+      "title": "Lanes",
+      "heading": "Where every query runs",
+      "lede": "Each query runs on a lane of its own or shares one. Under auto, a node's first queries each own a lane and later ones share; nothing is moved while it runs.",
+      "mode": "Mode",
+      "mode_auto": "auto — a lane each until {n} queries are hosted, then shared",
+      "mode_true": "shared from the first query",
+      "mode_false": "never shared",
+      "hosted": "Queries hosted",
+      "own": "On lanes of their own",
+      "dedicated": "Of which dedicated",
+      "per_lane": "At most per shared lane",
+      "shared_lanes": "Shared lanes",
+      "lane_n": "Lane {n}",
+      "queries_n": "{n} queries",
+      "col_query": "Query",
+      "col_state": "State",
+      "col_lane": "Lane",
+      "placement_dedicated": "dedicated",
+      "placement_own": "own lane",
+      "placement_shared": "shared, lane {n}",
+      "caption": "Every registered query and the lane it runs on",
+      "none": "No query is registered.",
+      "error": "The engine did not say where queries run",
+      "rebalance_heading": "Rebalance",
+      "rebalance_lede": "Room left under auto-from — by dropped queries — is used only by new registrations until an administrator rebalances. A rebalance moves shared queries, oldest first, onto lanes of their own, one at a time and without losing an answer (a blue/green replacement with the SQL unchanged).",
+      "preview": "Preview the plan",
+      "run": "Rebalance now",
+      "confirm": "Move these queries onto lanes of their own, one at a time?",
+      "room": "Room for {n} more on lanes of their own",
+      "nothing": "Nothing to move: no room under auto-from, or no query is sharing.",
+      "col_from": "From shared lane",
+      "col_status": "Status",
+      "col_detail": "Detail",
+      "running": "A rebalance is running; this page shows its progress when reloaded.",
+      "started": "Rebalance started.",
+      "admins_only": "Only an administrator can rebalance lanes.",
+      "last_run": "Last rebalance, started by {who}"
     }
   },
   "operations": {
@@ -1027,7 +1067,8 @@
         "queries": "Queries on it"
       },
       "none_title": "No lane is shared",
-      "none_body": "Every query here holds a lane and an inbox of its own, so there is no shared lane to be blocked. That is not a table of idle lanes: there are none. By default (pravaha.lane.multiplex.enabled: auto) a node starts sharing lanes once it hosts 64 queries, keeping a lane apiece while isolation is cheap; true shares from the first query, false never."
+      "none_body": "Every query here holds a lane and an inbox of its own, so there is no shared lane to be blocked. That is not a table of idle lanes: there are none. By default (pravaha.lane.multiplex.enabled: auto) a node starts sharing lanes once it hosts 64 queries, keeping a lane apiece while isolation is cheap; true shares from the first query, false never.",
+      "where": "Where each query runs, and rebalancing →"
     },
     "operators": {
       "on": "Per-operator numbers are on for this node, so a query's plan carries rows, state, watermark and a sampled self time for each of its operators. ",

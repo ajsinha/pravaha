@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% from "_admin_head.html" import admin_head with context %}
+{% import "_states.html" as states %}
+{% import "_people.html" as people %}
+{% block title %}{{ t('admin.lanes.title') }} — {{ app_name }}{% endblock %}
+{% block content %}
+{#- Where every query runs (GET /api/v1/lanes, /api/v1/queries), and the lane rebalance an
+    administrator runs by hand (POST /api/v1/lanes/rebalance). Nothing here moves a query
+    unless an administrator presses the button; the engine checks the role either way. -#}
+{{ admin_head('lanes', t('admin.lanes.heading')) }}
+<p class="lede">{{ t('admin.lanes.lede') }}</p>
+
+{{ people.flashes(flashes) }}
+
+{% if denied %}
+{{ people.not_permitted(denied, 'lanes-not-permitted') }}
+{% elif lanes_error %}
+{{ states.error(lanes_error, retry_href='/admin/lanes', id='lanes-error', title=t('admin.lanes.error')) }}
+{% else %}
+{% set s = placement.summary %}
+<div class="row g-3 mb-3" id="lanes-summary">
+  <div class="col-md-6"><div class="card"><div class="card-body small">
+    <div><strong>{{ t('admin.lanes.mode') }}:</strong>
+      <span class="mono" id="lanes-mode">{% if s.mode == 'auto' %}{{ t('admin.lanes.mode_auto', n=s.autoFrom) }}{% elif s.mode == 'true' %}{{ t('admin.lanes.mode_true') }}{% else %}{{ t('admin.lanes.mode_false') }}{% endif %}</span></div>
+    <div>{{ t('admin.lanes.hosted') }}: <span class="mono">{{ s.hosted }}</span></div>
+    <div>{{ t('admin.lanes.own') }}: <span class="mono">{{ s.ownLaneQueries }}</span>
+      ({{ t('admin.lanes.dedicated') }}: <span class="mono">{{ s.dedicatedQueries }}</span>)</div>
+    {% if s.mode != 'false' %}<div>{{ t('admin.lanes.per_lane') }}: <span class="mono">{{ s.maxQueriesPerLane }}</span></div>{% endif %}
+  </div></div></div>
+  {% if s.sharedLanes %}
+  <div class="col-md-6"><div class="card"><div class="card-body small" id="lanes-shared">
+    <div><strong>{{ t('admin.lanes.shared_lanes') }}</strong></div>
+    {% for lane in s.sharedLanes %}
+    <div class="d-flex align-items-center gap-2"><span class="mono" style="min-width:4rem">{{ t('admin.lanes.lane_n', n=lane.lane) }}</span>
+      <div class="gauge" style="width:8rem" role="meter" aria-valuemin="0" aria-valuemax="{{ s.maxQueriesPerLane }}" aria-valuenow="{{ lane.queries }}" aria-label="{{ t('admin.lanes.lane_n', n=lane.lane) }}"><span style="width:{{ [lane.queries * 100 / (s.maxQueriesPerLane or 1), 100]|min }}%"></span></div>
+      <span>{{ t('admin.lanes.queries_n', n=lane.queries) }}</span></div>
+    {% endfor %}
+  </div></div></div>
+  {% endif %}
+</div>
+
+{% if not placement.queries %}
+{{ states.empty(t('admin.lanes.none'), id='lanes-none') }}
+{% else %}
+<div class="card"><div class="table-responsive" tabindex="0" role="region" aria-label="{{ t('admin.lanes.caption') }}"><table class="table table-sm mb-0 small" id="lanes-table">
+  <caption class="visually-hidden">{{ t('admin.lanes.caption') }}</caption>
+  <thead><tr><th scope="col">{{ t('admin.lanes.col_query') }}</th><th scope="col">{{ t('admin.lanes.col_state') }}</th><th scope="col">{{ t('admin.lanes.col_lane') }}</th></tr></thead>
+  <tbody>{% for q in placement.queries %}<tr data-query="{{ q.name }}" data-lane="{{ q.lane }}">
+    <td class="mono"><a href="/queries/{{ q.name }}">{{ q.name }}</a></td>
+    <td>{{ q.state }}</td>
+    <td>{% if q.lane == 'dedicated' %}<span class="chip ok">{{ t('admin.lanes.placement_dedicated') }}</span>{% elif q.lane == 'shared' %}<span class="chip">{{ t('admin.lanes.placement_shared', n=q.sharedLane) }}</span>{% else %}<span class="chip">{{ t('admin.lanes.placement_own') }}</span>{% endif %}</td>
+  </tr>{% endfor %}</tbody>
+</table></div></div>
+{% endif %}
+
+<h2 class="mt-4">{{ t('admin.lanes.rebalance_heading') }}</h2>
+<p class="small text-muted">{{ t('admin.lanes.rebalance_lede') }}</p>
+{% if not is_admin %}
+<p class="small" id="lanes-admins-only">{{ t('admin.lanes.admins_only') }}</p>
+{% elif plan_error %}
+{{ states.error(plan_error, retry_href='/admin/lanes', id='rebalance-error', title=t('admin.lanes.error')) }}
+{% else %}
+<div class="d-flex gap-2 mb-2">
+  <a class="btn btn-sm btn-outline-secondary" href="/admin/lanes?preview=1" id="rebalance-preview">{{ t('admin.lanes.preview') }}</a>
+  {# Run appears only on a previewed plan with something to move: the preview is the confirmation. #}
+  {% if previewing and plan and plan.moves and not plan.running %}
+  <form method="post" action="/admin/lanes/rebalance" class="m-0">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button class="btn btn-sm btn-primary" type="submit" id="rebalance-run" aria-describedby="rebalance-confirm">{{ t('admin.lanes.run') }}</button>
+  </form>
+  <span class="small align-self-center" id="rebalance-confirm">{{ t('admin.lanes.confirm') }}</span>
+  {% endif %}
+</div>
+{% if plan %}
+<div id="rebalance-plan">
+  {% if plan.running %}<p class="small">{{ t('admin.lanes.running') }}</p>{% endif %}
+  {% if plan.startedBy and not previewing %}<p class="small text-muted">{{ t('admin.lanes.last_run', who=plan.startedBy) }}</p>{% endif %}
+  <p class="small">{{ t('admin.lanes.room', n=plan.room) }}</p>
+  {% if not plan.moves %}
+  {{ states.empty(t('admin.lanes.nothing'), id='rebalance-nothing') }}
+  {% else %}
+  <div class="card"><div class="table-responsive"><table class="table table-sm mb-0 small" id="rebalance-moves">
+    <thead><tr><th scope="col">{{ t('admin.lanes.col_query') }}</th><th scope="col">{{ t('admin.lanes.col_from') }}</th><th scope="col">{{ t('admin.lanes.col_status') }}</th><th scope="col">{{ t('admin.lanes.col_detail') }}</th></tr></thead>
+    <tbody>{% for m in plan.moves %}<tr><td class="mono">{{ m.name }}</td><td class="mono">{{ m.fromSharedLane }}</td><td>{{ m.status }}</td><td>{{ m.detail or '—' }}</td></tr>{% endfor %}</tbody>
+  </table></div></div>
+  {% endif %}
+</div>
+{% endif %}
+{% endif %}
+{% endif %}
+{% endblock %}

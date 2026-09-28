@@ -29,7 +29,12 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   would join a computation already on a shared lane is refused with PRV-8017. `GET /api/v1/queries`
   and `/{name}` gain `lane` (`dedicated` | `shared` | `own`) and `sharedLane`; the new
   `GET /api/v1/lanes` summarises placement (mode, `autoFrom`, per-lane counts, own-lane, dedicated
-  and hosted computations). Placements are not rebalanced when queries are dropped.
+  and hosted computations). Placements are not rebalanced when queries are dropped — until an
+  administrator asks: **Admin → Lanes** in the console (every query's lane, the mode, each shared
+  lane's fill, and a preview-then-run rebalance for the `admin` role), `pravaha lanes` and
+  `pravaha lanes rebalance [--yes]`, and `GET|POST /api/v1/lanes/rebalance`. It moves shared queries
+  onto lanes of their own while there is room under `auto-from`, oldest first and one at a time, each
+  by a blue/green replacement with `lane = 'own'` (new: a lane of its own without pinning it).
 - **`iceberg-sink`, an Apache Iceberg sink** (`plugins/pravaha-plugin-iceberg`), on iceberg-core and
   iceberg-parquet 1.2.1, not Spark. A table on the local filesystem; `mode: upsert` (the default)
   keeps it equal to the view by key through equality deletes (format version 2), and
