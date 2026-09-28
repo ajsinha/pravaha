@@ -107,7 +107,9 @@ public final class ContinuousStatements {
      */
     public static boolean isContinuousStatement(String sql) {
         return sql != null
-                && (shapeOf(sql).isPresent() || com.ash.messaging.pravaha.catalog.CatalogStatements.recognizes(sql));
+                && (AlertStatements.recognizes(sql)
+                        || shapeOf(sql).isPresent()
+                        || com.ash.messaging.pravaha.catalog.CatalogStatements.recognizes(sql));
     }
 
     /**
@@ -120,6 +122,12 @@ public final class ContinuousStatements {
     public static Optional<ContinuousStatement> recognize(String sql) {
         if (sql == null) {
             return Optional.empty();
+        }
+        // ADR-057's alert statements first: PAUSE ALERT and RESUME ALERT begin as PAUSE and RESUME do,
+        // and ALTER ALERT ... SET ( is ours where ALTER ALERT ... SET TAGS is the catalogue's.
+        Optional<AlertStatement> alert = AlertStatements.recognize(sql);
+        if (alert.isPresent()) {
+            return Optional.of(new ContinuousStatement.Alert(alert.get()));
         }
         if (com.ash.messaging.pravaha.catalog.CatalogStatements.recognizes(sql)) {
             // ADR-059's statements, read by the catalogue's own reader and refused with this module's

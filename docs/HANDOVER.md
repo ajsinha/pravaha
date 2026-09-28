@@ -20,7 +20,7 @@ otherwise have to rediscover the hard way.
 | Java tests | **4,263** tests, 0 failures, 200 skipped (Docker-only broker and database tests among them) -- `tools/verify-clean.sh`, 2026-09-27 |
 | Python tests | **146** in `sdk/python`, and **2,061** in `console` (browser suites included), all passing on 2026-09-27 |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
-| ADRs | **58** |
+| ADRs | **59** |
 
 **Where it stands, 2026-09-27.** No GA-BLOCKER or GA-REQUIRED finding is open (408 findings,
 377 fixed). This week added:

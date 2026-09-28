@@ -108,6 +108,7 @@ public final class CatalogService {
                                 : Optional.of(catalog.ensureNamespace(name));
                     }
                     case "VIEW" -> resolveView(caller, parts);
+                    case "ALERT" -> resolveCreated(ObjectKind.ALERT, caller, parts);
                     default -> resolveInfrastructure(ObjectKind.named(target.kind()), parts);
                 };
         CatalogObject object = found.filter(o -> visible(caller, o)).orElseThrow(() -> noSuch(target.written()));
@@ -134,10 +135,15 @@ public final class CatalogService {
         List<Optional<CatalogObject>> candidates = new ArrayList<>();
         if (parts.size() <= 3 && parts.stream().noneMatch(String::isBlank)) {
             candidates.add(resolveView(caller, parts));
+            candidates.add(resolveCreated(ObjectKind.ALERT, caller, parts));
             if (parts.size() == 1) {
                 candidates.add(catalog.object(caller.tenant() + "." + parts.get(0)));
-                for (ObjectKind kind :
-                        List.of(ObjectKind.STREAM, ObjectKind.SINK, ObjectKind.SOURCE, ObjectKind.LOOKUP)) {
+                for (ObjectKind kind : List.of(
+                        ObjectKind.STREAM,
+                        ObjectKind.SINK,
+                        ObjectKind.SOURCE,
+                        ObjectKind.LOOKUP,
+                        ObjectKind.NOTIFIER)) {
                     candidates.add(resolveInfrastructure(kind, parts));
                 }
             }
@@ -151,11 +157,18 @@ public final class CatalogService {
     }
 
     private Optional<CatalogObject> resolveView(Principal caller, List<String> parts) {
-        return switch (parts.size()) {
-            case 1 -> catalog.byEngineName(ObjectKind.VIEW, parts.get(0));
-            case 2 -> catalog.object(caller.tenant() + "." + parts.get(0) + "." + parts.get(1));
-            default -> catalog.object(String.join(".", parts));
-        };
+        return resolveCreated(ObjectKind.VIEW, caller, parts);
+    }
+
+    /** A view or an alert: by its engine name, as {@code ns.name} in the caller's tenant, or in full. */
+    private Optional<CatalogObject> resolveCreated(ObjectKind kind, Principal caller, List<String> parts) {
+        Optional<CatalogObject> found =
+                switch (parts.size()) {
+                    case 1 -> catalog.byEngineName(kind, parts.get(0));
+                    case 2 -> catalog.object(caller.tenant() + "." + parts.get(0) + "." + parts.get(1));
+                    default -> catalog.object(String.join(".", parts));
+                };
+        return found.filter(o -> o.kind() == kind);
     }
 
     private Optional<CatalogObject> resolveInfrastructure(ObjectKind kind, List<String> parts) {

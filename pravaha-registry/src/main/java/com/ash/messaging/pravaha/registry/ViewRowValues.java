@@ -37,7 +37,7 @@ import com.ash.messaging.pravaha.common.row.Decimals;
  * gives: an {@code Integer} that came back a {@code Long} is not equal to the one the view goes on
  * holding, and a retraction would miss the row it withdraws.
  */
-final class ViewRowValues {
+public final class ViewRowValues {
 
     private static final byte NULL = 0;
     private static final byte BOOLEAN = 1;
@@ -86,7 +86,7 @@ final class ViewRowValues {
         }
     }
 
-    static void writeRow(DataOutput out, Object[] row) throws IOException {
+    public static void writeRow(DataOutput out, Object[] row) throws IOException {
         for (Object value : row) {
             switch (value) {
                 case null -> out.writeByte(NULL);
@@ -138,7 +138,7 @@ final class ViewRowValues {
         }
     }
 
-    static Object[] readRow(DataInput in, int columns) throws IOException {
+    public static Object[] readRow(DataInput in, int columns) throws IOException {
         Object[] row = new Object[columns];
         for (int i = 0; i < columns; i++) {
             byte tag = in.readByte();

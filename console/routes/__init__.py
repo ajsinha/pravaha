@@ -8,6 +8,7 @@ the brand context, the refusal mapping, and the page renderer. Routers hold no
 engine logic.
 """
 from routes.admin_routes import AdminRoutes
+from routes.alert_routes import AlertRoutes
 from routes.api_routes import ApiRoutes
 from routes.auth_routes import AuthRoutes
 from routes.base import API, Routes
@@ -19,7 +20,7 @@ from routes.ui_routes import UIRoutes
 # Order matters: `/queries/{name}` would swallow a literal path registered after
 # it, so the modules with the more specific paths register first. CatalogRoutes before
 # ProductRoutes, which reads the governance service it puts in the context.
-ALL_ROUTES = (AuthRoutes, PublicRoutes, ApiRoutes, CatalogRoutes, ProductRoutes, AdminRoutes, UIRoutes)
+ALL_ROUTES = (AuthRoutes, PublicRoutes, ApiRoutes, CatalogRoutes, AlertRoutes, ProductRoutes, AdminRoutes, UIRoutes)
 
-__all__ = ["ALL_ROUTES", "API", "AdminRoutes", "ApiRoutes", "AuthRoutes", "CatalogRoutes", "ProductRoutes",
+__all__ = ["ALL_ROUTES", "API", "AdminRoutes", "AlertRoutes", "ApiRoutes", "AuthRoutes", "CatalogRoutes", "ProductRoutes",
            "PublicRoutes", "Routes", "UIRoutes"]

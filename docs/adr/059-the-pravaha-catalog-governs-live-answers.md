@@ -296,6 +296,12 @@ per principal/privilege/object and dropped whenever the catalogue's generation m
 - `SHOW` and the REST reads answer from the live, journalled state; a name the caller may not see is
   answered exactly as a missing one (`PRV-7031`).
 
+**Alerts (ADR-057), since.** `ALERT` objects are built: created by `CREATE ALERT` in the creator's
+`default` namespace and owned by them, `SELECT`/`MODIFY`/`MANAGE` as §2 says, forgotten with their
+grants by `DROP ALERT` and reconciled at start like views. Notifier channels are a new kind,
+`NOTIFIER`, under `node.notifiers` (`WRITE`, `MANAGE`, `OWN`), and a `NOTIFY` needs `WRITE` on each.
+A query cannot be registered under an alert's catalogue name, nor an alert under an object's.
+
 **Not in phase 1**: row filters and masks as objects, tag-bound policies (phase 2); lineage and
 computed labels (phase 3); contracts, shares, access history, search over columns, OpenLineage
 (phase 4); the PostgreSQL gateway runs no catalogue statement (it is read-only and refuses them with

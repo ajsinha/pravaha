@@ -459,7 +459,8 @@ class ProductRoutes(Routes):
             role = role_of(request, default_role())
             items += [
                 page("workbench", "/workbench"), page("catalog", "/catalog"), page("views", "/views"),
-                page("operations", "/operations"), page("queries", "/queries"), page("start", "/start"),
+                page("operations", "/operations"), page("alerts", "/alerts"), page("queries", "/queries"),
+                page("start", "/start"),
                 page("plugins", "/plugins"), page("access", "/admin/access"), page("audit", "/admin/audit"),
                 page("tenants", "/admin/tenants"), page("account", "/account"),
                 {"kind": "action", "title": t("palette.action.new_query"), "href": "/workbench?new=1",

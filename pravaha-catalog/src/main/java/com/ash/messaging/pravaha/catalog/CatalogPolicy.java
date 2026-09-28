@@ -126,6 +126,12 @@ public final class CatalogPolicy implements SecurityPolicy {
      */
     @Override
     public AccessDecision mayRegisterQuery(Principal principal, String name) {
+        String wouldBe = CatalogNames.defaultNamespaceOf(principal.tenant()) + "." + name;
+        Optional<CatalogObject> taken = service.catalog().object(wouldBe);
+        if (taken.isPresent() && taken.get().kind() == ObjectKind.ALERT) {
+            // One name, one object: the view would land on the alert's catalogue name (ADR-057).
+            return AccessDecision.deny("'" + wouldBe + "' is an alert's name; a query cannot be registered as it");
+        }
         Optional<CatalogObject> existing = service.catalog().byEngineName(ObjectKind.VIEW, name);
         if (existing.isPresent()
                 && access.check(principal, Privilege.MODIFY, existing.get().fullName())
@@ -202,6 +208,46 @@ public final class CatalogPolicy implements SecurityPolicy {
     }
 
     private static final System.Logger LOG = System.getLogger(CatalogPolicy.class.getName());
+
+    // ------------------------------------------------------------------------ alerts (ADR-057)
+
+    /** {@code WRITE} on a notifier channel: what naming it in {@code NOTIFY} needs. */
+    public AccessDecision mayNotify(Principal principal, String channel) {
+        String target = CatalogNames.object(CatalogNames.infrastructureNamespace(ObjectKind.NOTIFIER), channel);
+        return decide(principal, Privilege.WRITE, target, "notify through the channel '" + channel + "'");
+    }
+
+    /**
+     * {@code privilege} on an alert: {@code SELECT} to see it and its state, {@code MODIFY} to pause,
+     * resume, snooze and acknowledge it, {@code MANAGE} to change or drop it. Whoever holds {@code
+     * MANAGE} holds {@code MODIFY} too, as for a view.
+     */
+    public AccessDecision mayOnAlert(Principal principal, Privilege privilege, String alert) {
+        Optional<CatalogObject> object = service.catalog().byEngineName(ObjectKind.ALERT, alert);
+        String target = object.map(CatalogObject::fullName)
+                .orElse(CatalogNames.defaultNamespaceOf(principal.tenant()) + "." + alert);
+        if (privilege == Privilege.MODIFY
+                && access.check(principal, Privilege.MANAGE, target).allowed()) {
+            return AccessDecision.allow();
+        }
+        return decide(principal, privilege, target, "hold " + privilege.name() + " on the alert '" + alert + "'");
+    }
+
+    /** Records a new alert, owned by its creator, in the creator's default namespace. */
+    public void alertCreated(Principal owner, String alert) {
+        service.catalog().registerObject(ObjectKind.ALERT, alert, owner);
+    }
+
+    /** Forgets a dropped alert and its grants; a failure is logged and repaired at the next start. */
+    public void alertDropped(String alert) {
+        try {
+            service.catalog().dropObject(ObjectKind.ALERT, alert);
+        } catch (PravahaException e) {
+            LOG.log(
+                    System.Logger.Level.ERROR,
+                    "the catalogue could not forget the alert '" + alert + "': " + e.getMessage());
+        }
+    }
 
     /**
      * The catalogue name an engine name stands for, for {@code principal}: a recorded view, a recorded

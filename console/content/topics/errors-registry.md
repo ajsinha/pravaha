@@ -4,7 +4,7 @@ slug: errors-registry
 category: errors
 order: 90
 icon: journal-x
-summary: "PRV-8001 to PRV-8104: a query's name and lifecycle, its journal and replay, sinks that fail or do not fit, unknown options, the debugger's six refusals, tenant quotas, queries over queries, and the embedded engine's four."
+summary: "PRV-8001 to PRV-8104: a query's name and lifecycle, its journal and replay, sinks that fail or do not fit, unknown options, the debugger's six refusals, tenant quotas, queries over queries, alerts, and the embedded engine's four."
 badge: PRV-8XXX
 audience: Analysts, operators, developers
 keywords: [registry, dependants, cycle, chain, queries on queries, name in use, reserved word, no such query, drop, pause, resume, failed, journal, replay, sink detached, sink shape, keyed by, embedded, push, backpressure, row rejected, debug, debugger, debug session, fork, step, fixture, checkpoint, with, option, unknown option, tenant, tenancy, quota, max-queries, max-state-keys, 409]
@@ -46,13 +46,22 @@ inside an application's own process and adds the ways an application can push ro
 | PRV-8025 | REGISTRY_QUERY_CYCLE | A new version would read, through other queries, its own answer |
 | PRV-8026 | REGISTRY_CHAIN_UNSUPPORTED | Something about a query over a query that cannot be made exact |
 | PRV-8027 | REGISTRY_CHAIN_TOO_DEEP | A chain of queries over queries deeper than eight |
+| PRV-8040 | ALERT_NO_SUCH_ALERT | No alert by that name that you may see |
+| PRV-8041 | ALERT_EXISTS | An alert, a query or a catalogue object already has that name |
+| PRV-8042 | ALERT_DEFINITION_INVALID | An alert's view, condition, option or duration cannot be kept |
+| PRV-8043 | ALERT_NO_SUCH_CHANNEL | `NOTIFY` names a channel no `pravaha.notifiers.<name>` binds |
+| PRV-8044 | ALERT_JOURNAL_FAILED | The alert journal cannot be read or written |
+| PRV-8045 | ALERT_DELIVERY_FAILED | A channel did not accept a notification; it is sent again |
+| PRV-8046 | ALERT_NOTIFIER_MISCONFIGURED | A notifier binding the node cannot start with |
+| PRV-8047 | ALERT_NOT_SERVED | An alert statement where no alert service runs |
 | PRV-8101 | EMBEDDED_UNKNOWN_STREAM | A row pushed to an undeclared stream |
 | PRV-8102 | EMBEDDED_ROW_REJECTED | A pushed row does not fit its stream |
 | PRV-8103 | EMBEDDED_BACKPRESSURE | A push waited too long for room |
 | PRV-8104 | EMBEDDED_MISCONFIGURED | The embedded configuration says something impossible |
 
-Over REST the registry codes are `400` — the request was the caller's to fix — except PRV-8002, which
-is `404`.
+Over REST the registry codes are `400` — the request was the caller's to fix — except PRV-8002 and
+PRV-8040, which are `404`, PRV-8041 and PRV-8047, which are `409`, and PRV-8044 and PRV-8046, which
+are the node's (`500`).
 
 ## Names
 
@@ -419,8 +428,61 @@ would feed the whole answer again on top of it.
 At most eight queries over queries above a stream. Each level adds a commit's latency and a copy of
 its input's answer; fold some steps into one query.
 
+## Alerts
+
+An alert watches a view and notifies when a key's row enters it and when it leaves
+([Alerts](/help/topics/alerts)). A view an alert follows cannot be dropped (`PRV-8024`, naming
+`ALERT <name>`) until the alert is.
+
+### PRV-8040 — no such alert
+
+No alert by that name that you may see: the same answer for one that does not exist and one you hold
+no `SELECT` on, so it confirms nothing. `SHOW ALERTS` and `pravaha alerts ls` list what you may.
+
+### PRV-8041 — the name is taken
+
+An alert of that name exists (add `IF NOT EXISTS` if that is fine), or a continuous query is called
+that, or — under the catalogue — another object has that name in your `default` namespace.
+
+### PRV-8042 — a definition that cannot be kept
+
+The view is not registered (or not yours to see), a column in `WHERE` or `include` is not the view's,
+a literal is the wrong type for its column (a number compared with `'many'`), an option does not
+exist, a severity is not `info`, `warning` or `critical`, or a duration is not one (`30s`, `10m`,
+`2h`, `1d`, `PT10M`).
+
+### PRV-8043 — no such channel
+
+`NOTIFY` names a channel the node does not bind. Channels are configured, like sinks, under
+`pravaha.notifiers.<name>`; `pravaha alerts channels` lists them.
+
+### PRV-8044 — the alert journal
+
+`alerts.journal` (beside the registry journal, or `pravaha.alerts.journal`) cannot be read or
+appended to. A decision is not acted on unless it is journalled, because a fire or a clear that does
+not survive a restart is exactly what the journal prevents. Check the file and the disk.
+
+### PRV-8045 — a notification not delivered
+
+A channel did not accept a notification after its retries — a receiver down, a 5xx, a timeout. It is
+recorded on the alert (its delivery error, and a `FAILED` line in its history) and sent again every
+`pravaha.alerts.redeliver-after` until accepted, under the same idempotency key.
+
+### PRV-8046 — a notifier the node cannot start with
+
+A `pravaha.notifiers.<name>` binding names a plugin that is not on the classpath, has no URL, has a
+secret written into it (`secret`, `token`, `password` are refused: say `secret-env` or
+`secret-file`), names an environment variable that is not set or a file that cannot be read. The
+node refuses to start rather than find the pager broken at the first page.
+
+### PRV-8047 — no alert service
+
+An alert statement or `/api/v1/alerts` call where no alert service runs: an embedded engine, or a
+node with `pravaha.alerts.enabled: false`.
+
 ## Where next
 
+- [Alerts](/help/topics/alerts)
 - [The time-travel debugger](/help/topics/time-travel-debugger)
 - [The life of a query](/help/topics/query-lifecycle) and [CREATE CONTINUOUS QUERY](/help/topics/create-continuous-query)
 - [How a query writes to a sink](/help/topics/sinks-overview) and [Delivery guarantees](/help/topics/delivery-guarantees)

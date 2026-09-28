@@ -583,6 +583,71 @@ restored without the registry forgets, at the next start, the views it no longer
 logs how many (`catalog: … forgot N views the registry no longer runs`). Turning the catalogue on
 logs `catalog: governing access (ADR-059) from <file>; authority=…, imported policy=…` once at start.
 
+### Alerts and notifier channels (ADR-057)
+
+| Setting | Default | Means |
+|---|---|---|
+| `pravaha.alerts.enabled` | `true` | `CREATE ALERT` and `/api/v1/alerts` are served; `false` answers `PRV-8047` |
+| `pravaha.alerts.journal` | `alerts.journal` beside `pravaha.registry.journal`; memory when that is unset | Every alert's definition and every decision about every key -- fired, cleared, told, acknowledged -- append-only, fsync'd before anything is sent, owner-only; compacted (its checkpoint) at start once 256 records are stale, and while running once it has grown well past what is live |
+| `pravaha.alerts.recovery-grace` | `30s` | After a restart, how long a firing key missing from the restored answer waits before it may clear -- the time for a view rebuilt by replay rather than restored from a checkpoint to catch up |
+| `pravaha.alerts.redeliver-after` | `60s` | How long a notification a channel did not accept waits before it is sent again |
+| `pravaha.alerts.delivery-threads` | `2` | Notifications sent at once; one per key at a time, so a key's `FIRED` is never overtaken by its `CLEARED` |
+| `pravaha.notifiers.<channel>.plugin` | | `webhook` or `log`, or a `NotifierPlugin` on the classpath |
+| `pravaha.notifiers.<channel>.options.*` | | The plugin's options, below. Never a secret |
+
+```yaml
+pravaha:
+  notifiers:
+    buyers:
+      plugin: webhook
+      options:
+        url: https://hooks.example.com/pravaha
+        secret-env: PRAVAHA_BUYERS_HOOK_SECRET    # or secret-file: /run/secrets/buyers-hook
+        timeout: 10s
+        retries: 4
+    ops-log:
+      plugin: log
+```
+
+**`webhook` options:** `url` (or `url-env` / `url-file`, when the URL is itself a credential, as a
+Slack webhook's is); `secret-env` or `secret-file` (the HMAC key; required unless `signing: none`);
+`signing` (`hmac-sha256`, the default, or `none`); `format` (`json`, the default, or `slack`);
+`timeout` (10s per attempt), `connect-timeout` (5s), `retries` (4), `backoff` (500ms, doubling to
+`max-backoff`, 30s); `header.<Name>` for a non-secret header. **`log` options:** `level` (`info` or
+`warn`).
+
+**Secrets.** Nothing in the configuration is a secret (ADR-052): the webhook refuses an option called
+`secret`, `token`, `password` or `key`, and a `header.*` carrying a credential, and reads the key from
+the environment variable or file named. A secret file is read at start; rotating it is a restart.
+
+**A channel the node cannot open refuses the start** (`PRV-8046`), naming the binding: no plugin of
+that name, no URL, a secret it cannot read. A pager found broken at the first page is worse than a node
+that did not start.
+
+**What a receiver gets.** A `POST` of the notification as JSON -- `idempotencyKey`, `alert`, `view`,
+`tenant`, `kind` (`FIRED`, `CLEARED`, `REMINDER`), `severity`, `episode`, `key`, `row`, `since`, `at`,
+`attempt`, `summary` -- with the headers `Idempotency-Key`, `X-Pravaha-Event`, `X-Pravaha-Alert`,
+`X-Pravaha-Attempt`, `X-Pravaha-Timestamp` and `X-Pravaha-Signature: sha256=<hex>`. To verify:
+compute HMAC-SHA256 of `<X-Pravaha-Timestamp>.<raw body>` under the shared secret, compare it with the
+signature in constant time, and refuse a timestamp more than a few minutes from your clock (that is
+what stops a captured request being replayed).
+
+**Delivery guarantees, plainly.** An alert's **state is exactly once**: every decision is journalled
+and forced before anything is sent, and after a restart a firing key is not fired again and a clear
+that was decided and not yet delivered is delivered. **Delivery is at least once**: a timeout, a
+network error, a 5xx, 408 or 429 is retried with backoff inside one attempt, any other 4xx is not;
+what is still undelivered is recorded on the alert (`PRV-8045`, its `deliveryError`, a `FAILED` line in
+its history) and sent again every `redeliver-after` until accepted; and a restart between a send and its
+record sends it again. **Every attempt carries the same `Idempotency-Key`** -- derived from the alert's
+identity, the key, the episode, the kind and the reminder number -- so a receiver that must act once
+de-duplicates on it. Nothing here claims exactly-once delivery to an HTTP endpoint; it cannot be had
+without the endpoint's cooperation, which the key is.
+
+Back `alerts.journal` up with the registry journal: an alert restored without its view waits for the
+view (`following: WAITING`); a view restored without the alert journal forgets its alerts, and their
+receivers are not told anything about keys firing at the time. The log says `alerts: serving with
+channels {...} from <file>` once at start, and `alerts: recovered N from <file>` when there were any.
+
 The dead-letter queue is written only when something asks for one: `pravaha-engine run --dlq <file>`, or
 `pravaha.dlq.directory` on a server (one `<query>.dlq` per query). Without it a record that cannot be
 decoded still fails loudly rather than being discarded: the `run` command exits non-zero naming the

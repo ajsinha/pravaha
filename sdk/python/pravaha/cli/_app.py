@@ -30,7 +30,7 @@ from typing import Any, NoReturn, Optional, Sequence, TextIO
 
 import pravaha
 from pravaha.assist.errors import AssistConfigError, AssistError
-from pravaha.cli import _assist, _catalog, _flight, _http, _identity
+from pravaha.cli import _alerts, _assist, _catalog, _flight, _http, _identity
 from pravaha.cli._common import (
     EXIT_OK,
     EXIT_REFUSED,
@@ -58,10 +58,11 @@ PROG = "pravaha"
 
 _OVERVIEW = """\
 Transport: query, subscribe, register, queries, pause, resume, drop, the replacement commands,
-dlq and debug speak Arrow Flight to --url; every other command asks the node's HTTP API at --http.
+dlq, debug and alert create/drop speak Arrow Flight to --url; every other command asks the node's
+HTTP API at --http.
 
 Destructive commands (drop, abandon, finish, lanes rebalance, key revoke, user disable, revoke,
-catalog owner) say what they would do and change nothing unless given --yes.
+catalog owner, alert drop) say what they would do and change nothing unless given --yes.
 
 Offline -- planning or running SQL with no server -- is the Java tool `pravaha-engine`
 (validate --schema, explain --schema, run).
@@ -563,6 +564,46 @@ def build_parser() -> _Parser:
     v = add("why", "Which grant, through which role, namespace or ownership.")
     v.add_argument("user_name", metavar="<user>")
     v.add_argument("object", metavar="<object>")
+
+    # ------------------------------------------------------------------ alerts (ADR-057)
+    p = b.add("alerts", _alerts.alerts, "Alerts: what is firing, and pause, snooze or acknowledge one.")
+    add = b.verbs(p, _alerts.alerts)
+    add("ls", "The alerts you may see, with how many keys each has firing.")
+    add("channels", "The notifier channels the node binds (pravaha.notifiers.*).")
+    v = add("show", "One alert: every key's state and its recent notifications (SELECT).")
+    v.add_argument("name", metavar="<alert>")
+    for verb, summary in (
+        ("pause", "Pause: keep following, say nothing until resumed (MODIFY)."),
+        ("resume", "Resume, ending a pause or a snooze; what changed is sent (MODIFY)."),
+    ):
+        v = add(verb, summary)
+        v.add_argument("name", metavar="<alert>")
+    v = add("snooze", "Say nothing for a while; what changed is sent when it ends (MODIFY).")
+    v.add_argument("name", metavar="<alert>")
+    v.add_argument("duration", metavar="<duration>", nargs="?", help="30m, 2h or PT2H")
+    v = add("ack", "Acknowledge firing keys, which stops their reminders (MODIFY).")
+    v.add_argument("name", metavar="<alert>")
+    v.add_argument("--key", metavar="'COL=V, COL=V'", help="one key as `alerts show` prints it; default all")
+
+    p = b.add("alert", _alerts.alert, "Create or drop an alert (a CREATE ALERT statement, over Flight).")
+    add = b.verbs(p, _alerts.alert, required=True)
+    v = add("create", "Notify when a key's row enters a view (fired) and when it leaves (cleared).")
+    v.add_argument("name", metavar="<alert>")
+    v.add_argument("--on", metavar="VIEW", help="the continuous query's view it watches")
+    v.add_argument("--where", metavar="COND", help="column op literal [AND ...], over the view's columns")
+    v.add_argument("--notify", metavar="CH1,CH2", help="channels bound under pravaha.notifiers.<name>")
+    v.add_argument("--severity", help="info, warning (default) or critical")
+    v.add_argument("--fire-after", dest="fire_after", metavar="DUR", help="in the condition this long first")
+    v.add_argument("--clear-after", dest="clear_after", metavar="DUR", help="out of it this long first")
+    v.add_argument("--dedupe", metavar="DUR", help="least time between two notifications about one key")
+    v.add_argument("--resend-every", dest="resend_every", metavar="DUR", help="remind until acknowledged")
+    v.add_argument("--include", metavar="COL,COL", help="the columns a notification carries")
+    v.add_argument("--print-sql", dest="print_sql", action="store_true", help="print the statement, send nothing")
+    v = add("drop", "Drop an alert, its state and its history (MANAGE).")
+    v.add_argument("name", metavar="<alert>")
+    v.add_argument("--if-exists", dest="if_exists", action="store_true")
+    v.add_argument("--print-sql", dest="print_sql", action="store_true", help=argparse.SUPPRESS)
+    _yes(v, "drop it")
 
     for made in b.made:
         _global_options(made, suppress=True)

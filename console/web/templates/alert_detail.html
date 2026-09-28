@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% from "_helpcards.html" import helplink %}
+{% import "_people.html" as people %}
+{% block title %}{{ detail.alert.name }} — {{ t('alerts.title') }} — {{ app_name }}{% endblock %}
+{% block content %}
+{#- ADR-057: one alert as the engine shows it to this person -- every key it holds, what the
+    channels were last told and what they are owed, and its recent notifications. The four forms
+    post to the console, which asks the engine as this person; each carries the CSRF token. -#}
+{% set a = detail.alert %}
+<div class="page-head">
+  <div>
+    <div class="accent"></div>
+    <p class="kicker mt-2 mb-1">{{ t('alerts.kicker') }}</p>
+    <h1 class="mono">{{ a.name }}{{ helplink('alerts') }}</h1>
+  </div>
+  <a class="btn btn-sm btn-link" href="/alerts">&larr; {{ t('alerts.back') }}</a>
+</div>
+<div class="rule"></div>
+
+{{ people.flashes(flashes) }}
+
+<div class="row g-3">
+  <div class="col-lg-7"><div class="card h-100"><div class="card-body">
+    <h2 class="h6">{{ t('alerts.detail.about') }}</h2>
+    <dl class="row small mb-0" id="alert-fields">
+      <dt class="col-4">{{ t('alerts.col.view') }}</dt><dd class="col-8 mono"><a href="/queries/{{ a.view|urlencode }}">{{ a.view }}</a></dd>
+      <dt class="col-4">{{ t('alerts.detail.condition') }}</dt><dd class="col-8 mono">{{ a.condition or t('alerts.detail.every_row') }}</dd>
+      <dt class="col-4">{{ t('alerts.col.state') }}</dt><dd class="col-8"><span class="chip {{ 'ok' if a.state == 'ACTIVE' else 'mute' }}" id="alert-state">{{ a.state }}</span>{% if a.snoozedUntil %} <span class="small">{{ t('alerts.detail.until', at=a.snoozedUntil) }}</span>{% endif %}
+        {% if a.following != 'FOLLOWING' %}<span class="chip warn">{{ a.following }}</span> <span class="small text-muted">{{ a.problem or '' }}</span>{% endif %}</dd>
+      <dt class="col-4">{{ t('alerts.col.severity') }}</dt><dd class="col-8">{{ a.severity }}</dd>
+      <dt class="col-4">{{ t('alerts.col.channels') }}</dt><dd class="col-8 mono">{{ (a.channels or [])|join(', ') }}</dd>
+      <dt class="col-4">{{ t('alerts.detail.options') }}</dt><dd class="col-8 mono">{% for k, v in (a.options or {}).items() %}<span class="chip mute me-1">{{ k }}={{ v }}</span>{% else %}—{% endfor %}</dd>
+      <dt class="col-4">{{ t('alerts.detail.owner') }}</dt><dd class="col-8 mono">{{ a.owner }}</dd>
+      <dt class="col-4">{{ t('alerts.col.delivery') }}</dt><dd class="col-8">{% if a.deliveryError %}<span class="text-danger" id="delivery-error">{{ a.deliveryError }}</span>{% else %}{{ t('alerts.detail.up_to_date') }}{% endif %}</dd>
+    </dl>
+  </div></div></div>
+  <div class="col-lg-5"><div class="card h-100"><div class="card-body">
+    <h2 class="h6">{{ t('alerts.detail.actions') }}</h2>
+    <p class="small text-muted">{{ t('alerts.detail.actions_note') }}</p>
+    <div class="d-flex flex-wrap gap-2 mb-2">
+      {% if a.state == 'PAUSED' or a.state == 'SNOOZED' %}
+      <form method="post" action="/alerts/{{ a.name|urlencode }}/resume" id="resume-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="btn btn-sm btn-primary" type="submit">{{ t('alerts.action.resume') }}</button>
+      </form>
+      {% endif %}
+      {% if a.state != 'PAUSED' %}
+      <form method="post" action="/alerts/{{ a.name|urlencode }}/pause" id="pause-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="btn btn-sm btn-outline-secondary" type="submit">{{ t('alerts.action.pause') }}</button>
+      </form>
+      {% endif %}
+    </div>
+    <form method="post" action="/alerts/{{ a.name|urlencode }}/snooze" class="d-flex gap-2 align-items-end mb-2" id="snooze-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div><label class="form-label small" for="snooze-for">{{ t('alerts.action.snooze_for') }}</label>
+        <input class="form-control form-control-sm mono" id="snooze-for" name="duration" value="1h" size="6" required></div>
+      <button class="btn btn-sm btn-outline-secondary" type="submit">{{ t('alerts.action.snooze') }}</button>
+    </form>
+    <form method="post" action="/alerts/{{ a.name|urlencode }}/ack" id="ack-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="btn btn-sm btn-outline-secondary" type="submit" {% if not a.firing %}disabled{% endif %}>{{ t('alerts.action.ack_all') }}</button>
+    </form>
+  </div></div></div>
+</div>
+
+<div class="card mt-3"><div class="card-body">
+  <h2 class="h6">{{ t('alerts.detail.keys') }}</h2>
+  {% if detail.get('keys') %}
+  <div class="table-responsive"><table class="table table-sm small mb-0" id="alert-keys">
+    <caption class="visually-hidden">{{ t('alerts.detail.keys') }}</caption>
+    <thead><tr><th scope="col">{{ t('alerts.col.key') }}</th><th scope="col">{{ t('alerts.col.state') }}</th><th scope="col">{{ t('alerts.col.since') }}</th>
+      <th scope="col">{{ t('alerts.col.episode') }}</th><th scope="col">{{ t('alerts.col.notified') }}</th><th scope="col">{{ t('alerts.col.owed') }}</th>
+      <th scope="col">{{ t('alerts.col.ack') }}</th></tr></thead>
+    <tbody>{% for k in detail.get('keys') %}
+    <tr data-key="{{ key_text(k.key) }}">
+      <td class="mono">{{ key_text(k.key) }}</td>
+      <td><span class="chip {{ 'bad' if k.state == 'FIRING' else ('warn' if k.state in ('PENDING', 'CLEARING') else 'ok') }}" data-state="{{ k.state }}">{{ k.state }}</span></td>
+      <td>{{ k.since or '—' }}</td><td>{{ k.episode }}</td><td>{{ k.notified }}</td>
+      <td>{% if k.owed %}<span class="chip warn">{{ k.owed }}</span>{% else %}—{% endif %}</td>
+      <td>{% if k.acknowledgedBy %}<span class="mono">{{ k.acknowledgedBy }}</span>{% elif k.state == 'FIRING' %}
+        <form method="post" action="/alerts/{{ a.name|urlencode }}/ack" class="d-inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="key" value="{{ key_text(k.key) }}">
+          <button class="btn btn-sm btn-link p-0" type="submit">{{ t('alerts.action.ack') }}</button>
+        </form>{% else %}—{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="small text-muted mb-0" id="alert-no-keys">{{ t('alerts.detail.no_keys') }}</p>{% endif %}
+</div></div>
+
+<div class="card mt-3"><div class="card-body">
+  <h2 class="h6">{{ t('alerts.detail.history') }}</h2>
+  {% if detail.get('notifications') %}
+  <div class="table-responsive"><table class="table table-sm small mb-0" id="alert-history">
+    <caption class="visually-hidden">{{ t('alerts.detail.history') }}</caption>
+    <thead><tr><th scope="col">{{ t('alerts.col.at') }}</th><th scope="col">{{ t('alerts.col.kind') }}</th><th scope="col">{{ t('alerts.col.key') }}</th>
+      <th scope="col">{{ t('alerts.col.episode') }}</th><th scope="col">{{ t('alerts.col.outcome') }}</th><th scope="col">{{ t('alerts.col.detail') }}</th></tr></thead>
+    <tbody>{% for n in detail.get('notifications') %}
+    <tr><td>{{ n.at }}</td><td><span class="chip {{ 'bad' if n.kind == 'FIRED' else ('ok' if n.kind == 'CLEARED' else 'mute') }}">{{ n.kind }}</span></td>
+      <td class="mono">{{ key_text(n.key) }}</td><td>{{ n.episode }}</td>
+      <td>{% if n.outcome == 'DELIVERED' %}<span class="chip ok">{{ n.outcome }}</span>{% else %}<span class="chip bad">{{ n.outcome }}</span>{% endif %}</td>
+      <td class="small">{{ n.detail }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="small text-muted mb-0">{{ t('alerts.detail.no_history') }}</p>{% endif %}
+</div></div>
+{% endblock %}

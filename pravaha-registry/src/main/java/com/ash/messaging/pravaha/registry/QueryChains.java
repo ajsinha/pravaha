@@ -269,7 +269,9 @@ final class QueryChains {
 
     /** Refuses dropping a name other queries read (PRV-8024), naming them. */
     void refuseDrop(String name) {
-        List<String> dependants = dependantsOf(name);
+        List<String> dependants = new ArrayList<>(dependantsOf(name));
+        // An alert follows the answer as a query over it does (ADR-057), and is refused for alike.
+        dependants.addAll(registry.alerting().followersOf(name));
         if (!dependants.isEmpty()) {
             throw new PravahaException(
                     RegistryErrors.QUERY_HAS_DEPENDANTS,
@@ -305,7 +307,8 @@ final class QueryChains {
                 }
             }
         }
-        List<String> dependants = dependantsOf(name);
+        List<String> dependants = new ArrayList<>(dependantsOf(name));
+        dependants.addAll(registry.alerting().followersOf(name));
         if (!dependants.isEmpty()) {
             throw unsupported("'" + name + "' is read by " + dependants + ", which follow the computation answering "
                     + "it now. A cutover would move the name to another computation behind them. Drop them, replace "

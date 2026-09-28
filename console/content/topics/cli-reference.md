@@ -7,7 +7,7 @@ icon: terminal
 summary: "Every pravaha command and flag — query, register, subscribe, lifecycle, blue/green, dead letters, the debugger, status, lanes, audit, identity and the assistant — with output, --json, exit codes and the refusals it prints; and pravaha-engine for SQL with no server."
 badge: REFERENCE
 audience: Developers
-keywords: [cli, pravaha, pravaha-engine, command line, query, register, queries, subscribe, pause, resume, drop, replace, cutover, rollback, dlq, debug, status, health, streams, views, describe, plan, lanes, rebalance, audit, tenants, permissions, login, logout, whoami, user, key, session, version, ask, explain-sql, why, assist, "--url", "--http", "--token", "--insecure-token", "--json", "--yes", "--sql-file", "--params", "--filter", "--snapshot", "--reconnect", PRAVAHA_URL, PRAVAHA_HTTP, PRAVAHA_TOKEN, NO_COLOR, exit code]
+keywords: [cli, pravaha, pravaha-engine, command line, query, register, queries, subscribe, pause, resume, drop, replace, cutover, rollback, dlq, debug, status, health, streams, views, describe, plan, lanes, rebalance, audit, tenants, permissions, login, logout, whoami, user, key, session, version, ask, explain-sql, why, assist, "--url", "--http", "--token", "--insecure-token", "--json", "--yes", "--sql-file", "--params", "--filter", "--snapshot", "--reconnect", PRAVAHA_URL, PRAVAHA_HTTP, PRAVAHA_TOKEN, NO_COLOR, exit code, alerts, alert, snooze, ack]
 guide: quickstart
 related: [choosing-a-client, client-snippets, sdk-reference, http-api, subscriptions, lane-sharing, authentication]
 ---
@@ -55,6 +55,8 @@ installed `pravaha` if there is one, and otherwise the CLI from `sdk/python` (wi
 | `audit`, `tenants`, `permissions` | HTTP | Authorization decisions, quotas, what you may do |
 | `catalog ls`, `search`, `namespaces`, `show`, `create-namespace`, `comment`, `tag`, `move`, `owner` | HTTP | The Pravaha Catalog: namespaces, owners, descriptions, tags (`owner` needs `--yes`) |
 | `grant`, `revoke`, `grants`, `access why` | HTTP | Grants, and why a user may or may not (`revoke` needs `--yes`) |
+| `alerts ls`, `channels`, `show`, `pause`, `resume`, `snooze`, `ack` | HTTP | Alerts: what is firing, and quieting or acknowledging one |
+| `alert create`, `alert drop` | Flight | `CREATE ALERT` / `DROP ALERT`, as `query --sql` would send them (`drop` needs `--yes`) |
 | `login`, `logout`, `whoami`, `password`, `user`, `key`, `session` | HTTP | Identity |
 
 `pravaha --help` lists every command; `pravaha <command> --help` prints one command's flags and exits
@@ -563,6 +565,29 @@ through which grant, role, namespace or ownership — for yourself, or for anyon
 manage (`PRV-7033` otherwise). `revoke` and `catalog owner` take something away from somebody, so
 they print what they would do and change nothing without `--yes`. See
 [Catalog and grants](/help/topics/catalog-and-grants).
+
+## Alerts
+
+```text
+pravaha alerts [ls]
+pravaha alerts channels
+pravaha alerts show <alert>
+pravaha alerts pause <alert>
+pravaha alerts resume <alert>
+pravaha alerts snooze <alert> <duration>
+pravaha alerts ack <alert> [--key 'sku=sku-100, warehouse=LDN']
+pravaha alert create <alert> --on <view> --notify <channel>[,<channel>] [--where '<column> <op> <literal> AND ...']
+                     [--severity info|warning|critical] [--fire-after D] [--clear-after D] [--dedupe D]
+                     [--resend-every D] [--include c1,c2] [--print-sql]
+pravaha alert drop <alert> [--if-exists] --yes
+```
+
+`alerts ls` lists the alerts you may see with how many keys are firing; `show` prints each key's
+state, what the channels were last told and what they are owed, and the recent notifications with
+their outcome. `pause`, `resume`, `snooze` and `ack` need `MODIFY` on the alert; a refusal exits `1`
+with its code (`PRV-7002`, or `PRV-8040` for an alert you may not see). `alert create` and `alert drop`
+write the statement and send it over Flight — the same as `pravaha query --sql 'CREATE ALERT ...'`.
+A duration is `30s`, `10m`, `2h`, `1d` or `PT2H`. See [Alerts](/help/topics/alerts).
 
 ## Identity
 

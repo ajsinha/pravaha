@@ -212,16 +212,34 @@ public final class Catalog {
      * registration at start must not reset its owner, its grants or where it was moved to.
      */
     public synchronized CatalogObject registerView(String engineName, Principal owner) {
-        Optional<CatalogObject> known = byEngineName(ObjectKind.VIEW, engineName);
+        return registerObject(ObjectKind.VIEW, engineName, owner);
+    }
+
+    /**
+     * As {@link #registerView}, for any kind a person creates by statement: a view, or an alert
+     * (ADR-057). A name already recorded as that kind is left as it is.
+     */
+    public synchronized CatalogObject registerObject(ObjectKind kind, String engineName, Principal owner) {
+        Optional<CatalogObject> known = byEngineName(kind, engineName);
         if (known.isPresent()) {
             return known.get();
         }
         String namespace = CatalogNames.defaultNamespaceOf(owner.tenant());
         ensureNamespace(namespace);
         Instant now = clock.instant();
+        String fullName = CatalogNames.object(namespace, engineName);
+        CatalogObject taken = objects.get(fullName);
+        if (taken != null) {
+            throw new PravahaException(
+                    CatalogErrors.OBJECT_EXISTS,
+                    "'" + fullName + "' is already the catalogue's name for a "
+                            + taken.kind().name().toLowerCase(java.util.Locale.ROOT)
+                            + "; a " + kind.name().toLowerCase(java.util.Locale.ROOT)
+                            + " cannot be given the same name in the same namespace");
+        }
         CatalogObject created = new CatalogObject(
-                CatalogNames.object(namespace, engineName),
-                ObjectKind.VIEW,
+                fullName,
+                kind,
                 engineName,
                 Grantee.user(owner.id()),
                 "",
@@ -262,7 +280,12 @@ public final class Catalog {
 
     /** Forgets a view the engine has dropped, and every grant on it: a new view of the same name starts clean. */
     public synchronized void dropView(String engineName) {
-        byEngineName(ObjectKind.VIEW, engineName).ifPresent(view -> {
+        dropObject(ObjectKind.VIEW, engineName);
+    }
+
+    /** As {@link #dropView}, for any kind a person creates by statement. */
+    public synchronized void dropObject(ObjectKind kind, String engineName) {
+        byEngineName(kind, engineName).ifPresent(view -> {
             journal.append(List.of(List.of("x", view.fullName())));
             forget(view.fullName());
             changed();
@@ -274,10 +297,15 @@ public final class Catalog {
      * the catalogue could not be written, or a registry journal that was removed.
      */
     public synchronized int reconcileViews(Set<String> running) {
-        List<String> stale = byEngineName.getOrDefault(ObjectKind.VIEW, Map.of()).keySet().stream()
+        return reconcile(ObjectKind.VIEW, running);
+    }
+
+    /** As {@link #reconcileViews}, for any kind a person creates by statement: views, alerts. */
+    public synchronized int reconcile(ObjectKind kind, Set<String> running) {
+        List<String> stale = byEngineName.getOrDefault(kind, Map.of()).keySet().stream()
                 .filter(name -> !running.contains(name))
                 .toList();
-        stale.forEach(this::dropView);
+        stale.forEach(name -> dropObject(kind, name));
         return stale.size();
     }
 

@@ -279,6 +279,24 @@ what a view is for. **Building on a view needs `BUILD_ON` on it**, so nobody der
 could not read. And subscribing is its own right, because a live stream is not a query: revoking it
 ends an open subscription within seconds.
 
+## 10. An alert says when a row enters an answer, and when it leaves
+
+An answer that is being computed can also be *watched*. An **alert** (ADR-057) follows one view's
+answer and, for each key, says when its row **enters** — inserted, or updated across the view's
+condition — and when it **leaves** — deleted, or updated back. The second half is the one that is
+usually missing, and it is honest here because of §4: the update that tops a stock line up arrives as
+the old row at −1, the row leaves the view, and the alert is told the line has recovered rather than
+inferring it from silence. It follows the *answer*, not the changelog, so a keyed upsert is a row
+leaving and another entering, as a reader of the view sees it.
+
+Each key has two states, kept apart: **what is true** (firing or not) and **what the receivers were
+last told**. Pausing, snoozing and de-duplicating change only the second, and whenever they allow the
+receivers are told the difference once — so a flap folds into its end state and a clear is never
+lost. The state is **exactly once** (every decision is journalled before anything is sent, and a
+restart neither re-fires a firing key nor forgets a clear it owed); delivery is **at least once**,
+under an idempotency key a receiver de-duplicates on. An alert is a catalogue object, and a view an
+alert follows cannot be dropped from under it.
+
 ---
 
 ## Where to go next

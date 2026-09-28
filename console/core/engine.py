@@ -851,6 +851,35 @@ class Engine:
         """``GET catalog/access``: what ``user`` may do to ``on``, and through which grant."""
         return dict(self._identity("GET", "/catalog/access", query={"user": user, "object": on}) or {})
 
+    # ------------------------------------------------------------------ alerts (ADR-057)
+    #
+    # Every call is /api/v1/alerts as the signed-in person: who may see an alert (SELECT), pause,
+    # snooze or acknowledge it (MODIFY) is the engine's to decide, and its refusals are shown as such.
+
+    def alerts(self) -> list[dict]:
+        """``GET alerts``: the alerts this person may see, with how many keys each has firing."""
+        return _items(self._identity("GET", "/alerts"), "items")
+
+    def alert(self, name: str) -> dict:
+        """``GET alerts/{name}``: the alert, every key it holds, and its recent notifications."""
+        return dict(self._identity("GET", "/alerts/" + _segment(name)) or {})
+
+    def alert_channels(self) -> list[dict]:
+        """``GET alerts/channels``: the notifier channels the node binds."""
+        return _items(self._identity("GET", "/alerts/channels"), "items")
+
+    def pause_alert(self, name: str) -> dict:
+        return dict(self._identity("POST", "/alerts/" + _segment(name) + "/pause") or {})
+
+    def resume_alert(self, name: str) -> dict:
+        return dict(self._identity("POST", "/alerts/" + _segment(name) + "/resume") or {})
+
+    def snooze_alert(self, name: str, duration: str) -> dict:
+        return dict(self._identity("POST", "/alerts/" + _segment(name) + "/snooze", {"duration": duration}) or {})
+
+    def ack_alert(self, name: str, key: str | None = None) -> dict:
+        return dict(self._identity("POST", "/alerts/" + _segment(name) + "/ack", {"key": key} if key else {}) or {})
+
 
 def _segment(value: str) -> str:
     """One path segment, escaped: a username or a key id is never a path of its own."""

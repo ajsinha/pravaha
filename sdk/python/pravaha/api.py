@@ -563,5 +563,49 @@ class EngineApi:
         oneself, or by a manager of the object. ``GET /api/v1/catalog/access``."""
         return dict(self._rest.get("/api/v1/catalog/access", {"user": user, "object": on}) or {})
 
+    # ------------------------------------------------------------------ alerts (ADR-057)
+
+    def alerts(self) -> "list[dict[str, Any]]":
+        """The alerts this principal may see: ``name``, ``view``, ``state`` (ACTIVE, PAUSED,
+        SNOOZED), ``following``, ``condition``, ``channels``, ``severity``, ``options``,
+        ``firing`` and ``pending`` key counts, ``lastNotificationAt`` and any ``deliveryError``.
+        ``GET /api/v1/alerts``."""
+        return _items(self._rest.get("/api/v1/alerts"), "items")
+
+    def alert(self, name: str) -> dict[str, Any]:
+        """One alert as ``alert``, every key it holds as ``keys`` (``state`` PENDING, FIRING,
+        CLEARING or CLEARED, ``episode``, what was last ``notified`` and what is ``owed``), and its
+        recent ``notifications``, newest first. ``GET /api/v1/alerts/{name}``."""
+        return dict(self._rest.get("/api/v1/alerts/" + _segment(name)) or {})
+
+    def alert_channels(self) -> "list[dict[str, Any]]":
+        """The notifier channels the node binds (``pravaha.notifiers.*``): ``name`` and ``plugin``.
+        ``GET /api/v1/alerts/channels``."""
+        return _items(self._rest.get("/api/v1/alerts/channels"), "items")
+
+    def pause_alert(self, name: str) -> dict[str, Any]:
+        """Pauses an alert: it keeps following its view and says nothing until resumed (MODIFY).
+        ``POST /api/v1/alerts/{name}/pause``."""
+        return dict(self._rest.post("/api/v1/alerts/" + _segment(name) + "/pause", None) or {})
+
+    def resume_alert(self, name: str) -> dict[str, Any]:
+        """Resumes an alert, ending a pause or a snooze; what changed meanwhile is sent (MODIFY).
+        ``POST /api/v1/alerts/{name}/resume``."""
+        return dict(self._rest.post("/api/v1/alerts/" + _segment(name) + "/resume", None) or {})
+
+    def snooze_alert(self, name: str, duration: str) -> dict[str, Any]:
+        """Snoozes an alert for ``duration`` (``30m``, ``2h``, ``PT2H``); what changed meanwhile is
+        sent when it ends (MODIFY). ``POST /api/v1/alerts/{name}/snooze``."""
+        return dict(
+            self._rest.post("/api/v1/alerts/" + _segment(name) + "/snooze", {"duration": duration}) or {}
+        )
+
+    def ack_alert(self, name: str, key: Optional[str] = None) -> dict[str, Any]:
+        """Acknowledges an alert's firing keys, or the one ``key`` names as the alert shows it
+        (``sku=sku-100, warehouse=LDN``); an acknowledged key is not reminded about until it fires
+        again (MODIFY). Answers ``acknowledged``, how many. ``POST /api/v1/alerts/{name}/ack``."""
+        body = {"key": key} if key else {}
+        return dict(self._rest.post("/api/v1/alerts/" + _segment(name) + "/ack", body) or {})
+
 
 __all__ = ["EngineApi"]
