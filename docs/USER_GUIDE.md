@@ -426,7 +426,7 @@ pravaha queries                       # name, state, fingerprint, rows in, sink;
 pravaha queries --verbose             # ...and each query's feed
 pravaha pause  --name card_velocity   # keeps answering, stops advancing
 pravaha resume --name card_velocity
-pravaha drop   --name card_velocity
+pravaha drop   --name card_velocity --yes
 ```
 ```java
 client.queries(); client.pause(name); client.resume(name); client.drop(name);
@@ -528,7 +528,7 @@ pravaha replace --name card_velocity --sql-file v2.sql --keys 0 --wait
 pravaha replacements                       # how far the backfill has got, and how fast
 pravaha cutover  --name card_velocity      # move the name, when the two have consumed the same input
 pravaha rollback --name card_velocity      # put the old one back, while it is still retained
-pravaha finish   --name card_velocity      # release it, and end the chance to roll back
+pravaha finish   --name card_velocity --yes  # release it, and end the chance to roll back
 ```
 ```java
 client.replace("card_velocity", sql, List.of(0), "backfill=history;backfill.rate.limit=5000");

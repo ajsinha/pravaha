@@ -111,6 +111,45 @@ These return the JSON the API documents, as dicts. A refusal raises `ApiError` w
 answer is status `0` and retryable. The token rule is the Flight one: never over plain `http://`
 unless `allow_insecure_token=True` is asked for.
 
+`EngineApi` is the same HTTP surface **without Flight or pyarrow** — for a script that only
+administers. Every HTTP method on `Client` delegates to one (`client.http_api`), and it adds the
+calls that have no `Client` form: lanes and their rebalance, health, and the engine's identity
+endpoints.
+
+```python
+from pravaha import EngineApi
+
+api = EngineApi("https://pravaha:18080")
+token = api.login("ann", password)["token"]
+api = EngineApi("https://pravaha:18080", token=token)
+api.lanes(); api.rebalance_lanes(dry_run=True)   # a plan; dry_run=False moves queries
+api.health()["status"]                           # UP, DEGRADED, ... (a 503 is answered, not raised)
+api.users(); api.create_key("ci", roles=["reader"], expires_days=30)["key"]  # shown once
+api.logout()
+```
+
+## The command line
+
+Installing the package installs **`pravaha`**, the command line for a running engine (also
+`python -m pravaha.cli`, or `bin/pravaha` from a checkout). It is built on this SDK and nothing
+else: the Flight commands through `Client`, the HTTP ones through `EngineApi`.
+
+```bash
+pip install 'pravaha[flight]'
+pravaha --http https://pravaha:18080 login --user ann --save   # token saved, mode 0600
+pravaha --url grpc+tls://pravaha:19090 query --sql "SELECT * FROM user_volume WHERE total > ?" --params 100
+pravaha queries --json | jq '.[].name'
+pravaha subscribe --view trade_feed --snapshot --reconnect
+pravaha describe hourly_spend; pravaha lanes; pravaha audit --decision deny
+pravaha drop --name hourly_spend --yes   # without --yes it only says what would happen
+```
+
+Every command takes `--url`/`--http`/`--token` (or `PRAVAHA_URL`/`PRAVAHA_HTTP`/`PRAVAHA_TOKEN`),
+`--json`, and the TLS options, and exits `0` done, `1` the engine refused (its `PRV` code on stderr),
+`2` a usage error, `3` nothing answered. Without the `flight` extra the HTTP commands still work.
+Planning or running SQL with no server is the Java tool `pravaha-engine`. The full reference is
+[`docs/CLI.md`](../../docs/CLI.md) and the console's *CLI reference* help page.
+
 ## Install
 
 ```bash

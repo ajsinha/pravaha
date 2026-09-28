@@ -375,8 +375,8 @@ DROP CONTINUOUS QUERY big_payments;
 ```
 
 ```bash
-pravaha drop --name minute_spend
-pravaha drop --name big_payments
+pravaha drop --name minute_spend --yes
+pravaha drop --name big_payments --yes
 ```
 
 ```text
