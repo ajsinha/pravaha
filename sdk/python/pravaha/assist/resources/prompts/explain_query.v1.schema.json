@@ -1,0 +1,11 @@
+{
+  "$comment": "Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved. PROPRIETARY AND CONFIDENTIAL. The answer explain_query v1 asks for.",
+  "type": "object",
+  "properties": {
+    "summary": {"type": "string"},
+    "steps": {"type": "array", "items": {"type": "string"}},
+    "notes": {"type": "array", "items": {"type": "string"}}
+  },
+  "required": ["summary", "steps", "notes"],
+  "additionalProperties": false
+}

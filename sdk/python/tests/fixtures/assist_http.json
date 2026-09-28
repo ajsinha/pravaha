@@ -1,0 +1,67 @@
+{
+  "$comment": "Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved. PROPRIETARY AND CONFIDENTIAL. Recorded provider answers, in each API's documented shape, served by a local http.server in tests/test_assist_providers.py. No test calls a real model API.",
+  "anthropic": {
+    "text": {"status": 200, "body": {
+      "id": "msg_01", "type": "message", "role": "assistant", "model": "claude-opus-5",
+      "content": [{"type": "text", "text": "It counts "}, {"type": "text", "text": "orders per minute."}],
+      "stop_reason": "end_turn", "stop_sequence": null,
+      "usage": {"input_tokens": 42, "output_tokens": 9, "cache_read_input_tokens": 30}}},
+    "json": {"status": 200, "body": {
+      "id": "msg_02", "type": "message", "role": "assistant", "model": "claude-opus-5",
+      "content": [{"type": "text", "text": "{\"summary\": \"Counts orders.\", \"steps\": [\"Reads orders.\"], \"notes\": []}"}],
+      "stop_reason": "end_turn", "usage": {"input_tokens": 50, "output_tokens": 20}}},
+    "refusal": {"status": 200, "body": {
+      "id": "msg_03", "type": "message", "role": "assistant", "model": "claude-opus-5",
+      "content": [], "stop_reason": "refusal",
+      "stop_details": {"type": "refusal", "category": "cyber", "explanation": "policy"},
+      "usage": {"input_tokens": 10, "output_tokens": 0}}},
+    "rate_limited": {"status": 429, "headers": {"retry-after": "7"}, "body": {
+      "type": "error", "error": {"type": "rate_limit_error", "message": "Number of request tokens has exceeded your per-minute rate limit"}}},
+    "overloaded": {"status": 529, "body": {
+      "type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}}},
+    "server_error": {"status": 500, "body": {
+      "type": "error", "error": {"type": "api_error", "message": "Internal server error"}}},
+    "not_found": {"status": 404, "body": {
+      "type": "error", "error": {"type": "not_found_error", "message": "model: claude-nope"}}},
+    "model": {"status": 200, "body": {
+      "type": "model", "id": "claude-opus-5", "display_name": "Claude Opus 5",
+      "max_input_tokens": 1000000, "max_tokens": 128000}}
+  },
+  "openai": {
+    "text": {"status": 200, "body": {
+      "id": "chatcmpl-1", "object": "chat.completion", "model": "gpt-test-2026",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "It counts orders per minute.", "refusal": null}, "finish_reason": "stop"}],
+      "usage": {"prompt_tokens": 42, "completion_tokens": 9, "total_tokens": 51, "prompt_tokens_details": {"cached_tokens": 30}}}},
+    "json": {"status": 200, "body": {
+      "id": "chatcmpl-2", "object": "chat.completion", "model": "gpt-test-2026",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": "{\"summary\": \"Counts orders.\", \"steps\": [\"Reads orders.\"], \"notes\": []}"}, "finish_reason": "stop"}],
+      "usage": {"prompt_tokens": 50, "completion_tokens": 20}}},
+    "refusal": {"status": 200, "body": {
+      "id": "chatcmpl-3", "object": "chat.completion", "model": "gpt-test-2026",
+      "choices": [{"index": 0, "message": {"role": "assistant", "content": null, "refusal": "I can't help with that."}, "finish_reason": "stop"}],
+      "usage": {"prompt_tokens": 10, "completion_tokens": 5}}},
+    "rate_limited": {"status": 429, "headers": {"retry-after-ms": "7000"}, "body": {
+      "error": {"message": "Rate limit reached for requests", "type": "requests", "code": "rate_limit_exceeded"}}},
+    "quota": {"status": 429, "body": {
+      "error": {"message": "You exceeded your current quota", "type": "insufficient_quota", "code": "insufficient_quota"}}},
+    "server_error": {"status": 503, "body": {
+      "error": {"message": "The server is overloaded", "type": "server_error", "code": null}}},
+    "not_found": {"status": 404, "body": {
+      "error": {"message": "The model `gpt-nope` does not exist", "type": "invalid_request_error", "code": "model_not_found"}}},
+    "model": {"status": 200, "body": {"id": "gpt-test-2026", "object": "model", "owned_by": "system"}},
+    "models": {"status": 200, "body": {"object": "list", "data": [{"id": "local-model", "object": "model"}]}}
+  },
+  "ollama": {
+    "text": {"status": 200, "body": {
+      "model": "llama3.1:70b", "created_at": "2026-09-28T10:00:00Z",
+      "message": {"role": "assistant", "content": "It counts orders per minute."},
+      "done_reason": "stop", "done": true, "prompt_eval_count": 42, "eval_count": 9}},
+    "json": {"status": 200, "body": {
+      "model": "llama3.1:70b", "message": {"role": "assistant", "content": "{\"summary\": \"Counts orders.\", \"steps\": [\"Reads orders.\"], \"notes\": []}"},
+      "done_reason": "stop", "done": true, "prompt_eval_count": 50, "eval_count": 20}},
+    "rate_limited": {"status": 429, "headers": {"Retry-After": "7"}, "body": {"error": "too many requests"}},
+    "server_error": {"status": 500, "body": {"error": "llama runner process has terminated"}},
+    "not_found": {"status": 404, "body": {"error": "model \"llama-nope\" not found, try pulling it first"}},
+    "show": {"status": 200, "body": {"modelfile": "FROM llama3.1:70b", "details": {"family": "llama"}}}
+  }
+}

@@ -10,6 +10,9 @@ Exit codes are a contract scripts rely on:
 * ``2`` -- the command line or a setting was wrong, and nothing was sent;
 * ``3`` -- nothing answered at the engine's address.
 
+The assistant's commands (``explain-sql``, ``why``, ``assist``) keep the contract: a model that
+failed exits ``1`` with the normalised error, a wrong assistant configuration exits ``2``.
+
 Every option that says how to reach the engine (``--url``, ``--http``, ``--token``, ``--json``,
 the TLS options...) is accepted before the command or after it, because the Java CLI took them
 after it and every page written for that should still work.
@@ -25,7 +28,8 @@ import traceback
 from typing import Any, NoReturn, Optional, Sequence, TextIO
 
 import pravaha
-from pravaha.cli import _flight, _http, _identity
+from pravaha.assist.errors import AssistConfigError, AssistError
+from pravaha.cli import _assist, _flight, _http, _identity
 from pravaha.cli._common import (
     EXIT_OK,
     EXIT_REFUSED,
@@ -60,6 +64,9 @@ they would do and change nothing unless given --yes.
 
 Offline -- planning or running SQL with no server -- is the Java tool `pravaha-engine`
 (validate --schema, explain --schema, run).
+
+The assistant (explain-sql, why, assist) asks a configured model, with the engine as the judge;
+see docs/ASSIST.md. A model failure exits 1, a wrong assistant configuration 2.
 
 pravaha <command> --help prints one command's flags without contacting anything.
 Exit codes: 0 ok, 1 the engine refused (its PRV code on stderr), 2 usage, 3 cannot reach the engine.
@@ -436,9 +443,49 @@ def build_parser() -> _Parser:
     v = add("end", "End a session.")
     v.add_argument("target", metavar="<id>")
 
+    # ------------------------------------------------------------------ the assistant (ADR-058)
+    p = b.add("explain-sql", _assist.explain_sql,
+              "A query in plain English, grounded in the engine's plan (asks a model).")
+    _sql_options(p)
+    p.add_argument("--query", metavar="NAME", help="a registered query, instead of --sql")
+    p.add_argument("--level", default="physical", help="the plan given to the model: physical "
+                                                       "(default) or logical")
+    p.add_argument("--show-plan", action="store_true", help="print the engine's plan too")
+    _assist_options(p)
+
+    p = b.add("why", _assist.why,
+              "What a refusal means and what to change (asks a model; the engine checks any rewrite).")
+    p.add_argument("code", metavar="<PRV-nnnn>", help="the refusal code, such as PRV-2050")
+    _sql_options(p)
+    p.add_argument("--no-check", action="store_true",
+                   help="do not ask the engine to validate a rewrite the model proposes")
+    _assist_options(p)
+
+    p = b.add("assist", _assist.assist, "The assistant's models, profiles and providers.")
+    add = b.verbs(p, _assist.assist)
+    add("models", "Every configured model, its key, and the profiles whose chains name it.")
+    add("providers", "Every provider type: built-in and installed by entry point.")
+    v = add("check", "Ping each enabled model cheaply (a models endpoint; no tokens where possible).")
+    v.add_argument("--model", metavar="ID[,ID]", help="only these configured models")
+    v = add("use", "Set a profile's fallback chain (first answers first).")
+    v.add_argument("profile", metavar="<profile>")
+    v.add_argument("chain", metavar="<model-id>[,<fallback>...]")
+    v.add_argument("--default", action="store_true", help="also make it the default profile")
+    _yes(v, "store the change")
+    for verb in ("enable", "disable"):
+        v = add(verb, f"{verb.capitalize()} a configured model.")
+        v.add_argument("model_id", metavar="<model-id>")
+        _yes(v, "store the change")
+
     for made in b.made:
         _global_options(made, suppress=True)
     return parser
+
+
+def _assist_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--profile", help="the profile whose chain answers (default: explain, "
+                                          "else the configured default)")
+    parser.add_argument("--model", metavar="ID", help="ask only this configured model")
 
 
 def _offline_run(ctx: Context) -> int:
@@ -470,6 +517,12 @@ def classify(exc: BaseException) -> int:
     """The exit code a failure means."""
     if isinstance(exc, UsageError):
         return EXIT_USAGE
+    if isinstance(exc, AssistConfigError):
+        # The assistant's configuration is wrong: no model was asked.
+        return EXIT_USAGE
+    if isinstance(exc, AssistError):
+        # A model failed, or a budget refused the request: the normalised error is on stderr.
+        return EXIT_REFUSED
     if isinstance(exc, (InvalidOptionsError, InvalidTlsOptionsError, MalformedEndpointError,
                         InvalidDocsBaseUrlError, MalformedTextError)):
         return EXIT_USAGE
@@ -496,6 +549,12 @@ def _report(exc: BaseException, out: Output, settings: Optional[Settings]) -> in
                 f" (talking to {where} -- pass {'--http' if http else '--url'} if that is not "
                 f"the node you meant)"
             )
+    elif isinstance(exc, AssistError):
+        prv = None
+        words = f"{exc.kind}: {exc}"
+        retry = getattr(exc, "retry_after", None)
+        if retry is not None:
+            words += f" (retry after {retry:g} s)"
     else:
         prv = None
         words = str(exc) if isinstance(exc, (UsageError, ValueError)) else (
@@ -505,6 +564,9 @@ def _report(exc: BaseException, out: Output, settings: Optional[Settings]) -> in
         body: dict[str, Any] = {"code": prv, "message": words, "exit": code}
         if isinstance(exc, ApiError):
             body["status"] = exc.status
+        if isinstance(exc, AssistError):
+            body.update(exc.to_dict())
+            body["message"] = words
         print(to_json({"error": body}, indent=None), file=out.err)
     else:
         line = words if prv is None or words.startswith(prv) else f"{prv}  {words}"

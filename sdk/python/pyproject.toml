@@ -53,6 +53,18 @@ dev = [
 [project.scripts]
 pravaha = "pravaha.cli:run"
 
+# The assistant's model providers (ADR-058). Discovered through this group, so a provider is a
+# package: another distribution declares `acme = "acme_pravaha:AcmeProvider"` under the same
+# group and `pravaha assist providers` lists it. The built-ins are declared here the same way
+# (pravaha.assist.registry also names them, for a source checkout with no installed metadata).
+# All five are standard library only: none adds a dependency.
+[project.entry-points."pravaha.assist.providers"]
+fake = "pravaha.assist.providers.fake:FakeProvider"
+anthropic = "pravaha.assist.providers.anthropic:AnthropicProvider"
+openai = "pravaha.assist.providers.openai:OpenAIProvider"
+openai-compatible = "pravaha.assist.providers.openai:OpenAICompatibleProvider"
+ollama = "pravaha.assist.providers.ollama:OllamaProvider"
+
 [project.urls]
 Homepage = "https://github.com/ajsinha/pravaha"
 
@@ -64,7 +76,10 @@ packages = ["pravaha"]
 # client telling its users that its type hints are decoration. The hints were already here;
 # this is what makes them usable.
 [tool.setuptools.package-data]
-pravaha = ["py.typed"]
+# The assistant's prompts and dialect card are package resources, read with importlib.resources.
+# (Hatchling, the build backend, ships every file under pravaha/ already; this says so for
+# anything that builds with setuptools instead.)
+pravaha = ["py.typed", "assist/resources/*.json", "assist/resources/prompts/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
