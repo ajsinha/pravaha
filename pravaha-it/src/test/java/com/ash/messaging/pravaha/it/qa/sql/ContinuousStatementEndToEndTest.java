@@ -15,9 +15,6 @@
  */
 package com.ash.messaging.pravaha.it.qa.sql;
 
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -30,9 +27,9 @@ import org.junit.jupiter.api.io.TempDir;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
-import com.ash.messaging.pravaha.cli.PravahaCli;
 import com.ash.messaging.pravaha.sdk.flight.PravahaFlightClient;
 import com.ash.messaging.pravaha.sdk.flight.QueryResult;
+import com.ash.messaging.pravaha.sdk.flight.Row;
 import com.ash.messaging.pravaha.server.PravahaNode;
 import com.ash.messaging.pravaha.server.catalog.StreamCatalog;
 import com.ash.messaging.pravaha.server.catalog.StreamDeclarationProperties;
@@ -45,7 +42,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * {@code CREATE CONTINUOUS QUERY} end to end: a real node, a real source and sink plugin, the Java
- * SDK's {@code query()} and the CLI's {@code pravaha query --sql} -- no registration call anywhere.
+ * SDK's {@code query()} for every statement, the DROP included -- no registration call anywhere.
  *
  * <p>The assertions are on what the registration did rather than on what the statement answered:
  * the bytes in the sink's file, the rows a read of the view returns, and the registration a restarted
@@ -62,8 +59,8 @@ class ContinuousStatementEndToEndTest {
     private static final String SCHEMA_SPEC = "user_id:STRING,amount:INT64";
 
     @Test
-    void sql001_aQueryCreatedThroughTheSdkWritesItsSinkIsListedSurvivesARestartAndIsDroppedByTheCli(@TempDir Path dir)
-            throws Exception {
+    void sql001_aQueryCreatedThroughTheSdkWritesItsSinkIsListedSurvivesARestartAndIsDroppedByAStatementOfItsOwn(
+            @TempDir Path dir) throws Exception {
         Path input = dir.resolve("txn.csv");
         Files.writeString(input, "u1,300\nu2,50\nu3,700\n");
         Path output = dir.resolve("large.csv");
@@ -113,7 +110,7 @@ class ContinuousStatementEndToEndTest {
             assertThat(awaitLines(output, 2)).containsExactlyInAnyOrder("u1,300", "u3,700");
 
             String restartedUrl = "grpc://127.0.0.1:" + restarted.flightPort().orElseThrow();
-            Cli dropped = cli("query", "--sql", "DROP CONTINUOUS QUERY big_txn;", "--url", restartedUrl);
+            Cli dropped = sql(restartedUrl, "DROP CONTINUOUS QUERY big_txn;");
             assertThat(dropped.code()).as(dropped.err()).isZero();
             assertThat(dropped.out()).contains("big_txn").contains("DROPPED");
             assertThat(restarted.registry().orElseThrow().names()).isEmpty();
@@ -123,7 +120,7 @@ class ContinuousStatementEndToEndTest {
     }
 
     @Test
-    void sql002_theCliCreatesListsReadsAndRefusesAMalformedStatementWithItsShape(@TempDir Path dir) throws Exception {
+    void sql002_statementsCreateListAndRefuseAMalformedOneWithItsShape(@TempDir Path dir) throws Exception {
         Path input = dir.resolve("txn.csv");
         Files.writeString(input, "u1,300\nu2,50\n");
 
@@ -131,25 +128,21 @@ class ContinuousStatementEndToEndTest {
         node.start();
         String url = "grpc://127.0.0.1:" + node.flightPort().orElseThrow();
         try {
-            Cli created = cli(
-                    "query",
-                    "--sql",
+            Cli created = sql(
+                    url,
                     "CREATE CONTINUOUS QUERY spend KEYED BY (user_id) RETAIN FOR PT24H "
-                            + "AS SELECT amount, user_id FROM txn",
-                    "--url",
-                    url);
+                            + "AS SELECT amount, user_id FROM txn");
             assertThat(created.code()).as(created.err()).isZero();
             assertThat(created.out()).contains("spend").contains("RUNNING");
             assertThat(node.registry().orElseThrow().require("spend").view().keyOrdinals())
                     .as("user_id by name is output column 1")
                     .containsExactly(1);
 
-            Cli listed = cli("query", "--sql", "SHOW CONTINUOUS QUERIES", "--url", url);
+            Cli listed = sql(url, "SHOW CONTINUOUS QUERIES");
             assertThat(listed.code()).as(listed.err()).isZero();
             assertThat(listed.out()).contains("spend").contains("PT24H").contains("1 row");
 
-            Cli malformed =
-                    cli("query", "--sql", "CREATE CONTINUOUS QUERY spend2 AS SELECT amount FROM txn", "--url", url);
+            Cli malformed = sql(url, "CREATE CONTINUOUS QUERY spend2 AS SELECT amount FROM txn");
             assertThat(malformed.code()).isNotZero();
             assertThat(malformed.out() + malformed.err()).contains("PRV-2070").contains("KEYED BY");
             assertThat(node.registry().orElseThrow().names()).containsExactly("spend");
@@ -160,14 +153,29 @@ class ContinuousStatementEndToEndTest {
 
     private record Cli(int code, String out, String err) {}
 
-    private static Cli cli(String... args) {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        ByteArrayOutputStream err = new ByteArrayOutputStream();
-        int code = new PravahaCli(
-                        new PrintStream(out, true, StandardCharsets.UTF_8),
-                        new PrintStream(err, true, StandardCharsets.UTF_8))
-                .run(args);
-        return new Cli(code, out.toString(StandardCharsets.UTF_8), err.toString(StandardCharsets.UTF_8));
+    /**
+     * One statement through a fresh SDK connection, printed the way a terminal client prints it: a
+     * header, one tab-separated line per row, and a row count. A refusal is exit 1 with the server's
+     * own message.
+     */
+    private static Cli sql(String url, String statement) {
+        StringBuilder out = new StringBuilder();
+        try (PravahaFlightClient client = PravahaFlightClient.connect(url);
+                QueryResult result = client.query(statement)) {
+            out.append(String.join("\t", result.columns())).append('\n');
+            int rows = 0;
+            for (Row row : result) {
+                for (int i = 0; i < row.columns().size(); i++) {
+                    out.append(i == 0 ? "" : "\t").append(row.getString(i));
+                }
+                out.append('\n');
+                rows++;
+            }
+            out.append(rows).append(rows == 1 ? " row" : " rows").append('\n');
+            return new Cli(0, out.toString(), "");
+        } catch (RuntimeException e) {
+            return new Cli(1, out.toString(), String.valueOf(e.getMessage()));
+        }
     }
 
     private static List<Object[]> rows(Supplier<QueryResult> query) {

@@ -111,7 +111,7 @@ ENV PRAVAHA_JAVA_OPTS="-XX:MaxRAMPercentage=50.0 -XX:+ExitOnOutOfMemoryError"
 USER 10001:10001
 
 # 18080 HTTP: the operator pages, the REST read API and the actuator probes.
-# 19090 Flight SQL: what the SDKs, the CLI and the console speak, and how a query is REGISTERED --
+# 19090 Flight SQL: what the SDKs, the Python CLI and the console speak, and how a query is REGISTERED --
 # there is no REST endpoint that registers one. Confusing the two is the commonest first-run
 # failure.
 EXPOSE 18080 19090

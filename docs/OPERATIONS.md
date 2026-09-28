@@ -560,7 +560,7 @@ Three files hold what a customer would call their data, and all three are now cr
 | Checkpoints | Serialised operator state, which is the aggregated data itself |
 | The dead-letter queue | The raw bytes of every record that failed |
 
-The dead-letter queue is written only when something asks for one: `pravaha run --dlq <file>`, or
+The dead-letter queue is written only when something asks for one: `pravaha-engine run --dlq <file>`, or
 `pravaha.dlq.directory` on a server (one `<query>.dlq` per query). Without it a record that cannot be
 decoded still fails loudly rather than being discarded: the `run` command exits non-zero naming the
 line, the column and the value, and on a server the source feed for that query stops — the query goes

@@ -33,14 +33,17 @@ A few minutes the first time. That produces two runnable things:
 
 | | |
 |---|---|
-| `pravaha-cli/target/pravaha-cli-<version>-cli.jar` | the CLI, launched by `bin/pravaha` |
+| `pravaha-cli/target/pravaha-cli-<version>-cli.jar` | `pravaha-engine` — `validate`, `explain` and `run` with the engine in-process, launched by `bin/pravaha-engine` |
 | `pravaha-server/target/pravaha-server-<version>-app.jar` | the engine node, launched by `bin/pravaha-server` |
 
-Put `bin/` on your `PATH` — every example below types `pravaha` rather than a path:
+The commands that talk to a running node — `pravaha queries`, `register`, `query`, `subscribe` and
+the rest — are the Python CLI, `pravaha`, which comes with the Python SDK (`pip install './sdk/python[flight]'`).
+
+Put `bin/` on your `PATH` — every example below types `pravaha-engine` or `pravaha` rather than a path:
 
 ```bash
 export PATH="$PWD/bin:$PATH"
-pravaha --help
+pravaha-engine --help
 ```
 
 Or build a container image instead, which needs no JDK on the host:
@@ -56,10 +59,10 @@ The fastest way to see the engine work. A CSV in, a filtered projection out:
 
 ```bash
 cd examples/01-filter-and-project
-pravaha run --sql "SELECT user_id, amount FROM txn WHERE status = 'COMPLETED' AND amount > 100" \
-            --schema "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING" \
-            --out-schema "user_id:STRING,amount:INT64" \
-            --stream txn --in transactions.csv --out out.csv
+pravaha-engine run --sql "SELECT user_id, amount FROM txn WHERE status = 'COMPLETED' AND amount > 100" \
+                   --schema "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING" \
+                   --out-schema "user_id:STRING,amount:INT64" \
+                   --stream txn --in transactions.csv --out out.csv
 cat out.csv
 ```
 
@@ -77,10 +80,10 @@ and the value, and no rows are written. `transactions.csv` is clean, so make one
 
 ```bash
 printf '1,alice,500,COMPLETED\n2,bob,not-a-number,COMPLETED\n3,carol,900,COMPLETED\n' > mixed.csv
-pravaha run --sql "SELECT user_id, amount FROM txn" \
-            --schema "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING" \
-            --out-schema "user_id:STRING,amount:INT64" \
-            --stream txn --in mixed.csv --out mixed-out.csv
+pravaha-engine run --sql "SELECT user_id, amount FROM txn" \
+                   --schema "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING" \
+                   --out-schema "user_id:STRING,amount:INT64" \
+                   --stream txn --in mixed.csv --out mixed-out.csv
 ```
 
 ```
@@ -91,10 +94,10 @@ Add `--dlq <file>` to finish the run anyway and get the rejected lines on disk, 
 each, carrying the original bytes base64-encoded:
 
 ```bash
-pravaha run --sql "SELECT user_id, amount FROM txn" \
-            --schema "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING" \
-            --out-schema "user_id:STRING,amount:INT64" \
-            --stream txn --in mixed.csv --out mixed-out.csv --dlq rejects.jsonl
+pravaha-engine run --sql "SELECT user_id, amount FROM txn" \
+                   --schema "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING" \
+                   --out-schema "user_id:STRING,amount:INT64" \
+                   --stream txn --in mixed.csv --out mixed-out.csv --dlq rejects.jsonl
 ```
 
 ```
@@ -110,10 +113,10 @@ one rejected, from a three-line file.
 Worth doing early, because it is the thing that surprises people:
 
 ```bash
-pravaha run --sql "SELECT user_id, COUNT(*) FROM txn GROUP BY user_id" \
-            --schema "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING" \
-            --out-schema "user_id:STRING,n:INT64" \
-            --stream txn --in transactions.csv --out out.csv
+pravaha-engine run --sql "SELECT user_id, COUNT(*) FROM txn GROUP BY user_id" \
+                   --schema "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING" \
+                   --out-schema "user_id:STRING,n:INT64" \
+                   --stream txn --in transactions.csv --out out.csv
 ```
 
 ```

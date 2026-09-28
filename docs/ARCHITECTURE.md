@@ -634,7 +634,7 @@ parameter schema when a statement is prepared, so neither SDK guesses.
 | `pravaha-embedded` | In-process engine, mode A. `PravahaEngine` declares streams and bindings, registers continuous queries, takes pushed rows, reads views with SQL, subscribes to committed changes, and persists through the journal and checkpoints. No Spring: an enforcer rule and `ArchitectureRulesTest` both refuse it. |
 | `pravaha-server` | Spring Boot node: public REST API and the plain `/status` page. |
 | `pravaha-spring-boot-starter` | Mode B: an embedded engine as a bean from `pravaha.*`, `PravahaTemplate`, and `@PravahaListener` methods receiving a query's committed changes, with a `PravahaListenerErrorHandler` for the ones that throw. `@PravahaTest` and `PravahaTester` for applications' tests; a `pravaha` health indicator and read-only endpoint when Actuator is present. Depends on `pravaha-embedded`, never the reverse. |
-| `pravaha-cli` | The `pravaha` command. |
+| `pravaha-cli` | The `pravaha-engine` command: `validate`, `explain` and `run` with the engine in-process. The `pravaha` command, which talks to a node, is the Python CLI in `sdk/python`. |
 | `pravaha-testkit` | Virtual clock, deterministic scheduler, plugin TCK. |
 | [`plugins/pravaha-plugin-filesystem`](../plugins/pravaha-plugin-filesystem) | The reference source and sink. Delimited files, no external dependency. |
 | [`plugins/pravaha-plugin-delta`](../plugins/pravaha-plugin-delta) | Delta Lake source, on Delta Kernel rather than Spark. Version diffs become Z-set weights. |

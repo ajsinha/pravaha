@@ -589,7 +589,7 @@ Different from a parameter in a read, and the difference decides how many comput
 
 ```bash
 # Ask before you register
-pravaha explain --sql "..."                 # the plan
+pravaha-engine explain --sql "..."                 # the plan
 ```
 ```java
 List<ParameterPlacement> placements = registry.classify(sql);

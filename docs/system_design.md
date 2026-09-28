@@ -3458,8 +3458,8 @@ Differentiator **D-D**. Streaming engines are chosen by the engineer who has to 
 
 ```bash
 pravaha dev                          # in-process engine + fixture sources, hot reload on file save
-pravaha validate query.sql           # exit code + precise diagnostics, CI-friendly
-pravaha explain query.sql --level physical --format dag
+pravaha-engine validate query.sql           # exit code + precise diagnostics, CI-friendly
+pravaha-engine explain query.sql --level physical --format dag
 pravaha bench query.sql --profile B --lanes 8      # local JMH-backed benchmark
 pravaha diff v1.sql v2.sql           # plan-level diff: what actually changes, and the state impact
 pravaha replay --query q1 --from 14:31:30 --to 14:32:10   # time travel

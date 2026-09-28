@@ -657,7 +657,7 @@ PRV-3030  BinaryRowWriter tracks written fields in a long bitmask and so support
 
 Used to be a plain `IllegalArgumentException` with no code and no category, so the refusal could not
 be classified, mapped to an HTTP or Flight status, or looked up. Note also *when* it fires:
-`pravaha validate` plans a 1,000-column projection without complaint, because nothing writes a row
+`pravaha-engine validate` plans a 1,000-column projection without complaint, because nothing writes a row
 during validation. The ceiling is met later, when rows start moving — which is the worst time to meet
 it. Split the query, or project fewer columns. See also [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md)
 §11.

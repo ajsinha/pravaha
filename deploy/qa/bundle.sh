@@ -14,7 +14,8 @@
 #
 #   install.sh  docker-compose.yml  server.application.yaml  console.application.yaml  README.md
 #   VERSION     images/pravaha-server-<v>.tar  images/pravaha-console-<v>.tar
-#   dist/       the server fat jar, the CLI jar, the SDK and console wheels, the Helm chart
+#   dist/       the server fat jar, the pravaha-engine jar (validate, explain, run), the SDK and
+#               console wheels, the Helm chart
 #   tutorials/  the tutorials' scripts and configuration (examples/tutorials/)
 #   docs/       RELEASE_NOTES.md, DEPLOYMENT.md, QUICKSTART.md, USER_GUIDE.md, PYTHON_API_GUIDE.md
 set -euo pipefail
@@ -79,7 +80,7 @@ if [[ ! -e "$server_jar" || ! -e "$cli_jar" ]]; then
   jars_from_tag
 fi
 label="server jar";  take "$server_jar"
-label="cli jar";     take "$cli_jar"
+label="engine jar";  take "$cli_jar"
 git -C "$root" worktree remove --force "$root/target/release-build" >/dev/null 2>&1 || true
 # The wheels are built from the release's TAG, not the working tree, which release.sh has already
 # moved on to the next snapshot -- and in a python container, so the build needs nothing installed

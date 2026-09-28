@@ -6,7 +6,7 @@ order: 100
 icon: envelope-exclamation
 summary: "pravaha.dlq.directory: where a record a source cannot decode is kept, one JSON line each, so one bad field does not stop a feed. What goes there, how much is kept, and reading and replaying them from the console, the CLI or the API."
 audience: Operators
-keywords: [dlq, dead letter queue, undecodable, malformed record, decode failure, replay, retention, evicted, max-bytes, PRV-4090, PRV-4091, PRV-4092, PRV-5040, PRV-5105, kafka, tombstone, jq, base64, pravaha run --dlq, pravaha dlq list]
+keywords: [dlq, dead letter queue, undecodable, malformed record, decode failure, replay, retention, evicted, max-bytes, PRV-4090, PRV-4091, PRV-4092, PRV-5040, PRV-5105, kafka, tombstone, jq, base64, pravaha-engine run --dlq, pravaha dlq list]
 guide: operations#files-that-hold-data
 related: [source-filesystem, source-kafka, metrics-alerts, checkpoints-recovery, configuration]
 ---
@@ -265,11 +265,11 @@ path and its permissions, or unset the key to go back to failing loudly.
 
 ## The same thing from the CLI
 
-`pravaha run`, which runs a query over a file with no server, takes the queue as a flag and prints
+`pravaha-engine run`, which runs a query over a file with no server, takes the queue as a flag and prints
 the reject count beside the row counts:
 
 ```bash
-pravaha run --sql "SELECT txn_id, user_id, amount FROM txn WHERE amount > 100" \
+pravaha-engine run --sql "SELECT txn_id, user_id, amount FROM txn WHERE amount > 100" \
   --schema "txn_id:INT64,user_id:STRING,amount:INT64" \
   --out-schema "txn_id:INT64,user_id:STRING,amount:INT64" \
   --stream txn --in txn.csv --out big.csv --dlq rejected.dlq

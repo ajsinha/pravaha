@@ -15,19 +15,14 @@
  */
 package com.ash.messaging.pravaha.it.qa.errc;
 
-import java.io.File;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Duration;
-import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
 
 import com.ash.messaging.pravaha.sdk.ClientOptions;
 import com.ash.messaging.pravaha.sdk.Endpoint;
 import com.ash.messaging.pravaha.sdk.PravahaClientException;
+import com.ash.messaging.pravaha.sdk.flight.PravahaFlightClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -37,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * in {@code TROUBLESHOOTING.md} (case file fact 8) and ERRC-014 the one the case calls "the
  * highest-severity finding in the missing set" -- the first error a new SDK user meets.
  *
- * <p>{@code pravaha queries --url ...} (via {@code ErrcTestSupport.cli}) is the CLI surface;
+ * <p>{@code pravaha queries --url ...}, the Python CLI's now, is exercised through the SDK call it makes;
  * {@code Endpoint.parse} directly is the SDK surface for the parse-only half of ERRC-012, used where
  * the alternative would be a live network attempt this environment cannot make reliably (no network
  * per the harness notes) -- {@code Endpoint} is public SDK API, not an internal throwing helper, so
@@ -51,11 +46,11 @@ class ErrcClientTest extends ErrcTestSupport {
     void twoOfTheCasesFiveMalformedEndpointExamplesActuallyMalform() {
         // "grpc://" (no host) and "grpc://h:99999" (port out of range) are genuinely malformed and
         // refused at parse time, with no network involved -- the CLI surface, end to end.
-        ErrcTestSupport.CliResult noHost = cli("queries", "--url", "grpc://");
+        ErrcTestSupport.CliResult noHost = queries("grpc://");
         assertThat(noHost.exitCode()).isEqualTo(1);
         assertThat(noHost.stderr()).contains("PRV-1030").contains("it names no host");
 
-        ErrcTestSupport.CliResult badPort = cli("queries", "--url", "grpc://h:99999");
+        ErrcTestSupport.CliResult badPort = queries("grpc://h:99999");
         assertThat(badPort.exitCode()).isEqualTo(1);
         assertThat(badPort.stderr())
                 .contains("PRV-1030")
@@ -160,17 +155,13 @@ class ErrcClientTest extends ErrcTestSupport {
         // The case's own Setup: "node down; pravaha queries --url grpc://127.0.0.1:19900". Port
         // 19900 chosen closed deliberately (nothing bound there in this test).
         //
-        // Run as a real subprocess of the CLI's own shaded jar (ErrcTestSupport.cliSubprocess),
-        // not the in-process cli() helper. It began as a workaround for E-9 -- pravaha-it's test
-        // classpath mixed netty 4.1.135 with the 4.2.9 line Arrow Flight needs, and constructing a
-        // FlightClient in-process threw AbstractMethodError. That conflict is gone (the netty line
-        // here is 4.2.9 throughout, and two end-to-end tests in this module now build a client
-        // in-process and pass), so the subprocess is kept on its own merits: it is the process, the
-        // jar and the classpath an operator actually runs.
-        ErrcTestSupport.CliResult result =
-                cliSubprocess(Duration.ofSeconds(30), "queries", "--url", "grpc://127.0.0.1:19900");
+        // In-process, through the SDK the Java CLI's `queries` used. This once ran as a subprocess
+        // of the CLI's shaded jar to dodge E-9 (netty 4.1.135 beside the 4.2.9 line Arrow Flight
+        // needs on this module's classpath); that conflict is gone, and the remote commands have
+        // left the Java CLI for the Python one.
+        ErrcTestSupport.CliResult result = queries("grpc://127.0.0.1:19900");
         assertThat(result.exitCode()).isEqualTo(1);
-        assertThat(result.stderr()).as("verbatim CLI stderr for a down node").isNotBlank();
+        assertThat(result.stderr()).as("verbatim refusal for a down node").isNotBlank();
         assertThat(result.stderr())
                 .as("ERRC-014: connecting to a down node is a connection failure, and says so")
                 .contains("PRV-1040")
@@ -182,11 +173,10 @@ class ErrcClientTest extends ErrcTestSupport {
 
     @Test
     void connectBuilderItselfNeverThrowsSynchronouslyForAnUnreachableHost() throws Exception {
-        // The narrower claim, isolated from the CLI's own RPC retry/timeout behaviour: connect()
+        // The narrower claim, isolated from any RPC retry/timeout behaviour: connect()
         // alone, against a definitely-closed loopback port, returns a client rather than throwing.
-        // Exercised through a tiny inline Java program run as a subprocess against the CLI's own
-        // shaded jar's classpath, for the same reason as the test above.
-        ErrcTestSupport.CliResult probe = connectProbeSubprocess("127.0.0.1", 19900);
+        // Exercised in-process, now that this module's classpath has one netty line (E-9 is gone).
+        ErrcTestSupport.CliResult probe = connectProbe("127.0.0.1", 19900);
         assertThat(probe.exitCode())
                 .as("connect() must return, not throw: " + probe.combined())
                 .isZero();
@@ -211,7 +201,7 @@ class ErrcClientTest extends ErrcTestSupport {
         // Still not run here: the case's other two candidates (iterate a QueryResult after closing
         // its client; use a subscription after close()) need a QueryResult or Subscription that only
         // a live server can produce. Recorded as NOT RUN, not silently skipped.
-        ErrcTestSupport.CliResult probe = closedClientProbeSubprocess();
+        ErrcTestSupport.CliResult probe = closedClientProbe();
         assertThat(probe.exitCode()).as(probe.combined()).isZero();
         // Closing twice stays a no-op: close() is idempotent by design and turning a second one into
         // a refusal would break try-with-resources around an explicit close.
@@ -219,107 +209,53 @@ class ErrcClientTest extends ErrcTestSupport {
         assertThat(probe.stdout()).contains("query-after-close:").contains("PRV-1043");
     }
 
-    private static ErrcTestSupport.CliResult closedClientProbeSubprocess() throws Exception {
-        Path dir = Files.createTempDirectory("errc-closed-client-probe");
-        String src = """
-                import com.ash.messaging.pravaha.sdk.flight.PravahaFlightClient;
-                public class ClosedClientProbe {
-                    public static void main(String[] a) throws Exception {
-                        PravahaFlightClient c = PravahaFlightClient.connect("grpc://127.0.0.1:19900");
-                        c.close();
-                        try {
-                            c.close();
-                            System.out.println("double-close: ok, no exception");
-                        } catch (Exception e) {
-                            System.out.println("double-close: " + e.getClass().getName() + ": " + e.getMessage());
-                        }
-                        try {
-                            c.query("SELECT 1").close();
-                            System.out.println("query-after-close: no exception");
-                        } catch (Exception e) {
-                            System.out.println("query-after-close: " + e.getClass().getName() + ": " + e.getMessage());
-                        }
-                    }
-                }
-                """;
-        Path srcFile = dir.resolve("ClosedClientProbe.java");
-        Files.writeString(srcFile, src);
-
-        Path cliJarPath = repoRootJar();
-        String javacBin = System.getProperty("java.home") + "/bin/javac";
-        Process compile = new ProcessBuilder(
-                        javacBin, "-cp", cliJarPath.toString(), "-d", dir.toString(), srcFile.toString())
-                .redirectErrorStream(true)
-                .start();
-        String compileOut = new String(compile.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        if (!compile.waitFor(60, TimeUnit.SECONDS) || compile.exitValue() != 0) {
-            throw new IllegalStateException("could not compile the closed-client probe: " + compileOut);
-        }
-
-        String javaBin = System.getProperty("java.home") + "/bin/java";
-        Process run =
-                new ProcessBuilder(javaBin, "-cp", dir + File.pathSeparator + cliJarPath, "ClosedClientProbe").start();
-        String out = new String(run.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        String err = new String(run.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-        if (!run.waitFor(30, TimeUnit.SECONDS)) {
-            run.destroyForcibly();
-            throw new IllegalStateException("closed-client probe did not exit");
-        }
-        return new ErrcTestSupport.CliResult(run.exitValue(), out, err);
-    }
-
     /**
-     * A one-off subprocess that does exactly {@code PravahaFlightClient.connect(url)} and reports
-     * whether it threw, run on the CLI jar's own (conflict-free) classpath -- there is no CLI verb for
-     * "connect and immediately close", so this is the smallest real use of the public SDK entry point
-     * available without adding one.
+     * What {@code queries --url <url>} did, through the SDK it used: connect, list, and on a refusal
+     * exit 1 with the SDK's own message. The command itself moved to the Python CLI.
      */
-    private static ErrcTestSupport.CliResult connectProbeSubprocess(String host, int port) throws Exception {
-        Path dir = Files.createTempDirectory("errc-connect-probe");
-        String src = """
-                import com.ash.messaging.pravaha.sdk.flight.PravahaFlightClient;
-                public class ConnectProbe {
-                    public static void main(String[] a) throws Exception {
-                        try (PravahaFlightClient c = PravahaFlightClient.connect("grpc://%s:%d")) {
-                            System.out.println("connected-ok");
-                        }
-                    }
-                }
-                """.formatted(host, port);
-        Path srcFile = dir.resolve("ConnectProbe.java");
-        Files.writeString(srcFile, src);
-
-        Path cliJarPath = repoRootJar();
-        String javacBin = System.getProperty("java.home") + "/bin/javac";
-        Process compile = new ProcessBuilder(
-                        javacBin, "-cp", cliJarPath.toString(), "-d", dir.toString(), srcFile.toString())
-                .redirectErrorStream(true)
-                .start();
-        String compileOut = new String(compile.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        if (!compile.waitFor(60, TimeUnit.SECONDS) || compile.exitValue() != 0) {
-            throw new IllegalStateException("could not compile the connect probe: " + compileOut);
+    private static ErrcTestSupport.CliResult queries(String url) {
+        try (PravahaFlightClient client = PravahaFlightClient.connect(url)) {
+            client.queries();
+            return new ErrcTestSupport.CliResult(0, "", "");
+        } catch (RuntimeException e) {
+            return new ErrcTestSupport.CliResult(1, "", String.valueOf(e.getMessage()));
         }
-
-        String javaBin = System.getProperty("java.home") + "/bin/java";
-        Process run = new ProcessBuilder(javaBin, "-cp", dir + File.pathSeparator + cliJarPath, "ConnectProbe").start();
-        String out = new String(run.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        String err = new String(run.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-        if (!run.waitFor(30, TimeUnit.SECONDS)) {
-            run.destroyForcibly();
-            throw new IllegalStateException("connect probe did not exit");
-        }
-        return new ErrcTestSupport.CliResult(run.exitValue(), out, err);
     }
 
-    private static Path repoRootJar() throws IOException {
-        Path path = Path.of("").toAbsolutePath();
-        while (path != null && !Files.exists(path.resolve("docs/adr"))) {
-            path = path.getParent();
+    /** {@code PravahaFlightClient.connect(url)} and nothing else: does it return, or throw? */
+    private static ErrcTestSupport.CliResult connectProbe(String host, int port) {
+        try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://" + host + ":" + port)) {
+            return new ErrcTestSupport.CliResult(0, "connected-ok\n", "");
+        } catch (RuntimeException e) {
+            return new ErrcTestSupport.CliResult(1, "", e.getClass().getName() + ": " + e.getMessage());
         }
-        try (var files = Files.list(path.resolve("pravaha-cli/target"))) {
-            return files.filter(p -> p.getFileName().toString().endsWith("-cli.jar"))
-                    .findFirst()
-                    .orElseThrow();
+    }
+
+    /** A client closed twice, then asked a question: what each step says. */
+    private static ErrcTestSupport.CliResult closedClientProbe() {
+        StringBuilder out = new StringBuilder();
+        PravahaFlightClient client = PravahaFlightClient.connect("grpc://127.0.0.1:19900");
+        client.close();
+        try {
+            client.close();
+            out.append("double-close: ok, no exception\n");
+        } catch (RuntimeException e) {
+            out.append("double-close: ")
+                    .append(e.getClass().getName())
+                    .append(": ")
+                    .append(e.getMessage())
+                    .append('\n');
         }
+        try {
+            client.query("SELECT 1").close();
+            out.append("query-after-close: no exception\n");
+        } catch (RuntimeException e) {
+            out.append("query-after-close: ")
+                    .append(e.getClass().getName())
+                    .append(": ")
+                    .append(e.getMessage())
+                    .append('\n');
+        }
+        return new ErrcTestSupport.CliResult(0, out.toString(), "");
     }
 }

@@ -27,13 +27,14 @@ RUN useradd --system --create-home --uid 10001 pravaha \
  && chown -R pravaha:pravaha /opt/pravaha
 
 COPY --from=build /src/pravaha-server/target/pravaha-server-*-app.jar lib/pravaha-server.jar
-COPY --from=build /src/pravaha-cli/target/pravaha-cli-*-cli.jar       lib/pravaha-cli.jar
-COPY --from=build /src/bin/ bin/
+COPY --from=build /src/pravaha-cli/target/pravaha-cli-*-cli.jar       lib/pravaha-engine.jar
+# Named, not bin/: bin/pravaha is the Python CLI, and this image has no Python.
+COPY --from=build /src/bin/pravaha-server /src/bin/pravaha-engine bin/
 RUN chmod +x bin/*
 
 USER pravaha
 
-# 18080 HTTP and the operator pages; 19090 Flight SQL, which is what the SDKs and the CLI speak.
+# 18080 HTTP and the operator pages; 19090 Flight SQL, which is what the SDKs and the Python CLI speak.
 # Confusing the two is the commonest way a first run fails.
 EXPOSE 18080 19090
 

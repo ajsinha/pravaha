@@ -41,14 +41,13 @@ import com.ash.messaging.pravaha.serving.ViewCatalog;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The three {@code docs/qa/cases/JOIN.md} cases that need a real node: {@code pravaha run} cannot run
- * a join at all (JOIN-001), a two-stream join registered on a node does run (JOIN-002), and a
- * self-join is refused at registration with a code that belongs to the SDK's own error-wrapping
- * rather than to the server's actual reason (JOIN-060(c)).
+ * The three {@code docs/qa/cases/JOIN.md} cases that need a real node: {@code pravaha-engine run}
+ * cannot run a join at all (JOIN-001), a two-stream join registered on a node does run (JOIN-002),
+ * and a self-join registers (JOIN-060(c)).
  *
- * <p>Modelled directly on {@link CliAgainstServerTest}: an in-process {@link PravahaFlightServer}
- * over a real {@link QueryRegistry}, no Docker and no external process, so the CLI runs against
- * exactly the surface a configured node presents.
+ * <p>An in-process {@link PravahaFlightServer} over a real {@link QueryRegistry}, no Docker and no
+ * external process. {@code run} goes through {@link PravahaCli}; registering and reading go through
+ * the Java SDK ({@link SdkVerbs}), since those commands moved to the Python CLI.
  */
 @Timeout(120)
 class JoinReachabilityAgainstServerTest {
@@ -87,7 +86,12 @@ class JoinReachabilityAgainstServerTest {
         arena.close();
     }
 
+    /** {@code run} is pravaha-engine's own; the server verbs go through the SDK. */
     private CliResult cli(String... args) {
+        if (!"run".equals(args[0])) {
+            SdkVerbs.Result result = SdkVerbs.run(args);
+            return new CliResult(result.code(), result.out(), result.err());
+        }
         java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
         java.io.ByteArrayOutputStream err = new java.io.ByteArrayOutputStream();
         int code;
@@ -132,7 +136,7 @@ class JoinReachabilityAgainstServerTest {
         query.commit();
     }
 
-    // ======================= JOIN-001: `pravaha run` cannot run a join at all =======================
+    // ======================= JOIN-001: `pravaha-engine run` cannot run a join at all =======================
 
     @Test
     void pravahaRunCannotRunATwoStreamJoinBecauseThereIsNoSecondStreamFlag(@TempDir Path dir) throws Exception {

@@ -817,9 +817,11 @@ class DocumentationFreshnessTest {
 
     /**
      * Words shaped like a module name that are not one. The bootstrap admin's published password
-     * (ADR-052) is written out where a reader needs it, and is a password, not missing code.
+     * (ADR-052) is written out where a reader needs it, and is a password, not missing code. {@code
+     * pravaha-engine} is a command -- {@code bin/pravaha-engine}, the {@code pravaha-cli} module's
+     * jar -- not a module.
      */
-    private static final Set<String> NOT_MODULES = Set.of("pravaha-dev-admin");
+    private static final Set<String> NOT_MODULES = Set.of("pravaha-dev-admin", "pravaha-engine");
 
     private static Set<String> mavenModules() throws IOException {
         String pom = Files.readString(repoRoot().resolve("pom.xml"), StandardCharsets.UTF_8);

@@ -15,50 +15,23 @@
  */
 package com.ash.messaging.pravaha.cli.qa.errc;
 
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
-
-import com.ash.messaging.pravaha.cli.PravahaCli;
+import com.ash.messaging.pravaha.cli.SdkVerbs;
 
 /**
- * What every server-backed ERRC case in this package needs: a CLI runner identical to {@code
- * CliAgainstServerTest}'s own (captured stdout/stderr, exit code) so evidence is comparable across
- * both, plus small conveniences. Server/registry construction is left to each test class's own
- * {@code @BeforeEach}, since the cases in this range need different security/TLS/admission
- * combinations and a shared fixture would force the least common denominator.
+ * What every server-backed ERRC case in this package needs: a runner for the server verbs (captured
+ * stdout/stderr, exit code) so evidence stays comparable across cases, plus small conveniences.
+ *
+ * <p>These cases once drove the Java CLI's remote commands. Those moved to the Python CLI, and the
+ * cases were always about the server's answers rather than the CLI's formatting, so they now go
+ * through the Java SDK ({@link SdkVerbs}) with the same call shape. Server/registry construction is
+ * left to each test class's own {@code @BeforeEach}, since the cases in this range need different
+ * security/TLS/admission combinations and a shared fixture would force the least common denominator.
  */
 abstract class ErrcServerSupport {
 
     static CliResult cli(String... args) {
-        // P-3. These cases drive a loopback server over plaintext grpc:// by construction, which is
-        // exactly the situation --insecure-token exists for -- so the scaffolding says so once here
-        // rather than at forty call sites. It is added only when this invocation actually carries a
-        // token, so a case that means to exercise the refusal still gets it.
-        args = withInsecureTokenWhereATokenIsSent(args);
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        ByteArrayOutputStream err = new ByteArrayOutputStream();
-        int code;
-        try (PrintStream outStream = new PrintStream(out, true, StandardCharsets.UTF_8);
-                PrintStream errStream = new PrintStream(err, true, StandardCharsets.UTF_8)) {
-            code = new PravahaCli(outStream, errStream).run(args);
-        }
-        return new CliResult(code, out.toString(StandardCharsets.UTF_8), err.toString(StandardCharsets.UTF_8));
-    }
-
-    private static String[] withInsecureTokenWhereATokenIsSent(String[] args) {
-        boolean sendsToken = false;
-        boolean alreadySaid = false;
-        for (String arg : args) {
-            sendsToken |= "--token".equals(arg);
-            alreadySaid |= "--insecure-token".equals(arg);
-        }
-        if (!sendsToken || alreadySaid) {
-            return args;
-        }
-        String[] extended = java.util.Arrays.copyOf(args, args.length + 1);
-        extended[args.length] = "--insecure-token";
-        return extended;
+        SdkVerbs.Result result = SdkVerbs.run(args);
+        return new CliResult(result.code(), result.out(), result.err());
     }
 
     record CliResult(int code, String out, String err) {

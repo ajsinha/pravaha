@@ -34,8 +34,8 @@ import com.ash.messaging.pravaha.serving.ViewCatalog;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * ERRC-094 .. ERRC-096 -- PRV-7xxx, security. Surface: the CLI against a real, in-process {@link
- * PravahaFlightServer} configured with {@link StaticTokenVerifier} authentication and a custom
+ * ERRC-094 .. ERRC-096 -- PRV-7xxx, security. Surface: the server verbs, through the Java SDK
+ * ({@code SdkVerbs}), against a real, in-process {@link PravahaFlightServer} configured with {@link StaticTokenVerifier} authentication and a custom
  * {@link SecurityPolicy}. The HTTP half of ERRC-094 (no {@code WWW-Authenticate} header on 401, the
  * six-vs-five field shape) and ERRC-095's four configuration-refusal reaches (4-8, startup-time,
  * needing {@code PravahaNode}) are **NOT RUN** this round -- this harness has no Spring Boot HTTP

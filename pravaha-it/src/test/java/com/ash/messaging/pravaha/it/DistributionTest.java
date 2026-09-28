@@ -54,7 +54,7 @@ class DistributionTest {
         assertThat(launch.exitCode())
                 .as("`java -jar %s version` failed: %s", jar.getFileName(), launch.output())
                 .isZero();
-        assertThat(launch.output()).contains("pravaha");
+        assertThat(launch.output()).contains("pravaha-engine");
     }
 
     @Test
@@ -78,7 +78,7 @@ class DistributionTest {
 
     @Test
     void theLaunchersExistAndAreExecutable() {
-        for (String script : List.of("pravaha", "pravaha-server")) {
+        for (String script : List.of("pravaha-engine", "pravaha-server")) {
             Path launcher = repoRoot().resolve("bin").resolve(script);
             assertThat(launcher)
                     .as("the quickstart tells a reader to run '%s'", script)
@@ -95,10 +95,10 @@ class DistributionTest {
         // pravaha-server for months while nothing built it. A command in the documentation is a
         // promise, and this is the test that keeps it checkable.
         String quickstart = Files.readString(repoRoot().resolve("docs/QUICKSTART.md"), StandardCharsets.UTF_8);
-        for (String binary : List.of("pravaha-server", "pravaha ")) {
+        for (String binary : List.of("pravaha-server", "pravaha-engine ")) {
             assertThat(quickstart).contains(binary);
         }
-        assertThat(repoRoot().resolve("bin/pravaha")).exists();
+        assertThat(repoRoot().resolve("bin/pravaha-engine")).exists();
         assertThat(repoRoot().resolve("bin/pravaha-server")).exists();
         assertThat(repoRoot().resolve("Dockerfile"))
                 .as("the quickstart offers a container build")

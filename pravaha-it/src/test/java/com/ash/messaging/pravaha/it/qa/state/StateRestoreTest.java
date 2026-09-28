@@ -810,7 +810,7 @@ class StateRestoreTest extends StateTestSupport {
         // wired into the same register() call the journal replays through. Not attempted with a
         // bound filesystem source (PluginSourceFeedsTest already covers that combination end to end,
         // e.g. aRestartedQueryFinishesAWindowItHadOnlyPartlySeen) -- rows are pushed directly via
-        // RegisteredQuery.accept, the way CliAgainstServerTest and PravahaNodeTest already do, to
+        // RegisteredQuery.accept, the way JoinReachabilityAgainstServerTest and PravahaNodeTest already do, to
         // isolate the served-view half of the recovery from the offset-seeking half. See
         // FINDINGS.md ST-2. "kill -9" is approximated with PravahaNode.stop() (graceful) rather than
         // a real SIGKILL of a subprocess; noted as an adaptation, not a hidden substitution -- see

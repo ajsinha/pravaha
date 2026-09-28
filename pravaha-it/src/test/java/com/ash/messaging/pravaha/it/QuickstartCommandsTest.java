@@ -48,7 +48,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * available here" -- and this is it.
  *
  * <p>What it executes is the part of the quickstart that needs no server: {@code cd}, {@code printf
- * > file}, {@code cat} and the {@code pravaha run} / {@code validate} / {@code explain} commands. A
+ * > file}, {@code cat} and the {@code pravaha-engine run} / {@code validate} / {@code explain} commands. A
  * block using anything else -- {@code pravaha-server}, {@code make}, {@code docker}, {@code register}
  * -- is skipped rather than half-run, and {@link #theServerlessPartOfTheQuickstartIsActuallyCovered}
  * pins how many blocks that leaves, so coverage cannot be quietly deleted by rewording a fence.
@@ -203,7 +203,7 @@ class QuickstartCommandsTest {
         if (verb.equals("printf")) {
             return words.size() == 4 && words.get(2).equals(">");
         }
-        return verb.equals("pravaha")
+        return verb.equals("pravaha-engine")
                 && words.size() > 1
                 && Stream.of("run", "validate", "explain").anyMatch(words.get(1)::equals);
     }
