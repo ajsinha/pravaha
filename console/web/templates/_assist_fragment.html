@@ -1,0 +1,14 @@
+{#- Pravaha console — one assist answer, drawn once, on the server (ADR-058 phase 3).
+    Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+    Proprietary and confidential. See LICENSE at the repository root.
+
+    Rendered by routes/assist_routes.py for the JSON API (assist.js puts it in place) and inside
+    assist_result.html for a form posted with scripting off. -#}
+{% import "_assist.html" as assist with context %}
+{% if kind == 'empty' %}{{ assist.empty('assist-empty-answer') }}
+{% elif kind == 'failure' %}{{ assist.failure_block(failure) }}
+{% elif kind == 'draft' %}{{ assist.draft_result(result) }}
+{% elif kind == 'registered' %}{{ assist.registered(result) }}
+{% elif kind == 'explained-query' %}{{ assist.explained_query(result) }}
+{% elif kind == 'explained-refusal' %}{{ assist.explained_refusal(result) }}
+{% endif %}

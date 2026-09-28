@@ -24,6 +24,7 @@ import pathlib
 import queue
 import re
 import socket
+import tempfile
 import threading
 import time
 from collections.abc import Iterator
@@ -215,6 +216,23 @@ def _seed_people(engine: FakeEngine) -> None:
     identity.seed_session("s0c0ffee0002", "carol", created=now - 40 * 60, seen=now - 60)
 
 
+#: The assistant's configuration every browser console starts with (ADR-058 phase 3): the SDK's
+#: scripted ``fake`` provider, so nothing leaves the machine, and fixed stamps for the screenshots.
+_EXPLAINED = json.dumps({"summary": "Keeps each transaction over 100, keyed by its id.",
+                         "steps": ["Reads txn.", "Keeps the rows whose amount is over 100."], "notes": []})
+ASSIST_SEED = {
+    "version": 3, "changed_at": "2026-09-19T09:00:00Z", "changed_by": "admin",
+    "default_profile": "explain",
+    "providers": [{"id": "local", "type": "fake"},
+                  {"id": "gateway", "type": "openai-compatible", "endpoint": "http://127.0.0.1:9/v1"}],
+    "models": [{"id": "drafter", "provider": "local", "model": "fake-large", "options": {"replies": [_EXPLAINED]}},
+               {"id": "explainer", "provider": "local", "model": "fake-small", "options": {"replies": [_EXPLAINED]}},
+               {"id": "spare", "provider": "gateway", "model": "llama3.1:70b", "enabled": False}],
+    "profiles": {"draft": ["drafter"], "explain": ["explainer", "drafter"]},
+    "budgets": {"per_user_daily_tokens": 200000, "per_request_max_tokens": 16000},
+}
+
+
 def _free_port() -> int:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
@@ -224,7 +242,8 @@ def _free_port() -> int:
 class Console:
     """One console application on a loopback port, stopped by ``close``."""
 
-    def __init__(self, engine: BrowserEngine, *, default_role: str = "operator") -> None:
+    def __init__(self, engine: BrowserEngine, *, default_role: str = "operator",
+                 assist: dict | None = None) -> None:
         import uvicorn
 
         self.engine = engine
@@ -234,6 +253,14 @@ class Console:
         config.set("ui.default_role", default_role)
         # The component gallery is a page the audit and the screenshots cover like any other.
         config.set("ui.component_gallery", "true")
+        # ADR-058 phase 3: the assistant's files, per console, seeded with a fixed configuration
+        # so its screens are photographed the same way every run, and never a person's own.
+        assist_dir = pathlib.Path(tempfile.mkdtemp(prefix="pravaha-browser-assist-"))
+        (assist_dir / "assist.json").write_text(json.dumps(assist or ASSIST_SEED), encoding="utf-8")
+        config.set("assist.config", str(assist_dir / "assist.json"))
+        config.set("assist.usage", str(assist_dir / "usage.json"))
+        config.set("assist.log", str(assist_dir / "log.jsonl"))
+        config.set("assist.watch_seconds", "3600")
         self.app = create_app(config, engine=engine)
         self.port = _free_port()
         self.base = f"http://127.0.0.1:{self.port}"
@@ -419,6 +446,9 @@ PAGES: list[tuple[str, str, bool, str]] = [
     ("admin-users", "/admin/users", True, "document.querySelector('#users-table')"),
     ("admin-keys", "/admin/keys", True, "document.querySelector('#keys-table')"),
     ("admin-sessions", "/admin/sessions?user=carol", True, "document.querySelector('#sessions-table')"),
+    # ADR-058 phase 3: the assistant's models, over the configuration every browser console is
+    # seeded with (ASSIST_SEED): two providers, three models, two profiles, budgets.
+    ("admin-ai-models", "/admin/ai-models", True, "document.querySelector('#models-table')"),
     ("not-found", "/views/no_such_view", True, "true"),
     ("components", "/_components", True, "document.querySelector('#state-unauthorized button')"),
 ]

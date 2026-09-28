@@ -12,6 +12,32 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **The assistant in the console, phase 3 (ADR-058): Admin · AI models, "Describe it", and
+  Explain.** An administrator configures several providers and models at once in **Admin · AI
+  models** and **switches between them while the console runs**: providers (configured, and every
+  type the console can build, with its capabilities), models (the key shown only by the name of the
+  variable or file that holds it, whether it is set in the console's process, enabled or disabled,
+  and a **Test** button giving the latency or the normalised error), each profile's chain in fallback
+  order (move up, down, out, add, set by typing), the default profile, budgets, usage per model and
+  per person, and the recent changes with who made each and what it was before and after. Every
+  change is a CSRF-protected form through the SDK's `AssistAdmin`, validated completely, saved
+  against the version the page was drawn from — a concurrent edit is refused as a conflict, naming
+  who changed it and when — and applied to the console's one `ModelRouter` before the answer, so the
+  **very next request uses it** with no restart; a change `pravaha assist use` stores is followed
+  within a second. The screen is for a person the engine gives the `admin` role, asked of the engine
+  on every request. On the workbench, **Describe it** drafts a query as the signed-in person — the
+  statement, explanation, assumptions, the engine's verdict and plan, every repair turn, the model's
+  questions answered in place and drafted again, the reuse offer, *Copy to editor* — and **Register**
+  is disabled until the engine accepts the draft and then needs the person's confirmation; the draft
+  is held by the console, so the browser sends its id, never SQL. **Explain this query** on a query's
+  page and **Explain** beside every refusal code (the workbench's refusal and diagnostics, a query's
+  sink, feed and failure codes, a refused draft). Budgets apply; with no model configured or none
+  enabled, each surface shows one empty state (an administrator is linked to Admin · AI models).
+  Every change and every request is appended to the console's assist log (`assist.log`): who, the
+  model, tokens, a hash of what was asked, the verdict, whether it was registered. Every surface works
+  with scripting off. New settings `assist.config`, `assist.usage`, `assist.log`,
+  `assist.watch_seconds`. 23 new console tests with the SDK's `fake` provider; the help topics *The
+  assistant* and *Admin · AI models*; [`ASSIST.md`](ASSIST.md) § In the console.
 - **The assistant, phase 2 (ADR-058): `pravaha ask` drafts a continuous query from a description,
   the engine judges it, and only you register it.** The context is built from the engine under
   your own credentials — the streams and views you may read (a stream you may not read is never

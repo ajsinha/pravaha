@@ -303,7 +303,10 @@ function initialTabs() {
   return { tabs: tabs.slice(-12), active };
 }
 
-function Diagnostics({ validation, onFix, onRetry }) {
+/* ADR-058 phase 3: whether a model can explain a refusal here (the server says, on the mount). */
+const ASSIST_READY = Boolean(mount && mount.dataset.assistReady);
+
+function Diagnostics({ validation, onFix, onRetry, sql = "" }) {
   if (validation.status === "idle") {
     return html`<div class="state"><h2>${t("wb.diag.idle_title")}</h2><p>${t("wb.diag.idle_body")}</p></div>`;
   }
@@ -332,6 +335,8 @@ function Diagnostics({ validation, onFix, onRetry }) {
     <div class="actions">
       ${d.fixes.map((f) => html`<button type="button" class="btn btn-sm btn-outline-secondary" onClick=${() => onFix(f)}>${f.title}</button>`)}
       <a class="btn btn-sm btn-link" href=${d.help} target="_blank" rel="noopener">${t("wb.diag.means", { code: d.code || t("wb.diag.this") })}</a>
+      ${ASSIST_READY && d.code ? html`<button type="button" class="btn btn-sm btn-link" data-assist-explain=${d.code} data-assist-sql=${sql}
+        aria-label=${t("assist.explain_code", { code: d.code })}>${t("assist.explain")}</button><div class="assist-slot w-100" tabindex="-1" aria-live="polite"></div>` : null}
     </div></div>`)}</div>`;
 }
 
@@ -868,6 +873,12 @@ function Workbench() {
     const draft = { id: newId(), title: title || tabTitle(sql), sql, params: "", named: Boolean(title) };
     setTabs((all) => all.concat(draft)); setActive(draft.id);
   }
+  /* ADR-058 phase 3: "Copy to editor" on a drafted query opens it as a draft tab of its own. */
+  useEffect(() => {
+    const open = (event) => { const d = event.detail || {}; if (d.sql) addTab(d.sql, d.title || ""); };
+    window.addEventListener("pravaha:open-draft", open);
+    return () => window.removeEventListener("pravaha:open-draft", open);
+  }, []);
   /* The ARIA tabs pattern: arrows move between drafts, Home and End jump, Enter or Space
      selects, Delete closes. Focus follows the selection, so the roving tabindex stays true. */
   function onTabKey(event, tab, index) {
@@ -990,7 +1001,7 @@ function Workbench() {
           onClick=${() => setPanel(key)}>${label}${key === "diagnostics" && count ? html` <span class="chip bad">${count}</span>` : null}</button>`)}
       </div>
       <div class="panel-body" role="tabpanel">
-        <div hidden=${panel !== "diagnostics"}><${Diagnostics} validation=${validation} onFix=${applyFix} onRetry=${() => tab && validate(tab.sql)} /></div>
+        <div hidden=${panel !== "diagnostics"}><${Diagnostics} validation=${validation} onFix=${applyFix} onRetry=${() => tab && validate(tab.sql)} sql=${tab ? tab.sql : ""} /></div>
         <div hidden=${panel !== "explain"}><${ExplainPanel} sql=${tab ? tab.sql : ""} valid=${validation.status === "valid"} origin=${tab ? tab.origin || "" : ""} /></div>
         <div hidden=${panel !== "run"}><${RunPanel} sql=${tab ? tab.sql : ""} params=${tab ? tab.params || "" : ""}
           setParams=${(p) => update(tab.id, { params: p })} paramsRef=${paramsRef} /></div>

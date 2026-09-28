@@ -1,0 +1,357 @@
+{% extends "base.html" %}
+{#- Pravaha console — Admin · AI models (ADR-058 phase 3).
+    Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+    Proprietary and confidential. See LICENSE at the repository root.
+
+    The assistant's providers, models, profiles and budgets, changed at runtime: every form is a
+    CSRF-protected POST through AssistAdmin, applied to the console's router before it answers,
+    so the very next assist request uses it. Each form carries the version the page was drawn
+    from; a change somebody else made since is refused as a conflict, never overwritten. A key is
+    shown by the name of the variable or file that holds it, never its value. -#}
+{% from "_admin_head.html" import admin_head with context %}
+{% from "_helpcards.html" import helplink %}
+{% import "_states.html" as states %}
+{% import "_people.html" as people %}
+{% block title %}{{ t('admin.ai.title') }} — {{ app_name }}{% endblock %}
+{% macro version_field() %}<input type="hidden" name="version" value="{{ view.version }}">{% endmacro %}
+{% block content %}
+{{ admin_head('ai-models', t('admin.ai.heading')) }}
+<p class="lede">{{ t('admin.ai.lede') }}{{ helplink('ai-models') }}</p>
+
+{{ people.flashes(flashes) }}
+
+{% if denied %}
+{{ people.not_permitted(denied, 'ai-not-permitted') }}
+{% elif gate_error %}
+{{ states.error(gate_error, retry_href='/admin/ai-models', id='ai-error', title=t('admin.ai.error')) }}
+{% else %}
+
+<div class="d-flex flex-wrap gap-2 align-items-center small mb-3" id="ai-summary">
+  {% if view.status.ready %}
+  <span class="chip ok"><span class="dot"></span>{{ t('admin.ai.ready') }}</span>
+  {% else %}
+  <span class="chip bad"><span class="dot"></span>{{ t('admin.ai.not_ready.' ~ view.status.reason) }}</span>
+  {% endif %}
+  <span class="text-muted">{{ t('admin.ai.version', version=view.version) }}{% if view.changedBy %} · {{ t('admin.ai.changed_by', who=view.changedBy, at=view.changedAt or '') }}{% endif %}</span>
+  <span class="text-muted">· <span class="mono" data-volatile>{{ view.path }}</span></span>
+</div>
+
+{% if view.problem %}
+<div class="alert alert-warning py-2 small" role="alert" id="ai-problem">
+  <div class="fw-semibold">{{ t('admin.ai.problem') }}</div>
+  <div class="mono">{{ view.problem }}</div>
+</div>
+{% endif %}
+{% if view.inForce != view.version %}
+<div class="alert alert-info py-2 small" role="status" id="ai-drift">{{ t('admin.ai.drift', stored=view.version, applied=view.inForce) }}</div>
+{% endif %}
+
+{# ------------------------------------------------------------------ models #}
+<section aria-labelledby="models-title" id="models" class="mb-4">
+  <h2 id="models-title">{{ t('admin.ai.models.heading') }}</h2>
+  {% if view.models %}
+  <div class="card"><div class="table-responsive" tabindex="0" role="region" aria-label="{{ t('admin.ai.models.caption') }}">
+  <table class="table table-sm mb-0 small align-middle" id="models-table">
+    <caption class="visually-hidden">{{ t('admin.ai.models.caption') }}</caption>
+    <thead><tr>
+      <th scope="col">{{ t('admin.ai.col.model') }}</th><th scope="col">{{ t('admin.ai.col.provider') }}</th>
+      <th scope="col">{{ t('admin.ai.col.endpoint') }}</th><th scope="col">{{ t('admin.ai.col.key') }}</th>
+      <th scope="col">{{ t('admin.ai.col.status') }}</th><th scope="col">{{ t('admin.ai.col.profiles') }}</th>
+      <th scope="col">{{ t('people.col.actions') }}</th>
+    </tr></thead>
+    <tbody>{% for m in view.models %}<tr data-model="{{ m.id }}">
+      <th scope="row" class="fw-normal"><span class="mono fw-semibold">{{ m.id }}</span><div class="mono text-muted">{{ m.model }}</div></th>
+      <td><span class="mono">{{ m.provider }}</span> <span class="text-muted">({{ m.type }})</span></td>
+      <td class="mono">{{ m.endpoint or '—' }}</td>
+      <td>{% if m.key %}<span class="mono">{{ m.key }}</span>
+        {% if m.keySet %}<span class="chip ok">{{ t('admin.ai.key.set') }}</span>{% else %}<span class="chip bad">{{ t('admin.ai.key.unset') }}</span>{% endif %}
+        {% else %}<span class="text-muted">{{ t('admin.ai.key.none') }}</span>{% endif %}</td>
+      <td>{% if m.enabled %}<span class="chip ok">{{ t('admin.ai.enabled') }}</span>{% else %}<span class="chip mute">{{ t('admin.ai.disabled') }}</span>{% endif %}
+        {% for p in m.active %}<span class="chip info">{{ t('admin.ai.active_in', profile=p) }}</span>{% endfor %}</td>
+      <td>{% for p in m.profiles %}<span class="mono">{{ p.profile }}</span><span class="text-muted">#{{ p.position }}</span>{{ ', ' if not loop.last }}{% else %}<span class="text-muted">—</span>{% endfor %}</td>
+      <td><div class="d-flex flex-wrap gap-1">
+        <form method="post" action="/admin/ai-models/models-test" class="m-0"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="model" value="{{ m.id }}">
+          <button class="btn btn-sm btn-outline-secondary" type="submit" aria-label="{{ t('admin.ai.test.label', model=m.id) }}">{{ t('admin.ai.test.button') }}</button></form>
+        <form method="post" action="/admin/ai-models/{{ 'models-disable' if m.enabled else 'models-enable' }}" class="m-0"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">{{ version_field() }}
+          <input type="hidden" name="model" value="{{ m.id }}">
+          <button class="btn btn-sm {{ 'btn-outline-danger' if m.enabled else 'btn-outline-secondary' }}" type="submit"
+                  aria-label="{{ t('admin.ai.disable_label' if m.enabled else 'admin.ai.enable_label', model=m.id) }}">{{ t('admin.ai.disable') if m.enabled else t('admin.ai.enable') }}</button></form>
+        <form method="post" action="/admin/ai-models/models-remove" class="m-0"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">{{ version_field() }}
+          <input type="hidden" name="model" value="{{ m.id }}">
+          <button class="btn btn-sm btn-outline-danger" type="submit" aria-label="{{ t('admin.ai.remove_label', model=m.id) }}">{{ t('admin.ai.remove') }}</button></form>
+      </div>
+      <details class="mt-1"><summary>{{ t('admin.ai.edit') }}</summary>
+        <form method="post" action="/admin/ai-models/models-update" class="mt-2"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">{{ version_field() }}
+          <input type="hidden" name="model" value="{{ m.id }}">
+          <label class="form-label small mb-0" for="em-provider-{{ loop.index }}">{{ t('admin.ai.col.provider') }}</label>
+          <select class="form-select form-select-sm mono" id="em-provider-{{ loop.index }}" name="provider">
+            {% for p in view.providers %}<option value="{{ p.id }}" {% if p.id == m.provider %}selected{% endif %}>{{ p.id }}</option>{% endfor %}
+          </select>
+          <label class="form-label small mb-0 mt-1" for="em-name-{{ loop.index }}">{{ t('admin.ai.field.model_name') }}</label>
+          <input class="form-control form-control-sm mono" id="em-name-{{ loop.index }}" name="name" value="{{ m.model }}" required autocomplete="off" spellcheck="false">
+          <label class="form-label small mb-0 mt-1" for="em-timeout-{{ loop.index }}">{{ t('admin.ai.field.timeout') }}</label>
+          <input class="form-control form-control-sm" id="em-timeout-{{ loop.index }}" name="timeout_s" value="{{ m.timeout_s if m.timeout_s is not none else '' }}" inputmode="decimal" autocomplete="off">
+          <button class="btn btn-sm btn-outline-secondary mt-2" type="submit">{{ t('admin.ai.save') }}</button>
+        </form>
+      </details></td>
+    </tr>{% endfor %}</tbody>
+  </table></div></div>
+  {% else %}
+  {{ states.empty(t('admin.ai.models.none'), body=t('admin.ai.models.none_body'), id='models-empty') }}
+  {% endif %}
+
+  {% if view.providers %}
+  <form method="post" action="/admin/ai-models/models-add" class="card mt-3" id="model-add-form" aria-labelledby="model-add-title"><div class="card-body">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">{{ version_field() }}
+    <h3 class="h6" id="model-add-title">{{ t('admin.ai.models.add') }}</h3>
+    <div class="row g-2 align-items-end">
+      <div class="col-sm-6 col-lg-3"><label class="form-label small" for="nm-id">{{ t('admin.ai.field.model_id') }}</label>
+        <input class="form-control form-control-sm mono" id="nm-id" name="model" required autocomplete="off" spellcheck="false" aria-describedby="nm-id-note"></div>
+      <div class="col-sm-6 col-lg-3"><label class="form-label small" for="nm-provider">{{ t('admin.ai.col.provider') }}</label>
+        <select class="form-select form-select-sm mono" id="nm-provider" name="provider">
+          {% for p in view.providers %}<option value="{{ p.id }}">{{ p.id }} ({{ p.type }})</option>{% endfor %}
+        </select></div>
+      <div class="col-sm-6 col-lg-3"><label class="form-label small" for="nm-name">{{ t('admin.ai.field.model_name') }}</label>
+        <input class="form-control form-control-sm mono" id="nm-name" name="name" required autocomplete="off" spellcheck="false"></div>
+      <div class="col-sm-6 col-lg-2"><label class="form-label small" for="nm-timeout">{{ t('admin.ai.field.timeout') }}</label>
+        <input class="form-control form-control-sm" id="nm-timeout" name="timeout_s" inputmode="decimal" autocomplete="off"></div>
+      <div class="col-lg-1"><div class="form-check small">
+        <input class="form-check-input" type="checkbox" id="nm-enabled" name="enabled" value="yes" checked>
+        <label class="form-check-label" for="nm-enabled">{{ t('admin.ai.enabled') }}</label></div></div>
+    </div>
+    <div class="form-text small" id="nm-id-note">{{ t('admin.ai.field.id_note') }}</div>
+    <button class="btn btn-sm btn-primary mt-2" type="submit">{{ t('admin.ai.models.add_button') }}</button>
+  </div></form>
+  {% endif %}
+</section>
+
+{# ------------------------------------------------------------------ profiles #}
+<section aria-labelledby="profiles-title" id="profiles" class="mb-4">
+  <h2 id="profiles-title">{{ t('admin.ai.profiles.heading') }}</h2>
+  <p class="small text-muted">{{ t('admin.ai.profiles.lede') }}</p>
+  {% set enabled_models = view.models|selectattr('enabled')|map(attribute='id')|list %}
+  <div class="row g-3">
+  {% for p in view.profiles %}
+    <div class="col-md-6 col-xl-4"><div class="card h-100" data-profile="{{ p.name }}"><div class="card-body">
+      <h3 class="h6 d-flex align-items-center gap-2"><span class="mono">{{ p.name }}</span>
+        {% if p.default %}<span class="chip info">{{ t('admin.ai.profiles.default') }}</span>{% endif %}</h3>
+      <ol class="list-unstyled mb-2" aria-label="{{ t('admin.ai.profiles.chain_label', profile=p.name) }}">
+      {% for model in p.chain %}
+        <li class="d-flex align-items-center gap-1 mb-1" data-chain-position="{{ loop.index }}">
+          <span class="text-muted small">{{ loop.index }}.</span>
+          <span class="mono small flex-grow-1">{{ model }}{% if loop.first %} <span class="chip ok">{{ t('admin.ai.profiles.active') }}</span>{% endif %}</span>
+          {% for op, icon, label, disabled in [('profiles-up', 'arrow-up', 'admin.ai.profiles.up', loop.first), ('profiles-down', 'arrow-down', 'admin.ai.profiles.down', loop.last), ('profiles-drop', 'x-lg', 'admin.ai.profiles.drop', p.chain|length == 1)] %}
+          <form method="post" action="/admin/ai-models/{{ op }}" class="m-0"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">{{ version_field() }}
+            <input type="hidden" name="profile" value="{{ p.name }}"><input type="hidden" name="model" value="{{ model }}">
+            <button class="btn btn-sm btn-outline-secondary py-0" type="submit" {% if disabled %}disabled{% endif %}
+                    aria-label="{{ t(label, model=model, profile=p.name) }}" title="{{ t(label, model=model, profile=p.name) }}"><i class="bi bi-{{ icon }}" aria-hidden="true"></i></button>
+          </form>
+          {% endfor %}
+        </li>
+      {% endfor %}
+      </ol>
+      {% set addable = enabled_models|reject('in', p.chain)|list %}
+      {% if addable %}
+      <form method="post" action="/admin/ai-models/profiles-add" class="d-flex gap-1 mb-2"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">{{ version_field() }}
+        <input type="hidden" name="profile" value="{{ p.name }}">
+        <label class="visually-hidden" for="pa-{{ loop.index }}">{{ t('admin.ai.profiles.add_label', profile=p.name) }}</label>
+        <select class="form-select form-select-sm mono" id="pa-{{ loop.index }}" name="model">
+          {% for model in addable %}<option value="{{ model }}">{{ model }}</option>{% endfor %}</select>
+        <button class="btn btn-sm btn-outline-secondary text-nowrap" type="submit">{{ t('admin.ai.profiles.add') }}</button>
+      </form>
+      {% endif %}
+      <div class="d-flex flex-wrap gap-1">
+        {% if not p.default %}
+        <form method="post" action="/admin/ai-models/profiles-default" class="m-0"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">{{ version_field() }}
+          <input type="hidden" name="profile" value="{{ p.name }}">
+          <button class="btn btn-sm btn-outline-secondary" type="submit" aria-label="{{ t('admin.ai.profiles.make_default_label', profile=p.name) }}">{{ t('admin.ai.profiles.make_default') }}</button></form>
+        {% endif %}
+        <form method="post" action="/admin/ai-models/profiles-remove" class="m-0"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">{{ version_field() }}
+          <input type="hidden" name="profile" value="{{ p.name }}">
+          <button class="btn btn-sm btn-outline-danger" type="submit" aria-label="{{ t('admin.ai.profiles.remove_label', profile=p.name) }}">{{ t('admin.ai.remove') }}</button></form>
+      </div>
+    </div></div></div>
+  {% else %}
+    <div class="col-12">{{ states.empty(t('admin.ai.profiles.none'), body=t('admin.ai.profiles.none_body'), id='profiles-empty') }}</div>
+  {% endfor %}
+  </div>
+
+  {% if enabled_models %}
+  <form method="post" action="/admin/ai-models/profiles-set" class="card mt-3" id="profile-set-form" aria-labelledby="profile-set-title"><div class="card-body">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">{{ version_field() }}
+    <h3 class="h6" id="profile-set-title">{{ t('admin.ai.profiles.set') }}</h3>
+    <div class="row g-2 align-items-end">
+      <div class="col-sm-4 col-lg-3"><label class="form-label small" for="ps-profile">{{ t('admin.ai.field.profile') }}</label>
+        <input class="form-control form-control-sm mono" id="ps-profile" name="profile" list="ps-profiles" required autocomplete="off" spellcheck="false">
+        <datalist id="ps-profiles"><option value="draft"></option><option value="explain"></option></datalist></div>
+      <div class="col-sm-8 col-lg-6"><label class="form-label small" for="ps-chain">{{ t('admin.ai.field.chain') }}</label>
+        <input class="form-control form-control-sm mono" id="ps-chain" name="chain" required autocomplete="off" spellcheck="false" aria-describedby="ps-chain-note">
+        <div class="form-text small" id="ps-chain-note">{{ t('admin.ai.field.chain_note', models=enabled_models|join(', ')) }}</div></div>
+      <div class="col-lg-3"><div class="form-check small">
+        <input class="form-check-input" type="checkbox" id="ps-default" name="default" value="yes">
+        <label class="form-check-label" for="ps-default">{{ t('admin.ai.profiles.as_default') }}</label></div></div>
+    </div>
+    <button class="btn btn-sm btn-primary mt-2" type="submit">{{ t('admin.ai.profiles.set_button') }}</button>
+  </div></form>
+  {% endif %}
+</section>
+
+{# ------------------------------------------------------------------ providers #}
+<section aria-labelledby="providers-title" id="providers" class="mb-4">
+  <h2 id="providers-title">{{ t('admin.ai.providers.heading') }}</h2>
+  {% if view.providers %}
+  <div class="card"><div class="table-responsive" tabindex="0" role="region" aria-label="{{ t('admin.ai.providers.caption') }}">
+  <table class="table table-sm mb-0 small align-middle" id="providers-table">
+    <caption class="visually-hidden">{{ t('admin.ai.providers.caption') }}</caption>
+    <thead><tr><th scope="col">{{ t('admin.ai.col.provider') }}</th><th scope="col">{{ t('admin.ai.col.type') }}</th>
+      <th scope="col">{{ t('admin.ai.col.endpoint') }}</th><th scope="col">{{ t('admin.ai.col.key') }}</th>
+      <th scope="col">{{ t('admin.ai.col.timeout') }}</th><th scope="col">{{ t('admin.ai.col.used_by') }}</th>
+      <th scope="col">{{ t('people.col.actions') }}</th></tr></thead>
+    <tbody>{% for p in view.providers %}<tr data-provider="{{ p.id }}">
+      <th scope="row" class="fw-normal mono">{{ p.id }}</th>
+      <td class="mono">{{ p.type }}</td>
+      <td class="mono">{{ p.endpoint or '—' }}</td>
+      <td>{% if p.key %}<span class="text-muted">{{ t('admin.ai.key.kind.' ~ p.keyKind) }}</span> <span class="mono">{{ p.key }}</span>
+        {% if p.keySet %}<span class="chip ok">{{ t('admin.ai.key.set') }}</span>{% else %}<span class="chip bad">{{ t('admin.ai.key.unset') }}</span>{% endif %}
+        {% else %}<span class="text-muted">{{ t('admin.ai.key.none') }}</span>{% endif %}</td>
+      <td>{{ t('admin.ai.seconds', n=p.timeout_s if p.timeout_s is defined else 60) }}</td>
+      <td>{% for m in p.models %}<span class="mono">{{ m }}</span>{{ ', ' if not loop.last }}{% else %}<span class="text-muted">—</span>{% endfor %}</td>
+      <td>
+        <form method="post" action="/admin/ai-models/providers-remove" class="m-0 d-inline"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">{{ version_field() }}
+          <input type="hidden" name="provider" value="{{ p.id }}">
+          <button class="btn btn-sm btn-outline-danger" type="submit" {% if p.models %}disabled aria-describedby="pr-used-{{ loop.index }}"{% endif %}
+                  aria-label="{{ t('admin.ai.remove_provider_label', provider=p.id) }}">{{ t('admin.ai.remove') }}</button></form>
+        {% if p.models %}<div class="visually-hidden" id="pr-used-{{ loop.index }}">{{ t('admin.ai.provider_in_use') }}</div>{% endif %}
+        <details class="mt-1"><summary>{{ t('admin.ai.edit') }}</summary>
+          <form method="post" action="/admin/ai-models/providers-update" class="mt-2"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">{{ version_field() }}
+            <input type="hidden" name="provider" value="{{ p.id }}">
+            <label class="form-label small mb-0" for="ep-endpoint-{{ loop.index }}">{{ t('admin.ai.col.endpoint') }}</label>
+            <input class="form-control form-control-sm mono" id="ep-endpoint-{{ loop.index }}" name="endpoint" value="{{ p.endpoint or '' }}" autocomplete="off" spellcheck="false">
+            <label class="form-label small mb-0 mt-1" for="ep-kind-{{ loop.index }}">{{ t('admin.ai.field.key_kind') }}</label>
+            <select class="form-select form-select-sm" id="ep-kind-{{ loop.index }}" name="key_kind">
+              <option value="none" {% if not p.keyKind %}selected{% endif %}>{{ t('admin.ai.key.kind.none') }}</option>
+              <option value="env" {% if p.keyKind == 'env' %}selected{% endif %}>{{ t('admin.ai.key.kind.env') }}</option>
+              <option value="file" {% if p.keyKind == 'file' %}selected{% endif %}>{{ t('admin.ai.key.kind.file') }}</option></select>
+            <label class="form-label small mb-0 mt-1" for="ep-ref-{{ loop.index }}">{{ t('admin.ai.field.key_ref') }}</label>
+            <input class="form-control form-control-sm mono" id="ep-ref-{{ loop.index }}" name="key_ref" value="{{ p.key or '' }}" autocomplete="off" spellcheck="false">
+            <label class="form-label small mb-0 mt-1" for="ep-timeout-{{ loop.index }}">{{ t('admin.ai.field.timeout') }}</label>
+            <input class="form-control form-control-sm" id="ep-timeout-{{ loop.index }}" name="timeout_s" value="{{ p.timeout_s if p.timeout_s is defined else 60 }}" inputmode="decimal" autocomplete="off">
+            <button class="btn btn-sm btn-outline-secondary mt-2" type="submit">{{ t('admin.ai.save') }}</button>
+          </form></details>
+      </td>
+    </tr>{% endfor %}</tbody>
+  </table></div></div>
+  {% else %}
+  {{ states.empty(t('admin.ai.providers.none'), body=t('admin.ai.providers.none_body'), id='providers-empty') }}
+  {% endif %}
+
+  <form method="post" action="/admin/ai-models/providers-add" class="card mt-3" id="provider-add-form" aria-labelledby="provider-add-title"><div class="card-body">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">{{ version_field() }}
+    <h3 class="h6" id="provider-add-title">{{ t('admin.ai.providers.add') }}</h3>
+    <div class="row g-2 align-items-end">
+      <div class="col-sm-6 col-lg-2"><label class="form-label small" for="np-id">{{ t('admin.ai.field.provider_id') }}</label>
+        <input class="form-control form-control-sm mono" id="np-id" name="provider" required autocomplete="off" spellcheck="false"></div>
+      <div class="col-sm-6 col-lg-2"><label class="form-label small" for="np-type">{{ t('admin.ai.col.type') }}</label>
+        <select class="form-select form-select-sm mono" id="np-type" name="type">
+          {% for kind in view.providerTypes %}<option value="{{ kind.name }}" {% if kind.problem %}disabled{% endif %}>{{ kind.name }}</option>{% endfor %}
+        </select></div>
+      <div class="col-sm-6 col-lg-3"><label class="form-label small" for="np-endpoint">{{ t('admin.ai.col.endpoint') }} <span class="fw-normal text-muted">{{ t('workbench.optional') }}</span></label>
+        <input class="form-control form-control-sm mono" id="np-endpoint" name="endpoint" autocomplete="off" spellcheck="false"></div>
+      <div class="col-sm-6 col-lg-2"><label class="form-label small" for="np-kind">{{ t('admin.ai.field.key_kind') }}</label>
+        <select class="form-select form-select-sm" id="np-kind" name="key_kind">
+          <option value="none">{{ t('admin.ai.key.kind.none') }}</option>
+          <option value="env">{{ t('admin.ai.key.kind.env') }}</option>
+          <option value="file">{{ t('admin.ai.key.kind.file') }}</option></select></div>
+      <div class="col-sm-6 col-lg-2"><label class="form-label small" for="np-ref">{{ t('admin.ai.field.key_ref') }}</label>
+        <input class="form-control form-control-sm mono" id="np-ref" name="key_ref" autocomplete="off" spellcheck="false" aria-describedby="np-ref-note"></div>
+      <div class="col-sm-6 col-lg-1"><label class="form-label small" for="np-timeout">{{ t('admin.ai.field.timeout') }}</label>
+        <input class="form-control form-control-sm" id="np-timeout" name="timeout_s" inputmode="decimal" autocomplete="off"></div>
+    </div>
+    <div class="form-text small" id="np-ref-note">{{ t('admin.ai.field.key_note') }}</div>
+    <button class="btn btn-sm btn-primary mt-2" type="submit">{{ t('admin.ai.providers.add_button') }}</button>
+  </div></form>
+
+  <details class="mt-3" id="provider-types">
+    <summary class="small">{{ t('admin.ai.types.heading', n=view.providerTypes|length) }}</summary>
+    <div class="table-responsive mt-2" tabindex="0" role="region" aria-label="{{ t('admin.ai.types.caption') }}">
+    <table class="table table-sm small mb-0">
+      <caption class="visually-hidden">{{ t('admin.ai.types.caption') }}</caption>
+      <thead><tr><th scope="col">{{ t('admin.ai.col.type') }}</th><th scope="col">{{ t('admin.ai.col.source') }}</th>
+        <th scope="col">{{ t('admin.ai.col.capabilities') }}</th></tr></thead>
+      <tbody>{% for kind in view.providerTypes %}<tr>
+        <th scope="row" class="fw-normal mono">{{ kind.name }}</th>
+        <td>{{ t('admin.ai.builtin') if kind.source == 'builtin' else kind.source }}</td>
+        <td>{% if kind.problem %}<span class="text-danger">{{ kind.problem }}</span>
+          {% elif kind.capabilities %}{{ t('admin.ai.caps', structured=kind.capabilities.structured_output, streaming=t('admin.ai.yes') if kind.capabilities.supports_streaming else t('admin.ai.no')) }}
+          {% else %}—{% endif %}</td>
+      </tr>{% endfor %}</tbody>
+    </table></div>
+  </details>
+</section>
+
+{# ------------------------------------------------------------------ budgets #}
+<section aria-labelledby="budgets-title" id="budgets" class="mb-4">
+  <h2 id="budgets-title">{{ t('admin.ai.budgets.heading') }}</h2>
+  <form method="post" action="/admin/ai-models/budgets-set" class="card" id="budgets-form"><div class="card-body">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">{{ version_field() }}
+    <div class="row g-2 align-items-end">
+      <div class="col-sm-6 col-lg-4"><label class="form-label small" for="b-daily">{{ t('admin.ai.budgets.daily') }}</label>
+        <input class="form-control form-control-sm" id="b-daily" name="per_user_daily_tokens" inputmode="numeric" autocomplete="off"
+               value="{{ view.budgets.per_user_daily_tokens if view.budgets.per_user_daily_tokens is not none else '' }}"></div>
+      <div class="col-sm-6 col-lg-4"><label class="form-label small" for="b-request">{{ t('admin.ai.budgets.request') }}</label>
+        <input class="form-control form-control-sm" id="b-request" name="per_request_max_tokens" inputmode="numeric" autocomplete="off"
+               value="{{ view.budgets.per_request_max_tokens if view.budgets.per_request_max_tokens is not none else '' }}"></div>
+      <div class="col-lg-4"><button class="btn btn-sm btn-primary" type="submit">{{ t('admin.ai.save') }}</button></div>
+    </div>
+    <div class="form-text small">{{ t('admin.ai.budgets.note') }}</div>
+  </div></form>
+</section>
+
+{# ------------------------------------------------------------------ usage #}
+<section aria-labelledby="usage-title" id="usage" class="mb-4">
+  <h2 id="usage-title">{{ t('admin.ai.usage.heading') }}</h2>
+  <p class="small text-muted">{{ t('admin.ai.usage.lede', n=usage.days|length) }}</p>
+  {% if usage.byModel or usage.byUser %}
+  <div class="row g-3">
+  {% for table, caption, col in [(usage.byModel, 'admin.ai.usage.by_model', 'admin.ai.col.model'), (usage.byUser, 'admin.ai.usage.by_user', 'admin.ai.col.person')] %}
+    <div class="col-lg-6"><div class="card"><div class="table-responsive" tabindex="0" role="region" aria-label="{{ t(caption) }}">
+      <table class="table table-sm small mb-0" id="{{ 'usage-models' if loop.first else 'usage-people' }}">
+        <caption class="px-2">{{ t(caption) }}</caption>
+        <thead><tr><th scope="col">{{ t(col) }}</th><th scope="col" class="text-end">{{ t('admin.ai.usage.today') }}</th>
+          <th scope="col" class="text-end">{{ t('admin.ai.usage.tokens') }}</th><th scope="col" class="text-end">{{ t('admin.ai.usage.requests') }}</th></tr></thead>
+        <tbody>{% for row in table %}<tr><th scope="row" class="fw-normal mono">{{ row.name }}</th>
+          <td class="text-end">{{ row.today|thousands }}</td><td class="text-end">{{ row.tokens|thousands }}</td>
+          <td class="text-end">{{ row.requests|thousands }}</td></tr>{% endfor %}</tbody>
+      </table></div></div></div>
+  {% endfor %}
+  </div>
+  {% else %}
+  {{ states.empty(t('admin.ai.usage.none'), body=t('admin.ai.usage.none_body'), id='usage-empty') }}
+  {% endif %}
+</section>
+
+{# ------------------------------------------------------------------ recent changes #}
+<section aria-labelledby="changes-title" id="changes" class="mb-4">
+  <h2 id="changes-title">{{ t('admin.ai.changes.heading') }}</h2>
+  {% if changes %}
+  <div class="card"><div class="table-responsive" tabindex="0" role="region" aria-label="{{ t('admin.ai.changes.caption') }}">
+  <table class="table table-sm small mb-0" id="changes-table">
+    <caption class="visually-hidden">{{ t('admin.ai.changes.caption') }}</caption>
+    <thead><tr><th scope="col">{{ t('admin.ai.changes.when') }}</th><th scope="col">{{ t('admin.ai.changes.who') }}</th>
+      <th scope="col">{{ t('admin.ai.changes.what') }}</th><th scope="col">{{ t('admin.ai.changes.before') }}</th>
+      <th scope="col">{{ t('admin.ai.changes.after') }}</th><th scope="col">{{ t('admin.ai.changes.version') }}</th></tr></thead>
+    <tbody>{% for c in changes %}<tr>
+      <td>{{ people.when(c.at) }}</td><td class="mono">{{ c.actor or '—' }}</td>
+      <td><span class="mono">{{ c.action }}</span> <span class="mono text-muted">{{ c.target }}</span></td>
+      <td class="mono text-break">{{ c.before|tojson if c.before is not none else '—' }}</td>
+      <td class="mono text-break">{{ c.after|tojson if c.after is not none else '—' }}</td>
+      <td>{{ c.version }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div></div>
+  {% else %}
+  {{ states.empty(t('admin.ai.changes.none'), body=t('admin.ai.changes.none_body'), id='changes-empty') }}
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

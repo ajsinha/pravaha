@@ -4,12 +4,12 @@ slug: assistant
 category: reference
 order: 60
 icon: robot
-summary: "Plain English to and from continuous SQL through any model you configure — draft a query from a description, explain a query, explain a refusal — with the engine as the judge and you as the one who registers: configuration, providers, fallback, budgets, switching models at runtime, measuring a model, and security."
+summary: "Plain English to and from continuous SQL through any model you configure — draft a query, explain a query or a refusal — with the engine as the judge and you as the one who registers: on the command line and in the console."
 badge: ADR-058
 audience: Developers and administrators
 keywords: [assistant, assist, llm, model, ai, ask, draft, describe, repair, golden set, eval, evaluation, explain-sql, why, explain a refusal, provider, anthropic, openai, openai-compatible, ollama, vllm, fallback, profile, chain, budget, api_key_env, assist.json, ModelRouter, AssistAdmin, entry point, plugin]
 guide: python-sdk
-related: [cli-reference, sql-refusals, reading-a-plan, errors-sql, sdk-reference]
+related: [admin-ai-models, cli-reference, sql-refusals, reading-a-plan, errors-sql, sdk-reference]
 ---
 
 The assistant drafts a continuous query from a description in plain English, explains a continuous
@@ -21,9 +21,39 @@ and any SQL it proposes is validated by the engine before you are told it works.
 gains no model dependency, no outbound call and no new permission; the assistant lives in the Python
 SDK and the command line.
 
-Built so far (phases 1 and 2 of ADR-058): `pravaha ask` to draft a query, `pravaha explain-sql`,
+Built (phases 1 to 3 of ADR-058): `pravaha ask` to draft a query, `pravaha explain-sql`,
 `pravaha why`, `pravaha assist` to see, check and switch models, and `pravaha assist eval` to measure
-one. This console's own "Describe it" panel and model administration screen come later.
+one — and in this console, **Describe it** on the workbench, **Explain** on a query's page and beside
+every refusal code, and [Admin · AI models](/help/topics/admin-ai-models) to configure and switch
+models while the console runs.
+
+## In the console
+
+**Describe it** (the workbench, above the editor). Say what the view should answer; the console
+drafts it as you, with your own engine session, exactly as `pravaha ask` does, and shows:
+
+- the `CREATE CONTINUOUS QUERY` statement, the model's explanation and its assumptions;
+- the engine's verdict — *accepted* (validated and planned), or *refused* with the engine's code and
+  sentence, and an **Explain** beside the code — and every repair turn;
+- the engine's own plan, and the guarantee of the sink it writes to, if any;
+- the model's **questions**, when it could not decide — answer them in place and **Draft again**;
+  the engine is asked nothing until the description is clear enough;
+- a running query that appears to compute the same thing, with a link to read it instead;
+- **Copy to editor**, which opens the SQL as a new draft tab in the workbench;
+- **Register**, disabled until the engine accepts the draft, and even then only once you tick that
+  you have read the SQL and the plan. It registers through the ordinary call, as you — the draft
+  the console holds, exactly as the engine judged it; the browser sends only its id.
+
+**Explain this query** (a query's page) explains the registered query in plain English, grounded in
+the engine's plan for it. **Explain** beside a refusal code — on the workbench, in its diagnostics,
+on a query's page, on a refused draft — says what that code means for *this* statement and what to
+change; a rewrite the model proposes is shown with the engine's verdict on it.
+
+Every answer says which model gave it, after which others were unavailable, and what it cost. The
+budgets apply: a request over one is refused before anything is sent, and the page says so. When no
+model is configured, or none is enabled, each of these shows one notice instead — with a link to
+Admin · AI models for an administrator, and "ask an administrator" for anyone else. Each works with
+scripting off too: the form posts, and the answer comes back as a page.
 
 ## Configure a model
 
@@ -53,7 +83,7 @@ Then `~/.config/pravaha/assist.json` (or the path in `PRAVAHA_ASSIST_CONFIG`):
 
 A **profile** is an ordered chain: the first model answers, and the next is tried only when one is
 unavailable or rate-limited. The file is JSON because programs write it too (`pravaha assist use`,
-and later this console) and it must round-trip exactly with the standard library alone; a `.yaml` or
+and this console's Admin · AI models) and it must round-trip exactly with the standard library alone; a `.yaml` or
 `.toml` file is refused with directions.
 
 **A key written in the file is refused** — a field named `api_key`, `token`, `secret` or `password`,
@@ -190,7 +220,7 @@ and name the model — the assistant does not shop a refusal around until some m
 ## Switching models while things run
 
 The configuration is an immutable snapshot. A change — through `pravaha assist use explain claude,llama --yes`,
-`pravaha assist disable llama --yes`, or the SDK's admin facade the console's screen will call — is
+`pravaha assist disable llama --yes`, or [Admin · AI models](/help/topics/admin-ai-models) in this console — is
 validated completely first (unknown provider, duplicate id, a chain naming a disabled model, a key
 variable not set), then stored atomically, then swapped in: requests already running finish on the
 old configuration, new ones use the new. A process following the file picks the change up within a

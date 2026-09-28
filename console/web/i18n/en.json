@@ -650,6 +650,15 @@
         "run_again": "Run again"
       }
     },
+    "assist": {
+      "working": "Asking the model…",
+      "answered": "The assistant answered.",
+      "failed": "The assistant could not answer.",
+      "unreachable": "The console did not answer ({status}).",
+      "copied": "Copied into the editor as a new draft.",
+      "explain": "Explain",
+      "explain_code": "Explain {code} for this statement"
+    },
     "lib": {
       "copied": "Copied",
       "copied_announce": "Copied to the clipboard"
@@ -706,11 +715,169 @@
       "audit": "Audit trail",
       "plugins": "Plugins",
       "tenants": "Tenants",
+      "ai_models": "AI models",
       "users": "Users",
       "keys": "API keys",
       "sessions": "Sessions",
       "lanes": "Lanes",
       "grants": "Grants"
+    },
+    "ai": {
+      "title": "AI models",
+      "heading": "AI models",
+      "lede": "The models the assistant asks — several providers and models at once, switched here while the console runs. A change is checked in full, saved, and used by the very next request; a key is named by the variable or file that holds it, never shown.",
+      "denied": "Only a person the engine gives the admin role may change the assistant's models.",
+      "error": "Could not ask the engine who you are",
+      "ready": "the assistant can answer",
+      "not_ready": {
+        "none": "no model is configured",
+        "disabled": "every model is disabled",
+        "unrouted": "no profile routes to a model",
+        "ok": "the assistant can answer"
+      },
+      "version": "configuration version {version}",
+      "changed_by": "last changed by {who} at {at}",
+      "problem": "A stored configuration was not applied, and the one in force is kept",
+      "drift": "The file is at version {stored}; this console is using version {applied}. The console applies a new version within a second of it being stored when it validates here.",
+      "changed": "Done: {action} {target} — version {version}, in force for the next request.",
+      "conflict": "Not changed — somebody else changed the configuration since this page was drawn. {detail}",
+      "refused": "Not changed: {detail}",
+      "no_such_change": "There is no change called {op}.",
+      "bad_tokens": "{what} must be a whole number of tokens, or empty for no limit (not {value}).",
+      "bad_seconds": "{what} must be a number of seconds (not {value}).",
+      "budget_daily": "The daily budget",
+      "budget_request": "The per-request budget",
+      "timeout": "The timeout",
+      "enabled": "enabled",
+      "disabled": "disabled",
+      "enable": "Enable",
+      "disable": "Disable",
+      "enable_label": "Enable {model}",
+      "disable_label": "Disable {model}",
+      "remove": "Remove",
+      "remove_label": "Remove {model}",
+      "remove_provider_label": "Remove provider {provider}",
+      "provider_in_use": "Remove the models that use this provider first.",
+      "edit": "Edit",
+      "save": "Save",
+      "active_in": "active in {profile}",
+      "seconds": "{n} s",
+      "builtin": "built in",
+      "yes": "yes",
+      "no": "no",
+      "caps": "structured output: {structured}; streaming: {streaming}",
+      "test": {
+        "button": "Test",
+        "label": "Test {model}",
+        "ok": "{model} answered in {ms} ms.",
+        "failed": "{model} did not answer: {kind} — {message}"
+      },
+      "key": {
+        "set": "set here",
+        "unset": "not set here",
+        "none": "no key",
+        "kind": {
+          "env": "environment variable",
+          "file": "secret file",
+          "none": "no key"
+        }
+      },
+      "col": {
+        "model": "Model",
+        "provider": "Provider",
+        "endpoint": "Endpoint",
+        "key": "Key",
+        "status": "Status",
+        "profiles": "In profiles",
+        "type": "Type",
+        "timeout": "Timeout",
+        "used_by": "Used by",
+        "source": "From",
+        "capabilities": "Capabilities",
+        "person": "Person"
+      },
+      "field": {
+        "model_id": "Model id",
+        "id_note": "The name chains use: letters, digits, dot, underscore, colon, dash.",
+        "model_name": "The provider's model name",
+        "timeout": "Timeout (s)",
+        "profile": "Profile",
+        "chain": "Chain, first answers",
+        "chain_note": "Model ids separated by commas; the next is asked only when one is unavailable or rate-limited. Enabled: {models}.",
+        "provider_id": "Provider id",
+        "key_kind": "Key held in",
+        "key_ref": "Variable or file name",
+        "key_note": "Name the environment variable or the secret file that holds the key — never the key. A value shaped like a key is refused."
+      },
+      "models": {
+        "heading": "Models",
+        "caption": "Configured models",
+        "none": "No model is configured",
+        "none_body": "Add a provider below, then a model on it, then put the model in a profile's chain.",
+        "add": "Add a model",
+        "add_button": "Add model"
+      },
+      "profiles": {
+        "heading": "Profiles",
+        "lede": "A task asks for a profile — draft for drafting a query, explain for explaining one or a refusal. Its chain is tried in order: the first answers, the next is asked only when one is unavailable or rate-limited.",
+        "default": "default",
+        "active": "answers",
+        "chain_label": "The chain of {profile}, in the order models are asked",
+        "up": "Move {model} earlier in {profile}",
+        "down": "Move {model} later in {profile}",
+        "drop": "Take {model} out of {profile}",
+        "add": "Add to chain",
+        "add_label": "A model to add to {profile}",
+        "make_default": "Make default",
+        "make_default_label": "Make {profile} the default profile",
+        "remove_label": "Remove profile {profile}",
+        "none": "No profile yet",
+        "none_body": "Set a chain for draft and for explain below; a task whose own profile is missing uses the default one.",
+        "set": "Set a profile's chain",
+        "set_button": "Set chain",
+        "as_default": "Make it the default profile"
+      },
+      "providers": {
+        "heading": "Providers",
+        "caption": "Configured providers",
+        "none": "No provider is configured",
+        "none_body": "A provider is where models are reached and how its key is found. Add one below.",
+        "add": "Add a provider",
+        "add_button": "Add provider"
+      },
+      "types": {
+        "heading": "Provider types this console can use ({n})",
+        "caption": "Provider types, built in and installed"
+      },
+      "budgets": {
+        "heading": "Budgets",
+        "daily": "Tokens per person per day",
+        "request": "Tokens per request",
+        "note": "Empty is no limit. A request that could exceed either is refused before it is sent. The daily count is kept per person, by the name the engine signed them in with."
+      },
+      "usage": {
+        "heading": "Usage",
+        "lede": "Tokens from the usage ledger ({n} days kept) and requests from this console's assist log. Read-only.",
+        "by_model": "By model",
+        "by_user": "By person",
+        "today": "Today",
+        "tokens": "Tokens",
+        "requests": "Requests",
+        "none": "Nothing asked yet",
+        "none_body": "Each request the assistant answers is counted here, by model and by person."
+      },
+      "changes": {
+        "heading": "Recent changes",
+        "caption": "Recent changes to the assistant's configuration",
+        "when": "When",
+        "who": "Who",
+        "what": "What",
+        "before": "Before",
+        "after": "After",
+        "version": "Version",
+        "none": "No change made here yet",
+        "none_body": "Every change made on this page is listed with who made it and what it was before and after."
+      }
     },
     "access": {
       "title": "Access",
@@ -2146,6 +2313,102 @@
   "api": {
     "sign_in_first": "sign in to the console first",
     "filters_object": "filters must be an object of column: value"
+  },
+  "assist": {
+    "working": "Asking the model…",
+    "answered_by": "Answered by {model} ({provider} {name})",
+    "tokens": "{n} tokens",
+    "latency": "{ms} ms",
+    "fell_back": "after {n} unavailable",
+    "engine_plan": "The engine's plan",
+    "empty": {
+      "title": "The assistant has no model to ask",
+      "body": "Drafting and explaining need a model, and none is configured and enabled for this.",
+      "admin_action": "Configure one in Admin · AI models",
+      "ask_admin": "Ask an administrator to configure one."
+    },
+    "describe": {
+      "title": "Describe it",
+      "gloss": "a query from plain English, judged by the engine",
+      "label": "What should the view answer?",
+      "note": "Say it as you would to a colleague: which stream, what to count or keep, per what, over what time. Nothing is registered until you confirm.",
+      "name": "Name",
+      "submit": "Draft it",
+      "result_label": "The draft",
+      "empty_description": "Describe the query you want first."
+    },
+    "draft": {
+      "status": {
+        "accepted": "accepted by the engine",
+        "refused": "refused",
+        "questions": "questions first"
+      },
+      "repairs": "after {n} repair turns",
+      "questions_intro": "The model needs to know more before it drafts anything; the engine was not asked. Answer what you can and draft again.",
+      "again": "Draft again with these answers",
+      "statement": "The statement",
+      "assumptions": "Assumptions",
+      "same_as": "A running query appears to compute the same thing",
+      "guarantee": "Writes to {sink}, which promises {guarantee}.",
+      "turns": "Every turn ({n})",
+      "turn": {
+        "draft": "draft",
+        "repair": "repair"
+      },
+      "copy": "Copy to editor"
+    },
+    "verdict": {
+      "accepted": "The engine accepts it: validated and planned.",
+      "refused_engine": "Refused by the engine:",
+      "refused_assistant": "Refused by the assistant's registration checks:",
+      "not_judged": "not judged"
+    },
+    "register": {
+      "confirm": "I have read the SQL and the engine's plan, and I want to register it as myself.",
+      "submit": "Register",
+      "disabled": "Register is available once the engine accepts the draft.",
+      "note": "Registered with your own engine session, exactly as if you had typed it.",
+      "done": "Registered:"
+    },
+    "explain_query": {
+      "title": "In plain English",
+      "submit": "Explain this query",
+      "note": "Grounded in the engine's own plan for it.",
+      "result_label": "The explanation",
+      "steps": "Step by step",
+      "notes": "Worth knowing"
+    },
+    "why": {
+      "button": "Explain",
+      "label": "Explain {code} for this statement",
+      "cause": "Why:",
+      "fix": "Fix:",
+      "rewrite": "A rewrite",
+      "rewrite_accepted": "the engine accepts it",
+      "rewrite_refused": "the engine refuses it",
+      "rewrite_unchecked": "not checked by the engine"
+    },
+    "fail": {
+      "budget": "Over budget: nothing was sent to the model",
+      "model": "The model did not answer",
+      "config": "The assistant's configuration could not be used",
+      "engine": "The engine refused",
+      "refused": "Not registered",
+      "input": "Nothing to ask",
+      "unconfigured": "No model to ask",
+      "which_model": "Model: {model}"
+    },
+    "page": {
+      "title": "Assistant",
+      "kicker": "Assistant",
+      "back": "Back",
+      "heading": {
+        "draft": "A drafted query",
+        "registered": "Registered",
+        "explained-query": "A query in plain English",
+        "explained-refusal": "A refusal explained"
+      }
+    }
   },
   "dlq": {
     "title": "Dead letters — {name}",

@@ -10,14 +10,16 @@ any provider, several at once, and it never trusts what the model says on its ow
 given the engine's own plan and the engine's own words, and any SQL the model proposes goes back to
 the engine before you are told it works. The design is [ADR-058](adr/058-plain-english-to-continuous-sql.md).
 
-**What is built (phases 1 and 2):** the `pravaha.assist` package in the Python SDK — the provider
+**What is built (phases 1 to 3):** the `pravaha.assist` package in the Python SDK — the provider
 protocol, five built-in providers, the router with fallback chains, budgets and runtime
 reconfiguration, the configuration store and its administration facade; the explain tasks
 `pravaha explain-sql` and `pravaha why`; **drafting a query from a description**, `pravaha ask`,
 judged by the engine with up to three repair turns and registered only when a person confirms it;
 and the **evaluation harness**, `pravaha assist eval`, over a golden set built from the case
-studies. **Not yet:** the console's panel and admin screen (phase 3), and the `azure-openai`,
-`bedrock` and `vertex` providers (phase 4).
+studies; and **in the console** (phase 3), the *Describe it* panel on the workbench, *Explain* on a
+query's page and beside every refusal code, and **Admin · AI models**, where an administrator
+configures several providers and models and switches between them while the console runs. **Not
+yet:** the `azure-openai`, `bedrock` and `vertex` providers (phase 4).
 
 - [Quick start](#quick-start)
 - [Configuration](#configuration)
@@ -27,6 +29,7 @@ studies. **Not yet:** the console's panel and admin screen (phase 3), and the `a
 - [The two tasks](#the-two-tasks)
 - [Drafting a query: `pravaha ask`](#drafting-a-query-pravaha-ask)
 - [Measuring a model: `pravaha assist eval`](#measuring-a-model-pravaha-assist-eval)
+- [In the console](#in-the-console)
 - [Commands](#commands)
 - [From Python](#from-python)
 - [Writing a provider plugin](#writing-a-provider-plugin)
@@ -175,11 +178,11 @@ token, plus the most it may answer); over `per_request_max_tokens`, it is refuse
 `BudgetExceeded`. `per_user_daily_tokens` is counted from each answer's reported usage — tokens of a
 failed repair included — in a small ledger, `assist-usage.json` beside the configuration, mode `0600`,
 seven days kept. The ledger is a per-machine convenience cap, not an enforcement point (a person with
-a shell can delete it); spend accounting belongs to the console's audit trail (phase 3).
+a shell can delete it); spend is accounted in the console's assist log ([In the console](#in-the-console)).
 
 ## Changing the configuration while it runs
 
-A running process — the console, in phase 3 — must be able to switch models without a restart, and
+A running process — the console — must be able to switch models without a restart, and
 an administrator must be able to make that switch safely. The pieces:
 
 - **`AssistConfig`** is an immutable, validated snapshot: providers, models, profiles and chains,
@@ -375,6 +378,64 @@ fed. Both are dropped afterwards, whatever happened. It needs `--url` (Flight) a
 permission, and it is **for a test node started with the case studies' data, never a production
 engine**: it registers computations there, however briefly. With no data flowing both views stay
 empty and the case says so rather than passing.
+
+## In the console
+
+Phase 3 puts the assistant in the console (`console/`), which is the SDK's first consumer here too:
+`core/assist.py` holds everything, `routes/assist_routes.py` the screens, and nothing in the engine
+changes.
+
+**One router, following the file.** The console process builds one `ModelRouter` from a
+`FileConfigStore` — `assist.config` in `console/config/application.yaml` (`PRAVAHA_ASSIST_CONFIG`;
+empty is the SDK's own default, so the console and `pravaha assist` share one file) — and calls
+`router.follow(store)`, polling every `assist.watch_seconds`. A stored configuration that does not
+validate when the console starts is not applied; the console starts with no model and says why.
+
+**Admin · AI models** (`/admin/ai-models`) is `AssistAdmin` behind forms, for a person the engine
+gives the `admin` role (asked of the engine, `auth/me`, on every request — ADR-052). Providers
+(configured, and every type this process can build, with capabilities), models (key reference by
+name, never value; enabled; which profiles name them; **Test** → `AssistAdmin.test_model`), each
+profile's chain with its order as the fallback order, the default profile, the budgets, usage, and
+recent changes. Each change is a CSRF-protected `POST` carrying the configuration version the page
+was drawn from:
+
+1. a version that is no longer the stored one is refused as a `ConfigConflict`, said as such — who
+   changed it and when — and nothing is overwritten;
+2. `AssistAdmin` builds the change, validates it with the console's own environment, saves it
+   against that version, and calls `router.reconfigure` — so **the very next assist request uses
+   it**, with no restart (`console/tests/test_assist.py` switches a chain through the form and sees
+   the next request answered by the other model; and has a second process's `set_chain` picked up
+   by the watch);
+3. the `AuditRecord` — who, what, before and after, the version — is appended to the console's
+   **assist log** (`assist.log`, JSON Lines, `0600`, beside the configuration by default) and shown
+   as *Recent changes*.
+
+The log also has one line per assist request — who, the task, the model and provider, the
+configuration version, tokens, a hash of what was asked (never its words), the engine's verdict and
+whether it was registered — which is where the usage view's request counts come from. Its token
+counts come from the router's ledger (`assist.usage`, the SDK's `assist-usage.json` beside the
+configuration by default), charged to the name the engine signed each person in with.
+
+**The tasks run as the person.** The console hands `Assistant` an adapter over its one engine
+adapter (the same one every screen uses), so validate, explain, the catalogue's listings and the
+registration carry the signed-in person's engine session, and the engine authorises and audits each
+as theirs. A draft is **held by the console** between drafting and registering, per person, for an
+hour: the browser's Register sends the draft's id and a confirmation, never SQL, so what is
+registered is exactly what the engine judged, and `Assistant.register(confirmed=True)` still refuses
+a draft the engine did not accept.
+
+| Surface | Where | Calls |
+|---|---|---|
+| Describe it | the workbench | `Assistant.draft` (profile `draft`); questions answered in place and drafted again; *Copy to editor*; *Register* → `Assistant.register(confirmed=True)` |
+| Explain this query | a query's page | `Assistant.explain_query(query_name=...)` (profile `explain`) |
+| Explain | beside a refusal code: the workbench (its refusal and its diagnostics), a query's page, a refused draft | `Assistant.explain_refusal(code, sql)` |
+
+Every surface is a server-rendered form that works with scripting off; with scripting,
+`web/static/app/assist.js` posts the same form to `/api/v1/assist/{draft,register,explain-query,explain-refusal}`
+and puts the fragment the server rendered in place, in a live region. Budgets apply to each; a
+refusal of one is shown before anything is sent. With no model configured or none enabled, each
+surface shows one empty state — linking an administrator to Admin · AI models, and telling anyone
+else to ask one.
 
 ## Commands
 

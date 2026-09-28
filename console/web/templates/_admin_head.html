@@ -24,6 +24,10 @@
   <a href="/admin/lanes" {% if tab == 'lanes' %}aria-current="page"{% endif %}>{{ t('admin.tab.lanes') }}</a>
   {# ADR-059: the grants editor. Anyone may open it; the engine decides what each of them may change. #}
   <a href="/admin/grants" {% if tab == 'grants' %}aria-current="page"{% endif %}>{{ t('admin.tab.grants') }}</a>
+  {# ADR-058 phase 3: the assistant's models, offered to an administrator; the screen asks the engine again. #}
+  {% if is_admin or tab == 'ai-models' %}
+  <a href="/admin/ai-models" {% if tab == 'ai-models' %}aria-current="page"{% endif %}>{{ t('admin.tab.ai_models') }}</a>
+  {% endif %}
   <a href="/plugins">{{ t('admin.tab.plugins') }}</a>
 </nav>
 {% endmacro %}

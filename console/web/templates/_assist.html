@@ -1,0 +1,287 @@
+{#- Pravaha console — the assistant's surfaces (ADR-058 phase 3).
+    Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+    Proprietary and confidential. See LICENSE at the repository root.
+
+    Imported `with context`: the macros read `csrf_token`, `is_admin`, `asset_version`, `request`
+    and the `assist_status` global. Every surface is a real form that works with scripting off;
+    assist.js posts the same form to /api/v1/assist/* and puts the server's fragment in place. -#}
+
+{#- Where a form returns to without scripting: this page. -#}
+{% macro _next() -%}
+{%- set target = fields.next if fields is defined and fields and fields.next else
+    (request.url.path if request is defined and request else '/workbench') -%}
+<input type="hidden" name="next" value="{{ target }}">
+{%- endmacro %}
+
+{#- The one empty state: no model is configured, or none is enabled, or none serves this task. -#}
+{% macro empty(id='assist-empty') -%}
+<div class="state" id="{{ id }}" data-assist-empty>
+  <h2><i class="bi bi-robot" aria-hidden="true"></i> {{ t('assist.empty.title') }}</h2>
+  <p>{{ t('assist.empty.body') }}</p>
+  {% if is_admin %}
+  <a class="btn btn-sm btn-primary" href="/admin/ai-models">{{ t('assist.empty.admin_action') }}</a>
+  {% else %}
+  <p class="small mb-0">{{ t('assist.empty.ask_admin') }}</p>
+  {% endif %}
+</div>
+{%- endmacro %}
+
+{% macro script() -%}
+<script type="module" src="/static/app/assist.js?v={{ asset_version }}"></script>
+{%- endmacro %}
+
+{#- "Describe it", on the workbench: a description in, a draft judged by the engine out. -#}
+{% macro describe_panel() -%}
+{% set state = assist_status('draft') %}
+<details class="card mb-3" id="assist-describe">
+  <summary class="card-header d-flex align-items-center gap-2">
+    <i class="bi bi-chat-square-text" aria-hidden="true"></i>
+    <span class="fw-semibold">{{ t('assist.describe.title') }}</span>
+    <span class="small text-muted d-none d-md-inline">{{ t('assist.describe.gloss') }}</span>
+    <i class="bi bi-chevron-expand ms-auto" aria-hidden="true"></i>
+  </summary>
+  <div class="card-body">
+    {% if not state.ready %}
+    {{ empty('assist-describe-empty') }}
+    {% else %}
+    <form method="post" action="/assist/draft" id="assist-describe-form" data-assist
+          data-api="/assist/draft" data-target="assist-describe-result">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      {{ _next() }}
+      <label class="form-label small" for="assist-description">{{ t('assist.describe.label') }}</label>
+      <textarea class="form-control" id="assist-description" name="description" rows="3" required
+                aria-describedby="assist-description-note"></textarea>
+      <div class="form-text small" id="assist-description-note">{{ t('assist.describe.note') }}</div>
+      <div class="row g-2 align-items-end mt-1">
+        <div class="col-sm-5 col-lg-4">
+          <label class="form-label small mb-1" for="assist-draft-name">{{ t('assist.describe.name') }}
+            <span class="fw-normal text-muted">{{ t('workbench.optional') }}</span></label>
+          <input class="form-control form-control-sm mono" id="assist-draft-name" name="name" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="col-auto">
+          <button class="btn btn-sm btn-primary" type="submit" data-busy-label="{{ t('assist.working') }}">
+            <i class="bi bi-magic" aria-hidden="true"></i> {{ t('assist.describe.submit') }}</button>
+        </div>
+      </div>
+    </form>
+    <div id="assist-describe-result" class="mt-3" tabindex="-1" role="region" aria-live="polite"
+         aria-label="{{ t('assist.describe.result_label') }}"></div>
+    {% endif %}
+  </div>
+</details>
+{%- endmacro %}
+
+{#- "Explain this query", on a query's page. -#}
+{% macro explain_query_panel(query) -%}
+{% set state = assist_status('explain') %}
+<section class="card mt-3" id="assist-explain" aria-labelledby="assist-explain-title">
+  <div class="card-header" id="assist-explain-title"><i class="bi bi-chat-square-text" aria-hidden="true"></i> {{ t('assist.explain_query.title') }}</div>
+  <div class="card-body">
+    {% if not state.ready %}
+    {{ empty('assist-explain-empty') }}
+    {% else %}
+    <form method="post" action="/assist/explain-query" id="assist-explain-form" class="d-flex flex-wrap gap-2 align-items-center"
+          data-assist data-api="/assist/explain-query" data-target="assist-explain-result">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="name" value="{{ query.name }}">
+      {{ _next() }}
+      <button class="btn btn-sm btn-outline-secondary" type="submit" data-busy-label="{{ t('assist.working') }}">{{ t('assist.explain_query.submit') }}</button>
+      <span class="small text-muted">{{ t('assist.explain_query.note') }}</span>
+    </form>
+    <div id="assist-explain-result" class="mt-3" tabindex="-1" role="region" aria-live="polite"
+         aria-label="{{ t('assist.explain_query.result_label') }}"></div>
+    {% endif %}
+  </div>
+</section>
+{%- endmacro %}
+
+{#- "Explain", beside a rendered refusal code. Nothing when no model can answer: the page's own
+    assist panel carries the one empty state. -#}
+{% macro explain_code(code, sql='', id='code') -%}
+{% if code and code.startswith('PRV-') and assist_status('explain').ready %}
+<form method="post" action="/assist/explain-refusal" class="d-inline assist-why" data-assist
+      data-api="/assist/explain-refusal" data-target="assist-why-{{ id }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="code" value="{{ code }}">
+  <input type="hidden" name="sql" value="{{ sql or '' }}">
+  {{ _next() }}
+  <button class="btn btn-sm btn-link p-0 align-baseline" type="submit" data-busy-label="{{ t('assist.working') }}"
+          aria-label="{{ t('assist.why.label', code=code) }}">{{ t('assist.why.button') }}</button>
+</form>
+<div id="assist-why-{{ id }}" class="assist-why-result" tabindex="-1" aria-live="polite"></div>
+{% endif %}
+{%- endmacro %}
+
+{#- Which model answered, and what it cost. -#}
+{% macro answered(by) -%}
+{% if by %}
+<p class="small text-muted mb-0 mt-2" data-assist-answered-by="{{ by.modelId }}">
+  {{ t('assist.answered_by', model=by.modelId, provider=by.provider, name=by.model or '') }}
+  {%- if by.usage %} · {{ t('assist.tokens', n=(by.usage.input_tokens or 0) + (by.usage.output_tokens or 0)) }}{% endif %}
+  {%- if by.latencyMs %} · {{ t('assist.latency', ms='%.0f'|format(by.latencyMs)) }}{% endif %}
+  {%- if by.attempts %} · {{ t('assist.fell_back', n=by.attempts|length) }}{% endif %}
+</p>
+{% endif %}
+{%- endmacro %}
+
+{% macro plan(p) -%}
+{% if p and p.plan %}
+<details class="mt-2"><summary class="small">{{ t('assist.engine_plan') }}</summary>
+<pre class="small mt-2 mb-0" data-assist-plan>{{ p.plan }}</pre></details>
+{% endif %}
+{%- endmacro %}
+
+{#- A draft, and everything the engine said about it. -#}
+{% macro draft_result(d) -%}
+<article class="assist-draft" data-draft-status="{{ d.status }}" aria-labelledby="assist-draft-{{ d.id }}-title">
+  <h2 class="h6 d-flex flex-wrap align-items-center gap-2" id="assist-draft-{{ d.id }}-title">
+    <span class="chip {{ 'ok' if d.status == 'accepted' else 'bad' if d.status == 'refused' else 'warn' }}">{{ t('assist.draft.status.' ~ d.status) }}</span>
+    <span class="mono">{{ d.name }}</span>
+    {% if d.repairs %}<span class="small text-muted fw-normal">{{ t('assist.draft.repairs', n=d.repairs) }}</span>{% endif %}
+  </h2>
+
+  {% if d.status == 'questions' %}
+  <p class="small">{{ t('assist.draft.questions_intro') }}</p>
+  <form method="post" action="/assist/draft" data-assist data-api="/assist/draft" data-target="assist-describe-result"
+        id="assist-answers-{{ d.id }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="description" value="{{ d.description }}">
+    <input type="hidden" name="name" value="{{ fields.name if fields and fields.name else '' }}">
+    {{ _next() }}
+    {% for q in d.questions %}
+    <input type="hidden" name="question_{{ loop.index0 }}" value="{{ q }}">
+    <label class="form-label small mb-1" for="assist-answer-{{ d.id }}-{{ loop.index0 }}">{{ q }}</label>
+    <input class="form-control form-control-sm mb-2" id="assist-answer-{{ d.id }}-{{ loop.index0 }}" name="answer_{{ loop.index0 }}" autocomplete="off">
+    {% endfor %}
+    <button class="btn btn-sm btn-primary" type="submit" data-busy-label="{{ t('assist.working') }}">{{ t('assist.draft.again') }}</button>
+  </form>
+  {% endif %}
+
+  {% if d.sql %}
+  <div class="section-label mt-2">{{ t('assist.draft.statement') }}</div>
+  <pre class="small mb-2" data-assist-sql>{{ d.statement or d.sql }}</pre>
+  {% endif %}
+  {% if d.explanation %}<p class="small mb-2">{{ d.explanation }}</p>{% endif %}
+
+  {% if d.verdict and d.verdict.accepted is not none %}
+  <div class="small mb-2" data-assist-verdict="{{ 'accepted' if d.verdict.accepted else 'refused' }}">
+    {% if d.verdict.accepted %}
+    <i class="bi bi-check-circle-fill" aria-hidden="true"></i> {{ t('assist.verdict.accepted') }}
+    {% else %}
+    <i class="bi bi-x-circle-fill" aria-hidden="true"></i>
+    {{ t('assist.verdict.refused_engine' if d.verdict.by == 'engine' else 'assist.verdict.refused_assistant') }}
+    {% if d.verdict.code %}<a class="mono" href="/help/codes/{{ d.verdict.code }}">{{ d.verdict.code }}</a>{% endif %}
+    {{ d.verdict.message or '' }}
+    {{ explain_code(d.verdict.code, d.sql, 'draft-' ~ d.id) }}
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if d.assumptions %}
+  <div class="section-label">{{ t('assist.draft.assumptions') }}</div>
+  <ul class="small">{% for a in d.assumptions %}<li>{{ a }}</li>{% endfor %}</ul>
+  {% endif %}
+
+  {% if d.sameAs %}
+  <div class="alert alert-info py-2 small" role="note" id="assist-same-as-{{ d.id }}">
+    <div class="fw-semibold">{{ t('assist.draft.same_as') }}</div>
+    <ul class="mb-0">{% for s in d.sameAs %}
+      <li><a class="mono" href="/views/{{ s.name }}">{{ s.name }}</a> — {{ s.reuse }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+
+  {% if d.guarantees and d.guarantees.sink %}
+  <p class="small mb-2">{{ t('assist.draft.guarantee', sink=d.guarantees.sink, guarantee=d.guarantees.guarantee or '—') }}</p>
+  {% endif %}
+
+  {% if d.enginePlan %}{{ plan(d.enginePlan) }}{% endif %}
+
+  {% if d.turns and d.turns|length > 1 %}
+  <details class="mt-2"><summary class="small">{{ t('assist.draft.turns', n=d.turns|length) }}</summary>
+    <ol class="small mt-2 mb-0">{% for turn in d.turns %}
+      <li><span class="fw-semibold">{{ t('assist.draft.turn.' ~ turn.kind) }}</span> —
+        {% if turn.verdict.accepted %}{{ t('assist.verdict.accepted') }}{% elif turn.verdict.accepted is none %}{{ t('assist.verdict.not_judged') }}{% else %}{{ turn.verdict.code or '' }} {{ turn.verdict.message or '' }}{% endif %}</li>{% endfor %}
+    </ol></details>
+  {% endif %}
+
+  {% if d.sql %}
+  <div class="d-flex flex-wrap gap-2 align-items-start mt-3">
+    <a class="btn btn-sm btn-outline-secondary" href="/workbench?sql={{ d.sql|urlencode }}" data-assist-copy
+       data-sql="{{ d.sql }}" data-title="{{ d.name }}">{{ t('assist.draft.copy') }}</a>
+  </div>
+  <form method="post" action="/assist/register" class="card mt-3" id="assist-register-{{ d.id }}" data-assist
+        data-api="/assist/register" data-target="assist-registered-{{ d.id }}"><div class="card-body py-2">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="draft_id" value="{{ d.id }}">
+    {{ _next() }}
+    <div class="row g-2 align-items-end">
+      <div class="col-sm-5">
+        <label class="form-label small mb-1" for="assist-register-name-{{ d.id }}">{{ t('workbench.register_as') }}</label>
+        <input class="form-control form-control-sm mono" id="assist-register-name-{{ d.id }}" name="name" value="{{ d.name }}"
+               autocomplete="off" spellcheck="false" {% if not d.registrable %}disabled{% endif %}>
+      </div>
+      <div class="col-sm-7">
+        <div class="form-check small">
+          <input class="form-check-input" type="checkbox" name="confirmed" value="yes" id="assist-confirm-{{ d.id }}" required
+                 {% if not d.registrable %}disabled{% endif %}>
+          <label class="form-check-label" for="assist-confirm-{{ d.id }}">{{ t('assist.register.confirm') }}</label>
+        </div>
+      </div>
+    </div>
+    <button class="btn btn-sm btn-primary mt-2" type="submit" data-busy-label="{{ t('assist.working') }}"
+            {% if not d.registrable %}disabled aria-describedby="assist-register-why-{{ d.id }}"{% endif %}>{{ t('assist.register.submit') }}</button>
+    {% if not d.registrable %}
+    <div class="small text-muted mt-1" id="assist-register-why-{{ d.id }}">{{ t('assist.register.disabled') }}</div>
+    {% else %}
+    <div class="small text-muted mt-1">{{ t('assist.register.note') }}</div>
+    {% endif %}
+  </div></form>
+  <div id="assist-registered-{{ d.id }}" class="mt-2" tabindex="-1" aria-live="polite"></div>
+  {% endif %}
+  {{ answered(d.answeredBy) }}
+</article>
+{%- endmacro %}
+
+{% macro registered(r) -%}
+<div class="alert alert-success py-2 small mb-0" role="status" data-assist-registered="{{ r.name }}">
+  {{ t('assist.register.done', name=r.name) }}
+  <a class="mono" href="/queries/{{ r.name }}">{{ r.name }}</a>
+  {% if r.fingerprint %}<span class="text-muted">· {{ t('query.fingerprint', id=(r.fingerprint or '')[:12]) }}</span>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro explained_query(x) -%}
+<article data-assist-explained="query">
+  <p class="mb-2">{{ x.summary }}</p>
+  {% if x.steps %}<div class="section-label">{{ t('assist.explain_query.steps') }}</div>
+  <ol class="small">{% for s in x.steps %}<li>{{ s }}</li>{% endfor %}</ol>{% endif %}
+  {% if x.notes %}<div class="section-label">{{ t('assist.explain_query.notes') }}</div>
+  <ul class="small">{% for n in x.notes %}<li>{{ n }}</li>{% endfor %}</ul>{% endif %}
+  {{ plan(x.enginePlan) }}
+  {{ answered(x.answeredBy) }}
+</article>
+{%- endmacro %}
+
+{% macro explained_refusal(x) -%}
+<article class="border rounded p-2 mt-2 small" data-assist-explained="{{ x.code }}">
+  <div class="fw-semibold"><a class="mono" href="/help/codes/{{ x.code }}">{{ x.code }}</a> {{ x.meaning }}</div>
+  {% if x.cause %}<div><span class="fw-semibold">{{ t('assist.why.cause') }}</span> {{ x.cause }}</div>{% endif %}
+  {% if x.fix %}<div><span class="fw-semibold">{{ t('assist.why.fix') }}</span> {{ x.fix }}</div>{% endif %}
+  {% if x.rewrite %}
+  <div class="section-label mt-2">{{ t('assist.why.rewrite') }}
+    {% if x.rewriteVerdict.checked %}<span class="chip {{ 'ok' if x.rewriteVerdict.valid else 'bad' }}">{{ t('assist.why.rewrite_accepted' if x.rewriteVerdict.valid else 'assist.why.rewrite_refused') }}</span>
+    {% else %}<span class="chip mute">{{ t('assist.why.rewrite_unchecked') }}</span>{% endif %}</div>
+  <pre class="small mb-1">{{ x.rewrite }}</pre>
+  {% endif %}
+  {{ answered(x.answeredBy) }}
+</article>
+{%- endmacro %}
+
+{% macro failure_block(f) -%}
+<div class="alert alert-{{ 'warning' if f.kind in ('budget', 'input') else 'danger' }} py-2 small mb-0" role="alert"
+     data-assist-failure="{{ f.kind }}">
+  <div class="fw-semibold">{{ t('assist.fail.' ~ f.kind) }}</div>
+  <div>{{ f.message }}{% if f.code %} <a class="mono" href="/help/codes/{{ f.code }}">{{ f.code }}</a>{% endif %}</div>
+  {% if f.model %}<div class="text-muted">{{ t('assist.fail.which_model', model=f.model) }}</div>{% endif %}
+</div>
+{%- endmacro %}
