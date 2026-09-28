@@ -1304,6 +1304,7 @@ What happens, in order:
 | `backfill.rate.limit` | none | Records a second the backfill may read. A **ceiling**: an operator may lower it while it runs (`pravaha throttle`) and may not raise it above this |
 | `cutover` | `manual` | `auto` cuts over as soon as the new version has caught up |
 | `rollback.retention` | `PT1H` | How long the replaced version keeps running afterwards |
+| `lane` | the running version's | `dedicated` runs the new version on a lane of its own, `shared` under the node's lane-sharing mode. With the SQL unchanged this is how a running query moves between a shared lane and its own, losslessly, at the cutover |
 
 The design's `backfill.parallelism`, `backfill.window` and `backfill.adaptive` are **refused by
 name** with `PRV-4018`: a backfill reads each partition once, from the beginning, at the rate you
@@ -1490,9 +1491,10 @@ SHOW   CONTINUOUS QUERIES
   | `sink` | The binding under `pravaha.sinks` the changelog is written to | `WRITING TO <sink>`, `pravaha register --sink` |
   | `keys` | The view's key columns, comma-separated, as the `SELECT` list spells them | `KEYED BY (...)` (`pravaha register --keys` takes ordinals) |
   | `index` | The one column an equality index is kept over | `INDEX (column)` |
+  | `lane` | `'dedicated'`: the query keeps a lane of its own whatever `pravaha.lane.multiplex.enabled` says; `'shared'` (the default): the node's mode decides. Journalled with the registration | — |
 
   On `CREATE OR REPLACE` it takes a replacement's instead — `backfill`, `backfill.rate.limit`,
-  `cutover`, `rollback.retention` (§8.1). Either way an option the engine does not build is refused
+  `cutover`, `rollback.retention`, `lane` (§8.1). Either way an option the engine does not build is refused
   by name with the list of the ones that do — `PRV-8017` on a registration, `PRV-4018` on a
   replacement — and so is the same setting said twice (`RETAIN FOR` and `retention`, or two
   different sinks, or `INDEX` and `index`). An option's name may be bare, or quoted

@@ -277,6 +277,8 @@ class RegistryEndpointsTest {
         assertThat(detail.sink().rowsWritten()).isZero();
         assertThat(detail.countsWithheld()).isFalse();
         assertThat(detail.rowsIn()).isZero();
+        assertThat(detail.lane()).as("sharing is off here").isEqualTo("own");
+        assertThat(detail.sharedLane()).isNull();
         assertThat(detail.reads())
                 .as("from the plan's provenance, not the text")
                 .containsExactly("orders");

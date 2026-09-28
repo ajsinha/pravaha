@@ -177,7 +177,7 @@ class RegistrationOptionsTest {
                 .contains("PRV-8017")
                 .contains("'consistency.default'")
                 .contains("refused rather than ignored")
-                .contains("[retention, sink, keys, index]");
+                .contains("[retention, sink, keys, index, lane]");
         assertThat(registry.find("v"))
                 .as("nothing was registered on the way to the refusal")
                 .isEmpty();
@@ -275,7 +275,25 @@ class RegistrationOptionsTest {
         assertThatThrownBy(() -> RegistrationOptions.of(Map.of("sink", "  ")))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("cannot be empty");
-        assertThat(RegistrationOptions.KNOWN).containsExactly("retention", "sink", "keys", "index");
+        assertThat(RegistrationOptions.KNOWN).containsExactly("retention", "sink", "keys", "index", "lane");
+    }
+
+    @Test
+    void laneIsDedicatedOrSharedAndNothingElse() {
+        assertThat(RegistrationOptions.defaults().dedicatedLane()).isFalse();
+        assertThat(RegistrationOptions.of(Map.of("lane", "dedicated")).dedicatedLane())
+                .isTrue();
+        assertThat(RegistrationOptions.of(Map.of("lane", " Dedicated ")).dedicatedLane())
+                .isTrue();
+        assertThat(RegistrationOptions.of(Map.of("lane", "shared")).dedicatedLane())
+                .isFalse();
+        assertThatThrownBy(() -> RegistrationOptions.of(Map.of("lane", "own")))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-8017")
+                .hasMessageContaining("'dedicated'")
+                .hasMessageContaining("'shared'");
+        assertThatThrownBy(() -> RegistrationOptions.of(Map.of("parallelism", "4")))
+                .hasMessageContaining("lane");
     }
 
     @Test

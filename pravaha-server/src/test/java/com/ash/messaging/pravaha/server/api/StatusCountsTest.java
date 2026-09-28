@@ -70,4 +70,42 @@ class StatusCountsTest {
                     .contains("<th>Streams</th><td>3</td>");
         }
     }
+
+    @Test
+    void theLaneSummaryCountsPlacementsAndTheQueryDetailNamesEach() throws Exception {
+        Principal dana = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+        try (PravahaEngine engine = PravahaEngine.createDefault();
+                QueryRegistry registry =
+                        new QueryRegistry(new ViewCatalog(), stream("a")).multiplexingLanes(2, 300, 1)) {
+            registry.register("early", "SELECT user_id, amount FROM a", List.of(0), dana);
+            registry.register("late", "SELECT user_id, amount FROM a WHERE amount > 1", List.of(0), dana);
+            new com.ash.messaging.pravaha.registry.ContinuousQueryStatements(
+                            registry, com.ash.messaging.pravaha.security.SecurityPolicy.PERMISSIVE, AuditSink.NONE)
+                    .execute(
+                            com.ash.messaging.pravaha.sql.ContinuousStatements.recognize(
+                                            "CREATE CONTINUOUS QUERY apart KEYED BY (user_id) WITH (lane = 'dedicated') "
+                                                    + "AS SELECT user_id, amount FROM a WHERE amount > 2")
+                                    .orElseThrow(),
+                            dana);
+            StatusController controller = new StatusController(
+                    engine, new StreamCatalog(), new RegistryAccess(registry, null, AuditSink.NONE));
+
+            ApiDtos.LaneSummary lanes = controller.lanes();
+
+            assertThat(lanes.mode()).isEqualTo("auto");
+            assertThat(lanes.autoFrom()).isEqualTo(1);
+            assertThat(lanes.maxQueriesPerLane()).isEqualTo(300);
+            assertThat(lanes.sharedLanes()).hasSize(2);
+            assertThat(lanes.sharedLanes().stream()
+                            .mapToInt(ApiDtos.SharedLane::queries)
+                            .sum())
+                    .isEqualTo(1);
+            assertThat(lanes.ownLaneQueries()).isEqualTo(2);
+            assertThat(lanes.dedicatedQueries()).isEqualTo(1);
+            assertThat(lanes.hosted()).isEqualTo(3);
+            assertThat(registry.require("early").lanePlacement()).isEqualTo("own");
+            assertThat(registry.require("late").lanePlacement()).isEqualTo("shared");
+            assertThat(registry.require("apart").lanePlacement()).isEqualTo("dedicated");
+        }
+    }
 }

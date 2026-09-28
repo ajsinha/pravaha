@@ -149,7 +149,9 @@ curl -s -H "Authorization: Bearer $PRAVAHA_TOKEN" http://engine:18080/api/v1/que
   "countsWithheld": false,
   "registeredAt": "2026-09-19T08:02:11Z",
   "failure": null,
-  "reads": ["txn"]
+  "reads": ["txn"],
+  "lane": "shared",
+  "sharedLane": 2
 }
 ```
 
@@ -159,6 +161,25 @@ curl -s -H "Authorization: Bearer $PRAVAHA_TOKEN" http://engine:18080/api/v1/que
 | `sink` | `{name, attached, failure, rowsWritten}`; `attached:false` with a PRV-8009 `failure` means the sink refused a batch and was detached |
 | `countsWithheld` | `true` when your access is a row-filtered slice; `rowsIn` is then `-1` rather than the unfiltered total |
 | `failure` | `{code, message, helpUrl}` for a `FAILED` query |
+| `lane` | Where the query's computation runs: `dedicated` (a lane of its own because it was registered `WITH (lane = 'dedicated')`), `shared`, or `own` (sharing off, not yet on under `auto`, or every shared lane full) — see [Sharing lanes](/help/topics/lane-sharing) |
+| `sharedLane` | The shared lane's number when `lane` is `shared`; otherwise `null` |
+
+`GET /api/v1/lanes` summarises placement for the node, counts only:
+
+```json
+{
+  "mode": "auto",
+  "autoFrom": 64,
+  "maxQueriesPerLane": 300,
+  "sharedLanes": [{"lane": 0, "queries": 12}, {"lane": 1, "queries": 11}],
+  "ownLaneQueries": 65,
+  "dedicatedQueries": 1,
+  "hosted": 88
+}
+```
+
+`mode` is the one in effect: `auto` with `auto-from: 0` shares at once and reads `true`, and
+`autoFrom` is `null` unless the mode is `auto`.
 
 `GET /api/v1/queries/{name}/plan` returns `nodes`, `edges`, `operatorMetrics` (keyed by the graph's
 own node ids: `rowsIn`, `rowsOut`, `stateBytes`, `watermark`, `selfNanos`, `sampledRows`,

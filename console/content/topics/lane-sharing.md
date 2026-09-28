@@ -23,7 +23,8 @@ queries the memory is small and the isolation is worth it; on a node with thousa
 the node. So under `auto` the first **64** queries (`auto-from`) each own a lane, and every
 registration after them is placed on a shared lane. Queries already running are never moved: a node
 that shrinks back below the threshold keeps the placements it made. `true` shares from the first
-query, `false` never shares.
+query, `false` never shares. One query can opt out of whichever it is —
+[`WITH (lane = 'dedicated')`](#keeping-one-query-on-its-own-lane).
 
 ## The settings
 
@@ -55,6 +56,59 @@ lane, and so does a join.
 
 **A registration that fits on no shared lane is not refused — it gets a lane of its own**, exactly as
 with sharing off. Turning a memory setting on never makes a node accept fewer queries.
+
+**Placements are not rebalanced automatically.** When queries are dropped, the slots they free on
+shared lanes, and the headroom under `auto-from`, are used by new registrations; nothing already
+running moves to fill them. A restart re-places every query in journal order, the order they were
+first registered, so the placements after a restart can differ from the ones before it.
+
+## Keeping one query on its own lane
+
+Whatever the node's mode, a registration can ask for a lane of its own:
+
+```sql
+CREATE CONTINUOUS QUERY settlement_totals
+    KEYED BY (txn_id)
+    WITH (lane = 'dedicated')
+AS SELECT txn_id, amount FROM txn
+```
+
+It is placed as it would be with sharing off: its own inbox, its own arena, and a fate of its own —
+a neighbour's failure cannot take it down, and its failure takes nobody else down. Every other query
+is placed as before. Use it for the few queries whose isolation matters more than the megabyte an
+inbox costs: the settlement feed, the one a pager is attached to, the one with a sink downstream
+that a stall would hurt.
+
+- `lane = 'shared'` is the default and means "whatever the node's mode says"; anything but
+  `'dedicated'` or `'shared'` is refused with PRV-8017.
+- **It survives a restart.** The choice is journalled with the registration (an `L` record after
+  its `R`), so the query comes back on a lane of its own; a build that predates it refuses the
+  journal by name rather than replaying the query onto a shared lane.
+- **It belongs to the computation.** Two names that ask the same question share one computation.
+  A dedicated registration joining one that already has a lane of its own marks it dedicated; one
+  joining a computation already running on a **shared** lane is refused with PRV-8017 — register it
+  `lane = 'shared'`, or move the running one first (below).
+- A dedicated query counts in `pravaha_lane_own_queries` and towards `auto-from`.
+
+## Moving a running query onto its own lane
+
+A running query is never moved in place. It is moved the way anything behind a name is changed: a
+[blue/green replacement](/help/topics/create-continuous-query), with the same SQL and a `lane`
+option. The new version is started on a lane of its own, backfilled, and takes the name at a cutover
+at an exact input position, so no reader loses or double-counts a row:
+
+```sql
+CREATE OR REPLACE CONTINUOUS QUERY settlement_totals
+    KEYED BY (txn_id)
+    WITH (lane = 'dedicated', cutover = 'auto')
+AS SELECT txn_id, amount FROM txn
+```
+
+`lane = 'shared'` moves a dedicated query back under the node's mode the same way. A replacement
+that does not say `lane` keeps the running version's choice, and one that says the lane it already
+has, with the SQL unchanged, is refused (it would cut over to itself). The flag is journalled with
+the cutover, so a restart keeps the new placement; a rollback puts the old version, and its lane,
+back.
 
 ### What the queries on a lane share
 
@@ -131,6 +185,8 @@ ceiling, and the set's one reader writes each record into each lane once.
 | `pravaha_lane_own_queries` | Queries holding a lane — and an inbox — of their own. All of them with sharing off |
 | `pravaha_lane_shared_bytes` | Off-heap the shared lanes hold between them — counted once, however many queries they carry |
 | startup log / `GET /api/v1/status` | `lanes: shared, queries per lane [..] of at most 300; N on lanes of their own` |
+| `GET /api/v1/lanes` | The mode in effect, `autoFrom`, `maxQueriesPerLane`, each shared lane's query count, `ownLaneQueries`, `dedicatedQueries` and `hosted`. Counts only, no names |
+| `GET /api/v1/queries/{name}` | `lane` — `dedicated`, `shared` or `own` — and `sharedLane`, the shared lane's number or null |
 
 **`pravaha_lane_own_queries` rising on a node with sharing on** means the shared lanes are full:
 raise `lanes` or `max-queries-per-lane`, or accept the inbox each own-lane query costs.

@@ -340,6 +340,9 @@ public final class ApiDtos {
      *     stopped (FEED-1)
      * @param execution which path each filter and projection chain runs on, one line per chain,
      *     starting {@code generated:} or {@code interpreted:} with the reason (C-7)
+     * @param lane where the query's computation runs: {@code dedicated} (a lane of its own because it
+     *     was registered {@code WITH (lane = 'dedicated')}), {@code shared} or {@code own}
+     * @param sharedLane the shared lane it runs on when {@code lane} is {@code shared}, else null
      */
     public record QueryDetail(
             String name,
@@ -356,7 +359,9 @@ public final class ApiDtos {
             Problem failure,
             List<String> reads,
             QueryFeed feed,
-            List<String> execution) {}
+            List<String> execution,
+            String lane,
+            Integer sharedLane) {}
 
     /**
      * A registered query's view, described without reading it.
@@ -415,6 +420,31 @@ public final class ApiDtos {
      *     and nothing served it, so a client told to connect had nowhere to look -- the log line on
      *     the node is not reachable from the client that needs the number
      */
+    /**
+     * How the node places queries on lanes ({@code GET /api/v1/lanes}), as in effect in its registry.
+     *
+     * @param mode {@code auto}, {@code true} or {@code false}, as {@code pravaha.lane.multiplex.enabled}
+     *     is in effect: {@code auto} with an {@code auto-from} of zero shares at once and reads as {@code true}
+     * @param autoFrom computations hosted on lanes of their own before sharing starts, under {@code auto};
+     *     null otherwise
+     * @param maxQueriesPerLane the ceiling on each shared lane; zero when not sharing
+     * @param sharedLanes each shared lane and how many query pipelines it carries
+     * @param ownLaneQueries computations on lanes of their own, dedicated ones included
+     * @param dedicatedQueries computations registered {@code WITH (lane = 'dedicated')}
+     * @param hosted computations the node runs, however many names each answers to
+     */
+    public record LaneSummary(
+            String mode,
+            Integer autoFrom,
+            int maxQueriesPerLane,
+            List<SharedLane> sharedLanes,
+            int ownLaneQueries,
+            int dedicatedQueries,
+            int hosted) {}
+
+    /** One shared lane: its number and the query pipelines on it. */
+    public record SharedLane(int lane, int queries) {}
+
     public record NodeStatus(
             String instanceId,
             String version,

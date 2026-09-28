@@ -328,9 +328,9 @@ answers a new one. Export what the session has if you still want it, then end it
 
 A `WITH (...)` option this engine does not build, or a value that is not what the option names.
 Which options exist depends on the statement: a plain `CREATE CONTINUOUS QUERY` takes `retention`,
-`sink` and `keys` — the arguments `pravaha register` already took — and `index`, the value form of
-`INDEX (column)`; `CREATE OR REPLACE` takes
-`backfill`, `backfill.rate.limit`, `cutover` and `rollback.retention`. Each refuses the other's by
+`sink` and `keys` — the arguments `pravaha register` already took — `index`, the value form of
+`INDEX (column)`, and `lane` (`'dedicated'` or `'shared'`); `CREATE OR REPLACE` takes
+`backfill`, `backfill.rate.limit`, `cutover`, `rollback.retention` and `lane`. Each refuses the other's by
 name, with the statement that takes it — a replacement's refusal carries PRV-4018 rather than this
 code, since it is the backfill that reads the list.
 
@@ -342,6 +342,11 @@ than ignored -- an ignored option is a setting somebody believes is in force. ..
 The design's `consistency.default`, `parallelism` and `allowed.lateness` are not built:
 consistency is chosen by the reader and per read, and a query's parallelism and lateness are the
 engine's to decide.
+
+Also raised for `lane = 'dedicated'` on a query that asks the same question as one already running
+on a shared lane: the two would share one computation, and a running query is never moved in place.
+Register it `lane = 'shared'`, or move the running one onto a lane of its own with
+`CREATE OR REPLACE ... WITH (lane = 'dedicated')` ([Sharing lanes](/help/topics/lane-sharing)).
 
 The same code covers the same setting said twice — `RETAIN FOR` and `retention`, `WRITING TO`
 and a different `sink`, or `INDEX` and `index` — because which of two answers wins is not something to leave to the order

@@ -184,8 +184,14 @@ public final class QueryReplacements implements AutoCloseable {
         BackfillPlan plan = new BackfillPlan(
                 job, splicePositions(serving), options.backfill() == ReplacementOptions.Backfill.HISTORY);
 
-        RegisteredQuery candidate =
-                registry.startShadow(name, sql, keyColumns, principal, retention, sink, directory, plan);
+        // The new version keeps the running one's lane choice unless lane = '...' says otherwise --
+        // which, with the SQL unchanged, is how a running query moves between lanes at a cutover.
+        boolean dedicated = options.lane() == ReplacementOptions.Lane.KEEP
+                ? serving.dedicatedLane()
+                : options.lane() == ReplacementOptions.Lane.DEDICATED;
+        RegisteredQuery candidate = registry.declaring(
+                new Declaring(List.of(), dedicated),
+                () -> registry.startShadow(name, sql, keyColumns, principal, retention, sink, directory, plan));
         QueryReplacement replacement;
         try {
             RegistryJournal.Pending pending = new RegistryJournal.Pending(
@@ -427,6 +433,10 @@ public final class QueryReplacements implements AutoCloseable {
      * cutover is not the moment to fail.
      */
     private static void carryIndexes(String name, RegisteredQuery from, RegisteredQuery to, RegistryJournal journal) {
+        // The lane choice goes with the name too: the C record just written starts without it.
+        if (journal != null && to.dedicatedLane()) {
+            journal.recordDedicatedLane(name);
+        }
         com.ash.messaging.pravaha.api.data.StreamSchema leaving = from.view().schema();
         com.ash.messaging.pravaha.api.data.StreamSchema taking = to.view().schema();
         for (int ordinal : from.view().indexedColumns()) {

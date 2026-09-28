@@ -38,8 +38,29 @@ import com.ash.messaging.pravaha.backfill.BackfillErrors;
  *     new version has caught up
  * @param rollbackRetention how long the replaced version keeps running after the cutover so a
  *     rollback is instant
+ * @param lane which lane the new version runs on: {@link Lane#KEEP}, the default, keeps the running
+ *     version's choice; {@code lane = 'dedicated'} or {@code 'shared'} changes it, and is how a running
+ *     query moves between a shared lane and one of its own -- even with the SQL unchanged
  */
-public record ReplacementOptions(Backfill backfill, long rateLimit, Cutover cutover, Duration rollbackRetention) {
+public record ReplacementOptions(
+        Backfill backfill, long rateLimit, Cutover cutover, Duration rollbackRetention, Lane lane) {
+
+    /** The lane the new version runs on, as {@code lane = '...'} says it. */
+    public enum Lane {
+        /** Whatever the running version was registered with. */
+        KEEP,
+
+        /** A lane of its own, whatever the node's lane-sharing mode. */
+        DEDICATED,
+
+        /** The node's lane-sharing mode decides, as for a registration that did not say. */
+        SHARED
+    }
+
+    /** The first four decisions, keeping the running version's lane. */
+    public ReplacementOptions(Backfill backfill, long rateLimit, Cutover cutover, Duration rollbackRetention) {
+        this(backfill, rateLimit, cutover, rollbackRetention, Lane.KEEP);
+    }
 
     /** Where the new version's state comes from. */
     public enum Backfill {
@@ -80,6 +101,7 @@ public record ReplacementOptions(Backfill backfill, long rateLimit, Cutover cuto
         if (rollbackRetention == null || rollbackRetention.isNegative()) {
             throw new IllegalArgumentException("a rollback retention cannot be negative");
         }
+        lane = lane == null ? Lane.KEEP : lane;
     }
 
     public static ReplacementOptions defaults() {
@@ -87,19 +109,23 @@ public record ReplacementOptions(Backfill backfill, long rateLimit, Cutover cuto
     }
 
     public ReplacementOptions withBackfill(Backfill mode) {
-        return new ReplacementOptions(mode, rateLimit, cutover, rollbackRetention);
+        return new ReplacementOptions(mode, rateLimit, cutover, rollbackRetention, lane);
     }
 
     public ReplacementOptions withRateLimit(long recordsPerSecond) {
-        return new ReplacementOptions(backfill, recordsPerSecond, cutover, rollbackRetention);
+        return new ReplacementOptions(backfill, recordsPerSecond, cutover, rollbackRetention, lane);
     }
 
     public ReplacementOptions withCutover(Cutover mode) {
-        return new ReplacementOptions(backfill, rateLimit, mode, rollbackRetention);
+        return new ReplacementOptions(backfill, rateLimit, mode, rollbackRetention, lane);
+    }
+
+    public ReplacementOptions withLane(Lane choice) {
+        return new ReplacementOptions(backfill, rateLimit, cutover, rollbackRetention, choice);
     }
 
     public ReplacementOptions withRollbackRetention(Duration retention) {
-        return new ReplacementOptions(backfill, rateLimit, cutover, retention);
+        return new ReplacementOptions(backfill, rateLimit, cutover, retention, lane);
     }
 
     /**
@@ -111,7 +137,9 @@ public record ReplacementOptions(Backfill backfill, long rateLimit, Cutover cuto
         return "backfill=" + backfill.name().toLowerCase(Locale.ROOT)
                 + ";backfill.rate.limit=" + rateLimit
                 + ";cutover=" + cutover.name().toLowerCase(Locale.ROOT)
-                + ";rollback.retention=" + rollbackRetention;
+                + ";rollback.retention=" + rollbackRetention
+                // Only when said, so a replacement that did not say reads as it always has.
+                + (lane == Lane.KEEP ? "" : ";lane=" + lane.name().toLowerCase(Locale.ROOT));
     }
 
     /** Reads back what {@link #toString} wrote. Anything missing keeps its default. */
@@ -171,12 +199,23 @@ public record ReplacementOptions(Backfill backfill, long rateLimit, Cutover cuto
                                         "cutover = '" + value + "' is neither 'manual' nor 'auto'.");
                         });
             case "rollback.retention" -> options.withRollbackRetention(duration(key, value));
+            case "lane" ->
+                options.withLane(
+                        switch (value.strip().toLowerCase(Locale.ROOT)) {
+                            case "dedicated" -> Lane.DEDICATED;
+                            case "shared" -> Lane.SHARED;
+                            default ->
+                                throw new PravahaException(
+                                        BackfillErrors.SOURCE_UNSUPPORTED,
+                                        "lane = '" + value + "' is neither 'dedicated' (a lane of its own) nor "
+                                                + "'shared' (the node's lane-sharing mode decides).");
+                        });
             default ->
                 throw new PravahaException(
                         BackfillErrors.SOURCE_UNSUPPORTED,
                         "'" + key + "' is not an option this engine builds, and it is refused rather than "
                                 + "ignored. A replacement takes backfill (history | none), backfill.rate.limit, "
-                                + "cutover (manual | auto) and rollback.retention. The design's "
+                                + "cutover (manual | auto), rollback.retention and lane (dedicated | shared). The design's "
                                 + "backfill.parallelism, backfill.window and backfill.adaptive are not built: "
                                 + "a backfill reads each partition once, from the beginning, at the rate you "
                                 + "set.");

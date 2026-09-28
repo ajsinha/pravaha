@@ -151,7 +151,12 @@ public final class QueryReplacement {
         this.candidate = candidate;
         this.previous = previous;
         this.deployment = new ShadowDeployment(serving.fingerprint().shortForm());
-        this.deployment.startShadow(candidate.fingerprint().shortForm());
+        // A move between lanes runs the same computation twice, so the candidate is named by its lane.
+        String version = candidate.fingerprint().shortForm();
+        this.deployment.startShadow(
+                version.equals(serving.fingerprint().shortForm())
+                        ? version + (candidate.dedicatedLane() ? "@dedicated-lane" : "@shared-lane")
+                        : version);
     }
 
     String name() {

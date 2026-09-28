@@ -129,6 +129,13 @@
         "responses" : [ "200", "default" ]
       }
     },
+    "/api/v1/lanes" : {
+      "get" : {
+        "hasBody" : false,
+        "parameters" : [ ],
+        "responses" : [ "200", "default" ]
+      }
+    },
     "/api/v1/me/permissions" : {
       "get" : {
         "hasBody" : false,

@@ -87,6 +87,40 @@ public class StatusController {
     }
 
     /**
+     * How the node places queries on lanes: the mode in effect, each shared lane's load, and how many
+     * computations hold a lane of their own. Counts only, no names, so it tells a caller no more
+     * about what is registered than {@code /api/v1/status} does. Read-only.
+     */
+    @GetMapping("/api/v1/lanes")
+    @Operation(summary = "How the node places queries on lanes")
+    public ApiDtos.LaneSummary lanes() {
+        return registry.registry()
+                .map(StatusController::lanes)
+                .orElse(new ApiDtos.LaneSummary("false", null, 0, List.of(), 0, 0, 0));
+    }
+
+    private static ApiDtos.LaneSummary lanes(com.ash.messaging.pravaha.registry.QueryRegistry registry) {
+        List<Integer> perLane = registry.pipelinesPerSharedLane();
+        List<ApiDtos.SharedLane> shared = new ArrayList<>();
+        for (int lane = 0; lane < perLane.size(); lane++) {
+            shared.add(new ApiDtos.SharedLane(lane, perLane.get(lane)));
+        }
+        List<com.ash.messaging.pravaha.registry.RegisteredQuery> hosted = registry.queries();
+        boolean sharing = registry.maxQueriesPerSharedLane() > 0;
+        boolean auto = sharing && registry.sharingFrom() > 0;
+        return new ApiDtos.LaneSummary(
+                !sharing ? "false" : auto ? "auto" : "true",
+                auto ? registry.sharingFrom() : null,
+                registry.maxQueriesPerSharedLane(),
+                shared,
+                registry.queriesOnOwnLanes(),
+                (int) hosted.stream()
+                        .filter(com.ash.messaging.pravaha.registry.RegisteredQuery::dedicatedLane)
+                        .count(),
+                hosted.size());
+    }
+
+    /**
      * Registered names whose feed has a stopped source (FEED-1).
      *
      * <p>Counted by name, as {@code registeredQueries} is, so the two can be read against each other:

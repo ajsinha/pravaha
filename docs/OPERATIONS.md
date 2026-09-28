@@ -287,6 +287,25 @@ it does with it off. What that costs is the inbox sharing exists to save, and it
 - `pravaha_debug_sessions_open` — debug sessions open on this node, each a second copy of a query
 - the node's status and its startup log carry one line: `lanes: shared, queries per lane [..] of at
   most 300; N on lanes of their own`
+- `GET /api/v1/lanes` — the same as JSON: the mode in effect, `autoFrom`, `maxQueriesPerLane`, each
+  shared lane's query count, `ownLaneQueries`, `dedicatedQueries` and `hosted`; counts only, no names.
+  `GET /api/v1/queries/{name}` says where one query runs: `lane` (`dedicated`, `shared` or `own`) and
+  `sharedLane`
+
+**Placements are not rebalanced automatically.** Slots freed on shared lanes by drops, and headroom
+under `auto-from`, go to new registrations; nothing running moves to fill them. A restart re-places
+every query in journal order.
+
+**Keeping one query on its own lane.** `CREATE CONTINUOUS QUERY ... WITH (lane = 'dedicated')` puts
+that query on a lane of its own whatever `enabled` says — for the few whose isolation is worth an
+inbox. It is journalled with the registration (an `L` record, which an older build refuses by name
+rather than replaying the query onto a shared lane), so a restart keeps it; `lane = 'shared'`, the
+default, follows the node's mode. A dedicated registration that asks the same question as a query
+already running on a shared lane would share its computation, and is refused with `PRV-8017`.
+**Moving a running query** between a shared lane and its own is a blue/green replacement:
+`CREATE OR REPLACE CONTINUOUS QUERY <name> WITH (lane = 'dedicated') AS <the same SQL>` starts the new
+version on its own lane, backfills it and cuts over at an exact position (ADR-046); `lane = 'shared'`
+moves it back. A replacement that does not say `lane` keeps the running version's.
 
 **What is shared, and what is not.** Each row on a shared lane carries a *route*: every hosted query
 has its own, and what it is fed alone — a reader of its own, rows pushed by an embedder, a catch-up

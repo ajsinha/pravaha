@@ -205,6 +205,47 @@ public final class RegisteredQuery implements AutoCloseable {
     }
 
     /**
+     * Whether a registration asked for this computation to keep a lane of its own ({@code lane =
+     * 'dedicated'}), whatever the node's lane-sharing mode. A computation that is not dedicated may
+     * still be on a lane of its own -- because sharing is off, or not yet on under {@code auto}.
+     */
+    public boolean dedicatedLane() {
+        return dedicatedLane;
+    }
+
+    /** Marks this computation dedicated; see {@link #dedicatedLane()}. It is never moved, so this only records. */
+    void dedicateLane() {
+        dedicatedLane = true;
+    }
+
+    private volatile boolean dedicatedLane;
+
+    /**
+     * The shared lane this computation runs on, or empty when it has a lane of its own. Kept on the
+     * computation rather than by fingerprint, because a replacement that moves a query between lanes
+     * runs two computations with one fingerprint side by side.
+     */
+    public java.util.Optional<Integer> sharedLane() {
+        return java.util.Optional.ofNullable(sharedLane);
+    }
+
+    /**
+     * Where this computation runs, in one word: {@code dedicated} (a lane of its own because a
+     * registration asked for it), {@code shared} (on the shared lane {@link #sharedLane()} names) or
+     * {@code own} (a lane of its own because sharing is off, not yet on under {@code auto}, or every
+     * shared lane was full when it was placed).
+     */
+    public String lanePlacement() {
+        return dedicatedLane ? "dedicated" : sharedLane != null ? "shared" : "own";
+    }
+
+    void placedOnSharedLane(int lane) {
+        sharedLane = lane;
+    }
+
+    private volatile Integer sharedLane;
+
+    /**
      * Where each of this query's parameters had to be applied, and what that cost (ADR-032).
      *
      * <p>Empty for a query with no parameters. A {@code REGISTRATION} placement means this
