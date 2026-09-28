@@ -136,7 +136,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   source delivers a delete or the old half of an update.
 
 
-Register: **431 findings — 380 fixed, 37 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **433 findings — 385 fixed, 34 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ---
 

@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **431 findings carrying a
-status — 380 FIXED, 37 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 37 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 32 POST-GA and 5 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **433 findings carrying a
+status — 385 FIXED, 34 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 34 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 29 POST-GA and 5 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -6659,7 +6659,7 @@ runs is how a default becomes folklore, and this project has already found two o
 
 ### SUB-1 (HIGH) — a client that subscribes and then reads a view can lose the commit in flight
 
-> **Status:** FIXED — `f6e51ec`..`27748b8`: a subscription can now start from a snapshot. `ViewSink.onCommitFromSnapshot` takes the publish lock every batch and commit already take: with no commit in flight it captures the committed rows and frontier and registers the listener in the same critical section; with one in flight the listener waits until the commit that publishes those rows, which captures the snapshot and admits it inside its own critical section. Commits are totally ordered by that lock and a commit's audience is frozen at its first batch (STRM-11), so the listener is in the audience of no commit up to the snapshot's and of every one after it — no gap, no overlap, no commit log. Wired through `RegisteredQuery.subscribeFromSnapshot`, the embedded `PravahaEngine`, Flight (`subscribe.snapshot`, each batch marked snapshot or commit with its frontier; a subscriber more than 64 commits behind gets `PRV-6105` rather than losing one), the Java SDK, the Python SDK (`snapshot=True`), `pravaha subscribe --snapshot`, the Spring starter's `PravahaTester.awaitView` (its forced-commit workaround removed) and the console's live page, which no longer reads the view beside its stream. The plain verb is unchanged and documented as gapful. `SnapshotHandoffTest`, the jqwik `SnapshotHandoffProperties` (1,000 random schedules), `SubscribeFromSnapshotTest`, and a test per client path; seed-proven — a snapshot taken regardless of a commit in flight fails 4 of 8 serving tests and 2 of 6 registry tests.
+> **Status:** FIXED — `f6e51ec`..`27748b8`: a subscription can now start from a snapshot. `ViewSink.onCommitFromSnapshot` takes the publish lock every batch and commit already take: with no commit in flight it captures the committed rows and frontier and registers the listener in the same critical section; with one in flight the listener waits until the commit that publishes those rows, which captures the snapshot and admits it inside its own critical section. Commits are totally ordered by that lock and a commit's audience is frozen at its first batch (STRM-11), so the listener is in the audience of no commit up to the snapshot's and of every one after it — no gap, no overlap, no commit log. Wired through `RegisteredQuery.subscribeFromSnapshot`, the embedded `PravahaEngine`, Flight (`subscribe.snapshot`, each batch marked snapshot or commit with its frontier; a subscriber more than 64 commits behind gets `PRV-6105` rather than losing one), the Java SDK, the Python SDK (`snapshot=True`), `pravaha subscribe --snapshot`, the Spring starter's `PravahaTester.awaitView` (its forced-commit workaround removed) and the console's live page, which no longer reads the view beside its stream. The plain verb is unchanged and documented as gapful. `SnapshotHandoffTest`, the jqwik `SnapshotHandoffPropertiesTest` (1,000 random schedules), `SubscribeFromSnapshotTest`, and a test per client path; seed-proven — a snapshot taken regardless of a commit in flight fails 4 of 8 serving tests and 2 of 6 registry tests.
 
 ### LANE-3 (HIGH) — a paused query's checkpoint recorded the shared reader's position, so a restore skipped every row it was paused through
 
@@ -7044,15 +7044,13 @@ the lead.
 
 ### CDCREPL-1 (MEDIUM) — replacing a query over a postgres-cdc stream probably contends for the running version's replication slot
 
-> **Status:** OPEN — not reproduced; found by reading, while deciding B3. `backfillRefusal` does not refuse postgres-cdc (its offsets are replayable and ordered), so `PluginSourceFeeds.openBackfill` opens a second plugin instance on the same binding and therefore the same slot (`pravaha_<table>` by default). PostgreSQL lets one connection use a slot at a time, so the new version's reader likely fails while the running one streams, and the two could confirm positions on one slot.
-> **Disposition:** POST-GA — a Testcontainers check first; then either a refusal naming the slot, or a slot of the replacement's own.
+> **Status:** FIXED — reproduced against a real PostgreSQL: the replacement's backfill failed PRV-5117 after 15 s, and a slot holds nothing before its confirmed position anyway. A replacement or debug fork over postgres-cdc or mysql-cdc is now refused before anything opens, PRV-4018/PRV-8012 naming the slot or `server.id`, via `StreamSourcePlugin.secondReaderRefusal()`. `PostgresCdcReplacementTest`, `MySqlCdcSecondReaderTest`.
 
 ## Found building B2, the equality index (2026-09-27), 3 findings
 
 ### VIEWW-1 (MEDIUM) — a retraction that leaves a key's weight positive may leave the retracted row's values as the key's row
 
-> **Status:** OPEN — not reproduced; found by reading `ServedView.applyWeighted`. A key inserted as A and then as B (weight 2) and then retracted as A appears to keep A's values as its row, where the row still present is B. The equality index follows the view, so the two agree; the question is whether the view does.
-> **Disposition:** POST-GA — a Z-set property test on the view first.
+> **Status:** FIXED — reproduced: a key's view row kept the retracted row's values. `ServedView` now keeps each distinct row of a key with its own weight (`KeyRows`, only for keys holding two or more) and shows the one that most recently gained weight; a retraction takes weight from the row it names. Checkpoints and subscription snapshots carry every row. `ViewZSetPropertyTest` (jqwik, 2,000 schedules against a Z-set model; fails 5/5 on the old code); CONCEPTS §4.
 
 ### IDXSHR-1 (LOW) — dropping one name of a shared computation keeps the index that name declared until restart
 
@@ -7147,14 +7145,24 @@ the lead.
 
 ### SEAMKAFKA-1 (MEDIUM) — exact-seam sharing over Kafka is not tested against a broker
 
-> **Status:** OPEN — ADR-054's theorem is tested over the `OrderedLogPlugin` test source (`ExactSharingTest`) and the filesystem bounded read; no test calls Kafka's `pollBefore` against a real broker, where control records and transaction markers are what make the bound matter.
-> **Disposition:** POST-GA — a Testcontainers Kafka test with transactional producers, joining a member behind and ahead of the shared reader.
+> **Status:** FIXED — tested against a real broker: `KafkaExactSharingBrokerTest` (transactional writes with aborted transactions beside every seam; joiners behind, ahead and behind after a restore, and from nothing): every committed record exactly once, in order, none aborted, one shared reader. No defect; seed-proven with a record-at-bound mutation.
 
 ### LANEFATE-1 (LOW) — shared-lane fate-sharing and backpressure are argued, not tested
 
-> **Status:** OPEN — a query failing alone on its own lane is tested (`LaneRunnerTest`, `LaneGroupTest`); that a failing pipeline takes down exactly the queries on its shared lane, and no others, is argued from the code. The paper's Proposition 8.4 says so.
-> **Disposition:** POST-GA — a test that fails one pipeline on a shared lane and checks every other lane keeps running.
+> **Status:** FIXED — tested: `SharedLaneFateTest` (a failing pipeline takes down exactly its shared lane's queries; other shared and dedicated lanes keep answering; a stalled query backpressures only its lane and loses nothing). Found and fixed: a registration after a lane failed was placed on the dead lane; `SharedLanes.place()` now skips a FAILED lane.
 
 ### DOCSHARE-1 (LOW) — four documents still said Kafka and files keep a reader per query
 
 > **Status:** FIXED — OPERATIONS.md, LIMITS.md and the lane-sharing help topic predated ADR-054, which shares Kafka and read-once files exactly; ADR-025's status line said key columns were outside the fingerprint, which `QueryFingerprint` and `SharingIdentityTest` show they are not. All four corrected.
+
+## Found closing VIEWW-1, CDCREPL-1, SEAMKAFKA-1 and LANEFATE-1 (2026-09-28), 2 findings
+
+### CDCREPL-2 (MEDIUM) — two different queries over one postgres-cdc binding contend for its one slot
+
+> **Status:** OPEN — a second registration of a *different* query over the same binding fails PRV-5117 after about 15 s: the binding names one slot, postgres-cdc keeps a reader per query (it is not shared), and nothing refuses this at registration. README and the plugin's javadoc say "a slot each", but the slot comes from the binding.
+> **Disposition:** POST-GA — refuse the second registration by name at registration, or derive a slot per query from the binding; then correct the docs.
+
+### TESTNAME-1 (LOW) — a jqwik property test never ran because of its name
+
+> **Status:** FIXED — `SnapshotHandoffProperties` matched none of surefire's default includes (`*Test`, `*Tests`, `Test*`, `*TestCase`), so its 1,000 random schedules ran only when named with `-Dtest`. Renamed `SnapshotHandoffPropertiesTest`; it passes.
+

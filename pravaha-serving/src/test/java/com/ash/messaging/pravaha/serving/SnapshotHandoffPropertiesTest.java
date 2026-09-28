@@ -41,7 +41,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * without anybody having to think of them. After a final commit every subscriber still attached
  * must hold exactly the view: its snapshot, then its changes, summed as a Z-set.
  */
-class SnapshotHandoffProperties {
+class SnapshotHandoffPropertiesTest {
 
     enum Kind {
         BATCH,
