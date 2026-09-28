@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="580" viewBox="0 0 800 580">
+  <title>Pravaha on one node</title>
+  <style>
+    text { font-family: 'Source Sans 3', 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; fill: #1A1A1A; }
+    .title { font-family: 'Source Serif 4', 'Charis SIL', Georgia, serif; font-size: 23px; font-weight: 700; }
+    .head { font-size: 14.5px; font-weight: 700; }
+    .small { font-size: 12.5px; fill: #4A5058; }
+    .item { font-size: 13px; }
+    .deep { font-size: 13.5px; font-weight: 700; fill: #8A1626; }
+  </style>
+  <defs>
+    <marker id="aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#A51C30"/></marker>
+  </defs>
+  <rect width="800" height="580" fill="#F7F5F2"/>
+  <text x="40" y="44" class="title">One node: sources in, answers out</text>
+
+  <!-- sources -->
+  <rect x="24" y="68" width="160" height="300" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="40" y="94" class="head">Sources</text>
+  <g>
+    <rect x="36" y="106" width="136" height="30" rx="5" fill="#F1EEE9"/><text x="46" y="126" class="item">Kafka</text>
+    <rect x="36" y="142" width="136" height="30" rx="5" fill="#F1EEE9"/><text x="46" y="162" class="item">PostgreSQL CDC</text>
+    <rect x="36" y="178" width="136" height="30" rx="5" fill="#F1EEE9"/><text x="46" y="198" class="item">MySQL CDC</text>
+    <rect x="36" y="214" width="136" height="30" rx="5" fill="#F1EEE9"/><text x="46" y="234" class="item">JDBC polling</text>
+    <rect x="36" y="250" width="136" height="30" rx="5" fill="#F1EEE9"/><text x="46" y="270" class="item">Aerospike</text>
+    <rect x="36" y="286" width="136" height="30" rx="5" fill="#F1EEE9"/><text x="46" y="306" class="item">Cassandra</text>
+    <rect x="36" y="322" width="136" height="30" rx="5" fill="#F1EEE9"/><text x="46" y="342" class="item">Files · Delta</text>
+  </g>
+
+  <!-- sinks -->
+  <rect x="24" y="384" width="160" height="176" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="40" y="410" class="head">Sinks</text>
+  <text x="40" y="436" class="item">jdbc-sink</text>
+  <text x="40" y="458" class="item">kafka-sink</text>
+  <text x="40" y="480" class="item">delta-sink</text>
+  <text x="40" y="502" class="item">iceberg-sink</text>
+  <text x="40" y="524" class="item">aerospike-sink</text>
+  <text x="40" y="546" class="item">filesystem</text>
+
+  <!-- engine -->
+  <rect x="206" y="68" width="372" height="492" rx="12" fill="#FCF6F7" stroke="#A51C30" stroke-width="1.5"/>
+  <text x="222" y="94" class="deep">pravaha-server, or embedded in your JVM</text>
+
+  <rect x="222" y="108" width="340" height="56" rx="8" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="236" y="130" class="head">Source readers</text>
+  <text x="236" y="150" class="small">one per binding; ordered ones shared exactly</text>
+
+  <rect x="222" y="184" width="340" height="80" rx="8" fill="#F6E8EA" stroke="#A51C30"/>
+  <text x="236" y="206" class="head">Lanes</text>
+  <text x="236" y="226" class="small">a fixed pool: one thread per core</text>
+  <text x="236" y="244" class="small">each lane: one inbox, one arena, many query pipelines</text>
+
+  <rect x="222" y="284" width="340" height="56" rx="8" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="236" y="306" class="head">Served views</text>
+  <text x="236" y="326" class="small">keyed; read by key or SQL; optional equality indexes</text>
+
+  <rect x="222" y="360" width="340" height="56" rx="8" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="236" y="382" class="head">Identity and policy</text>
+  <text x="236" y="402" class="small">one verifier for every transport; audit trail</text>
+
+  <rect x="222" y="436" width="340" height="108" rx="8" fill="#FFFFFF" stroke="#E3DED7" stroke-dasharray="5 3"/>
+  <text x="236" y="458" class="head">On disk</text>
+  <text x="236" y="480" class="small">checkpoints: operator state, offsets and the view</text>
+  <text x="236" y="500" class="small">the registry journal: every registration</text>
+  <text x="236" y="520" class="small">the identity journal: users, keys, sessions</text>
+
+  <g stroke="#A51C30" stroke-width="1.8" fill="none" marker-end="url(#aa)">
+    <line x1="186" y1="136" x2="218" y2="136"/>
+    <line x1="392" y1="166" x2="392" y2="180"/>
+    <line x1="392" y1="266" x2="392" y2="280"/>
+    <path d="M222,322 L196,322 L196,472 L188,472"/>
+  </g>
+
+  <!-- clients -->
+  <rect x="600" y="108" width="176" height="84" rx="8" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="614" y="130" class="head">Arrow Flight SQL</text>
+  <text x="614" y="150" class="small">Java SDK · Python SDK</text>
+  <text x="614" y="168" class="small">pravaha CLI: query,</text>
+  <text x="614" y="184" class="small">register, subscribe</text>
+
+  <rect x="600" y="206" width="176" height="64" rx="8" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="614" y="228" class="head">PostgreSQL wire</text>
+  <text x="614" y="248" class="small">psql · DBeaver · Grafana</text>
+  <text x="614" y="264" class="small">read-only, off by default</text>
+
+  <rect x="600" y="284" width="176" height="92" rx="8" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="614" y="306" class="head">REST /api/v1</text>
+  <text x="614" y="326" class="small">everything that manages</text>
+  <text x="614" y="342" class="small">the engine; OpenAPI</text>
+  <text x="614" y="358" class="small">pravaha CLI · EngineApi</text>
+
+  <rect x="600" y="392" width="176" height="104" rx="8" fill="#F6E8EA" stroke="#A51C30"/>
+  <text x="614" y="414" class="head">Console</text>
+  <text x="614" y="434" class="small">Python, FastAPI, a</text>
+  <text x="614" y="450" class="small">separate process on the</text>
+  <text x="614" y="466" class="small">published SDK: it can only</text>
+  <text x="614" y="482" class="small">reach the public API</text>
+
+  <g stroke="#A51C30" stroke-width="1.8" fill="none" marker-end="url(#aa)">
+    <line x1="586" y1="150" x2="596" y2="150"/>
+    <line x1="586" y1="238" x2="596" y2="238"/>
+    <line x1="586" y1="330" x2="596" y2="330"/>
+  </g>
+  <path d="M564,312 L586,312 M586,150 L586,330" fill="none" stroke="#A51C30" stroke-width="1.8"/>
+  <line x1="688" y1="378" x2="688" y2="390" stroke="#A51C30" stroke-width="1.8" marker-end="url(#aa)" transform="rotate(180 688 384)"/>
+</svg>

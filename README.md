@@ -265,6 +265,7 @@ density are photographed and audited by axe. The manual WCAG 2.2 AA audit is not
 | [Case studies](examples/case-studies/) | Thirteen worked systems: a data model, the data, the continuous queries and the app code, each run and checked by the build |
 | [CLI](docs/CLI.md) | `pravaha`, the command line for a running engine, and `pravaha-engine` for SQL with no server |
 | [The deck](docs/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx) | 75 slides: why, the vocabulary, correctness, scale, replacement, connectors, security, operations, case studies and what is measured. Generated from [`tools/deck`](tools/deck/GUIDE.md) |
+| [The Medium post](docs/medium/pravaha-medium-post.md) | The design and its trade-offs for engineers, with 13 diagrams and three case studies worked end to end; [how to publish it](docs/medium/README.md) |
 | [Python API guide](docs/PYTHON_API_GUIDE.md) | Every REST and SDK call with a Python sample, for integration |
 | [Running from an IDE](docs/DEVELOPING_IN_AN_IDE.md) | The server in IntelliJ IDEA and the console in PyCharm |
 

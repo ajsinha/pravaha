@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="580" viewBox="0 0 800 580">
+  <title>Blue/green replacement at a position</title>
+  <style>
+    text { font-family: 'Source Sans 3', 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; fill: #1A1A1A; }
+    .title { font-family: 'Source Serif 4', 'Charis SIL', Georgia, serif; font-size: 23px; font-weight: 700; }
+    .head { font-size: 14px; font-weight: 700; }
+    .small { font-size: 13px; fill: #4A5058; }
+    .lbl { font-size: 13px; font-weight: 700; }
+    .inv { font-size: 12.5px; font-weight: 600; fill: #FFFFFF; }
+    .deep { font-size: 13px; font-weight: 700; fill: #8A1626; }
+    .mono { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 12.5px; fill: #8A1626; }
+  </style>
+  <rect width="800" height="580" fill="#F7F5F2"/>
+  <text x="40" y="44" class="title">Changing a running query: blue/green at a position</text>
+
+  <!-- chart -->
+  <rect x="24" y="62" width="752" height="248" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <rect x="500" y="96" width="190" height="178" fill="#F6E8EA" opacity="0.6"/>
+  <text x="595" y="266" class="small" text-anchor="middle">rollback window</text>
+  <line x1="160" y1="274" x2="762" y2="274" stroke="#6B7480" stroke-width="1.5"/>
+  <line x1="160" y1="96" x2="160" y2="274" stroke="#6B7480" stroke-width="1.5"/>
+  <text x="40" y="112" class="lbl">source</text>
+  <text x="40" y="128" class="lbl">position</text>
+  <text x="760" y="296" class="small" text-anchor="end">wall-clock time →</text>
+
+  <!-- v1 -->
+  <line x1="160" y1="210" x2="760" y2="110" stroke="#293352" stroke-width="3"/>
+  <text x="170" y="234" class="deep" style="fill:#293352">v1 (running)</text>
+  <!-- v2 -->
+  <line x1="260" y1="274" x2="440" y2="163.3" stroke="#A51C30" stroke-width="3" stroke-dasharray="8 4"/>
+  <line x1="440" y1="163.3" x2="760" y2="110" stroke="#D28E98" stroke-width="3" stroke-dasharray="8 4" transform="translate(0,6)"/>
+  <text x="352" y="246" class="small">v2 replays the history</text>
+  <text x="352" y="262" class="small">from the beginning</text>
+  <circle cx="440" cy="163.3" r="7" fill="#FFFFFF" stroke="#8A1626" stroke-width="2.5"/>
+  <text x="428" y="146" class="lbl" text-anchor="end">the seam: exactly</text>
+  <text x="428" y="162" class="lbl" text-anchor="end">where v1 has reached</text>
+
+  <!-- event lines -->
+  <line x1="260" y1="96" x2="260" y2="274" stroke="#6B7480" stroke-dasharray="3 3"/>
+  <text x="260" y="88" class="mono" text-anchor="middle">CREATE OR REPLACE</text>
+  <line x1="500" y1="80" x2="500" y2="274" stroke="#8A1626" stroke-width="2"/>
+  <text x="506" y="88" class="deep">cutover</text>
+  <line x1="690" y1="96" x2="690" y2="274" stroke="#6B7480" stroke-dasharray="3 3"/>
+  <text x="690" y="88" class="small" text-anchor="middle">v1 released</text>
+
+  <!-- rows -->
+  <rect x="24" y="322" width="752" height="244" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <line x1="500" y1="330" x2="500" y2="558" stroke="#8A1626" stroke-width="2"/>
+
+  <text x="40" y="354" class="head">the name</text>
+  <rect x="160" y="336" width="338" height="26" rx="4" fill="#293352"/><text x="329" y="354" class="inv" text-anchor="middle">v1</text>
+  <rect x="502" y="336" width="258" height="26" rx="4" fill="#A51C30"/><text x="631" y="354" class="inv" text-anchor="middle">v2</text>
+
+  <text x="40" y="398" class="head">v1</text>
+  <rect x="160" y="380" width="338" height="26" rx="4" fill="#293352" opacity="0.85"/><text x="329" y="398" class="inv" text-anchor="middle">running</text>
+  <rect x="502" y="380" width="186" height="26" rx="4" fill="#E9ECF3" stroke="#293352" stroke-dasharray="4 3"/><text x="595" y="398" class="small" text-anchor="middle">kept: rollback is one swap</text>
+
+  <text x="40" y="442" class="head">v2</text>
+  <rect x="260" y="424" width="178" height="26" rx="4" fill="#C4384B"/><text x="349" y="442" class="inv" text-anchor="middle">backfill, throttled</text>
+  <rect x="440" y="424" width="320" height="26" rx="4" fill="#A51C30"/><text x="630" y="442" class="inv" text-anchor="middle">live; serves from the cutover</text>
+
+  <text x="40" y="486" class="head">subscribers</text>
+  <rect x="160" y="468" width="338" height="26" rx="4" fill="#F1EEE9"/><text x="329" y="486" class="small" text-anchor="middle">every commit v1 makes</text>
+  <text x="512" y="486" class="small">ended with PRV-4019; subscribe again</text>
+
+  <text x="40" y="530" class="head">the sink</text>
+  <rect x="160" y="512" width="338" height="26" rx="4" fill="#F1EEE9"/><text x="329" y="530" class="small" text-anchor="middle">v1's answer</text>
+  <text x="512" y="522" class="small">follows the name at a checkpoint,</text>
+  <text x="512" y="540" class="small">sent only the difference</text>
+</svg>

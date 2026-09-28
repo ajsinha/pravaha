@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="470" viewBox="0 0 800 470">
+  <title>Polling a table versus maintaining an answer</title>
+  <style>
+    text { font-family: 'Source Sans 3', 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; fill: #1A1A1A; }
+    .title { font-family: 'Source Serif 4', 'Charis SIL', Georgia, serif; font-size: 23px; font-weight: 700; }
+    .head { font-size: 15.5px; font-weight: 600; }
+    .body { font-size: 14px; }
+    .small { font-size: 13px; fill: #4A5058; }
+    .alert { font-size: 13px; fill: #CC2200; font-weight: 600; }
+    .inv { fill: #FFFFFF; font-size: 13.5px; font-weight: 600; }
+    .deep { fill: #8A1626; font-size: 14px; font-weight: 600; }
+  </style>
+  <defs>
+    <marker id="aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#A51C30"/></marker>
+    <marker id="am" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6B7480"/></marker>
+  </defs>
+  <rect width="800" height="470" fill="#F7F5F2"/>
+  <text x="40" y="44" class="title">Asking again vs. keeping the answer</text>
+
+  <!-- Panel A: polling -->
+  <rect x="24" y="64" width="752" height="172" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="44" y="92" class="head">Polling: re-run the query every few minutes</text>
+  <text x="44" y="155" class="small">changes</text>
+  <line x1="150" y1="150" x2="752" y2="150" stroke="#6B7480" stroke-width="1.5"/>
+  <!-- scans -->
+  <g fill="#D9D3CA">
+    <rect x="233" y="124" width="14" height="52" rx="2"/>
+    <rect x="393" y="124" width="14" height="52" rx="2"/>
+    <rect x="553" y="124" width="14" height="52" rx="2"/>
+    <rect x="713" y="124" width="14" height="52" rx="2"/>
+  </g>
+  <g class="small" text-anchor="middle">
+    <text x="240" y="118">scan</text><text x="400" y="118">scan</text><text x="560" y="118">scan</text><text x="720" y="118">scan</text>
+  </g>
+  <g fill="#A51C30">
+    <circle cx="190" cy="150" r="5.5"/><circle cx="268" cy="150" r="5.5"/><circle cx="306" cy="150" r="5.5"/>
+    <circle cx="450" cy="150" r="5.5"/><circle cx="508" cy="150" r="5.5"/><circle cx="628" cy="150" r="5.5"/><circle cx="676" cy="150" r="5.5"/>
+  </g>
+  <path d="M262,166 L262,172 L312,172 L312,166" fill="none" stroke="#CC2200" stroke-width="1.5"/>
+  <text x="300" y="200" class="alert" text-anchor="middle">dips and recovers between scans: never seen</text>
+  <text x="400" y="226" class="small" text-anchor="middle">Every scan re-reads the table and loads the database, and still cannot say when anything changed.</text>
+
+  <!-- Panel B: maintained -->
+  <rect x="24" y="252" width="752" height="198" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="44" y="280" class="head">A continuous query: register once, the answer follows the data</text>
+  <rect x="44" y="299" width="92" height="28" rx="6" fill="#A51C30"/>
+  <text x="90" y="318" class="inv" text-anchor="middle">register</text>
+  <line x1="150" y1="313" x2="752" y2="313" stroke="#6B7480" stroke-width="1.5"/>
+  <g fill="#A51C30">
+    <circle cx="190" cy="313" r="5.5"/><circle cx="268" cy="313" r="5.5"/><circle cx="306" cy="313" r="5.5"/>
+    <circle cx="450" cy="313" r="5.5"/><circle cx="508" cy="313" r="5.5"/><circle cx="628" cy="313" r="5.5"/><circle cx="676" cy="313" r="5.5"/>
+  </g>
+  <g stroke="#A51C30" stroke-width="1.6" marker-end="url(#aa)">
+    <line x1="190" y1="321" x2="190" y2="343"/><line x1="268" y1="321" x2="268" y2="343"/><line x1="306" y1="321" x2="306" y2="343"/>
+    <line x1="450" y1="321" x2="450" y2="343"/><line x1="508" y1="321" x2="508" y2="343"/><line x1="628" y1="321" x2="628" y2="343"/><line x1="676" y1="321" x2="676" y2="343"/>
+  </g>
+  <text x="44" y="366" class="small">view</text>
+  <rect x="150" y="347" width="602" height="28" rx="5" fill="#F6E8EA" stroke="#A51C30"/>
+  <text x="451" y="366" class="deep" text-anchor="middle">the maintained view: one small update per change</text>
+  <!-- reads -->
+  <text x="44" y="412" class="small">reads</text>
+  <g stroke="#6B7480" stroke-width="1.5" marker-end="url(#am)">
+    <line x1="228" y1="402" x2="228" y2="381"/><line x1="560" y1="402" x2="560" y2="381"/><line x1="720" y1="402" x2="720" y2="381"/>
+  </g>
+  <g fill="#6B7480"><circle cx="228" cy="407" r="4.5"/><circle cx="560" cy="407" r="4.5"/><circle cx="720" cy="407" r="4.5"/></g>
+  <text x="400" y="438" class="small" text-anchor="middle">A read at any moment is a hash probe by key; a subscriber receives each commit as +1 / −1 changes.</text>
+</svg>
