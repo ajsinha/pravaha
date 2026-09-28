@@ -1153,14 +1153,7 @@ public final class ServedView {
         List<Object[]> entered = entering;
         leaving = null;
         entering = null;
-        if (left == null || (left.isEmpty() && entered.isEmpty())) {
-            return;
-        }
-        List<Object[]> leftView = java.util.Collections.unmodifiableList(left);
-        List<Object[]> enteredView = java.util.Collections.unmodifiableList(entered);
-        for (AnswerListener listener : answerListeners) {
-            listener.onAnswer(leftView, enteredView, frontier);
-        }
+        AnswerChanges.handOver(answerListeners, left, entered, frontier);
     }
 
     /**

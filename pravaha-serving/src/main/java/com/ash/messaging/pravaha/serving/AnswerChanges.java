@@ -1,0 +1,78 @@
+/*
+ * Project Pravaha -- Ask once. Answer always.
+ *
+ * Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>.
+ * All rights reserved.
+ *
+ * PROPRIETARY AND CONFIDENTIAL.
+ *
+ * This file is the confidential and proprietary property of Ashutosh Sinha.
+ * Unauthorised copying, use, modification, distribution or disclosure of this
+ * file, via any medium, is strictly prohibited except with the express prior
+ * written permission of the copyright holder.
+ *
+ * See the LICENSE file in the root of this repository for the full terms.
+ */
+package com.ash.messaging.pravaha.serving;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * One commit's change to a view's answer, netted before it is handed to followers (ADR-056).
+ *
+ * <p>Within a commit the shown row of a key can change more than once -- a retraction that takes a
+ * key's newest row away shows the one behind it (VIEWW-1), and a second retraction may then take that
+ * too. A follower is promised how the answer changed across the commit, so rows that left and came
+ * back, or came and left, cancel here, and each distinct row appears at most once, on one side.
+ */
+final class AnswerChanges {
+
+    private AnswerChanges() {}
+
+    /** Nets {@code left} against {@code entered} and hands what remains to every listener. */
+    static void handOver(List<AnswerListener> listeners, List<Object[]> left, List<Object[]> entered, long frontier) {
+        if (left == null || (left.isEmpty() && entered.isEmpty())) {
+            return;
+        }
+        Map<Row, Integer> net = new LinkedHashMap<>();
+        for (Object[] row : left) {
+            net.merge(new Row(row), -1, Integer::sum);
+        }
+        for (Object[] row : entered) {
+            net.merge(new Row(row), 1, Integer::sum);
+        }
+        List<Object[]> leaving = new ArrayList<>();
+        List<Object[]> entering = new ArrayList<>();
+        net.forEach((row, count) -> {
+            for (int i = 0; i < Math.abs(count); i++) {
+                (count < 0 ? leaving : entering).add(row.values());
+            }
+        });
+        if (leaving.isEmpty() && entering.isEmpty()) {
+            return;
+        }
+        List<Object[]> leftView = Collections.unmodifiableList(leaving);
+        List<Object[]> enteredView = Collections.unmodifiableList(entering);
+        for (AnswerListener listener : listeners) {
+            listener.onAnswer(leftView, enteredView, frontier);
+        }
+    }
+
+    /** A row compared by its values, arrays included. */
+    private record Row(Object[] values) {
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof Row row && Arrays.deepEquals(values, row.values);
+        }
+
+        @Override
+        public int hashCode() {
+            return Arrays.deepHashCode(values);
+        }
+    }
+}

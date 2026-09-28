@@ -57,8 +57,27 @@ class UpstreamReaderTest {
         commit(2, "a", 20L, 1);
         assertThat(drain(reader)).containsExactly("-a=10", "+a=20");
 
+        // The view keeps both rows of a with their own weights and shows the newer (VIEWW-1), so
+        // retracting a=20 in its own commit shows a=10 again -- a real state of the answer the
+        // follower is told about -- and a second retraction then takes a=10 away.
         commit(3, "a", 20L, -1);
-        commit(3, "a", 20L, -1);
+        assertThat(drain(reader)).containsExactly("-a=20", "+a=10");
+        commit(4, "a", 20L, -1);
+        assertThat(drain(reader)).containsExactly("-a=10");
+    }
+
+    @Test
+    void changesWithinOneCommitAreNettedBeforeTheyAreHandedOver() {
+        UpstreamReader reader = follow(null);
+        commit(1, "a", 10L, 1);
+        commit(2, "a", 20L, 1);
+        drain(reader);
+
+        // Both retractions in one commit: a=10 is shown and taken away again inside it, so the
+        // follower is handed only how the answer changed across the commit.
+        view.applyValues(new Object[] {"a", 20L}, -1, 3);
+        view.applyValues(new Object[] {"a", 20L}, -1, 3);
+        view.commit(3);
         assertThat(drain(reader)).containsExactly("-a=20");
     }
 
