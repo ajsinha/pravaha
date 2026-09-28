@@ -22,14 +22,14 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Buildable: work that is simply not done yet
 
-- **One read of a source per query, for sources that promise exactly-once or order.** With
-  lane sharing (`pravaha.lane.multiplex.enabled`, `auto` by default: from the 65th query) any registered query shares a lane — inbox,
-  arena and thread — whatever it reads, joins included, and a reader shared by several queries
-  writes each row into a shared lane once for all of them (LANE-2). But only a source that
-  declares at-least-once and no order gets a shared reader (SRC-3; Aerospike and Cassandra today):
-  a file, Kafka, JDBC, CDC or Delta source keeps a reader per query, each writing its own copy into
-  the shared inbox, so a thousand queries over one topic share eight inboxes and still read the topic
-  a thousand times.
+- **One read of a source per query, for JDBC, CDC, Delta and followed files.** With lane sharing
+  (`pravaha.lane.multiplex.enabled`, `auto` by default: from the 65th query) any registered query
+  shares a lane — inbox, arena and thread — whatever it reads, joins included, and a reader shared by
+  several queries writes each row into a shared lane once for all of them (LANE-2). Readers are shared
+  for sources that declare at-least-once and no order (SRC-3; Aerospike and Cassandra), and exactly
+  for Kafka and a file read once through, which meet a joining query at an exact position (ADR-054).
+  A JDBC, CDC or Delta source, or a followed file, still keeps a reader per query, each writing its own
+  copy into the shared inbox, so a thousand queries over one such source read it a thousand times.
 
   **Built for Kafka and for files read once through** ([ADR-054](adr/054-an-ordered-source-is-shared-at-an-exact-seam.md)): one reader per binding, each record to each query once and in order, and partitions a topic gains joined by every query sharing its reader. **Buildable:** Delta and JDBC, once their positions are shown to be totally ordered. postgres-cdc stays per query: its slot can be confirmed only up to the slowest member's checkpoint.
 

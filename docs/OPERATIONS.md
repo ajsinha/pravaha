@@ -323,9 +323,11 @@ source that declares at-least-once and no order: Aerospike and Cassandra today) 
 a shared lane **once**, and every query on that lane reading it is handed the one copy. Measured with
 1,000 queries over one source on 8 shared lanes: 8 lanes and 8 copies of each row, where lanes of
 their own are 1,000 lanes and 1,000 copies — 8 MiB of inboxes at the defaults against about 1 GB
-(`SharedLaneDensityTest`). A source promising exactly-once or order (a file, Kafka, JDBC, CDC,
-Delta) still gets a reader per query, so its queries share the lane and its inbox but each writes its
-own copy into it.
+(`SharedLaneDensityTest`). An ordered, exactly-once source that declares ordered positions and a
+bounded read -- Kafka, and a file read once through -- is shared too, exactly: a query joining the
+reader catches up privately to the reader's position and meets it at that seam (ADR-054). JDBC, CDC,
+Delta and a followed file still get a reader per query, so their queries share the lane and its inbox
+but each writes its own copy into it.
 
 **What a slow neighbour costs.** Nothing is dropped for anybody. A query that is slow for its share
 of a lane slows the lane's drain for every query on it, and when the lane's inbox fills, everything

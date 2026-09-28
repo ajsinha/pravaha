@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **428 findings carrying a
-status — 379 FIXED, 35 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 35 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 30 POST-GA and 5 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **431 findings carrying a
+status — 380 FIXED, 37 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 37 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 32 POST-GA and 5 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7142,3 +7142,19 @@ the lead.
 
 > **Status:** OPEN — documented: no window closes until `advanceEventTime` is called, which is easy to miss for an embedder expecting a node's behaviour.
 > **Disposition:** NOTE — the embedded engine leaves event time to its host by design; a sentence in USER_GUIDE and the embedded javadoc says so.
+
+## Found writing the research paper (2026-09-28), 3 findings
+
+### SEAMKAFKA-1 (MEDIUM) — exact-seam sharing over Kafka is not tested against a broker
+
+> **Status:** OPEN — ADR-054's theorem is tested over the `OrderedLogPlugin` test source (`ExactSharingTest`) and the filesystem bounded read; no test calls Kafka's `pollBefore` against a real broker, where control records and transaction markers are what make the bound matter.
+> **Disposition:** POST-GA — a Testcontainers Kafka test with transactional producers, joining a member behind and ahead of the shared reader.
+
+### LANEFATE-1 (LOW) — shared-lane fate-sharing and backpressure are argued, not tested
+
+> **Status:** OPEN — a query failing alone on its own lane is tested (`LaneRunnerTest`, `LaneGroupTest`); that a failing pipeline takes down exactly the queries on its shared lane, and no others, is argued from the code. The paper's Proposition 8.4 says so.
+> **Disposition:** POST-GA — a test that fails one pipeline on a shared lane and checks every other lane keeps running.
+
+### DOCSHARE-1 (LOW) — four documents still said Kafka and files keep a reader per query
+
+> **Status:** FIXED — OPERATIONS.md, LIMITS.md and the lane-sharing help topic predated ADR-054, which shares Kafka and read-once files exactly; ADR-025's status line said key columns were outside the fingerprint, which `QueryFingerprint` and `SharingIdentityTest` show they are not. All four corrected.

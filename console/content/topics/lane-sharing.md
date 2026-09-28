@@ -117,8 +117,10 @@ Every row on a shared lane carries a *route*. Each query has its own, and what i
 reader of its own, rows an embedder pushes, a catch-up read — reaches that query and no other on the
 lane. A reader shared by several queries writes each row into a shared lane **once**, and every
 query on the lane that reads it is handed that one copy. Readers are shared for sources that declare
-at-least-once and no order (Aerospike and Cassandra); a file, Kafka, JDBC, CDC or Delta source keeps a
-reader per query, so its queries share the lane and its inbox but each writes its own copy into it.
+at-least-once and no order (Aerospike and Cassandra), and exactly for Kafka and a file read once
+through, which meet a joining query at an exact position (ADR-054); a JDBC, CDC or Delta source, or a
+followed file, keeps a reader per query, so its queries share the lane and its inbox but each writes
+its own copy into it.
 
 Measured, 1,000 queries over one source on 8 shared lanes: **8 lanes and 8 copies of each row**,
 where lanes of their own are 1,000 lanes and 1,000 copies — 8 MiB of inboxes at the defaults

@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted; **partly built** — the fingerprint covers the plan and the security predicates, but not the key columns, so two registrations differing only in `--keys` share one view |
+| Status | Accepted; built — the fingerprint covers the plan, the security predicates and the key columns (`QueryFingerprint`, `SharingIdentityTest`), so two registrations differing only in their keys are two views |
 | Date | 2026-09-09 |
 | Deciders | Ashutosh Sinha |
 
