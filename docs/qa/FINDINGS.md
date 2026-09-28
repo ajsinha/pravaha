@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **443 findings carrying a
-status — 386 FIXED, 43 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 43 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 36 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **446 findings carrying a
+status — 386 FIXED, 46 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 46 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 39 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7221,3 +7221,20 @@ the lead.
 
 > **Status:** OPEN — not reproduced; found by reading. Recovery resolves a registration's owner through the token table only (`principalNamed`), so on a node whose users live in the identity store (ADR-052) a replayed query owned by such a user may be refused.
 > **Disposition:** POST-GA — a restart test on an identity-store node with a user-owned query; resolve owners through the identity store as well.
+
+## Found building ADR-058 phase 2, drafting (2026-09-28), 3 findings
+
+### EXPLAINFP-1 (MEDIUM) — /explain gives no fingerprint for SQL that is not registered
+
+> **Status:** OPEN — `/api/v1/explain` answers `level`, `plan`, `outputFields` and optionally `graph`; a fingerprint exists only for a registered query. The assistant therefore compares drafts with running queries, and with the evaluation's references, by normalised plan text — evidence, not the computation's identity (ADR-025). `assist eval --run` registers both to compare exactly.
+> **Disposition:** POST-GA — return the fingerprint the registration would get (plan, row filters, keys, retention, tenant) from /explain.
+
+### VALIDATEREG-1 (LOW) — /validate plans only the SELECT, so registration-only refusals come late
+
+> **Status:** OPEN — key and index columns (PRV-2071/2074), sink visibility and retention format are judged only at registration, so a draft can pass /validate and be refused on register. The assistant checks them itself against `outputFields` and the sink list and labels those verdicts as its own.
+> **Disposition:** POST-GA — a validate that takes the whole CREATE CONTINUOUS QUERY statement and answers every refusal registration would give, without registering.
+
+### FLIGHTFLAKE-1 (LOW) — two Flight CLI tests failed once with exit 3 in a full SDK run
+
+> **Status:** OPEN — `test_register_sends_the_name_sql_keys_sink_and_retention` and `test_dead_letters_list_show_and_replay` in `sdk/python/tests/test_cli_flight.py` exited 3 (unreachable) once, then passed alone and in two further full runs. Probably the test Flight server's start-up racing the first call.
+> **Disposition:** POST-GA — make the fixture wait for the server to accept a connection before the first test.
