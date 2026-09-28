@@ -214,7 +214,7 @@ SCREEN_HELP: dict[str, list[str]] = {
     "catalog": ["streams", "sources-overview", "sinks-overview"],
     "stream": ["streams", "event-time-watermarks", "sources-overview"],
     "views": ["views-and-keys", "point-reads", "client-snippets"],
-    "view": ["point-reads", "client-snippets", "pgwire"],
+    "view": ["point-reads", "client-snippets", "pgwire", "power-bi"],
     "live": ["subscriptions", "zset-weights", "late-data"],
     "operations": ["metrics-alerts", "reading-a-plan", "sizing-lanes", "checkpoints-recovery"],
     "queries": ["query-lifecycle", "sharing", "create-continuous-query"],

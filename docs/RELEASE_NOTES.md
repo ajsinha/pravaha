@@ -12,6 +12,21 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **Power BI reads views through the PostgreSQL gateway, in Import and DirectQuery.** Power BI's
+  PostgreSQL connector runs Npgsql 4.0.17, and until now it could not open a connection: Npgsql's
+  type-loading query was refused (PRV-6205), and so, after it, would have been every query — Npgsql
+  asks for binary results, which the gateway refused (PRV-6209). The gateway now answers Npgsql's
+  three type-loading queries, `GetSchema("Tables"/"Columns")` and Power BI's navigator queries
+  (`INFORMATION_SCHEMA` tables, columns, character sets, keys) from the view catalogue, filtered by
+  what the principal may read; sends PostgreSQL's binary format for every type it sends (a binary
+  `timestamptz` carries microseconds, so sub-microsecond digits are truncated); accepts `DISCARD ALL`;
+  reads `public.<view>` as `<view>`; and takes a trailing top-level `LIMIT n` — Power BI's
+  `LIMIT 1000001` on every DirectQuery statement — off before planning and applies it to the answer.
+  `ORDER BY`, joins, float aggregates and date functions are still refused by the planner, each by
+  name. `NpgsqlClientTest` drives the gateway with the real Npgsql 4.0.17 (skipped without a dotnet
+  SDK); `PowerBiGatewayTest` replays the same texts everywhere. Power BI Desktop itself was not run.
+  New help topic: [Power BI](../console/content/topics/power-bi.md), including a Microsoft Fabric
+  real-time path through `kafka-sink` that is **not verified against Azure**.
 - **A view keeps every row of a key, and shows the one that most recently gained weight (VIEWW-1).**
   A key inserted as `A` and then as `B`, with `A` then retracted, went on showing `A` — the row just
   withdrawn. `ServedView` now keeps each distinct row of a key with its own weight (only for a key
