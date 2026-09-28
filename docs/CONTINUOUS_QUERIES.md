@@ -28,7 +28,7 @@ the planner reported it as supported and this page repeated the claim.
 | | What it is | Lives for |
 |---|---|---|
 | **Stream** | A named, typed, unbounded sequence of rows, bound to a source | The node's lifetime |
-| **Continuous query** | A registered computation over one or more streams | Until dropped |
+| **Continuous query** | A registered computation over one or more streams, or over another query's answer (§3.1) | Until dropped |
 | **View** | The query's answer, maintained incrementally, readable by SQL | As long as its query |
 
 The relationship in one line:
@@ -988,6 +988,75 @@ Step 4 is why a thousand dashboards asking the same question cost one computatio
 *normalised plan*, not the text — whitespace and aliases do not matter, but operand order does
 (`CONCEPTS.md` §5).
 
+### 3.1 A query over another query's answer
+
+Answers are layered: a cleaned feed, an aggregate of it, an alert condition over the aggregate. A
+continuous query whose `FROM` names a **registered query** follows that query's answer — the rows its
+view holds now, then every change to them — instead of reading a stream
+([ADR-056](adr/056-queries-on-queries.md)):
+
+```sql
+CREATE CONTINUOUS QUERY cleaned KEYED BY (user_id)
+AS SELECT user_id, region, amount FROM txn WHERE amount > 0;
+
+CREATE CONTINUOUS QUERY by_region KEYED BY (region)
+AS SELECT region, SUM(amount) AS total, COUNT(*) AS n FROM cleaned GROUP BY region;
+
+CREATE CONTINUOUS QUERY big_regions KEYED BY (region)
+AS SELECT region, total FROM by_region WHERE total > 100;
+```
+
+**What the downstream sees is the upstream's answer, as a reader sees it.** Each row once, and for
+every commit upstream the rows that left the answer (weight −1) and the rows that entered it (+1). A
+second row for a key that `cleaned` already holds *replaces* the first in its view, so `by_region`
+is fed the old row's retraction and the new row — an update — not a second row. That is why a
+downstream is not simply a subscriber to the upstream's changelog: the changelog carries what the
+upstream applied, and for a keyed view that is not how its answer changed. A plain `SELECT` over the
+view is still what it was, a bounded read at a commit.
+
+**What runs over a view.** Filters, projections, computed columns, and unwindowed `COUNT`, `SUM` and
+`AVG`, global or with a `GROUP BY`. A keyed `GROUP BY` that `PRV-2050` refuses over a stream runs
+here, because the keys come from a view and a view is bounded by its key ceiling; a group whose rows
+have all left is retracted and released. Refused with `PRV-2075`, naming the construct: windows (the
+upstream's frontier is not a watermark over any column of its rows), joins with anything, top-N,
+`MIN` and `MAX` (retracting the extreme needs every value of the group), and `COUNT(DISTINCT)`.
+Put those in the upstream, or read the view with a `SELECT`.
+
+**Exactly once, across the chain.** A downstream's checkpoint carries what it has consumed of the
+upstream's answer, cut at the same point as its own state (ADR-008). On a restart each query restores
+its own checkpoint, and the downstream is fed the difference between the upstream's answer and what it
+had consumed — so the two agree whichever of them checkpointed later, and whether or not either did.
+Recovery replays the journal in order, which is upstream before downstream, because a query can only
+read what already exists. A downstream that falls more than 65,536 changes behind — paused, or slower
+than its upstream — re-reads the upstream's answer and is fed the difference: conflated, never lost.
+
+**Time.** Rows arrive at the upstream's committed frontier, so the downstream's view frontier follows
+the upstream's and an `AtLeast` read of it waits for the upstream too. `RETAIN FOR` on a query over a
+view is refused (`PRV-8026`): a row unchanged upstream keeps its old frontier and would be evicted
+downstream while still in the answer. Retention belongs to the upstream.
+
+**Its life.**
+
+| | |
+|---|---|
+| `DROP` an upstream others read | Refused, `PRV-8024`, naming them. Drop them first; there is no cascade, because it would drop queries somebody else registered |
+| `PAUSE` the upstream | Allowed. Its answer stops moving, so the downstream keeps the one it has |
+| `PAUSE` the downstream | Allowed. Changes wait (or overflow into a fresh read of the answer), and `RESUME` catches up |
+| The upstream `FAILED` | The downstream's feed stops with `PRV-8004` naming it; the downstream stays `RUNNING` at the frontier it reached (§8) |
+| `CREATE OR REPLACE` of a member of a chain | Refused, `PRV-8026`: a cutover would move a name to another computation behind a query following the first. A new version that would read its own answer is `PRV-8025`, naming the loop |
+| A chain deeper than eight | Refused, `PRV-8027` |
+
+**Who may.** Registering a query over `cleaned` needs read access to `cleaned` **and** to every stream
+it reads, transitively: authorization follows the data, not the name (SX-11). The downstream's view
+is recorded as derived from all of them, so a row filter on `txn` applies to a read of `big_regions`
+exactly as to any view — applied if the view carries the column, refused `PRV-7003` if it was
+aggregated away (`CONCEPTS.md` §6). Only views registered by your own tenant can be read this way;
+another tenant's is a name that does not exist.
+
+`GET /api/v1/queries/{name}` reports `readsFrom` and `dependants`, and the console's query page links
+them. A downstream costs one entry per upstream row for what it has consumed, sharing the upstream's
+own row arrays.
+
 ---
 
 ## 4. Reading the answer
@@ -1397,7 +1466,9 @@ The one asymmetry worth knowing is the unwindowed keyed `GROUP BY`. For a contin
 refused **and should be** — over an endless stream its state never stops growing. Over a bounded read
 of a view the same argument does not hold, because the scan ends, so it is **supported there**. Same
 SQL, different answer, and the difference is the input rather than the query. Covered
-[below](#should-a-continuous-query-aggregate-at-all).
+[below](#should-a-continuous-query-aggregate-at-all). A *continuous* query over a view is the third
+case: its input is another query's answer, bounded by that answer's key ceiling, so a keyed
+`GROUP BY` runs there too (§3.1).
 
 ### The short version
 
@@ -1673,7 +1744,7 @@ Rewrite the filter as a range comparison, or join against a table of values inst
 | Aggregate over an expression — `SUM(amount * 2)` | ✅ | |
 | `HAVING` on an aggregate | ✅ | |
 | `GROUP BY key` **without** a window, over a stream | ❌ | `PRV-2050` — unbounded state |
-| `GROUP BY key` **without** a window, over a view | ✅ | The scan ends, so the state is bounded by it |
+| `GROUP BY key` **without** a window, over a view | ✅ | Two different things, both bounded. A `SELECT` reading the view is a bounded read: the scan ends, and every aggregate runs. A **continuous query** over the view follows its answer (§3.1, [ADR-056](adr/056-queries-on-queries.md)), and its groups are bounded by the upstream's key ceiling; there `COUNT`, `SUM` and `AVG` run, re-published as a retraction and an insert whenever a group changes, and `MIN`, `MAX` and `COUNT(DISTINCT)` are `PRV-2075` |
 | `SESSION` windows | ❌ | `PRV-2020`. The runtime has the session-merging bookkeeping (`SessionWindows`) and no operator: an aggregate over sessions that retracts the old windows' answers when two merge, and splits one when a retraction removes the row joining it, is not built (Nexmark q11) |
 
 ### Should a continuous query aggregate at all?
@@ -1717,6 +1788,12 @@ refused too — that is the unbounded case wearing a window's clothes.
 **And over a bounded read of a view?** Supported. `SELECT tier, COUNT(*) FROM user_volume GROUP BY
 tier` is what a dashboard asks, the scan ends, and `KeyedAggregate` answers it — including `SUM`,
 `MIN`, `MAX`, `AVG`, `COUNT(DISTINCT)`, multiple group columns, `HAVING`, and parameters.
+
+**And registered over a view?** Also supported, as a continuous query: `CREATE CONTINUOUS QUERY
+by_region ... AS SELECT region, SUM(amount) FROM cleaned GROUP BY region` follows `cleaned`'s answer
+and keeps each region's total current, bounded by `cleaned`'s key ceiling (§3.1). `COUNT`, `SUM` and
+`AVG` only there: `MIN`, `MAX` and `COUNT(DISTINCT)` cannot be maintained under retractions and are
+`PRV-2075`.
 
 Two details that follow SQL rather than convenience. **NULL is a group**, not a row that vanishes —
 unlike a comparison, where NULL is UNKNOWN — so rows with no `tier` gather under one NULL key. And
@@ -1899,6 +1976,11 @@ as a JUnit test that compiles and passes.
 | `PRV-2072` | A clause of the design's `CREATE CONTINUOUS QUERY` that is not built: `EMIT CHANGES WITH (...)`, a `SERVE AS VIEW` naming another view — §10.1 |
 | `PRV-2073` | `RANGE (column)` over a column this engine has no total order for: text, `FLOAT`, `DECIMAL`, `BYTES`, `BOOLEAN` — §10.1 |
 | `PRV-2074` | `INDEX (column)` over a column this engine keeps no equality index for — `FLOAT`, `DECIMAL`, `BYTES`, or the view's whole key — or a fifth index on one view — §10.1 |
+| `PRV-2075` | A continuous query over another query's view uses a window, a join, top-N, `MIN`, `MAX` or `COUNT(DISTINCT)`, or groups by a column the grouped aggregate cannot hold — §3.1 |
+| `PRV-8024` | `DROP` of a query other queries read; the refusal names them — §3.1 |
+| `PRV-8025` | A `CREATE OR REPLACE` whose new version would read, through other queries, its own answer — §3.1 |
+| `PRV-8026` | Something about a query over a query that cannot be made exact: replacing a member of a chain, reading a name being replaced, `RETAIN FOR` over a view, a restore without the consumed answer — §3.1 |
+| `PRV-8027` | A chain of queries over queries deeper than eight — §3.1 |
 | `PRV-8017` | A `WITH (...)` option this engine does not build, or one said twice — §10.1 |
 | `PRV-4013` | A backfill reached the end of the history without reaching its seam — §8.1 |
 | `PRV-4014` | A cutover before the new version had caught up, or at a position the two do not share — §8.1 |

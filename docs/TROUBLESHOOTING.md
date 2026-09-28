@@ -772,6 +772,23 @@ On restart, a journal replayed under a lowered quota reports each entry beyond t
 recovery log with `PRV-8020` or `PRV-8021`. The journal entry stays live and comes back once the
 limit is raised.
 
+## A query over another query is refused (`PRV-2075`, `PRV-8024` … `PRV-8027`)
+
+A continuous query whose `FROM` names a registered query follows that query's answer
+([ADR-056](adr/056-queries-on-queries.md), [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §3.1). What
+cannot be kept exact over an input that retracts is refused rather than approximated.
+
+| Code | What happened | What to do |
+|---|---|---|
+| `PRV-2075` | The query over a view uses a window, a join (with a stream, a lookup table or another view), top-N, `MIN`, `MAX` or `COUNT(DISTINCT)`, or groups by a column the grouped aggregate cannot hold | Filter, project, and aggregate with `COUNT`, `SUM` and `AVG` over the view; put the window, join or extreme in the upstream query, or read the view with a plain `SELECT` |
+| `PRV-8024` | `DROP` of a query that other queries read. The message names them | Drop the queries that read it first. There is no cascade: it would drop queries somebody else registered |
+| `PRV-8025` | A `CREATE OR REPLACE` whose new version would read, through other queries, its own answer. The message names the loop | Read the stream, not a query that depends on the one being replaced |
+| `PRV-8026` | Replacing a query that reads a view or that others read; registering over a name that is being replaced; `RETAIN FOR` on a query over a view; a column type a row cannot carry; or a restored checkpoint that holds the downstream's view but not what it had consumed | Drop and register instead of replacing; wait for the replacement to finish; retain in the upstream (`RETAIN FOREVER` here); project the column away upstream. A restore refused for its missing record is exactly the case where feeding the whole answer again would double-count: drop and register the downstream |
+| `PRV-8027` | The chain would be more than eight queries deep over its streams | Fold some of the steps into one query |
+
+A downstream whose upstream fails stops following it with `PRV-8004`, naming the upstream, and keeps
+answering at the frontier it reached: its feed is reported stopped, as any source's is.
+
 ## `PRV-1052` — an HTTP request that reached no endpoint
 
 Every non-2xx response on `/api/v1/**` is an `ApiError` — `code`, `message`, `helpUrl`,
@@ -844,6 +861,7 @@ client models the error rather than an empty object.
 | `PRV-2072` | SQL_CLAUSE_NOT_BUILT | sql |
 | `PRV-2073` | SQL_RANGE_NOT_ORDERED | sql |
 | `PRV-2074` | SQL_INDEX_UNUSABLE | sql |
+| `PRV-2075` | SQL_VIEW_INPUT_UNSUPPORTED | sql |
 | `PRV-3001` | RUNTIME_ARENA_EXHAUSTED | runtime |
 | `PRV-3002` | RUNTIME_BACKPRESSURED | runtime |
 | `PRV-3010` | RUNTIME_LANE_FAILED | runtime |
@@ -1022,6 +1040,10 @@ client models the error rather than an empty object.
 | `PRV-8021` | REGISTRY_TENANT_STATE_QUOTA | registry (tenancy) |
 | `PRV-8022` | REGISTRY_TENANT_MISMATCH | registry (tenancy) |
 | `PRV-8023` | REGISTRY_TENANCY_MISCONFIGURED | registry (tenancy) |
+| `PRV-8024` | REGISTRY_QUERY_HAS_DEPENDANTS | registry (queries on queries) |
+| `PRV-8025` | REGISTRY_QUERY_CYCLE | registry (queries on queries) |
+| `PRV-8026` | REGISTRY_CHAIN_UNSUPPORTED | registry (queries on queries) |
+| `PRV-8027` | REGISTRY_CHAIN_TOO_DEEP | registry (queries on queries) |
 | `PRV-8101` | EMBEDDED_UNKNOWN_STREAM | registry (embedded engine) |
 | `PRV-8102` | EMBEDDED_ROW_REJECTED | registry (embedded engine) |
 | `PRV-8103` | EMBEDDED_BACKPRESSURE | registry (embedded engine) |

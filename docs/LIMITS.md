@@ -52,6 +52,19 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   **Buildable:** design §17.2's warning at registration that suggests an index, and a plan a user can
   ask for that shows which access path a view read took (today the view's counters say it).
 
+- **Queries over queries follow an answer; not every operator can.** A continuous query whose `FROM`
+  names a registered query follows that query's answer, exactly once across restarts
+  ([ADR-056](adr/056-queries-on-queries.md)). Over such an input filters, projections and unwindowed
+  `COUNT`/`SUM`/`AVG` run; windows, joins, top-N, `MIN`, `MAX` and `COUNT(DISTINCT)` are refused
+  (`PRV-2075`), and so are replacing a member of a chain and `RETAIN FOR` on a query over a view
+  (`PRV-8026`). A chain is at most **eight** levels deep (`PRV-8027`), and a downstream holds one
+  on-heap entry per upstream row for what it has consumed, bounded by the upstream's key ceiling.
+  Chains are single-node: a downstream on a node without its upstream plans as an unknown name.
+
+  **Buildable:** windows over a view (they need the upstream to carry a watermark over one of its
+  columns), `MIN`/`MAX` and `COUNT(DISTINCT)` with weighted per-group state, and a replacement that
+  hands its followers across at the cutover's position.
+
 - **The snapshot-and-change-feed splice: a boundary, not a gap.** Design §16.1's other backfill — a
   table snapshot joined to a change feed, deduplicated by the store's own version — is built and
   tested as `SplicedReader` in `pravaha-backfill`, and deliberately reachable from no running path.

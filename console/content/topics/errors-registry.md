@@ -4,10 +4,10 @@ slug: errors-registry
 category: errors
 order: 90
 icon: journal-x
-summary: "PRV-8001 to PRV-8104: a query's name and lifecycle, its journal and its replay, sinks that fail or do not fit, an option the engine does not build, the time-travel debugger's six refusals, a tenant's quotas, and the embedded engine's four."
+summary: "PRV-8001 to PRV-8104: a query's name and lifecycle, its journal and replay, sinks that fail or do not fit, unknown options, the debugger's six refusals, tenant quotas, queries over queries, and the embedded engine's four."
 badge: PRV-8XXX
 audience: Analysts, operators, developers
-keywords: [registry, name in use, reserved word, no such query, drop, pause, resume, failed, journal, replay, sink detached, sink shape, keyed by, embedded, push, backpressure, row rejected, debug, debugger, debug session, fork, step, fixture, checkpoint, with, option, unknown option, tenant, tenancy, quota, max-queries, max-state-keys, 409]
+keywords: [registry, dependants, cycle, chain, queries on queries, name in use, reserved word, no such query, drop, pause, resume, failed, journal, replay, sink detached, sink shape, keyed by, embedded, push, backpressure, row rejected, debug, debugger, debug session, fork, step, fixture, checkpoint, with, option, unknown option, tenant, tenancy, quota, max-queries, max-state-keys, 409]
 guide: continuous-queries#8-the-life-of-a-query
 related: [query-lifecycle, create-continuous-query, sinks-overview, time-travel-debugger, embedded-engine, errors-overview]
 ---
@@ -42,6 +42,10 @@ inside an application's own process and adds the ways an application can push ro
 | PRV-8021 | REGISTRY_TENANT_STATE_QUOTA | The tenant's views already hold as many keys as its state quota allows |
 | PRV-8022 | REGISTRY_TENANT_MISMATCH | A replacement from a principal of another tenant than the name's |
 | PRV-8023 | REGISTRY_TENANCY_MISCONFIGURED | `pravaha.tenancy` sets a negative limit or a blank tenant name |
+| PRV-8024 | REGISTRY_QUERY_HAS_DEPENDANTS | A query other queries read cannot be dropped until they are |
+| PRV-8025 | REGISTRY_QUERY_CYCLE | A new version would read, through other queries, its own answer |
+| PRV-8026 | REGISTRY_CHAIN_UNSUPPORTED | Something about a query over a query that cannot be made exact |
+| PRV-8027 | REGISTRY_CHAIN_TOO_DEEP | A chain of queries over queries deeper than eight |
 | PRV-8101 | EMBEDDED_UNKNOWN_STREAM | A row pushed to an undeclared stream |
 | PRV-8102 | EMBEDDED_ROW_REJECTED | A pushed row does not fit its stream |
 | PRV-8103 | EMBEDDED_BACKPRESSURE | A push waited too long for room |
@@ -383,6 +387,37 @@ charged to that tenant and shared only within it. A 403.
 ### PRV-8023 — tenancy configuration
 
 The node refuses to start with a negative limit or a blank tenant name under `pravaha.tenancy`.
+
+## Queries over queries
+
+A continuous query can read another query's answer (see
+[CREATE CONTINUOUS QUERY](/help/topics/create-continuous-query#over-another-querys-answer)). Four codes
+keep a chain exact.
+
+### PRV-8024 — a query other queries read
+
+`DROP` of a name that other continuous queries read is refused, and the message names them. Drop
+them first. There is no cascade: it would take answers away from queries somebody else registered.
+
+### PRV-8025 — a loop
+
+A `CREATE OR REPLACE` whose new version would read, through other queries, its own answer. The
+message names the loop — `a reads b reads a`. A plain `CREATE` cannot make one, because it can only
+read what already exists.
+
+### PRV-8026 — what a chain cannot make exact
+
+Refused rather than approximated: replacing a query that reads a view, or one that others read (a
+cutover would move the name to another computation behind the queries following the first);
+registering over a name that is being replaced; `RETAIN FOR` on a query over a view (retention
+belongs to the upstream — say `RETAIN FOREVER`); a column type a row cannot carry; and a restore
+whose checkpoint holds the downstream's view without what it had consumed of the upstream, which
+would feed the whole answer again on top of it.
+
+### PRV-8027 — a chain too deep
+
+At most eight queries over queries above a stream. Each level adds a commit's latency and a copy of
+its input's answer; fold some steps into one query.
 
 ## Where next
 

@@ -182,6 +182,12 @@ class QueryChainsTest {
         awaitRows(alert, Map.of("eu", List.of(130L)));
 
         assertThat(registry.readsFrom("big_regions")).containsExactly("by_region");
+        // What GET /api/v1/queries/{name} reports, through the listing's own visibility rules.
+        QueryListing listing = new QueryListing(
+                registry, com.ash.messaging.pravaha.security.SecurityPolicy.PERMISSIVE, AuditSink.NONE);
+        QueryListing.Entry middle = listing.find(DANA, "by_region", "test").orElseThrow();
+        assertThat(listing.readsFrom(DANA, middle, "test")).containsExactly("cleaned");
+        assertThat(listing.dependants(DANA, middle, "test")).containsExactly("big_regions");
         assertThat(alert.view().derivedFrom())
                 .as("authorization follows the data down the chain to the stream")
                 .contains("by_region", "cleaned", "txn");

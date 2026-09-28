@@ -39,6 +39,15 @@ were multiplexed onto a shared runner pool — **no platform thread of its own**
 follows its cores, not its query count. Sizing is under `pravaha.lane.*`; see
 [Operations](OPERATIONS.md#sizing-a-node-for-many-queries).
 
+**An answer can be the input of another question.** A continuous query whose `FROM` names a
+registered query does not read that query's view once; it *follows its answer* — the rows it holds,
+then every change to them as a row leaving (−1) and a row entering (+1) — so `cleaned` →
+`by_region` → `big_regions` is three computations, each current, each exactly once across a restart,
+because each carries what it has consumed of the one before it (§4 is why the retractions matter;
+[ADR-056](adr/056-queries-on-queries.md) and
+[CONTINUOUS_QUERIES.md §3.1](CONTINUOUS_QUERIES.md#31-a-query-over-another-querys-answer) say what runs
+over an answer and what is refused). A query other queries read cannot be dropped until they are.
+
 ## 2. Event time, not clock time
 
 Every window, every watermark, every retention policy is measured in the timestamp *in the data*.

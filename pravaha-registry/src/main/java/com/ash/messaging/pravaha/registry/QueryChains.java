@@ -119,6 +119,11 @@ final class QueryChains {
     }
 
     private static boolean mentions(String sql, String name) {
+        // The cheap test first: a registry of a thousand names is a thousand of these per
+        // registration, and almost all of them are not in the text at all.
+        if (!sql.toLowerCase(java.util.Locale.ROOT).contains(name.toLowerCase(java.util.Locale.ROOT))) {
+            return false;
+        }
         return Pattern.compile(
                         "(?<![\\p{L}\\p{N}_])" + Pattern.quote(name) + "(?![\\p{L}\\p{N}_])", Pattern.CASE_INSENSITIVE)
                 .matcher(sql)
