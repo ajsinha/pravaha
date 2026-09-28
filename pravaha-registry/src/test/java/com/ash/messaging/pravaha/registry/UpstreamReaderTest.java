@@ -117,6 +117,24 @@ class UpstreamReaderTest {
     }
 
     @Test
+    void aRowUpdatedAndEvictedInOneCommitLeavesTheAnswerOnce() {
+        ServedView kept =
+                new ServedView("u", ROWS, List.of(0), 1_000_000, Retention.ofAge(java.time.Duration.ofSeconds(1)));
+        UpstreamReader reader = new UpstreamReader("u", kept, ROWS, null);
+        reader.follow(() -> {});
+        kept.applyValues(new Object[] {"a", 1L}, 1, 5_000_000_000L);
+        kept.applyValues(new Object[] {"b", 2L}, 1, 5_000_000_000L);
+        kept.commit(5_000_000_000L);
+        assertThat(drain(reader)).containsExactlyInAnyOrder("+a=1", "+b=2");
+
+        // a is replaced by a row already past retention: it enters and is evicted in one commit.
+        kept.applyValues(new Object[] {"a", 9L}, 1, 0L);
+        kept.commit(5_500_000_000L);
+        assertThat(drain(reader)).containsExactly("-a=1");
+        assertThat(kept.scan()).hasSize(1);
+    }
+
+    @Test
     void anImageOfAnotherUpstreamIsRefused() {
         UpstreamReader reader = follow(null);
         commit(1, "a", 1L, 1);

@@ -1223,7 +1223,9 @@ public final class ServedView {
                         index.remove(key, entry.getValue());
                     }
                     entries.remove();
-                    if (leaving != null) {
+                    // A row that entered in this very commit never reached the answer: it leaves
+                    // the entering list rather than being handed over as both.
+                    if (leaving != null && !entering.remove(entry.getValue())) {
                         leaving.add(entry.getValue());
                     }
                     writtenAt.remove(key);
