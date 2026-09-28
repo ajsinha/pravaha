@@ -79,6 +79,7 @@ final class IdentityCommand {
                 case "user" -> user(args, verb, words);
                 case "key" -> key(args, verb, words);
                 case "session" -> session(args, verb, words);
+                case "lanes" -> lanes(args, words);
                 default -> throw new Args.UsageException("unknown identity command '" + command + "'");
             };
         } catch (Refused refused) {
@@ -283,6 +284,51 @@ final class IdentityCommand {
             }
             out.println(text.toString().stripTrailing());
         }
+    }
+
+    /**
+     * {@code pravaha lanes}: where every query runs; {@code lanes rebalance}: the plan an administrator
+     * would run, and with {@code --yes} the run itself; {@code lanes rebalance status}: how it went.
+     * A rebalance is never started without {@code --yes}, because it moves running queries.
+     */
+    private int lanes(Args args, List<String> words) {
+        if (words.isEmpty()) {
+            JsonNode summary = send(args, "GET", "/lanes", null);
+            out.println("mode " + summary.path("mode").asText()
+                    + (summary.path("autoFrom").isNull()
+                            ? ""
+                            : ", a lane each until " + summary.path("autoFrom").asInt())
+                    + ", at most " + summary.path("maxQueriesPerLane").asInt() + " per shared lane; "
+                    + summary.path("hosted").asInt() + " hosted, "
+                    + summary.path("ownLaneQueries").asInt()
+                    + " on lanes of their own ("
+                    + summary.path("dedicatedQueries").asInt() + " dedicated)");
+            table(send(args, "GET", "/queries", null), "name", "state", "lane", "sharedLane");
+            return 0;
+        }
+        if (!words.get(0).equals("rebalance")) {
+            throw new Args.UsageException("usage: pravaha lanes [rebalance [status] [--yes]]");
+        }
+        JsonNode plan;
+        if (words.size() > 1 && words.get(1).equals("status")) {
+            plan = send(args, "GET", "/lanes/rebalance", null);
+        } else if (args.has("yes")) {
+            plan = send(args, "POST", "/lanes/rebalance", Map.of());
+        } else {
+            plan = send(args, "POST", "/lanes/rebalance?dryRun=true", Map.of());
+        }
+        out.println("mode " + plan.path("mode").asText() + ", room for "
+                + plan.path("room").asInt() + " more on lanes of their own"
+                + (plan.path("running").asBoolean() ? "; running" : ""));
+        if (plan.path("moves").isEmpty()) {
+            out.println("nothing to move");
+        } else {
+            table(plan.path("moves"), "name", "fromSharedLane", "status", "detail");
+        }
+        if (!args.has("yes") && words.size() == 1 && !plan.path("moves").isEmpty()) {
+            out.println("a plan only: run 'pravaha lanes rebalance --yes' to move these, one at a time");
+        }
+        return 0;
     }
 
     private static List<String> roles(String csv) {

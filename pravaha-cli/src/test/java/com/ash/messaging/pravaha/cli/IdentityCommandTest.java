@@ -52,6 +52,20 @@ class IdentityCommandTest {
                 200,
                 "{\"key\":\"prv_qa_0123456789ab_secret\",\"keyId\":\"0123456789ab\","
                         + "\"expiresAt\":\"2026-12-26T00:00:00Z\"}");
+        answer(
+                "/api/v1/lanes",
+                200,
+                "{\"mode\":\"auto\",\"autoFrom\":64,\"maxQueriesPerLane\":300,\"sharedLanes\":[],"
+                        + "\"ownLaneQueries\":2,\"dedicatedQueries\":1,\"hosted\":3}");
+        answer(
+                "/api/v1/queries",
+                200,
+                "[{\"name\":\"totals\",\"state\":\"RUNNING\",\"lane\":\"shared\",\"sharedLane\":0}]");
+        answer(
+                "/api/v1/lanes/rebalance",
+                200,
+                "{\"mode\":\"auto\",\"room\":1,\"running\":false,\"moves\":[{\"name\":\"totals\","
+                        + "\"fromSharedLane\":0,\"status\":\"planned\",\"detail\":\"\"}]}");
         answer("/api/v1/sessions", 401, "{\"code\":\"PRV-7001\",\"message\":\"the credential was rejected\"}");
         server.start();
     }
@@ -107,5 +121,19 @@ class IdentityCommandTest {
     void aRefusalPrintsTheEnginesCodeAndExitsOne() {
         assertThat(run("session", "list", "--token", "bad")).isEqualTo(1);
         assertThat(err.toString()).contains("PRV-7001").contains("the credential was rejected");
+    }
+
+    @Test
+    void lanesShowWhereEachQueryRunsAndARebalanceIsOnlyAPlanWithoutYes() {
+        assertThat(run("lanes", "--token", "prv_s_abc")).isZero();
+        assertThat(out.toString())
+                .contains("mode auto, a lane each until 64")
+                .contains("(1 dedicated)")
+                .contains("totals")
+                .contains("shared");
+
+        out.reset();
+        assertThat(run("lanes", "rebalance", "--token", "prv_s_abc")).isZero();
+        assertThat(out.toString()).contains("room for 1").contains("planned").contains("--yes");
     }
 }
