@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 from pravaha.cli._common import EXIT_OK, Context, UsageError, csv
 from pravaha.cli._settings import forget_token, save_token, token_file
-from pravaha.rest import ApiError
+from pravaha.errors import PravahaError
 
 
 def _secret(ctx: Context, name: str, prompt: str) -> str:
@@ -88,9 +88,10 @@ def logout(ctx: Context) -> int:
         try:
             ctx.api.logout()
             ended = True
-        except ApiError as exc:
+        except PravahaError as exc:
             # The file goes either way: a token the engine will not end is still not one to keep.
-            problem = f"{exc.engine_code or 'PRV-' + str(exc.code)}  {exc.message}"
+            code = getattr(exc, "engine_code", None) or f"PRV-{exc.code}"
+            problem = f"{code}  {getattr(exc, 'message', None) or exc}"
     removed = forget_token()
     if ctx.out.json_mode:
         ctx.out.json({"sessionEnded": ended, "tokenFileRemoved": removed, "error": problem})

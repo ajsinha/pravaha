@@ -14,7 +14,7 @@ from typing import Any, Optional
 
 import pravaha
 from pravaha.cli._common import EXIT_OK, EXIT_REFUSED, Context, UsageError
-from pravaha.rest import ApiError
+from pravaha.errors import PravahaError
 
 
 def _fields_text(fields: Any) -> str:
@@ -92,8 +92,9 @@ def version(ctx: Context) -> int:
     if not ctx.arg("client"):
         try:
             server = str(ctx.api.status().get("version") or "") or None
-        except ApiError as exc:
-            problem = exc.message
+        except PravahaError as exc:
+            # A version is worth printing even when the node is not: say why, and carry on.
+            problem = str(getattr(exc, "message", "") or exc)
     if ctx.out.json_mode:
         ctx.out.json({"cli": client_version, "server": server, "serverError": problem})
         return EXIT_OK

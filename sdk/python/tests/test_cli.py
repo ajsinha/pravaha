@@ -474,6 +474,15 @@ def test_logout_ends_the_session_and_deletes_the_file(engine, home):
     assert not (home / "token").exists()
 
 
+def test_logout_deletes_the_file_even_when_the_engine_cannot_be_asked(engine, home):
+    save_token("tok-4")
+    code, out, err = run("logout", "--http", engine)  # plaintext, and no --insecure-token
+    assert code == EXIT_OK
+    assert "no session was ended" in out and "PRV-1031" in err
+    assert not (home / "token").exists()
+    assert _Engine.calls == []
+
+
 def test_a_password_is_read_from_stdin_when_asked(engine, home, monkeypatch):
     monkeypatch.setattr("sys.stdin", io.StringIO("from-stdin\n"))
     answer("POST", "/api/v1/auth/login", {"token": "t"})
