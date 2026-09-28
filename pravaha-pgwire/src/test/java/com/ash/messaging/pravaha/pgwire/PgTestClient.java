@@ -166,6 +166,11 @@ final class PgTestClient implements AutoCloseable {
 
     /** Sends a Bind: text-format parameters (a {@code null} element is SQL NULL), text-format results. */
     void bind(String portal, String statement, List<byte[]> parameters) throws IOException {
+        bind(portal, statement, parameters, new short[0]);
+    }
+
+    /** A Bind with these result format codes -- {@code {1}} is what Npgsql sends: every column binary. */
+    void bind(String portal, String statement, List<byte[]> parameters, short[] resultFormats) throws IOException {
         ByteArrayOutputStream body = new ByteArrayOutputStream();
         DataOutputStream data = new DataOutputStream(body);
         cstring(data, portal);
@@ -180,7 +185,10 @@ final class PgTestClient implements AutoCloseable {
                 data.write(value);
             }
         }
-        data.writeShort(0); // 0 result format codes: every column comes back as text
+        data.writeShort(resultFormats.length); // none: every column comes back as text
+        for (short format : resultFormats) {
+            data.writeShort(format);
+        }
         data.flush();
         sendTyped('B', body.toByteArray());
     }

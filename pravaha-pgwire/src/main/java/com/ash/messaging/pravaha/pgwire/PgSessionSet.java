@@ -128,6 +128,19 @@ final class PgSessionSet {
         }
     }
 
+    private static final Pattern DISCARD_ALL = Pattern.compile("^DISCARD\\s+ALL$", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Whether {@code statement} is {@code DISCARD ALL}, which Npgsql's connection pool sends every
+     * time it hands a pooled connection out again -- so every Power BI refresh after the first.
+     * {@code PgWireConnection} honours it (see {@code PgExtendedSession.discardAll}); {@code DISCARD
+     * PLANS}, {@code SEQUENCES} and {@code TEMP} are not sent by any client this gateway serves and
+     * reach the planner as before.
+     */
+    static boolean isDiscardAll(String statement) {
+        return DISCARD_ALL.matcher(statement.strip()).matches();
+    }
+
     /** Whether {@code statement} is a {@code SET} at all -- the gate before {@link #handle}. */
     static boolean isSetStatement(String statement) {
         return SET_STATEMENT.matcher(statement.strip()).matches();

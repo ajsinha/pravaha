@@ -48,12 +48,13 @@
  *   <li><strong>{@code CancelRequest}.</strong> {@code BackendKeyData} is sent because clients
  *       expect it, and a cancel arriving on a second connection is read and ignored. A query is
  *       bounded by the read deadline instead.
- *   <li><strong>Binary parameter and result formats.</strong> {@code Bind} and {@code Describe}
- *       both refuse a request for binary with {@link
- *       com.ash.messaging.pravaha.pgwire.PgWireErrors#UNSUPPORTED_WIRE_FORMAT} -- see {@link
- *       com.ash.messaging.pravaha.pgwire.PgTypes#decodeParameter}, which reads the same primitive
- *       binary encodings {@code encode} could in principle write, kept for a driver that sends one
- *       anyway rather than as a promise this server requests binary of anyone.
+ *   <li><strong>Binary parameters beyond the primitives.</strong> A binary {@code Bind} parameter
+ *       is decoded for the fixed-width types and text only ({@link
+ *       com.ash.messaging.pravaha.pgwire.PgTypes#decodeParameter}); any other is refused with {@link
+ *       com.ash.messaging.pravaha.pgwire.PgWireErrors#UNSUPPORTED_WIRE_FORMAT}. Binary
+ *       <em>results</em> are served for every type the gateway sends ({@link
+ *       com.ash.messaging.pravaha.pgwire.PgTypes#encodeBinary}), because Npgsql -- the driver inside
+ *       Power BI -- asks for them on every query.
  *   <li><strong>Anything that writes.</strong> Not refused here at all -- it is refused by the
  *       planner, one layer down, so that pgwire and Flight give the same answer.
  * </ul>

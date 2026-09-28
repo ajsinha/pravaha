@@ -35,18 +35,26 @@ final class PgPortal {
     private final PgStatement statement;
     private final BoundParameters parameters;
 
+    /** {@code Bind}'s result format codes, as sent: none (all text), one for all, or one per column. */
+    private final short[] resultFormats;
+
     /** Set on the first {@code Execute}; {@code null} means this portal has not run yet. */
     private ViewQuery.Result result;
 
     private int cursor;
 
-    PgPortal(PgStatement statement, BoundParameters parameters) {
+    PgPortal(PgStatement statement, BoundParameters parameters, short[] resultFormats) {
         this.statement = statement;
         this.parameters = parameters;
+        this.resultFormats = resultFormats.clone();
     }
 
     PgStatement statement() {
         return statement;
+    }
+
+    short[] resultFormats() {
+        return resultFormats.clone();
     }
 
     BoundParameters parameters() {

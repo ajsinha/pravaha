@@ -374,7 +374,7 @@ final class PgWireConnection implements Runnable {
                 continue;
             }
             switch (message.type()) {
-                case 'Q' -> simpleQuery(backend, principal, message.asString());
+                case 'Q' -> simpleQuery(backend, principal, message.asString(), extended);
                 case 'P' -> extended.parse(backend, message);
                 case 'B' -> extended.bind(backend, message);
                 case 'D' -> extended.describe(backend, message);
@@ -404,11 +404,19 @@ final class PgWireConnection implements Runnable {
      * A client that does not get one waits for ever, which is the difference between a query that
      * failed and a session that hung.
      */
-    private void simpleQuery(PgBackend backend, Principal principal, String sql) throws IOException {
+    private void simpleQuery(PgBackend backend, Principal principal, String sql, PgExtendedSession extended)
+            throws IOException {
         try {
             String statement = SimpleQueryText.singleStatement(sql);
             if (statement.isEmpty()) {
                 backend.emptyQueryResponse();
+                return;
+            }
+            if (PgSessionSet.isDiscardAll(statement)) {
+                // Npgsql's pool resets every reused connection with this. Honoured, not ignored: the
+                // only session state this server keeps is named statements and portals, and they go.
+                extended.discardAll();
+                backend.commandComplete("DISCARD ALL");
                 return;
             }
             if (PgSessionSet.isSetStatement(statement)) {
@@ -424,8 +432,16 @@ final class PgWireConnection implements Runnable {
             // principalOf(context))`, so the policy that decides what this principal may read, the
             // row filter that gets ANDed into the plan, and the audit event that records the
             // decision are all the same ones -- not a pgwire copy of them.
-            ViewQuery.Result result =
-                    catalog.tryAnswer(statement, principal).orElseGet(() -> queries.execute(statement, principal));
+            //
+            // A trailing top-level LIMIT n (Power BI's DirectQuery sentinel) is taken off before the
+            // view query and applied to its answer, and a `public.` schema qualifier is dropped: see
+            // PgTrailingLimit and PgPublicSchema for why each is exact.
+            ViewQuery.Result result = catalog.tryAnswer(statement, principal).orElseGet(() -> {
+                java.util.Optional<PgTrailingLimit.Split> limited = PgTrailingLimit.split(statement);
+                String unlimited = limited.map(PgTrailingLimit.Split::sql).orElse(statement);
+                long limit = limited.map(PgTrailingLimit.Split::limit).orElse(PgTrailingLimit.NONE);
+                return PgTrailingLimit.apply(queries.execute(PgPublicSchema.unqualify(unlimited), principal), limit);
+            });
 
             // RowDescription first, and it is built whole before a byte is written: PgBackend
             // buffers a message body before framing it, so a column whose type this gateway refuses

@@ -168,9 +168,8 @@ final class PgTypes {
     /**
      * One value in PostgreSQL's text format, or {@code null} for SQL NULL.
      *
-     * <p>Text rather than binary for slice 1. Binary saves a parse at the far end and is worth
-     * having later; it is an optimisation, and getting the text form exactly right first is what
-     * makes the binary form checkable against something.
+     * <p>Text is the default, and what psql and pgjdbc ask for. {@link #encodeBinary} is the other
+     * format, for the clients -- Npgsql, so Power BI -- that ask for binary.
      *
      * <p>{@code null} here means NULL and is written as a {@code -1} length in {@code DataRow},
      * which is the protocol's own distinction between "absent" and "empty string". They are
@@ -274,6 +273,121 @@ final class PgTypes {
             text.append('.').append(fraction, 0, end);
         }
         return text.append("+00").toString();
+    }
+
+    // -------------------------------------------------------------------------------------
+    // Binary results: what Npgsql -- and so Power BI -- asks for by default.
+
+    /**
+     * One value in PostgreSQL's <em>binary</em> format, or {@code null} for SQL NULL.
+     *
+     * <p>Npgsql, the driver inside Power BI's PostgreSQL connector, asks for binary results for
+     * every column of every ordinary query ({@code Bind} with the single result format code 1), and
+     * never offers text instead; a gateway that refused binary was a gateway Power BI could not read.
+     * These are the formats PostgreSQL's own {@code *send} functions write, one per type this gateway
+     * puts on the wire at all -- the same set {@link #oidOf} admits, and nothing it refuses.
+     *
+     * <p><strong>{@code timestamptz} is microseconds here, and that is the one lossy step.</strong>
+     * The binary format is a 64-bit count of microseconds since 2000-01-01 and has no room for the
+     * nanoseconds the engine holds (ADR-012); a value with sub-microsecond digits is truncated toward
+     * the past, exactly as {@code floor} would, never rounded up into the next microsecond. A client
+     * that needs the nanoseconds reads the text format, where {@link #timestampText} keeps all nine
+     * digits. PostgreSQL itself has no finer resolution, so no PostgreSQL client that asked for
+     * binary expected more.
+     */
+    static byte[] encodeBinary(TypeName typeName, Object value) {
+        if (value == null) {
+            return null;
+        }
+        return switch (typeName) {
+            case BOOLEAN -> new byte[] {(byte) (((Boolean) value) ? 1 : 0)};
+            case INT8, INT16 -> bigEndian(((Number) value).longValue(), 2);
+            case INT32 -> bigEndian(((Number) value).longValue(), 4);
+            case INT64 -> bigEndian(((Number) value).longValue(), 8);
+            case FLOAT32 -> bigEndian(Float.floatToIntBits(((Number) value).floatValue()), 4);
+            case FLOAT64 -> bigEndian(Double.doubleToLongBits(((Number) value).doubleValue()), 8);
+            case DECIMAL -> numericBinary((BigDecimal) value);
+            case STRING -> value.toString().getBytes(StandardCharsets.UTF_8);
+            case DATE -> bigEndian(((Number) value).longValue() - POSTGRES_EPOCH_DAYS, 4);
+            case TIMESTAMP_LTZ ->
+                bigEndian(
+                        Math.floorDiv(((Number) value).longValue(), 1_000L) - POSTGRES_EPOCH_DAYS * MICROS_PER_DAY, 8);
+            default ->
+                throw new PravahaException(
+                        PgWireErrors.UNSUPPORTED_TYPE,
+                        typeName + " has no PostgreSQL binary encoding in this gateway.");
+        };
+    }
+
+    private static byte[] bigEndian(long value, int width) {
+        byte[] bytes = new byte[width];
+        for (int i = width - 1; i >= 0; i--) {
+            bytes[i] = (byte) value;
+            value >>= 8;
+        }
+        return bytes;
+    }
+
+    private static final short NUMERIC_POSITIVE = 0x0000;
+    private static final short NUMERIC_NEGATIVE = 0x4000;
+
+    /**
+     * PostgreSQL's binary {@code numeric}: {@code ndigits}, {@code weight}, {@code sign}, {@code
+     * dscale}, then {@code ndigits} base-10000 digits, most significant first. {@code weight} is the
+     * power of 10000 of the first digit; {@code dscale} is the number of decimal digits after the
+     * point, which is what keeps {@code 1200.00} from arriving as {@code 1200}. Exact by
+     * construction: the digits are cut from the plain decimal string, never computed in floating
+     * point.
+     */
+    static byte[] numericBinary(BigDecimal value) {
+        BigDecimal normalized = value.scale() < 0 ? value.setScale(0) : value;
+        int dscale = normalized.scale();
+        String plain = normalized.abs().toPlainString();
+        int point = plain.indexOf('.');
+        String integerPart = point < 0 ? plain : plain.substring(0, point);
+        String fractionPart = point < 0 ? "" : plain.substring(point + 1);
+
+        // Left-pad the integer part and right-pad the fraction to whole groups of four digits.
+        int integerGroups = (integerPart.length() + 3) / 4;
+        String paddedInteger = "0".repeat(integerGroups * 4 - integerPart.length()) + integerPart;
+        int fractionGroups = (fractionPart.length() + 3) / 4;
+        String paddedFraction = fractionPart + "0".repeat(fractionGroups * 4 - fractionPart.length());
+        String all = paddedInteger + paddedFraction;
+
+        int[] groups = new int[integerGroups + fractionGroups];
+        for (int i = 0; i < groups.length; i++) {
+            groups[i] = Integer.parseInt(all.substring(i * 4, i * 4 + 4));
+        }
+        int weight = integerGroups - 1;
+        int first = 0;
+        while (first < groups.length && groups[first] == 0) {
+            first++;
+            weight--;
+        }
+        int last = groups.length;
+        while (last > first && groups[last - 1] == 0) {
+            last--;
+        }
+        int ndigits = last - first;
+        if (ndigits == 0) {
+            weight = 0; // zero: no digits at all, which is how PostgreSQL itself writes it
+        }
+        short sign = normalized.signum() < 0 ? NUMERIC_NEGATIVE : NUMERIC_POSITIVE;
+
+        byte[] bytes = new byte[8 + 2 * ndigits];
+        writeShort(bytes, 0, ndigits);
+        writeShort(bytes, 2, weight);
+        writeShort(bytes, 4, sign);
+        writeShort(bytes, 6, dscale);
+        for (int i = 0; i < ndigits; i++) {
+            writeShort(bytes, 8 + 2 * i, groups[first + i]);
+        }
+        return bytes;
+    }
+
+    private static void writeShort(byte[] bytes, int at, int value) {
+        bytes[at] = (byte) (value >> 8);
+        bytes[at + 1] = (byte) value;
     }
 
     // -------------------------------------------------------------------------------------

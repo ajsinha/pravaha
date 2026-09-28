@@ -105,11 +105,11 @@ public final class PgWireErrors {
     /**
      * A {@code Bind} parameter, or a requested result column, in binary format.
      *
-     * <p>{@code PgBackend} is text-format only (see its own documentation): every {@code DataRow}
-     * this server has ever sent is text, and {@link PgTypes#decodeParameter} is written to the same
-     * rule for the read direction. A driver that asks for binary is refused by name rather than
-     * handed bytes decoded as though they were text, which is how a number becomes garbage instead
-     * of an error.
+     * <p>A binary {@code Bind} parameter of a type {@link PgTypes#decodeParameter} does not decode
+     * in binary, or a result format code other than text (0) and binary (1). Binary results
+     * themselves are served ({@link PgTypes#encodeBinary}). A value this server cannot decode is
+     * refused by name rather than read as though it were something else, which is how a number
+     * becomes garbage instead of an error.
      */
     public static final ErrorCode UNSUPPORTED_WIRE_FORMAT = new ErrorCode(6209, "PGWIRE_UNSUPPORTED_WIRE_FORMAT");
 
