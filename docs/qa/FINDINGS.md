@@ -7209,7 +7209,7 @@ the lead.
 
 ### ABOUTBASE-1 (LOW) — the /about visual baselines are stale against the current release notes
 
-> **Status:** OPEN — /about renders the newest release-notes entry, and its baselines date from 2026-09-27, so every new Unreleased bullet fails them.
+> **Status:** OPEN — /about renders the newest release-notes entry, and its baselines date from 2026-09-27, so every new Unreleased bullet fails them. The same drift has since reached the tutorials, case-studies, help-topic-page and catalog-error baselines (prose and the catalogue tab changed after they were taken).
 > **Disposition:** POST-GA — retake them, and consider rendering /about from a fixed fixture in the visual suite so release notes stop invalidating it.
 
 ### CONSOLESIZE-1 (LOW) — console/core/services.py is 1,526 lines, over the 1,500-line rule
