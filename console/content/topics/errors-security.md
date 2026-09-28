@@ -179,3 +179,21 @@ because the person using them needs it to act.
 | PRV-7019 | IDENTITY_DEFAULT_ADMIN_PASSWORD | `admin` still has its published default password on a node outside the dev profile, which refuses to start | Change the password, or set `pravaha.identity.allow-default-admin-password` on purpose |
 | PRV-7020 | IDENTITY_INVALID_REQUEST | A user name outside the allowed form, a user that exists, an unknown status, or a key life outside 1 to 365 days | Correct the request |
 | PRV-7021 | IDENTITY_NOT_FOUND | No user, or no session, by that name | Check the name |
+
+## PRV-7030 to PRV-7037 — the catalogue
+
+These come from the Pravaha Catalog (`pravaha.catalog.enabled`, ADR-059), which keeps grants in the
+engine. A read, subscription or registration the catalogue refuses is still `PRV-7002` — the code
+every enforcement point throws — and these are the refusals only the catalogue gives. See
+[Catalog and grants](/help/topics/catalog-and-grants).
+
+| Code | Name | What happened | What to do |
+|---|---|---|---|
+| PRV-7030 | CATALOG_DISABLED | A catalogue statement or `/api/v1/catalog` call on a node whose catalogue is off | Turn the catalogue on, or change access through `pravaha.security.policy` |
+| PRV-7031 | CATALOG_NO_SUCH_OBJECT | No object by that name that you may see; the same answer whether it does not exist or you may not `USE` its namespace | `SHOW NAMESPACES` or `pravaha catalog ls` lists what you may |
+| PRV-7032 | CATALOG_PRIVILEGE_NOT_APPLICABLE | A privilege that means nothing on that kind of object, such as `WRITE` on a view | Use one the message lists |
+| PRV-7033 | CATALOG_MANAGE_REQUIRED | Changing grants, a description or tags needs `MANAGE`; giving an object away needs ownership; a namespace needs `CREATE` on the tenant | Ask the owner or an administrator |
+| PRV-7034 | CATALOG_TWO_AUTHORITIES | The node refuses to start: `pravaha.security.policy` differs from the policy the catalogue imported | Set `pravaha.catalog.authority: catalog`, or restore the setting |
+| PRV-7035 | CATALOG_JOURNAL_FAILED | The catalogue journal cannot be read or written; a change is refused rather than lost | Check `pravaha.catalog.journal`'s permissions and disk |
+| PRV-7036 | CATALOG_OBJECT_EXISTS | `CREATE NAMESPACE` of one that exists | Add `IF NOT EXISTS` |
+| PRV-7037 | CATALOG_INVALID_REQUEST | A bad name, tag or grantee, a grant of `OWN`, or a user the node does not know | Correct the request; ownership moves with `OWNER TO` |

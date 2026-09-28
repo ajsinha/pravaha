@@ -53,6 +53,8 @@ installed `pravaha` if there is one, and otherwise the CLI from `sdk/python` (wi
 | `validate`, `explain` | HTTP | Plan SQL against the node, which knows its own streams |
 | `lanes`, `lanes rebalance` | HTTP | Where every query runs; an administrator's rebalance |
 | `audit`, `tenants`, `permissions` | HTTP | Authorization decisions, quotas, what you may do |
+| `catalog ls`, `search`, `namespaces`, `show`, `create-namespace`, `comment`, `tag`, `move`, `owner` | HTTP | The Pravaha Catalog: namespaces, owners, descriptions, tags (`owner` needs `--yes`) |
+| `grant`, `revoke`, `grants`, `access why` | HTTP | Grants, and why a user may or may not (`revoke` needs `--yes`) |
 | `login`, `logout`, `whoami`, `password`, `user`, `key`, `session` | HTTP | Identity |
 
 `pravaha --help` lists every command; `pravaha <command> --help` prints one command's flags and exits
@@ -532,6 +534,35 @@ principal the policy does not allow gets a 403 refusal (exit `1`), and the attem
 only, unless you may read the audit trail). `permissions` is what the policy lets **you** do: whether
 you may register and read the audit trail, and for each view and stream whether you read it `full`
 or `filtered` and may administer it. See [Audit](/help/topics/audit).
+
+## The Pravaha Catalog and grants
+
+```text
+pravaha catalog ls [--namespace T.NS] [--kind VIEW|STREAM|SINK|NAMESPACE|SOURCE|LOOKUP]
+pravaha catalog search <text>
+pravaha catalog namespaces
+pravaha catalog show <object>
+pravaha catalog create-namespace <name> [--comment TEXT] [--if-not-exists]
+pravaha catalog comment <object> <text>
+pravaha catalog tag <object> key[=value] ... [--unset k1,k2]
+pravaha catalog move <view> --namespace <ns>
+pravaha catalog owner <object> --role R | --user U --yes
+pravaha grant  <privileges> <object> --role R | --user U
+pravaha revoke <privileges> <object> --role R | --user U --yes
+pravaha grants --on <object> | --role R | --user U
+pravaha access why <user> <object>
+```
+
+These need a node with the catalogue on (`pravaha.catalog.enabled`); a node without it answers
+`PRV-7030` (exit `1`). An object is named as you would write it — `revenue`, `sales.revenue`, or in
+full, `acme.sales.revenue`. `<privileges>` is a comma list — `SELECT,SUBSCRIBE` — or `ALL` for every
+one that applies. `ls` and `search` show only what the engine lets you `USE`; a search never shows an
+object you may not see. `show` prints the owner, description, tags, the grants you may see and what
+you may do. `access why ana sales.revenue` prints, privilege by privilege, whether she may and
+through which grant, role, namespace or ownership — for yourself, or for anyone on an object you
+manage (`PRV-7033` otherwise). `revoke` and `catalog owner` take something away from somebody, so
+they print what they would do and change nothing without `--yes`. See
+[Catalog and grants](/help/topics/catalog-and-grants).
 
 ## Identity
 

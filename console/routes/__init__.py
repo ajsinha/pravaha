@@ -11,13 +11,15 @@ from routes.admin_routes import AdminRoutes
 from routes.api_routes import ApiRoutes
 from routes.auth_routes import AuthRoutes
 from routes.base import API, Routes
+from routes.catalog_routes import CatalogRoutes
 from routes.product_routes import ProductRoutes
 from routes.public_routes import PublicRoutes
 from routes.ui_routes import UIRoutes
 
 # Order matters: `/queries/{name}` would swallow a literal path registered after
-# it, so the modules with the more specific paths register first.
-ALL_ROUTES = (AuthRoutes, PublicRoutes, ApiRoutes, ProductRoutes, AdminRoutes, UIRoutes)
+# it, so the modules with the more specific paths register first. CatalogRoutes before
+# ProductRoutes, which reads the governance service it puts in the context.
+ALL_ROUTES = (AuthRoutes, PublicRoutes, ApiRoutes, CatalogRoutes, ProductRoutes, AdminRoutes, UIRoutes)
 
-__all__ = ["ALL_ROUTES", "API", "AdminRoutes", "ApiRoutes", "AuthRoutes", "ProductRoutes", "PublicRoutes", "Routes",
-           "UIRoutes"]
+__all__ = ["ALL_ROUTES", "API", "AdminRoutes", "ApiRoutes", "AuthRoutes", "CatalogRoutes", "ProductRoutes",
+           "PublicRoutes", "Routes", "UIRoutes"]

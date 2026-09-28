@@ -34,10 +34,12 @@ from fastapi.responses import (
 )
 
 from core import authoring
+from core.governance import owner_text, tag_pairs
 from core.services import ServiceError, jsonable
 from core.snippets import SnippetError, snippets
 from routes.auth_routes import current_user, local_path, login_required
 from routes.base import ROLES, Routes, failure, role_of, session_roles, sign_in_first
+from routes.catalog_routes import listing
 
 logger = logging.getLogger(__name__)
 
@@ -113,10 +115,15 @@ class ProductRoutes(Routes):
                              register_refused=services.admin.affordances().register_refused())
 
         @self.app.get("/catalog", response_class=HTMLResponse, tags=["ui"])
-        def catalog(request: Request, tab: str = "streams"):
+        def catalog(request: Request, tab: str = "streams", namespace: str = ""):
+            search = request.query_params.get("q", "")
             if (refusal := login_required(request)) is not None:
                 return refusal
-            tab = tab if tab in {"streams", "queries", "sinks"} else "streams"
+            tab = tab if tab in {"streams", "queries", "sinks", "objects"} else "streams"
+            # ADR-059: namespaces, owners, descriptions and tags, as the engine's catalogue shows
+            # them to this person -- asked for only on the tab that shows them.
+            governed = (listing(self.ctx["governance"], request, search, namespace) if tab == "objects"
+                        else {"objects": [], "namespaces": [], "objects_error": None, "catalog_off": False})
             streams, streams_error = safe(services.catalog.streams, [])
             queries, queries_error = safe(
                 lambda: services.queries.find(limit=services.queries.MAX_LIMIT).items, [])
@@ -128,7 +135,8 @@ class ProductRoutes(Routes):
                              streams=streams, streams_error=streams_error, queries=queries,
                              queries_error=queries_error, siblings=siblings,
                              sinks=sinks, sinks_error=sinks_error,
-                             engine_http=services.engine.http_url)
+                             engine_http=services.engine.http_url, q=search, namespace=namespace,
+                             owner_text=owner_text, tag_pairs=tag_pairs, **governed)
 
         @self.app.get("/catalog/streams/{name}", response_class=HTMLResponse, tags=["ui"])
         def stream_detail(request: Request, name: str):

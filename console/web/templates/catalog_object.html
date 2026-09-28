@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% from "_helpcards.html" import helplink %}
+{% block title %}{{ t('governance.object.title') }} — {{ app_name }}{% endblock %}
+{% block content %}
+{#- ADR-059: one object as the engine's catalogue shows it to this person -- its metadata, the
+    grants on it this person may see (all of them to a manager, their own otherwise), what this
+    person may do, and, asked with ?user=, what someone else may and through which grant. -#}
+<div class="page-head">
+  <div>
+    <div class="accent"></div>
+    <p class="kicker mt-2 mb-1">{{ t('catalog.kicker') }}</p>
+    <h1 class="mono">{{ detail.object.name if detail else t('governance.object.title') }}{{ helplink('catalog-and-grants') }}</h1>
+  </div>
+  <a class="btn btn-sm btn-link" href="/catalog?tab=objects">&larr; {{ t('governance.back') }}</a>
+</div>
+<div class="rule"></div>
+
+{% if catalog_off %}
+<div class="state" id="catalog-off"><h2>{{ t('governance.off.title') }}</h2><p>{{ t('governance.off.body') }} <code>pravaha.catalog.enabled</code> (<a href="/help/codes/PRV-7030">PRV-7030</a>).</p></div>
+{% else %}
+{% set o = detail.object %}
+<div class="row g-3">
+  <div class="col-lg-6"><div class="card h-100"><div class="card-body">
+    <h2 class="h6">{{ t('governance.object.about') }}</h2>
+    <dl class="row small mb-0" id="object-fields">
+      <dt class="col-4">{{ t('governance.col.kind') }}</dt><dd class="col-8"><span class="chip mute">{{ o.kind }}</span></dd>
+      <dt class="col-4">{{ t('governance.col.owner') }}</dt><dd class="col-8 mono">{{ owner_text(o.owner) }}</dd>
+      <dt class="col-4">{{ t('governance.col.description') }}</dt><dd class="col-8">{{ o.description or '—' }}</dd>
+      <dt class="col-4">{{ t('governance.col.tags') }}</dt><dd class="col-8">{% for tag in tag_pairs(o.tags) %}<span class="chip mute me-1">{{ tag }}</span>{% else %}—{% endfor %}</dd>
+      {% if o.engineName %}<dt class="col-4">{{ t('governance.object.engine_name') }}</dt><dd class="col-8 mono">{% if o.kind == 'VIEW' %}<a href="/queries/{{ o.engineName }}">{{ o.engineName }}</a>{% else %}{{ o.engineName }}{% endif %}</dd>{% endif %}
+      <dt class="col-4">{{ t('governance.object.version') }}</dt><dd class="col-8">{{ o.version }}</dd>
+      <dt class="col-4">{{ t('governance.object.created') }}</dt><dd class="col-8">{{ o.createdAt or '—' }} · <span class="mono">{{ o.createdBy or '—' }}</span></dd>
+      <dt class="col-4">{{ t('governance.object.updated') }}</dt><dd class="col-8">{{ o.updatedAt or '—' }} · <span class="mono">{{ o.updatedBy or '—' }}</span></dd>
+    </dl>
+  </div></div></div>
+  <div class="col-lg-6"><div class="card h-100"><div class="card-body">
+    <h2 class="h6">{{ t('governance.object.you_may') }}</h2>
+    {% set mine = (detail.access or {}).get('privileges') or [] %}
+    <ul class="list-unstyled small mb-0" id="my-access">
+      {% for line in mine %}<li>{% if line.allowed %}<span class="chip ok">{{ line.privilege }}</span> <span class="text-muted">{{ line.via|join('; ') }}</span>{% else %}<span class="chip mute">{{ line.privilege }}</span>{% endif %}</li>{% endfor %}
+    </ul>
+  </div></div></div>
+</div>
+
+<div class="card mt-3"><div class="card-body">
+  <div class="d-flex justify-content-between align-items-center">
+    <h2 class="h6 mb-2">{{ t('governance.object.grants') }}</h2>
+    <a class="btn btn-sm btn-link" href="{{ grants_href }}">{{ t('governance.edit_grants') }} &rarr;</a>
+  </div>
+  {% if detail.grants %}
+  <div class="table-responsive"><table class="table table-sm small mb-0" id="object-grants">
+    <caption class="visually-hidden">{{ t('governance.object.grants') }}</caption>
+    <thead><tr><th scope="col">{{ t('governance.col.privilege') }}</th><th scope="col">{{ t('governance.col.to') }}</th><th scope="col">{{ t('governance.col.by') }}</th><th scope="col">{{ t('governance.col.when') }}</th></tr></thead>
+    <tbody>{% for g in detail.grants %}<tr><td><span class="chip mute">{{ g.privilege }}</span></td><td class="mono">{{ g.granteeType }} {{ g.grantee }}</td><td class="mono">{{ g.grantedBy }}</td><td>{{ g.grantedAt }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="small text-muted mb-0">{{ t('governance.object.no_grants') }}</p>{% endif %}
+</div></div>
+
+<div class="card mt-3"><div class="card-body">
+  <h2 class="h6">{{ t('governance.why.title') }}</h2>
+  <form method="get" class="d-flex gap-2 align-items-end" id="why-form">
+    <div><label class="form-label small" for="why-user">{{ t('governance.why.user') }}</label>
+      <input class="form-control form-control-sm mono" id="why-user" name="user" value="{{ asked }}" autocomplete="off" required></div>
+    <button class="btn btn-sm btn-outline-secondary" type="submit">{{ t('governance.why.ask') }}</button>
+  </form>
+  {% if why_error %}<p class="small text-danger mt-2" id="why-error" role="alert">{{ why_error }}</p>{% endif %}
+  {% if why %}
+  <div class="table-responsive mt-2"><table class="table table-sm small mb-0" id="why-table">
+    <caption class="visually-hidden">{{ t('governance.why.title') }}</caption>
+    <thead><tr><th scope="col">{{ t('governance.col.privilege') }}</th><th scope="col">{{ t('governance.why.allowed') }}</th><th scope="col">{{ t('governance.why.because') }}</th></tr></thead>
+    <tbody>{% for line in why.privileges or [] %}<tr><td>{{ line.privilege }}</td>
+      <td>{% if line.allowed %}<span class="chip ok">{{ t('governance.why.yes') }}</span>{% else %}<span class="chip bad">{{ t('governance.why.no') }}</span>{% endif %}</td>
+      <td>{{ line.via|join('; ') if line.allowed else line.refusal }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+</div></div>
+{% endif %}
+{% endblock %}

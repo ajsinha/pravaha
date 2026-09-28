@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% from "_admin_head.html" import admin_head with context %}
+{% import "_states.html" as states %}
+{% import "_people.html" as people %}
+{% block title %}{{ t('governance.grants.title') }} — {{ app_name }}{% endblock %}
+{% block content %}
+{#- ADR-059: the grants editor. Every form posts to the console, which asks the engine as the
+    signed-in person; the engine decides (MANAGE on the object, CREATE on the tenant), and a
+    refusal comes back as the flash with its code. Nothing here is a rule of the console's. -#}
+{{ admin_head('grants', t('governance.grants.heading')) }}
+<p class="lede">{{ t('governance.grants.lede') }}</p>
+
+{{ people.flashes(flashes) }}
+
+{% if catalog_off %}
+<div class="state" id="catalog-off"><h2>{{ t('governance.off.title') }}</h2><p>{{ t('governance.off.body') }} <code>pravaha.catalog.enabled</code> (<a href="/help/codes/PRV-7030">PRV-7030</a>).</p></div>
+{% else %}
+{% if grants_error %}
+{{ states.error(grants_error, retry_href='/admin/grants', id='grants-error', title=t('governance.error')) }}
+{% endif %}
+
+<form method="get" action="/admin/grants" class="d-flex gap-2 align-items-end mb-3" id="grants-object-form">
+  <div><label class="form-label small" for="grants-object">{{ t('governance.grants.object') }}</label>
+    <input class="form-control form-control-sm mono" id="grants-object" name="object" value="{{ chosen }}" list="grants-namespaces" autocomplete="off" aria-describedby="grants-object-note">
+    <datalist id="grants-namespaces">{% for n in namespaces %}<option value="{{ n.name }}">{% endfor %}</datalist>
+    <div class="form-text small" id="grants-object-note">{{ t('governance.grants.object_note') }}</div></div>
+  <button class="btn btn-sm btn-outline-secondary" type="submit">{{ t('governance.grants.open') }}</button>
+</form>
+
+{% if detail %}
+{% set o = detail.object %}
+<div class="card mb-3"><div class="card-body">
+  <h2 class="h6"><a class="mono" href="/catalog/objects/{{ o.name|urlencode }}">{{ o.name }}</a> <span class="chip mute">{{ o.kind }}</span> <span class="small text-muted">{{ t('governance.col.owner') }} <span class="mono">{{ owner_text(o.owner) }}</span></span></h2>
+  {% if grants %}
+  <div class="table-responsive"><table class="table table-sm small mb-2" id="grants-table">
+    <caption class="visually-hidden">{{ t('governance.object.grants') }}</caption>
+    <thead><tr><th scope="col">{{ t('governance.col.privilege') }}</th><th scope="col">{{ t('governance.col.to') }}</th><th scope="col">{{ t('governance.col.by') }}</th><th scope="col">{{ t('people.col.actions') }}</th></tr></thead>
+    <tbody>{% for g in grants %}<tr data-grant="{{ g.privilege }}:{{ g.granteeType }}:{{ g.grantee }}">
+      <td><span class="chip mute">{{ g.privilege }}</span></td><td class="mono">{{ g.granteeType }} {{ g.grantee }}</td><td class="mono">{{ g.grantedBy }}</td>
+      <td><form method="post" action="/admin/grants/revoke" class="m-0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="object" value="{{ o.name }}">
+        <input type="hidden" name="privilege" value="{{ g.privilege }}">
+        <input type="hidden" name="grantee_type" value="{{ g.granteeType }}">
+        <input type="hidden" name="grantee" value="{{ g.grantee }}">
+        <button class="btn btn-sm btn-outline-danger" type="submit" aria-label="{{ t('governance.grants.revoke_label', privilege=g.privilege, grantee=g.grantee) }}">{{ t('governance.grants.revoke') }}</button>
+      </form></td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="small text-muted">{{ t('governance.object.no_grants') }}</p>{% endif %}
+
+  <form method="post" action="/admin/grants" class="border-top pt-2" id="grant-form" aria-labelledby="grant-form-title">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="object" value="{{ o.name }}">
+    <h3 class="h6" id="grant-form-title">{{ t('governance.grants.add') }}</h3>
+    <fieldset class="d-flex flex-wrap gap-3 mb-2"><legend class="visually-hidden">{{ t('governance.grants.privileges') }}</legend>
+      {% for p in privileges %}<div class="form-check form-check-inline small m-0">
+        <input class="form-check-input" type="checkbox" name="privileges" value="{{ p }}" id="priv-{{ p }}">
+        <label class="form-check-label mono" for="priv-{{ p }}">{{ p }}</label></div>{% endfor %}
+    </fieldset>
+    <div class="d-flex flex-wrap gap-2 align-items-end">
+      <div><label class="form-label small" for="grantee-type">{{ t('governance.grants.to') }}</label>
+        <select class="form-select form-select-sm" id="grantee-type" name="grantee_type"><option value="ROLE">{{ t('governance.grants.role') }}</option><option value="USER">{{ t('governance.grants.user') }}</option></select></div>
+      <div><label class="form-label small" for="grantee">{{ t('governance.grants.grantee') }}</label>
+        <input class="form-control form-control-sm mono" id="grantee" name="grantee" required autocomplete="off"></div>
+      <button class="btn btn-sm btn-primary" type="submit">{{ t('governance.grants.grant') }}</button>
+    </div>
+  </form>
+
+  <form method="post" action="/admin/grants/describe" class="border-top pt-2 mt-3" id="describe-form" aria-labelledby="describe-form-title">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="object" value="{{ o.name }}">
+    <h3 class="h6" id="describe-form-title">{{ t('governance.grants.describe') }}</h3>
+    <div class="row g-2 align-items-end">
+      <div class="col-md-6"><label class="form-label small" for="describe-text">{{ t('governance.col.description') }}</label>
+        <input class="form-control form-control-sm" id="describe-text" name="description" value="{{ o.description }}" autocomplete="off"></div>
+      <div class="col-md-3"><label class="form-label small" for="describe-tags">{{ t('governance.grants.set_tags') }}</label>
+        <input class="form-control form-control-sm mono" id="describe-tags" name="tags" value="{{ tag_pairs(o.tags)|join(', ') }}" autocomplete="off"></div>
+      <div class="col-md-3"><label class="form-label small" for="describe-unset">{{ t('governance.grants.unset_tags') }}</label>
+        <input class="form-control form-control-sm mono" id="describe-unset" name="unset" autocomplete="off"></div>
+    </div>
+    <button class="btn btn-sm btn-outline-secondary mt-2" type="submit">{{ t('governance.grants.save') }}</button>
+  </form>
+</div></div>
+{% endif %}
+
+<form method="post" action="/admin/namespaces" class="card" id="namespace-form" aria-labelledby="namespace-form-title"><div class="card-body">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <h2 class="h6" id="namespace-form-title">{{ t('governance.grants.new_namespace') }}</h2>
+  <div class="d-flex flex-wrap gap-2 align-items-end">
+    <div><label class="form-label small" for="ns-name">{{ t('governance.namespace') }}</label>
+      <input class="form-control form-control-sm mono" id="ns-name" name="name" required autocomplete="off"></div>
+    <div class="flex-grow-1"><label class="form-label small" for="ns-description">{{ t('governance.col.description') }}</label>
+      <input class="form-control form-control-sm" id="ns-description" name="description" autocomplete="off"></div>
+    <button class="btn btn-sm btn-primary" type="submit">{{ t('governance.grants.create_namespace') }}</button>
+  </div>
+</div></form>
+{% endif %}
+{% endblock %}

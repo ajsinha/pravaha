@@ -211,7 +211,7 @@ SCREEN_HELP: dict[str, list[str]] = {
     "overview": ["console-tour", "query-lifecycle", "metrics-alerts"],
     "workbench": ["sql-reference", "create-continuous-query", "sql-refusals", "compare-versions",
                   "reading-a-plan"],
-    "catalog": ["streams", "sources-overview", "sinks-overview"],
+    "catalog": ["streams", "sources-overview", "sinks-overview", "catalog-and-grants"],
     "stream": ["streams", "event-time-watermarks", "sources-overview"],
     "views": ["views-and-keys", "point-reads", "client-snippets"],
     "view": ["point-reads", "client-snippets", "pgwire"],
@@ -228,7 +228,7 @@ SCREEN_HELP: dict[str, list[str]] = {
               "errors-registry"],
     "dead-letters": ["dead-letters", "source-filesystem", "metrics-alerts"],
     "plugins": ["sources-overview", "sinks-overview", "connector-security"],
-    "admin": ["authorization", "audit", "authentication"],
+    "admin": ["authorization", "audit", "authentication", "catalog-and-grants"],
 }
 
 #: Each PRV range and the errors topic that explains it (the /help/codes browser and each
