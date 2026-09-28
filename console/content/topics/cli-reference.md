@@ -4,7 +4,7 @@ slug: cli-reference
 category: reference
 order: 50
 icon: terminal
-summary: "Every pravaha command and flag — query, register, subscribe, lifecycle, blue/green, dead letters, the debugger, status, lanes, audit, identity and the assistant — with output, --json, exit codes and the refusals it prints; and pravaha-engine for SQL with no server."
+summary: "Every pravaha command and flag — query, register, subscribe, lifecycle, blue/green, dead letters, the debugger, status, lanes, audit, identity and the assistant — with output, --json, exit codes and its refusals; and pravaha-engine for SQL with no server."
 badge: REFERENCE
 audience: Developers
 keywords: [cli, pravaha, pravaha-engine, command line, query, register, queries, subscribe, pause, resume, drop, replace, cutover, rollback, dlq, debug, status, health, streams, views, describe, plan, lanes, rebalance, audit, tenants, permissions, login, logout, whoami, user, key, session, version, ask, explain-sql, why, assist, "--url", "--http", "--token", "--insecure-token", "--json", "--yes", "--sql-file", "--params", "--filter", "--snapshot", "--reconnect", PRAVAHA_URL, PRAVAHA_HTTP, PRAVAHA_TOKEN, NO_COLOR, exit code]
