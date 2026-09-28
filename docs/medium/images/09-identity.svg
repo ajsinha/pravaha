@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="540" viewBox="0 0 800 540">
+  <title>The engine is the identity authority</title>
+  <style>
+    text { font-family: 'Source Sans 3', 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; fill: #1A1A1A; }
+    .title { font-family: 'Source Serif 4', 'Charis SIL', Georgia, serif; font-size: 23px; font-weight: 700; }
+    .head { font-size: 14.5px; font-weight: 700; }
+    .small { font-size: 12.5px; fill: #4A5058; }
+    .mono { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 12px; fill: #8A1626; }
+    .th { font-size: 12px; font-weight: 700; fill: #8A1626; }
+    .item { font-size: 13px; }
+    .deep { font-size: 13.5px; font-weight: 700; fill: #8A1626; }
+    .strike { font-size: 13px; fill: #61666E; text-decoration: line-through; }
+  </style>
+  <defs>
+    <marker id="aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#A51C30"/></marker>
+  </defs>
+  <rect width="800" height="540" fill="#F7F5F2"/>
+  <text x="40" y="44" class="title">The engine is the identity authority</text>
+
+  <!-- callers -->
+  <rect x="24" y="70" width="196" height="76" rx="8" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="38" y="92" class="head">Console</text>
+  <text x="38" y="112" class="small">signs a person in, calls the</text>
+  <text x="38" y="128" class="small">engine with their session</text>
+  <rect x="24" y="160" width="196" height="76" rx="8" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="38" y="182" class="head">pravaha login</text>
+  <text x="38" y="202" class="small">session token saved in a</text>
+  <text x="38" y="218" class="small">0600 file; never over plaintext</text>
+  <rect x="24" y="250" width="196" height="76" rx="8" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="38" y="272" class="head">A program</text>
+  <text x="38" y="292" class="small">an API key:</text>
+  <text x="38" y="310" class="mono" style="font-size:11px">prv_&lt;env&gt;_&lt;keyid&gt;_&lt;secret&gt;</text>
+
+
+  <!-- engine chain -->
+  <rect x="262" y="70" width="250" height="256" rx="10" fill="#FCF6F7" stroke="#A51C30" stroke-width="1.5"/>
+  <text x="278" y="94" class="deep">inside the engine</text>
+  <rect x="278" y="106" width="218" height="40" rx="6" fill="#F6E8EA"/><text x="290" y="131" class="head">One verifier, every transport</text>
+  <line x1="387" y1="148" x2="387" y2="160" stroke="#A51C30" stroke-width="1.6" marker-end="url(#aa)"/>
+  <rect x="278" y="164" width="218" height="40" rx="6" fill="#FFFFFF" stroke="#E3DED7"/><text x="290" y="189" class="item">Principal: id, tenant, roles</text>
+  <line x1="387" y1="206" x2="387" y2="218" stroke="#A51C30" stroke-width="1.6" marker-end="url(#aa)"/>
+  <rect x="278" y="222" width="218" height="40" rx="6" fill="#FFFFFF" stroke="#E3DED7"/><text x="290" y="247" class="item">Security policy decides</text>
+  <line x1="387" y1="264" x2="387" y2="276" stroke="#A51C30" stroke-width="1.6" marker-end="url(#aa)"/>
+  <rect x="278" y="280" width="218" height="34" rx="6" fill="#FFFFFF" stroke="#E3DED7"/><text x="290" y="302" class="item">Audited: logins, keys, resets</text>
+
+  <line x1="514" y1="198" x2="540" y2="198" stroke="#A51C30" stroke-width="1.8" marker-end="url(#aa)"/>
+
+  <!-- store -->
+  <rect x="546" y="70" width="230" height="256" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="560" y="94" class="head">The identity journal</text>
+  <text x="560" y="112" class="small">append-only, fsync'd; no database</text>
+  <text x="560" y="140" class="th">SECRET</text><text x="672" y="140" class="th">STORED AS</text>
+  <line x1="560" y1="148" x2="762" y2="148" stroke="#E3DED7"/>
+  <text x="560" y="170" class="item">password</text><text x="672" y="170" class="item">Argon2id</text>
+  <text x="560" y="196" class="item">API key secret</text><text x="672" y="196" class="item">the same KDF</text>
+  <text x="560" y="222" class="item">session token</text><text x="672" y="222" class="item">SHA-256</text>
+  <text x="560" y="248" class="item">reset token</text><text x="672" y="248" class="item">SHA-256</text>
+  <text x="560" y="280" class="small">only derived forms: a stolen file</text>
+  <text x="560" y="296" class="small">yields no password and no key</text>
+
+  <!-- policy -->
+  <rect x="24" y="344" width="752" height="176" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="40" y="370" class="head">The rules, the same on every surface</text>
+  <text x="40" y="398" class="item">Passwords</text><text x="160" y="398" class="small">at least 12 characters from 3 of 4 classes; not one of the last 5; 90-day maximum age</text>
+  <text x="40" y="424" class="item">Lockout</text><text x="160" y="424" class="small">5 failed logins inside 15 minutes lock the account for 30 minutes</text>
+  <text x="40" y="450" class="item">API keys</text><text x="160" y="450" class="small">secret shown once; expiry 90 days by default, 365 at most; roles narrow, never widen</text>
+  <text x="40" y="476" class="item">Sessions</text><text x="160" y="476" class="small">30 minutes idle, 12 hours absolute, at most 3 per person</text>
+  <text x="40" y="504" class="item">Not built</text><text x="160" y="504" class="strike">MFA</text><text x="200" y="504" class="strike">single sign-on</text><text x="302" y="504" class="small">dropped by the owner on 2026-09-27</text>
+  <g stroke="#A51C30" stroke-width="1.8" fill="none" marker-end="url(#aa)">
+    <path d="M222,108 C248,108 248,118 276,118"/>
+    <path d="M222,198 C252,198 244,126 276,126"/>
+    <path d="M222,288 C256,288 240,134 276,134"/>
+  </g>
+</svg>

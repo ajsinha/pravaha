@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="520" viewBox="0 0 800 520">
+  <title>Three desks, one Kafka reader</title>
+  <style>
+    text { font-family: 'Source Sans 3', 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; fill: #1A1A1A; }
+    .title { font-family: 'Source Serif 4', 'Charis SIL', Georgia, serif; font-size: 23px; font-weight: 700; }
+    .head { font-size: 14.5px; font-weight: 700; }
+    .small { font-size: 12.5px; fill: #4A5058; }
+    .item { font-size: 13px; }
+    .mono { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 12px; }
+    .monod { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 12.5px; font-weight: 700; fill: #8A1626; }
+    .deep { font-size: 13px; font-weight: 700; fill: #8A1626; }
+    .inv { font-size: 13.5px; font-weight: 700; fill: #FFFFFF; }
+  </style>
+  <defs>
+    <marker id="aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#A51C30"/></marker>
+    <marker id="am" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6B7480"/></marker>
+  </defs>
+  <rect width="800" height="520" fill="#F7F5F2"/>
+  <text x="40" y="44" class="title">Three desks, one topic, one reader</text>
+  <text x="40" y="68" class="small">The payments case study: three queries on one Kafka binding (ADR-054), one of them indexed (ADR-055).</text>
+
+  <!-- topic -->
+  <rect x="24" y="170" width="150" height="96" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="40" y="196" class="head">Kafka topic</text>
+  <text x="40" y="216" class="mono">payments</text>
+  <text x="40" y="240" class="small">one JSON record</text>
+  <text x="40" y="256" class="small">per card payment</text>
+  <line x1="176" y1="218" x2="202" y2="218" stroke="#A51C30" stroke-width="1.8" marker-end="url(#aa)"/>
+
+  <!-- reader -->
+  <rect x="208" y="186" width="120" height="64" rx="32" fill="#A51C30"/>
+  <text x="268" y="214" class="inv" text-anchor="middle">ONE reader</text>
+  <text x="268" y="232" class="inv" text-anchor="middle" style="font-size:12px;font-weight:600">per binding</text>
+
+  <!-- fan-out -->
+  <g stroke="#A51C30" stroke-width="1.8" fill="none" marker-end="url(#aa)">
+    <path d="M330,210 C360,210 350,122 386,122"/>
+    <path d="M330,218 L386,218"/>
+    <path d="M330,226 C360,226 350,314 386,314"/>
+  </g>
+
+  <!-- queries -->
+  <rect x="392" y="86" width="210" height="80" rx="8" fill="#F6E8EA" stroke="#A51C30"/>
+  <text x="406" y="108" class="monod">merchant_minute</text>
+  <text x="406" y="128" class="small">1-minute takings per merchant</text>
+  <text x="406" y="148" class="mono">INDEX (merchant)</text>
+  <rect x="392" y="182" width="210" height="72" rx="8" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="406" y="204" class="monod">declines</text>
+  <text x="406" y="226" class="mono">WHERE status = 'DECLINED'</text>
+  <rect x="392" y="270" width="210" height="88" rx="8" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="406" y="292" class="monod">cross_border</text>
+  <text x="406" y="314" class="mono">WHERE card_country &lt;&gt; 'GB'</text>
+  <text x="406" y="332" class="mono">AND amount_minor &gt;= 50000</text>
+
+  <!-- desks -->
+  <g stroke="#6B7480" stroke-width="1.6" marker-end="url(#am)">
+    <line x1="604" y1="126" x2="630" y2="126"/><line x1="604" y1="218" x2="630" y2="218"/><line x1="604" y1="314" x2="630" y2="314"/>
+  </g>
+  <rect x="636" y="96" width="140" height="60" rx="8" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="650" y="120" class="head">support desk</text>
+  <text x="650" y="140" class="small">"show me m-coffee"</text>
+  <rect x="636" y="188" width="140" height="60" rx="8" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="650" y="212" class="head">risk desk</text>
+  <text x="650" y="232" class="small">each decline</text>
+  <rect x="636" y="284" width="140" height="60" rx="8" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="650" y="308" class="head">cross-border</text>
+  <text x="650" y="328" class="small">large, foreign cards</text>
+
+  <!-- late registration -->
+  <rect x="24" y="300" width="304" height="58" rx="8" fill="#F7F5F2" stroke="#6B7480" stroke-dasharray="5 4"/>
+  <text x="38" y="322" class="small">registered a minute later: a private catch-up</text>
+  <text x="38" y="340" class="small">to exactly the reader's offset, then it attaches</text>
+  <path d="M268,298 L268,254" fill="none" stroke="#6B7480" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#am)"/>
+
+  <!-- answers -->
+  <rect x="24" y="378" width="752" height="126" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="40" y="402" class="head">Answers the build checks</text>
+  <text x="40" y="426" class="small">merchant = 'm-coffee', through the index:</text>
+  <text x="40" y="446" class="mono">14:01 → 1 · 350</text>
+  <text x="40" y="464" class="mono">14:02 → 2 · 10210</text>
+  <text x="40" y="482" class="mono">14:03 → 2 · 7018</text>
+  <text x="300" y="426" class="small">declines by merchant:</text>
+  <text x="300" y="446" class="mono">m-coffee 1 · 4052</text>
+  <text x="300" y="464" class="mono" xml:space="preserve">m-books  1 · 3690</text>
+  <text x="300" y="482" class="mono">m-grocer 1 · 3328</text>
+  <text x="540" y="426" class="small">cross_border holds:</text>
+  <text x="540" y="446" class="mono">p-005 (US)</text>
+  <text x="540" y="464" class="mono">p-011 (FR) · 72000</text>
+  <text x="540" y="482" class="mono">p-016 (DE)</text>
+</svg>

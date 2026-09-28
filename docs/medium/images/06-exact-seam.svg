@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="520" viewBox="0 0 800 520">
+  <title>Meeting a shared reader at an exact seam</title>
+  <style>
+    text { font-family: 'Source Sans 3', 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; fill: #1A1A1A; }
+    .title { font-family: 'Source Serif 4', 'Charis SIL', Georgia, serif; font-size: 23px; font-weight: 700; }
+    .head { font-size: 15px; font-weight: 700; }
+    .small { font-size: 13px; fill: #4A5058; }
+    .mono { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 12.5px; fill: #8A1626; }
+    .inv { font-size: 13px; font-weight: 700; fill: #FFFFFF; }
+    .deep { font-size: 13px; font-weight: 700; fill: #8A1626; }
+  </style>
+  <defs>
+    <marker id="aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#A51C30"/></marker>
+    <marker id="am" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6B7480"/></marker>
+  </defs>
+  <rect width="800" height="520" fill="#F7F5F2"/>
+  <text x="40" y="44" class="title">Many queries, one reader, meeting at an exact seam</text>
+  <text x="40" y="68" class="small">ADR-054: a source whose positions are ordered, and whose reader can stop before a position.</text>
+
+  <rect x="24" y="86" width="752" height="336" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+
+  <!-- position line -->
+  <text x="40" y="146" class="head">positions</text>
+  <text x="40" y="164" class="small">one partition</text>
+  <rect x="190" y="136" width="330" height="14" rx="3" fill="#F6E8EA"/>
+  <line x1="190" y1="150" x2="770" y2="150" stroke="#6B7480" stroke-width="1.8"/>
+  <g stroke="#6B7480" stroke-width="1.2">
+    <line x1="220" y1="145" x2="220" y2="155"/><line x1="250" y1="145" x2="250" y2="155"/><line x1="280" y1="145" x2="280" y2="155"/><line x1="310" y1="145" x2="310" y2="155"/>
+    <line x1="370" y1="145" x2="370" y2="155"/><line x1="400" y1="145" x2="400" y2="155"/><line x1="430" y1="145" x2="430" y2="155"/><line x1="460" y1="145" x2="460" y2="155"/><line x1="490" y1="145" x2="490" y2="155"/>
+    <line x1="550" y1="145" x2="550" y2="155"/><line x1="580" y1="145" x2="580" y2="155"/><line x1="610" y1="145" x2="610" y2="155"/><line x1="640" y1="145" x2="640" y2="155"/><line x1="670" y1="145" x2="670" y2="155"/><line x1="700" y1="145" x2="700" y2="155"/><line x1="730" y1="145" x2="730" y2="155"/>
+  </g>
+  <!-- gap (transaction marker) -->
+  <circle cx="340" cy="150" r="4" fill="#FFFFFF" stroke="#6B7480" stroke-width="1.4"/>
+  <text x="340" y="182" class="small" text-anchor="middle">a gap: a transaction marker</text>
+
+  <!-- shared reader S -->
+  <path d="M510,112 L530,112 L520,128 z" fill="#8A1626"/>
+  <text x="520" y="104" class="deep" text-anchor="middle">shared reader at S</text>
+  <line x1="520" y1="130" x2="520" y2="410" stroke="#8A1626" stroke-width="1.5" stroke-dasharray="6 4"/>
+
+  <!-- waiting position W -->
+  <circle cx="680" cy="150" r="4.5" fill="#6B7480"/>
+  <text x="680" y="182" class="small" text-anchor="middle">W</text>
+
+  <!-- attached -->
+  <rect x="40" y="208" width="130" height="30" rx="6" fill="#A51C30"/>
+  <text x="105" y="228" class="inv" text-anchor="middle">attached</text>
+  <line x1="522" y1="223" x2="600" y2="223" stroke="#A51C30" stroke-width="2" marker-end="url(#aa)"/>
+  <text x="610" y="220" class="small">every record the</text>
+  <text x="610" y="236" class="small">shared reader reads</text>
+
+  <!-- catching up -->
+  <rect x="40" y="272" width="130" height="30" rx="6" fill="#A51C30"/>
+  <text x="105" y="292" class="inv" text-anchor="middle">catching up</text>
+  <circle cx="250" cy="287" r="6" fill="#A51C30"/>
+  <line x1="256" y1="287" x2="515" y2="287" stroke="#A51C30" stroke-width="2" marker-end="url(#aa)"/>
+  <text x="385" y="277" class="mono" text-anchor="middle">private catch-up: pollBefore(S)</text>
+  <text x="250" y="316" class="small">joined behind: attaches when</text>
+  <text x="250" y="332" class="small">its catch-up position equals S</text>
+
+  <!-- waiting -->
+  <rect x="40" y="370" width="130" height="30" rx="6" fill="#6B7480"/>
+  <text x="105" y="390" class="inv" text-anchor="middle">waiting</text>
+  <circle cx="680" cy="385" r="6" fill="#6B7480"/>
+  <line x1="522" y1="385" x2="672" y2="385" stroke="#6B7480" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#am)"/>
+  <text x="598" y="375" class="mono" text-anchor="middle">pollBefore(W)</text>
+  <text x="505" y="382" class="small" text-anchor="end">restored ahead: receives nothing</text>
+  <text x="505" y="398" class="small" text-anchor="end">until the reader lands exactly on W</text>
+
+  <text x="40" y="450" class="head">Each record reaches each query once, in the source's order.</text>
+  <text x="40" y="474" class="small">A catch-up that stops closing on its seam fails the group by name.</text>
+  <text x="40" y="494" class="small">Built for Kafka and for files read once through; CDC keeps a reader per query.</text>
+</svg>

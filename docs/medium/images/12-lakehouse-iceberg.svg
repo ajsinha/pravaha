@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600">
+  <title>A late line corrected in an Iceberg table</title>
+  <style>
+    text { font-family: 'Source Sans 3', 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; fill: #1A1A1A; }
+    .title { font-family: 'Source Serif 4', 'Charis SIL', Georgia, serif; font-size: 23px; font-weight: 700; }
+    .head { font-size: 14.5px; font-weight: 700; }
+    .small { font-size: 12.5px; fill: #4A5058; }
+    .item { font-size: 13px; }
+    .mono { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 12px; }
+    .chip { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 12px; font-weight: 700; fill: #FFFFFF; }
+    .time { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 12px; fill: #4A5058; }
+    .deep { font-size: 13px; font-weight: 700; fill: #8A1626; }
+  </style>
+  <defs>
+    <marker id="aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#A51C30"/></marker>
+    <marker id="ad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8A1626"/></marker>
+  </defs>
+  <rect width="800" height="600" fill="#F7F5F2"/>
+  <text x="40" y="44" class="title">A late line, corrected in an Iceberg table</text>
+  <text x="40" y="68" class="small">The lakehouse case study: iceberg-sink in upsert mode, on iceberg-core rather than Spark.</text>
+
+  <!-- pipeline -->
+  <rect x="24" y="86" width="200" height="96" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="40" y="110" class="head">order_line</text>
+  <text x="40" y="130" class="small">order lines from the web tier</text>
+  <text x="40" y="148" class="small">event time: ordered_at</text>
+  <text x="40" y="166" class="small">allowed lateness: 15 minutes</text>
+  <line x1="226" y1="134" x2="254" y2="134" stroke="#A51C30" stroke-width="1.8" marker-end="url(#aa)"/>
+  <rect x="260" y="86" width="250" height="96" rx="10" fill="#F6E8EA" stroke="#A51C30" stroke-width="1.5"/>
+  <text x="276" y="110" class="head">hourly_revenue</text>
+  <text x="276" y="130" class="small">one-hour tumbling window</text>
+  <text x="276" y="148" class="small">keyed (window_end, region)</text>
+  <text x="276" y="166" class="small">orders, revenue, customers</text>
+  <line x1="512" y1="134" x2="540" y2="134" stroke="#A51C30" stroke-width="1.8" marker-end="url(#aa)"/>
+  <rect x="546" y="86" width="230" height="96" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="562" y="110" class="head">iceberg-sink</text>
+  <text x="562" y="130" class="mono">mode: upsert</text>
+  <text x="562" y="148" class="small">one snapshot per checkpoint,</text>
+  <text x="562" y="166" class="small">exactly once</text>
+
+  <!-- event time -->
+  <rect x="24" y="198" width="752" height="170" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="40" y="222" class="head">Event time</text>
+  <rect x="60" y="283" width="200" height="18" rx="3" fill="#8A1626"/>
+  <text x="112" y="296.5" class="small" text-anchor="middle" style="fill:#FFFFFF;font-weight:600;font-size:12px">11:00–12:00 hour</text>
+  <rect x="260" y="286" width="240" height="12" rx="3" fill="#F6E8EA" stroke="#A51C30" stroke-dasharray="4 3"/>
+  <text x="380" y="278" class="small" text-anchor="middle">allowed lateness: until 12:15</text>
+  <line x1="60" y1="310" x2="760" y2="310" stroke="#6B7480" stroke-width="1.6"/>
+  <g class="time" text-anchor="middle">
+    <text x="180" y="330">11:50</text><text x="260" y="330">12:00</text><text x="420" y="330">12:10</text><text x="500" y="330">12:15</text><text x="580" y="330">12:20</text>
+  </g>
+  <g stroke="#6B7480" stroke-width="1.3">
+    <line x1="180" y1="305" x2="180" y2="315"/><line x1="260" y1="305" x2="260" y2="315"/><line x1="420" y1="305" x2="420" y2="315"/><line x1="500" y1="305" x2="500" y2="315"/><line x1="580" y1="305" x2="580" y2="315"/>
+  </g>
+  <text x="420" y="350" class="small" text-anchor="middle">line read: hour closes</text>
+  <text x="580" y="350" class="small" text-anchor="middle">correction published</text>
+  <path d="M320,240 C220,240 180,250 180,280" fill="none" stroke="#8A1626" stroke-width="1.8" marker-end="url(#ad)"/>
+  <text x="330" y="244" class="deep">a UK line for 11:50 arrives after the 12:10 line</text>
+
+  <!-- snapshots -->
+  <rect x="24" y="384" width="752" height="200" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="40" y="408" class="head">The Iceberg table: one row per region per hour, replaced by key</text>
+  <rect x="40" y="422" width="220" height="112" rx="8" fill="#F1EEE9" stroke="#E3DED7"/>
+  <text x="54" y="444" class="deep">snapshot N</text>
+  <text x="54" y="466" class="small">data file: six rows,</text>
+  <text x="54" y="482" class="small">two per region, including</text>
+  <text x="54" y="504" class="mono">(12:00, UK) 4 · 29970</text>
+
+  <line x1="264" y1="478" x2="290" y2="478" stroke="#6B7480" stroke-width="1.6" marker-end="url(#aa)"/>
+  <rect x="296" y="422" width="236" height="112" rx="8" fill="#F6E8EA" stroke="#A51C30"/>
+  <text x="310" y="444" class="deep">snapshot N+1</text>
+  <text x="310" y="466" class="small">equality delete:</text>
+  <text x="310" y="484" class="mono">(12:00, UK)</text>
+  <text x="310" y="504" class="small">data file:</text>
+  <text x="310" y="522" class="mono">(12:00, UK) 5 · 34170</text>
+
+  <line x1="536" y1="478" x2="562" y2="478" stroke="#6B7480" stroke-width="1.6" marker-end="url(#aa)"/>
+  <rect x="568" y="422" width="192" height="112" rx="8" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="582" y="444" class="deep">Spark or Trino reads</text>
+  <text x="582" y="466" class="mono">(12:00, UK) 5 · 34170</text>
+  <text x="582" y="490" class="small">one row for the hour,</text>
+  <text x="582" y="506" class="small">not two</text>
+  <text x="40" y="560" class="small">The −1/+1 pair for one key collapses to its last change; readers must apply equality deletes.</text>
+</svg>

@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="560" viewBox="0 0 800 560">
+  <title>Lanes: own, shared, or auto</title>
+  <style>
+    text { font-family: 'Source Sans 3', 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; fill: #1A1A1A; }
+    .title { font-family: 'Source Serif 4', 'Charis SIL', Georgia, serif; font-size: 23px; font-weight: 700; }
+    .head { font-size: 15.5px; font-weight: 700; }
+    .sub { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 12.5px; fill: #8A1626; }
+    .small { font-size: 13px; fill: #4A5058; }
+    .chip { font-size: 11.5px; font-weight: 600; fill: #FFFFFF; }
+    .lane { font-size: 12px; fill: #4A5058; }
+    .alert { font-size: 13px; fill: #CC2200; font-weight: 600; }
+    .deep { font-size: 13px; fill: #8A1626; font-weight: 700; }
+  </style>
+  <defs>
+    <marker id="ad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8A1626"/></marker>
+  </defs>
+  <rect width="800" height="560" fill="#F7F5F2"/>
+  <text x="40" y="44" class="title">Lanes: one per query, shared, or auto</text>
+
+  <!-- Panel 1: own -->
+  <rect x="24" y="64" width="240" height="252" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="40" y="90" class="head">A lane per query</text>
+  <text x="40" y="110" class="sub">enabled: false</text>
+  <g>
+    <rect x="40" y="124" width="208" height="26" rx="5" fill="#F6E8EA"/><rect x="46" y="129" width="34" height="16" rx="3" fill="#A51C30"/><text x="63" y="141" class="chip" text-anchor="middle">Q1</text><text x="240" y="141" class="lane" text-anchor="end">own inbox</text>
+    <rect x="40" y="156" width="208" height="26" rx="5" fill="#F6E8EA"/><rect x="46" y="161" width="34" height="16" rx="3" fill="#A51C30"/><text x="63" y="173" class="chip" text-anchor="middle">Q2</text><text x="240" y="173" class="lane" text-anchor="end">own inbox</text>
+    <rect x="40" y="188" width="208" height="26" rx="5" fill="#FBE9E4" stroke="#CC2200"/><rect x="46" y="193" width="34" height="16" rx="3" fill="#CC2200"/><text x="63" y="205" class="chip" text-anchor="middle">Q3</text><text x="240" y="205" class="lane" text-anchor="end" fill="#CC2200">fails alone</text>
+    <rect x="40" y="220" width="208" height="26" rx="5" fill="#F6E8EA"/><rect x="46" y="225" width="34" height="16" rx="3" fill="#A51C30"/><text x="63" y="237" class="chip" text-anchor="middle">Q4</text><text x="240" y="237" class="lane" text-anchor="end">own inbox</text>
+  </g>
+  <text x="40" y="274" class="small">Isolated: a failure costs one query.</text>
+  <text x="40" y="294" class="small">About 1 MiB per idle query.</text>
+
+  <!-- Panel 2: shared -->
+  <rect x="280" y="64" width="240" height="252" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="296" y="90" class="head">Shared lanes</text>
+  <text x="296" y="110" class="sub">enabled: true</text>
+  <g>
+    <rect x="296" y="124" width="208" height="34" rx="5" fill="#F6E8EA"/>
+    <g fill="#A51C30"><rect x="302" y="133" width="16" height="16" rx="3"/><rect x="322" y="133" width="16" height="16" rx="3"/><rect x="342" y="133" width="16" height="16" rx="3"/><rect x="362" y="133" width="16" height="16" rx="3"/><rect x="382" y="133" width="16" height="16" rx="3"/><rect x="402" y="133" width="16" height="16" rx="3"/></g>
+    <text x="496" y="146" class="lane" text-anchor="end">lane 1</text>
+    <rect x="296" y="166" width="208" height="34" rx="5" fill="#FBE9E4" stroke="#CC2200"/>
+    <g fill="#E8957F"><rect x="302" y="175" width="16" height="16" rx="3"/><rect x="342" y="175" width="16" height="16" rx="3"/><rect x="362" y="175" width="16" height="16" rx="3"/><rect x="382" y="175" width="16" height="16" rx="3"/><rect x="402" y="175" width="16" height="16" rx="3"/></g>
+    <rect x="322" y="175" width="16" height="16" rx="3" fill="#CC2200"/>
+    <text x="496" y="188" class="lane" text-anchor="end" fill="#CC2200">lane 2 down</text>
+    <rect x="296" y="208" width="208" height="34" rx="5" fill="#F6E8EA"/>
+    <g fill="#A51C30"><rect x="302" y="217" width="16" height="16" rx="3"/><rect x="322" y="217" width="16" height="16" rx="3"/><rect x="342" y="217" width="16" height="16" rx="3"/><rect x="362" y="217" width="16" height="16" rx="3"/><rect x="382" y="217" width="16" height="16" rx="3"/></g>
+    <text x="496" y="230" class="lane" text-anchor="end">lane 3</text>
+  </g>
+  <text x="296" y="274" class="small">One per core; ≤ 300 queries each.</text>
+  <text x="296" y="294" class="alert">A failure takes its whole lane down.</text>
+
+  <!-- Panel 3: auto -->
+  <rect x="536" y="64" width="240" height="252" rx="10" fill="#FFFFFF" stroke="#A51C30" stroke-width="1.5"/>
+  <text x="552" y="90" class="head">auto (the default)</text>
+  <text x="552" y="110" class="sub">auto-from: 64</text>
+  <g>
+    <rect x="552" y="124" width="208" height="24" rx="5" fill="#F6E8EA"/><rect x="558" y="128" width="34" height="16" rx="3" fill="#A51C30"/><text x="575" y="140" class="chip" text-anchor="middle">Q1</text><text x="752" y="140" class="lane" text-anchor="end">own</text>
+    <text x="566" y="166" class="lane">…</text>
+    <rect x="552" y="174" width="208" height="24" rx="5" fill="#F6E8EA"/><rect x="558" y="178" width="34" height="16" rx="3" fill="#A51C30"/><text x="575" y="190" class="chip" text-anchor="middle">Q64</text><text x="752" y="190" class="lane" text-anchor="end">own</text>
+    <line x1="552" y1="208" x2="760" y2="208" stroke="#8A1626" stroke-dasharray="5 3"/>
+    <rect x="552" y="216" width="208" height="30" rx="5" fill="#F6E8EA"/>
+    <g fill="#A51C30"><rect x="558" y="223" width="16" height="16" rx="3"/><rect x="578" y="223" width="16" height="16" rx="3"/><rect x="598" y="223" width="16" height="16" rx="3"/><rect x="618" y="223" width="16" height="16" rx="3"/></g>
+    <text x="752" y="236" class="lane" text-anchor="end">shared</text>
+  </g>
+  <text x="552" y="274" class="small">Isolation while it is cheap;</text>
+  <text x="552" y="294" class="small">sharing once memory binds.</text>
+
+  <!-- Band: registrations over time -->
+  <rect x="24" y="332" width="752" height="212" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="40" y="358" class="head">A node's registrations, in order, under auto</text>
+  <text x="132" y="446" class="small" text-anchor="middle">queries 1–64 each own a lane</text>
+  <text x="530" y="446" class="small" text-anchor="middle">later ones share the least-loaded lane</text>
+  <g fill="#A51C30">
+    <rect x="40" y="398" width="14" height="14" rx="2"/><rect x="58" y="398" width="14" height="14" rx="2"/><rect x="76" y="398" width="14" height="14" rx="2"/><rect x="94" y="398" width="14" height="14" rx="2"/><rect x="112" y="398" width="14" height="14" rx="2"/><rect x="130" y="398" width="14" height="14" rx="2"/><rect x="148" y="398" width="14" height="14" rx="2"/><rect x="166" y="398" width="14" height="14" rx="2"/><rect x="184" y="398" width="14" height="14" rx="2"/><rect x="202" y="398" width="14" height="14" rx="2"/>
+    <rect x="262" y="398" width="14" height="14" rx="2"/><rect x="280" y="398" width="14" height="14" rx="2"/><rect x="298" y="398" width="14" height="14" rx="2"/>
+  </g>
+  <text x="239" y="410" class="lane" text-anchor="middle">…</text>
+  <line x1="322" y1="388" x2="322" y2="424" stroke="#8A1626" stroke-width="2"/>
+  <text x="322" y="446" class="deep" text-anchor="middle">auto-from = 64</text>
+  <g fill="#D28E98">
+    <rect x="336" y="398" width="14" height="14" rx="2"/><rect x="354" y="398" width="14" height="14" rx="2"/><rect x="372" y="398" width="14" height="14" rx="2"/><rect x="390" y="398" width="14" height="14" rx="2"/><rect x="408" y="398" width="14" height="14" rx="2"/><rect x="426" y="398" width="14" height="14" rx="2"/><rect x="444" y="398" width="14" height="14" rx="2"/><rect x="462" y="398" width="14" height="14" rx="2"/><rect x="480" y="398" width="14" height="14" rx="2"/><rect x="498" y="398" width="14" height="14" rx="2"/><rect x="516" y="398" width="14" height="14" rx="2"/><rect x="534" y="398" width="14" height="14" rx="2"/><rect x="552" y="398" width="14" height="14" rx="2"/><rect x="570" y="398" width="14" height="14" rx="2"/><rect x="588" y="398" width="14" height="14" rx="2"/><rect x="606" y="398" width="14" height="14" rx="2"/><rect x="624" y="398" width="14" height="14" rx="2"/><rect x="642" y="398" width="14" height="14" rx="2"/>
+  </g>
+  <text x="672" y="410" class="lane">…</text>
+  <!-- rebalance -->
+  <path d="M343,394 C343,366 239,366 239,392" fill="none" stroke="#8A1626" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#ad)"/>
+  <line x1="40" y1="493" x2="70" y2="493" stroke="#8A1626" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#ad)"/>
+  <text x="80" y="498" class="deep">admin rebalance</text>
+  <text x="40" y="518" class="small">shared → own while drops leave room under 64,</text>
+  <text x="40" y="536" class="small">oldest first, one at a time, by blue/green</text>
+  <!-- dedicated -->
+  <rect x="430" y="462" width="330" height="70" rx="8" fill="#F7F5F2" stroke="#8A1626"/>
+  <rect x="444" y="476" width="14" height="14" rx="2" fill="#8A1626"/>
+  <text x="468" y="488" class="deep">WITH (lane = 'dedicated')</text>
+  <text x="444" y="510" class="small">its own lane in any mode, kept across restarts;</text>
+  <text x="444" y="526" class="small">running queries are never moved automatically</text>
+</svg>

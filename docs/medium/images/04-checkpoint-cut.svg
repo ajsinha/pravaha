@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="520" viewBox="0 0 800 520">
+  <title>A checkpoint is one cut</title>
+  <style>
+    text { font-family: 'Source Sans 3', 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; fill: #1A1A1A; }
+    .title { font-family: 'Source Serif 4', 'Charis SIL', Georgia, serif; font-size: 23px; font-weight: 700; }
+    .head { font-size: 15px; font-weight: 600; }
+    .body { font-size: 14px; }
+    .small { font-size: 13px; fill: #4A5058; }
+    .cut { font-size: 13px; font-weight: 700; fill: #8A1626; }
+    .step { font-size: 12.5px; font-weight: 700; fill: #FFFFFF; }
+    .inv { font-size: 14px; font-weight: 600; fill: #FFFFFF; }
+    .th { font-size: 13px; font-weight: 700; fill: #8A1626; }
+  </style>
+  <defs>
+    <marker id="aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#A51C30"/></marker>
+  </defs>
+  <rect width="800" height="520" fill="#F7F5F2"/>
+  <text x="40" y="44" class="title">A checkpoint is one cut across everything a query reads</text>
+
+  <!-- sources -->
+  <g>
+    <rect x="24" y="78" width="130" height="46" rx="8" fill="#FFFFFF" stroke="#E3DED7"/>
+    <text x="38" y="98" class="head">source A</text><text x="38" y="116" class="small">position a</text>
+    <rect x="24" y="140" width="130" height="46" rx="8" fill="#FFFFFF" stroke="#E3DED7"/>
+    <text x="38" y="160" class="head">source B</text><text x="38" y="178" class="small">position b</text>
+    <rect x="24" y="202" width="130" height="46" rx="8" fill="#FFFFFF" stroke="#E3DED7"/>
+    <text x="38" y="222" class="head">source C</text><text x="38" y="240" class="small">position c</text>
+  </g>
+  <!-- streams: rows before the cut (left of x=262) and after -->
+  <g fill="#6B7480">
+    <rect x="166" y="95" width="11" height="11" rx="2"/><rect x="186" y="95" width="11" height="11" rx="2"/><rect x="206" y="95" width="11" height="11" rx="2"/>
+    <rect x="166" y="157" width="11" height="11" rx="2"/><rect x="186" y="157" width="11" height="11" rx="2"/>
+    <rect x="166" y="219" width="11" height="11" rx="2"/><rect x="186" y="219" width="11" height="11" rx="2"/><rect x="206" y="219" width="11" height="11" rx="2"/><rect x="226" y="219" width="11" height="11" rx="2"/>
+  </g>
+  <g fill="#A51C30">
+    <rect x="284" y="95" width="11" height="11" rx="2"/><rect x="304" y="95" width="11" height="11" rx="2"/>
+    <rect x="284" y="157" width="11" height="11" rx="2"/><rect x="304" y="157" width="11" height="11" rx="2"/>
+    <rect x="284" y="219" width="11" height="11" rx="2"/>
+  </g>
+  <!-- markers -->
+  <g fill="#8A1626">
+    <path d="M262,90 L271,100.5 L262,111 L253,100.5 z"/>
+    <path d="M262,152 L271,162.5 L262,173 L253,162.5 z"/>
+    <path d="M262,214 L271,224.5 L262,235 L253,224.5 z"/>
+  </g>
+  <line x1="262" y1="70" x2="262" y2="262" stroke="#8A1626" stroke-width="1.6" stroke-dasharray="6 4"/>
+  <text x="262" y="280" class="cut" text-anchor="middle">the cut: sources held between rows</text>
+
+  <g stroke="#A51C30" stroke-width="1.6" marker-end="url(#aa)">
+    <line x1="340" y1="100.5" x2="366" y2="100.5"/><line x1="340" y1="162.5" x2="366" y2="162.5"/><line x1="340" y1="224.5" x2="366" y2="224.5"/>
+  </g>
+
+  <!-- lanes -->
+  <rect x="372" y="78" width="170" height="170" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="388" y="102" class="head">Lanes</text>
+  <text x="388" y="126" class="small">each lane stops its</text>
+  <text x="388" y="144" class="small">batch exactly at the</text>
+  <text x="388" y="162" class="small">marker, then snapshots</text>
+  <text x="388" y="180" class="small">its state, commits the</text>
+  <text x="388" y="198" class="small">view and prepares the</text>
+  <text x="388" y="216" class="small">sink's transaction, all</text>
+  <text x="388" y="234" class="small">at one position</text>
+
+  <line x1="546" y1="163" x2="572" y2="163" stroke="#A51C30" stroke-width="1.6" marker-end="url(#aa)"/>
+
+  <!-- checkpoint record -->
+  <rect x="578" y="78" width="198" height="130" rx="10" fill="#F6E8EA" stroke="#A51C30" stroke-width="1.5"/>
+  <text x="594" y="102" class="head">The checkpoint holds</text>
+  <text x="594" y="126" class="small">• offsets a, b, c</text>
+  <text x="594" y="146" class="small">• operator state</text>
+  <text x="594" y="166" class="small">• the served view</text>
+  <text x="594" y="186" class="small">• the sink's prepared txn</text>
+  <line x1="677" y1="210" x2="677" y2="226" stroke="#A51C30" stroke-width="1.6" marker-end="url(#aa)"/>
+  <rect x="578" y="230" width="198" height="40" rx="8" fill="#A51C30"/>
+  <text x="677" y="255" class="inv" text-anchor="middle">durable → commit the sink</text>
+
+  <!-- steps -->
+  <rect x="24" y="300" width="400" height="200" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="42" y="326" class="head">In order</text>
+  <circle cx="52" cy="352" r="10" fill="#A51C30"/><text x="52" y="356.5" class="step" text-anchor="middle">1</text>
+  <text x="72" y="357" class="body">Hold every source between rows.</text>
+  <circle cx="52" cy="386" r="10" fill="#A51C30"/><text x="52" y="390.5" class="step" text-anchor="middle">2</text>
+  <text x="72" y="391" class="body">Read every offset; hand every lane a marker.</text>
+  <circle cx="52" cy="420" r="10" fill="#A51C30"/><text x="52" y="424.5" class="step" text-anchor="middle">3</text>
+  <text x="72" y="425" class="body">Each lane cuts at its marker, not a batch later.</text>
+  <circle cx="52" cy="454" r="10" fill="#A51C30"/><text x="52" y="458.5" class="step" text-anchor="middle">4</text>
+  <text x="72" y="459" class="body">Once durable, commit the transactional sink.</text>
+  <text x="42" y="488" class="small">A cut with rows crossing lanes is refused, not taken.</text>
+
+  <!-- delivery table -->
+  <rect x="440" y="300" width="336" height="200" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="456" y="326" class="head">What a sink receives</text>
+  <text x="456" y="352" class="th">SINK</text><text x="636" y="352" class="th">OUTPUT</text>
+  <line x1="456" y1="360" x2="760" y2="360" stroke="#E3DED7"/>
+  <text x="456" y="382" class="body">transactional</text><text x="636" y="382" class="body" font-weight="600">exactly once</text>
+  <text x="456" y="400" class="small">jdbc · kafka · delta · iceberg</text>
+  <text x="456" y="428" class="body">idempotent upsert</text><text x="636" y="428" class="body" font-weight="600">effectively once</text>
+  <text x="456" y="446" class="small">aerospike-sink</text>
+  <text x="456" y="474" class="body">plain append</text><text x="636" y="474" class="body" font-weight="600">at least once</text>
+  <text x="456" y="492" class="small">filesystem</text>
+</svg>

@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="470" viewBox="0 0 800 470">
+  <title>A late row corrected with weights</title>
+  <style>
+    text { font-family: 'Source Sans 3', 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; fill: #1A1A1A; }
+    .title { font-family: 'Source Serif 4', 'Charis SIL', Georgia, serif; font-size: 23px; font-weight: 700; }
+    .head { font-size: 15px; font-weight: 600; }
+    .body { font-size: 14px; }
+    .small { font-size: 13px; fill: #4A5058; }
+    .mono { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 13px; }
+    .badge { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 13px; font-weight: 700; fill: #FFFFFF; }
+    .ok { font-size: 13.5px; fill: #1B6B3A; font-weight: 600; }
+    .bad { font-size: 13.5px; fill: #CC2200; font-weight: 600; }
+  </style>
+  <defs>
+    <marker id="ai" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6B7480"/></marker>
+  </defs>
+  <rect width="800" height="470" fill="#F7F5F2"/>
+  <text x="40" y="44" class="title">A late row, corrected with weights</text>
+  <text x="40" y="68" class="small">The lakehouse case study: hourly revenue, key (window_end, region), 15 minutes of allowed lateness.</text>
+
+  <!-- Before -->
+  <rect x="24" y="88" width="226" height="132" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="42" y="114" class="head">Before</text>
+  <text x="42" y="134" class="small">the view's row for (12:00, UK)</text>
+  <text x="42" y="164" class="mono" xml:space="preserve">orders        4</text>
+  <text x="42" y="184" class="mono" xml:space="preserve">revenue_minor 29970</text>
+  <text x="42" y="204" class="mono" xml:space="preserve">customers     4</text>
+
+  <line x1="254" y1="154" x2="280" y2="154" stroke="#6B7480" stroke-width="1.6" marker-end="url(#ai)"/>
+
+  <!-- Commit -->
+  <rect x="287" y="88" width="226" height="132" rx="10" fill="#FFFFFF" stroke="#A51C30" stroke-width="1.5"/>
+  <text x="305" y="114" class="head">One commit</text>
+  <text x="305" y="134" class="small">a UK line for 11:50 arrives late</text>
+  <rect x="305" y="150" width="34" height="22" rx="4" fill="#293352"/>
+  <text x="322" y="166" class="badge" text-anchor="middle">−1</text>
+  <text x="348" y="166" class="mono">4 · 29970 · 4</text>
+  <rect x="305" y="182" width="34" height="22" rx="4" fill="#A51C30"/>
+  <text x="322" y="198" class="badge" text-anchor="middle">+1</text>
+  <text x="348" y="198" class="mono">5 · 34170 · 4</text>
+
+  <line x1="517" y1="154" x2="543" y2="154" stroke="#6B7480" stroke-width="1.6" marker-end="url(#ai)"/>
+
+  <!-- After -->
+  <rect x="550" y="88" width="226" height="132" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="568" y="114" class="head">After</text>
+  <text x="568" y="134" class="small">still one row for the hour</text>
+  <text x="568" y="164" class="mono" xml:space="preserve">orders        5</text>
+  <text x="568" y="184" class="mono" xml:space="preserve">revenue_minor 34170</text>
+  <text x="568" y="204" class="mono" xml:space="preserve">customers     4</text>
+
+  <!-- Consumers -->
+  <text x="40" y="262" class="head">Three consumers of the same commit</text>
+
+  <rect x="24" y="278" width="238" height="164" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="42" y="304" class="head">Overwrite by key</text>
+  <text x="42" y="326" class="small">ignore −1, upsert +1</text>
+  <text x="42" y="358" class="mono">(12:00, UK) → 5 · 34170</text>
+  <text x="42" y="394" class="ok">Right: one row for the hour</text>
+  <text x="42" y="416" class="small">what an upsert sink does</text>
+
+  <rect x="281" y="278" width="238" height="164" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="299" y="304" class="head">Apply the weights</text>
+  <text x="299" y="326" class="small">a total kept outside the engine</text>
+  <text x="299" y="358" class="mono">+34170 − 29970 = +4200</text>
+  <text x="299" y="394" class="ok">Right: the late line's amount</text>
+  <text x="299" y="416" class="small">added once, never twice</text>
+
+  <rect x="538" y="278" width="238" height="164" rx="10" fill="#FFFFFF" stroke="#F0B8A8"/>
+  <text x="556" y="304" class="head">Count rows, ignore sign</text>
+  <text x="556" y="326" class="small">treats every row as new</text>
+  <text x="556" y="358" class="mono">29970 + 34170 = 64140</text>
+  <text x="556" y="394" class="bad">Wrong: the hour counted twice</text>
+  <text x="556" y="416" class="small">the drift weights exist to prevent</text>
+</svg>

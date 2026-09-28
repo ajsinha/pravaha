@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="560" viewBox="0 0 800 560">
+  <title>An equality index kept from the row the view held</title>
+  <style>
+    text { font-family: 'Source Sans 3', 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; fill: #1A1A1A; }
+    .title { font-family: 'Source Serif 4', 'Charis SIL', Georgia, serif; font-size: 23px; font-weight: 700; }
+    .head { font-size: 15px; font-weight: 700; }
+    .small { font-size: 13px; fill: #4A5058; }
+    .mono { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 12.5px; }
+    .monob { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 12.5px; font-weight: 700; fill: #8A1626; }
+    .th { font-size: 12px; font-weight: 700; fill: #8A1626; }
+    .deep { font-size: 13px; font-weight: 700; fill: #8A1626; }
+    .inv { font-size: 12.5px; font-weight: 700; fill: #FFFFFF; }
+  </style>
+  <defs>
+    <marker id="aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#A51C30"/></marker>
+    <marker id="am" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6B7480"/></marker>
+  </defs>
+  <rect width="800" height="560" fill="#F7F5F2"/>
+  <text x="40" y="44" class="title">An index that cannot disagree with its view</text>
+  <text x="40" y="68" class="small">INDEX (merchant) on merchant_minute, keyed by (window_end, merchant): from the payments case study.</text>
+
+  <!-- probe -->
+  <rect x="24" y="86" width="752" height="40" rx="8" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="40" y="111" class="mono" xml:space="preserve">SELECT window_end, payments, amount_minor FROM merchant_minute WHERE merchant = 'm-coffee'</text>
+
+  <!-- index -->
+  <rect x="24" y="142" width="300" height="196" rx="10" fill="#FFFFFF" stroke="#A51C30" stroke-width="1.5"/>
+  <text x="40" y="166" class="head">The index: value → keys</text>
+  <rect x="40" y="180" width="268" height="62" rx="6" fill="#F6E8EA"/>
+  <text x="52" y="200" class="monob">m-coffee</text>
+  <text x="52" y="220" class="mono">(14:01) (14:02) (14:03)</text>
+  <text x="52" y="236" class="small">one probe, three keys</text>
+  <rect x="40" y="250" width="268" height="34" rx="6" fill="#F1EEE9"/>
+  <text x="52" y="272" class="mono">m-books  → …</text>
+  <rect x="40" y="290" width="268" height="34" rx="6" fill="#F1EEE9"/>
+  <text x="52" y="312" class="mono">m-grocer → …</text>
+
+  <path d="M328,211 C356,211 352,211 380,211" fill="none" stroke="#A51C30" stroke-width="2" marker-end="url(#aa)"/>
+
+  <!-- view -->
+  <rect x="386" y="142" width="390" height="196" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="402" y="166" class="head">The view's committed rows</text>
+  <text x="402" y="190" class="th">WINDOW_END</text><text x="512" y="190" class="th">MERCHANT</text><text x="614" y="190" class="th">PAYMENTS</text><text x="694" y="190" class="th">AMOUNT</text>
+  <line x1="402" y1="198" x2="760" y2="198" stroke="#E3DED7"/>
+  <rect x="396" y="203" width="370" height="66" rx="4" fill="#F6E8EA"/>
+  <text x="402" y="220" class="mono">14:01</text><text x="512" y="220" class="mono">m-coffee</text><text x="614" y="220" class="mono">1</text><text x="694" y="220" class="mono">350</text>
+  <text x="402" y="241" class="mono">14:02</text><text x="512" y="241" class="mono">m-coffee</text><text x="614" y="241" class="mono">2</text><text x="694" y="241" class="mono">10210</text>
+  <text x="402" y="262" class="mono">14:03</text><text x="512" y="262" class="mono">m-coffee</text><text x="614" y="262" class="mono">2</text><text x="694" y="262" class="mono">7018</text>
+  <text x="402" y="292" class="small">… and the rows of m-books and m-grocer, not read</text>
+  <text x="402" y="322" class="small">The WHERE still runs over what the probe returns.</text>
+
+  <!-- update rule -->
+  <rect x="24" y="354" width="752" height="190" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="40" y="380" class="head">On every commit: remove under the row the view held, then file the new row</text>
+
+  <rect x="40" y="396" width="200" height="62" rx="8" fill="#F1EEE9" stroke="#E3DED7"/>
+  <text x="54" y="418" class="small">the view held</text>
+  <text x="54" y="442" class="mono">u1 · region = eu</text>
+  <line x1="244" y1="427" x2="276" y2="427" stroke="#6B7480" stroke-width="1.6" marker-end="url(#am)"/>
+  <rect x="282" y="396" width="200" height="62" rx="8" fill="#F1EEE9" stroke="#E3DED7"/>
+  <text x="296" y="418" class="small">the commit brings</text>
+  <text x="296" y="442" class="mono">u1 · region = us</text>
+  <line x1="486" y1="427" x2="518" y2="427" stroke="#6B7480" stroke-width="1.6" marker-end="url(#am)"/>
+  <rect x="524" y="396" width="236" height="62" rx="8" fill="#F6E8EA" stroke="#A51C30"/>
+  <text x="538" y="418" class="deep">1. remove u1 from eu</text>
+  <text x="538" y="442" class="deep">2. file u1 under us</text>
+
+  <text x="40" y="486" class="small">The retraction that caused the change is never consulted, so a −1 carrying the wrong value cannot mislead it.</text>
+  <text x="40" y="508" class="small">Refused at registration: FLOAT, DECIMAL, BYTES or the whole key (PRV-2074); INDEX (a, b) (PRV-2070).</text>
+  <text x="40" y="530" class="small">At most four per view, on the heap, one entry per row; journalled, so a restart keeps it.</text>
+</svg>

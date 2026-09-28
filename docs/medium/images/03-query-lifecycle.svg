@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="430" viewBox="0 0 800 430">
+  <title>A continuous query's life</title>
+  <style>
+    text { font-family: 'Source Sans 3', 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; fill: #1A1A1A; }
+    .title { font-family: 'Source Serif 4', 'Charis SIL', Georgia, serif; font-size: 23px; font-weight: 700; }
+    .head { font-size: 15px; font-weight: 600; }
+    .small { font-size: 13px; fill: #4A5058; }
+    .mono { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 12.5px; fill: #8A1626; }
+    .step { font-size: 12.5px; font-weight: 700; fill: #FFFFFF; }
+  </style>
+  <defs>
+    <marker id="aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#A51C30"/></marker>
+    <marker id="am" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6B7480"/></marker>
+  </defs>
+  <rect width="800" height="430" fill="#F7F5F2"/>
+  <text x="40" y="44" class="title">A query's life: plan once, then maintain</text>
+
+  <!-- Row 1 -->
+  <rect x="24" y="68" width="220" height="92" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <circle cx="44" cy="90" r="11" fill="#A51C30"/><text x="44" y="94.5" class="step" text-anchor="middle">1</text>
+  <text x="62" y="95" class="head">Register SQL</text>
+  <text x="40" y="122" class="mono">CREATE CONTINUOUS QUERY</text>
+  <text x="40" y="142" class="mono">name KEYED BY (…) AS …</text>
+
+  <line x1="248" y1="114" x2="284" y2="114" stroke="#A51C30" stroke-width="1.8" marker-end="url(#aa)"/>
+
+  <rect x="290" y="68" width="220" height="92" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <circle cx="310" cy="90" r="11" fill="#A51C30"/><text x="310" y="94.5" class="step" text-anchor="middle">2</text>
+  <text x="328" y="95" class="head">Apache Calcite</text>
+  <text x="306" y="122" class="small">parse · validate · optimise</text>
+  <text x="306" y="142" class="small">a compiler here, not a runtime</text>
+
+  <line x1="514" y1="114" x2="550" y2="114" stroke="#A51C30" stroke-width="1.8" marker-end="url(#aa)"/>
+
+  <rect x="556" y="68" width="220" height="92" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <circle cx="576" cy="90" r="11" fill="#A51C30"/><text x="576" y="94.5" class="step" text-anchor="middle">3</text>
+  <text x="594" y="95" class="head">Plan and fingerprint</text>
+  <text x="572" y="122" class="small">Pravaha's own operator tree</text>
+  <text x="572" y="142" class="small">unbounded state: refused</text>
+
+  <!-- fingerprint branch -->
+  <line x1="700" y1="162" x2="700" y2="178" stroke="#6B7480" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#am)"/>
+  <rect x="628" y="182" width="148" height="60" rx="8" fill="#F7F5F2" stroke="#6B7480" stroke-dasharray="5 4"/>
+  <text x="640" y="202" class="small">same tenant, same</text>
+  <text x="640" y="218" class="small">fingerprint: joins the</text>
+  <text x="640" y="234" class="small">existing computation</text>
+
+  <!-- connector to row 2 -->
+  <path d="M600,162 L600,206 L134,206 L134,254" fill="none" stroke="#A51C30" stroke-width="1.8" marker-end="url(#aa)"/>
+  <text x="367" y="198" class="small" text-anchor="middle">a new computation</text>
+
+  <!-- Row 2 -->
+  <rect x="24" y="260" width="220" height="104" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <circle cx="44" cy="282" r="11" fill="#A51C30"/><text x="44" y="286.5" class="step" text-anchor="middle">4</text>
+  <text x="62" y="287" class="head">Pipeline on a lane</text>
+  <text x="40" y="314" class="small">binary rows, off-heap</text>
+  <text x="40" y="334" class="small">generated (Janino) stage,</text>
+  <text x="40" y="352" class="small">interpreted where it cannot be</text>
+
+  <line x1="248" y1="312" x2="284" y2="312" stroke="#A51C30" stroke-width="1.8" marker-end="url(#aa)"/>
+
+  <rect x="290" y="260" width="220" height="104" rx="10" fill="#F6E8EA" stroke="#A51C30" stroke-width="1.5"/>
+  <circle cx="310" cy="282" r="11" fill="#8A1626"/><text x="310" y="286.5" class="step" text-anchor="middle">5</text>
+  <text x="328" y="287" class="head">Served view</text>
+  <text x="306" y="314" class="small">keyed; committed and pending</text>
+  <text x="306" y="334" class="small">kept apart, so no read sees</text>
+  <text x="306" y="352" class="small">half a batch</text>
+
+  <!-- outputs -->
+  <g stroke="#A51C30" stroke-width="1.6" fill="none" marker-end="url(#aa)">
+    <path d="M514,300 C534,300 530,272 552,272"/>
+    <path d="M514,312 L552,328"/>
+    <path d="M514,324 C534,324 530,384 552,384"/>
+  </g>
+  <rect x="556" y="250" width="220" height="46" rx="8" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="572" y="270" class="head">Read by key or SQL</text>
+  <text x="572" y="288" class="small">Flight SQL · PostgreSQL wire</text>
+  <rect x="556" y="306" width="220" height="46" rx="8" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="572" y="326" class="head">Subscribe</text>
+  <text x="572" y="344" class="small">one weighted batch per commit</text>
+  <rect x="556" y="362" width="220" height="46" rx="8" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="572" y="382" class="head">Sink</text>
+  <text x="572" y="400" class="small">written at each checkpoint</text>
+
+  <text x="24" y="398" class="small">Steps 1–3 happen once, at registration.</text>
+  <text x="24" y="416" class="small">Steps 4–5 run for every row, until the query is dropped.</text>
+</svg>
