@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **440 findings carrying a
-status — 386 FIXED, 40 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 40 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 33 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **443 findings carrying a
+status — 386 FIXED, 43 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 43 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 36 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7204,3 +7204,20 @@ the lead.
 
 > **Status:** OPEN — documented engine behaviour (AVG over integers truncates), but a PostgreSQL client such as Power BI computes averages expecting PostgreSQL's numeric result, so its averages over integer columns are truncated. The power-bi topic says so.
 > **Disposition:** NOTE — a compatibility choice: keep it documented, or return a numeric AVG over the gateway.
+
+## Found building ADR-059 phase 1, the catalogue (2026-09-28), 3 findings
+
+### ABOUTBASE-1 (LOW) — the /about visual baselines are stale against the current release notes
+
+> **Status:** OPEN — /about renders the newest release-notes entry, and its baselines date from 2026-09-27, so every new Unreleased bullet fails them.
+> **Disposition:** POST-GA — retake them, and consider rendering /about from a fixed fixture in the visual suite so release notes stop invalidating it.
+
+### CONSOLESIZE-1 (LOW) — console/core/services.py is 1,526 lines, over the 1,500-line rule
+
+> **Status:** OPEN — the file-size rule is enforced for Java by `SourceFileSizeTest` but not for the console's Python, and `services.py` has passed the limit. New console services go in their own modules (`core/governance.py`).
+> **Disposition:** POST-GA — split `services.py`, and extend the size check to the Python trees.
+
+### RECOVERYOWNER-1 (MEDIUM) — journal recovery may refuse queries owned by identity-store users
+
+> **Status:** OPEN — not reproduced; found by reading. Recovery resolves a registration's owner through the token table only (`principalNamed`), so on a node whose users live in the identity store (ADR-052) a replayed query owned by such a user may be refused.
+> **Disposition:** POST-GA — a restart test on an identity-store node with a user-owned query; resolve owners through the identity store as well.
