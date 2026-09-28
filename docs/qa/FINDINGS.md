@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **433 findings carrying a
-status — 385 FIXED, 34 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 34 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 29 POST-GA and 5 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **437 findings carrying a
+status — 385 FIXED, 38 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 38 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 32 POST-GA and 6 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7166,3 +7166,25 @@ the lead.
 
 > **Status:** FIXED — `SnapshotHandoffProperties` matched none of surefire's default includes (`*Test`, `*Tests`, `Test*`, `*TestCase`), so its 1,000 random schedules ran only when named with `-Dtest`. Renamed `SnapshotHandoffPropertiesTest`; it passes.
 
+
+## Found building ADR-056, queries on queries (2026-09-28), 4 findings
+
+### M2RACE-1 (LOW) — parallel module builds share ~/.m2 and can compile against each other's SNAPSHOT jars
+
+> **Status:** OPEN — two worktrees installing the same SNAPSHOT module replace each other's jar in the shared local repository; a build in one can then compile or test against the other's code. Seen twice while ADR-056 and the quality-gap work ran side by side, and it explains a flaky SDK run during a gate.
+> **Disposition:** NOTE — a working rule rather than a defect in the product: build every changed module in the same `-pl` reactor, or give parallel worktrees their own `-Dmaven.repo.local`.
+
+### KEYEDWT-1 (MEDIUM) — CONCEPTS §4 tells a consumer to sum a keyed view's changelog weights, which drifts on upserts
+
+> **Status:** OPEN — a keyed view's changelog carries only +1 for an upsert that replaces a key's row, so a consumer summing weights counts the key twice while the view shows one row. ADR-056 follows the answer rather than the changelog for exactly this reason; the advice to external consumers is still the old one.
+> **Disposition:** POST-GA — correct the advice (subscribe from a snapshot and upsert by key, or follow the answer), and consider emitting the retraction for a replaced row.
+
+### OPENAPILOCK-1 (LOW) — the OpenAPI lock does not record DTO field names
+
+> **Status:** OPEN — `ApiDtos` says every field appears in `api/openapi.lock.json`, but adding `readsFrom` and `dependants` to the query detail left the lock unchanged and `OpenApiContractTest` passed; a renamed or removed field would pass too.
+> **Disposition:** POST-GA — record each schema's properties in the lock and compare them.
+
+### RESTOREPART-1 (MEDIUM) — a failed restore may leave part of the state behind while it "starts from nothing"
+
+> **Status:** OPEN — not reproduced; found by reading. `QueryCheckpoints.restore` catches a failed restore and starts the query from nothing, but `execution.restore` may already have put back some operators' state before it threw.
+> **Disposition:** POST-GA — a test that fails a restore half-way; then reset the execution's state before starting over, or refuse the query with a named code.
