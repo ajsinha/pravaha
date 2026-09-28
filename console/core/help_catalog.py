@@ -217,6 +217,7 @@ SCREEN_HELP: dict[str, list[str]] = {
     "view": ["point-reads", "client-snippets", "pgwire", "power-bi"],
     "live": ["subscriptions", "zset-weights", "late-data"],
     "operations": ["metrics-alerts", "reading-a-plan", "sizing-lanes", "checkpoints-recovery"],
+    "alerts": ["alerts", "views-and-keys", "errors-registry"],
     "queries": ["query-lifecycle", "sharing", "create-continuous-query"],
     "query": ["query-lifecycle", "sinks-overview", "sharing", "backfill-cutover"],
     # B9. The blue/green screen (design 23.10): what the backfill reads and why there is no

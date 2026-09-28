@@ -22,6 +22,7 @@ import re
 import sys
 import time
 
+from fake_alerts import FakeAlerts
 from fake_catalog import FakeCatalog
 from fake_identity import ADMIN, ADMIN_PASSWORD, FakeIdentity
 
@@ -96,6 +97,8 @@ class FakeEngine:
         #: ADR-059's catalogue: objects, owners, tags and grants; ``governed.on = False`` is a node
         #: whose catalogue is off.
         self.governed = FakeCatalog(self)
+        #: ADR-057's alerts; ``alerting.on = False`` is a node whose alert service is off.
+        self.alerting = FakeAlerts(self)
         #: Calls that fail, and calls that take this many seconds, by method name (``_check``).
         self.failing: dict[str, Exception] = {}
         self.slow: dict[str, float] = {}
@@ -378,6 +381,28 @@ class FakeEngine:
 
     def access(self, user, on):
         return self.governed.access(user, on)
+
+    # ADR-057: the alerts, as core.engine.Engine calls them (fake_alerts keeps the contract)
+    def alerts(self):
+        return self.alerting.list()
+
+    def alert(self, name):
+        return self.alerting.detail(name)
+
+    def alert_channels(self):
+        return self.alerting.channels()
+
+    def pause_alert(self, name):
+        return self.alerting.change(name, "pause")
+
+    def resume_alert(self, name):
+        return self.alerting.change(name, "resume")
+
+    def snooze_alert(self, name, duration):
+        return self.alerting.change(name, "snooze", duration=duration)
+
+    def ack_alert(self, name, key=None):
+        return self.alerting.change(name, "ack", key=key)
 
     # Flight half
     def health(self):

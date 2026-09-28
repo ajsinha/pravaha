@@ -2082,6 +2082,7 @@
       "catalog": "Catalog",
       "views": "Views",
       "operations": "Operations",
+      "alerts": "Alerts",
       "queries": "Queries",
       "start": "Get started",
       "plugins": "Plugins",
@@ -2101,6 +2102,7 @@
       "catalog": "streams, queries, sinks",
       "views": "point queries and client code",
       "operations": "is everything healthy?",
+      "alerts": "what is firing, and who was told",
       "queries": "the full list, filterable",
       "start": "first-run onboarding",
       "plugins": "loaded plugins, health, bindings",
@@ -2694,6 +2696,77 @@
       "save": "Save",
       "new_namespace": "New namespace",
       "create_namespace": "Create namespace"
+    }
+  },
+  "alerts": {
+    "title": "Alerts",
+    "kicker": "Operate",
+    "lede": "An alert watches a continuous query's view: a key fires when its row enters the answer and clears when it leaves. Pausing, snoozing and dedupe change what is said, never what is true.",
+    "what": "alert",
+    "back": "Alerts",
+    "error": "The alerts are not answering",
+    "caption": "Alerts you may see",
+    "firing_total": "{count} firing",
+    "channels": "Notifier channels on this node:",
+    "failed": "The engine refused: {detail}",
+    "paused": "{name} is paused: it keeps following its view and says nothing until resumed.",
+    "resumed": "{name} is resumed; what changed while it was quiet is sent now.",
+    "snoozed": "{name} is snoozed for {duration}; what changes meanwhile is sent when it ends.",
+    "acked": "{name}: {count} firing keys acknowledged; they are not reminded about until they fire again.",
+    "off": {
+      "title": "This engine serves no alerts",
+      "body": "Alerts are served by a node with its alert service on. An administrator turns it on with"
+    },
+    "none": {
+      "title": "No alerts you may see",
+      "body": "Create one with CREATE ALERT <name> ON <view> NOTIFY <channel>, in the workbench or with pravaha alert create."
+    },
+    "chip": {
+      "firing": "{count} firing",
+      "clear": "clear",
+      "pending": "{count} pending"
+    },
+    "col": {
+      "name": "Alert",
+      "view": "View",
+      "keys": "Keys",
+      "state": "State",
+      "severity": "Severity",
+      "channels": "Channels",
+      "delivery": "Delivery",
+      "key": "Key",
+      "since": "Since",
+      "episode": "Episode",
+      "notified": "Last told",
+      "owed": "Owed",
+      "ack": "Acknowledged",
+      "at": "At",
+      "kind": "Kind",
+      "outcome": "Outcome",
+      "detail": "Detail"
+    },
+    "detail": {
+      "about": "About it",
+      "condition": "Condition",
+      "every_row": "every row of the view",
+      "until": "until {at}",
+      "options": "Options",
+      "owner": "Owner",
+      "up_to_date": "every channel is up to date",
+      "actions": "Quiet it, or say you have seen it",
+      "actions_note": "Pause, resume and snooze need MODIFY on the alert, as does acknowledging; the engine decides.",
+      "keys": "Keys",
+      "no_keys": "No key is in the condition, and none has fired.",
+      "history": "Recent notifications",
+      "no_history": "Nothing has been sent yet."
+    },
+    "action": {
+      "pause": "Pause",
+      "resume": "Resume",
+      "snooze": "Snooze",
+      "snooze_for": "For",
+      "ack": "Acknowledge",
+      "ack_all": "Acknowledge every firing key"
     }
   }
 }

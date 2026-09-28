@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% from "_helpcards.html" import helplink %}
+{% import "_states.html" as states %}
+{% import "_people.html" as people %}
+{% block title %}{{ t('alerts.title') }} — {{ app_name }}{% endblock %}
+{% block content %}
+{#- ADR-057: the alerts this person may see, as the engine lists them. An alert fires when a key's
+    row enters its view's answer and clears when it leaves; the chips count the keys firing now. -#}
+<div class="page-head">
+  <div>
+    <div class="accent"></div>
+    <p class="kicker mt-2 mb-1">{{ t('alerts.kicker') }}</p>
+    <h1>{{ t('alerts.title') }}{{ helplink('alerts') }}</h1>
+  </div>
+  {% if not alerts_off and not alerts_error %}<span class="chip {{ 'bad' if firing_total else 'ok' }}" id="firing-total"><span class="dot"></span>{{ t('alerts.firing_total', count=firing_total) }}</span>{% endif %}
+</div>
+<div class="rule"></div>
+<p class="lede">{{ t('alerts.lede') }}</p>
+
+{{ people.flashes(flashes) }}
+
+{% if alerts_off %}
+<div class="state" id="alerts-off"><h2>{{ t('alerts.off.title') }}</h2><p>{{ t('alerts.off.body') }} <code>pravaha.alerts.enabled</code> (<a href="/help/codes/PRV-8047">PRV-8047</a>).</p></div>
+{% elif alerts_error %}
+{{ states.error(alerts_error, retry_href='/alerts', id='alerts-error', title=t('alerts.error')) }}
+{% elif not alerts %}
+{{ states.empty(t('alerts.none.title'), t('alerts.none.body'), id='alerts-empty') }}
+{% else %}
+<div class="table-responsive"><table class="table table-sm align-middle" id="alerts-table">
+  <caption class="visually-hidden">{{ t('alerts.caption') }}</caption>
+  <thead><tr>
+    <th scope="col">{{ t('alerts.col.name') }}</th><th scope="col">{{ t('alerts.col.view') }}</th>
+    <th scope="col">{{ t('alerts.col.keys') }}</th><th scope="col">{{ t('alerts.col.state') }}</th>
+    <th scope="col">{{ t('alerts.col.severity') }}</th><th scope="col">{{ t('alerts.col.channels') }}</th>
+    <th scope="col">{{ t('alerts.col.delivery') }}</th>
+  </tr></thead>
+  <tbody>
+  {% for a in alerts %}
+  <tr data-alert="{{ a.name }}">
+    <td class="mono"><a href="/alerts/{{ a.name|urlencode }}">{{ a.name }}</a></td>
+    <td class="mono"><a href="/queries/{{ a.view|urlencode }}">{{ a.view }}</a>{% if a.condition %}<div class="small text-muted">{{ a.condition }}</div>{% endif %}</td>
+    <td>{% if a.firing %}<span class="chip bad" data-chip="firing">{{ t('alerts.chip.firing', count=a.firing) }}</span>{% else %}<span class="chip ok" data-chip="clear">{{ t('alerts.chip.clear') }}</span>{% endif %}
+        {% if a.pending %}<span class="chip warn" data-chip="pending">{{ t('alerts.chip.pending', count=a.pending) }}</span>{% endif %}</td>
+    <td><span class="chip {{ 'ok' if a.state == 'ACTIVE' else 'mute' }}">{{ a.state }}</span>
+        {% if a.following != 'FOLLOWING' %}<span class="chip warn" title="{{ a.problem or '' }}">{{ a.following }}</span>{% endif %}</td>
+    <td><span class="chip {{ 'bad' if a.severity == 'critical' else ('warn' if a.severity == 'warning' else 'mute') }}">{{ a.severity }}</span></td>
+    <td class="mono small">{{ (a.channels or [])|join(', ') }}</td>
+    <td class="small">{% if a.deliveryError %}<span class="text-danger">{{ a.deliveryError }}</span>{% else %}{{ a.lastNotificationAt or '—' }}{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% endif %}
+
+{% if channels %}
+<p class="small text-muted mt-3" id="alert-channels">{{ t('alerts.channels') }}
+{% for c in channels %}<span class="chip mute me-1">{{ c.name }} · {{ c.plugin }}</span>{% endfor %}</p>
+{% endif %}
+{% endblock %}
