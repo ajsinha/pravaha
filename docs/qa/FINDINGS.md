@@ -7169,7 +7169,7 @@ the lead.
 
 ## Found building ADR-056, queries on queries (2026-09-28), 4 findings
 
-### M2RACE-1 (LOW) — parallel module builds share ~/.m2 and can compile against each other's SNAPSHOT jars
+### MAVENRACE-1 (LOW) — parallel module builds share ~/.m2 and can compile against each other's SNAPSHOT jars
 
 > **Status:** OPEN — two worktrees installing the same SNAPSHOT module replace each other's jar in the shared local repository; a build in one can then compile or test against the other's code. Seen twice while ADR-056 and the quality-gap work ran side by side, and it explains a flaky SDK run during a gate.
 > **Disposition:** NOTE — a working rule rather than a defect in the product: build every changed module in the same `-pl` reactor, or give parallel worktrees their own `-Dmaven.repo.local`.
