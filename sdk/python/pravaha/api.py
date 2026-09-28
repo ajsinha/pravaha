@@ -447,5 +447,121 @@ class EngineApi:
         ``DELETE /api/v1/sessions/{id}``."""
         self._rest.delete("/api/v1/sessions/" + _segment(session_id))
 
+    # ------------------------------------------------------------------ the catalogue (ADR-059)
+
+    def catalog_objects(
+        self,
+        *,
+        namespace: Optional[str] = None,
+        kind: Optional[str] = None,
+        search: Optional[str] = None,
+    ) -> "list[dict[str, Any]]":
+        """The governed objects this principal may see: ``name`` (``tenant.namespace.object``),
+        ``kind``, ``engineName``, ``namespace``, ``owner`` (``type``, ``name``), ``description``,
+        ``tags``, ``version`` and who changed it when. ``search`` matches names, descriptions,
+        owners and tags; a search never shows what the caller may not ``USE``.
+        ``GET /api/v1/catalog/objects``."""
+        query = {
+            key: value
+            for key, value in (("namespace", namespace), ("kind", kind), ("q", search))
+            if value
+        }
+        return _items(self._rest.get("/api/v1/catalog/objects", query or None), "items")
+
+    def catalog_search(self, text: str) -> "list[dict[str, Any]]":
+        """Objects whose name, description, owner or a tag matches ``text``.
+        ``GET /api/v1/catalog/objects?q=``."""
+        return self.catalog_objects(search=text)
+
+    def catalog_object(self, name: str) -> dict[str, Any]:
+        """One object as ``object``, the ``grants`` on it this principal may see, and ``access``
+        -- what this principal may do to it, privilege by privilege. ``name`` is a full name or
+        as typed (``sales.revenue``, ``revenue``). ``GET /api/v1/catalog/objects/{name}``."""
+        return dict(self._rest.get("/api/v1/catalog/objects/" + _segment(name)) or {})
+
+    def catalog_namespaces(self) -> "list[dict[str, Any]]":
+        """The namespaces this principal may use. ``GET /api/v1/catalog/namespaces``."""
+        return _items(self._rest.get("/api/v1/catalog/namespaces"), "items")
+
+    def create_namespace(
+        self, name: str, *, description: str = "", if_not_exists: bool = False
+    ) -> dict[str, Any]:
+        """Creates a namespace, owned by the caller; needs ``CREATE`` on the tenant.
+        ``POST /api/v1/catalog/namespaces``."""
+        body = {"name": name, "description": description, "ifNotExists": if_not_exists}
+        return dict(self._rest.post("/api/v1/catalog/namespaces", body) or {})
+
+    def change_catalog_object(
+        self,
+        name: str,
+        *,
+        description: Optional[str] = None,
+        set_tags: "Optional[dict[str, str]]" = None,
+        unset_tags: Optional[Sequence[str]] = None,
+        owner: "Optional[tuple[str, str]]" = None,
+        namespace: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Changes an object's description or tags (``MANAGE``), its owner (``(type, name)``;
+        ownership), or moves a view into ``namespace``. ``PATCH /api/v1/catalog/objects/{name}``."""
+        body: dict[str, Any] = {}
+        if description is not None:
+            body["description"] = description
+        if set_tags:
+            body["setTags"] = dict(set_tags)
+        if unset_tags:
+            body["unsetTags"] = list(unset_tags)
+        if owner is not None:
+            body["owner"] = {"type": owner[0], "name": owner[1]}
+        if namespace:
+            body["namespace"] = namespace
+        return dict(self._rest.patch("/api/v1/catalog/objects/" + _segment(name), body) or {})
+
+    def grants(
+        self,
+        *,
+        on: Optional[str] = None,
+        grantee_type: Optional[str] = None,
+        grantee: Optional[str] = None,
+    ) -> "list[dict[str, Any]]":
+        """Grants on an object (``on``), or to a role or user: ``object``, ``privilege``,
+        ``granteeType``, ``grantee``, ``grantedBy``, ``grantedAt``. ``GET /api/v1/catalog/grants``."""
+        query: dict[str, Any] = {}
+        if on:
+            query["object"] = on
+        if grantee:
+            query["granteeType"] = grantee_type or "USER"
+            query["grantee"] = grantee
+        return _items(self._rest.get("/api/v1/catalog/grants", query or None), "items")
+
+    def grant(
+        self, on: str, privileges: Sequence[str], grantee_type: str, grantee: str
+    ) -> "list[dict[str, Any]]":
+        """Grants ``privileges`` (``ALL`` or none for every one that applies) on ``on`` to a
+        ``ROLE`` or ``USER``; needs ``MANAGE``. ``POST /api/v1/catalog/grants``."""
+        body = {
+            "object": on,
+            "privileges": list(privileges),
+            "granteeType": grantee_type,
+            "grantee": grantee,
+        }
+        return _items(self._rest.post("/api/v1/catalog/grants", body), "items")
+
+    def revoke(self, on: str, privileges: Sequence[str], grantee_type: str, grantee: str) -> None:
+        """Revokes ``privileges`` on ``on`` from a ``ROLE`` or ``USER``; needs ``MANAGE``.
+        ``DELETE /api/v1/catalog/grants``."""
+        query = {
+            "object": on,
+            "privileges": ",".join(privileges),
+            "granteeType": grantee_type,
+            "grantee": grantee,
+        }
+        self._rest.delete("/api/v1/catalog/grants", query)
+
+    def access(self, user: str, on: str) -> dict[str, Any]:
+        """What ``user`` may do to ``on``, privilege by privilege: ``allowed``, and ``via`` --
+        which grant, through which role, namespace or ownership -- or the ``refusal``. Asked for
+        oneself, or by a manager of the object. ``GET /api/v1/catalog/access``."""
+        return dict(self._rest.get("/api/v1/catalog/access", {"user": user, "object": on}) or {})
+
 
 __all__ = ["EngineApi"]
