@@ -770,6 +770,7 @@ public final class QueryRegistry implements AutoCloseable {
             BoundParameters parameters,
             String sinkName) {
         return EngineSpans.traced("pravaha.query.register", "pravaha.query", name, () -> {
+            tenants.auditTakenName(audit, principal, name, sql); // ADR-060: another tenant's name, said to the audit
             QueryNames.require(name, byName.keySet());
             Preparation prepared =
                     prepare(name, sql, keyColumns, principal, retention, parameters, sinkName, "register");

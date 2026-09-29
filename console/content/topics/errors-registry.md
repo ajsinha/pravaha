@@ -76,6 +76,10 @@ running one and takes the name only at a cutover.
 Registering the *same computation* under a second name is not this — it is sharing: the second name
 points at the running computation and costs nothing (see [Sharing](/help/topics/sharing)).
 
+View names are unique on the node, across tenants, so the name may be taken in a tenant other than
+yours; the refusal is the same either way and does not say whose it is. Dropping or replacing it
+needs its owner, a grant or an admin. Per-tenant names are decided (ADR-060) and not yet built.
+
 ### PRV-8008 — name unusable
 
 The name cannot be used for a view, whatever else is true: a name is written in a `FROM` clause, so it
@@ -398,7 +402,8 @@ were admitted keeps running and is shown over the limit.
 ### PRV-8022 — a replacement from another tenant
 
 Only a principal of the tenant that registered a name can replace it, because the new version is
-charged to that tenant and shared only within it. A 403.
+charged to that tenant and shared only within it. A 403. The refusal does not name the tenant that
+holds it; the audit trail does.
 
 ### PRV-8023 — tenancy configuration
 

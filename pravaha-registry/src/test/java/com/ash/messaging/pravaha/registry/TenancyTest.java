@@ -287,12 +287,42 @@ class TenancyTest {
                         .replace("totals", ROWS, List.of(0, 1), omarAdmin, ReplacementOptions.defaults()))
                 .satisfies(
                         e -> assertThat(((PravahaException) e).errorCode()).isEqualTo(RegistryErrors.TENANT_MISMATCH))
-                .hasMessageContaining("belongs to tenant 'acme'");
+                .hasMessageContaining("registered outside tenant 'globex'")
+                // ADR-060: the tenant that holds it is the audit trail's to say, not the refusal's.
+                .satisfies(e -> assertThat(e.getMessage()).doesNotContain("acme"));
         assertThat(registry.replacements().of("totals")).isEmpty();
         assertThat(audited).anySatisfy(event -> {
             assertThat(event.action()).isEqualTo("replace:tenant");
             assertThat(event.allowed()).isFalse();
+            assertThat(event.reason()).contains("held by tenant 'acme'");
         });
+    }
+
+    // ------------------------------------------------------------------ names (ADR-060, slice 1)
+
+    @Test
+    void aNameAnotherTenantHoldsIsRefusedInTheWordsOfOneTheCallersOwnTenantHolds() {
+        QueryRegistry registry = registry(TenantQuotas.unbounded());
+        registry.register("totals", BY_USER, List.of(0), DANA);
+
+        PravahaException sameTenant = org.assertj.core.api.Assertions.catchThrowableOfType(
+                PravahaException.class, () -> registry.register("totals", ROWS, List.of(0, 1), DEV));
+        PravahaException otherTenant = org.assertj.core.api.Assertions.catchThrowableOfType(
+                PravahaException.class, () -> registry.register("totals", ROWS, List.of(0, 1), OMAR));
+
+        assertThat(otherTenant.errorCode()).isEqualTo(RegistryErrors.NAME_IN_USE);
+        assertThat(otherTenant.getMessage())
+                .as("nothing in the refusal says the name is another tenant's, or whose")
+                .isEqualTo(sameTenant.getMessage())
+                .doesNotContain("acme");
+        assertThat(audited)
+                .filteredOn(event -> event.action().equals("register:name"))
+                .singleElement()
+                .satisfies(event -> {
+                    assertThat(event.principal()).isEqualTo(OMAR);
+                    assertThat(event.allowed()).isFalse();
+                    assertThat(event.reason()).contains("held by tenant 'acme'");
+                });
     }
 
     @Test

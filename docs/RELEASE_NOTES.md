@@ -27,6 +27,12 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   catalogue that imports `authenticated` now imports it without `MODIFY`; one that imported it
   earlier keeps the grant, and the node warns at start until `REVOKE MODIFY ON CATALOG FROM ROLE
   authenticated`.
+- **A name another tenant holds is refused without saying whose it is (ADR-060, slice 1).** The
+  `PRV-8022` refusal of a cross-tenant replacement no longer names the tenant that holds the name,
+  and a registration choosing another tenant's name — refused with `PRV-8001` in the same words as
+  a name taken in the caller's own tenant — is audited as `register:name` `DENY` with the holding
+  tenant. View names are still unique on the node, so the refusal still says the name is taken;
+  ADR-060 decides per-tenant names and the rest of it is not built.
 - **A window whose state has spilled fires at memory speed again (SPILL-4).** Firing a window and
   discarding dead slices walked every accumulator in the index's hash order, a random read each;
   they now walk the store slab by slab (`RowStore.forEachLive`). Under a 384 MiB cap, 1.18 M

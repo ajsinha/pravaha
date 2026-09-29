@@ -20,7 +20,7 @@ otherwise have to rediscover the hard way.
 | Java tests | **4,688** tests, 0 failures, 211 skipped (Docker-only broker and database tests among them) -- `tools/verify-clean.sh`, 2026-09-29 |
 | Python tests | **424** in `sdk/python`, and about **1,926** in `console` (browser suites included), all passing on 2026-09-29 |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
-| ADRs | **59** |
+| ADRs | **60** |
 
 **Where it stands, 2026-09-29.** Wave 10 is done (one node feature-complete on 2026-09-27) and wave
 11, cluster mode, is on hold. No GA-BLOCKER or GA-REQUIRED finding is open (469 findings, 447 fixed,

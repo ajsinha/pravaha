@@ -117,8 +117,13 @@ to let them register.
 
 A principal's tenant (`Principal.tenant()`, `public` when the token does not name one) owns the
 names it registers, the computations behind those names, and the view keys those computations
-hold. It does **not** scope view names, which stay unique on the node. It does not scope reads,
-sources or sinks, which the policy decides, and it does not scope lanes, which every tenant shares
+hold. It does **not** yet scope view names, which stay unique on the node: a registration choosing
+a name another tenant holds is refused with `PRV-8001` in the same words as one the caller's own
+tenant holds, and audited as `register:name` `DENY` with the holding tenant, so an operator can see
+one tenant probing another's names. The refusal itself still tells the caller the name is taken;
+[ADR-060](adr/060-view-names-are-unique-per-tenant.md) makes names unique per tenant, and that part
+is not built. It does not scope reads, sources or sinks, which the policy decides, and it does not
+scope lanes, which every tenant shares
 ([ADR-050](adr/050-a-tenant-owns-names-and-state-and-shares-only-with-itself.md)).
 
 - **Sharing stays inside a tenant.** The tenant is part of the fingerprint, so identical SQL from
@@ -130,7 +135,8 @@ sources or sinks, which the policy decides, and it does not scope lanes, which e
   `PRV-8021` (HTTP `409`). It is refused before a sink is opened, audited as `register:quota`
   `DENY`, and counted. A running query is never stopped by a quota.
 - **A replacement stays in its tenant.** Only a principal of the tenant that registered a name can
-  replace it (`PRV-8022`, HTTP `403`, audited as `replace:tenant`). `drop`, `pause` and `resume`
+  replace it (`PRV-8022`, HTTP `403`, audited as `replace:tenant`; the refusal does not name the
+  tenant that holds it, the audit record does). `drop`, `pause` and `resume`
   are decided by ownership, as the next section describes.
 - **Who sees the use.** `GET /api/v1/tenants` shows every tenant to a principal allowed to read the
   audit trail. Any other principal sees only their own tenant.
