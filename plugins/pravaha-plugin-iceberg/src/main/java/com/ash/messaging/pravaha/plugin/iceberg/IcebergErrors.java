@@ -32,5 +32,12 @@ public final class IcebergErrors {
     /** Writing, staging or committing a sink's files failed, or a value cannot be stored exactly. */
     public static final ErrorCode SINK_WRITE_FAILED = new ErrorCode(5142, "ICEBERG_SINK_WRITE_FAILED");
 
+    /**
+     * Upsert mode's changes since the checkpoint began, collapsed by key, reached {@code
+     * upsert.max.keys} distinct keys: they are held in memory until prepare, and past the bound the
+     * sink refuses rather than grow without one.
+     */
+    public static final ErrorCode SINK_BUFFER_FULL = new ErrorCode(5143, "ICEBERG_SINK_BUFFER_FULL");
+
     private IcebergErrors() {}
 }

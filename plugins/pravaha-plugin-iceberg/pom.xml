@@ -21,6 +21,16 @@
     <!-- Iceberg declares Hadoop compile-only. HadoopTables and Parquet's writer need it at runtime:
          the shaded client, the same pair delta brings, so it adds nothing to the server. -->
     <hadoop.client.version>3.4.0</hadoop.client.version>
+    <!-- ICE-1: Caffeine 3, the version Spring Boot manages for pravaha-server, where this plugin runs.
+         Iceberg 1.2.1 was built against 2.9.3 and asks for it; declaring 3 here makes every test of
+         this module run on the combination the server ships. IcebergSinkFindingsTest resolves each
+         Caffeine member Iceberg's classes call, and writes and reads a table with Iceberg's
+         Caffeine-backed manifest cache turned on. Move it with Spring Boot. -->
+    <caffeine.version>3.2.4</caffeine.version>
+    <!-- ICE-4: Avro is how Iceberg writes its manifests. 1.11.4 is the fixed release of the line
+         Iceberg 1.2.1 was built on (1.11.1 has CVE-2024-47561); a 1.12 would be a new minor under a
+         library that uses Avro's internals. -->
+    <avro.version>1.11.4</avro.version>
     <jacoco.line.coverage>0.80</jacoco.line.coverage>
   </properties>
 
@@ -52,6 +62,30 @@
       <groupId>org.apache.iceberg</groupId>
       <artifactId>iceberg-parquet</artifactId>
       <version>${iceberg.version}</version>
+    </dependency>
+    <!-- ICE-1: see caffeine.version. Runtime: nothing here calls Caffeine; Iceberg does. -->
+    <dependency>
+      <groupId>com.github.ben-manes.caffeine</groupId>
+      <artifactId>caffeine</artifactId>
+      <version>${caffeine.version}</version>
+      <scope>runtime</scope>
+    </dependency>
+    <!-- ICE-4: Avro up to the fixed 1.11.4, declared here so it is the nearest, in this module and in
+         the server. commons-compress is excluded rather than moved: Avro reaches it only for its
+         bzip2 codec, which Iceberg never writes a manifest with (its codecs are gzip, zstd, snappy
+         and none; xz is already excluded by Iceberg itself), and the fixed 1.26 line would pull
+         a newer commons-io under Calcite's in the server. 1.21 had CVE-2024-25710 and -26308. -->
+    <dependency>
+      <groupId>org.apache.avro</groupId>
+      <artifactId>avro</artifactId>
+      <version>${avro.version}</version>
+      <scope>runtime</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>org.apache.commons</groupId>
+          <artifactId>commons-compress</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <!-- Compile scope: the generic writer's factory takes Parquet's MessageType. -->
     <dependency>

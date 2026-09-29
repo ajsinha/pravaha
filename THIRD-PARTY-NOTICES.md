@@ -67,6 +67,16 @@ them may require a separate agreement with that vendor.
 | Component | Licence | Project | Used by |
 |---|---|---|---|
 | Apache Kafka client (`org.apache.kafka:kafka-clients` 3.9.1) | Apache License 2.0 | https://kafka.apache.org | `plugins/pravaha-plugin-kafka` (`kafka-sink`) |
+| Apache Iceberg (`iceberg-core`, `iceberg-parquet` 1.2.1, with `iceberg-api`, `iceberg-common`, `iceberg-bundled-guava`) | Apache License 2.0 | https://iceberg.apache.org | `plugins/pravaha-plugin-iceberg` (`iceberg-sink`) |
+| Apache Avro (`org.apache.avro:avro` 1.11.4) | Apache License 2.0 | https://avro.apache.org | `plugins/pravaha-plugin-iceberg`, for Iceberg's manifests |
+| Caffeine (`com.github.ben-manes.caffeine:caffeine` 3.2.4) | Apache License 2.0 | https://github.com/ben-manes/caffeine | `plugins/pravaha-plugin-iceberg` (Iceberg's caches); the same version Spring Boot manages for `pravaha-server` |
+| mysql-binlog-connector-java (`com.zendesk` 0.31.0) | Apache License 2.0 | https://github.com/osheroff/mysql-binlog-connector-java | `plugins/pravaha-plugin-mysql-cdc` |
+
+**Iceberg note.** Iceberg 1.2.1 asks for Avro 1.11.1, Caffeine 2.9.3 and, through Avro,
+Apache Commons Compress 1.21. The plugin declares Avro 1.11.4 (the fixed release of that
+line) and Caffeine 3.2.4 (the server's) in their place (ICE-1, ICE-4), and **excludes**
+Commons Compress: Avro reaches it only for its bzip2 codec, which Iceberg never writes a
+manifest with, so it is not redistributed.
 
 **Kafka client note.** The client's own `NOTICE` travels inside its jar, unmodified. Its three
 optional compression codecs — `zstd-jni` (BSD 2-Clause), `lz4-java` (Apache 2.0) and
