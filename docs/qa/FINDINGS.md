@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **471 findings carrying a
-status — 452 FIXED, 1 OPEN, 9 BY DESIGN, 9 SUPERSEDED.** Of the 1 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 1 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
+status — 453 FIXED, 0 OPEN, 9 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 0 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -6766,8 +6766,7 @@ runs is how a default becomes folklore, and this project has already found two o
 
 ### TEN-1 (LOW) — a view name taken by one tenant is refused to another by name, which says it exists
 
-> **Status:** OPEN — partly mitigated 2026-09-29. ADR-060 decides per-tenant names and supersedes ADR-050's names bullet. Built so far: a cross-tenant `PRV-8001` is word-for-word the same as a same-tenant one and is audited as `register:name` DENY, `PRV-8022` no longer names the holding tenant, and under ownership a non-admin from another tenant is stopped earlier with `PRV-7002`. The existence oracle itself stays until ADR-060's `(tenant, name)` registry key is built across every surface (`TenancyTest`).
-> **Disposition:** POST-GA — a LOW disclosure of a name's existence, not of what it computes or holds; the remaining work is ADR-060 §1–§6.
+> **Status:** FIXED — ADR-060, built 2026-09-29: view names and alert names are unique per tenant and every surface resolves a name in the caller's tenant, so a name another tenant holds is, to the caller, a name nothing holds. Registering it succeeds, and describe, read, schema, prepare, subscribe, drop, pause, replace, dead letters, debug, alerts, Flight `GetTables` and pgwire's catalogue answer it as a name nobody holds. Only an admin reaches another tenant's view or alert, by `tenant.default.name`; a non-admin is refused in the same words whether it exists or not. pgwire oids are a hash of the engine name rather than a node-wide counter. The default tenant's names, directories and journal are unchanged; a node that has recovered another tenant's view cannot roll back to an earlier build (RELEASE_NOTES). `TenantViewNamesTest` (with a fixture written by the previous build), `FlightTenantNamesTest`, `PgTenantNamesTest`, `TenantViewNamesHttpTest`, `AlertTenantNamesTest`, `PgOidRegistryTest`.
 
 ### VIS-1 (HIGH) — the visual suite skipped every screenshot when Chrome's version moved, and reported "skipped"
 
