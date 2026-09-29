@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **460 findings carrying a
-status — 393 FIXED, 53 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 53 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 43 POST-GA and 10 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **464 findings carrying a
+status — 397 FIXED, 53 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 53 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 42 POST-GA and 11 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7175,8 +7175,7 @@ the lead.
 
 ### KEYEDWT-1 (MEDIUM) — CONCEPTS §4 tells a consumer to sum a keyed view's changelog weights, which drifts on upserts
 
-> **Status:** OPEN — a keyed view's changelog carries only +1 for an upsert that replaces a key's row, so a consumer summing weights counts the key twice while the view shows one row. ADR-056 follows the answer rather than the changelog for exactly this reason; the advice to external consumers is still the old one.
-> **Disposition:** POST-GA — correct the advice (subscribe from a snapshot and upsert by key, or follow the answer), and consider emitting the retraction for a replaced row.
+> **Status:** FIXED — the advice is corrected (CONCEPTS §4, the subscriptions topic, USER_GUIDE, PYTHON_API_GUIDE, SDK docstrings): a keyed view's changelog does not sum to the view through upserts; the exact recipe is to subscribe to a query over the view (ADR-056), whose changelog is the view's answer changing, evictions included. Emitting the replaced row's retraction in the plain subscription was built and withdrawn because it breaks the documented changelog contract (STRM-008..012); answer-following is an opt-in on the engine (`SubscriptionOptions.followingTheAnswer()`). `KeyedWeightsSubscriptionTest`, `ViewSinkAnswerTest`; seed-proven.
 
 ### OPENAPILOCK-1 (LOW) — the OpenAPI lock does not record DTO field names
 
@@ -7185,8 +7184,7 @@ the lead.
 
 ### RESTOREPART-1 (MEDIUM) — a failed restore may leave part of the state behind while it "starts from nothing"
 
-> **Status:** OPEN — not reproduced; found by reading. `QueryCheckpoints.restore` catches a failed restore and starts the query from nothing, but `execution.restore` may already have put back some operators' state before it threw.
-> **Disposition:** POST-GA — a test that fails a restore half-way; then reset the execution's state before starting over, or refuse the query with a named code.
+> **Status:** FIXED — reproduced three ways, each double-counting (207 for 5 on a lane snapshot cut short, a join side left behind, 200 for 100 through the registry). Restore is all or nothing: `CheckpointRestore` takes each lane's and the view's state first and puts every part back on any refusal; a lane-side refusal no longer kills the lane; `JoinSide.readFrom` replaces rather than adds; the registry undoes the execution when its sink half fails. Starting again from the sources — what upgrades and checkpoints-recovery already promised — is logged WARN and counted as a checkpoint failure; an undo that cannot complete refuses the registration (PRV-3010). `PartialRestoreTest`, `PartialRestoreRegistryTest`; seed-proven.
 
 ## Found making Power BI read Pravaha (2026-09-28), 3 findings
 
@@ -7270,13 +7268,11 @@ the lead.
 
 ### SUMWRAP-1 (MEDIUM) — a SUM past 2^63 wraps silently
 
-> **Status:** OPEN — the SUM accumulators in `GlobalAggregate`, `KeyedAggregate` and `SlicedAggregateState` add without an overflow check, so a BIGINT or DECIMAL total past the 64-bit range wraps to a wrong answer with nothing to say so.
-> **Disposition:** POST-GA — `Math.addExact` (or a wider accumulator) and a named refusal when a total overflows.
+> **Status:** FIXED — reproduced (`SUM` over `Long.MAX_VALUE` and 1 returned `-9223372036854775808`). Every SUM/COUNT/AVG accumulator — global, grouped, windowed per slice and when a window's slices combine, pushed-down partials, the read path — adds with checked arithmetic, retractions included (`AggregateTotals`); a total past the 64-bit range is PRV-3025 naming the aggregate, and the continuous query fails (its view refusing reads) or the read is refused, never a wrapped number. `SlicedAggregateOverflowTest`, `AggregateOverflowReadTest`, `AggregateOverflowTest`; seed-proven.
 
 ### WINDECKEY-1 (MEDIUM) — a windowed GROUP BY on a DECIMAL column may conflate keys
 
-> **Status:** OPEN — not reproduced; found by reading. `WindowedAggregate`'s `readKey` and key hash read a DECIMAL with `getLong` (the high half only), so a windowed `GROUP BY` on a decimal column, or `COUNT(DISTINCT decimal)`, would treat different values as one.
-> **Disposition:** POST-GA — read the whole unscaled value, or refuse a decimal window key by name until then.
+> **Status:** FIXED — reproduced: a windowed `GROUP BY` on a DECIMAL failed with an uncoded "is DECIMAL, not INT64", and `COUNT(DISTINCT decimal)` answered 2 for 3. The window key, hash, output and checkpoint encodings now carry the whole unscaled value (`DecimalBits`, a DECIMAL tag in `TaggedValues`); checkpoints without decimal keys are byte-for-byte unchanged. `WindowedDecimalKeyTest`; seed-proven.
 
 ## Found closing TAUTOFILTER-1 (2026-09-28), 2 findings
 
@@ -7314,3 +7310,26 @@ the lead.
 
 > **Status:** OPEN — `pgwire` and `clients` topics say to use "your token" as the password; with engine accounts on (ADR-052) that is an API key or a session token, and the gateway's behaviour in that mode was not verified when the help was reworked.
 > **Disposition:** POST-GA — a test signing in over pgwire with an API key and with a session token; then state both in the topics.
+
+## Found fixing SUMWRAP-1, WINDECKEY-1, RESTOREPART-1 and KEYEDWT-1 (2026-09-29), 4 findings
+
+### SUBANSWERWIRE-1 (LOW) — answer-following subscriptions are not reachable over the wire
+
+> **Status:** OPEN — `SubscriptionOptions.followingTheAnswer()` exists in the engine and the embedded API only; Flight tickets, the Python and Java SDKs and the CLI cannot ask for it, so over the wire the exact way to keep a copy of a keyed view is to subscribe to a query over it.
+> **Disposition:** POST-GA — a subscribe option on the ticket and in both SDKs and `pravaha subscribe`.
+
+### SINKKEYROWS-1 (MEDIUM) — an UPSERT sink may delete a key the view still shows
+
+> **Status:** OPEN — not reproduced; found by reading. UPSERT sinks follow the changelog: when a key holds several rows (VIEWW-1) and its shown row is retracted, the sink receives `-B` and presumably deletes the key while the view goes back to showing A.
+> **Disposition:** POST-GA — reproduce against the JDBC and Kafka upsert sinks; feed upsert sinks from the answer (as `followingTheAnswer`) if confirmed.
+
+### DECKEYGROUP-1 (LOW) — decimal group keys work in windowed aggregates but are refused in unwindowed ones
+
+> **Status:** OPEN — after WINDECKEY-1, windowed aggregates key and count distinct over DECIMAL; unwindowed and grouped aggregates (and the read path) still refuse a DECIMAL group key or `COUNT(DISTINCT decimal)` with PRV-3020 — correct but inconsistent.
+> **Disposition:** POST-GA — carry the whole unscaled value in the keyed and global aggregates' keys too.
+
+### TRANSOVF-1 (LOW) — a total that overflows only inside one batch is refused
+
+> **Status:** OPEN — with SUMWRAP-1's checked arithmetic, a total that leaves the 64-bit range only transiently within a batch (`+big` applied before `-big`) is refused with PRV-3025 even though the batch's net total fits.
+> **Disposition:** NOTE — refusing is the safe side; netting a batch before accumulating would remove it at a cost.
+
