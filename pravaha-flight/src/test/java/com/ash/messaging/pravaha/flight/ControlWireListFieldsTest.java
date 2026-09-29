@@ -38,7 +38,8 @@ class ControlWireListFieldsTest {
 
     @Test
     void thePythonSdkNamesTheListingsFieldsInTheServersOrder() throws Exception {
-        Path client = Path.of("..", "sdk", "python", "pravaha", "client.py");
+        // The tuple lives in records.py since client.py was split (CONSOLESIZE-1); client.py re-exports it.
+        Path client = Path.of("..", "sdk", "python", "pravaha", "records.py");
         String source = Files.readString(client);
         Matcher tuple = Pattern.compile("(?s)\\nLIST_FIELDS = \\((.*?)\\n\\)").matcher(source);
         assertThat(tuple.find()).as("%s declares LIST_FIELDS", client).isTrue();
