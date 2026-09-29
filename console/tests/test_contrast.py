@@ -168,6 +168,41 @@ def test_the_status_colours_are_not_confusable_with_each_other(theme):
     assert not too_close, f"{theme} theme:\n  " + "\n  ".join(too_close)
 
 
+#: The data series, which charts and the plan graph draw with (``--series-1..8``).
+SERIES = [f"series-{n}" for n in range(1, 9)]
+
+#: How far apart any two series have to be. The categorical order was validated as a set, and its
+#: closest pair is the dark theme's series-1 and series-7 at 20.7 (the light, blue and green
+#: themes' closest, series-2 and series-8, is 22.0); this floor stops a later change to one series
+#: from walking it into another. Lower than ACCENT_APART on purpose: two series are told apart by
+#: a legend beside them, an accent control and a chart line are not.
+SERIES_APART = 20.0
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_accent_is_not_confusable_with_a_data_series(theme):
+    """CON-10: a chart line next to an accent control -- a button, a link, the selected tab --
+    must not read as the same colour. The dark theme's accent sat 19.9 from two of its own
+    series, the light theme's 20.5 from series-8 and the blue theme's 18.4 from series-1; each
+    of those series was moved just past this bound."""
+    tokens = _themes()[theme]
+    too_close = [f"--pv-crimson {tokens['crimson']} and --pv-{name} {tokens[name]}: "
+                 f"{difference(tokens['crimson'], tokens[name]):.1f} < {ACCENT_APART}"
+                 for name in SERIES
+                 if difference(tokens["crimson"], tokens[name]) < ACCENT_APART]
+    assert not too_close, f"{theme} theme:\n  " + "\n  ".join(too_close)
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_data_series_are_not_confusable_with_each_other(theme):
+    """Moving a series away from the accent must not move it onto another series."""
+    tokens = _themes()[theme]
+    too_close = [f"--pv-{a} {tokens[a]} and --pv-{b} {tokens[b]}: {difference(tokens[a], tokens[b]):.1f}"
+                 for i, a in enumerate(SERIES) for b in SERIES[i + 1:]
+                 if difference(tokens[a], tokens[b]) < SERIES_APART]
+    assert not too_close, f"{theme} theme:\n  " + "\n  ".join(too_close)
+
+
 def _grayscale(hex_colour: str) -> str:
     """CSS ``filter: grayscale(1)``: the luminance matrix applied to the sRGB-encoded channels."""
     if len(hex_colour) == 4:

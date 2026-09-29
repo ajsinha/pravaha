@@ -2037,6 +2037,25 @@ disabling an account ends its sessions and keys, not the queries it registered. 
 | `refused: ... not a principal this deployment knows` | The owner no longer resolves — in neither the identity store nor the token table. Recovering it as nobody would run a query under an authority it was never granted |
 | `WARN recovering a query owned by '…', whose account is disabled` | The owner's account is disabled; the query was recovered and runs. Drop it if it should not |
 
+**How long recovery takes, and what compiling costs.** Replay registers each journalled query in
+turn, on the thread starting the node, and building a query's lanes compiles its filter/projection
+chain to bytecode (Janino) then and there. There is no interpreted phase that upgrades later: when
+the node's start returns, every recovered query is RUNNING, on generated code where the generator
+takes its shape. Measured 2026-09-29 (`RestartCompileIT`, CGRESTART-1; 24 cores, load 3-4, a JVM
+that had already registered the same queries once, each query a distinct filter so each compiles):
+
+| Distinct queries | Restart to all RUNNING, generated | Same restart, `-Dpravaha.codegen.enabled=false` | Generating + compiling |
+|---:|---:|---:|---:|
+| 100 | 0.51 s | 0.28 s | 0.23 s (45 %) |
+| 500 | 1.04 s | 0.28 s | 0.76 s (73 %) |
+| 1,000 | 1.54 s | 0.39 s | 1.15 s (74 %, about 1.2 ms a query) |
+
+Compiling is most of the restart, and the restart is a second or two at a thousand queries, so it
+is done serially on purpose: a parallel compile would save about a second. A cold process adds
+class loading and JIT on top (the first registration of 100 queries in a fresh JVM took 1.4 s).
+Restoring large checkpointed state is a separate cost, proportional to the state, not to the
+number of queries. To measure your own shape, run `RestartCompileIT` as its Javadoc says.
+
 A crash mid-append leaves a truncated final record; replay keeps everything before it and ignores the
 tail. Compaction rewrites the journal with only what is live, via an atomic move.
 

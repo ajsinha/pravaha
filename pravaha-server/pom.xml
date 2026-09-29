@@ -16,12 +16,11 @@
     <spring.boot.version>3.5.16</spring.boot.version>
     <springdoc.version>2.9.1</springdoc.version>
     <!--
-      Spring Boot's BOM and Arrow Flight's gRPC stack each pin Netty, and they disagree. Flight is
-      the one that has to work: it is the wire protocol, and a Netty mismatch there shows up as a
-      connection that fails during the handshake rather than as a missing class at startup. Pinned
-      to the version Flight is built against.
+      Netty is not set here. Spring Boot's BOM, imported below, decides it (4.1.135 for 3.5.16), and
+      the parent imports the same version as netty-bom so the Flight modules test on the Netty this
+      jar ships (PKG-4). A netty.version property here would govern nothing: an imported BOM does
+      not read the importing pom's properties.
     -->
-    <netty.version>4.1.130.Final</netty.version>
   </properties>
 
   <dependencyManagement>
@@ -116,7 +115,7 @@
       the LICENSE and NOTICE files of the third-party libraries it redistributes.
 
       One classpath means one version of each library. The collision that made that matter was
-      Netty: Arrow Flight's gRPC needs 4.2 and the Cassandra driver pulled 4.1, which is why the
+      Netty: Arrow 19's flight-core asks for 4.2 and the Cassandra driver pulled 4.1, which is why the
       Cassandra plugin uses the driver's shaded artifact. Delta's Hadoop is the shaded
       hadoop-client-runtime for the same reason. ShippedConnectorsTest holds the list.
 
@@ -216,10 +215,8 @@
       the SSL handler is stripped from the pipeline. The only way back to a working deployment is to
       switch TLS off, which is how a fleet ends up authenticated over plaintext.
 
-      Declared here rather than in pravaha-flight because this is the module where netty is pinned by
-      hand and requireUpperBoundDeps is deliberately skipped, for exactly this conflict. In
-      pravaha-flight the same declaration is a downgrade against Arrow's own graph and the enforcer
-      refuses it, correctly.
+      Declared here as well as in pravaha-flight because nothing on this module's own path to Flight
+      brings it at runtime. Its version is Spring Boot's Netty, like every other netty artifact here.
     -->
     <!--
       application.yaml has exposed /actuator/prometheus since it was written, and the endpoint
@@ -268,7 +265,6 @@
     <dependency>
       <groupId>io.netty</groupId>
       <artifactId>netty-transport-native-unix-common</artifactId>
-      <version>4.1.135.Final</version>
       <scope>runtime</scope>
     </dependency>
     <dependency>
@@ -300,18 +296,22 @@
             <id>enforce-build-environment</id>
             <configuration>
               <!--
-                Skipped in this module alone, and only because of Netty.
+                Skipped in this module alone.
 
-                requireUpperBoundDeps is on everywhere else and has already caught nine real
-                version skews. Here it cannot help: Arrow Flight is built against Netty's 4.1
-                line, Spring Boot's BOM reaches into 4.2, and the netty.version property above
-                pins 4.1.130 by hand for exactly that reason. A rule reading "4.2.9 is larger
-                than 4.1.130" would settle the disagreement by upgrading the wire protocol
-                across a major line, and a Netty mismatch appears as a connection failing
-                mid-handshake, which is a worse thing to debug than a build error.
+                requireUpperBoundDeps is on everywhere else and has caught real version skews. The
+                reason it was skipped here is Netty: Spring Boot's BOM decides this module's Netty
+                (4.1.x), while Arrow 19's flight-core and arrow-memory-netty ask for 4.2.9. A rule
+                reading "4.2.9 is larger than 4.1.135" would settle that by moving the Flight
+                transport across a major line beside a Spring Boot that is not on it, and a Netty
+                mismatch appears as a connection failing mid-handshake, which is a worse thing to
+                debug than a build error. The Flight modules now exclude exactly the netty
+                artifacts instead of skipping (PKG-4).
 
-                Scoped to this module rather than added as a wildcard exclude in the parent, so
-                the exception covers Netty here and nothing anywhere else.
+                Not narrowed the same way here, because the skip also hides four skews that are not
+                Netty, where Spring Boot's BOM manages below what another path asks for:
+                jackson-dataformat-yaml, commons-lang3, HdrHistogram and jspecify (measured
+                2026-09-29 with the netty artifacts excluded). Each wants its own look before this
+                becomes an exclude list rather than a skip.
               -->
               <skip>true</skip>
             </configuration>

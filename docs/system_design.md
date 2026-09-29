@@ -460,7 +460,7 @@ Codegen (§12) emits calls against this interface; the JIT inlines the single im
 |---|---|
 | Spring Boot 3.5 | 17 |
 | Apache Calcite / Avatica | 11 |
-| Netty 4.2, gRPC-Java | 8 |
+| Netty 4.1, gRPC-Java | 8 |
 | RocksDB JNI | 8 |
 | Aerospike Java client | 8–11 |
 | Agrona 2.x | 17 |
@@ -713,7 +713,7 @@ pravaha/                                    (pom — parent, pluginManagement, p
   <rocksdb.version>9.10.0</rocksdb.version>
   <agrona.version>2.2.0</agrona.version>
   <jctools.version>4.0.5</jctools.version>
-  <netty.version>4.2.x</netty.version>
+  <netty.version>4.1.x</netty.version>
   <grpc.version>1.72.x</grpc.version>
   <spring-boot.version>3.5.x</spring-boot.version>
   <micrometer.version>1.15.x</micrometer.version>
