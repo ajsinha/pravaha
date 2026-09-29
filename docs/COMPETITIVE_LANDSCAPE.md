@@ -204,7 +204,7 @@ structures, readable by key.
   a snapshot with none lost between, and read over the PostgreSQL wire protocol when
   `pravaha.pgwire.enabled` is on ([ADR-014](adr/014-serve-maintained-views.md),
   [ADR-030](adr/030-flight-sql-as-the-client-protocol.md),
-  [point reads](../console/content/topics/point-reads.md),
+  [point reads](../console/content/topics/views-and-keys.md#point-reads),
   [the PostgreSQL gateway](../console/content/topics/pgwire.md)).
 - An equality index over a column outside the key answers a read by that column without a scan
   ([ADR-055](adr/055-an-equality-index-over-a-column-outside-the-key.md)).
@@ -281,7 +281,7 @@ hence Partial.
 - Authentication and authorization happen in Pravaha on every read, against the streams a view derives
   from; a policy may return a row filter, which is injected into the plan and into the sharing
   fingerprint ([ADR-031](adr/031-authorization-at-the-pravaha-layer.md),
-  [`SECURITY.md`](SECURITY.md), [row filters](../console/content/topics/row-filters.md),
+  [`SECURITY.md`](SECURITY.md), [row filters](../console/content/topics/row-filters-and-masks.md),
   `ViewQueryAuthorizationTest`).
 - A filter may read the reader's claims — `session_attribute('region')`, `current_user()`,
   `is_member('role')` — and a store user carries attributes presented as claims.
@@ -373,8 +373,8 @@ exact position.
 
 - Lane sharing is `auto` by default: a node's first 64 queries each own a lane, so a failing query takes
   down only itself, and registrations after them share, saving about 1 MiB per idle query
-  ([lane sharing](../console/content/topics/lane-sharing.md),
-  [sizing lanes](../console/content/topics/sizing-lanes.md), `NodeLaneSharingTest`).
+  ([lane sharing](../console/content/topics/lanes.md#sharing-lanes),
+  [sizing lanes](../console/content/topics/lanes.md#sizing-lanes), `NodeLaneSharingTest`).
 - `WITH (lane = 'dedicated')` puts one query on a lane of its own whatever the mode, and
   `CREATE OR REPLACE` moves a running query between a shared lane and its own at a lossless cutover
   (`DedicatedLaneTest`).
@@ -444,7 +444,7 @@ the windows.
 - With `allowed-lateness: 5m` on the `txn` stream, a late row reopens a published window as a
   retraction of the old answer and the corrected one, in one commit
   ([`CONTINUOUS_QUERIES.md` §6](CONTINUOUS_QUERIES.md#6-corrections-and-why-the-answer-can-go-backwards),
-  [late data](../console/content/topics/late-data.md), `LateDataTest`). Allowed lateness is zero by
+  [late data](../console/content/topics/event-time-watermarks.md#late-data), `LateDataTest`). Allowed lateness is zero by
   default.
 
 **Why it matters.** Real inputs arrive out of order. An engine that drops late rows publishes a
@@ -502,7 +502,7 @@ operational numbers.
   health, commit latency, backpressure in time — and, with `pravaha.metrics.operators` on, rows in and
   out, state bytes and self time per plan node, naming the bottleneck operator
   ([observability](../console/content/topics/observability.md),
-  [metrics and alerts](../console/content/topics/metrics-alerts.md), `PravahaMetricsTest`).
+  [metrics and alerts](../console/content/topics/observability.md), `PravahaMetricsTest`).
 - Metrics for alerts, the catalogue and Flight; four Grafana dashboards and Prometheus rules under
   `deploy/observability/`; JSON logs with correlation, trace and span ids; OpenTelemetry tracing
   (off by default) with spans per request, registration, replacement, checkpoint and notification,

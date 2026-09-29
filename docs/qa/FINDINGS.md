@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **458 findings carrying a
-status — 393 FIXED, 51 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 51 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 41 POST-GA and 10 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **460 findings carrying a
+status — 393 FIXED, 53 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 53 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 43 POST-GA and 10 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7302,3 +7302,15 @@ the lead.
 
 > **Status:** OPEN — `NoSecretsInConfigurationTest` excludes paths containing `/.claude/`, so run from an agent's worktree it checks nothing; from the main checkout it checks everything, which is where the gate runs it.
 > **Disposition:** NOTE — exclude only other worktrees below the repository root, not the root the test runs in.
+
+## Found reworking the help (2026-09-29), 2 findings
+
+### PRV0400-1 (LOW) — the HTTP API answers PRV-0400 for a malformed parameter, a code no catalogue declares
+
+> **Status:** OPEN — `ApiExceptionHandler` and `PageParameters` emit `PRV-0400` as a plain string; no `ErrorCode` declares it, it is not in the code table the console's code browser reads, yet USER_GUIDE documents it. The help accuracy test accepts it only as an emitted-string exception.
+> **Disposition:** POST-GA — declare it as an `ErrorCode` in the 1xxx range (or reuse the existing invalid-parameter code) and list it.
+
+### PGWIREPASS-1 (LOW) — the PostgreSQL gateway's docs say the password is "your token" without saying which
+
+> **Status:** OPEN — `pgwire` and `clients` topics say to use "your token" as the password; with engine accounts on (ADR-052) that is an API key or a session token, and the gateway's behaviour in that mode was not verified when the help was reworked.
+> **Disposition:** POST-GA — a test signing in over pgwire with an API key and with a session token; then state both in the topics.

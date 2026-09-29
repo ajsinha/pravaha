@@ -186,7 +186,7 @@ PROBLEMS: list[Problem] = [
             "scan on the database that serves the tills.",
             "Register the SQL once. The view changes when the data does — from the store's own change "
             "log where there is one — and reading it is a lookup by key.",
-            "/help/topics/start-here"),
+            "/help/topics/getting-started"),
     Problem("A nightly batch rebuilds revenue per region per hour from the raw lines, so by "
             "mid-morning the analysts are looking at yesterday, and every rebuild pays for all of it.",
             "Every change is a Z-set delta with a weight, so work is proportional to what changed, and "
@@ -203,7 +203,7 @@ PROBLEMS: list[Problem] = [
             "every consumer invents its own way to reconcile the two.",
             "A late row inside the allowed lateness is a correction: the old answer withdrawn and the new "
             "one inserted, in one commit every reader sees.",
-            "/help/topics/late-data"),
+            "/help/topics/event-time-watermarks#late-data"),
     Problem("A query that grows its state without limit is accepted, runs for months, and fails at "
             "three in the morning when the heap fills.",
             "It is refused when it is registered, with a PRV code and the reason — an unwindowed "
