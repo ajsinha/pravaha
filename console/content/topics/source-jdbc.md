@@ -92,7 +92,7 @@ Before the first poll the plugin reads the schema with `SELECT * FROM <source> L
 | `BOOLEAN`, `BIT` | `BOOLEAN` |
 | `TINYINT`, `SMALLINT`, `INTEGER`, `BIGINT` | `INT8`, `INT16`, `INT32`, `INT64` |
 | `REAL` / `FLOAT`, `DOUBLE` | `FLOAT32` / `FLOAT64` |
-| `NUMERIC`, `DECIMAL` | `DECIMAL(38,9)` — never a float; but arithmetic over a decimal is not built, so `SUM` over it is refused |
+| `NUMERIC`, `DECIMAL` | `DECIMAL(38,9)` — never a float; `+ - *`, `SUM`, `MIN` and `MAX` over it are exact, and `/` and `AVG` are refused `PRV-2021` rather than rounded |
 | `CHAR`, `VARCHAR`, `LONGVARCHAR` and the `N` forms | `STRING` |
 | `BINARY`, `VARBINARY`, `LONGVARBINARY` | `BYTES` |
 | `DATE` | `DATE` |
@@ -131,7 +131,7 @@ pravaha:
 Three things this binding does on purpose:
 
 - **The cast to integer cents happens in the database.** `NUMERIC` would arrive as a decimal, and
-  decimal arithmetic is refused in the engine, so the conversion belongs where the decimal lives.
+  decimal division and `AVG` are refused in the engine, so the conversion belongs where the decimal lives.
 - **The watermark is a database-maintained `BIGINT`** (`change_ns`, set by a trigger or a sequence),
   not an application clock. See the pitfalls.
 - **The declared schema is the polled result, column for column.** The plugin decodes with the

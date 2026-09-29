@@ -138,14 +138,15 @@ every statement it can write):
 | Power BI sends | Gateway |
 |---|---|
 | `SELECT` of columns, `WHERE` with `=`, `<>`, `IN`, `BETWEEN`, `LIKE`, `IS NULL`, `AND`/`OR`, `LOWER`/`UPPER`, `COALESCE`, `\|\|` | answered |
-| `GROUP BY` with `COUNT(*)`, `COUNT(DISTINCT …)`, `SUM`, `MIN`, `MAX`, `AVG` over integer, date and timestamp columns; `SELECT DISTINCT` (slicers); `HAVING` | answered |
+| `GROUP BY` with `COUNT(*)`, `COUNT(DISTINCT …)`, `SUM`, `MIN`, `MAX`, `AVG` over integer, date and timestamp columns, and `SUM`, `MIN`, `MAX` over `DECIMAL` columns; `SELECT DISTINCT` (slicers); `HAVING` | answered |
 | Derived tables (`from ( … ) "rows"`), `where not "_"."a0" is null` | answered |
 | A trailing `LIMIT n` | answered: the gateway applies it |
 | `ORDER BY` (Top N, sorted tables) | refused, PRV-2020. Rank in the continuous query |
 | `LIMIT` inside a derived table, `OFFSET`, `FETCH FIRST` | refused, PRV-2020 |
 | A join of two views — a relationship between two DirectQuery tables | refused, PRV-4025. Join in the continuous query and read its view |
-| `SUM`, `AVG`, `MIN`, `MAX` of a `FLOAT`/`DOUBLE` column | refused, PRV-2020 ([aggregates are 64-bit integers](/help/topics/sql-reference)). Aggregate in the continuous query, or keep the column integer (cents rather than dollars) |
-| `SUM` of a `DECIMAL` column | fails today with a schema error rather than an answer; aggregate in the continuous query |
+| `SUM`, `AVG`, `MIN`, `MAX` of a `FLOAT`/`DOUBLE` column | refused, PRV-2020 ([aggregates are 64-bit integers](/help/topics/sql-reference); a documented refusal, not the DECIMAL defect). Keep the column integer (cents rather than dollars) or `DECIMAL`, whose `SUM`, `MIN` and `MAX` are exact |
+| `SUM`, `MIN`, `MAX` of a `DECIMAL` (`numeric`) column | answered exactly, at the column's scale; a sum is a `numeric(38, s)` |
+| `AVG` of a `DECIMAL` column | refused, PRV-2021: an average of decimals would be rounded at the column's scale. Use a `SUM` measure divided by a `COUNT` measure in DAX, where the rounding is Power BI's |
 | `EXTRACT`, `date_trunc` — Power BI's date hierarchy | refused, PRV-2021 / PRV-2002. Turn off **Auto date/time** (File → Options → Current file → Data Load) and give the view the date parts it needs |
 | A `CAST` that narrows (`bigint` to `numeric(19,4)`, `double` to `numeric`) | refused, PRV-2021 |
 | A column of type `BYTES` or `TIME` | refused, PRV-6200; leave the column out of the model |

@@ -89,6 +89,11 @@ public final class PravahaTypeSystem extends RelDataTypeSystemImpl {
      * accumulators add in 64 bits, and the sum of a stream of 32-bit values outgrows 32 bits long
      * before the stream ends; a column that narrow was a runtime failure waiting for its first row
      * (HLP-1). {@code SUM0} derives through here too.
+     *
+     * <p>{@code SUM} of a {@code DECIMAL(p, s)} is a {@code DECIMAL(38, s)} (DECSUM-1): exact, at
+     * the argument's scale, and as wide as the engine's decimals go, as PostgreSQL's {@code
+     * sum(numeric)} does not overflow the column it adds up. Calcite's default keeps {@code p}, so a
+     * sum of {@code DECIMAL(10, 2)} values could not hold a total past 99,999,999.99.
      */
     @Override
     public RelDataType deriveSumType(RelDataTypeFactory typeFactory, RelDataType argumentType) {
@@ -96,6 +101,11 @@ public final class PravahaTypeSystem extends RelDataTypeSystemImpl {
             case TINYINT, SMALLINT, INTEGER ->
                 typeFactory.createTypeWithNullability(
                         typeFactory.createSqlType(SqlTypeName.BIGINT), argumentType.isNullable());
+            case DECIMAL ->
+                typeFactory.createTypeWithNullability(
+                        typeFactory.createSqlType(
+                                SqlTypeName.DECIMAL, DecimalType.MAX_PRECISION, argumentType.getScale()),
+                        argumentType.isNullable());
             default -> super.deriveSumType(typeFactory, argumentType);
         };
     }

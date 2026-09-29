@@ -1028,6 +1028,7 @@ public final class PhysicalPlanBuilder {
         for (AggregateCall call : aggregate.getAggCallList()) {
             int argument = call.getArgList().isEmpty() ? -1 : call.getArgList().get(0);
             refuseFloatingPointAggregate(call, argument, input.outputSchema());
+            DecimalAggregates.refuseInexact(kindOf(call), call.getType(), argument, input.outputSchema());
             calls.add(new AggregateOperator.AggregateCall(kindOf(call), argument, nameOf(call)));
         }
 
