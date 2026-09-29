@@ -120,6 +120,12 @@ responsive while you step.
   name**, when no daemon is reachable. That is not a failure.
 - The project's gate is `tools/verify-clean.sh`, from a terminal. It builds the whole reactor
   offline from a clean `~/.m2`, and is what a commit is held to.
+- Building in several git worktrees at once? Use `tools/worktree-build.sh` in place of `./mvnw`
+  (same arguments). In a linked worktree it gives the build a Maven repository of its own,
+  `<worktree>/.m2-local` (gitignored, seeded from `~/.m2` by hard links without Pravaha's own
+  artefacts), so one checkout never compiles against a SNAPSHOT jar another installed
+  (MAVENRACE-1). Build the modules you changed with `-am`, or `install` once, so this worktree's
+  Pravaha artefacts are the ones there. In the main checkout it is plain `./mvnw`.
 
 ### Formatting
 

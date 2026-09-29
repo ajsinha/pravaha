@@ -1,4 +1,6 @@
 target/
+# tools/worktree-build.sh: a linked worktree's own Maven repository (MAVENRACE-1)
+.m2-local/
 *.class
 *.jar
 !.mvn/wrapper/maven-wrapper.jar
