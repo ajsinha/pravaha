@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import helplink %}
+{% from "_helpcards.html" import screenhelp, helplink %}
 {% import "_states.html" as states %}
 {% import "_people.html" as people %}
 {% block title %}{{ t('alerts.title') }} — {{ app_name }}{% endblock %}
@@ -56,4 +56,5 @@
 <p class="small text-muted mt-3" id="alert-channels">{{ t('alerts.channels') }}
 {% for c in channels %}<span class="chip mute me-1">{{ c.name }} · {{ c.plugin }}</span>{% endfor %}</p>
 {% endif %}
+{{ screenhelp('alerts') }}
 {% endblock %}

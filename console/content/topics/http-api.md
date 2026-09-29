@@ -9,7 +9,7 @@ badge: API
 audience: Developers
 keywords: [rest, http, curl, json, openapi, swagger, "18080", bearer, validate, explain, status, actuator, prometheus, "/api/v1", ApiError]
 guide: user-guide#5-manage-what-is-running
-related: [client-snippets, sdk-reference, metrics-alerts, authentication, audit]
+related: [clients, observability, authentication, audit]
 ---
 
 The engine serves two protocols. **Arrow Flight SQL** (port 19090) carries every read, every
@@ -178,7 +178,7 @@ curl -s -H "Authorization: Bearer $PRAVAHA_TOKEN" http://engine:18080/api/v1/que
 | `sink` | `{name, attached, failure, rowsWritten}`; `attached:false` with a PRV-8009 `failure` means the sink refused a batch and was detached |
 | `countsWithheld` | `true` when your access is a row-filtered slice; `rowsIn` is then `-1` rather than the unfiltered total |
 | `failure` | `{code, message, helpUrl}` for a `FAILED` query |
-| `lane` | Where the query's computation runs: `dedicated` (a lane of its own because it was registered `WITH (lane = 'dedicated')`), `shared`, or `own` (sharing off, not yet on under `auto`, or every shared lane full) — see [Sharing lanes](/help/topics/lane-sharing) |
+| `lane` | Where the query's computation runs: `dedicated` (a lane of its own because it was registered `WITH (lane = 'dedicated')`), `shared`, or `own` (sharing off, not yet on under `auto`, or every shared lane full) — see [Sharing lanes](/help/topics/lanes#sharing-lanes) |
 | `sharedLane` | The shared lane's number when `lane` is `shared`; otherwise `null` |
 
 `GET /api/v1/lanes` summarises placement for the node, counts only:
@@ -221,7 +221,7 @@ curl -s -X POST http://engine:18080/api/v1/streams \
 
 `201 Created`. The schema uses the node's one grammar, `name:TYPE,…` with `?` for nullable.
 `allowedLateness` is optional and zero when absent: how long after a window is published a late row
-may still correct it ([late data](/help/topics/late-data)). An `outOfOrderness` or an
+may still correct it ([late data](/help/topics/event-time-watermarks#late-data)). An `outOfOrderness` or an
 `allowedLateness` without an `eventTime` is refused — each is about an event time, and there is none —
 and a negative lateness is refused. Declaring a stream is an administrative act; a caller who may not administer
 the name gets `403`.
@@ -235,7 +235,7 @@ curl -s -H "Authorization: Bearer $PRAVAHA_TOKEN" http://engine:18080/api/v1/sta
 ```json
 {
   "instanceId": "pravaha-node-01",
-  "version": "0.1.0-SNAPSHOT",
+  "version": "0.2.1-SNAPSHOT",
   "engineState": "RUNNING",
   "uptimeSeconds": 8123,
   "registeredQueries": 2,
@@ -313,6 +313,6 @@ names.
 
 ## Where next
 
-- [SDK reference](/help/topics/sdk-reference) — the calls that wrap these endpoints.
-- [Metrics and alerts](/help/topics/metrics-alerts) — what `/actuator/prometheus` exports.
+- [SDK reference](/help/topics/clients#sdk-reference) — the calls that wrap these endpoints.
+- [Metrics and alerts](/help/topics/observability) — what `/actuator/prometheus` exports.
 - [Audit](/help/topics/audit) — reading the trail.

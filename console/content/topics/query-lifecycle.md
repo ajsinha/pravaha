@@ -19,7 +19,7 @@ The consequence worth internalising: **registering is expensive and reading is c
 registration commits the node to memory and to a share of a lane for as long as it exists — about
 1 MiB of off-heap while idle and 1.3 MiB once rows are moving, ~65 KiB of heap, roughly 16 ms to
 register (mostly planning), and no platform thread of its own (measured on one node; see
-[sizing](/help/topics/sizing-lanes)). That is why registering is authorised separately from reading.
+[sizing](/help/topics/lanes#sizing-lanes)). That is why registering is authorised separately from reading.
 
 ## What registration does
 

@@ -9,7 +9,8 @@ badge: PRV-7XXX
 audience: Everyone
 keywords: [mask, masked column, row filter policy, session_attribute, password, lockout, api key, session, reset token, identity, unauthenticated, forbidden, unauthorized, 401, 403, token, bearer, credential, grant, row filter, policy, permissive, authenticated, allow-anonymous, audit, misconfigured]
 guide: security
-related: [authentication, authorization, row-filters, audit, errors-overview]
+related: [authentication, authorization, row-filters-and-masks, audit, errors-overview]
+listed_on: errors-overview
 ---
 
 Five codes, and the reason there are five is the advice. Each one is answered by a different person
@@ -60,7 +61,7 @@ with connect(options=options) as client:
 
 The SDK refuses to send a token over a plaintext endpoint unless told `allow_insecure_token=True` —
 a bearer token over an unencrypted channel is handed to anyone on the path. See
-[Client code](/help/topics/client-snippets).
+[Client code](/help/topics/clients#snippets).
 
 ## PRV-7002 — forbidden
 
@@ -90,7 +91,7 @@ drops are those with a NULL in a column it compares, as `region = region` does o
 is `region = 'EU'` — or change the policy's filter to a column the view has. For a filter that
 restricts nothing, write the comparison that was meant (`region = session_attribute('region')`), say
 `region IS NOT NULL` if dropping rows with no region is the point, or exempt the reader with
-`EXCEPT ROLE` if they may see every row. See [Row filters](/help/topics/row-filters) and
+`EXCEPT ROLE` if they may see every row. See [Row filters](/help/topics/row-filters-and-masks) and
 [Row filters and masks](/help/topics/row-filters-and-masks).
 
 !!! note "Subscribing with a row filter is refused on purpose"
@@ -165,7 +166,7 @@ would send the right person nowhere. See [Authorization](/help/topics/authorizat
 ## Where next
 
 - [Authentication](/help/topics/authentication), [Authorization](/help/topics/authorization),
-  [Row filters](/help/topics/row-filters), [Audit](/help/topics/audit)
+  [Row filters](/help/topics/row-filters-and-masks), [Audit](/help/topics/audit)
 - [Security (long form)](/help/security)
 
 ## PRV-7010 to PRV-7021 — users, passwords, API keys and sessions

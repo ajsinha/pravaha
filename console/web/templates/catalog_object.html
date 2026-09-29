@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_helpcards.html" import helplink %}
+{% from "_helpcards.html" import screenhelp, helplink %}
 {% block title %}{{ t('governance.object.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 {#- ADR-059: one object as the engine's catalogue shows it to this person -- its metadata, the
@@ -9,7 +9,7 @@
   <div>
     <div class="accent"></div>
     <p class="kicker mt-2 mb-1">{{ t('catalog.kicker') }}</p>
-    <h1 class="mono">{{ detail.object.name if detail else t('governance.object.title') }}{{ helplink('catalog-and-grants') }}</h1>
+    <h1 class="mono">{{ detail.object.name if detail else t('governance.object.title') }}{{ helplink('catalog-object') }}</h1>
   </div>
   <a class="btn btn-sm btn-link" href="/catalog?tab=objects">&larr; {{ t('governance.back') }}</a>
 </div>
@@ -60,7 +60,7 @@
     tags -- and whether each narrows this person, as the engine answered. -#}
 <div class="card mt-3"><div class="card-body">
   <div class="d-flex justify-content-between align-items-center">
-    <h2 class="h6 mb-2">{{ t('governance.policies.on_object') }}{{ helplink('row-filters-and-masks') }}</h2>
+    <h2 class="h6 mb-2">{{ t('governance.policies.on_object') }}</h2>
     <a class="btn btn-sm btn-link" href="/admin/policies?object={{ o.name|urlencode }}">{{ t('governance.policies.edit') }} &rarr;</a>
   </div>
   {% set mine_policies = (detail.access or {}).get('policies') or [] %}
@@ -98,4 +98,5 @@
   {% endif %}
 </div></div>
 {% endif %}
+{{ screenhelp('catalog-object') }}
 {% endblock %}

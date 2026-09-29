@@ -9,7 +9,7 @@ badge: BACKPRESSURE
 audience: Operators
 keywords: [plan, operator, bottleneck, backpressure, blocked fraction, inbox, self time, sampled, rows in, rows out, state bytes, watermark, pravaha.metrics.operators, lane, shared lane]
 guide: operations#diagnosing-backpressure
-related: [metrics-alerts, sizing-lanes, lane-sharing, backfill-cutover, event-time-watermarks]
+related: [observability, lanes, backfill-cutover, event-time-watermarks]
 ---
 
 A query that is "slow" is one of three things, and they want three different answers:

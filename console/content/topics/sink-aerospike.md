@@ -10,6 +10,7 @@ audience: Engineers
 keywords: [aerospike-sink, aerospike, upsert, idempotent, effectively once, key.bins, ttl.seconds, set, namespace, bins]
 guide: operations#one-engine-and-what-the-server-still-lacks
 related: [sinks-overview, delivery-guarantees, source-aerospike, connector-security]
+listed_on: sinks-overview
 ---
 
 `aerospike-sink` writes a query's answer back into Aerospike as one record per view row, keyed by

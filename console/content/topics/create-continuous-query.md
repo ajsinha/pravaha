@@ -9,7 +9,7 @@ badge: STATEMENTS
 audience: Analysts and developers
 keywords: [create continuous query, queries on queries, over a view, follows, dependants, PRV-2075, PRV-8024, PRV-8025, PRV-8026, PRV-8027, keyed by, range, index, writing to, retain for, retain forever, with, options, drop, pause, resume, show continuous queries, indexed by, into, emit changes, insert into, PRV-2070, PRV-2071, PRV-2072, PRV-2073, PRV-8017, PRV-6211]
 guide: continuous-queries#101-the-statements-that-register-and-manage-queries
-related: [query-lifecycle, views-and-keys, sinks-overview, sql-parameters, sharing]
+related: [query-lifecycle, views-and-keys, sinks-overview, sql-reference, sharing]
 ---
 
 A continuous query is not a request: you register it once and the engine keeps its answer — the
@@ -361,7 +361,7 @@ AS SELECT merchant, amount FROM txn
 A query whose isolation matters more than the megabyte its own inbox costs says so at registration,
 and keeps a lane of its own on a node that shares lanes — its failure cannot take a shared lane's
 other queries down, and theirs cannot take it down
-([Sharing lanes](/help/topics/lane-sharing#keeping-one-query-on-its-own-lane)):
+([Sharing lanes](/help/topics/lanes#keeping-one-query-on-its-own-lane)):
 
 ```sql
 CREATE CONTINUOUS QUERY settlement_totals
@@ -374,7 +374,7 @@ Anything but `'dedicated'` or `'shared'` is refused with PRV-8017. On `CREATE OR
 moves a running query between a shared lane and one of its own at the cutover — with the SQL
 unchanged if that is all you want to change; a replacement that does not say keeps the running
 version's lane. `CREATE OR REPLACE` also takes `lane = 'own'`: a lane of its own for the new
-version without pinning it, which is what an administrator's [rebalance](/help/topics/lane-sharing#seeing-placements-and-rebalancing-by-hand)
+version without pinning it, which is what an administrator's [rebalance](/help/topics/lanes#seeing-placements-and-rebalancing-by-hand)
 uses; a restart places such a query by the node's mode again.
 
 An option this engine does not build is refused by name with PRV-8017 and the list of the ones that
@@ -392,7 +392,7 @@ Saying the same thing twice is refused rather than decided by which came first:
 CREATE CONTINUOUS QUERY twice KEYED BY (txn_id) RETAIN FOR PT1H WITH (retention = '24h') AS SELECT txn_id FROM txn
 ```
 
-## Over another query's answer
+## Over another query's answer: queries on queries {#queries-on-queries}
 
 A query's `FROM` may name another registered query. It then **follows that query's answer** — the
 rows its view holds, then every change to them — rather than reading its view once, so answers can
@@ -422,7 +422,15 @@ AS SELECT region, total FROM by_region WHERE total > 100
   answer is PRV-8025, and a chain deeper than eight is PRV-8027. `RETAIN FOR` on a query over a view
   is PRV-8026: retention belongs to the upstream.
 - **Who may**: registering over `cleaned` needs read access to `cleaned` and to every stream behind
-  it, and only views of your own tenant can be read this way.
+  it, and only views of your own tenant can be read this way. A row filter on one of those streams
+  applies to the downstream as to any view.
+- **When the upstream stops**: pausing it holds its answer still, and the downstream keeps answering
+  at the point it reached; resuming carries on. An upstream that fails stops the downstream's feed
+  with PRV-8004 naming it, and the downstream stays `RUNNING`, correct up to where it got.
+- **What it is**: a computation of its own — its own lane (or a shared one), checkpoints and sink.
+  Its fingerprint includes each upstream's name and fingerprint, so identical SQL over one name
+  shares one computation only while that name answers the same computation. A debug fork of a
+  downstream is refused (PRV-8012): its input has no history to replay.
 
 The query's page in the console shows what it **follows** and what it is **followed by**, and
 `GET /api/v1/queries/{name}` reports the same as `readsFrom` and `dependants`.

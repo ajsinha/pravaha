@@ -9,7 +9,8 @@ badge: PRV-3XXX
 audience: Operators
 keywords: [arena, slab, inbox, cell, lane, backpressure, window span, epoch, 64 columns, codegen, generated code, lane failed, min max retraction]
 guide: troubleshooting#it-ran-out-of-memory-the-disk-filled
-related: [sizing-lanes, errors-state, event-time-watermarks, query-lifecycle, errors-overview]
+related: [lanes, errors-state, event-time-watermarks, query-lifecycle, errors-overview]
+listed_on: errors-overview
 ---
 
 A 3xxx code means the query **planned** — the SQL was fine — and something went wrong while it ran:
@@ -41,7 +42,7 @@ A lane has two pieces of memory an operator can size: an **inbox** of fixed-size
 arrive in, and an **arena** of slabs that operators write their output batches into. The settings
 are `pravaha.lane.inbox.cells`, `pravaha.lane.inbox.cell-bytes`, `pravaha.lane.arena.slab-bytes`,
 `pravaha.lane.arena.max-slabs` and `pravaha.lane.batch-size` — see
-[Sizing and lanes](/help/topics/sizing-lanes).
+[Sizing and lanes](/help/topics/lanes#sizing-lanes).
 
 ### PRV-3001 — arena exhausted
 
@@ -198,6 +199,6 @@ interpreter runs it.
 
 ## Where next
 
-- [Sizing and lanes](/help/topics/sizing-lanes) — what each lane setting costs, per query
+- [Sizing and lanes](/help/topics/lanes#sizing-lanes) — what each lane setting costs, per query
 - [State and serving codes](/help/topics/errors-state) — when state, not scratch memory, is full
 - [Event time and watermarks](/help/topics/event-time-watermarks)

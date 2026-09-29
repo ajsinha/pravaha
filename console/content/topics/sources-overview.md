@@ -1,10 +1,10 @@
 ---
-title: Sources, and choosing one
+title: Sources — every connector, and choosing one
 slug: sources-overview
 category: sources
 order: 10
 icon: box-arrow-in-right
-summary: "Where rows come from: the three configuration blocks (streams, sources, lookups), how a plugin is found, what each of the eight shipped sources can and cannot see, and how to pick one."
+summary: "Where rows come from: one page per shipped source, the three configuration blocks (streams, sources, lookups), how a plugin is found, what each source can and cannot see, and how to pick one."
 badge: START HERE
 audience: Operators
 keywords: [source, binding, plugin, connector, pravaha.sources, pravaha.streams, pravaha.lookups, options, classpath, serviceloader, capabilities, delivery guarantee, share.reader, pushdown, projection, partial aggregate, cdc, kafka]
@@ -13,10 +13,30 @@ related: [streams, source-filesystem, source-jdbc, source-postgres-cdc, source-m
 ---
 
 A **source** is what feeds a stream: a plugin, and the options that tell it where to read. Pravaha
-ships eight stream sources and two lookup plugins, each discovered by name, each declaring honestly what
+ships nine stream sources and two lookup plugins, each discovered by name, each declaring honestly what
 it can deliver. This page is the map: how a node is told about its data, what happens when a query
-first needs a source, and how the eight differ in the one thing that decides whether your answer is
+first needs a source, and how the nine differ in the one thing that decides whether your answer is
 right — **what they can see**.
+
+## Every source {#every-source}
+
+Each has a page of its own: its options, a complete binding, what it pushes down, what it guarantees,
+and how it goes wrong.
+
+| Plugin | Page |
+|---|---|
+| `aerospike` | [The Aerospike source](/help/topics/source-aerospike) |
+| `cassandra` | [The Cassandra source](/help/topics/source-cassandra) |
+| `delta` | [The Delta Lake source](/help/topics/source-delta) |
+| `feedfile` | [The feedfile source](/help/topics/source-feedfile) |
+| `filesystem` | [The filesystem source](/help/topics/source-filesystem) |
+| `jdbc` | [The jdbc source](/help/topics/source-jdbc) |
+| `kafka` | [The Kafka source — a topic read exactly once](/help/topics/source-kafka) |
+| `mysql-cdc` | [The mysql-cdc source — change data capture from MySQL](/help/topics/source-mysql-cdc) |
+| `postgres-cdc` | [The postgres-cdc source — change data capture from PostgreSQL](/help/topics/source-postgres-cdc) |
+
+The [lookup tables](/help/topics/lookups) a temporal join asks, and [credentials and
+TLS](/help/topics/connector-security) for every connector, have pages of their own too.
 
 ## Three blocks, kept separate on purpose
 
@@ -113,19 +133,19 @@ bundled because their licences do not allow a proprietary product to redistribut
 plugin module on your application's classpath is found by `ServiceLoader` like any other — nothing
 else to do. See [the embedded engine](/help/topics/embedded-engine).
 
-## The eight sources side by side
+## The nine sources side by side
 
 What each can see decides what a view over it can mean. "Emits deletes" is the question to ask first:
 a source that cannot see a delete gives a view that keeps serving deleted rows.
 
 | | Reads | Emits deletes | Before-image | Incremental | Guarantee | Pushdown | Shared by queries |
 |---|---|---|---|---|---|---|---|
-| [filesystem](/help/topics/source-filesystem) | one delimited file, once or followed | only through `op.column` | no | yes (appends) | exactly-once | none | no |
+| [filesystem](/help/topics/source-filesystem) | one delimited file, once or followed | only through `op.column` | no | yes (appends) | exactly-once | none | **yes** when read once through, met at an exact position (ADR-054); a followed file, no |
 | [feedfile](/help/topics/source-feedfile) | a directory of CSV/Parquet files | no | no | yes (new files) | exactly-once *or* at-least-once, by configuration | none | no |
 | [jdbc](/help/topics/source-jdbc) | a table or `SELECT`, polled on a monotonic column | no | no | yes (beyond the watermark) | at-least-once | filter, columns, and `COUNT`/`SUM` partials with `key.column` | no |
 | [postgres-cdc](/help/topics/source-postgres-cdc) | a PostgreSQL table's changes, from its write-ahead log | **yes** (the whole old row at `−1`) | **yes** — an update is `−1` then `+1` | yes (every commit) | exactly-once | none | no |
 | [mysql-cdc](/help/topics/source-mysql-cdc) | a MySQL table's changes, from its row-based binary log | **yes** (the whole old row at `−1`) | **yes** — an update is `−1` then `+1` | yes (every commit) | exactly-once | none | no |
-| [kafka](/help/topics/source-kafka) | a Kafka topic, one reader per partition | only with `format: changelog` (`kafka-sink`'s envelope, weights and all) | with `format: changelog` | yes (new records) | exactly-once | none | no |
+| [kafka](/help/topics/source-kafka) | a Kafka topic, one reader per partition | only with `format: changelog` (`kafka-sink`'s envelope, weights and all) | with `format: changelog` | yes (new records) | exactly-once | none | **yes** — one reader per binding, met at an exact position (ADR-054) |
 | [delta](/help/topics/source-delta) | a Delta table: snapshot, then each commit | **yes** (removed files at `−1`) | as a retraction of the old row | yes (new commits) | exactly-once | none | no |
 | [aerospike](/help/topics/source-aerospike) | a set, scanned by last-update time | no | no | yes (server-side filter) | at-least-once | filter, columns | **yes** |
 | [cassandra](/help/topics/source-cassandra) | a table, scanned by `token()` range | no | no | **no** — every pass reads everything | at-least-once | columns | **yes** |

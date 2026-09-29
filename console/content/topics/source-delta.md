@@ -9,7 +9,8 @@ badge: SOURCE
 audience: Operators
 keywords: [delta, delta lake, lakehouse, kernel, parquet, start.version, snapshot, commit, vacuum, deletion vectors, retraction]
 guide: continuous-queries#21-every-source-type-configured
-related: [sources-overview, zset-weights, source-feedfile, late-data]
+related: [sources-overview, zset-weights, source-feedfile, event-time-watermarks]
+listed_on: sources-overview
 ---
 
 The `delta` plugin reads a **Delta Lake table** as a continuous stream. It starts from a snapshot —
@@ -205,4 +206,4 @@ configuration, which this plugin does not manage.
 
 - [Weights and retractions](/help/topics/zset-weights) — why a removed file's rows at `−1` are exactly right
 - [The feedfile source](/help/topics/source-feedfile) — files that only ever add
-- [Sources overview](/help/topics/sources-overview) — the seven sources side by side
+- [Sources overview](/help/topics/sources-overview) — every source side by side

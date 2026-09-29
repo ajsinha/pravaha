@@ -354,7 +354,7 @@ export function DiffPanel({ sql, title, origin, drafts, active, getMonaco, onNew
     body = nothingToCompare
       ? html`<div class="state" id="diff-empty"><h2>${t("wb.diff.none_title")}</h2><p>${t("wb.diff.none_body")}</p>
           <div class="d-flex gap-2 justify-content-center flex-wrap"><button type="button" class="btn btn-sm btn-outline-secondary" onClick=${onNewDraft}>${t("wb.diff.new_draft")}</button>
-          <a class="btn btn-sm btn-link" href="/help/topics/compare-versions">${t("wb.diff.how")}</a></div></div>`
+          <a class="btn btn-sm btn-link" href="/help/topics/backfill-cutover#comparing-two-versions">${t("wb.diff.how")}</a></div></div>`
       : html`<div class="state" id="diff-empty"><h2>${t("wb.diff.never_title")}</h2><p>${t("wb.diff.never_body")}</p>
           ${against ? html`<button type="button" class="btn btn-sm btn-primary" onClick=${compare} disabled=${!sql.trim()}>${t("wb.diff.compare_with", { name: againstName })}</button>` : null}</div>`;
   } else {

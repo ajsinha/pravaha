@@ -50,6 +50,8 @@ from core.content.library import ContentLibrary
 from core.help_catalog import (
     CATEGORIES,
     ERROR_FAMILIES,
+    MOVED,
+    SCREEN_CARDS,
     SCREEN_HELP,
     TOPIC_AREA,
     HelpCatalog,
@@ -137,9 +139,15 @@ def test_every_icon_the_help_names_is_one_the_vendored_icon_font_has(catalog):
 def test_every_name_the_catalog_uses_is_a_page_that_exists(catalog):
     topics = {t.slug for t in catalog.topics()}
     guides = {g.slug for g in catalog.guides()}
-    for screen, slugs in SCREEN_HELP.items():
-        for slug in slugs:
+    for screen, entries in SCREEN_HELP.items():
+        assert 1 <= len(entries) <= SCREEN_CARDS, f"screen {screen} offers {len(entries)} cards"
+        for entry in entries:
+            slug, _, anchor = entry.partition("#")
             assert slug in topics, f"screen {screen} offers help topic {slug}, which does not exist"
+            if anchor:
+                ids = {h["id"] for h in catalog.topic(slug).headings}
+                assert anchor in ids, f"screen {screen} offers {entry}, and {slug} has no such section"
+        assert len(catalog.for_screen(screen)) == len(entries), f"screen {screen} loses a card"
     for digit, (_label, slug) in ERROR_FAMILIES.items():
         assert slug in topics, f"PRV-{digit}xxx is explained by {slug}, which does not exist"
     for category in CATEGORIES:
@@ -156,14 +164,48 @@ def test_every_name_the_catalog_uses_is_a_page_that_exists(catalog):
         assert catalog.companion(topic), f"{topic.slug} has no full reference"
 
 
-def test_every_topic_is_a_card_on_the_index_and_every_card_opens(anonymous, catalog):
+def test_every_topic_is_a_card_on_the_index_or_on_its_list_and_every_card_opens(anonymous, catalog):
+    # One connector's page, one range of codes: listed on its list page (the Sources, Sinks and
+    # Errors cards), not a card of its own. Everything else is a card.
     index = anonymous.get("/help")
     assert index.status_code == 200
     hrefs = set(re.findall(r'class="help-card" href="([^"]+)"', index.text))
+    listed = 0
     for topic in catalog.topics():
-        assert f"/help/topics/{topic.slug}" in hrefs, f"{topic.slug} has no card: nobody can find it"
+        lister = topic.meta.get("listed_on")
+        if lister:
+            listed += 1
+            assert catalog.topic(lister) is not None, f"{topic.slug} is listed on {lister}, which does not exist"
+            assert f"/help/topics/{lister}" in hrefs, f"{topic.slug}'s list page {lister} has no card"
+            assert f"/help/topics/{topic.slug}" not in hrefs, f"{topic.slug} is on its list and a card too"
+            assert f'href="/help/topics/{topic.slug}"' in anonymous.get(f"/help/topics/{lister}").text, \
+                f"{lister} does not list {topic.slug}: nobody can find it"
+        else:
+            assert f"/help/topics/{topic.slug}" in hrefs, f"{topic.slug} has no card: nobody can find it"
+    assert listed >= 20, "the connector and error-range pages are listed, not carded"
     for href in hrefs:
         assert anonymous.get(href).status_code == 200, f"the card {href} does not open"
+
+
+def test_the_index_is_a_page_somebody_can_scan(anonymous):
+    cards = re.findall(r'class="help-card" href="/help/topics/', anonymous.get("/help").text)
+    assert len(cards) <= 60, f"{len(cards)} topic cards on the index"
+
+
+def test_every_retired_topic_redirects_to_where_its_content_is(anonymous, catalog):
+    from core.help_catalog import MOVED
+
+    assert len(MOVED) >= 20
+    for old, target in MOVED.items():
+        assert catalog.topic(old) is None, f"{old} is retired and still a topic"
+        answer = anonymous.get(f"/help/topics/{old}")
+        assert answer.status_code == 301, old
+        assert answer.headers["location"] == f"/help/topics/{target}", old
+        slug, _, anchor = target.partition("#")
+        page = anonymous.get(f"/help/topics/{slug}")
+        assert page.status_code == 200, target
+        if anchor:
+            assert anchor in _parse(page.text).ids, f"{old} moved to {target}, and {slug} has no #{anchor}"
 
 
 def test_every_topic_renders_with_its_footer(anonymous, catalog):
@@ -235,6 +277,17 @@ def test_every_internal_link_on_every_help_page_resolves(anonymous, catalog):
                 if code not in (200, 303, 307, 401):
                     broken.append(f"{page} -> {href} ({code})")
                 continue
+            retired = target.removeprefix("/help/topics/") if target.startswith("/help/topics/") else ""
+            if retired in MOVED:
+                # An address that answers 301. The help's own pages link to where the content is
+                # now; About and the competitive page are written elsewhere, and a redirect there
+                # still lands, so for them the redirect's target is what is checked.
+                if not page.startswith("/about"):
+                    broken.append(f"{page} -> {href} (a retired topic; link to /help/topics/{MOVED[retired]})")
+                    continue
+                target, _, moved_anchor = MOVED[retired].partition("#")
+                target = "/help/topics/" + target
+                parts = parts._replace(fragment=parts.fragment or moved_anchor)
             code, ids = fetch(target + (f"?{parts.query}" if parts.query else ""))
             if code != 200:
                 broken.append(f"{page} -> {href} ({code})")
@@ -379,7 +432,8 @@ def _declared_settings() -> set[str]:
         paths |= set(re.findall(r"\{@code (pravaha\.[a-z0-9.-]*[a-z0-9])", text))
         # A @ConfigurationProperties class binds each of its fields under its prefix, relaxed:
         # `auditReaders` is `pravaha.security.audit-readers`. A Map field's keys are the operator's.
-        prefix = re.search(r'@ConfigurationProperties\(prefix\s*=\s*"(pravaha[a-z0-9.-]*)"\)', text)
+        # `ignoreUnknownFields = false` may follow the prefix (identity, tenancy).
+        prefix = re.search(r'@ConfigurationProperties\(prefix\s*=\s*"(pravaha[a-z0-9.-]*)"[,)]', text)
         if prefix:
             for kind, field in re.findall(r"^    private (?:final )?([A-Za-z<>, ?.]+?) ([a-z][A-Za-z0-9]*)\s*[=;]",
                                           text, re.MULTILINE):
@@ -518,7 +572,7 @@ def test_the_index_filters_in_the_browser_from_what_each_card_carries(anonymous)
 # ================================================================== the gate
 
 PUBLIC = ["/help", "/help/search?q=checkpoint", "/help/guides", "/help/codes", "/help/codes/PRV-2050",
-          "/help/decisions/043-how-a-continuous-query-names-its-sink", "/about", "/help/topics/first-view",
+          "/help/decisions/043-how-a-continuous-query-names-its-sink", "/about", "/help/topics/getting-started",
           "/help/topics/source-jdbc", "/help/concepts", "/about/competitive"]
 
 
@@ -560,7 +614,27 @@ SCREENS = {"/workbench": "workbench", "/catalog": "catalog", "/views": "views",
            "/queries": "queries", "/queries/big_txn": "query", "/plugins": "plugins",
            "/admin/access": "admin", "/admin/audit": "admin", "/catalog/streams/txn": "stream",
            "/overview": "overview", "/queries/big_txn/dead-letters": "dead-letters",
-           "/queries/big_txn/replacement": "replacement"}
+           "/queries/big_txn/replacement": "replacement", "/alerts": "alerts",
+           "/admin/lanes": "admin-lanes", "/admin/grants": "admin-grants",
+           "/admin/policies": "admin-policies", "/admin/users": "admin-users",
+           "/admin/keys": "admin-keys", "/admin/sessions": "admin-sessions",
+           "/admin/ai-models": "ai-models"}
+
+
+def test_every_screen_a_template_names_has_help_and_every_screen_with_help_is_named():
+    # A "?" naming a screen SCREEN_HELP does not have renders nothing at all -- which is how the
+    # catalog object page's two question marks were blank.
+    named: set[str] = set()
+    for template in (CONSOLE_ROOT / "web" / "templates").glob("*.html"):
+        text = template.read_text(encoding="utf-8")
+        named |= set(re.findall(r"(?:helplink|screenhelp)\('([a-z-]+)'\)", text))
+        # The admin screens' shared head asks for admin-<tab>, falling back to admin.
+        if "admin_head(" in text and template.name != "_admin_head.html":
+            named |= {f"admin-{tab}" for tab in re.findall(r"admin_head\('([a-z-]+)'", text)}
+    missing = sorted(s for s in named if s not in SCREEN_HELP and not s.startswith("admin-"))
+    assert not missing, f"templates name screens with no help: {missing}"
+    unused = sorted(s for s in SCREEN_HELP if s not in named)
+    assert not unused, f"help declared for screens no template shows: {unused}"
 
 
 def test_every_product_screen_links_to_its_help_topics(catalog):

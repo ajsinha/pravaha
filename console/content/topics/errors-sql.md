@@ -9,7 +9,8 @@ badge: PRV-2XXX
 audience: Analysts, developers
 keywords: [syntax, validation, unknown column, unsupported, order by, limit, union, unbounded, group by, parameter, placeholder, keyed by, range, index, create continuous query, insert into, emit mode, retraction, append-only, sink]
 guide: continuous-queries#19-error-codes
-related: [sql-refusals, sql-reference, create-continuous-query, sql-parameters, errors-overview]
+related: [sql-refusals, sql-reference, create-continuous-query, errors-overview]
+listed_on: errors-overview
 ---
 
 The 2xxx range is the planner speaking. Every code here is raised **before anything runs** — by the
@@ -336,7 +337,7 @@ SELECT tier, COUNT(*) AS users, SUM(total) AS spend FROM user_volume GROUP BY ti
 
 `?` placeholders are values — in `WHERE` and `HAVING` — never parts of the query's shape (ADR-032).
 The four codes tell apart the four ways binding goes wrong. See
-[Parameters](/help/topics/sql-parameters) for the whole position table.
+[Parameters](/help/topics/sql-reference#parameters) for the whole position table.
 
 ### PRV-2060 — parameter not bound
 
@@ -361,7 +362,7 @@ SELECT txn_id, amount FROM txn WHERE merchant = ?
 
 Over the wire, write the value into the SQL, or register once without the filter and select by that
 column at read time — `pravaha query ... --params acme`, or `pravaha subscribe --filter merchant=acme`
-— which is one computation for every value. See [Parameters](/help/topics/sql-parameters).
+— which is one computation for every value. See [Parameters](/help/topics/sql-reference#parameters).
 
 ### PRV-2061 — parameter arity
 
@@ -584,7 +585,7 @@ and `AVG` — with or without `GROUP BY` — are kept exact over that. A window,
 
 **Do:** put the window, the join or the extreme in the upstream query, or read the view with a plain
 `SELECT`, which is a bounded read where every aggregate runs. See
-[CREATE CONTINUOUS QUERY](/help/topics/create-continuous-query#over-another-querys-answer).
+[CREATE CONTINUOUS QUERY](/help/topics/create-continuous-query#queries-on-queries).
 
 ### PRV-2020 on `INSERT` — there is no DML surface
 
@@ -617,4 +618,4 @@ query was registered — see [Registry codes](/help/topics/errors-registry).
 
 - [What the engine refuses, and why](/help/topics/sql-refusals) — the same ground by construct
 - [The SQL reference](/help/topics/sql-reference) and [CREATE CONTINUOUS QUERY](/help/topics/create-continuous-query)
-- [Parameters](/help/topics/sql-parameters)
+- [Parameters](/help/topics/sql-reference#parameters)

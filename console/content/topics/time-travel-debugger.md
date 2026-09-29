@@ -8,7 +8,7 @@ summary: "A query is answering wrongly. Fork it from a checkpoint into a second 
 audience: Operators, developers
 keywords: [debug, debugger, time travel, fork, checkpoint, step, replay, breakpoint, predicate, operator state, fixture, regression test, session, sinks disabled, PRV-8011, PRV-8012, PRV-8013, PRV-8014, PRV-8015, PRV-8016, pravaha.debug.sessions.max, pravaha.debug.session.ttl, pravaha.debug.session.max-rows, pravaha.debug.step.max-rows]
 guide: user-guide#11-the-time-travel-debugger
-related: [checkpoints-recovery, query-lifecycle, compare-versions, errors-registry, zset-weights, metrics-alerts]
+related: [checkpoints-recovery, query-lifecycle, backfill-cutover, errors-registry, zset-weights, observability]
 ---
 
 A query is producing a row that is wrong, and the log says nothing, because nothing went wrong —
@@ -92,7 +92,7 @@ and an aggregate that produced a zero delta look identical from the outside; her
 `in=1 out=0` and the other `in=1 out=2`.
 
 `n0`, `n1`, ... are the plan's own node ids, the same ones the
-[plan endpoint](/help/topics/metrics-index) publishes per-operator numbers under — so a step and
+[plan endpoint](/help/topics/observability#every-metric) publishes per-operator numbers under — so a step and
 the plan graph show the same counters rather than two of them.
 
 The view lines carry their [Z-set weights](/help/topics/zset-weights): an update is the old row
@@ -131,7 +131,7 @@ it, and the read happens on the lane that owns the state rather than beside it.
 filling.** That is a real limit rather than an oversight: the only way to read an open window's
 answer is to fire it, and a debugger that published a window early would have changed the query it
 was asked about. A window stays readable for as long as the stream's allowed lateness keeps it
-correctable ([Late data](/help/topics/late-data)).
+correctable ([Late data](/help/topics/event-time-watermarks#late-data)).
 
 ## The same session twice gives the same answers
 
@@ -242,4 +242,4 @@ screen with the fork control disabled and the policy's own reason beside it.
 
 - [Checkpoints and recovery](/help/topics/checkpoints-recovery) — what a fork starts from
 - [Registry codes](/help/topics/errors-registry) — the six refusals, each by name
-- [Comparing two versions](/help/topics/compare-versions) — the other way to find out what changed
+- [Comparing two versions](/help/topics/backfill-cutover#comparing-two-versions) — the other way to find out what changed

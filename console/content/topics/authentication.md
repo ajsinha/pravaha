@@ -4,12 +4,12 @@ slug: authentication
 category: security
 order: 10
 icon: person-badge
-summary: "How a node decides who a caller is: bearer tokens on every Flight and HTTP call, the none and token modes, static tokens for development, and why a node refuses to start open by accident."
+summary: "How a node decides who a caller is: the engine's own accounts, API keys and sessions (ADR-052), your identity provider behind a TokenVerifier, or static tokens — and why a node refuses to start open by accident."
 badge: SECURITY
 audience: Operators
 keywords: [authentication, token, bearer, pravaha.security.authentication, tokens, allow-anonymous, principal, TokenVerifier, PRV-7001, dev profile, console token]
 guide: security#the-three-seams
-related: [authorization, audit, tls, row-filters, configuration]
+related: [authorization, audit, tls, row-filters-and-masks, configuration]
 ---
 
 Authentication answers one question — **who is this?** — and nothing else. A credential comes in; a
@@ -18,10 +18,41 @@ register or administer is [authorization](/help/topics/authorization), a separat
 deployment can change its identity provider without rewriting its rules or tighten its rules without
 touching identity.
 
-**Pravaha stores no passwords and runs no identity provider.** The `TokenVerifier` interface is where
-a deployment plugs in the one it already has. What ships in the server is a static table of tokens --
-named `StaticTokenVerifier` so nobody mistakes it for an identity system — for development servers
-and tests.
+A node can know its callers three ways:
+
+| | Where the people are | For |
+|---|---|---|
+| **The engine's own accounts** (`pravaha.identity.enabled: true`, [ADR-052](/help/decisions/052-the-engine-is-the-identity-authority)) | users, password hashes, API keys and sessions in an append-only file the node keeps | a deployment with no identity provider of its own; what the console signs people in against |
+| **Your identity provider**, behind a `TokenVerifier` | wherever you keep them | a deployment that already has one — [below](#bringing-your-own-identity-provider) |
+| **Static tokens** (`pravaha.security.tokens`) | a table in the configuration, named `StaticTokenVerifier` so nobody mistakes it for an identity system | development servers and tests; logged as deprecated once identity is on |
+
+## The engine's own accounts {#the-engines-own-accounts}
+
+With `pravaha.identity.enabled: true` (and `pravaha.security.authentication: token`) the node keeps
+users, password hashes, API keys and sessions in `pravaha.identity.store` — owner-readable, holding
+no reversible secret. A person signs in with a username and password (`POST /api/v1/auth/login`,
+`pravaha login`, or the console) and gets a session token; a program uses an **API key**,
+`prv_<environment>_<keyid>_<secret>`, shown once and stored only as a hash. A key issued for one
+`pravaha.identity.environment` is refused by another (`PRV-7014`), so a QA key cannot open production.
+
+| Setting | Default | What it decides |
+|---|---|---|
+| `pravaha.identity.password.min-length` | `12` | the shortest password accepted |
+| `pravaha.identity.password.require-classes` | `3` | of lower case, upper case, digits and symbols |
+| `pravaha.identity.password.history` | `5` | a new password may not be any of the last this many |
+| `pravaha.identity.password.max-age` | `90d` | past it, the next sign-in must change the password |
+| `pravaha.identity.lockout.failures` | `5` | failed sign-ins within `lockout.window` (`15m`) that lock the account for `lockout.duration` (`30m`) |
+| `pravaha.identity.session.idle` | `30m` | a session unused this long ends; `session.absolute` (`12h`) ends it regardless |
+| `pravaha.identity.session.per-user` | `3` | open sessions per person; signing in once more ends the oldest |
+| `pravaha.identity.key.default-days` | `90` | an API key's life unless asked otherwise; `key.max-days` (`365`) is the most |
+| `pravaha.identity.key.rotation-overlap` | `7d` | how long a rotated key keeps working beside its successor |
+| `pravaha.identity.mode` | `password` | `password`, `sso` or `hybrid`; with no identity provider configured, people sign in with passwords whatever it says |
+
+An empty store creates `admin` with the published password `pravaha-dev-admin`, and a node outside
+the `dev` profile refuses to start (`PRV-7019`) until it is changed — or reads the first password
+from `pravaha.identity.bootstrap-password-file`, which the QA installer generates. People, keys and
+sessions are administered under **Admin · Users / API keys / Sessions**, with `pravaha user`, `pravaha
+key` and `pravaha session`, or over `/api/v1/users`, `/api/v1/keys` and `/api/v1/sessions`.
 
 ## How a credential travels
 

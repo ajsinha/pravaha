@@ -2,7 +2,7 @@
 {#- Pravaha console — an assist answer as a page: what a form posted with scripting off gets back.
     Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
     Proprietary and confidential. See LICENSE at the repository root. -#}
-{% from "_helpcards.html" import helplink %}
+{% from "_helpcards.html" import screenhelp, helplink %}
 {% block title %}{{ t('assist.page.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
 <p class="text-muted small"><a href="{{ back }}">&larr; {{ t('assist.page.back') }}</a></p>
@@ -15,5 +15,6 @@
 </div>
 <div class="rule"></div>
 <div class="card"><div class="card-body" id="assist-describe-result" tabindex="-1" aria-live="polite">{{ fragment|safe }}</div></div>
+{{ screenhelp('assistant') }}
 {% endblock %}
 {% block scripts %}<script type="module" src="/static/app/assist.js?v={{ asset_version }}"></script>{% endblock %}

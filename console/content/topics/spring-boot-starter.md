@@ -40,7 +40,7 @@ authentication — this is one application with a maintained answer inside it.
 <dependency>
   <groupId>com.ash.messaging</groupId>
   <artifactId>pravaha-spring-boot-starter</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
+  <version>0.2.1-SNAPSHOT</version>
 </dependency>
 ```
 

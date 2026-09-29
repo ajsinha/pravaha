@@ -131,11 +131,11 @@ current as its laggiest input, which is correct and surprises people.
 
 ### 2.1 Every source type, configured
 
-Eight stream sources ship today. Each is a plugin discovered by `ServiceLoader`, so the set grows
+Nine stream sources ship today. Each is a plugin discovered by `ServiceLoader`, so the set grows
 without the engine changing — [`CONNECTORS.md`](CONNECTORS.md) is how you add one.
 
 **Only `filesystem` is inside the server jar.** `feedfile`, `jdbc`, `delta`, `aerospike`,
-`cassandra`, `postgres-cdc` and `kafka` are separate modules, and adding one to a deployment means dropping a jar on the
+`cassandra`, `postgres-cdc`, `mysql-cdc` and `kafka` are separate modules, and adding one to a deployment means dropping a jar on the
 classpath rather than rebuilding the server — which is why a server that only reads a directory does
 not carry Hadoop and Parquet.
 
@@ -1134,8 +1134,9 @@ index entry, which is the same thing SQL says about it: `NULL > 1000` is UNKNOWN
 that as false. The equality index `INDEX (column)` declares is different in one respect: it is
 built at registration and kept from then on, in the same commit as the rows, rather than on first
 use, because it is declared and a read straight after a restore must find it
-([ADR-055](adr/055-an-equality-index-over-a-column-outside-the-key.md)). All of this is the same for Flight SQL, for `GET /api/v1/views/{name}/query` and for
-the PostgreSQL gateway, because all three run the same reader.
+([ADR-055](adr/055-an-equality-index-over-a-column-outside-the-key.md)). All of this is the same for Flight SQL and for
+the PostgreSQL gateway, because both run the same reader; the HTTP API describes a view
+(`GET /api/v1/views/{name}`) but does not read one.
 
 Or subscribe, and receive each committed change as it happens:
 

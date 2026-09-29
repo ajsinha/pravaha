@@ -1,10 +1,10 @@
 ---
-title: How a query writes to a sink
+title: Sinks — how a query writes to one, and every sink
 slug: sinks-overview
 category: sinks
 order: 10
 icon: box-arrow-right
-summary: "Bind a sink under pravaha.sinks, name it when you register, and every commit of the view is written there too — checked for shape and for retractions before anything opens."
+summary: "Bind a sink under pravaha.sinks, name it when you register, and every commit of the view is written there too — checked for shape and for retractions before anything opens. One page per shipped sink."
 badge: SINKS
 audience: Engineers
 keywords: [sink, WRITING TO, "--sink", pravaha.sinks, shape check, emit mode, append, upsert, retract, detached, /api/v1/sinks, kafka, delta]
@@ -20,6 +20,20 @@ weight — is also handed to the sink, on the query's own commit.
 
 Nothing about the view changes when a sink is attached. Clients still read it, subscribers still
 receive every commit, and if the sink later fails, the view carries on without it.
+
+## Every sink {#every-sink}
+
+| Plugin | Page |
+|---|---|
+| `aerospike-sink` | [The Aerospike sink](/help/topics/sink-aerospike) |
+| `delta-sink` | [The Delta sink — a lakehouse table that holds the answer](/help/topics/sink-delta) |
+| `filesystem` | [The filesystem sink](/help/topics/sink-filesystem) |
+| `iceberg-sink` | [The Iceberg sink — an Apache Iceberg table that holds the answer](/help/topics/sink-iceberg) |
+| `jdbc-sink` | [The jdbc sink — a transactional, exactly-once table](/help/topics/sink-jdbc) |
+| `kafka-sink` | [The Kafka sink — a topic that holds the answer](/help/topics/sink-kafka) |
+
+What each can promise, from at-least-once to exactly-once, side by side:
+[delivery guarantees](/help/topics/delivery-guarantees).
 
 ## The three steps
 

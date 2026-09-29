@@ -295,8 +295,9 @@ hosts registrations on a fixed set of shared lanes it owns (`QueryExecution.star
 closing no longer stops a lane serving the rest. `SharedLanes` is the admission control: each
 registration goes to the least loaded shared lane below `max-queries-per-lane`, and one that fits
 nowhere gets a lane of its own — never a refusal, because turning on a memory setting must not make
-a node accept fewer queries. Off by default because a shared lane shares its fate: one pipeline
-that throws stops every query on the lane.
+a node accept fewer queries. Not from the first query, because a shared lane shares its fate: one
+pipeline that throws stops every query on the lane — a node with a few dozen queries keeps that
+isolation, and one with thousands needs the memory more.
 
 **A shared lane takes any query, and one copy of a shared source (LANE-2).** The multiplexer
 dispatched by stream, which assumed one ingest per stream per lane, while the feed layer gave each

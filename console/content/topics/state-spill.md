@@ -9,13 +9,13 @@ badge: ADR-044
 audience: Operators
 keywords: [state ceiling, spill, overflow slab, compaction, max-bytes, max-overflow-slabs, PRV-4001, PRV-4005, PRV-4006, state_fraction, ADR-037, mapped files, RocksDB]
 guide: operations#disk
-related: [metrics-alerts, sizing-lanes, checkpoints-recovery, windows, joins]
+related: [observability, lanes, checkpoints-recovery, windows, joins]
 ---
 
 A continuous query's **state** is what it must remember between rows: a windowed aggregate's
 accumulators for every open window, a join's rows on each side still inside the match window, a
 `COUNT(DISTINCT)`'s per-value counts. It is separate from a lane's inbox and arena (which hold rows
-*in flight*, see [Sizing lanes](/help/topics/sizing-lanes)) and from the view (which holds the
+*in flight*, see [Sizing lanes](/help/topics/lanes#sizing-lanes)) and from the view (which holds the
 *answer*).
 
 Every piece of state has a bound, and a query that could have none is refused when it is planned --
@@ -203,7 +203,7 @@ as well.
     starved first. Set a quota.
 
 !!! warning "Pitfall: on a shared lane, a ceiling is everybody's problem"
-    With [lane sharing](/help/topics/lane-sharing) on and no spill tier, one query refused with
+    With [lane sharing](/help/topics/lanes#sharing-lanes) on and no spill tier, one query refused with
     PRV-4001 kills its lane and every query on it. Configure spill before sharing lanes.
 
 !!! note "Older documents say nothing spills"
@@ -213,7 +213,7 @@ as well.
 
 ## Where next
 
-- [Metrics and alerts](/help/topics/metrics-alerts) — every gauge and the alert rules
+- [Metrics and alerts](/help/topics/observability) — every gauge and the alert rules
 - [Windows](/help/topics/windows) and [Joins](/help/topics/joins) — the bounds that come from the query itself
 - [ADR-037: state that degrades instead of dying](/help/decisions/037-state-that-degrades-instead-of-dying)
 - [ADR-044: no RocksDB; the mapped tier is L1](/help/decisions/044-no-rocksdb-the-mapped-tier-is-l1)

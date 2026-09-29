@@ -9,7 +9,8 @@ badge: PRV-4XXX
 audience: Operators, developers
 keywords: [state too large, ceiling, spill, quota, disk full, checkpoint, snapshot, ownership, owner, allow-shared, dlq, dead letter, replay, retention, evicted, backfill, view too large, no such view, admission, tenant, deadline, consistency, frontier]
 guide: troubleshooting#it-ran-out-of-memory-the-disk-filled
-related: [state-spill, checkpoints-recovery, point-reads, consistency, errors-overview]
+related: [state-spill, checkpoints-recovery, views-and-keys, consistency, errors-overview]
+listed_on: errors-overview
 ---
 
 The 4xxx range is about **held rows**: an operator's state, the state tier that spills it, the
@@ -376,6 +377,6 @@ produced. Narrow the read, or read it again when the node is less busy. `TIMED_O
 ## Where next
 
 - [State and spill](/help/topics/state-spill) and [Checkpoints and recovery](/help/topics/checkpoints-recovery)
-- [Point reads](/help/topics/point-reads), [Consistency](/help/topics/consistency) and
+- [Point reads](/help/topics/views-and-keys#point-reads), [Consistency](/help/topics/consistency) and
   [Subscriptions](/help/topics/subscriptions)
-- [Metrics and alerts](/help/topics/metrics-alerts) — the numbers to watch before these codes appear
+- [Metrics and alerts](/help/topics/observability) — the numbers to watch before these codes appear

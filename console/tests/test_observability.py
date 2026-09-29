@@ -265,7 +265,7 @@ def test_the_rules_file_the_helm_copy_and_the_help_topic_are_the_same_rules():
     rules = (OBSERVABILITY / "prometheus" / "pravaha-rules.yaml").read_text(encoding="utf-8")
     helm = (REPO / "deploy" / "helm" / "pravaha" / "files" / "pravaha-rules.yaml").read_text(encoding="utf-8")
     assert helm == rules, "deploy/helm/pravaha/files/pravaha-rules.yaml is a copy of the rules file; copy it again"
-    topic = (CONSOLE_ROOT / "content" / "topics" / "metrics-alerts.md").read_text(encoding="utf-8")
+    topic = (CONSOLE_ROOT / "content" / "topics" / "observability.md").read_text(encoding="utf-8")
     blocks = re.findall(r"```yaml\n(groups:.*?)```", topic, re.DOTALL)
     assert len(blocks) == 1, "the help topic shows the rules in exactly one yaml block that starts with groups:"
     assert blocks[0].strip() + "\n" == _rules_body(rules), \

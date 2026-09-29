@@ -10,6 +10,7 @@ audience: Operators
 keywords: [feed, directory, drop, batch, csv, parquet, glob, completion, marker, stable, archive, quarantine, sftp, eod]
 guide: continuous-queries#21-every-source-type-configured
 related: [sources-overview, source-filesystem, source-delta, event-time-watermarks, dead-letters]
+listed_on: sources-overview
 ---
 
 The `feedfile` plugin reads the **batch-feed shape**: a directory into which files land over time —

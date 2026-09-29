@@ -9,7 +9,7 @@
     from; a change somebody else made since is refused as a conflict, never overwritten. A key is
     shown by the name of the variable or file that holds it, never its value. -#}
 {% from "_admin_head.html" import admin_head with context %}
-{% from "_helpcards.html" import helplink %}
+{% from "_helpcards.html" import screenhelp, helplink %}
 {% import "_states.html" as states %}
 {% import "_people.html" as people %}
 {% block title %}{{ t('admin.ai.title') }} — {{ app_name }}{% endblock %}
@@ -354,4 +354,5 @@
   {% endif %}
 </section>
 {% endif %}
+{{ screenhelp('ai-models') }}
 {% endblock %}

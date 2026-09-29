@@ -9,7 +9,7 @@ badge: STREAM
 audience: Developers
 keywords: [subscribe, tail, changes, changelog, weight, retraction, filter, tap, commit, conflate, slow subscriber, snapshot, mirror, "--filter", "--limit", "--snapshot", PRV-6105]
 guide: user-guide#4-subscribe
-related: [zset-weights, late-data, point-reads, consistency, client-snippets]
+related: [zset-weights, event-time-watermarks, views-and-keys, consistency, clients]
 ---
 
 A point read asks a view for its rows now. A **subscription** is told about every change to the view
@@ -372,5 +372,5 @@ is down and work again as soon as it is back.
 ## Where next
 
 - [Z-set weights and retractions](/help/topics/zset-weights) — the algebra behind `+1` and `-1`.
-- [Late data and corrections](/help/topics/late-data) — where retractions come from.
+- [Late data and corrections](/help/topics/event-time-watermarks#late-data) — where retractions come from.
 - [Consistency](/help/topics/consistency) — how a subscription and a read relate.

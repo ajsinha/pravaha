@@ -109,7 +109,7 @@ def test_the_menu_is_mega_panels_in_mayas_groups(admin):
     ("/alerts", ["/alerts"]),
     ("/admin/grants", ["/admin/grants"]),
     ("/help/codes/PRV-2050", ["/help/codes"]),
-    ("/help/topics/first-view", ["/help"]),
+    ("/help/topics/getting-started", ["/help"]),
     ("/help/topics/cli-reference", ["/help", "/help/topics/cli-reference"]),
 ])
 def test_the_current_item_is_lit_as_maya_lights_it(admin, path, current):

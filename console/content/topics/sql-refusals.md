@@ -9,7 +9,7 @@ badge: REFUSALS
 audience: Analysts and developers
 keywords: [PRV-2050, PRV-2020, PRV-2021, PRV-2002, PRV-2001, unbounded state, order by, limit, union, distinct, subquery, outer join, float sum, decimal, like escape]
 guide: continuous-queries#17-what-to-do-when-something-here-is-refused
-related: [sql-reference, errors-sql, aggregation, joins, sql-types]
+related: [sql-reference, errors-sql, aggregation, joins]
 ---
 
 **A query Pravaha cannot run is refused when it is planned, with a code and an explanation. It is
@@ -45,7 +45,7 @@ distinct keys and never shrinks. ...
 | PRV-2020 | Operator | A relational operator the engine cannot execute |
 | PRV-2021 | Expression | An expression or function the engine cannot compile |
 | PRV-2050 | Unbounded state | The query's state would grow without limit |
-| PRV-2060 to PRV-2063 | Parameters | See [parameters](/help/topics/sql-parameters) |
+| PRV-2060 to PRV-2063 | Parameters | See [parameters](/help/topics/sql-reference#parameters) |
 | PRV-2070 to PRV-2074 | Statements | See [CREATE CONTINUOUS QUERY](/help/topics/create-continuous-query) |
 
 The three rules underneath almost every refusal:

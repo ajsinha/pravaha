@@ -10,6 +10,7 @@ audience: Engineers
 keywords: [kafka, kafka-sink, topic, compacted, compaction, tombstone, upsert, changelog, json, avro, protobuf, schema.file, schema.id, schema.descriptor, schema.message, read_committed, isolation.level, transactional.id, staging topic, staging.topic, commit.group, exactly once, sasl, scram, gzip, compression, ktable, ksqldb]
 guide: connectors#a-transactional-sink-on-a-store-with-no-prepare-kafka
 related: [sinks-overview, delivery-guarantees, source-kafka, sink-jdbc, checkpoints-recovery, zset-weights, connector-security, source-postgres-cdc]
+listed_on: sinks-overview
 ---
 
 `kafka-sink` writes every commit of a query's view to a **Kafka topic**. In its default mode the

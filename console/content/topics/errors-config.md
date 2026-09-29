@@ -9,7 +9,8 @@ badge: PRV-1XXX
 audience: Operators, developers
 keywords: [configuration, duration, data size, enum, reference, placeholder, endpoint, client options, tls options, connect failed, missing field, invalid parameter, sdk]
 guide: troubleshooting#every-code
-related: [errors-overview, configuration, client-snippets, sdk-reference, http-api]
+related: [errors-overview, configuration, clients, http-api]
+listed_on: errors-overview
 ---
 
 The 1xxx range is everything that goes wrong **before any SQL is planned**: a configuration value the
@@ -359,6 +360,6 @@ every operation, so a generated client models the error rather than an empty obj
 ## Where next
 
 - [Configuration](/help/topics/configuration) — how a node is configured, and every setting in the
-  [settings index](/help/topics/settings-index)
-- [Client code](/help/topics/client-snippets) and the [SDK reference](/help/topics/sdk-reference)
+  [settings index](/help/topics/configuration#every-setting)
+- [Client code](/help/topics/clients#snippets) and the [SDK reference](/help/topics/clients#sdk-reference)
 - [TLS everywhere](/help/topics/tls)

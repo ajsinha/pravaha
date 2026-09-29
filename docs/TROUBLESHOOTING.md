@@ -876,6 +876,7 @@ client models the error rather than an empty object.
 | `PRV-1025` | CONFIG_NOT_AN_ENUM | config |
 | `PRV-1026` | CONFIG_OUT_OF_RANGE | config |
 | `PRV-1027` | CONFIG_KEY_UNREACHABLE | config |
+| `PRV-1028` | CONFIG_SCHEMA_MALFORMED | config |
 | `PRV-1029` | CONFIG_DOCS_BASE_URL_INVALID | config |
 | `PRV-1030` | CLIENT_MALFORMED_ENDPOINT | client (SDK) |
 | `PRV-1031` | CLIENT_INVALID_OPTIONS | client (SDK) |

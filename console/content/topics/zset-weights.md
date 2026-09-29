@@ -8,7 +8,7 @@ summary: "Every row carries a weight — +1 appearing, −1 withdrawn — and ev
 audience: Developers
 keywords: [z-set, zset, weight, retraction, "-1", "+1", insert, delete, update, correction, dbsp, changelog, incremental, subscriber, op.column, cdc, tombstone]
 guide: concepts#4-changes-carry-weights-and-a-correction-is-a-retraction-plus-an-insert
-related: [late-data, subscriptions, views-and-keys, consistency, sinks-overview]
+related: [event-time-watermarks, subscriptions, views-and-keys, consistency, sinks-overview]
 ---
 
 Rows in Pravaha do not simply arrive; they arrive with a **weight**. `+1` is a row appearing. `−1`
@@ -215,7 +215,7 @@ is not confused with it.
 
 ## Where next
 
-- [Late data and corrections](/help/topics/late-data) — the `−1`/`+1` pair in windows
+- [Late data and corrections](/help/topics/event-time-watermarks#late-data) — the `−1`/`+1` pair in windows
 - [Subscriptions](/help/topics/subscriptions) — commits, filters, slow consumers
 - [Delivery guarantees](/help/topics/delivery-guarantees) — what a sink does with a `−1`
 - The long form: [Concepts §4](/help/concepts#4-changes-carry-weights-and-a-correction-is-a-retraction-plus-an-insert)

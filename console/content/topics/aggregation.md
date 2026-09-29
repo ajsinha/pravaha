@@ -8,7 +8,7 @@ summary: "COUNT, SUM, MIN, MAX, AVG and COUNT(DISTINCT), with HAVING: over a win
 audience: Analysts
 keywords: [count, sum, min, max, avg, count distinct, having, group by, null group, integer, float, windowed aggregate, global aggregate, EXPR$]
 guide: continuous-queries#13-aggregation
-related: [windows-worked, sql-refusals, zset-weights, point-reads, sql-types]
+related: [windows, sql-refusals, zset-weights, views-and-keys, sql-reference]
 ---
 
 **Windowed aggregation is the point of the engine.** A continuous query that only filters and
@@ -284,6 +284,6 @@ total drifts from the view's the first time a row is corrected.
 
 ## Where next
 
-- [Windows, worked](/help/topics/windows-worked) — when each window is published.
+- [Windows, worked](/help/topics/windows#worked-examples) — when each window is published.
 - [Z-set weights](/help/topics/zset-weights) — why an aggregate can be maintained incrementally.
-- [Point reads](/help/topics/point-reads) — reading an aggregate view.
+- [Point reads](/help/topics/views-and-keys#point-reads) — reading an aggregate view.

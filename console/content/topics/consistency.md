@@ -8,7 +8,7 @@ summary: "A read sees a view at its last commit, never half of one. What a commi
 audience: Developers
 keywords: [commit, frontier, committed, watermark, retention, evict, snapshot, stale, reconcile, isolation, Consistency, CONSISTENT, LATEST, AS_OF]
 guide: architecture#what-a-lane-is
-related: [point-reads, subscriptions, event-time-watermarks, late-data, views-and-keys]
+related: [views-and-keys, subscriptions, event-time-watermarks]
 ---
 
 "Is this number right?" has three parts for a streaming engine: *right as of when*, *complete up to
@@ -106,7 +106,7 @@ commit. What a reader sees:
 A subscriber sees both halves (`-1` then `+1`); a reader sees only the current state. Neither ever sees
 a total that was never true. The view's rows are **the answer so far**, and the retraction is how the
 engine says "that was the answer, this is the answer now" without inventing a second message type. See
-[Late data and corrections](/help/topics/late-data).
+[Late data and corrections](/help/topics/event-time-watermarks#late-data).
 
 !!! tip "Telling a final number from a provisional one"
     A window's result can no longer change once the watermark has passed its end plus the allowed
@@ -204,6 +204,6 @@ GROUP BY user_id, window_start, window_end;
 
 ## Where next
 
-- [Point reads](/help/topics/point-reads) and [Subscriptions](/help/topics/subscriptions).
+- [Point reads](/help/topics/views-and-keys#point-reads) and [Subscriptions](/help/topics/subscriptions).
 - [Event time and watermarks](/help/topics/event-time-watermarks).
-- [Late data and corrections](/help/topics/late-data).
+- [Late data and corrections](/help/topics/event-time-watermarks#late-data).

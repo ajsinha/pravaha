@@ -76,7 +76,7 @@ class MarkdownRenderer:
         "COMPETITIVE_LANDSCAPE.md": "/about/competitive",
     }
 
-    #: A help topic linked from a document as its file -- ``../console/content/topics/late-data.md``
+    #: A help topic linked from a document as its file -- ``../console/content/topics/event-time-watermarks.md#late-data``
     #: -- is served at /help/topics/<its stem>; the file link is the right one on GitHub.
     _TOPIC = re.compile(r"(?:^|/)content/topics/([a-z0-9-]+)\.md$")
 

@@ -9,7 +9,7 @@ badge: A-Z
 audience: Everyone
 keywords: [glossary, terms, definitions, vocabulary, z-set, weight, retraction, watermark, frontier, fingerprint, lane, view, key, sink, lookup, retention]
 guide: concepts
-related: [start-here, streams, views-and-keys, zset-weights, event-time-watermarks]
+related: [getting-started, streams, views-and-keys, zset-weights, event-time-watermarks]
 ---
 
 Pravaha's vocabulary is small, and most of it names a mechanism precisely — a *watermark* is not "a
@@ -29,10 +29,10 @@ client in a loop cannot stop a continuous query keeping up. → [State and servi
 **Allowed lateness.** How long after a window has emitted a late row may still correct it — zero
 unless a stream declares it (`pravaha.streams.<name>.allowed-lateness`). A window with allowed lateness
 *revises* its answer, which matters for which sinks it may write to.
-→ [Late data and corrections](/help/topics/late-data)
+→ [Late data and corrections](/help/topics/event-time-watermarks#late-data)
 
 **Arena.** The slabs of off-heap memory a lane's operators write output batches into, sized by
-`pravaha.lane.arena.slab-bytes`. Full: PRV-3001. → [Sizing and lanes](/help/topics/sizing-lanes)
+`pravaha.lane.arena.slab-bytes`. Full: PRV-3001. → [Sizing and lanes](/help/topics/lanes#sizing-lanes)
 
 **At least once.** A delivery guarantee: after a restart, a sink may receive some rows again. The
 `filesystem` sink is at least once. → [Delivery guarantees](/help/topics/delivery-guarantees)
@@ -44,7 +44,7 @@ kept in memory, in a file, or both, and readable over `GET /api/v1/audit` by per
 ## B
 
 **Batch.** The rows a lane hands an operator at once (`pravaha.lane.batch-size`). A commit ends only
-where a batch ended. → [Sizing and lanes](/help/topics/sizing-lanes)
+where a batch ended. → [Sizing and lanes](/help/topics/lanes#sizing-lanes)
 
 **Binding.** The configuration that attaches a plugin to a name: a source to a stream under
 `pravaha.sources`, a lookup table under `pravaha.lookups`, a sink under `pravaha.sinks` — a `plugin`
@@ -69,7 +69,7 @@ so one query's retractions reach another through a topic.
 → [Checkpoints and recovery](/help/topics/checkpoints-recovery)
 
 **Cluster mode.** What is asked of several nodes — `SINGLE`, `REPLICATED`, or `PARTITIONED` (refused by
-a node today) — as distinct from the *mechanism* that coordinates them. → [Cluster mode](/help/topics/cluster-mode)
+a node today) — as distinct from the *mechanism* that coordinates them. → [Cluster mode](/help/topics/standby#cluster-mode)
 
 **Commit.** The unit in which a view changes and subscribers hear about it: all of one batch's changes,
 applied together. A subscriber never sees half a commit; an update's retraction and its insert arrive
@@ -80,7 +80,7 @@ dropped. Not a request: you register it once and it keeps an answer. → [The li
 
 **Correction.** What a late row does to a window that already emitted: the old result is retracted at
 weight −1 and the new one inserted at +1. A count can go down; that is a correction working.
-→ [Late data and corrections](/help/topics/late-data)
+→ [Late data and corrections](/help/topics/event-time-watermarks#late-data)
 
 ## D
 
@@ -119,7 +119,7 @@ retention. Two registrations with the same fingerprint share one computation.
 → [Sharing by fingerprint](/help/topics/sharing)
 
 **Flight SQL.** Arrow Flight SQL, the client protocol (port 19090) the SDKs, the CLI, the console and
-JDBC/ADBC drivers speak. → [Client code](/help/topics/client-snippets)
+JDBC/ADBC drivers speak. → [Client code](/help/topics/clients#snippets)
 
 **Frontier.** How far in its input a view has committed. A read can ask for at least a frontier; a view
 cannot answer as of a past one (PRV-4020). → [Consistency](/help/topics/consistency)
@@ -135,7 +135,7 @@ every ten seconds — so each row belongs to several windows. → [Windows](/hel
 so stops holding the watermark back. → [Event time and watermarks](/help/topics/event-time-watermarks)
 
 **Inbox.** The fixed-size cells a lane's rows arrive in (`pravaha.lane.inbox.cells` ×
-`pravaha.lane.inbox.cell-bytes`) — most of what an idle query costs in memory. → [Sizing and lanes](/help/topics/sizing-lanes)
+`pravaha.lane.inbox.cell-bytes`) — most of what an idle query costs in memory. → [Sizing and lanes](/help/topics/lanes#sizing-lanes)
 
 ## J
 
@@ -154,14 +154,14 @@ same key supersedes the first. Part of the query's identity. → [Views and keys
 ## L
 
 **Lane.** The single-threaded unit that runs a query's pipeline, with its own inbox and arena.
-→ [Sizing and lanes](/help/topics/sizing-lanes)
+→ [Sizing and lanes](/help/topics/lanes#sizing-lanes)
 
 **Lane sharing.** Letting many queries share a fixed set of lanes (`pravaha.lane.multiplex.*`) instead
-of holding one apiece; a shared lane shares its fate. On by default once a node hosts 64 queries (`auto`). → [Lane sharing](/help/topics/lane-sharing)
+of holding one apiece; a shared lane shares its fate. On by default once a node hosts 64 queries (`auto`). → [Lane sharing](/help/topics/lanes#sharing-lanes)
 
 **Lookup.** A dimension table a query *asks* rather than consumes — `jdbc-lookup`, `aerospike-lookup` —
 joined with `FOR SYSTEM_TIME AS OF`. It never advances event time and holds no checkpointed state.
-→ [Lookups](/help/topics/lookups) · [Temporal joins](/help/topics/temporal-joins)
+→ [Lookups](/help/topics/lookups) · [Temporal joins](/help/topics/joins#temporal-joins)
 
 ## M
 
@@ -186,13 +186,13 @@ itself, refreshed on a lease — how a node knows a directory is its own (PRV-40
 ## P
 
 **Parameter.** A `?` placeholder for a value, in `WHERE` and `HAVING` only — never a part of the
-query's shape. → [Parameters](/help/topics/sql-parameters)
+query's shape. → [Parameters](/help/topics/sql-reference#parameters)
 
 **Plugin.** A source, lookup or sink implementation found on the classpath by name.
 → [Sources](/help/topics/sources-overview) · [Sinks](/help/topics/sinks-overview)
 
 **Point read.** A read of one key (or a few) from a view — the cheap, repeatable operation a view
-exists for. → [Point reads](/help/topics/point-reads)
+exists for. → [Point reads](/help/topics/views-and-keys#point-reads)
 
 **PostgreSQL gateway.** The read-only PostgreSQL wire protocol (port 5432, off by default) that lets
 `psql`, Grafana and ORMs read views. → [The PostgreSQL gateway](/help/topics/pgwire)
@@ -220,7 +220,7 @@ updates are expressed. → [Z-set weights and retractions](/help/topics/zset-wei
 
 **Row filter.** A predicate a security policy attaches to a principal for a view, applied to every read
 so the principal sees only its rows (PRV-7003 when it cannot be enforced).
-→ [Row filters](/help/topics/row-filters)
+→ [Row filters](/help/topics/row-filters-and-masks)
 
 ## S
 
@@ -251,7 +251,7 @@ refreshing its ownership claim. → [Standby](/help/topics/standby)
 ## T
 
 **Temporal join.** A join against a lookup table as of each row's own event time:
-`JOIN t FOR SYSTEM_TIME AS OF s.event_time`. → [Temporal joins](/help/topics/temporal-joins)
+`JOIN t FOR SYSTEM_TIME AS OF s.event_time`. → [Temporal joins](/help/topics/joins#temporal-joins)
 
 **Tenant.** The group a principal belongs to; read admission shares capacity per tenant.
 → [Authorization](/help/topics/authorization)
@@ -279,7 +279,7 @@ the stream's out-of-orderness. A window emits when the watermark passes its end.
 change's weight. → [Z-set weights and retractions](/help/topics/zset-weights)
 
 **Window.** A finite group cut from an unbounded stream in event time — tumbling or hopping — which is
-what lets an aggregate keep bounded state. → [Windows](/help/topics/windows) · [Windows, worked](/help/topics/windows-worked)
+what lets an aggregate keep bounded state. → [Windows](/help/topics/windows) · [Windows, worked](/help/topics/windows#worked-examples)
 
 ## Z
 
@@ -289,5 +289,5 @@ Z-sets, which is what makes every operator incremental and a correction just ano
 
 ## Where next
 
-- [Start here](/help/topics/start-here)
+- [Start here](/help/topics/getting-started)
 - [Concepts (long form)](/help/concepts)

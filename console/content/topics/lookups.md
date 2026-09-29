@@ -9,7 +9,7 @@ badge: LOOKUP
 audience: Operators
 keywords: [lookup, dimension, enrichment, temporal join, for system_time as of, aerospike-lookup, jdbc-lookup, key.bin, key.columns, cache.seconds, pool.size, concurrency]
 guide: continuous-queries#22-lookup-sources-for-temporal-joins
-related: [temporal-joins, joins, source-aerospike, source-jdbc, connector-security]
+related: [joins, source-aerospike, source-jdbc, connector-security]
 ---
 
 A **lookup** is a table a query *asks*, one row at a time, rather than a stream it *consumes*. Each
@@ -248,6 +248,6 @@ txn_id	user_id	amount	tier
 
 ## Where next
 
-- [Temporal joins](/help/topics/temporal-joins) — the SQL in depth, and what a lookup join may and may not do
+- [Temporal joins](/help/topics/joins#temporal-joins) — the SQL in depth, and what a lookup join may and may not do
 - [Stream joins](/help/topics/joins) — joining two sources, with a time bound
 - [The Aerospike source](/help/topics/source-aerospike) and [the jdbc source](/help/topics/source-jdbc) — the same stores, consumed as streams

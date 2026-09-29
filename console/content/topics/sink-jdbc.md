@@ -10,6 +10,7 @@ audience: Engineers
 keywords: [jdbc sink, jdbc-sink, transactional, exactly once, exactly-once, postgresql, h2, upsert, staging table, transaction.id, key.columns, "ON CONFLICT", MERGE]
 guide: operations#one-engine-and-what-the-server-still-lacks
 related: [sinks-overview, delivery-guarantees, sink-kafka, checkpoints-recovery, source-jdbc, connector-security]
+listed_on: sinks-overview
 ---
 
 `jdbc-sink` keeps a relational table **equal to the query's view**. Each row the query commits is
