@@ -355,6 +355,10 @@ final class GlobalAggregate implements RowProcessor {
             case FLOAT32 -> row.getFloat(ordinal);
             case FLOAT64 -> row.getDouble(ordinal);
             case STRING -> row.getString(ordinal);
+            // The whole unscaled value (DECKEYGROUP-1), as a windowed COUNT(DISTINCT) reads it.
+            case DECIMAL ->
+                new com.ash.messaging.pravaha.runtime.window.DecimalBits(
+                        row.getDecimalHigh(ordinal), row.getDecimalLow(ordinal));
             default ->
                 throw new PravahaException(
                         RuntimeErrors.UNSUPPORTED_AGGREGATE,
@@ -526,6 +530,12 @@ final class GlobalAggregate implements RowProcessor {
                     out.writeByte(7);
                     out.writeUTF(v);
                 }
+                case com.ash.messaging.pravaha.runtime.window.DecimalBits v -> {
+                    // DECKEYGROUP-1: both halves; a new tag, so a checkpoint without one is unchanged.
+                    out.writeByte(8);
+                    out.writeLong(v.high());
+                    out.writeLong(v.low());
+                }
                 default ->
                     throw new java.io.IOException("cannot checkpoint a distinct value of type "
                             + value.getClass().getName());
@@ -554,6 +564,8 @@ final class GlobalAggregate implements RowProcessor {
                         case 5 -> in.readFloat();
                         case 6 -> in.readDouble();
                         case 7 -> in.readUTF();
+                        case 8 ->
+                            new com.ash.messaging.pravaha.runtime.window.DecimalBits(in.readLong(), in.readLong());
                         default -> throw new java.io.IOException("unknown distinct value tag " + tag);
                     });
         }

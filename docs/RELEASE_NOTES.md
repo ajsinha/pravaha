@@ -12,6 +12,13 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **A `DECIMAL` group key and `COUNT(DISTINCT decimal)` work without a window too (DECKEYGROUP-1).**
+  A read of a view grouping by a decimal column or counting its distinct values, and a continuous
+  query over a view grouping by one, were refused `PRV-3020` (the continuous query at registration,
+  `PRV-2075`), where windowed aggregates had handled both since WINDECKEY-1. The grouped and
+  unwindowed aggregates now carry the whole unscaled value as their key and distinct value, through
+  checkpoints (a new distinct-value tag; a checkpoint without one is unchanged).
+  `DecimalGroupKeyReadTest`, `DecimalGroupKeyChainTest`.
 - **A window past its lateness is never fired again, and a fired window holds nothing it cannot
   need (EMIT-1).** What a fired window published is kept, per group, only while the window can
   still be corrected, and let go on every watermark advance once its lateness passes — it used to
@@ -47,8 +54,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   eighteen digits or fewer — so the `GROUP BY` failed with an uncoded "is DECIMAL, not INT64" and
   `COUNT(DISTINCT price)` counted `1.50` and `2.75` as one. Both now use the whole unscaled value,
   through the off-heap state and checkpoints (a new key tag; a checkpoint without decimal keys is
-  unchanged). The unwindowed and grouped aggregates still refuse a decimal key or distinct value by
-  name (`PRV-3020`), as before.
+  unchanged). The unwindowed and grouped aggregates followed in DECKEYGROUP-1.
 - **A restore that fails half-way leaves nothing behind (RESTOREPART-1).** A checkpoint is restored
   lane by lane, operator by operator, then the view; when a later part was refused, the earlier parts
   stayed restored while the query started from the beginning of its sources — counting every row
