@@ -121,6 +121,11 @@ class _Engine(flight.FlightServerBase):
             return [SESSION]
         if kind == "pravaha.debug.checkpoints":
             return [[fields[0], "9", "7"]]
+        if kind == "pravaha.debug.export":
+            note = ("// Not formatted: run ./mvnw -pl pravaha-it spotless:apply before committing this file.\n"
+                    if fields[1] == "unformatted" else "")
+            return [["BobFixtureTest", "pravaha-it/src/test/java/BobFixtureTest.java",
+                     "/* header */\n" + note + "package p;\n\nclass BobFixtureTest {}\n"]]
         raise flight.FlightServerError(f"PRV-9999 the test server does not answer {kind}")
 
 
@@ -274,6 +279,18 @@ def test_the_debugger_forks_lists_and_ends(engine):
     assert run(engine, "debug", "checkpoints", "--name", "spend")[1] == "9\n7\n"
     assert "dbg-1" in run(engine, "debug", "sessions")[1]
     assert run(engine, "debug", "end", "--session", "dbg-1")[1] == "ended dbg-1\n"
+
+
+def test_a_fixture_the_node_could_not_format_says_to_run_spotless(engine, tmp_path):
+    """FIX-3: the node has no formatter; the file says so, and so does the command."""
+    code, out, err = run(engine, "debug", "fixture", "--session", "dbg-1", "--name", "unformatted",
+                         "--out", str(tmp_path))
+    assert code == EXIT_OK
+    assert "spotless:apply" in out + err
+    code, out, err = run(engine, "debug", "fixture", "--session", "dbg-1", "--name", "formatted",
+                         "--out", str(tmp_path))
+    assert code == EXIT_OK
+    assert "spotless:apply" not in out + err
 
 
 def test_nothing_listening_exits_three():

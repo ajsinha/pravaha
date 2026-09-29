@@ -271,10 +271,14 @@ Save it at `fx.path` in a checkout of the repository and the incident is a regre
 change to the engine ever makes u5's minute come out differently from these rows, the build says so.
 It needs nothing from the node it came from.
 
-> **On this version, two edits before it runs** (both reported as defects): the generated stream
-> schema does not declare its event time, so the windowed query in it is refused with `PRV-2002` —
-> add `.eventTime("event_time")` after the last `.field(...)`; and the file is not in the build's
-> format — run `./mvnw -pl pravaha-it spotless:apply` once. With those, it passes.
+> **Formatting.** The build checks `pravaha-it` with the Palantir formatter (`spotless:check`). A node
+> carries no formatter, so a fixture it exports says so in a comment above its `package` line, and
+> `pravaha debug fixture --out` repeats it: run `./mvnw -pl pravaha-it spotless:apply` once, which
+> formats the file and replaces that comment with the licence header. Exported where the formatter is
+> on the classpath (a test, as `DebugFixtureExportTest` does), the file comes out formatted (FIX-3).
+>
+> **Step rows before you export.** A session that has stepped only event time has nothing for a
+> fixture to replay, and is refused with `PRV-8015` saying so (FIX-2).
 
 `debug_end` releases the fork. Sessions hold a copy of the query's state and a reader on the
 source, and the node allows only a few at once (`PRV-8014` past the limit) — end them.

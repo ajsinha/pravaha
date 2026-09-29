@@ -12,6 +12,14 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **A debug fixture comes out formatted, or says it is not (FIX-3).** Exported where the Palantir
+  formatter is on the classpath, the fixture is formatted as `spotless:check` requires; a node has no
+  formatter, so its fixture carries a comment above the `package` line asking for
+  `./mvnw -pl pravaha-it spotless:apply`, which that step replaces with the licence header, and
+  `pravaha debug fixture --out` prints the same note.
+- **Exporting a session that stepped no rows is refused by name (FIX-2).** A session that stepped only
+  event time answers `PRV-8015` ("has stepped no rows") on `debug fixture`: its fixture would replay
+  nothing and assert an empty view. It was refused before as `PRV-3022`, windows from 1970.
 - **`pravaha.codegen.enabled` is a configuration key (CODEGENPROP-1).** It was read only as a JVM
   system property, so `codegen: enabled: false` in `application.yaml` changed nothing. It is now
   bound like every `pravaha.*` key (YAML, `PRAVAHA_CODEGEN_ENABLED`, `--pravaha.codegen.enabled`),

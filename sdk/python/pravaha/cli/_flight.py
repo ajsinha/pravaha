@@ -742,6 +742,9 @@ def debug(ctx: Context) -> int:
         else:
             out.line(out.good(f"wrote {path}"))
             out.note(f"it belongs at {fixture.path}")
+            if "spotless:apply" in fixture.source.split("\npackage ", 1)[0]:
+                # FIX-3: the node had no formatter, and the file says so above its package line.
+                out.note("not yet formatted: run ./mvnw -pl pravaha-it spotless:apply before committing it")
         return EXIT_OK
     # end
     session_id = ctx.require("session")
