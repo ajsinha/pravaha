@@ -10,7 +10,7 @@
 
 *Pravaha* (Sanskrit: *continuous, uninterrupted flow*) · pronounced *pruh-VAA-huh*
 
-[![Status](https://img.shields.io/badge/status-wave%209%20of%2011-blue)](docs/HANDOVER.md)
+[![Status](https://img.shields.io/badge/status-wave%2010%20of%2011-blue)](docs/HANDOVER.md)
 [![Java](https://img.shields.io/badge/Java-21%20LTS-orange)](docs/system_design.md#4-language-decision-java-vs-scala)
 [![Build](https://img.shields.io/badge/build-Maven-C71A36)](docs/implementation_plan.md)
 [![License](https://img.shields.io/badge/license-Proprietary-red)](LICENSE)
@@ -19,15 +19,18 @@
 
 ---
 
-> **Project status: Wave 9 of 11.** One node: an engine that maintains the answers to registered
+> **Project status: Wave 10 of 11.** One node: an engine that maintains the answers to registered
 > SQL questions as data changes, serves them back by key, writes them to sinks, and survives its own
 > restart, at a thread and memory cost that stops following the query count. **Clustering is not
 > built**, and a node refuses to start in `PARTITIONED` mode rather than pretend to be.
 >
 > **Feature-complete for one node as of 2026-09-27:** ADR-039's known gaps are closed or decided, and
-> cluster mode is on hold by the owner's decision ([ADR-039](docs/adr/039-ga-includes-the-known-gaps-and-clustering.md)).
-> What remains before GA is hardening: the open findings, the scaling gate, and the manual
-> accessibility audit; [`HANDOVER.md`](docs/HANDOVER.md) has the detail. This file says what is true now, and the
+> cluster mode — wave 11 — is on hold by the owner's decision ([ADR-039](docs/adr/039-ga-includes-the-known-gaps-and-clustering.md)).
+> Since then: queries on queries, alerts, a governed catalogue with grants, row filters and column
+> masks, a plain-English assistant over any model, BI tools over the PostgreSQL protocol, and
+> observability with dashboards and tracing. What remains before GA is hardening: the scaling gate,
+> the manual accessibility audit and the few open findings (none GA-blocking);
+> [`HANDOVER.md`](docs/HANDOVER.md) has the detail. This file says what is true now, and the
 > build checks the parts of it that can be checked.
 
 ## What it is
@@ -96,7 +99,13 @@ corrected by late data arrives as a retraction of the old answer followed by the
 - **Sinks** — A registration can also name a sink (`pravaha register --sink`), and every commit of its view is written there, retractions included. Refused at registration, before the sink opens: a query that revises its answer against an append-only sink (`PRV-2041`), any sink but an upsert over a source that repeats rows (`PRV-2042`), and a sink whose configured columns or key differ from the query's (`PRV-8010`). Shipped: `filesystem` (append-only), `aerospike-sink` (upsert and delete by key), `jdbc-sink` (a table in any JDBC database: upsert and delete by key, or append), `kafka-sink` (a Kafka topic: keyed upserts in JSON, Avro or Protobuf — keys too — with a tombstone for a retraction, schema ids checked against a registry, or an explicit changelog) `delta-sink` (a Delta Lake table kept equal to the view by key, or a changelog of every change with its weight; one Delta commit per checkpoint, on Delta Kernel and not Spark) and `iceberg-sink` (an Apache Iceberg table on the local filesystem, kept equal to the view by key through equality deletes, or a changelog; one Iceberg snapshot per checkpoint, on iceberg-core and not Spark). Delivery is stated per sink at registration: a transactional sink such as `jdbc-sink`, `kafka-sink`, `delta-sink` or `iceberg-sink` is prepared at each checkpoint's cut and committed once the checkpoint is durable — exactly once; an idempotent upsert sink such as `aerospike-sink` is effectively once; a plain append sink such as `filesystem` is at least once
 - **State** — Off-heap: join indexes and windowed-aggregate accumulators live in `RowStore` blocks behind open-addressed tables, `COUNT(DISTINCT)`'s values included. With `pravaha.state.spill.*` set, state past its memory ceiling spills to memory-mapped files and the query slows instead of stopping. Per-query gauges show state approaching its ceiling
 - **Blue/green replacement** — A registered query's SQL is changed without taking its answer away: `CREATE OR REPLACE CONTINUOUS QUERY`, `pravaha replace`, both SDKs, the Flight actions and `/api/v1/queries/{name}/replacement`. The new version runs beside the old one, replays the source from the beginning, **splices onto the live stream at the exact position the running version has reached**, and takes the name only when the two have consumed the same input — so a reader sees the old answer up to the seam and the new one after it, with no gap and nothing counted twice. Subscribers are told the view was replaced (`PRV-4019`) rather than handed another query's changes; a sink follows the name at a checkpoint boundary and is sent only the difference; the replaced version keeps running for an hour, so a rollback is one swap. The backfill is throttled, pausable and watched by eight gauges, and a replacement in flight survives a restart ([ADR-046](docs/adr/046-a-replacement-meets-the-running-version-at-a-position.md))
-- **Observability** — Prometheus per query: rows in, view size, state against its ceiling, watermark lag, checkpoint health, commit latency as an exact mean, a replacement's backfill progress, and — since B6 — **backpressure in time rather than in refusals**: how often and how long a writer into the query's lanes had nowhere to put a row, the share of wall clock that is, and the inbox's depth now. With `pravaha.metrics.operators` on (off by default: it costs about 8 % of throughput on the reference machine), `GET /api/v1/queries/{name}/plan` also carries **rows in, rows out, state bytes, watermark and a sampled self time per plan node**, and names the bottleneck operator. Where a number is not measured the API says so rather than reporting zero
+- **Observability** — Grafana dashboards, Prometheus alert rules (Helm `PrometheusRule` too), JSON logs with correlation and trace ids, and OpenTelemetry tracing over OTLP; metrics for alerts, catalogue decisions and the assistant; and Prometheus per query: rows in, view size, state against its ceiling, watermark lag, checkpoint health, commit latency as an exact mean, a replacement's backfill progress, and — since B6 — **backpressure in time rather than in refusals**: how often and how long a writer into the query's lanes had nowhere to put a row, the share of wall clock that is, and the inbox's depth now. With `pravaha.metrics.operators` on (off by default: it costs about 8 % of throughput on the reference machine), `GET /api/v1/queries/{name}/plan` also carries **rows in, rows out, state bytes, watermark and a sampled self time per plan node**, and names the bottleneck operator. Where a number is not measured the API says so rather than reporting zero
+- **Queries on queries** — A continuous query can read another query's view: it follows that view's answer — its snapshot, then each commit's rows leaving and entering — exactly across restarts, up to eight levels deep; a view others read cannot be dropped, and a cycle is refused ([ADR-056](docs/adr/056-queries-on-queries.md))
+- **Alerts** — `CREATE ALERT … ON <view> NOTIFY <channel>` fires when a key's row enters the answer and clears when it leaves, with flapping control, dedupe, snooze and acknowledgement; state is journalled so a restart neither re-fires nor loses a clear; signed webhooks (Slack format too) and a log channel ([ADR-057](docs/adr/057-alerts.md))
+- **Governed catalogue** — `tenant.namespace.object` names with owners, descriptions and tags; allow-only grants (`GRANT`/`REVOKE`, nine privileges, inherited down namespaces) and `SHOW EFFECTIVE ACCESS`; row filters and column masks as catalogue policies, bound to objects or tags and applied on every read, subscription, chained query and the PostgreSQL gateway; a revoke ends an open stream; user attributes as claims ([ADR-059](docs/adr/059-the-pravaha-catalog-governs-live-answers.md))
+- **Lanes** — Each query owns a lane until a node hosts 64 (`auto`), then new ones share; `WITH (lane = 'dedicated')` keeps one apart; an administrator's rebalance moves shared queries onto their own lanes without losing an answer
+- **The assistant** — Plain English to a continuous query through any model and provider (Anthropic, OpenAI, OpenAI-compatible, Ollama, or a plugin), with the engine as the judge and a person confirming; switched at runtime from Admin · AI models; `pravaha ask`, `explain-sql`, `why`, and an evaluation harness ([ADR-058](docs/adr/058-plain-english-to-continuous-sql.md))
+- **BI tools** — Power BI and other PostgreSQL clients read views through the gateway (Import and DirectQuery), signed in with an API key or session token, under the same grants, filters and masks
 - **Time-travel debugger** — A query is forked from one of its retained checkpoints into a second copy that reads the same sources from the offsets that checkpoint recorded — with **every sink disabled**, its view in no catalogue and its lanes its own, so the live query, its view and its subscribers see nothing. It is stepped by hand: one row, N rows, to the next commit, to a watermark, or until a column of the view crosses a value. Each step reports the rows that entered with their weights, **every operator's rows in and out**, the view's changes, and where event time stands — which is what tells a filter that rejected the row apart from an aggregate that produced a zero delta. An operator's state is readable, bounded and paged, without emitting or evicting anything. Two sessions over one checkpoint given the same steps report identically. The session exports as a **self-contained JUnit test** whose expectation is rehearsed at export time rather than asserted, so the incident becomes a regression test that compiles and passes. `pravaha debug`, Flight actions, `/api/v1/debug/*`, both SDKs, and the console's **Debugger** screen at `/queries/{name}/debug` ([ADR-048](docs/adr/048-a-debug-fork-is-a-second-computation-nothing-can-read.md))
 - **Recovery** — Checkpoints hold operator state, source offsets and the served view, cut at one point across every input (ADR-008), so a restart resumes rather than replaying from scratch or starting empty. The registry journal brings back every registration, and its sink
 - **Survival** — A node claims the directories it writes, so two nodes cannot silently share state (`PRV-4003`). A standby takes over when the claim goes stale and reports what the takeover cost. Undecodable input goes to a dead-letter directory instead of ending the query
@@ -238,7 +247,10 @@ graph, a result grid, registration with keys picked by name, and drafts in tabs.
 **Views**: point queries and copy-paste client code for the Java and Python SDKs, `psql` and the CLI.
 An operator gets **Operations**: the engine's metrics read into a verdict — is everything healthy,
 and if not, where — with per-query throughput, state against ceiling and watermark lag. Any view can
-be watched **live**, every committed change shown with its `+1`/`−1` weight. A **catalog**, a Ctrl-K
+be watched **live**, every committed change shown with its `+1`/`−1` weight. The design follows
+MAYA's: a mega-menu (Catalog, Workbench, Operate, Admin, Help), four themes — Crimson, Dark, Blue,
+Green — and a public bar when signed out. **Alerts**, **Lanes**, **Grants**, **Row filters & masks**
+and **AI models** have their own screens, and the workbench can **Describe it** in plain English. A **catalog**, a Ctrl-K
 command palette, a first-run guide from a stream to a live view, and every `PRV` code resolved to
 its documentation complete it. A **help centre** served from the engine's documentation has
 tutorials, case studies, a FAQ, the About page and the competitive landscape. Everything but the landing page, the documentation and the health
@@ -307,7 +319,7 @@ short.
 ```xml
 <groupId>com.ash.messaging</groupId>
 <artifactId>pravaha</artifactId>
-<version>0.1.4-SNAPSHOT</version>
+<version>0.2.1-SNAPSHOT</version>
 ```
 
 Base package `com.ash.messaging.pravaha`. Requires **JDK 21+**; the Maven wrapper is vendored.
@@ -350,18 +362,19 @@ console is its own artefact in [`console`](console).
 | 7 | 33–38 | Flight SQL, SDKs, security, registration, subscriptions, console | ✅ built |
 | 8 | 39–45 | Survival on one node — state ownership, checkpoint barriers, standby ([ADR-035](docs/adr/035-wave-8-is-survival-not-distribution.md)) | ✅ built · gate P7 passed |
 | 9 | — | One node, thousands of queries ([ADR-036](docs/adr/036-one-node-thousands-of-queries.md), [ADR-037](docs/adr/037-state-that-degrades-instead-of-dying.md)) | ✅ built · lane sharing by stream (LANE-2) |
-| 10–11 | 46–62 | GA: ADR-039's known gaps, then cluster mode | ▫️ not started |
+| 10 | 46–53 | GA: ADR-039's known gaps closed — one node feature-complete ([ADR-039](docs/adr/039-ga-includes-the-known-gaps-and-clustering.md)) | ✅ built 2026-09-27 · then queries on queries, alerts, the catalogue, the assistant, BI access and observability ([ADRs 056–059](docs/adr/)) |
+| 11 | 54–62 | Cluster mode | ▫️ not started — on hold by the owner's decision |
 
 Waves 10 and 11 were redefined twice: [ADR-038](docs/adr/038-one-node-ga.md) moved the time-travel
 debugger and the Nexmark comparison out to the roadmap, and ADR-039 put the known gaps and cluster
 mode in their place. The debugger has since been built anyway
 ([ADR-048](docs/adr/048-a-debug-fork-is-a-second-computation-nothing-can-read.md)), its console
-screen included. Most of the gap work has landed as the unfinished part of waves 8 and 9, which is
-why the counter still reads 9. "Built" means the code is there and tested; it does not mean a
+screen included. Wave 10 closed ADR-039's known gaps on 2026-09-27; wave 11, cluster mode, is on
+hold: the membership, lease and handoff libraries exist and no node uses them. "Built" means the code is there and tested; it does not mean a
 performance gate passed.
 
 Work happens on `develop`, and `main` is fast-forwarded to it after each gated change. The newest
-release is `v0.1.3`, a QA build: `deploy/release/release.sh` cuts a release, and `deploy/qa/bundle.sh`
+release is `v0.2.0`, a QA build: `deploy/release/release.sh` cuts a release, and `deploy/qa/bundle.sh`
 packs the server and console images and their YAML files into one files-only bundle for a QA host,
 everything under `/opt/pravaha` ([Deployment](docs/DEPLOYMENT.md)). [Full roadmap with acceptance gates →](docs/system_design.md#31-delivery-roadmap)
 

@@ -3,7 +3,7 @@
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 Proprietary and confidential; see [`LICENSE`](../LICENSE).
 
-**Written 2026-09-09; last swept 2026-09-27.** Everything the design says lives in
+**Written 2026-09-09; last swept 2026-09-29.** Everything the design says lives in
 [`system_design.md`](system_design.md) and the [ADRs](adr/) — this file deliberately does *not*
 repeat it. What is here is the state, the working practices, and the things a fresh session would
 otherwise have to rediscover the hard way.
@@ -15,15 +15,23 @@ otherwise have to rediscover the hard way.
 | | |
 |---|---|
 | `main` | Fast-forwarded to `develop` after every gated change ("drill"), so normally equal to it |
-| `develop` | Pushed after every verified change. Releases are tagged `v0.1.0` to `v0.1.3` (QA builds); the next is 0.2.0 |
+| `develop` | Pushed after every verified change. Releases are tagged `v0.1.0` to `v0.2.0` (QA builds); `develop` is 0.2.1-SNAPSHOT |
 | Modules | **37** Maven modules (38 reactor projects with the root), plus `sdk/python` and `console`, which are not Maven |
-| Java tests | **4,263** tests, 0 failures, 200 skipped (Docker-only broker and database tests among them) -- `tools/verify-clean.sh`, 2026-09-27 |
-| Python tests | **146** in `sdk/python`, and **2,061** in `console` (browser suites included), all passing on 2026-09-27 |
+| Java tests | **4,688** tests, 0 failures, 211 skipped (Docker-only broker and database tests among them) -- `tools/verify-clean.sh`, 2026-09-29 |
+| Python tests | **424** in `sdk/python`, and about **1,926** in `console` (browser suites included), all passing on 2026-09-29 |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
 | ADRs | **59** |
 
-**Where it stands, 2026-09-27.** No GA-BLOCKER or GA-REQUIRED finding is open (408 findings,
-377 fixed). This week added:
+**Where it stands, 2026-09-29.** Wave 10 is done (one node feature-complete on 2026-09-27) and wave
+11, cluster mode, is on hold. No GA-BLOCKER or GA-REQUIRED finding is open (469 findings, 437 fixed,
+11 open). Since 2026-09-27: queries on queries (ADR-056), alerts (ADR-057), the plain-English
+assistant with any model switched at runtime (ADR-058), the governed catalogue with grants, row
+filters and column masks (ADR-059 phases 1–2), Power BI over the PostgreSQL gateway, observability
+(dashboards, rules, JSON logs, tracing), the console in MAYA's design, the help checked against the
+code by tests, and about seventy findings fixed. What remains before GA: the scaling gate, the manual
+WCAG audit and ADR-059 phases 3–4 if wanted.
+
+**2026-09-27** added:
 
 - **Identity (ADR-052):** users, passwords, API keys and sessions kept by the engine, the way MAYA
   does. It covers the core, the REST API, and a console that signs each person in against the engine.
