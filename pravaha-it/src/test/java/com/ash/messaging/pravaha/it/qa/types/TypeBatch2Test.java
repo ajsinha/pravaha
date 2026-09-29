@@ -822,17 +822,20 @@ class TypeBatch2Test {
                 .hasMessageContaining("BYTES");
     }
 
+    /** DECKEYGROUP-1: a DECIMAL group key was refused here, and is now grouped by its whole value. */
     @Test
-    void type058_decimalGroupKeyRefusedAtRunTime() {
+    void type058_decimalGroupKeyGroupsByTheWholeValue() {
         StreamSchema n = StreamSchema.builder("n")
                 .field("id", Types.int64())
                 .field("amt", Types.decimal(10, 2).withNullable(true))
                 .build();
-        List<Object[]> rows =
-                List.of(new Object[] {1L, new long[] {0L, 12345L}}, new Object[] {2L, new long[] {0L, 99999L}});
-        assertThatThrownBy(() -> runBounded(n, "SELECT amt, COUNT(*) FROM n GROUP BY amt", rows))
-                .isInstanceOf(PravahaException.class)
-                .hasMessageContaining("DECIMAL");
+        List<Object[]> rows = List.of(
+                new Object[] {1L, new long[] {0L, 12345L}},
+                new Object[] {2L, new long[] {0L, 99999L}},
+                new Object[] {3L, new long[] {0L, 12345L}});
+        List<CapturingRowWriter.Captured> out = runBounded(n, "SELECT amt, COUNT(*) FROM n GROUP BY amt", rows);
+        assertThat(out).hasSize(2);
+        assertThat(out.stream().mapToLong(r -> r.asLong(1)).sorted().toArray()).containsExactly(1L, 2L);
     }
 
     @Test
