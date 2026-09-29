@@ -1081,6 +1081,13 @@ public final class Lane implements AutoCloseable {
             if (state == State.FAILED) {
                 return false;
             }
+            if (state == State.STOPPED) {
+                // LIFE-067. A stopped lane drains nothing more, so a row a producer claimed after it
+                // drained -- one racing the drop that stopped it -- is never taken, and waiting for
+                // the inbox to empty waited out the whole timeout: the pushing thread sat in
+                // awaitApplied for its ten seconds past the drop. Answered now, as it stands.
+                return allInboxesEmpty() && !inBatch;
+            }
             if (allInboxesEmpty() && !inBatch) {
                 return true;
             }

@@ -89,6 +89,28 @@ class LaneTest {
         }
     }
 
+    /**
+     * LIFE-067: a row claimed after a lane has drained and stopped -- a producer racing the drop
+     * that stopped it -- is never taken, and waiting for the lane to go quiet waited out the whole
+     * timeout. A stopped lane answers at once.
+     */
+    @Test
+    void aStoppedLaneWithAStrandedRowAnswersAtOnceRatherThanAtItsTimeout() {
+        MemoryAccess access = MemoryAccess.best();
+        Lane lane = new Lane(0, config(), access, context -> new Recorder());
+        lane.start();
+        lane.close();
+        assertThat(lane.state()).isEqualTo(Lane.State.STOPPED);
+        assertThat(lane.claim()).as("a producer that had not yet seen the stop").isNotEqualTo(-1L);
+
+        long started = System.nanoTime();
+        boolean quiet = lane.awaitQuiescent(Duration.ofSeconds(5));
+        long tookMillis = (System.nanoTime() - started) / 1_000_000L;
+
+        assertThat(quiet).as("the stranded row will never be applied").isFalse();
+        assertThat(tookMillis).as("answered, not waited out").isLessThan(1_000L);
+    }
+
     @Test
     void everyRowIsProcessedExactlyOnceAndInOrder() {
         Recorder recorder = new Recorder();

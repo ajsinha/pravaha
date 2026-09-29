@@ -12,6 +12,15 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **Waiting for a dropped query's rows no longer waits out the timeout (LIFE-067).** A row a
+  producer handed over as the query was dropped -- after its lane had drained and stopped -- was
+  never applied, and `awaitApplied` (the embedded engine's and the tests' way to wait for a push to
+  land) waited for the inbox to empty until its timeout ran out. A stopped or failed lane now
+  answers at once, and so do the lane group and the query's execution. This is the likely cause of
+  the one-off gate failure, where a feeder pushing into a dropped query outlived the test's
+  five-second wait inside a ten-second one; the mechanism is reproduced deterministically at the
+  lane (`LaneTest`), and `LifeDropTest` now repeats the race forty times and prints the feeder's
+  stack if it ever hangs.
 - **A Cassandra token-range reader stopped inside a wide partition reads the rest of it (CASS-1).**
   The reader resumed its pass -- after a restart, or after a page failed -- with `token(pk) > <last
   token>`, so a stop part way through a partition's clustering rows skipped the rest of that
