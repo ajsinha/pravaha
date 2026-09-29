@@ -1077,7 +1077,8 @@ removed altogether.
 ## REST (API-076–API-125)
 
 Six documented paths, plus `/actuator/*` and the OpenAPI document. `api/openapi.lock.json` is the
-contract of record and lists exactly: `GET /api/v1/status`, `GET /status`, `GET|POST /api/v1/streams`,
+contract of record (since OPENAPILOCK-1 it also records every request- and response-body field, as
+`schemas`, with its type and required flag) and lists exactly: `GET /api/v1/status`, `GET /status`, `GET|POST /api/v1/streams`,
 `GET /api/v1/streams/{name}`, `POST /api/v1/queries/validate`, `POST /api/v1/queries/explain`.
 Every case below states the status, the body shape, and — in section D — whether it answers without
 a credential.

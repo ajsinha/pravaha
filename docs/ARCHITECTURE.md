@@ -678,7 +678,7 @@ Not conventions — tests. Each one exists because the failure it prevents is si
 | No `java.io.Serializable` as a transport | `ArchitectureRulesTest` |
 | Source files under 1500 lines | `SourceFileSizeTest` |
 | Every file carries the copyright notice | `LicenseHeaderTest` |
-| The API surface matches its lock file | `OpenApiContractTest` |
+| The API surface matches its lock file: paths, methods, statuses, parameters and every body field with its type and required flag; a removed, renamed or retyped field, or a newly required request field, is reported as a break | `OpenApiContractTest`, `OpenApiLockTest` |
 | Documentation names only modules that exist | `DocumentationFreshnessTest` |
 
 ## Where to go next

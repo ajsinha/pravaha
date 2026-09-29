@@ -25,7 +25,8 @@ Interpretation only; bytecode generation via ASM
 
 **Where it is wired.** `InterpretedPipeline.compile` offers every filter-and-projection chain that
 stands on a scan to the `StageGenerator` installed with `GeneratedChains.install`; the node installs
-`FilterProjectStageGenerator` at start-up unless `-Dpravaha.codegen.enabled=false`. A chain the
+`FilterProjectStageGenerator` at start-up unless `pravaha.codegen.enabled` is false (bound from
+configuration since CODEGENPROP-1; `-D` wins over the YAML file, and is all a node without Spring reads). A chain the
 generator refuses (`PRV-3101`: a text or decimal projection, a `LIKE`, a comparison of computed
 expressions, a filter above a projection, a read whose width does not match its column) is built
 interpreted. Each chain's outcome is one line of `GET /api/v1/queries/{name}`'s `execution`.

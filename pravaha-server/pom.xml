@@ -25,6 +25,36 @@
 
   <dependencyManagement>
     <dependencies>
+      <!--
+        Four artifacts Spring Boot's BOM manages below what another path on this module's
+        classpath asks for (SERVERSKEW-1). Each is pinned up to the highest version requested, which
+        is what requireUpperBoundDeps demands; entries declared here win over the imported BOM.
+        jackson-dataformat-yaml 2.22.1 (swagger-core asks; Boot says 2.21.4) matches the
+        jackson-core and -databind the parent pins, so the Jackson set is one version again.
+        commons-lang3 3.20.0 (springdoc and swagger-core ask; Boot says 3.17.0). HdrHistogram
+        2.2.2 (micrometer asks; the Cassandra driver's 2.1.12 was nearer and won). jspecify
+        1.0.1 (Guava asks; Boot says 1.0.0). All four are backward-compatible minor or patch steps.
+      -->
+      <dependency>
+        <groupId>com.fasterxml.jackson.dataformat</groupId>
+        <artifactId>jackson-dataformat-yaml</artifactId>
+        <version>2.22.1</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.commons</groupId>
+        <artifactId>commons-lang3</artifactId>
+        <version>3.20.0</version>
+      </dependency>
+      <dependency>
+        <groupId>org.hdrhistogram</groupId>
+        <artifactId>HdrHistogram</artifactId>
+        <version>2.2.2</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jspecify</groupId>
+        <artifactId>jspecify</artifactId>
+        <version>1.0.1</version>
+      </dependency>
       <dependency>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-dependencies</artifactId>
@@ -295,25 +325,26 @@
           <execution>
             <id>enforce-build-environment</id>
             <configuration>
-              <!--
-                Skipped in this module alone.
-
-                requireUpperBoundDeps is on everywhere else and has caught real version skews. The
-                reason it was skipped here is Netty: Spring Boot's BOM decides this module's Netty
-                (4.1.x), while Arrow 19's flight-core and arrow-memory-netty ask for 4.2.9. A rule
-                reading "4.2.9 is larger than 4.1.135" would settle that by moving the Flight
-                transport across a major line beside a Spring Boot that is not on it, and a Netty
-                mismatch appears as a connection failing mid-handshake, which is a worse thing to
-                debug than a build error. The Flight modules now exclude exactly the netty
-                artifacts instead of skipping (PKG-4).
-
-                Not narrowed the same way here, because the skip also hides four skews that are not
-                Netty, where Spring Boot's BOM manages below what another path asks for:
-                jackson-dataformat-yaml, commons-lang3, HdrHistogram and jspecify (measured
-                2026-09-29 with the netty artifacts excluded). Each wants its own look before this
-                becomes an exclude list rather than a skip.
-              -->
-              <skip>true</skip>
+              <rules>
+                <!--
+                  Netty, and only Netty, is exempt from requireUpperBoundDeps here, as in the
+                  Flight modules (PKG-4). Spring Boot's BOM decides this module's Netty (4.1.x),
+                  while Arrow 19's flight-core and arrow-memory-netty ask for 4.2.9. A rule
+                  reading "4.2.9 is larger than 4.1.135" would settle that by moving the Flight
+                  transport across a major line beside a Spring Boot that is not on it, and a
+                  Netty mismatch appears as a connection failing mid-handshake. Every other
+                  artifact is checked; the four non-Netty skews the old skip hid are pinned in
+                  this pom's dependencyManagement (SERVERSKEW-1).
+                -->
+                <requireUpperBoundDeps>
+                  <excludes combine.children="append">
+                    <exclude>io.netty:netty-buffer</exclude>
+                    <exclude>io.netty:netty-common</exclude>
+                    <exclude>io.netty:netty-handler</exclude>
+                    <exclude>io.netty:netty-transport</exclude>
+                  </excludes>
+                </requireUpperBoundDeps>
+              </rules>
             </configuration>
           </execution>
         </executions>

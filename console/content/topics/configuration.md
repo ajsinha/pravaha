@@ -317,6 +317,7 @@ A few keys are bound from configuration classes rather than written out in the s
 | Setting | Default | What it does |
 |---|---|---|
 | `pravaha.node.id` | `pravaha-node-01` | Names the node in logs and in the ownership marker of every directory it writes. A [standby](/help/topics/standby) uses the **same** id as its primary |
+| `pravaha.codegen.enabled` | `true` | Compile each filter-and-projection chain on a scan to generated code. `false` runs every query registered from start-up interpreted — same answers, slower; each query's `execution` lines say `generated:` or `interpreted:`. Read once, at start. `-Dpravaha.codegen.enabled` on the JVM wins over `application.yaml`, as every system property does |
 
 ### Client surfaces
 

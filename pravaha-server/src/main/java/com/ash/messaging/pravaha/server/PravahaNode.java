@@ -144,8 +144,10 @@ public class PravahaNode implements SmartLifecycle {
      */
     private final boolean measureOperators;
 
-    /** The JVM system property that turns generated filters and projections off (C-7). */
+    /** The key that turns generated filters and projections off (C-7); see {@link CodegenSwitch}. */
     public static final String CODEGEN_PROPERTY = "pravaha.codegen.enabled";
+
+    private final boolean codegenEnabled;
 
     /**
      * {@code pravaha.watermark.out-of-orderness}: the lateness a stream takes when it declares
@@ -318,6 +320,7 @@ public class PravahaNode implements SmartLifecycle {
         private SinkBindingProperties sinks;
         private com.ash.messaging.pravaha.server.state.StateSpillProperties stateSpill;
         private boolean measureOperators;
+        private Boolean codegenEnabled;
         private boolean pgwireEnabled;
         private String pgwireHost = "127.0.0.1";
         private int pgwirePort;
@@ -426,6 +429,12 @@ public class PravahaNode implements SmartLifecycle {
             return this;
         }
 
+        /** {@code pravaha.codegen.enabled}; unset, the {@code -D} system property decides (default on). */
+        public Builder generatingCode(boolean enabled) {
+            this.codegenEnabled = enabled;
+            return this;
+        }
+
         private Duration defaultOutOfOrderness =
                 com.ash.messaging.pravaha.api.data.StreamSchema.DEFAULT_OUT_OF_ORDERNESS;
 
@@ -465,7 +474,8 @@ public class PravahaNode implements SmartLifecycle {
                     pgwireTlsCertificate,
                     pgwireTlsKey,
                     measureOperators,
-                    defaultOutOfOrderness);
+                    defaultOutOfOrderness,
+                    codegenEnabled == null ? CodegenSwitch.fromSystemProperty() : codegenEnabled);
         }
     }
 
@@ -501,7 +511,8 @@ public class PravahaNode implements SmartLifecycle {
             @Value("${pravaha.pgwire.tls.certificate:}") String pgwireTlsCertificate,
             @Value("${pravaha.pgwire.tls.key:}") String pgwireTlsKey,
             @Value("${pravaha.metrics.operators:false}") boolean measureOperators,
-            @Value("${pravaha.watermark.out-of-orderness:10s}") Duration defaultOutOfOrderness) {
+            @Value("${pravaha.watermark.out-of-orderness:10s}") Duration defaultOutOfOrderness,
+            @Value("${pravaha.codegen.enabled:true}") boolean codegenEnabled) {
         this.streams = streams;
         this.sources = sources;
         // Defaults to empty if no bean is supplied, so the existing test call sites that construct
@@ -543,6 +554,7 @@ public class PravahaNode implements SmartLifecycle {
                 .set("pravaha.cluster.mechanism", clusterMechanism)
                 .build();
         this.measureOperators = measureOperators;
+        this.codegenEnabled = codegenEnabled;
         this.defaultOutOfOrderness = defaultOutOfOrderness == null
                 ? com.ash.messaging.pravaha.api.data.StreamSchema.DEFAULT_OUT_OF_ORDERNESS
                 : defaultOutOfOrderness;
@@ -1157,14 +1169,10 @@ public class PravahaNode implements SmartLifecycle {
         com.ash.messaging.pravaha.runtime.exec.InterpretedPipeline.measureOperators(measureOperators);
         // C-7, set here for the same reason: a lane's pipeline offers its filter and projection
         // chains to the generator when it is compiled, so it has to be installed before the first
-        // query registers. On unless -Dpravaha.codegen.enabled=false; a query whose chains the
-        // generator refuses runs interpreted either way, and GET /api/v1/queries/{name} says which.
-        if (Boolean.parseBoolean(System.getProperty(CODEGEN_PROPERTY, "true"))) {
-            com.ash.messaging.pravaha.codegen.FilterProjectStageGenerator.install();
-        } else {
-            com.ash.messaging.pravaha.runtime.exec.GeneratedChains.install(null);
-            log.info("{}=false: every registered query runs interpreted", CODEGEN_PROPERTY);
-        }
+        // query registers. On unless pravaha.codegen.enabled is false (CODEGENPROP-1); a query whose
+        // chains the generator refuses runs interpreted either way, and GET /api/v1/queries/{name}
+        // says which.
+        CodegenSwitch.apply(codegenEnabled);
         if (measureOperators) {
             log.info("pravaha.metrics.operators is on: queries registered from now on count rows, rows out, "
                     + "state bytes and a sampled self time per operator, which GET /api/v1/queries/"
