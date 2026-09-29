@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **469 findings carrying a
-status — 437 FIXED, 11 OPEN, 13 BY DESIGN, 8 SUPERSEDED.** Of the 11 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 8 POST-GA and 3 are not defects at all** — see the triage below. Counted by the same pattern
+status — 447 FIXED, 0 OPEN, 13 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 0 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -856,8 +856,7 @@ kills a Flight worker thread, so anything scheduled after it on that node is inv
 present as unrelated failures.
 
 ## Y-8 — the honest coverage gap, named by the author
-> **Status:** OPEN — accurate and corroborated, and C-5 closed its null half. What remains is the coverage gap its author named, and it needs a batch rather than a line.
-> **Disposition:** NOTE — not a defect -- a reconfirmation, correction or coverage observation
+> **Status:** SUPERSEDED — the gap it names, the code-generated path disagreeing with the interpreter on a narrow integer or `-0.0`, is covered by `GeneratedPipelineEquivalenceTest` (C-7), which compares generated and interpreted stages across TINYINT, SMALLINT, REAL and DOUBLE including `-0.0`, NaN and the infinities, and end to end by `GeneratedQueryEquivalenceTest`; C-5 had closed its null half.
 
 
 The budget is short by about a third — the honest cost of this grid is ~215 cases — and the largest
@@ -6739,8 +6738,7 @@ runs is how a default becomes folklore, and this project has already found two o
 
 ### PERF-1 (MEDIUM) — every performance figure taken with the default command was taken under the coverage agent
 
-> **Status:** OPEN — JaCoCo is attached to every test JVM by default and its probe arrays are written by every lane on every row. With it, eight lanes measured 1 % of linear; without it, 49 %. The 2026-09-20 gate figures and `OperatorMetricsOverheadIT`'s 8 % were all taken under it. `ProfileAGateIT` now skips under the agent, naming it.
-> **Disposition:** POST-GA — re-take the affected figures with `-Djacoco.skip=true`, and make the other measurement harnesses decline under the agent the same way. Why JaCoCo cost much less on 2026-09-20 than it does now is unexplained.
+> **Status:** FIXED — every timing harness declines under the coverage agent through one helper (`CoverageAgent`), and counting tests mark their printed times as not figures; the figures are re-taken with `-Djacoco.skip=true`: operator metrics cost about 12 % (not the 8 % measured under the agent), and eight lanes reach 30–31 % of linear, still short of the gate. How to take figures is in `benchmarks/README.md`.
 
 ### CG-1 (LOW) — a DECIMAL literal keeps a filter off the generated path, and a restart compiles every distinct chain serially
 
@@ -6756,8 +6754,7 @@ runs is how a default becomes folklore, and this project has already found two o
 
 ### SPILL-4 (LOW) — with state on disk, firing a window is bound by random reads
 
-> **Status:** OPEN — measured closing SPILL-3: under a 512 MiB cap, firing 393,846 groups took 1.65 M major faults and read about 101 GiB, at 899 groups/s against 686,536 uncapped. Firing is disk-bound once state is spilled, which is the spill tier doing its job; what costs is the locality of the per-slice lookups.
-> **Disposition:** POST-GA — a performance limit, not a correctness one; the next step is ordering the per-slice reads by slab.
+> **Status:** FIXED — firing, the distinct-value count and discarding slices walk the state store slab by slab (`RowStore.forEachLive`) instead of in hash order: capped at 384 MiB, firing went from 3,385 to 454,563 groups/s, from 25.3 GB read to 154 MB, and from 452,758 to 2,517 major faults (uncapped 693,585 → 1,115,408 groups/s). Lookups into a window's other slices remain random, as recorded in ADR-044.
 
 ### LEN-2 (MEDIUM) — two paging parameters took an empty value as the default, and Flight turned a lone surrogate into a question mark
 
@@ -6837,8 +6834,7 @@ runs is how a default becomes folklore, and this project has already found two o
 
 ### CON-8 (LOW) — the console's page-performance budget trips on a loaded machine
 
-> **Status:** OPEN — `test_every_page_is_within_the_budget[components]` measured `/_components` interactive at 2,182 ms against a 2,000 ms budget while a Maven gate ran beside it; nothing on that page had changed. The same shape as PGW-1: a fixed bound written for an idle machine, failing for a reason that has nothing to do with the code under test, and reading as a regression to whoever sees it next.
-> **Disposition:** POST-GA — the budget is worth keeping and worth making honest: either measured against a baseline taken in the same run, or stated as not measurable while the machine is loaded, as the performance harnesses now do.
+> **Status:** FIXED — the console's performance budget skips a missed time budget with its reason when the one-minute load per core is above 0.5, while sizes are always asserted and `PRAVAHA_PERF_STRICT=1` fails regardless; the rule has its own test.
 
 ### PGW-1 (LOW) — a pgwire test's 15-second socket read times out when the machine is loaded, and reads as a protocol defect
 
@@ -6936,13 +6932,11 @@ triaged by the lead.
 
 ### FIX-2 (LOW-MEDIUM) — exporting a fixture after only a watermark step is refused as firing millions of windows
 
-> **Status:** OPEN — `debug fork --checkpoint 3`, `debug step --step watermark:1790413560000000000`, then `debug fixture`, answered `PRV-3010`/`PRV-3022`: "would fire 29840226 windows … 1970-01-01…". A fixture replays from empty state, and a replay whose first event is a watermark with no rows before it asks the window operator to close every window since the epoch.
-> **Disposition:** POST-GA — the export should start the replay's clock at the first row's event time, or refuse by name when the session stepped no rows.
+> **Status:** FIXED — a session that stepped no rows is refused at export by name (PRV-8015) rather than producing an empty fixture; a watermark-first session that then steps rows exports a fixture that compiles and passes (the 1970 window walk was already gone since 89d56996). `DebugFixtureExportTest`.
 
 ### FIX-3 (LOW) — a generated fixture does not pass the repository's formatter
 
-> **Status:** OPEN — a fixture written into `pravaha-it` fails `spotless:check`, so dropping it in as the export suggests breaks the build until it is formatted. Tutorial 4 tells the reader to run `spotless:apply`.
-> **Disposition:** POST-GA — emit Palantir-formatted source, or say in the export's own output to run `spotless:apply`.
+> **Status:** FIXED — the export formats the fixture with the Palantir formatter when it is on the classpath; otherwise the file and `pravaha debug fixture --out` say to run `spotless:apply`, which also removes the note. `DebugFixtureExportTest`, `FixtureFormatterTest`, an SDK CLI test.
 
 ### EMIT-2 (LOW) — a correction inside allowed lateness is published at the next watermark advance, not when the late row arrives
 
@@ -6966,13 +6960,11 @@ triaged by the lead.
 
 ### PERFH-1 (LOW) — the console's performance suite charges sign-in's scripts to whichever page it measures first
 
-> **Status:** OPEN — the first measured page reports about 280–510 kB of initial JavaScript, `landing` in a full run and `about` when run alone, because what sign-in loaded is still counted. A harness artifact, not the page's weight.
-> **Disposition:** POST-GA — start each measured page in a fresh browser context.
+> **Status:** FIXED — each measured page and route transition runs in a fresh browser context holding only the session cookie, so sign-in's scripts are no longer charged to the first page (`landing` 48 kB of initial JavaScript, not 280–510 kB).
 
 ### OBS-1 (LOW) — one query went four minutes without a checkpoint at a one-minute interval
 
-> **Status:** OPEN — observed once on the tutorials' node (`spend_per_minute`), not reproduced, and not explained. Recorded so that a second sighting has somewhere to go.
-> **Disposition:** NOTE — not a defect -- a reconfirmation, correction or coverage observation
+> **Status:** FIXED — not reproduced, and guarded: `CheckpointCadenceTest` runs the same query shape at a 1 s interval under load and holds every gap within three intervals (60 s: 59 checkpoints, longest gap 1,143 ms at load 19.9). Reading the scheduler found two ways a schedule could stop silently — a firing that could not be handed to a thread left its running flag set, and the same exception would have cancelled the timer task — both now caught, and a skipped tick is logged.
 
 ### OBS-2 (LOW) — identical SQL fingerprinted differently on one fresh node
 
@@ -7199,8 +7191,7 @@ the lead.
 
 ### FLIGHTFLAKE-1 (LOW) — two Flight CLI tests failed once with exit 3 in a full SDK run
 
-> **Status:** OPEN — `test_register_sends_the_name_sql_keys_sink_and_retention` and `test_dead_letters_list_show_and_replay` in `sdk/python/tests/test_cli_flight.py` exited 3 (unreachable) once, then passed alone and in two further full runs. Probably the test Flight server's start-up racing the first call. A second trigger since: running the SDK suite while Maven rebuilds `pravaha-flight/target` makes `test_client.py` fail with PRV-1041, because its test server loads classes from that directory.
-> **Disposition:** POST-GA — make the fixture wait for the server to accept a connection before the first test.
+> **Status:** FIXED — the SDK's fixture server runs from a copy of the build taken at start, so a concurrent rebuild cannot pull classes from under it, and the fixture waits until the server answers a call before the first test; a test asserts nothing the server loads is under the repository.
 
 ## Found building ADR-057, alerts (2026-09-28), 3 findings
 
@@ -7259,8 +7250,7 @@ the lead.
 
 ### NOSECRETSSKIP-1 (LOW) — the no-secrets check skips every path under `.claude/`
 
-> **Status:** OPEN — `NoSecretsInConfigurationTest` excludes paths containing `/.claude/`, so run from an agent's worktree it checks nothing; from the main checkout it checks everything, which is where the gate runs it.
-> **Disposition:** NOTE — exclude only other worktrees below the repository root, not the root the test runs in.
+> **Status:** FIXED — exclusions are matched against the path relative to the root being scanned, so only worktrees nested below it are skipped; run from a worktree, the check checks that worktree.
 
 ## Found reworking the help (2026-09-29), 2 findings
 
@@ -7294,8 +7284,7 @@ the lead.
 
 ### CONSOLERUFF-1 (LOW) — the console has no ruff configuration, so its lint runs on defaults and reports 14 errors
 
-> **Status:** OPEN — unlike the SDK, the console carries no `[tool.ruff]` settings; `make lint` uses ruff's defaults (88-character lines against code written to about 110) and reports 14 existing errors, among them an import-order fix that would drop a `noqa`.
-> **Disposition:** POST-GA — pin a rule set for the console as the SDK does, then fix what remains and run it with the console's tests.
+> **Status:** FIXED — the console pins ruff's rule set like the SDK (line length 110); the 74 errors under that set are fixed and `tests/test_lint.py` runs ruff with the console's tests.
 
 ## Found fixing the connector findings (2026-09-29), 1 finding
 
