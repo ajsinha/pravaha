@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **464 findings carrying a
-status — 397 FIXED, 53 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 53 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 42 POST-GA and 11 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **465 findings carrying a
+status — 402 FIXED, 49 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 49 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 38 POST-GA and 11 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7205,13 +7205,11 @@ the lead.
 
 ### ABOUTBASE-1 (LOW) — the /about visual baselines are stale against the current release notes
 
-> **Status:** OPEN — /about renders the newest release-notes entry, and its baselines date from 2026-09-27, so every new Unreleased bullet fails them. The same drift has since reached the tutorials, case-studies, help-topic-page and catalog-error baselines (prose and the catalogue tab changed after they were taken).
-> **Disposition:** POST-GA — retake them, and consider rendering /about from a fixed fixture in the visual suite so release notes stop invalidating it.
+> **Status:** FIXED — the visual suite renders the pages that quote repository prose (case studies, a case study, a help topic page, tutorials) over a fixed fixture laid over a copy of the content (`tests/visual/fixture`, through `content.root`/`content.repository`); every other test reads the real content, so a release note or a help edit no longer invalidates a screenshot. Those baselines were retaken after review.
 
 ### CONSOLESIZE-1 (LOW) — console/core/services.py is 1,526 lines, over the 1,500-line rule
 
-> **Status:** OPEN — the file-size rule is enforced for Java by `SourceFileSizeTest` but not for the console's Python, and `services.py` has passed the limit. New console services go in their own modules (`core/governance.py`).
-> **Disposition:** POST-GA — split `services.py`, and extend the size check to the Python trees.
+> **Status:** FIXED — `console/core/services.py` is a facade over five modules (every import still works); the new Python size check also found the SDK's `client.py` (1,782) and `test_product.py` (2,257), both split. The 1,500-line rule holds Python through `test_file_sizes.py` in the console and SDK suites and `SourceFileSizeTest` in the Maven gate, with no allow-list.
 
 ### RECOVERYOWNER-1 (MEDIUM) — journal recovery may refuse queries owned by identity-store users
 
@@ -7247,8 +7245,7 @@ the lead.
 
 ### CATMYPY-1 (LOW) — mypy reports two errors in the console's catalogue routes
 
-> **Status:** OPEN — `console/routes/catalog_routes.py` lines 88 and 95 fail `mypy`; the console's type check is not part of the gate, so it went unnoticed.
-> **Disposition:** POST-GA — fix them and run mypy on the console in the gate.
+> **Status:** FIXED — the two errors in `routes/catalog_routes.py` corrected; mypy is clean over the console, and `console/tests/test_typecheck.py` runs it with the console's tests (CI's suites workflow also runs `make typecheck`).
 
 ## Found building ADR-059 phase 2, policies (2026-09-28), 3 findings
 
@@ -7291,8 +7288,7 @@ the lead.
 
 ### RULESEV-1 (LOW) — the shipped alert rules use two severity vocabularies
 
-> **Status:** OPEN — the dead-letter rules (copied verbatim from the help topic) label `severity: warning/critical`, the other eight `page/warn`, so an Alertmanager route keyed on one vocabulary silently misses the other rules.
-> **Disposition:** POST-GA — pick one vocabulary for every rule in `pravaha-rules.yaml` and the help topic, which a test keeps identical.
+> **Status:** FIXED — all 15 shipped rules use `severity: critical|warning` (the file, the Helm copy and the help topics), which also match CREATE ALERT's own severity words; routing is documented with an Alertmanager example; a test holds the vocabulary.
 
 ### NOSECRETSSKIP-1 (LOW) — the no-secrets check skips every path under `.claude/`
 
@@ -7303,8 +7299,7 @@ the lead.
 
 ### PRV0400-1 (LOW) — the HTTP API answers PRV-0400 for a malformed parameter, a code no catalogue declares
 
-> **Status:** OPEN — `ApiExceptionHandler` and `PageParameters` emit `PRV-0400` as a plain string; no `ErrorCode` declares it, it is not in the code table the console's code browser reads, yet USER_GUIDE documents it. The help accuracy test accepts it only as an emitted-string exception.
-> **Disposition:** POST-GA — declare it as an `ErrorCode` in the 1xxx range (or reuse the existing invalid-parameter code) and list it.
+> **Status:** FIXED — a malformed parameter now answers the declared `PRV-1051` (API_INVALID_PARAMETER) with its help URL, still HTTP 400 (`PRV-0400` could never be declared: codes start at 1000); USER_GUIDE, TROUBLESHOOTING and the errors-config topic say so; `ApiIntegrationTest` asserts it.
 
 ### PGWIREPASS-1 (LOW) — the PostgreSQL gateway's docs say the password is "your token" without saying which
 
@@ -7332,4 +7327,11 @@ the lead.
 
 > **Status:** OPEN — with SUMWRAP-1's checked arithmetic, a total that leaves the 64-bit range only transiently within a batch (`+big` applied before `-big`) is refused with PRV-3025 even though the batch's net total fits.
 > **Disposition:** NOTE — refusing is the safe side; netting a batch before accumulating would remove it at a cost.
+
+## Found fixing the console findings (2026-09-29), 1 finding
+
+### CONSOLERUFF-1 (LOW) — the console has no ruff configuration, so its lint runs on defaults and reports 14 errors
+
+> **Status:** OPEN — unlike the SDK, the console carries no `[tool.ruff]` settings; `make lint` uses ruff's defaults (88-character lines against code written to about 110) and reports 14 existing errors, among them an import-order fix that would drop a `noqa`.
+> **Disposition:** POST-GA — pin a rule set for the console as the SDK does, then fix what remains and run it with the console's tests.
 

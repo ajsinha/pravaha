@@ -437,7 +437,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   help topic *Observability*.
 
 
-Register: **464 findings — 397 fixed, 53 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **465 findings — 402 fixed, 49 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ---
 
