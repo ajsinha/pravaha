@@ -33,6 +33,8 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
  * @param changes what remains to deliver, in the order the server applied them
  * @param commitNanos the commit's timestamp, the event time when {@code event.time} is not set
  * @param failure set when the transaction cannot be delivered at all; refused whole
+ * @param gtid this transaction's GTID in GTID mode, or null
+ * @param executedGtids the executed GTID set once this transaction is included, or null in file mode
  */
 record BinlogTransaction(
         String file,
@@ -40,7 +42,19 @@ record BinlogTransaction(
         int alreadyDelivered,
         List<Change> changes,
         long commitNanos,
-        PravahaException failure) {
+        PravahaException failure,
+        String gtid,
+        String executedGtids) {
+
+    BinlogTransaction(
+            String file,
+            long endPosition,
+            int alreadyDelivered,
+            List<Change> changes,
+            long commitNanos,
+            PravahaException failure) {
+        this(file, endPosition, alreadyDelivered, changes, commitNanos, failure, null, null);
+    }
 
     /**
      * One row with its weight.
@@ -86,6 +100,16 @@ record BinlogTransaction(
 
     static BinlogTransaction marker(String file, long position) {
         return new BinlogTransaction(file, position, 0, List.of(), 0L, null);
+    }
+
+    /** A bare position marker in GTID mode ({@code executedGtids} non-null) or file mode. */
+    static BinlogTransaction marker(String file, long position, String executedGtids) {
+        return new BinlogTransaction(file, position, 0, List.of(), 0L, null, null, executedGtids);
+    }
+
+    /** Where reading resumes once this transaction is delivered whole. */
+    BinlogOffset offset() {
+        return BinlogOffset.at(file, endPosition, executedGtids);
     }
 
     static BinlogTransaction refused(String file, long position, PravahaException failure) {
