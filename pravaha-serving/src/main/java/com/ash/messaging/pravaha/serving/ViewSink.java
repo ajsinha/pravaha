@@ -113,6 +113,12 @@ public final class ViewSink {
      */
     private final List<ViewChangeListener> answerListeners = new CopyOnWriteArrayList<>();
 
+    /**
+     * Listeners handed the answer's change with nothing aged out: an upsert sink (SINKKEYROWS-1).
+     * See {@link #onRetainedAnswer}. Mutated under {@link #publishLock}.
+     */
+    private final List<ViewChangeListener> retainedListeners = new CopyOnWriteArrayList<>();
+
     public ViewSink(ServedView view, StreamSchema schema) {
         this.view = view;
         this.schema = schema;
@@ -189,6 +195,8 @@ public final class ViewSink {
         boolean applied = false;
         List<ViewChange> answerBatch = List.of();
         List<ViewChangeListener> answerAudience = List.of();
+        List<ViewChange> retainedBatch = List.of();
+        List<ViewChangeListener> retainedAudience = List.of();
         try {
             synchronized (publishLock) {
                 if (atApplied) {
@@ -226,6 +234,10 @@ public final class ViewSink {
                         answerAudience = List.copyOf(answerListeners);
                         answerBatch = asChanges(view.takeAnswer());
                     }
+                    if (!retainedListeners.isEmpty()) {
+                        retainedAudience = List.copyOf(retainedListeners);
+                        retainedBatch = asChanges(view.takeRetainedAnswer());
+                    }
                     promoted = promoteJoiners();
                 }
             }
@@ -235,6 +247,7 @@ public final class ViewSink {
             // whoever is attached now (STRM-11).
             deliver(batch, audience, committedFrontier);
             deliver(answerBatch, answerAudience, committedFrontier);
+            deliver(retainedBatch, retainedAudience, committedFrontier);
             for (Handoff handoff : promoted) {
                 handoff.handOver();
             }
@@ -399,10 +412,31 @@ public final class ViewSink {
     private void removeAnswerListener(ViewChangeListener listener) {
         synchronized (publishLock) {
             answerListeners.remove(listener);
-            if (answerListeners.isEmpty()) {
+            retainedListeners.remove(listener);
+            if (answerListeners.isEmpty() && retainedListeners.isEmpty()) {
                 view.answerWanted(false);
             }
         }
+    }
+
+    /**
+     * {@link #onAnswer}, except that a row the view's retention ages out is not handed over as
+     * leaving: what an upsert sink follows (SINKKEYROWS-1).
+     *
+     * <p>An upsert sink keys its records by the view's key and deletes the record a retraction's key
+     * names, so fed the changelog it deleted a key whose shown row was retracted while the view went
+     * back to showing the row behind it (VIEWW-1). Fed the answer, its last word on each key is the
+     * row the view shows. Eviction stays silent to it, as it always was: a row that aged out of the
+     * view was not withdrawn, and the sink is where it is kept once the view has let it go.
+     *
+     * @return a handle that removes the listener
+     */
+    public AutoCloseable onRetainedAnswer(ViewChangeListener listener) {
+        synchronized (publishLock) {
+            view.answerWanted(true);
+            retainedListeners.add(listener);
+        }
+        return () -> removeAnswerListener(listener);
     }
 
     /**
@@ -509,12 +543,12 @@ public final class ViewSink {
 
     /** How many listeners are attached, counting those still waiting for their snapshot. */
     public int listenerCount() {
-        return listeners.size() + joiners.size() + answerListeners.size();
+        return listeners.size() + joiners.size() + answerListeners.size() + retainedListeners.size();
     }
 
     /** Whether anybody is listening, which is worth knowing before doing work for them. */
     public boolean hasListeners() {
-        return !listeners.isEmpty() || !joiners.isEmpty() || !answerListeners.isEmpty();
+        return !listeners.isEmpty() || !joiners.isEmpty() || !answerListeners.isEmpty() || !retainedListeners.isEmpty();
     }
 
     public long rowsApplied() {

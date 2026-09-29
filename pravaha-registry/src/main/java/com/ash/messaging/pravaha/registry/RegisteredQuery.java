@@ -688,7 +688,8 @@ public final class RegisteredQuery implements AutoCloseable {
      * commits, inserts and retractions in the order they were applied, never a half-applied window.
      */
     AutoCloseable attachSink(SinkDelivery delivery) {
-        AutoCloseable detach = sink.onCommit(delivery);
+        // An upsert sink follows the answer, a changelog sink the changelog (SINKKEYROWS-1).
+        AutoCloseable detach = delivery.followsAnswer() ? sink.onRetainedAnswer(delivery) : sink.onCommit(delivery);
         sinkDeliveries.add(delivery);
         sinksAttached.incrementAndGet();
         java.util.concurrent.atomic.AtomicBoolean detached = new java.util.concurrent.atomic.AtomicBoolean();

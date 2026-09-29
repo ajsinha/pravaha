@@ -12,6 +12,18 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **An upsert sink holds the row the view shows (SINKKEYROWS-1).** A keyed view keeps every
+  distinct row of a key and shows the newest; retracting that row shows the one behind it again. A
+  keyed sink in upsert mode (`jdbc-sink`, `kafka-sink`, `delta-sink`, `iceberg-sink`,
+  `aerospike-sink`) was handed the changelog, whose only change for that commit was the retraction,
+  so it deleted the key's record while the view still showed a row. Such a sink is now handed how
+  the answer changed at each commit — the row that left the key, then the row that entered it — as
+  an answer-following subscription is (KEYEDWT-1), so its last word on every key is the view's. A
+  sink in changelog mode still receives the changelog verbatim, a row retention ages out is still
+  never deleted from a sink, and the exactly-once protocol is unchanged (the answer is delivered
+  inside the same commit, before a checkpoint's cut). Reproduced against `jdbc-sink` (H2) and
+  `kafka-sink` (Kafka's `MockProducer`): `UpsertSinkKeyRowsTest`, `JdbcSinkRegistrationTest`,
+  `KafkaUpsertKeyRowsTest`.
 - **A total past 2^63 stops by name instead of wrapping (SUMWRAP-1).** Every `SUM`, `COUNT` and
   `AVG` accumulator — unwindowed, grouped, windowed (per slice and when a window's slices are
   combined), a pushed-down partial, and the read path — adds with checked arithmetic, and a
