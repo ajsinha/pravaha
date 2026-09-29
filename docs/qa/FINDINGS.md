@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **469 findings carrying a
-status — 447 FIXED, 0 OPEN, 13 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 0 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **471 findings carrying a
+status — 452 FIXED, 1 OPEN, 9 BY DESIGN, 9 SUPERSEDED.** Of the 1 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 1 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -1216,7 +1216,7 @@ time. Not data loss and not a crash — a client retrying on `PRV-4023` specific
 reading the message literally, gets the wrong signal from an ordinary, expected race.
 
 ### L-4 — `LIFE-040` reconfirms a round-2 finding still holds
-> **Status:** BY DESIGN — `SecurityPolicy.mayAdminister`'s javadoc now explicitly documents that unrestricted reading grants administer, denying only when the read carries a row filter (SX-2's fix); `LifeAuthorizationTest#life040_pauseResumeAndDropDefaultToMayRead` passes, confirming this is the stated, intended residual rule
+> **Status:** FIXED — superseding the earlier BY DESIGN (2026-09-29): a registered view is administered by its owner (the journalled registrant, so it survives restart), a principal the policy grants it to (`MODIFY`/`MANAGE` in the catalogue, or a policy that implements `mayAdminister`), or the admin role; an unfiltered reader who does not own it is refused `PRV-7002`. `pravaha.security.administer=legacy-read` restores the old rule for one release. `LifeAuthorizationTest#life040_aReaderMayNotAdministerAViewItDoesNotOwn`, `QueryOwnershipTest`.
 
 
 `SecurityPolicy.mayAdminister`'s default delegates to `mayRead`. Under `SecurityPolicy.PERMISSIVE`
@@ -1801,7 +1801,7 @@ is worth a maintainer's attention: `STATE.md` should have a pass reconciling it 
 `develop`, the way `LIFE.md`'s round evidently already got a partial one.
 
 ### ST-3 (MEDIUM) — chmod'ing a checkpoint directory read-only is silently undone by the next checkpoint
-> **Status:** BY DESIGN — `SensitiveFiles.createOwnerOnly` unconditionally calls `narrow(parent, "rwx------")` before every write, self-healing a chmod'd leaf directory by design; `StateFailureReportingTest#state044` passes, logging the self-heal and showing a chmod of the checkpoint root (not reachable by `narrow`) does cause real failures — the finding's own text already concludes this matches STATE-090's stated intent
+> **Status:** BY DESIGN — `SensitiveFiles.createOwnerOnly` unconditionally calls `narrow(parent, "rwx------")` before every write, self-healing a chmod'd leaf directory by design; `StateFailureReportingTest#state044` passes, logging the self-heal and showing a chmod of the checkpoint root (not reachable by `narrow`) does cause real failures — the finding's own text already concludes this matches STATE-090's stated intent. Since 2026-09-29 it also logs one WARNING per directory per process when it actually tightens an existing directory, naming the directory and the permissions it found (`SensitiveFilesTest`, OPERATIONS.md).
 
 
 `FileCheckpointStore.store` opens every write with `SensitiveFiles.createOwnerOnly(temporary)`
@@ -1920,7 +1920,7 @@ beats returning an object that can never do its job. Recorded as drift, not fixe
 
 ### API-F1 (informational) — `sqlName()` renders `STRING` as `VARCHAR NOT NULL`, not `STRING NOT NULL`
 
-> **Status:** BY DESIGN — `sqlName()` renders the Calcite type name, which is what a SQL surface should print; the eleven cases that expected `STRING NOT NULL` describe the DDL spelling, not the rendered type. Case text is what needs the edit.
+> **Status:** BY DESIGN — `sqlName()` renders the Calcite type name, which is what a SQL surface should print; the eleven cases that expected `STRING NOT NULL` describe the DDL spelling, not the rendered type. Case text is what needs the edit. The case file now says `VARCHAR NOT NULL` throughout (2026-09-29).
 
 Not a defect. `PrimitiveType.sqlName()` returns the Pravaha type-name verbatim (`INT64 NOT NULL`,
 exactly as the case file assumes), but `StringType.sqlName()` returns the Calcite/SQL spelling,
@@ -1964,7 +1964,7 @@ tell them what actually went wrong at the OS level. **Status: OPEN.**
 
 ### API-F4 (informational) — `run --out` auto-creates missing parent directories
 
-> **Status:** BY DESIGN — `run --out` creating missing parents is the behaviour a writer should have; the case expecting a refusal is what is wrong.
+> **Status:** BY DESIGN — `run --out` creating missing parents is the behaviour a writer should have; the case expecting a refusal is what is wrong. API-049 now expects the parent and the file created (2026-09-29).
 
 API-049 expects `--out /tmp/nodir/out.csv` against an absent `/tmp/nodir` to fail before any work is
 done. Actual behaviour: it succeeds — `ok  6 in, 3 out`, exit 0 — and `/tmp/nodir` is created along
@@ -1978,7 +1978,7 @@ needs updating).
 
 ### API-F5 (informational) — the `H-SRV`/`H-OPEN` harness note "rows are pushed with DoPut" does not hold against a real `pravaha-server`
 
-> **Status:** BY DESIGN — a fact about the harness description rather than the product: `H-SRV`/`H-OPEN`'s "rows are pushed with DoPut" does not hold against a real `pravaha-server`.
+> **Status:** BY DESIGN — a fact about the harness description rather than the product: `H-SRV`/`H-OPEN`'s "rows are pushed with DoPut" does not hold against a real `pravaha-server`. Both case files are corrected (2026-09-29): API.md's `H-SRV` says rows reach a real server through a bound source, and SDKX.md's `H-OPEN` no longer claims DoPut.
 
 `grep -rn "DoPut\|acceptPut"` across the repository (excluding `.claude/`) finds exactly one hit,
 `PravahaFlightSqlProducer`, and that override is `acceptPutPreparedStatementQuery` — parameter
@@ -2723,7 +2723,7 @@ stream names, and to learn which ones exist versus which are merely typos. Direc
 docs/qa/logs/SECX.md (SECX-091, SECX-093).
 
 ## SX-6 — mayAdminister/ownership: further corroboration of SX-2, no new mechanism
-> **Status:** BY DESIGN — `SecurityPolicy.mayAdminister`'s default (the exact method SX-2's fix rewrote) intentionally has no ownership check, only an unrestricted-read requirement, confirmed live by `AccessDecisionTest.anUnrestrictedReaderStillAdministers`; the commit message and interface javadoc document this as the deliberate "weakest defensible default."
+> **Status:** FIXED — superseding the earlier BY DESIGN (2026-09-29): ownership is now checked. The registry's journalled registrant is the owner, and `SecurityPolicy.mayAdminister`'s unrestricted-read default applies only to unregistered names and under `pravaha.security.administer=legacy-read`. `QueryOwnershipTest`, `ViewOwnershipHttpTest`, `CatalogGovernedRegistryTest#aPrincipalGrantedManageOnAViewAdministersItWithoutOwningIt`.
 
 
 SECX-077 and SECX-078 independently reproduce the same root cause SX-2 already records
@@ -6766,7 +6766,8 @@ runs is how a default becomes folklore, and this project has already found two o
 
 ### TEN-1 (LOW) — a view name taken by one tenant is refused to another by name, which says it exists
 
-> **Status:** BY DESIGN — ADR-050. View names stay unique on the node rather than per tenant, so a registration choosing a name another tenant already holds is refused with `PRV-8001`, and that refusal tells the second tenant the name is in use. Scoping names per tenant would mean every surface that addresses a view by name (Flight, REST, pgwire, the CLI, both SDKs) resolving through a tenant, which is a change to every published contract; ADR-050 chose the disclosure of a name over that. What the name reveals is that it exists, not what it computes or holds.
+> **Status:** OPEN — partly mitigated 2026-09-29. ADR-060 decides per-tenant names and supersedes ADR-050's names bullet. Built so far: a cross-tenant `PRV-8001` is word-for-word the same as a same-tenant one and is audited as `register:name` DENY, `PRV-8022` no longer names the holding tenant, and under ownership a non-admin from another tenant is stopped earlier with `PRV-7002`. The existence oracle itself stays until ADR-060's `(tenant, name)` registry key is built across every surface (`TenancyTest`).
+> **Disposition:** POST-GA — a LOW disclosure of a name's existence, not of what it computes or holds; the remaining work is ADR-060 §1–§6.
 
 ### VIS-1 (HIGH) — the visual suite skipped every screenshot when Chrome's version moved, and reported "skipped"
 
@@ -7106,7 +7107,7 @@ the lead.
 
 ### EMBWM-1 (LOW) — rows pushed into the embedded engine never move its watermark
 
-> **Status:** BY DESIGN — the embedded engine leaves event time to its host (`advanceEventTime`), as an embedded library should; USER_GUIDE and the embedded javadoc say so, and a node moves its own watermark.
+> **Status:** BY DESIGN — the embedded engine leaves event time to its host (`advanceEventTime`), as an embedded library should; USER_GUIDE and the embedded javadoc say so, and a node moves its own watermark. An opt-in helper now exists for hosts that want it: `PravahaEngine.trackEventTime(stream, allowedLateness)`, off by default, advances event time to the latest pushed minus the lateness, forward only (`EmbeddedEventTimeTrackingTest`, 2026-09-29).
 
 ## Found writing the research paper (2026-09-28), 3 findings
 
@@ -7137,7 +7138,7 @@ the lead.
 
 ### MAVENRACE-1 (LOW) — parallel module builds share ~/.m2 and can compile against each other's SNAPSHOT jars
 
-> **Status:** BY DESIGN — a working rule for parallel builds, not a product defect: build every changed module in one `-pl` reactor, or give parallel worktrees their own `-Dmaven.repo.local`; every agent brief now says so, and the gate runs alone.
+> **Status:** BY DESIGN — a working rule for parallel builds, not a product defect: build every changed module in one `-pl` reactor, or give parallel worktrees their own `-Dmaven.repo.local`; every agent brief now says so, and the gate runs alone. Since 2026-09-29 `tools/worktree-build.sh` applies the second rule automatically: a linked worktree builds against its own `.m2-local` (DEVELOPING_IN_AN_IDE.md).
 
 ### KEYEDWT-1 (MEDIUM) — CONCEPTS §4 tells a consumer to sum a keyed view's changelog weights, which drifts on upserts
 
@@ -7239,7 +7240,7 @@ the lead.
 
 ### VACUITYGAP-1 (LOW) — the vacuity analysis misses tautologies across different constants
 
-> **Status:** BY DESIGN — the vacuity analysis is deliberately sound but incomplete: it never refuses a filter that restricts, and a tautology across different constants (`a < 5 OR a > 2`) is accepted as restricting. Documented in SECURITY.md and ADR-031.
+> **Status:** FIXED — superseding the earlier BY DESIGN: an integer or decimal column compared with constants is judged by the regions its constants cut the number line into, a region dropped only when provably empty, so the analysis stays sound. `a<5 OR a>2`, `a<=4 OR a>=5` and `a<>3 OR a<>4` are now vacuous; `a<4 OR a>4` still restricts; on a nullable column such a filter is NULLS_ONLY and refused, as `r='x' OR r<>'x'` already was. Floating-point and expression-to-expression comparisons are still judged one by one. `FilterVacuityTest` (tables plus a 3,000-formula random property over every region's representative); SECURITY.md, ADR-031.
 
 
 ## Found building observability (2026-09-28), 2 findings
@@ -7278,7 +7279,7 @@ the lead.
 
 ### TRANSOVF-1 (LOW) — a total that overflows only inside one batch is refused
 
-> **Status:** BY DESIGN — refusing a total that leaves the 64-bit range even transiently inside a batch is the safe side of SUMWRAP-1: a wrapped intermediate is never served; netting a batch first would cost every aggregate for a case that needs totals near 2^63.
+> **Status:** FIXED — superseding the earlier BY DESIGN: a SUM is netted over each batch in 128 bits (the 64-bit total plus an excess word that is zero whenever it fits; the common case stays the checked add), and only a total the batch *ends* outside 64 bits is PRV-3025. Every emit, window fire, checkpoint, slice discard and compaction settles first, so a wrapped value is still never served; a window's slices combine the same way. State and checkpoint formats unchanged; COUNT stays exact. +MAX then −MAX in one batch is answered; a generated filter and project feeding the aggregate agree with the interpreter. Throughput unchanged (ns/row before → after: unkeyed 19.7 → 19.2, keyed 34.4 → 35.5, windowed 98.8 → 98.5). `TransientSumOverflowTest`, `SlicedAggregateOverflowTest`, `AggregateOverflowTest`, `GeneratedPipelineEquivalenceTest`.
 
 ## Found fixing the console findings (2026-09-29), 1 finding
 
@@ -7307,4 +7308,14 @@ the lead.
 ### CODEGENPROP-1 (LOW) — `pravaha.codegen.enabled` in YAML binds nothing
 
 > **Status:** FIXED — `pravaha.codegen.enabled` is bound from configuration (default true); a `-D` on the JVM still wins, in Spring's usual order, and a node built without Spring reads the `-D`. Named in `application.yaml` and the settings index. `CodegenConfigurationTest` starts a node with the key in YAML: `false` runs queries interpreted, the default runs them generated.
+
+## Found revisiting the BY DESIGN entries (2026-09-29), 2 findings
+
+### DECSCALE-1 (LOW) — a decimal column against a constant at another scale escapes the interval check
+
+> **Status:** FIXED — a DECIMAL column compared with a constant at another scale — the planner's column-rescaled-against-literal form, e.g. `p >= 5` on DECIMAL(10,2) — is judged as the whole-number comparison of its unscaled value with the constant × 10^scale, sharing the plain decimal comparison's variables and regions, so `p <= 4.99 OR p >= 5` is vacuous. A constant not whole at the column's scale is never equal, and bounds take its ceiling (`p >= 4.995` is `p >= 5.00`). Only a rescale that can neither round nor fail at the declared precision qualifies; anything else is judged one by one as before, so the analysis stays sound. `FilterVacuityTest` (table cases and a random property at scales 0–3; flooring instead of ceiling fails both).
+
+### LEGACYMODIFY-1 (LOW) — a catalogue that imported `authenticated` before ownership still grants MODIFY on the catalogue to every verified caller
+
+> **Status:** BY DESIGN — a fresh import of `authenticated` no longer grants `MODIFY ON CATALOG`; a catalogue imported earlier keeps the grant because grants are never rewritten silently. The node logs a WARN at every start until an operator runs `REVOKE MODIFY ON CATALOG FROM ROLE authenticated`; RELEASE_NOTES flags it for upgrades.
 
