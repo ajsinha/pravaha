@@ -6745,7 +6745,7 @@ runs is how a default becomes folklore, and this project has already found two o
 
 ### CG-1 (LOW) — a DECIMAL literal keeps a filter off the generated path, and a restart compiles every distinct chain serially
 
-> **Status:** FIXED (the literal half) — a DECIMAL literal no longer keeps a filter off the generated path: `Predicate.CompareDecimal` compares exactly and codegen emits it (a literal with more places than the column keeps the exact interpreted path). The serial compile of every distinct plan on restart is split out as CGRESTART-1. `DecimalGeneratedPathTest`; seed-proven.
+> **Status:** FIXED — the literal half: a DECIMAL literal no longer keeps a filter off the generated path: `Predicate.CompareDecimal` compares exactly and codegen emits it (a literal with more places than the column keeps the exact interpreted path). The serial compile of every distinct plan on restart is split out as CGRESTART-1. `DecimalGeneratedPathTest`; seed-proven.
 
 ### FLT-2 (MEDIUM) — a Flight server lent an allocator did not wait for its calls to release their buffers
 
@@ -7100,7 +7100,7 @@ the lead.
 
 ### MYC-3 (LOW) — a MySQL user granted replication through a role is refused
 
-> **Status:** FIXED (partly reproduced) — on MySQL 8.0.46 a replication privilege held through a default role was already accepted; a role granted but not active was refused with a message blaming role expansion. The check now expands the roles active at login explicitly and names an inactive role with `SET DEFAULT ROLE`. `MySqlCdcFindingsIT`.
+> **Status:** FIXED — partly reproduced: on MySQL 8.0.46 a replication privilege held through a default role was already accepted; a role granted but not active was refused with a message blaming role expansion. The check now expands the roles active at login explicitly and names an inactive role with `SET DEFAULT ROLE`. `MySqlCdcFindingsIT`.
 
 ### MYC-4 (LOW) — a MySQL type change that keeps the column count is not detected as DDL
 
