@@ -12,6 +12,13 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **Which access path a view's reads took is visible (IDXVIS-1).** The view counted reads by the
+  whole key, by a `RANGE` run, by an `INDEX (column)` probe and by scan, and nothing a user could
+  reach read the counts. `GET /api/v1/queries/{name}` now carries `accessPaths` (`point`, `range`,
+  `index`, `scan`, and each index's entries), the console's query page shows them under "Reads of
+  its view", and `pravaha_query_view_reads_total{query,path}` counts them. Chosen over a field on
+  every read response, which would have changed three wire formats for a diagnostic.
+  `AccessPathsVisibleTest`, `PravahaMetricsTest`.
 - **Dropping one name of a shared computation drops the index only it declared (IDXSHR-1).** The
   view kept an equality index a dropped name had declared until the next restart -- memory, never
   a wrong answer. Each name's `INDEX (column)` is now counted against the names still answered by

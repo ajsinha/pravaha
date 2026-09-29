@@ -364,6 +364,8 @@ public final class ApiDtos {
      * @param dependants the registered queries that follow this one's answer, then the alerts on it
      *     as {@code ALERT <name>} (ALERTDEPS-1), that this caller may see; a drop is refused while
      *     there are any ({@code PRV-8024})
+     * @param accessPaths how the reads of this query's view found their rows, counted since it
+     *     started (IDXVIS-1)
      */
     public record QueryDetail(
             String name,
@@ -384,7 +386,21 @@ public final class ApiDtos {
             String lane,
             Integer sharedLane,
             List<String> readsFrom,
-            List<String> dependants) {}
+            List<String> dependants,
+            AccessPaths accessPaths) {}
+
+    /**
+     * How the reads of one view found their rows (IDXVIS-1): every read of a view -- Flight SQL,
+     * {@code /api/v1/views/{name}/query}, the PostgreSQL gateway -- takes exactly one path, chosen
+     * from its {@code WHERE} clause, and the answer does not depend on which.
+     *
+     * @param point reads answered by one hash probe on the whole key ({@code WHERE key = ...})
+     * @param range reads answered by a run of the ordered index {@code RANGE (column)} keeps
+     * @param index reads answered by probing an equality index {@code INDEX (column)} keeps
+     * @param scan reads that walked every committed row
+     * @param indexes the columns an equality index is kept over, by name, with the entries each holds
+     */
+    public record AccessPaths(long point, long range, long index, long scan, java.util.Map<String, Long> indexes) {}
 
     /**
      * A registered query's view, described without reading it.

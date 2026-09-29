@@ -1533,6 +1533,7 @@ Per continuous query:
 | `pravaha_query_watermark_partitions_idle{query=}` | How many are excluded right now for having gone quiet |
 | `pravaha_query_watermark_idle_exclusions_total{query=}` | How often one has been excluded since it started |
 | `pravaha_query_watermark_regressions_total{query=}` | How often one reported a watermark below the lane's -- a source-side fault |
+| `pravaha_query_view_reads_total{query=,path=}` | Reads of the query's view, by the access path each took: `point` (a probe by the whole key), `range` (the ordered index `RANGE` keeps), `index` (an equality index `INDEX (column)` keeps), `scan` (every committed row). The same counts are `accessPaths` in `GET /api/v1/queries/{name}` and on the console's query page (IDXVIS-1) |
 | `pravaha_query_subscribers{query=}` | How many subscribers are attached to the computation. A sink writing the query's changelog is **not** counted — it listens on the same commit and nobody is watching it. Two names on one computation report the same number, because they are one |
 | `pravaha_query_checkpoint_last_success_timestamp_seconds{query=}` | When the query last **stored** a checkpoint, as Unix seconds. Alert on its age (`time() - ...`): that is how much recovery would now replay. `NaN` while the query is not checkpointing or has not stored one yet — never zero, which would read as 1970 |
 | `pravaha_query_checkpoint_duration_seconds{query=}` | How long that last stored checkpoint took, snapshot to stored. `NaN` as above |

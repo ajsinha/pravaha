@@ -309,6 +309,18 @@ public class PravahaMetrics implements AutoCloseable {
         // listens on the same commit and is not counted: a query writing to a table has nobody
         // watching it. Two names on one computation report the same number, because they are one.
         ids.add(gauge("pravaha.query.subscribers", tags, query, RegisteredQuery::subscriberCount));
+        // How reads of the view found their rows (IDXVIS-1): one series per access path.
+        for (var path : java.util.Map.<String, java.util.function.ToDoubleFunction<RegisteredQuery>>of(
+                        "point", q -> q.view().pointLookups(),
+                        "range", q -> q.view().rangeLookups(),
+                        "index", q -> q.view().indexLookups(),
+                        "scan", q -> q.view().scans())
+                .entrySet()) {
+            ids.add(FunctionCounter.builder("pravaha.query.view.reads", query, path.getValue())
+                    .tags(tags.and("path", path.getKey()))
+                    .register(meters)
+                    .getId());
+        }
         // Checkpoint health. NaN, not zero, while the query is not checkpointing or has not yet stored
         // one: a last-success timestamp of zero reads as "1970", which an age alert would page on.
         ids.add(gauge(

@@ -1410,7 +1410,11 @@
     "detail_missing": "The engine's description of this query did not load ({error}), so its keys, retention, sink and the streams it reads are not shown.",
     "dead_letters": "Dead letters",
     "replacement": "Replacement",
-    "debug": "Debug"
+    "debug": "Debug",
+    "access_paths": "Reads of its view",
+    "access_paths_counts": "{point} by key, {range} by range, {index} by index, {scan} scanned",
+    "index_entries": "{n} entries",
+    "index_clause": "INDEX ({col})"
   },
   "refused": {
     "title": "Refused",
