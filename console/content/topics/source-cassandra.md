@@ -236,7 +236,9 @@ pravaha:
 ## Delivery guarantee
 
 `AT_LEAST_ONCE` by default. The offset is the last token consumed inside the current pass; a restart
-resumes the unread remainder of that pass. What the plugin cannot give you then, it declares: deletes
+-- or a page of the pass that fails -- resumes the pass **from that token's partition, inclusive**, so
+a wide partition the reader stopped inside is read again from its first clustering row rather than
+skipped until the next pass (CASS-1); its first rows arrive twice, as every row does on every pass. What the plugin cannot give you then, it declares: deletes
 are invisible, two writes between passes are one, there is no before-image, and every pass repeats
 every row. `deletes: detect`, above, is `EXACTLY_ONCE`, sees deletes and repeats nothing.
 

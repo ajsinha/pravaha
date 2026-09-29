@@ -12,6 +12,12 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **A Cassandra token-range reader stopped inside a wide partition reads the rest of it (CASS-1).**
+  The reader resumed its pass -- after a restart, or after a page failed -- with `token(pk) > <last
+  token>`, so a stop part way through a partition's clustering rows skipped the rest of that
+  partition until the next full pass. It resumes with `>=`, re-reading that partition from its first
+  row (at `+1`, as every pass re-reads every row; `deletes: detect` restarts its pass and was not
+  affected). `TokenRangeScanReaderTest`.
 - **The PostgreSQL gateway's password with engine accounts on, verified and said (PGWIREPASS-1).**
   With the engine's own accounts on (ADR-052) the gateway accepts an API key or a session token as
   the password -- verified through the same transport verifier as Flight -- and refuses the account's
