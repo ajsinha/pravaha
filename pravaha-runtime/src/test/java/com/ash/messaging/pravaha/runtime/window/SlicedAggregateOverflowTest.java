@@ -42,11 +42,47 @@ class SlicedAggregateOverflowTest {
                         100)
                 .describedAs(new String[] {"SUM(amount)"});
         state.update(1L, 31L, new Object[] {1L}, SECOND, new long[] {Long.MAX_VALUE}, 1);
+        state.update(1L, 31L, new Object[] {1L}, 2 * SECOND, new long[] {1}, 1);
 
-        assertThatThrownBy(() -> state.update(1L, 31L, new Object[] {1L}, 2 * SECOND, new long[] {1}, 1))
+        // Refused when the batch settles (TRANSOVF-1), and never readable before it does.
+        assertThatThrownBy(state::settle)
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-3025")
                 .hasMessageContaining("SUM(amount)");
+    }
+
+    @Test
+    void anUnsettledTotalCannotBeFired() {
+        SlicedAggregateState state = new SlicedAggregateState(
+                        new SlicedWindows(WindowSpec.tumbling(10 * SECOND)),
+                        new SlicedAggregateState.Kind[] {SlicedAggregateState.Kind.SUM},
+                        100)
+                .describedAs(new String[] {"SUM(amount)"});
+        state.update(1L, 31L, new Object[] {1L}, SECOND, new long[] {Long.MAX_VALUE}, 1);
+        state.update(1L, 31L, new Object[] {1L}, SECOND, new long[] {Long.MAX_VALUE}, 1);
+
+        assertThatThrownBy(() -> state.fire(10 * SECOND))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-3025")
+                .hasMessageContaining("SUM(amount)");
+    }
+
+    @Test
+    void aTotalThatLeavesTheRangeInsideABatchAndComesBackIsAccepted() {
+        SlicedAggregateState state = new SlicedAggregateState(
+                new SlicedWindows(WindowSpec.tumbling(10 * SECOND)),
+                new SlicedAggregateState.Kind[] {SlicedAggregateState.Kind.SUM, SlicedAggregateState.Kind.AVG},
+                100);
+        state.update(1L, 31L, new Object[] {1L}, SECOND, new long[] {5, 5}, 1);
+        state.update(1L, 31L, new Object[] {1L}, SECOND, new long[] {Long.MAX_VALUE, Long.MAX_VALUE}, 1);
+        state.update(1L, 31L, new Object[] {1L}, SECOND, new long[] {Long.MAX_VALUE, Long.MAX_VALUE}, 1);
+        state.update(1L, 31L, new Object[] {1L}, SECOND, new long[] {Long.MAX_VALUE, Long.MAX_VALUE}, -1);
+        state.update(1L, 31L, new Object[] {1L}, SECOND, new long[] {Long.MAX_VALUE, Long.MAX_VALUE}, -1);
+        state.settle();
+
+        List<SlicedAggregateState.WindowResult> results = state.fire(10 * SECOND);
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0).values()).containsExactly(5L, 5L);
     }
 
     @Test
@@ -56,12 +92,56 @@ class SlicedAggregateOverflowTest {
                 new SlicedAggregateState.Kind[] {SlicedAggregateState.Kind.SUM},
                 100);
         state.update(1L, 31L, new Object[] {1L}, SECOND, new long[] {Long.MAX_VALUE}, 1);
+        state.settle();
 
         // Withdrawing a -1 adds one: past the top of the range.
-        assertThatThrownBy(() -> state.update(1L, 31L, new Object[] {1L}, SECOND, new long[] {-1}, -1))
+        state.update(1L, 31L, new Object[] {1L}, SECOND, new long[] {-1}, -1);
+        assertThatThrownBy(state::settle)
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-3025")
                 .hasMessageContaining("SUM (aggregate 0)");
+    }
+
+    @Test
+    void aWindowOfSlicesThatNetInsideTheRangeIsAccepted() {
+        // Slices of MAX, 1 and -1: the running combination passes 2^63, the window's total does not.
+        SlicedAggregateState state = new SlicedAggregateState(
+                new SlicedWindows(WindowSpec.hopping(30 * SECOND, 10 * SECOND)),
+                new SlicedAggregateState.Kind[] {SlicedAggregateState.Kind.SUM},
+                100);
+        state.update(1L, 31L, new Object[] {1L}, SECOND, new long[] {Long.MAX_VALUE}, 1);
+        state.update(1L, 31L, new Object[] {1L}, 11 * SECOND, new long[] {1}, 1);
+        state.update(1L, 31L, new Object[] {1L}, 21 * SECOND, new long[] {-1}, 1);
+        state.settle();
+
+        assertThat(state.fire(30 * SECOND).get(0).values()).containsExactly(Long.MAX_VALUE);
+    }
+
+    @Test
+    void theWideArithmeticIsExact() {
+        long[] totals = {0};
+        long[] excess = {0};
+        java.math.BigInteger expected = java.math.BigInteger.ZERO;
+        java.util.Random random = new java.util.Random(7);
+        long[] edges = {Long.MAX_VALUE, Long.MIN_VALUE, -1, 1, 0, Long.MAX_VALUE / 3, Long.MIN_VALUE / 7};
+        for (int step = 0; step < 20_000; step++) {
+            long value = random.nextBoolean() ? edges[random.nextInt(edges.length)] : random.nextLong();
+            // Weights up to 2^31, so fifty steps stay far inside 128 bits.
+            long weight = random.nextInt(4) == 0
+                    ? random.nextLong() >> (32 + random.nextInt(32))
+                    : (random.nextBoolean() ? 1 : -1);
+            AggregateTotals.addWeighted(totals, excess, 0, value, weight);
+            expected = expected.add(java.math.BigInteger.valueOf(value).multiply(java.math.BigInteger.valueOf(weight)));
+            java.math.BigInteger actual =
+                    java.math.BigInteger.valueOf(excess[0]).shiftLeft(64).add(java.math.BigInteger.valueOf(totals[0]));
+            assertThat(actual).as("step %d", step).isEqualTo(expected);
+            assertThat(excess[0] == 0).isEqualTo(expected.bitLength() < 64);
+            if (random.nextInt(50) == 0) {
+                totals[0] = 0;
+                excess[0] = 0;
+                expected = java.math.BigInteger.ZERO;
+            }
+        }
     }
 
     @Test

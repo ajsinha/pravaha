@@ -53,6 +53,15 @@ final class GlobalAggregate implements RowProcessor {
     private final long[] counts;
 
     /**
+     * What each {@code SUM} carries past its 64-bit total inside a batch, in units of {@code 2^64}
+     * (TRANSOVF-1, {@link AggregateTotals}). Zero once the batch is settled.
+     */
+    private final long[] excess;
+
+    /** Whether any {@link #excess} may be nonzero, so settling a batch that never left the range is free. */
+    private boolean unsettled;
+
+    /**
      * Per aggregate, the distinct values seen. Null unless that aggregate counts them.
      *
      * <p>A set, not a weighted map as the windowed form uses. This runs over a bounded read, which
@@ -95,6 +104,7 @@ final class GlobalAggregate implements RowProcessor {
         int n = operator.aggregates().size();
         this.sums = new long[n];
         this.counts = new long[n];
+        this.excess = new long[n];
         @SuppressWarnings("unchecked")
         java.util.Set<Object>[] sets = new java.util.Set[n];
         this.distincts = sets;
@@ -159,14 +169,18 @@ final class GlobalAggregate implements RowProcessor {
             }
             case SUM, AVG -> {
                 if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
-                    sums[i] = AggregateTotals.addWeighted(
-                            sums[i],
+                    // Netted over the batch in 128 bits; settle() refuses what does not fit.
+                    AggregateTotals.addWeighted(
+                            sums,
+                            excess,
+                            i,
                             AggregateSlots.read(
                                     row,
                                     call.argumentOrdinal(),
                                     argumentTypes[i],
                                     operator.input().outputSchema()),
                             weight);
+                    unsettled |= excess[i] != 0;
                     counts[i] = AggregateTotals.add(counts[i], weight);
                 }
             }
@@ -244,7 +258,10 @@ final class GlobalAggregate implements RowProcessor {
             try {
                 switch (call.kind()) {
                     case COUNT -> counts[i] = AggregateTotals.addWeighted(counts[i], partialValue, weight);
-                    case SUM -> sums[i] = AggregateTotals.addWeighted(sums[i], partialValue, weight);
+                    case SUM -> {
+                        AggregateTotals.addWeighted(sums, excess, i, partialValue, weight);
+                        unsettled |= excess[i] != 0;
+                    }
                     default ->
                         throw new IllegalStateException("processPartial received a " + call.kind()
                                 + " call; SourcePushdown never offers partial-aggregate pushdown for anything "
@@ -256,6 +273,27 @@ final class GlobalAggregate implements RowProcessor {
                         AggregateSlots.describe(call, operator.input().outputSchema()), overflow);
             }
         }
+    }
+
+    /**
+     * Refuses a batch whose net total does not fit in 64 bits (TRANSOVF-1): called at the end of
+     * every batch, and before anything reads a total, so a total that left the range inside the
+     * batch and came back is accepted, and one that did not is PRV-3025 naming the aggregate.
+     */
+    void settle() {
+        if (!unsettled) {
+            return;
+        }
+        List<AggregateOperator.AggregateCall> calls = operator.aggregates();
+        for (int i = 0; i < excess.length; i++) {
+            try {
+                AggregateTotals.settled(sums[i], excess[i]);
+            } catch (ArithmeticException overflow) {
+                throw AggregateTotals.overflow(
+                        AggregateSlots.describe(calls.get(i), operator.input().outputSchema()), overflow);
+            }
+        }
+        unsettled = false;
     }
 
     /**
@@ -271,6 +309,7 @@ final class GlobalAggregate implements RowProcessor {
      * be a separate row and the view would accumulate one per tick.
      */
     void emitIncremental() {
+        settle();
         if (rowCount == 0 && !emittedBefore) {
             // Nothing has arrived. An aggregate over no rows is a question with no answer yet, not
             // an answer of zero -- and emitting one would put a row in the view that no data
@@ -388,6 +427,7 @@ final class GlobalAggregate implements RowProcessor {
      * answer rather than a question not yet answered.
      */
     void emit() {
+        settle();
         if (continuous) {
             if (emittedBefore && java.util.Arrays.equals(currentValues(), previous)) {
                 return;
@@ -438,6 +478,9 @@ final class GlobalAggregate implements RowProcessor {
      * and the next row put {@code [1, 75]} next to it.
      */
     void writeTo(java.io.DataOutput out) throws java.io.IOException {
+        // A checkpoint is taken between batches, so there is nothing to carry; settling here makes
+        // that a fact rather than an assumption about the caller.
+        settle();
         int n = sums.length;
         out.writeInt(n);
         out.writeLong(rowCount);
@@ -470,10 +513,12 @@ final class GlobalAggregate implements RowProcessor {
                     + sums.length + ": the query changed since the checkpoint was taken");
         }
         rowCount = in.readLong();
+        unsettled = false;
         lastTimestamp = in.readLong();
         lastSequence = in.readLong();
         for (int i = 0; i < n; i++) {
             sums[i] = in.readLong();
+            excess[i] = 0;
             counts[i] = in.readLong();
             seen[i] = in.readBoolean();
             distincts[i] = readDistinct(in);

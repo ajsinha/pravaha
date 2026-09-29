@@ -290,7 +290,16 @@ public final class SlicedAggregateState implements AutoCloseable {
                     // right either way -- but nonNull is what AVG divides by and what MIN and MAX
                     // seed from, and it has to mean non-null values for all of them.
                     if (present[i]) {
-                        offHeap.setValue(handle, i, checkedAdd(i, offHeap.value(handle, i), values[i], weight));
+                        // Netted over the batch in 128 bits (TRANSOVF-1): the low word is stored,
+                        // and what it carries past 64 bits waits in `pending` for settle(). The
+                        // checked add is the common case and the cheap one.
+                        long total = offHeap.value(handle, i);
+                        try {
+                            offHeap.setValue(handle, i, AggregateTotals.addWeighted(total, values[i], weight));
+                        } catch (ArithmeticException outside) {
+                            offHeap.setValue(handle, i, total + values[i] * weight);
+                            carry(handle, i, AggregateTotals.wideExcessOf(total, values[i], weight));
+                        }
                         offHeap.setNonNull(handle, i, checkedAdd(i, offHeap.nonNull(handle, i), 1, weight));
                     }
                 }
@@ -328,11 +337,50 @@ public final class SlicedAggregateState implements AutoCloseable {
         try {
             return AggregateTotals.addWeighted(total, value, weight);
         } catch (ArithmeticException overflow) {
-            String name = names != null && column < names.length
-                    ? names[column]
-                    : kinds[column] + " (aggregate " + column + ")";
-            throw AggregateTotals.overflow(name, overflow);
+            throw AggregateTotals.overflow(nameOf(column), overflow);
         }
+    }
+
+    private String nameOf(int column) {
+        return names != null && column < names.length ? names[column] : kinds[column] + " (aggregate " + column + ")";
+    }
+
+    /**
+     * Per accumulator handle, what each {@code SUM} carries past its stored 64-bit total in the
+     * current batch, in units of {@code 2^64} (TRANSOVF-1, {@link AggregateTotals}). Empty unless a
+     * total left the range this batch, so the common case costs one {@code isEmpty}; keyed by handle,
+     * which is stable within a batch -- compaction moves blocks only between batches, after {@link
+     * #settle}.
+     */
+    private final java.util.Map<Long, long[]> pending = new java.util.HashMap<>();
+
+    private void carry(long handle, int column, long carried) {
+        long[] excess = pending.computeIfAbsent(handle, h -> new long[kinds.length]);
+        try {
+            excess[column] = Math.addExact(excess[column], carried);
+        } catch (ArithmeticException overflow) {
+            throw AggregateTotals.overflow(nameOf(column), overflow);
+        }
+    }
+
+    /**
+     * Refuses a batch after which some slice's total does not fit in 64 bits, naming the aggregate
+     * (PRV-3025). Called at the end of every batch and before anything reads, moves or writes the
+     * accumulators, so a total that left the range inside a batch and came back is accepted and a
+     * wrapped one is never read.
+     */
+    public void settle() {
+        if (pending.isEmpty()) {
+            return;
+        }
+        for (long[] excess : pending.values()) {
+            for (int i = 0; i < excess.length; i++) {
+                if (excess[i] != 0) {
+                    throw AggregateTotals.overflow(nameOf(i), new ArithmeticException("long overflow"));
+                }
+            }
+        }
+        pending.clear();
     }
 
     /** How a refusal names each aggregate column, {@code SUM(amount)}; null names them by position. */
@@ -388,6 +436,7 @@ public final class SlicedAggregateState implements AutoCloseable {
      * @return how many results were handed to {@code out}
      */
     public long fire(long windowEndNanos, java.util.function.Consumer<WindowResult> out) {
+        settle();
         List<Long> slices = windows.slicesOfWindowEnding(windowEndNanos);
         long[] sliceStarts = new long[slices.size()];
         for (int i = 0; i < sliceStarts.length; i++) {
@@ -408,6 +457,9 @@ public final class SlicedAggregateState implements AutoCloseable {
             }
             WindowDistinctCounts counts = distinctCounts;
             SliceAccumulator combined = new SliceAccumulator(kinds.length);
+            // A window's SUM is its slices' totals netted in 128 bits, like a batch: slices of
+            // MAX, 1 and -1 make a window of MAX, and only a window total that does not fit is refused.
+            long[] combinedExcess = new long[kinds.length];
             long[] emitted = {0};
             // SPILL-4: in store order, not the index's hash order. Deciding whether an
             // accumulator is in this window reads it; in hash order that read landed at a random
@@ -425,12 +477,18 @@ public final class SlicedAggregateState implements AutoCloseable {
                 }
                 java.util.Arrays.fill(combined.values, 0);
                 java.util.Arrays.fill(combined.nonNull, 0);
+                java.util.Arrays.fill(combinedExcess, 0);
                 combined.count = 0;
-                merge(combined, handle);
+                merge(combined, combinedExcess, handle);
                 for (int later = position + 1; later < sliceStarts.length; later++) {
                     long other = offHeap.findInSlice(handle, sliceStarts[later]);
                     if (other != ArenaHandle.NULL) {
-                        merge(combined, other);
+                        merge(combined, combinedExcess, other);
+                    }
+                }
+                for (int i = 0; i < kinds.length; i++) {
+                    if (combinedExcess[i] != 0) {
+                        throw AggregateTotals.overflow(nameOf(i), new ArithmeticException("long overflow"));
                     }
                 }
                 if (combined.count == 0) {
@@ -499,7 +557,7 @@ public final class SlicedAggregateState implements AutoCloseable {
     }
 
     /** Folds one slice's accumulator, read in place off-heap, into a window's. */
-    private void merge(SliceAccumulator target, long handle) {
+    private void merge(SliceAccumulator target, long[] excess, long handle) {
         target.count += offHeap.count(handle);
         for (int i = 0; i < kinds.length; i++) {
             long value = offHeap.value(handle, i);
@@ -507,8 +565,9 @@ public final class SlicedAggregateState implements AutoCloseable {
             switch (kinds[i]) {
                 case COUNT -> target.values[i] = checkedAdd(i, target.values[i], value, 1);
                 case SUM, AVG -> {
-                    // A window's total is its slices' totals added: each can fit and their sum not.
-                    target.values[i] = checkedAdd(i, target.values[i], value, 1);
+                    // A window's total is its slices' totals added: each can fit and their sum
+                    // not, so the sum is netted in 128 bits and fire() refuses what does not fit.
+                    AggregateTotals.addWeighted(target.values, excess, i, value, 1);
                     target.nonNull[i] = checkedAdd(i, target.nonNull[i], nonNull, 1);
                 }
                 case COUNT_DISTINCT -> {
@@ -547,6 +606,7 @@ public final class SlicedAggregateState implements AutoCloseable {
      * @return how many accumulators were released
      */
     public int discardSlicesEndingBefore(long watermarkNanos, long allowedLatenessNanos) {
+        settle();
         java.util.function.LongPredicate dead =
                 sliceStart -> windows.lastWindowEndFor(sliceStart) + allowedLatenessNanos <= watermarkNanos;
         int before = offHeap.size();
@@ -588,6 +648,8 @@ public final class SlicedAggregateState implements AutoCloseable {
      * is being mutated -- a photograph of a car crash rather than a snapshot.
      */
     public void writeTo(java.io.DataOutput out) throws java.io.IOException {
+        // Between batches nothing is pending; settling makes that a fact, and the format unchanged.
+        settle();
         out.writeInt(FORMAT_VERSION);
         out.writeInt(kinds.length);
         for (Kind kind : kinds) {
@@ -623,6 +685,7 @@ public final class SlicedAggregateState implements AutoCloseable {
      * records the checkpoint exists to make exactly-once.
      */
     public void readFrom(java.io.DataInput in) throws java.io.IOException {
+        pending.clear();
         int version = in.readInt();
         if (version == 1) {
             throw new java.io.IOException("this windowed aggregate's checkpoint is format version 1, written before "
@@ -741,6 +804,8 @@ public final class SlicedAggregateState implements AutoCloseable {
      * @return how many overflow slabs were released
      */
     public int compactIfFragmented(double threshold) {
+        // Compaction moves blocks to new handles, and `pending` is keyed by handle.
+        settle();
         int released = offHeap.map().compactIfFragmented(threshold);
         if (distinct != null) {
             released += distinct.map().compactIfFragmented(threshold);

@@ -114,6 +114,26 @@ class AggregateOverflowTest {
         assertThat(answer).containsOnly(Map.entry(List.of(Long.MAX_VALUE), 1L));
     }
 
+    @Test
+    void aTotalThatPassesTheRangeInsideABatchAndComesBackIsAnswered() {
+        // TRANSOVF-1: the batch is netted in 128 bits; only what it commits must fit in 64.
+        List<ZSetHarness.Change> changes = List.of(
+                txn("u1", Long.MAX_VALUE, "0", 1),
+                txn("u1", Long.MAX_VALUE, "0", 2),
+                txn("u1", -Long.MAX_VALUE, "0", 3),
+                txn("u1", -Long.MAX_VALUE, "0", 4),
+                txn("u1", 5, "0", 5));
+
+        assertThat(ZSetHarness.maintained(TXN, "SELECT SUM(amount) FROM txn", changes, Long.MIN_VALUE))
+                .containsOnly(Map.entry(List.of(5L), 1L));
+        String sql = "SELECT window_start, user_id, SUM(amount) AS total "
+                + "FROM TABLE(TUMBLE(TABLE txn, DESCRIPTOR(ts), INTERVAL '10' SECOND)) "
+                + "GROUP BY window_start, window_end, user_id";
+        assertThat(ZSetHarness.maintained(TXN, sql, changes, 30 * SECOND).keySet())
+                .singleElement()
+                .satisfies(row -> assertThat(row).endsWith(5L));
+    }
+
     private static ZSetHarness.Change txn(String user, long amount, String price, long seconds) {
         return ZSetHarness.Change.insert(seconds * SECOND, user, amount, new BigDecimal(price), seconds * SECOND);
     }
