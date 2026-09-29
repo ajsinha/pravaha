@@ -75,6 +75,16 @@ final class RowEncoder {
         return schema;
     }
 
+    /** Whether rows are stamped with an event time from one of their columns. */
+    boolean stampsEventTime() {
+        return eventTimeOrdinal >= 0;
+    }
+
+    /** The event time {@link #write} stamps validated {@code values} with, or {@link Long#MIN_VALUE} for none. */
+    long eventTimeOf(Object[] values) {
+        return eventTimeOrdinal >= 0 && values[eventTimeOrdinal] instanceof Long nanos ? nanos : Long.MIN_VALUE;
+    }
+
     /** Values by column name, in column order; a column the map does not name is null. */
     Object[] fromMap(Map<String, ?> row) {
         Object[] values = new Object[schema.fieldCount()];
