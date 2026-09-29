@@ -483,7 +483,8 @@ class AssistService:
                 add(by_model, str(entry["model"]), "requests", 1)
             if entry.get("user"):
                 add(by_user, str(entry["user"]), "requests", 1)
-        order = lambda table: [{"name": k, **v} for k, v in sorted(table.items())]
+        def order(table: dict) -> list[dict]:
+            return [{"name": k, **v} for k, v in sorted(table.items())]
         return {"days": sorted(days), "today": today, "byModel": order(by_model),
                 "byUser": order(by_user), "ledger": str(self.ledger.path)}
 

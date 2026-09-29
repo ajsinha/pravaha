@@ -70,17 +70,22 @@ def _strip_js_comments(text: str) -> str:
         c = text[i]
         if c == "`":
             _, j = _template_body(text, i + 1)
-            out.append(text[i:j + 1]); i = j + 1
+            out.append(text[i:j + 1])
+            i = j + 1
         elif c in "\"'":
             j = i + 1
             while j < n and text[j] != c:
                 j += 2 if text[j] == "\\" else 1
-            out.append(text[i:j + 1]); i = j + 1
+            out.append(text[i:j + 1])
+            i = j + 1
         elif text.startswith("//", i) and (i == 0 or text[i - 1] not in ":\\"):
-            j = text.find("\n", i); i = n if j < 0 else j
+            j = text.find("\n", i)
+            i = n if j < 0 else j
         elif text.startswith("/*", i):
-            j = text.find("*/", i + 2); j = n if j < 0 else j + 2
-            out.append("\n" * text.count("\n", i, j)); i = j
+            j = text.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+            out.append("\n" * text.count("\n", i, j))
+            i = j
         elif c == "/" and _regex_can_start(out):
             j = i + 1
             while j < n and text[j] not in "/\n":
@@ -88,9 +93,11 @@ def _strip_js_comments(text: str) -> str:
                     while j < n and text[j] != "]":
                         j += 2 if text[j] == "\\" else 1
                 j += 2 if text[j] == "\\" else 1
-            out.append(" "); i = j + 1
+            out.append(" ")
+            i = j + 1
         else:
-            out.append(c); i += 1
+            out.append(c)
+            i += 1
     return "".join(out)
 
 
@@ -124,12 +131,14 @@ def _template_body(code: str, start: int) -> tuple[str, int]:
     out, j, n = [], start, len(code)
     while j < n and code[j] != "`":
         if code[j] == "\\":
-            out.append(code[j:j + 2]); j += 2
+            out.append(code[j:j + 2])
+            j += 2
         elif code.startswith("${", j):
             depth, k = 1, j + 2
             while k < n and depth:
                 if code[k] in "\"'":
-                    q = code[k]; k += 1
+                    q = code[k]
+                    k += 1
                     while k < n and code[k] != q:
                         k += 2 if code[k] == "\\" else 1
                 elif code[k] == "`":
@@ -139,9 +148,11 @@ def _template_body(code: str, start: int) -> tuple[str, int]:
                 elif code[k] == "}":
                     depth -= 1
                 k += 1
-            out.append("\x00"); j = k
+            out.append("\x00")
+            j = k
         else:
-            out.append(code[j]); j += 1
+            out.append(code[j])
+            j += 1
     return "".join(out), j
 
 
@@ -155,7 +166,8 @@ def _expressions(code: str, start: int) -> list[str]:
             depth, k = 1, j + 2
             while k < n and depth:
                 if code[k] in "\"'":
-                    q = code[k]; k += 1
+                    q = code[k]
+                    k += 1
                     while k < n and code[k] != q:
                         k += 2 if code[k] == "\\" else 1
                 elif code[k] == "`":
@@ -165,7 +177,8 @@ def _expressions(code: str, start: int) -> list[str]:
                 elif code[k] == "}":
                     depth -= 1
                 k += 1
-            exprs.append(code[j + 2:k - 1]); j = k
+            exprs.append(code[j + 2:k - 1])
+            j = k
         else:
             j += 1
     return exprs

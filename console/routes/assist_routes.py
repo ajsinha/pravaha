@@ -171,7 +171,8 @@ class AssistRoutes(Routes):
                 flash(request, self.t("admin.ai.denied") if denied else str(error), "danger")
                 return RedirectResponse(ADMIN_PATH, status_code=303)
             form = await request.form()
-            field = lambda name: str(form.get(name) or "").strip()
+            def field(name: str) -> str:
+                return str(form.get(name) or "").strip()
             actor = str(current_user(request))
             back = ADMIN_PATH + {"models": "#models", "providers": "#providers",
                                  "profiles": "#profiles", "budgets": "#budgets"}.get(op.split("-")[0], "")
@@ -204,7 +205,8 @@ class AssistRoutes(Routes):
 
     def _apply(self, op: str, field, version: int | None, actor: str) -> dict:
         """One change from the admin page's form, as the one :class:`AssistAdmin` call it is."""
-        change = lambda action, *a, **k: self.service.change(actor, version, action, *a, **k)
+        def change(action: str, *a, **k) -> dict:
+            return self.service.change(actor, version, action, *a, **k)
         if op == "models-add":
             return change("add_model", field("model"), field("provider"), field("name"),
                           enabled=field("enabled") == "yes",
