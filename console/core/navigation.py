@@ -39,4 +39,5 @@ EXCLUDED: dict[str, str] = {
     "/help/decisions/{record}": "one decision record, from the guides",
     "/help/case-studies/{slug}": "one case study, from Help · Case studies",
     "/tutorials/{slug}": "one tutorial, from Help · Tutorials",
+    "/about/papers/{name}": "the research paper and the deck, as files, from About · Read further",
 }

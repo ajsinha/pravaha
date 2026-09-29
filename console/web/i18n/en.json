@@ -1675,40 +1675,31 @@
   },
   "about": {
     "title": "About",
-    "kicker": "ABOUT",
-    "heading": "What {app} is",
-    "lede": "An embeddable, store-native, incrementally-maintained SQL engine: register a question once, and Pravaha keeps its answer current as the data changes, serves it back by key, and refuses — at plan time, with a reason — anything it cannot keep bounded.",
-    "empty": "No about content found. Expected markdown files under",
+    "lede": "An embeddable, store-native, incrementally-maintained SQL engine: register a question once, and Pravaha keeps its answer current as the data changes, serves and governs it where it lives, and refuses — at plan time, with a reason — anything it cannot keep bounded or exact.",
     "docs": {
-      "title": "Documentation",
-      "body": "Concepts, guides and troubleshooting, rendered from the repository's own",
       "open": "Open help"
     },
-    "contents": "On this page",
     "nav": {
       "start": "Start here",
-      "first_view": "Your first view",
-      "decisions": "Decision records",
-      "tutorials": "Worked systems",
-      "competitive": "Competitive landscape"
+      "competitive": "Competitive landscape",
+      "home": "Home",
+      "sign_in": "Sign in"
     },
     "s": {
-      "what": "What Pravaha is",
+      "what": "What is Pravaha?",
       "problem": "The problem it solves",
       "different": "What makes it different",
-      "how": "How it works, at a glance",
+      "how": "How it works",
       "built": "What is built",
       "release": "In this release",
       "numbers": "Measured, with the caveats",
-      "decisions": "Decisions that shaped it",
       "principles": "Design principles",
       "landscape": "Competitive landscape",
-      "uses": "Where it is used",
-      "stack": "How it is built",
-      "name": "The name",
-      "console": "This console",
+      "stack": "Technology",
       "install": "This installation",
-      "author": "Author, ownership and licence"
+      "author": "Licence and copyright",
+      "limits": "Honest limits",
+      "reading": "Read further: the paper, the deck, the post"
     },
     "diagram": {
       "title": "How Pravaha works",
@@ -1760,22 +1751,20 @@
       "4": "The watermark — how far event time has certainly advanced — closes windows. A late row inside the allowed lateness reopens a window as a retraction of the old answer and the corrected one, in one commit.",
       "5": "The view is the answer, maintained and keyed. Applications read it by key over Flight SQL or the PostgreSQL wire protocol, subscribe to its commits, or have the node write each commit to a sink. Checkpoints cut every input at one point, so a restart resumes.",
       "more_weights": "Weights and retractions",
-      "more_architecture": "The architecture"
+      "more_architecture": "The architecture",
+      "more_concepts": "Concepts"
     },
     "built": {
-      "lede": "Read from the repository's README, which the build keeps honest — so this list cannot claim more than the code does.",
-      "not_built": "What is not built, or not finished"
+      "lede": "Read from the repository's README, which the build keeps honest — so this cannot claim more than the code does.",
+      "not_built": "What is not built, or not finished",
+      "in_full": "Each area in full, from the README"
     },
     "numbers": {
       "lede": "Every figure here says what it is and what it is not, and where it was taken. None is a benchmark on reference hardware: the gates that ask for one stay unmeasured, and no number from the development machine is quoted as if it were one.",
       "where": "Where:"
     },
     "decisions": {
-      "lede": "Every architectural decision is recorded, numbered and never renumbered — including the ones later reversed. These are the ones that explain the product; each opens in place.",
       "all": "Every decision record"
-    },
-    "uses": {
-      "lede": "Worked systems ship with the engine, one domain each: a data model, its continuous SQL — planned by the build — and application code. Every one is in Help, under Case studies."
     },
     "install": {
       "console": "Console",
@@ -1786,7 +1775,7 @@
       "help_count": "{n} topics, plus the long-form guides"
     },
     "author": {
-      "role": "Designer and author of Pravaha, its engine, its SDKs and this console.",
+      "role": "Designer and author of Pravaha, its engine, its SDKs, its research paper and this console.",
       "licence": "The licence, in full"
     },
     "version": "Console {v}",
@@ -1794,17 +1783,34 @@
       "more": "Read more"
     },
     "different": {
-      "lede": "Where the competitive landscape scores Pravaha Yes: each card is that row's \"Why it matters\", word for word, and opens the whole comparison — the problem, how the other categories meet it, and where Pravaha's answer is proven.",
       "how": "How, and against what"
     },
     "release": {
       "source": "The newest entry of the release notes, read from the repository each time this page is shown.",
-      "all": "Every release"
+      "all": "Every release",
+      "more": "And {n} more in the release notes."
     },
     "landscape": {
-      "lede": "Scored by category of product, not by vendor: where each category's centre of gravity sits, against what this tree can show for Pravaha. Yes is a documented, supported feature; Partial is some products, or with limits; No is not, or not without building it.",
-      "loses": "Where Pravaha loses",
-      "full": "The full comparison"
+      "pattern": "The engines that keep an answer current — dataflow SQL, streaming databases, the Kafka stack — do not govern it, and the catalogues that govern data do not see an answer that is still moving. Pravaha keeps the answer current over the stores you already run, serves it where it is maintained, and governs it there: grants, row filters and masks on the live view, and revocation that ends a stream already open.",
+      "complement": "It is one node, not a cluster, and not a catalogue for an estate. Beside a dataflow engine it takes the questions that need an exact, served, governed answer; beside an estate catalogue it governs the answers computed from the data that catalogue holds.",
+      "shines": "Where Pravaha shines",
+      "behind": "Where it is partial or behind",
+      "full": "The comparison, row by row, and how Pravaha does each"
+    },
+    "tagline": "Continuous SQL where your data already lives",
+    "what": {
+      "lead": "Pravaha is a continuous-SQL engine: register a question once, and it keeps the answer current as the data changes — over the stores you already run — and serves that answer back by key, as a stream of its changes, or over the PostgreSQL protocol.",
+      "body": "Every change is a Z-set delta with a weight, so the work is proportional to what changed, and a correction is a retraction and an insert, not a second answer. Every hand-over between streams of records — a subscriber joining, a restart, a query sharing a reader, a new version taking the name — is made at an exact position in the input, and where that cannot be shown the engine refuses rather than approximates. The answer is governed where it lives: grants, row filters and column masks apply to the live view and to a stream already open. It runs inside an application, as a Spring Boot bean, or as a server.",
+      "name": "Pravaha (प्रवाह, Sanskrit: continuous, uninterrupted flow), pronounced pruh-VAA-huh. Built for teams whose questions hardly change while the data under them never stops: stock at its reorder point, a merchant's takings minute by minute, revenue per region per hour."
+    },
+    "limits": {
+      "lede": "Stated so nobody has to discover them. Each is scored in the competitive landscape."
+    },
+    "reading": {
+      "in_repo": "Not served by this installation; in the repository at"
+    },
+    "stack": {
+      "note": "The engine is Java 21 with no Spring in its core; the console is Python on the published SDK and the engine's REST API, with every browser library vendored, so it runs air-gapped."
     }
   },
   "help": {
@@ -2770,9 +2776,8 @@
   },
   "competitive": {
     "title": "Competitive landscape",
-    "kicker": "ABOUT",
     "heading": "Competitive landscape",
-    "lede": "Where Pravaha stands among the kinds of product that do part of its job — scored by category, not vendor — and, for every row, how the others meet the need and how Pravaha does, with the record that proves it. Losses included.",
+    "lede": "Where Pravaha sits among the products that keep answers current and the catalogues that govern data — scored by category, not vendor — and how it does the things the others do not.",
     "nav": {
       "about": "About Pravaha",
       "help": "Help"
@@ -2780,12 +2785,19 @@
     "s": {
       "table": "The scored table",
       "shine": "Where Pravaha shines, and how",
-      "behind": "Where Pravaha is partial or behind, and why"
+      "behind": "Where Pravaha is partial or behind, and why",
+      "common": "What the rows have in common",
+      "reading": "The practical reading"
     },
-    "caption": "Capabilities, by category of product, against Pravaha",
+    "caption": "How the product categories compare. Each capability links to how Pravaha does it.",
     "capability": "Capability",
     "scores": "How each category scores",
-    "missing": "The comparison is read from docs/COMPETITIVE_LANDSCAPE.md, which this installation does not carry."
+    "missing": "The comparison is read from docs/COMPETITIVE_LANDSCAPE.md, which this installation does not carry.",
+    "note": {
+      "problem": "The problem elsewhere.",
+      "how": "How Pravaha does it.",
+      "why": "Why it matters."
+    }
   },
   "session": {
     "expired": "Your session has ended. Sign in again.",
