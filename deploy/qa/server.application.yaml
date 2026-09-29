@@ -105,6 +105,7 @@ pravaha:
       directory: /opt/pravaha/data/spill
       max-bytes: 8589934592               # 8 GiB across every query on this node
 
+  # Generated filters and projections (C-7); false runs every query interpreted. Read at start-up.
   codegen:
     enabled: true
 

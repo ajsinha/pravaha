@@ -12,6 +12,22 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **`pravaha.codegen.enabled` is a configuration key (CODEGENPROP-1).** It was read only as a JVM
+  system property, so `codegen: enabled: false` in `application.yaml` changed nothing. It is now
+  bound like every `pravaha.*` key (YAML, `PRAVAHA_CODEGEN_ENABLED`, `--pravaha.codegen.enabled`),
+  default `true`; a `-Dpravaha.codegen.enabled` on the JVM still works and wins over the YAML file,
+  in Spring's usual order. A node built without Spring reads only the `-D`.
+- **The OpenAPI lock records body fields (OPENAPILOCK-1).** `api/openapi.lock.json` keeps its
+  per-operation `paths` entries, adds each operation's `requestBody` and `responseBodies` shapes, and a
+  `schemas` section listing every body field as a flattened path (`a.b`, `a[]`, `a{}`) with its type
+  and required flag. `OpenApiContractTest` names a removed, renamed or retyped field, or a newly
+  required request field, as a break; any other difference (an added optional field) fails until the
+  lock is regenerated with `-Dpravaha.openapi.update=true` and the diff reviewed.
+- **The server's dependency upper bounds are checked (SERVERSKEW-1).** `pravaha-server` no longer
+  skips `requireUpperBoundDeps`; only the four Netty artifacts Arrow asks for above Spring Boot's line
+  are excluded, as in the Flight modules. jackson-dataformat-yaml 2.22.1, commons-lang3 3.20.0,
+  HdrHistogram 2.2.2 and jspecify 1.0.1 are pinned to the highest version the tree asks for (were
+  2.21.4, 3.17.0, 2.1.12 and 1.0.0).
 - **`kafka-sink` keys in Avro, Protobuf or text (KSF-1).** `key.format: string | avro | protobuf`
   (default `json`) writes the key columns, in `key.columns` order, as one column's text, an Avro record
   (`key.schema.file`, `key.schema.id`) or a Protobuf message (`key.schema.message`,

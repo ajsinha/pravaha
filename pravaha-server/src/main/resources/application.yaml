@@ -599,6 +599,16 @@ pravaha:
   standby:
     enabled: false
 
+  # Generated code for filters and projections (C-7). On by default: a query's filter-and-project
+  # chains standing on a scan are compiled to one Java method each, and GET /api/v1/queries/{name}
+  # says per chain whether it runs "generated:" or "interpreted:" (and why). false makes every
+  # query registered from start-up run interpreted -- same answers, slower; a way to rule the
+  # generator out when chasing a wrong answer. Read once, at start. A -Dpravaha.codegen.enabled on
+  # the JVM wins over this file (Spring's usual order); a node built without Spring reads only the
+  # -D (CODEGENPROP-1).
+  # codegen:
+  #   enabled: true
+
   # What a query had accumulated, so a restart recovers answers and not only questions.
   #
   # The journal above remembers which queries exist; this remembers what they had computed. A node

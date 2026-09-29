@@ -22,11 +22,9 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -48,8 +46,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 /**
  * The API surface is locked.
  *
- * <p>{@code api/openapi.lock.json} records every path, method, status and parameter the API exposes.
- * This test regenerates that summary from the live application and compares it. **Changing the API
+ * <p>{@code api/openapi.lock.json} records every path, method, status and parameter the API exposes,
+ * and every request- and response-body field with its type and whether it is required
+ * ({@link OpenApiLock}, OPENAPILOCK-1). This test regenerates that summary from the live application
+ * and compares it: a removed, renamed or retyped field, or a newly required request field, is
+ * reported as a break; any other difference, an added optional field included, as a lock to
+ * regenerate. **Changing the API
  * therefore requires changing the lock file in the same commit**, which turns an API change from a
  * side effect of adding a screen into a reviewed diff.
  *
@@ -106,16 +108,24 @@ class OpenApiContractTest {
         }
 
         String recorded = Files.readString(lock, StandardCharsets.UTF_8);
-        assertThat(summary).as("""
-                        The API surface changed but api/openapi.lock.json did not.
+        String regenerate = """
 
-                        The console is a separate process built on this contract, and every customer
-                        integration depends on it. If the change is intended, regenerate with:
+                The console is a separate process built on this contract, and every customer
+                integration depends on it. If the change is intended, regenerate with:
 
-                            ./mvnw -pl pravaha-server test -Dtest=OpenApiContractTest \\
-                                -Dpravaha.openapi.update=true
+                    ./mvnw -pl pravaha-server test -Dtest=OpenApiContractTest \\
+                        -Dpravaha.openapi.update=true
 
-                        and include the diff in the same commit.""").isEqualTo(recorded);
+                review the diff, and include it in the same commit.""";
+        // OPENAPILOCK-1: a removed, renamed or retyped body field, or a newly required request
+        // field, is named as the break it is before the whole-file comparison below.
+        assertThat(OpenApiLock.breakingChanges(json.readTree(recorded), json.readTree(summary)))
+                .as("The API changed in a way that breaks an existing client:" + regenerate)
+                .isEmpty();
+        assertThat(summary)
+                .as("The API surface changed (an added field or operation, say) but api/openapi.lock.json "
+                        + "did not; nothing recorded breaks, and the change must still be recorded." + regenerate)
+                .isEqualTo(recorded);
     }
 
     /**
@@ -292,42 +302,8 @@ class OpenApiContractTest {
         assertThat(summary.lines().count()).isGreaterThan(10);
     }
 
-    /**
-     * Reduces the OpenAPI document to the parts that are actually the contract.
-     *
-     * <p>Descriptions, examples and schema ordering are excluded deliberately: locking those would
-     * make every javadoc edit a contract change, and a lock file that fails for cosmetic reasons is
-     * one people learn to regenerate without reading.
-     */
-    private String summarise(JsonNode document) {
-        Map<String, Object> surface = new TreeMap<>();
-        JsonNode paths = document.path("paths");
-        for (Iterator<Map.Entry<String, JsonNode>> it = paths.fields(); it.hasNext(); ) {
-            Map.Entry<String, JsonNode> entry = it.next();
-            Map<String, Object> methods = new TreeMap<>();
-            for (Iterator<Map.Entry<String, JsonNode>> m = entry.getValue().fields(); m.hasNext(); ) {
-                Map.Entry<String, JsonNode> method = m.next();
-                Map<String, Object> operation = new TreeMap<>();
-                operation.put("responses", names(method.getValue().path("responses")));
-                List<String> parameters = new ArrayList<>();
-                method.getValue()
-                        .path("parameters")
-                        .forEach(p -> parameters.add(
-                                p.path("in").asText() + ":" + p.path("name").asText()));
-                java.util.Collections.sort(parameters);
-                operation.put("parameters", parameters);
-                operation.put("hasBody", !method.getValue().path("requestBody").isMissingNode());
-                methods.put(method.getKey(), operation);
-            }
-            surface.put(entry.getKey(), methods);
-        }
-        try {
-            ObjectNode root = json.createObjectNode();
-            root.set("paths", json.valueToTree(surface));
-            return json.writerWithDefaultPrettyPrinter().writeValueAsString(root) + "\n";
-        } catch (Exception e) {
-            throw new IllegalStateException("cannot summarise the OpenAPI document", e);
-        }
+    private static String summarise(JsonNode document) {
+        return OpenApiLock.summarise(document);
     }
 
     static List<String> names(JsonNode node) {

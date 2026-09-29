@@ -1803,9 +1803,11 @@ A `DECIMAL` column compared with a decimal literal it can hold exactly -- `ratio
 whole chain interpreted. A literal with more fractional digits than the column (`ratio > 0.125`),
 decimal arithmetic, and a comparison of two expressions still run interpreted, exactly.
 
-- **Off switch:** `-Dpravaha.codegen.enabled=false` on the node's JVM. Every query registered after
-  start-up then runs interpreted. It is read at start-up; a running query keeps the path it was
-  built on.
+- **Off switch:** `pravaha.codegen.enabled: false` in `application.yaml` (or
+  `PRAVAHA_CODEGEN_ENABLED=false`, or `-Dpravaha.codegen.enabled=false` on the node's JVM, which
+  wins over the file in Spring's usual order). Every query registered after start-up then runs
+  interpreted. It is read at start-up; a running query keeps the path it was built on. A node built
+  without Spring (`PravahaNode.builder()`) reads only the `-D` property.
 - **With `pravaha.metrics.operators` on, nothing is generated:** a generated stage is one fused
   method with no operators to count, and the per-operator numbers are what that setting is for.
 - **Cost at registration:** one Janino compile per distinct chain, typically milliseconds; a

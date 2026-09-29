@@ -26,8 +26,10 @@ import java.util.List;
  * the API stops being safe to evolve. This layer is the seam that lets the engine change shape
  * without the contract moving (§23.2a).
  *
- * <p>Every field name here is part of the contract and appears in {@code openapi.lock.json}. Adding
- * one is a reviewed diff; removing or renaming one is a breaking change.
+ * <p>Every field name here is part of the contract and appears in {@code openapi.lock.json}, with
+ * its type and whether it is required (OPENAPILOCK-1). Adding one is a reviewed diff (the contract
+ * test fails until the lock is regenerated); removing, renaming or retyping one is a breaking
+ * change, and {@code OpenApiContractTest} names it as one.
  */
 public final class ApiDtos {
 

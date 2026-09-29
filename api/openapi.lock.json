@@ -4,6 +4,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
+        "responseBodies" : {
+          "200" : "AlertPage",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -11,6 +15,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
+        "responseBodies" : {
+          "200" : "ChannelPage",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -18,6 +26,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
+        "responseBodies" : {
+          "200" : "Detail",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -25,6 +37,11 @@
       "post" : {
         "hasBody" : true,
         "parameters" : [ "path:name" ],
+        "requestBody" : "AckRequest",
+        "responseBodies" : {
+          "200" : "AckResult",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -32,6 +49,10 @@
       "post" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
+        "responseBodies" : {
+          "200" : "Summary",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -39,6 +60,10 @@
       "post" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
+        "responseBodies" : {
+          "200" : "Summary",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -46,6 +71,11 @@
       "post" : {
         "hasBody" : true,
         "parameters" : [ "path:name" ],
+        "requestBody" : "SnoozeRequest",
+        "responseBodies" : {
+          "200" : "Summary",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -53,6 +83,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ "query:action", "query:cursor", "query:decision", "query:limit", "query:principal", "query:since", "query:until", "query:view" ],
+        "responseBodies" : {
+          "200" : "AuditPage",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -60,6 +94,11 @@
       "post" : {
         "hasBody" : true,
         "parameters" : [ ],
+        "requestBody" : "LoginRequest",
+        "responseBodies" : {
+          "200" : "LoginAnswer",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -67,6 +106,9 @@
       "post" : {
         "hasBody" : false,
         "parameters" : [ ],
+        "responseBodies" : {
+          "default" : "ApiError"
+        },
         "responses" : [ "204", "default" ]
       }
     },
@@ -74,6 +116,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
+        "responseBodies" : {
+          "200" : "Me",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -81,6 +127,10 @@
       "post" : {
         "hasBody" : true,
         "parameters" : [ ],
+        "requestBody" : "map<string>",
+        "responseBodies" : {
+          "default" : "ApiError"
+        },
         "responses" : [ "204", "default" ]
       }
     },
@@ -88,6 +138,10 @@
       "post" : {
         "hasBody" : true,
         "parameters" : [ ],
+        "requestBody" : "Redeem",
+        "responseBodies" : {
+          "default" : "ApiError"
+        },
         "responses" : [ "204", "default" ]
       }
     },
@@ -95,6 +149,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ "query:object", "query:user" ],
+        "responseBodies" : {
+          "200" : "AccessDto",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -102,16 +160,28 @@
       "delete" : {
         "hasBody" : false,
         "parameters" : [ "query:grantee", "query:granteeType", "query:object", "query:privileges" ],
+        "responseBodies" : {
+          "default" : "ApiError"
+        },
         "responses" : [ "204", "default" ]
       },
       "get" : {
         "hasBody" : false,
         "parameters" : [ "query:grantee", "query:granteeType", "query:object" ],
+        "responseBodies" : {
+          "200" : "GrantPage",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       },
       "post" : {
         "hasBody" : true,
         "parameters" : [ ],
+        "requestBody" : "GrantRequest",
+        "responseBodies" : {
+          "201" : "GrantPage",
+          "default" : "ApiError"
+        },
         "responses" : [ "201", "default" ]
       }
     },
@@ -119,11 +189,20 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
+        "responseBodies" : {
+          "200" : "ObjectPage",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       },
       "post" : {
         "hasBody" : true,
         "parameters" : [ ],
+        "requestBody" : "NewNamespace",
+        "responseBodies" : {
+          "201" : "CatalogObjectDto",
+          "default" : "ApiError"
+        },
         "responses" : [ "201", "default" ]
       }
     },
@@ -131,6 +210,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ "query:kind", "query:namespace", "query:q" ],
+        "responseBodies" : {
+          "200" : "ObjectPage",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -138,11 +221,20 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
+        "responseBodies" : {
+          "200" : "ObjectDetail",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       },
       "patch" : {
         "hasBody" : true,
         "parameters" : [ "path:name" ],
+        "requestBody" : "ObjectChange",
+        "responseBodies" : {
+          "200" : "CatalogObjectDto",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -150,11 +242,20 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ "query:object" ],
+        "responseBodies" : {
+          "200" : "PolicyPage",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       },
       "post" : {
         "hasBody" : true,
         "parameters" : [ ],
+        "requestBody" : "NewPolicy",
+        "responseBodies" : {
+          "201" : "PolicyDto",
+          "default" : "ApiError"
+        },
         "responses" : [ "201", "default" ]
       }
     },
@@ -162,11 +263,18 @@
       "delete" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
+        "responseBodies" : {
+          "default" : "ApiError"
+        },
         "responses" : [ "204", "default" ]
       },
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
+        "responseBodies" : {
+          "200" : "PolicyDto",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -174,11 +282,20 @@
       "delete" : {
         "hasBody" : false,
         "parameters" : [ "path:name", "query:object", "query:tag" ],
+        "responseBodies" : {
+          "200" : "Unbound",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       },
       "post" : {
         "hasBody" : true,
         "parameters" : [ "path:name" ],
+        "requestBody" : "BindRequest",
+        "responseBodies" : {
+          "201" : "BindingDto",
+          "default" : "ApiError"
+        },
         "responses" : [ "201", "default" ]
       }
     },
@@ -186,6 +303,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
+        "responseBodies" : {
+          "200" : "Session[]",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -193,11 +314,18 @@
       "delete" : {
         "hasBody" : false,
         "parameters" : [ "path:id" ],
+        "responseBodies" : {
+          "default" : "ApiError"
+        },
         "responses" : [ "204", "default" ]
       },
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:id" ],
+        "responseBodies" : {
+          "200" : "Session",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -205,6 +333,11 @@
       "post" : {
         "hasBody" : true,
         "parameters" : [ "path:id" ],
+        "requestBody" : "ExportFixture",
+        "responseBodies" : {
+          "200" : "Fixture",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -212,6 +345,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:id" ],
+        "responseBodies" : {
+          "200" : "Slot[]",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -219,6 +356,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:id", "path:operator", "query:key", "query:limit", "query:offset" ],
+        "responseBodies" : {
+          "200" : "StatePage",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -226,6 +367,11 @@
       "post" : {
         "hasBody" : true,
         "parameters" : [ "path:id" ],
+        "requestBody" : "TakeStep",
+        "responseBodies" : {
+          "200" : "Step",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -233,6 +379,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:id" ],
+        "responseBodies" : {
+          "200" : "Change[]",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -240,11 +390,20 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ "query:all" ],
+        "responseBodies" : {
+          "200" : "map<Key[]>",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       },
       "post" : {
         "hasBody" : true,
         "parameters" : [ ],
+        "requestBody" : "NewKey",
+        "responseBodies" : {
+          "200" : "IssuedKey",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -252,6 +411,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
+        "responseBodies" : {
+          "200" : "KeyReport",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -259,6 +422,9 @@
       "delete" : {
         "hasBody" : false,
         "parameters" : [ "path:keyId" ],
+        "responseBodies" : {
+          "default" : "ApiError"
+        },
         "responses" : [ "204", "default" ]
       }
     },
@@ -266,6 +432,10 @@
       "post" : {
         "hasBody" : false,
         "parameters" : [ "path:keyId" ],
+        "responseBodies" : {
+          "200" : "IssuedKey",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -273,6 +443,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
+        "responseBodies" : {
+          "200" : "LaneSummary",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -280,11 +454,19 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
+        "responseBodies" : {
+          "200" : "Plan",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       },
       "post" : {
         "hasBody" : false,
         "parameters" : [ "query:dryRun" ],
+        "responseBodies" : {
+          "200" : "Plan",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -292,6 +474,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
+        "responseBodies" : {
+          "200" : "Permissions",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -299,6 +485,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
+        "responseBodies" : {
+          "200" : "PluginInfo[]",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -306,6 +496,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
+        "responseBodies" : {
+          "200" : "QueryDetail[]",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -313,6 +507,11 @@
       "post" : {
         "hasBody" : true,
         "parameters" : [ "query:format", "query:level" ],
+        "requestBody" : "ValidateRequest",
+        "responseBodies" : {
+          "200" : "ExplainResult",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -320,6 +519,11 @@
       "post" : {
         "hasBody" : true,
         "parameters" : [ ],
+        "requestBody" : "ValidateRequest",
+        "responseBodies" : {
+          "200" : "ValidationResult",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -327,6 +531,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
+        "responseBodies" : {
+          "200" : "QueryDetail",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -334,6 +542,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
+        "responseBodies" : {
+          "200" : "BackfillProgress",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -341,6 +553,10 @@
       "post" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
+        "responseBodies" : {
+          "200" : "ReplacementStatus",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -348,6 +564,10 @@
       "post" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
+        "responseBodies" : {
+          "200" : "ReplacementStatus",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -355,6 +575,10 @@
       "post" : {
         "hasBody" : false,
         "parameters" : [ "path:name", "query:rate" ],
+        "responseBodies" : {
+          "200" : "ReplacementStatus",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -362,6 +586,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:name", "query:limit", "query:offset" ],
+        "responseBodies" : {
+          "200" : "DeadLetterPage",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -369,6 +597,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
+        "responseBodies" : {
+          "200" : "DeadLetterCount",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -376,6 +608,11 @@
       "post" : {
         "hasBody" : true,
         "parameters" : [ "path:name" ],
+        "requestBody" : "DeadLetterReplayRequest",
+        "responseBodies" : {
+          "200" : "DeadLetterReplayResult",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -383,6 +620,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:id", "path:name" ],
+        "responseBodies" : {
+          "200" : "DeadLetter",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -390,6 +631,11 @@
       "post" : {
         "hasBody" : true,
         "parameters" : [ "path:name" ],
+        "requestBody" : "StartSession",
+        "responseBodies" : {
+          "201" : "Session",
+          "default" : "ApiError"
+        },
         "responses" : [ "201", "default" ]
       }
     },
@@ -397,6 +643,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
+        "responseBodies" : {
+          "200" : "integer/int64[]",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -404,6 +654,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
+        "responseBodies" : {
+          "200" : "PlanGraph",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -411,16 +665,29 @@
       "delete" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
+        "responseBodies" : {
+          "200" : "ReplacementStatus",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       },
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
+        "responseBodies" : {
+          "200" : "ReplacementStatus",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       },
       "post" : {
         "hasBody" : true,
         "parameters" : [ "path:name" ],
+        "requestBody" : "StartReplacement",
+        "responseBodies" : {
+          "201" : "ReplacementStatus",
+          "default" : "ApiError"
+        },
         "responses" : [ "201", "default" ]
       }
     },
@@ -428,6 +695,10 @@
       "post" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
+        "responseBodies" : {
+          "200" : "ReplacementStatus",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -435,6 +706,10 @@
       "post" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
+        "responseBodies" : {
+          "200" : "ReplacementStatus",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -442,6 +717,10 @@
       "post" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
+        "responseBodies" : {
+          "200" : "ReplacementStatus",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -449,6 +728,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
+        "responseBodies" : {
+          "200" : "ReplacementStatus[]",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -456,6 +739,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ "query:all" ],
+        "responseBodies" : {
+          "200" : "map<Session[]>",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -463,6 +750,9 @@
       "delete" : {
         "hasBody" : false,
         "parameters" : [ "path:id" ],
+        "responseBodies" : {
+          "default" : "ApiError"
+        },
         "responses" : [ "204", "default" ]
       }
     },
@@ -470,6 +760,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
+        "responseBodies" : {
+          "200" : "SinkSummary[]",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -477,6 +771,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
+        "responseBodies" : {
+          "200" : "NodeStatus",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -484,11 +782,20 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
+        "responseBodies" : {
+          "200" : "StreamSummary[]",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       },
       "post" : {
         "hasBody" : true,
         "parameters" : [ ],
+        "requestBody" : "RegisterStreamRequest",
+        "responseBodies" : {
+          "201" : "StreamSummary",
+          "default" : "ApiError"
+        },
         "responses" : [ "201", "default" ]
       }
     },
@@ -496,6 +803,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
+        "responseBodies" : {
+          "200" : "StreamSummary",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -503,6 +814,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
+        "responseBodies" : {
+          "200" : "Page",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -510,11 +825,20 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
+        "responseBodies" : {
+          "200" : "map<UserView[]>",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       },
       "post" : {
         "hasBody" : true,
         "parameters" : [ ],
+        "requestBody" : "NewUser",
+        "responseBodies" : {
+          "200" : "UserView",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -522,6 +846,11 @@
       "patch" : {
         "hasBody" : true,
         "parameters" : [ "path:username" ],
+        "requestBody" : "UserChange",
+        "responseBodies" : {
+          "200" : "UserView",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -529,6 +858,11 @@
       "put" : {
         "hasBody" : true,
         "parameters" : [ "path:username" ],
+        "requestBody" : "Attributes",
+        "responseBodies" : {
+          "200" : "UserView",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -536,6 +870,10 @@
       "post" : {
         "hasBody" : false,
         "parameters" : [ "path:username" ],
+        "responseBodies" : {
+          "200" : "ResetIssued",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -543,6 +881,11 @@
       "put" : {
         "hasBody" : true,
         "parameters" : [ "path:username" ],
+        "requestBody" : "Roles",
+        "responseBodies" : {
+          "200" : "UserView",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -550,6 +893,10 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
+        "responseBodies" : {
+          "200" : "ViewDescription",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
     },
@@ -557,8 +904,1032 @@
       "get" : {
         "hasBody" : false,
         "parameters" : [ ],
+        "responseBodies" : {
+          "200" : "string",
+          "default" : "ApiError"
+        },
         "responses" : [ "200", "default" ]
       }
+    }
+  },
+  "schemas" : {
+    "AccessDto" : {
+      "object" : "optional string",
+      "policies[]" : "optional object",
+      "policies[].applies" : "optional boolean",
+      "policies[].boundVia" : "optional string",
+      "policies[].column" : "optional string",
+      "policies[].detail" : "optional string",
+      "policies[].kind" : "optional string",
+      "policies[].policy" : "optional string",
+      "privileges[]" : "optional object",
+      "privileges[].allowed" : "optional boolean",
+      "privileges[].privilege" : "optional string",
+      "privileges[].refusal" : "optional string",
+      "privileges[].via[]" : "optional string",
+      "user" : "optional string"
+    },
+    "AckRequest" : {
+      "key" : "optional string"
+    },
+    "AckResult" : {
+      "acknowledged" : "optional integer/int32",
+      "name" : "optional string"
+    },
+    "AlertPage" : {
+      "items[]" : "optional object",
+      "items[].channels[]" : "optional string",
+      "items[].condition" : "optional string",
+      "items[].createdAt" : "optional string/date-time",
+      "items[].deliveryError" : "optional string",
+      "items[].firing" : "optional integer/int32",
+      "items[].following" : "optional string",
+      "items[].keys" : "optional integer/int32",
+      "items[].lastNotificationAt" : "optional string/date-time",
+      "items[].name" : "optional string",
+      "items[].options" : "optional map",
+      "items[].options{}" : "required string",
+      "items[].owner" : "optional string",
+      "items[].pending" : "optional integer/int32",
+      "items[].problem" : "optional string",
+      "items[].severity" : "optional string",
+      "items[].snoozedUntil" : "optional string/date-time",
+      "items[].state" : "optional string",
+      "items[].tenant" : "optional string",
+      "items[].updatedAt" : "optional string/date-time",
+      "items[].updatedBy" : "optional string",
+      "items[].view" : "optional string"
+    },
+    "ApiError" : {
+      "code" : "optional string",
+      "helpUrl" : "optional string",
+      "message" : "optional string",
+      "path" : "optional string",
+      "timestamp" : "optional string/date-time"
+    },
+    "Attributes" : {
+      "attributes" : "optional map",
+      "attributes{}" : "required string"
+    },
+    "AuditPage" : {
+      "actions[]" : "optional string",
+      "capacity" : "optional integer/int32",
+      "events[]" : "optional object",
+      "events[].action" : "optional string",
+      "events[].at" : "optional string/date-time",
+      "events[].decision" : "optional string",
+      "events[].detail" : "optional string",
+      "events[].principal" : "optional string",
+      "events[].reason" : "optional string",
+      "events[].roles[]" : "optional string",
+      "events[].sequence" : "optional integer/int64",
+      "events[].target" : "optional string",
+      "events[].tenant" : "optional string",
+      "evicted" : "optional integer/int64",
+      "nextCursor" : "optional string",
+      "note" : "optional string",
+      "oldestRetained" : "optional string/date-time",
+      "recording" : "optional boolean",
+      "retained" : "optional integer/int32",
+      "sink" : "optional string"
+    },
+    "BackfillProgress" : {
+      "historyComplete" : "optional boolean",
+      "historyRows" : "optional integer/int64",
+      "lagSeconds" : "optional number/double",
+      "liveRows" : "optional integer/int64",
+      "partitions" : "optional integer/int32",
+      "partitionsLive" : "optional integer/int32",
+      "paused" : "optional boolean",
+      "rateLimit" : "optional integer/int64",
+      "rowsPerSecond" : "optional number/double"
+    },
+    "BindRequest" : {
+      "object" : "optional string",
+      "tag" : "optional string"
+    },
+    "BindingDto" : {
+      "boundAt" : "optional string/date-time",
+      "boundBy" : "optional string",
+      "object" : "optional string",
+      "tag" : "optional string"
+    },
+    "CatalogObjectDto" : {
+      "createdAt" : "optional string/date-time",
+      "createdBy" : "optional string",
+      "description" : "optional string",
+      "engineName" : "optional string",
+      "kind" : "optional string",
+      "name" : "optional string",
+      "namespace" : "optional string",
+      "owner" : "optional object",
+      "owner.name" : "optional string",
+      "owner.type" : "optional string",
+      "shortName" : "optional string",
+      "tags" : "optional map",
+      "tags{}" : "required string",
+      "tenant" : "optional string",
+      "updatedAt" : "optional string/date-time",
+      "updatedBy" : "optional string",
+      "version" : "optional integer/int64"
+    },
+    "Change" : {
+      "values[]" : "optional string",
+      "weight" : "optional integer/int64"
+    },
+    "ChannelPage" : {
+      "items[]" : "optional object",
+      "items[].name" : "optional string",
+      "items[].plugin" : "optional string"
+    },
+    "DeadLetter" : {
+      "at" : "optional string/date-time",
+      "code" : "optional string",
+      "id" : "optional string",
+      "offset" : "optional string",
+      "query" : "optional string",
+      "raw" : "optional string",
+      "reason" : "optional string",
+      "replay" : "optional string",
+      "replayedAt" : "optional string/date-time",
+      "sequence" : "optional integer/int64",
+      "size" : "optional integer/int32",
+      "stream" : "optional string",
+      "withheld" : "optional string"
+    },
+    "DeadLetterCount" : {
+      "bytes" : "optional integer/int64",
+      "configured" : "optional boolean",
+      "evicted" : "optional integer/int64",
+      "evictedBytes" : "optional integer/int64",
+      "failedAgain" : "optional integer/int64",
+      "newest" : "optional string/date-time",
+      "oldest" : "optional string/date-time",
+      "query" : "optional string",
+      "replayed" : "optional integer/int64",
+      "retention" : "optional string",
+      "total" : "optional integer/int64"
+    },
+    "DeadLetterPage" : {
+      "bytes" : "optional integer/int64",
+      "configured" : "optional boolean",
+      "entries[]" : "optional object",
+      "entries[].at" : "optional string/date-time",
+      "entries[].code" : "optional string",
+      "entries[].id" : "optional string",
+      "entries[].offset" : "optional string",
+      "entries[].query" : "optional string",
+      "entries[].raw" : "optional string",
+      "entries[].reason" : "optional string",
+      "entries[].replay" : "optional string",
+      "entries[].replayedAt" : "optional string/date-time",
+      "entries[].sequence" : "optional integer/int64",
+      "entries[].size" : "optional integer/int32",
+      "entries[].stream" : "optional string",
+      "entries[].withheld" : "optional string",
+      "evicted" : "optional integer/int64",
+      "evictedBytes" : "optional integer/int64",
+      "failedAgain" : "optional integer/int64",
+      "limit" : "optional integer/int32",
+      "more" : "optional boolean",
+      "newest" : "optional string/date-time",
+      "offset" : "optional integer/int32",
+      "oldest" : "optional string/date-time",
+      "query" : "optional string",
+      "replayed" : "optional integer/int64",
+      "retention" : "optional string",
+      "total" : "optional integer/int64"
+    },
+    "DeadLetterReplayRequest" : {
+      "ids[]" : "optional string"
+    },
+    "DeadLetterReplayResult" : {
+      "failedAgain" : "optional integer/int32",
+      "query" : "optional string",
+      "replayed" : "optional integer/int32",
+      "results[]" : "optional object",
+      "results[].detail" : "optional string",
+      "results[].id" : "optional string",
+      "results[].newId" : "optional string",
+      "results[].outcome" : "optional string"
+    },
+    "Detail" : {
+      "alert" : "optional object",
+      "alert.channels[]" : "optional string",
+      "alert.condition" : "optional string",
+      "alert.createdAt" : "optional string/date-time",
+      "alert.deliveryError" : "optional string",
+      "alert.firing" : "optional integer/int32",
+      "alert.following" : "optional string",
+      "alert.keys" : "optional integer/int32",
+      "alert.lastNotificationAt" : "optional string/date-time",
+      "alert.name" : "optional string",
+      "alert.options" : "optional map",
+      "alert.options{}" : "required string",
+      "alert.owner" : "optional string",
+      "alert.pending" : "optional integer/int32",
+      "alert.problem" : "optional string",
+      "alert.severity" : "optional string",
+      "alert.snoozedUntil" : "optional string/date-time",
+      "alert.state" : "optional string",
+      "alert.tenant" : "optional string",
+      "alert.updatedAt" : "optional string/date-time",
+      "alert.updatedBy" : "optional string",
+      "alert.view" : "optional string",
+      "keys[]" : "optional object",
+      "keys[].acknowledgedAt" : "optional string/date-time",
+      "keys[].acknowledgedBy" : "optional string",
+      "keys[].clearedAt" : "optional string/date-time",
+      "keys[].episode" : "optional integer/int64",
+      "keys[].fired" : "optional integer/int64",
+      "keys[].firingSince" : "optional string/date-time",
+      "keys[].key" : "optional map",
+      "keys[].key{}" : "required any",
+      "keys[].lastNotifiedAt" : "optional string/date-time",
+      "keys[].notified" : "optional string",
+      "keys[].owed" : "optional string",
+      "keys[].reminders" : "optional integer/int32",
+      "keys[].row" : "optional map",
+      "keys[].row{}" : "required any",
+      "keys[].since" : "optional string/date-time",
+      "keys[].state" : "optional string",
+      "notifications[]" : "optional object",
+      "notifications[].at" : "optional string/date-time",
+      "notifications[].channels[]" : "optional string",
+      "notifications[].detail" : "optional string",
+      "notifications[].episode" : "optional integer/int64",
+      "notifications[].idempotencyKey" : "optional string",
+      "notifications[].key" : "optional map",
+      "notifications[].key{}" : "required any",
+      "notifications[].kind" : "optional string",
+      "notifications[].outcome" : "optional string"
+    },
+    "ExplainResult" : {
+      "fingerprint" : "optional string",
+      "fingerprintRefusal" : "optional object",
+      "fingerprintRefusal.code" : "optional string",
+      "fingerprintRefusal.helpUrl" : "optional string",
+      "fingerprintRefusal.message" : "optional string",
+      "fingerprintRefusal.range" : "optional object",
+      "fingerprintRefusal.range.endColumn" : "optional integer/int32",
+      "fingerprintRefusal.range.endLine" : "optional integer/int32",
+      "fingerprintRefusal.range.startColumn" : "optional integer/int32",
+      "fingerprintRefusal.range.startLine" : "optional integer/int32",
+      "fingerprintRefusal.severity" : "optional string",
+      "graph" : "optional object",
+      "graph.bottleneck" : "optional string",
+      "graph.edges[]" : "optional object",
+      "graph.edges[].from" : "optional string",
+      "graph.edges[].to" : "optional string",
+      "graph.metricsNote" : "optional string",
+      "graph.nodes[]" : "optional object",
+      "graph.nodes[].detail" : "optional string",
+      "graph.nodes[].fields[]" : "optional string",
+      "graph.nodes[].id" : "optional string",
+      "graph.nodes[].operator" : "optional string",
+      "graph.nodes[].stateful" : "optional boolean",
+      "graph.operatorMetrics" : "optional map",
+      "graph.operatorMetrics{}" : "required object",
+      "graph.operatorMetrics{}.rowsIn" : "optional integer/int64",
+      "graph.operatorMetrics{}.rowsOut" : "optional integer/int64",
+      "graph.operatorMetrics{}.sampledRows" : "optional integer/int64",
+      "graph.operatorMetrics{}.selfNanos" : "optional integer/int64",
+      "graph.operatorMetrics{}.selfTimeShare" : "optional number/double",
+      "graph.operatorMetrics{}.stateBytes" : "optional integer/int64",
+      "graph.operatorMetrics{}.watermark" : "optional string",
+      "graph.query" : "optional object",
+      "graph.query.backpressureWaitSeconds" : "optional number/double",
+      "graph.query.backpressureWaits" : "optional integer/int64",
+      "graph.query.blockedFraction" : "optional number/double",
+      "graph.query.inboxCells" : "optional integer/int32",
+      "graph.query.inboxDepth" : "optional integer/int32",
+      "graph.query.rowsIn" : "optional integer/int64",
+      "graph.query.stateCeiling" : "optional integer/int64",
+      "graph.query.stateHeld" : "optional integer/int64",
+      "graph.query.subscribers" : "optional integer/int32",
+      "graph.query.viewSize" : "optional integer/int64",
+      "graph.query.watermark" : "optional string",
+      "level" : "optional string",
+      "outputFields[]" : "optional object",
+      "outputFields[].name" : "optional string",
+      "outputFields[].nullable" : "optional boolean",
+      "outputFields[].ordinal" : "optional integer/int32",
+      "outputFields[].type" : "optional string",
+      "plan" : "optional string"
+    },
+    "ExportFixture" : {
+      "name" : "optional string"
+    },
+    "Fixture" : {
+      "className" : "optional string",
+      "files" : "optional map",
+      "files{}" : "required string",
+      "path" : "optional string"
+    },
+    "GrantPage" : {
+      "items[]" : "optional object",
+      "items[].grantedAt" : "optional string/date-time",
+      "items[].grantedBy" : "optional string",
+      "items[].grantee" : "optional string",
+      "items[].granteeType" : "optional string",
+      "items[].object" : "optional string",
+      "items[].privilege" : "optional string"
+    },
+    "GrantRequest" : {
+      "grantee" : "optional string",
+      "granteeType" : "optional string",
+      "object" : "optional string",
+      "privileges[]" : "optional string"
+    },
+    "IssuedKey" : {
+      "expiresAt" : "optional string/date-time",
+      "key" : "optional string",
+      "keyId" : "optional string",
+      "oldExpiresAt" : "optional string/date-time"
+    },
+    "Key" : {
+      "createdAt" : "optional string/date-time",
+      "createdBy" : "optional string",
+      "expiresAt" : "optional string/date-time",
+      "holder" : "optional string",
+      "keyId" : "optional string",
+      "lastUsedAt" : "optional string/date-time",
+      "name" : "optional string",
+      "revokedAt" : "optional string/date-time",
+      "roles[]" : "optional string",
+      "status" : "optional string",
+      "supersededBy" : "optional string"
+    },
+    "KeyReport" : {
+      "expiring[]" : "optional object",
+      "expiring[].createdAt" : "optional string/date-time",
+      "expiring[].createdBy" : "optional string",
+      "expiring[].expiresAt" : "optional string/date-time",
+      "expiring[].holder" : "optional string",
+      "expiring[].keyId" : "optional string",
+      "expiring[].lastUsedAt" : "optional string/date-time",
+      "expiring[].name" : "optional string",
+      "expiring[].revokedAt" : "optional string/date-time",
+      "expiring[].roles[]" : "optional string",
+      "expiring[].status" : "optional string",
+      "expiring[].supersededBy" : "optional string",
+      "superseded[]" : "optional object",
+      "superseded[].createdAt" : "optional string/date-time",
+      "superseded[].createdBy" : "optional string",
+      "superseded[].expiresAt" : "optional string/date-time",
+      "superseded[].holder" : "optional string",
+      "superseded[].keyId" : "optional string",
+      "superseded[].lastUsedAt" : "optional string/date-time",
+      "superseded[].name" : "optional string",
+      "superseded[].revokedAt" : "optional string/date-time",
+      "superseded[].roles[]" : "optional string",
+      "superseded[].status" : "optional string",
+      "superseded[].supersededBy" : "optional string",
+      "unused[]" : "optional object",
+      "unused[].createdAt" : "optional string/date-time",
+      "unused[].createdBy" : "optional string",
+      "unused[].expiresAt" : "optional string/date-time",
+      "unused[].holder" : "optional string",
+      "unused[].keyId" : "optional string",
+      "unused[].lastUsedAt" : "optional string/date-time",
+      "unused[].name" : "optional string",
+      "unused[].revokedAt" : "optional string/date-time",
+      "unused[].roles[]" : "optional string",
+      "unused[].status" : "optional string",
+      "unused[].supersededBy" : "optional string"
+    },
+    "LaneSummary" : {
+      "autoFrom" : "optional integer/int32",
+      "dedicatedQueries" : "optional integer/int32",
+      "hosted" : "optional integer/int32",
+      "maxQueriesPerLane" : "optional integer/int32",
+      "mode" : "optional string",
+      "ownLaneQueries" : "optional integer/int32",
+      "sharedLanes[]" : "optional object",
+      "sharedLanes[].lane" : "optional integer/int32",
+      "sharedLanes[].queries" : "optional integer/int32"
+    },
+    "LoginAnswer" : {
+      "expiresAt" : "optional string/date-time",
+      "mfa" : "optional string",
+      "mustChangePassword" : "optional boolean",
+      "token" : "optional string"
+    },
+    "LoginRequest" : {
+      "password" : "optional string",
+      "username" : "optional string"
+    },
+    "Me" : {
+      "displayName" : "optional string",
+      "email" : "optional string",
+      "mustChangePassword" : "optional boolean",
+      "passwordExpiresAt" : "optional string/date-time",
+      "principal" : "optional string",
+      "roles[]" : "optional string",
+      "tenant" : "optional string",
+      "username" : "optional string",
+      "via" : "optional string"
+    },
+    "NewKey" : {
+      "expiresDays" : "optional integer/int32",
+      "forUser" : "optional string",
+      "name" : "optional string",
+      "roles[]" : "optional string"
+    },
+    "NewNamespace" : {
+      "description" : "optional string",
+      "ifNotExists" : "optional boolean",
+      "name" : "optional string"
+    },
+    "NewPolicy" : {
+      "column" : "optional string",
+      "description" : "optional string",
+      "exceptRoles[]" : "optional string",
+      "expression" : "optional string",
+      "kind" : "optional string",
+      "name" : "optional string"
+    },
+    "NewUser" : {
+      "displayName" : "optional string",
+      "email" : "optional string",
+      "password" : "optional string",
+      "roles[]" : "optional string",
+      "service" : "optional boolean",
+      "tenant" : "optional string",
+      "username" : "optional string"
+    },
+    "NodeStatus" : {
+      "engineState" : "optional string",
+      "flight" : "optional string",
+      "instanceId" : "optional string",
+      "plugins[]" : "optional object",
+      "plugins[].detail" : "optional string",
+      "plugins[].health" : "optional string",
+      "plugins[].name" : "optional string",
+      "plugins[].version" : "optional string",
+      "registeredQueries" : "optional integer/int32",
+      "stoppedFeeds" : "optional integer/int32",
+      "streams" : "optional integer/int32",
+      "uptimeSeconds" : "optional integer/int64",
+      "version" : "optional string"
+    },
+    "ObjectChange" : {
+      "description" : "optional string",
+      "namespace" : "optional string",
+      "owner" : "optional object",
+      "owner.name" : "optional string",
+      "owner.type" : "optional string",
+      "setTags" : "optional map",
+      "setTags{}" : "required string",
+      "unsetTags[]" : "optional string"
+    },
+    "ObjectDetail" : {
+      "access" : "optional object",
+      "access.object" : "optional string",
+      "access.policies[]" : "optional object",
+      "access.policies[].applies" : "optional boolean",
+      "access.policies[].boundVia" : "optional string",
+      "access.policies[].column" : "optional string",
+      "access.policies[].detail" : "optional string",
+      "access.policies[].kind" : "optional string",
+      "access.policies[].policy" : "optional string",
+      "access.privileges[]" : "optional object",
+      "access.privileges[].allowed" : "optional boolean",
+      "access.privileges[].privilege" : "optional string",
+      "access.privileges[].refusal" : "optional string",
+      "access.privileges[].via[]" : "optional string",
+      "access.user" : "optional string",
+      "grants[]" : "optional object",
+      "grants[].grantedAt" : "optional string/date-time",
+      "grants[].grantedBy" : "optional string",
+      "grants[].grantee" : "optional string",
+      "grants[].granteeType" : "optional string",
+      "grants[].object" : "optional string",
+      "grants[].privilege" : "optional string",
+      "object" : "optional object",
+      "object.createdAt" : "optional string/date-time",
+      "object.createdBy" : "optional string",
+      "object.description" : "optional string",
+      "object.engineName" : "optional string",
+      "object.kind" : "optional string",
+      "object.name" : "optional string",
+      "object.namespace" : "optional string",
+      "object.owner" : "optional object",
+      "object.owner.name" : "optional string",
+      "object.owner.type" : "optional string",
+      "object.shortName" : "optional string",
+      "object.tags" : "optional map",
+      "object.tags{}" : "required string",
+      "object.tenant" : "optional string",
+      "object.updatedAt" : "optional string/date-time",
+      "object.updatedBy" : "optional string",
+      "object.version" : "optional integer/int64",
+      "policies[]" : "optional object",
+      "policies[].bindings[]" : "optional object",
+      "policies[].bindings[].boundAt" : "optional string/date-time",
+      "policies[].bindings[].boundBy" : "optional string",
+      "policies[].bindings[].object" : "optional string",
+      "policies[].bindings[].tag" : "optional string",
+      "policies[].column" : "optional string",
+      "policies[].description" : "optional string",
+      "policies[].exceptRoles[]" : "optional string",
+      "policies[].expression" : "optional string",
+      "policies[].kind" : "optional string",
+      "policies[].name" : "optional string",
+      "policies[].owner" : "optional object",
+      "policies[].owner.name" : "optional string",
+      "policies[].owner.type" : "optional string",
+      "policies[].tags" : "optional map",
+      "policies[].tags{}" : "required string",
+      "policies[].version" : "optional integer/int64"
+    },
+    "ObjectPage" : {
+      "items[]" : "optional object",
+      "items[].createdAt" : "optional string/date-time",
+      "items[].createdBy" : "optional string",
+      "items[].description" : "optional string",
+      "items[].engineName" : "optional string",
+      "items[].kind" : "optional string",
+      "items[].name" : "optional string",
+      "items[].namespace" : "optional string",
+      "items[].owner" : "optional object",
+      "items[].owner.name" : "optional string",
+      "items[].owner.type" : "optional string",
+      "items[].shortName" : "optional string",
+      "items[].tags" : "optional map",
+      "items[].tags{}" : "required string",
+      "items[].tenant" : "optional string",
+      "items[].updatedAt" : "optional string/date-time",
+      "items[].updatedBy" : "optional string",
+      "items[].version" : "optional integer/int64"
+    },
+    "Page" : {
+      "defaults" : "optional object",
+      "defaults.maxQueries" : "optional integer/int64",
+      "defaults.maxStateKeys" : "optional integer/int64",
+      "scope" : "optional string",
+      "tenants[]" : "optional object",
+      "tenants[].computations" : "optional integer/int32",
+      "tenants[].limits" : "optional object",
+      "tenants[].limits.maxQueries" : "optional integer/int64",
+      "tenants[].limits.maxStateKeys" : "optional integer/int64",
+      "tenants[].queries" : "optional integer/int32",
+      "tenants[].queryRefusals" : "optional integer/int64",
+      "tenants[].stateKeys" : "optional integer/int64",
+      "tenants[].stateRefusals" : "optional integer/int64",
+      "tenants[].tenant" : "optional string"
+    },
+    "Permissions" : {
+      "anonymous" : "optional boolean",
+      "policy" : "optional string",
+      "principal" : "optional string",
+      "readAudit" : "optional object",
+      "readAudit.allowed" : "optional boolean",
+      "readAudit.reason" : "optional string",
+      "register" : "optional object",
+      "register.allowed" : "optional boolean",
+      "register.reason" : "optional string",
+      "roles[]" : "optional string",
+      "streams[]" : "optional object",
+      "streams[].administer" : "optional object",
+      "streams[].administer.allowed" : "optional boolean",
+      "streams[].administer.reason" : "optional string",
+      "streams[].name" : "optional string",
+      "streams[].read" : "optional string",
+      "tenant" : "optional string",
+      "views[]" : "optional object",
+      "views[].administer" : "optional object",
+      "views[].administer.allowed" : "optional boolean",
+      "views[].administer.reason" : "optional string",
+      "views[].name" : "optional string",
+      "views[].read" : "optional string"
+    },
+    "Plan" : {
+      "autoFrom" : "optional integer/int32",
+      "finishedAt" : "optional string/date-time",
+      "mode" : "optional string",
+      "moves[]" : "optional object",
+      "moves[].detail" : "optional string",
+      "moves[].fromSharedLane" : "optional integer/int32",
+      "moves[].name" : "optional string",
+      "moves[].status" : "optional string",
+      "ownLaneQueries" : "optional integer/int32",
+      "room" : "optional integer/int32",
+      "running" : "optional boolean",
+      "startedAt" : "optional string/date-time",
+      "startedBy" : "optional string"
+    },
+    "PlanGraph" : {
+      "bottleneck" : "optional string",
+      "edges[]" : "optional object",
+      "edges[].from" : "optional string",
+      "edges[].to" : "optional string",
+      "metricsNote" : "optional string",
+      "nodes[]" : "optional object",
+      "nodes[].detail" : "optional string",
+      "nodes[].fields[]" : "optional string",
+      "nodes[].id" : "optional string",
+      "nodes[].operator" : "optional string",
+      "nodes[].stateful" : "optional boolean",
+      "operatorMetrics" : "optional map",
+      "operatorMetrics{}" : "required object",
+      "operatorMetrics{}.rowsIn" : "optional integer/int64",
+      "operatorMetrics{}.rowsOut" : "optional integer/int64",
+      "operatorMetrics{}.sampledRows" : "optional integer/int64",
+      "operatorMetrics{}.selfNanos" : "optional integer/int64",
+      "operatorMetrics{}.selfTimeShare" : "optional number/double",
+      "operatorMetrics{}.stateBytes" : "optional integer/int64",
+      "operatorMetrics{}.watermark" : "optional string",
+      "query" : "optional object",
+      "query.backpressureWaitSeconds" : "optional number/double",
+      "query.backpressureWaits" : "optional integer/int64",
+      "query.blockedFraction" : "optional number/double",
+      "query.inboxCells" : "optional integer/int32",
+      "query.inboxDepth" : "optional integer/int32",
+      "query.rowsIn" : "optional integer/int64",
+      "query.stateCeiling" : "optional integer/int64",
+      "query.stateHeld" : "optional integer/int64",
+      "query.subscribers" : "optional integer/int32",
+      "query.viewSize" : "optional integer/int64",
+      "query.watermark" : "optional string"
+    },
+    "PluginInfo" : {
+      "bindings[]" : "optional object",
+      "bindings[].kind" : "optional string",
+      "bindings[].name" : "optional string",
+      "capabilities" : "optional object",
+      "capabilities.note" : "optional string",
+      "capabilities.sink" : "optional object",
+      "capabilities.sink.emitModes[]" : "optional string",
+      "capabilities.sink.guarantee" : "optional string",
+      "capabilities.sink.idempotentUpsert" : "optional boolean",
+      "capabilities.sink.maxBatchRows" : "optional integer/int32",
+      "capabilities.sink.transactional" : "optional boolean",
+      "capabilities.source" : "optional object",
+      "capabilities.source.emitsBeforeImage" : "optional boolean",
+      "capabilities.source.emitsDeletes" : "optional boolean",
+      "capabilities.source.guarantee" : "optional string",
+      "capabilities.source.orderedWithinPartition" : "optional boolean",
+      "capabilities.source.pushdown[]" : "optional string",
+      "capabilities.source.replayableOffsets" : "optional boolean",
+      "capabilities.source.typicalLatency" : "optional string",
+      "compatible" : "optional boolean",
+      "health" : "optional object",
+      "health.detail" : "optional string",
+      "health.reported" : "optional boolean",
+      "health.state" : "optional string",
+      "kinds[]" : "optional string",
+      "loaded" : "optional boolean",
+      "name" : "optional string",
+      "requiredApiVersion" : "optional string",
+      "settings[]" : "optional string",
+      "version" : "optional string"
+    },
+    "PolicyDto" : {
+      "bindings[]" : "optional object",
+      "bindings[].boundAt" : "optional string/date-time",
+      "bindings[].boundBy" : "optional string",
+      "bindings[].object" : "optional string",
+      "bindings[].tag" : "optional string",
+      "column" : "optional string",
+      "description" : "optional string",
+      "exceptRoles[]" : "optional string",
+      "expression" : "optional string",
+      "kind" : "optional string",
+      "name" : "optional string",
+      "owner" : "optional object",
+      "owner.name" : "optional string",
+      "owner.type" : "optional string",
+      "tags" : "optional map",
+      "tags{}" : "required string",
+      "version" : "optional integer/int64"
+    },
+    "PolicyPage" : {
+      "items[]" : "optional object",
+      "items[].bindings[]" : "optional object",
+      "items[].bindings[].boundAt" : "optional string/date-time",
+      "items[].bindings[].boundBy" : "optional string",
+      "items[].bindings[].object" : "optional string",
+      "items[].bindings[].tag" : "optional string",
+      "items[].column" : "optional string",
+      "items[].description" : "optional string",
+      "items[].exceptRoles[]" : "optional string",
+      "items[].expression" : "optional string",
+      "items[].kind" : "optional string",
+      "items[].name" : "optional string",
+      "items[].owner" : "optional object",
+      "items[].owner.name" : "optional string",
+      "items[].owner.type" : "optional string",
+      "items[].tags" : "optional map",
+      "items[].tags{}" : "required string",
+      "items[].version" : "optional integer/int64"
+    },
+    "QueryDetail" : {
+      "accessPaths" : "optional object",
+      "accessPaths.index" : "optional integer/int64",
+      "accessPaths.indexes" : "optional map",
+      "accessPaths.indexes{}" : "required integer/int64",
+      "accessPaths.point" : "optional integer/int64",
+      "accessPaths.range" : "optional integer/int64",
+      "accessPaths.scan" : "optional integer/int64",
+      "countsWithheld" : "optional boolean",
+      "dependants[]" : "optional string",
+      "execution[]" : "optional string",
+      "failure" : "optional object",
+      "failure.code" : "optional string",
+      "failure.helpUrl" : "optional string",
+      "failure.message" : "optional string",
+      "feed" : "optional object",
+      "feed.description" : "optional string",
+      "feed.failure" : "optional object",
+      "feed.failure.code" : "optional string",
+      "feed.failure.helpUrl" : "optional string",
+      "feed.failure.message" : "optional string",
+      "feed.sources[]" : "optional object",
+      "feed.sources[].failure" : "optional object",
+      "feed.sources[].failure.code" : "optional string",
+      "feed.sources[].failure.helpUrl" : "optional string",
+      "feed.sources[].failure.message" : "optional string",
+      "feed.sources[].origin" : "optional boolean",
+      "feed.sources[].partition" : "optional integer/int32",
+      "feed.sources[].shared" : "optional boolean",
+      "feed.sources[].state" : "optional string",
+      "feed.sources[].stoppedAt" : "optional string/date-time",
+      "feed.sources[].stream" : "optional string",
+      "feed.state" : "optional string",
+      "feed.stoppedSources" : "optional integer/int32",
+      "fingerprint" : "optional string",
+      "keyColumns[]" : "optional object",
+      "keyColumns[].name" : "optional string",
+      "keyColumns[].ordinal" : "optional integer/int32",
+      "lane" : "optional string",
+      "name" : "optional string",
+      "readsFrom[]" : "optional string",
+      "reads[]" : "optional string",
+      "registeredAt" : "optional string/date-time",
+      "retention" : "optional string",
+      "rowsIn" : "optional integer/int64",
+      "sharedLane" : "optional integer/int32",
+      "sharedWith[]" : "optional string",
+      "sink" : "optional object",
+      "sink.attached" : "optional boolean",
+      "sink.failure" : "optional object",
+      "sink.failure.code" : "optional string",
+      "sink.failure.helpUrl" : "optional string",
+      "sink.failure.message" : "optional string",
+      "sink.name" : "optional string",
+      "sink.rowsWritten" : "optional integer/int64",
+      "sql" : "optional string",
+      "state" : "optional string"
+    },
+    "Redeem" : {
+      "password" : "optional string",
+      "token" : "optional string"
+    },
+    "RegisterStreamRequest" : {
+      "allowedLateness" : "optional string",
+      "eventTime" : "optional string",
+      "name" : "optional string",
+      "outOfOrderness" : "optional string",
+      "schema" : "optional string"
+    },
+    "ReplacementStatus" : {
+      "backfill" : "optional object",
+      "backfill.historyComplete" : "optional boolean",
+      "backfill.historyRows" : "optional integer/int64",
+      "backfill.lagSeconds" : "optional number/double",
+      "backfill.liveRows" : "optional integer/int64",
+      "backfill.partitions" : "optional integer/int32",
+      "backfill.partitionsLive" : "optional integer/int32",
+      "backfill.paused" : "optional boolean",
+      "backfill.rateLimit" : "optional integer/int64",
+      "backfill.rowsPerSecond" : "optional number/double",
+      "candidate" : "optional string",
+      "cutOverAt" : "optional string/date-time",
+      "failure" : "optional object",
+      "failure.code" : "optional string",
+      "failure.helpUrl" : "optional string",
+      "failure.message" : "optional string",
+      "historyEntries[]" : "optional object",
+      "historyEntries[].fromFrontier" : "optional integer/int64",
+      "historyEntries[].version" : "optional string",
+      "history[]" : "optional string",
+      "name" : "optional string",
+      "options" : "optional string",
+      "owner" : "optional string",
+      "replacing" : "optional string",
+      "rollbackAvailable" : "optional boolean",
+      "rollbackUntil" : "optional string/date-time",
+      "sink" : "optional string",
+      "sql" : "optional string",
+      "startedAt" : "optional string/date-time",
+      "state" : "optional string"
+    },
+    "ResetIssued" : {
+      "expiresAt" : "optional string/date-time",
+      "resetToken" : "optional string"
+    },
+    "Roles" : {
+      "roles[]" : "optional string"
+    },
+    "Session" : {
+      "checkpointId" : "optional integer/int64",
+      "id" : "optional string",
+      "lastUsedAt" : "optional string",
+      "owner" : "optional string",
+      "query" : "optional string",
+      "rowsConsumed" : "optional integer/int64",
+      "sinksDisabled" : "optional boolean",
+      "sql" : "optional string",
+      "startedAt" : "optional string",
+      "steps" : "optional integer/int64",
+      "streams[]" : "optional string",
+      "viewSize" : "optional integer/int32",
+      "watermarkNanos" : "optional integer/int64"
+    },
+    "SinkSummary" : {
+      "acceptsRetractions" : "optional boolean",
+      "emitModes[]" : "optional string",
+      "fields[]" : "optional object",
+      "fields[].name" : "optional string",
+      "fields[].nullable" : "optional boolean",
+      "fields[].ordinal" : "optional integer/int32",
+      "fields[].type" : "optional string",
+      "guarantee" : "optional string",
+      "keyColumns[]" : "optional string",
+      "name" : "optional string",
+      "plugin" : "optional string",
+      "problem" : "optional object",
+      "problem.code" : "optional string",
+      "problem.helpUrl" : "optional string",
+      "problem.message" : "optional string",
+      "writers[]" : "optional string"
+    },
+    "Slot" : {
+      "entries" : "optional integer/int64",
+      "id" : "optional string",
+      "kind" : "optional string",
+      "label" : "optional string"
+    },
+    "SnoozeRequest" : {
+      "duration" : "optional string"
+    },
+    "StartReplacement" : {
+      "backfill" : "optional string",
+      "cutover" : "optional string",
+      "keyColumns[]" : "optional integer/int32",
+      "rateLimit" : "optional integer/int64",
+      "rollbackRetention" : "optional string",
+      "sql" : "optional string"
+    },
+    "StartSession" : {
+      "checkpointId" : "optional integer/int64"
+    },
+    "StatePage" : {
+      "entries[]" : "optional object",
+      "entries[].key" : "optional string",
+      "entries[].values" : "optional map",
+      "entries[].values{}" : "required string",
+      "hasMore" : "optional boolean",
+      "id" : "optional string",
+      "key" : "optional string",
+      "kind" : "optional string",
+      "limit" : "optional integer/int32",
+      "offset" : "optional integer/int32",
+      "total" : "optional integer/int64"
+    },
+    "Step" : {
+      "exhausted" : "optional boolean",
+      "kind" : "optional string",
+      "operators[]" : "optional object",
+      "operators[].id" : "optional string",
+      "operators[].kind" : "optional string",
+      "operators[].label" : "optional string",
+      "operators[].rowsIn" : "optional integer/int64",
+      "operators[].rowsOut" : "optional integer/int64",
+      "rowsConsumed" : "optional integer/int64",
+      "rowsIn[]" : "optional object",
+      "rowsIn[].eventTimeNanos" : "optional integer/int64",
+      "rowsIn[].offset" : "optional string",
+      "rowsIn[].partition" : "optional integer/int32",
+      "rowsIn[].stream" : "optional string",
+      "rowsIn[].values[]" : "optional string",
+      "rowsIn[].weight" : "optional integer/int64",
+      "sequence" : "optional integer/int64",
+      "session" : "optional string",
+      "stopped" : "optional string",
+      "viewChanges[]" : "optional object",
+      "viewChanges[].values[]" : "optional string",
+      "viewChanges[].weight" : "optional integer/int64",
+      "viewSize" : "optional integer/int32",
+      "watermarkNanos" : "optional integer/int64"
+    },
+    "StreamSummary" : {
+      "allowedLateness" : "optional string",
+      "eventTime" : "optional string",
+      "fieldCount" : "optional integer/int32",
+      "fields[]" : "optional object",
+      "fields[].name" : "optional string",
+      "fields[].nullable" : "optional boolean",
+      "fields[].ordinal" : "optional integer/int32",
+      "fields[].type" : "optional string",
+      "name" : "optional string",
+      "outOfOrderness" : "optional string",
+      "source" : "optional string",
+      "version" : "optional integer/int32"
+    },
+    "Summary" : {
+      "channels[]" : "optional string",
+      "condition" : "optional string",
+      "createdAt" : "optional string/date-time",
+      "deliveryError" : "optional string",
+      "firing" : "optional integer/int32",
+      "following" : "optional string",
+      "keys" : "optional integer/int32",
+      "lastNotificationAt" : "optional string/date-time",
+      "name" : "optional string",
+      "options" : "optional map",
+      "options{}" : "required string",
+      "owner" : "optional string",
+      "pending" : "optional integer/int32",
+      "problem" : "optional string",
+      "severity" : "optional string",
+      "snoozedUntil" : "optional string/date-time",
+      "state" : "optional string",
+      "tenant" : "optional string",
+      "updatedAt" : "optional string/date-time",
+      "updatedBy" : "optional string",
+      "view" : "optional string"
+    },
+    "TakeStep" : {
+      "step" : "optional string"
+    },
+    "Unbound" : {
+      "policy" : "optional string",
+      "target" : "optional string",
+      "unbound" : "optional boolean"
+    },
+    "UserChange" : {
+      "displayName" : "optional string",
+      "email" : "optional string",
+      "status" : "optional string",
+      "tenant" : "optional string"
+    },
+    "UserView" : {
+      "attributes" : "optional map",
+      "attributes{}" : "required string",
+      "createdAt" : "optional string/date-time",
+      "displayName" : "optional string",
+      "email" : "optional string",
+      "lastLoginAt" : "optional string/date-time",
+      "lockedUntil" : "optional string/date-time",
+      "mustChangePassword" : "optional boolean",
+      "passwordChangedAt" : "optional string/date-time",
+      "roles[]" : "optional string",
+      "service" : "optional boolean",
+      "status" : "optional string",
+      "tenant" : "optional string",
+      "username" : "optional string"
+    },
+    "ValidateRequest" : {
+      "keys[]" : "optional integer/int32",
+      "name" : "optional string",
+      "retention" : "optional string",
+      "sink" : "optional string",
+      "sql" : "optional string"
+    },
+    "ValidationResult" : {
+      "diagnostics[]" : "optional object",
+      "diagnostics[].code" : "optional string",
+      "diagnostics[].helpUrl" : "optional string",
+      "diagnostics[].message" : "optional string",
+      "diagnostics[].range" : "optional object",
+      "diagnostics[].range.endColumn" : "optional integer/int32",
+      "diagnostics[].range.endLine" : "optional integer/int32",
+      "diagnostics[].range.startColumn" : "optional integer/int32",
+      "diagnostics[].range.startLine" : "optional integer/int32",
+      "diagnostics[].severity" : "optional string",
+      "elapsedMicros" : "optional integer/int64",
+      "outputFields[]" : "optional object",
+      "outputFields[].name" : "optional string",
+      "outputFields[].nullable" : "optional boolean",
+      "outputFields[].ordinal" : "optional integer/int32",
+      "outputFields[].type" : "optional string",
+      "valid" : "optional boolean"
+    },
+    "ViewDescription" : {
+      "fingerprint" : "optional string",
+      "keyColumns[]" : "optional object",
+      "keyColumns[].name" : "optional string",
+      "keyColumns[].ordinal" : "optional integer/int32",
+      "name" : "optional string",
+      "retention" : "optional string",
+      "schema[]" : "optional object",
+      "schema[].name" : "optional string",
+      "schema[].nullable" : "optional boolean",
+      "schema[].ordinal" : "optional integer/int32",
+      "schema[].type" : "optional string",
+      "sink" : "optional string"
     }
   }
 }
