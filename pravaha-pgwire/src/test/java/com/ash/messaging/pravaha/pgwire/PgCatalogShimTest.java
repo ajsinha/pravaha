@@ -138,8 +138,8 @@ class PgCatalogShimTest {
         payroll.commit(100);
         catalog.register(payroll);
 
-        Principal admin = new Principal("root", "acme", Set.of("admin"), Map.of());
-        Principal analyst = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+        Principal admin = new Principal("root", "public", Set.of("admin"), Map.of());
+        Principal analyst = new Principal("dana", "public", Set.of("analyst"), Map.of());
         com.ash.messaging.pravaha.security.SecurityPolicy payrollForAdminsOnly =
                 (principal, view) -> !"payroll".equals(view) || "root".equals(principal.id())
                         ? AccessDecision.allow()

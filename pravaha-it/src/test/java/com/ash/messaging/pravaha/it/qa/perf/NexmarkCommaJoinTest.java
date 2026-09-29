@@ -35,7 +35,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class NexmarkCommaJoinTest {
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     private static final String Q9_JOIN_AS_NEXMARK_WRITES_IT =
             "SELECT A.id, A.item_name, A.seller, A.category, B.auction, B.bidder, B.price FROM auction A, bid B "

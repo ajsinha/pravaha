@@ -74,7 +74,7 @@ class KafkaExactSharingBrokerTest {
             .field("amount", Types.int64())
             .build();
 
-    private static final Principal DANA = new Principal("dana", "acme", java.util.Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", java.util.Set.of("analyst"), Map.of());
 
     /** An aborted record's amount: in every query's filter, so a leak moves every sum. */
     private static final long ABORTED = -1_000_000L;

@@ -44,7 +44,7 @@ class CatalogJournalTest {
         Path file = directory.resolve("catalog.journal");
         Catalog first = Catalog.open(file, CLOCK);
         first.createNamespace("acme.sales", Grantee.user("ops"), "Order-to-cash", false, "ops");
-        first.registerView("revenue", OPS);
+        first.registerView("acme.default.revenue", OPS);
         first.move("acme.default.revenue", "acme.sales", "ops");
         first.comment("acme.sales.revenue", "Revenue per region", "ops");
         first.setTags("acme.sales.revenue", Map.of("domain", "finance", "certified", ""), "ops");
@@ -54,8 +54,8 @@ class CatalogJournalTest {
         first.grant("acme.sales.revenue", Privilege.SUBSCRIBE, Grantee.role("analyst"), "ops");
         first.revoke("acme.sales.revenue", Privilege.SUBSCRIBE, Grantee.role("analyst"));
         first.setOwner("acme.sales.revenue", Grantee.role("finance_data"), "ops");
-        first.registerView("scratch", ANA);
-        first.dropView("scratch");
+        first.registerView("acme.default.scratch", ANA);
+        first.dropView("acme.default.scratch");
         first.importPolicy("authenticated", CatalogPolicy.importedGrants("authenticated", "import", CLOCK.instant()));
 
         Catalog second = Catalog.open(file, CLOCK);
@@ -65,8 +65,8 @@ class CatalogJournalTest {
         assertThat(revenue.owner()).isEqualTo(Grantee.role("finance_data"));
         assertThat(revenue.version())
                 .isEqualTo(first.object("acme.sales.revenue").orElseThrow().version());
-        assertThat(second.byEngineName(ObjectKind.VIEW, "revenue")).contains(revenue);
-        assertThat(second.byEngineName(ObjectKind.VIEW, "scratch")).isEmpty();
+        assertThat(second.byEngineName(ObjectKind.VIEW, "acme.default.revenue")).contains(revenue);
+        assertThat(second.byEngineName(ObjectKind.VIEW, "acme.default.scratch")).isEmpty();
         assertThat(second.grantsOn("acme.sales.revenue"))
                 .extracting(Grant::privilege)
                 .containsExactly(Privilege.SELECT);
@@ -74,6 +74,41 @@ class CatalogJournalTest {
         assertThat(second.importedPolicy()).contains("authenticated");
         assertThat(second.grants()).isEqualTo(first.grants());
         assertThat(second.objects()).isEqualTo(first.objects());
+    }
+
+    /**
+     * ADR-060: a view another tenant than the default registered before names were per tenant was
+     * recorded under its bare engine name. Its first registration under its engine name re-keys that
+     * record -- where it was moved, its owner and its grants intact -- and the default tenant's view of
+     * the same bare name is another object.
+     */
+    @Test
+    void aViewRecordedUnderItsBareNameIsReKeyedToItsEngineNameWithWhatItHad() {
+        Path file = directory.resolve("catalog.journal");
+        Catalog before = Catalog.open(file, CLOCK);
+        before.createNamespace("acme.sales", Grantee.user("ops"), "", false, "ops");
+        before.registerView("revenue", OPS); // as develop recorded acme's view: its bare name
+        before.move("acme.default.revenue", "acme.sales", "ops");
+        before.grant("acme.sales.revenue", Privilege.SELECT, Grantee.role("analyst"), "ops");
+
+        Catalog after = Catalog.open(file, CLOCK);
+        CatalogObject rekeyed = after.registerView("acme.default.revenue", OPS);
+        assertThat(rekeyed.fullName()).isEqualTo("acme.sales.revenue");
+        assertThat(rekeyed.engineName()).isEqualTo("acme.default.revenue");
+        assertThat(after.grantsOn("acme.sales.revenue"))
+                .extracting(Grant::privilege)
+                .containsExactly(Privilege.SELECT);
+        CatalogObject defaults = after.registerView(
+                "revenue", new com.ash.messaging.pravaha.security.Principal("pat", "public", null, null));
+        assertThat(defaults.fullName()).isEqualTo("public.default.revenue");
+
+        Catalog reopened = Catalog.open(file, CLOCK);
+        assertThat(reopened.byEngineName(ObjectKind.VIEW, "acme.default.revenue"))
+                .map(CatalogObject::fullName)
+                .contains("acme.sales.revenue");
+        assertThat(reopened.byEngineName(ObjectKind.VIEW, "revenue"))
+                .map(CatalogObject::fullName)
+                .contains("public.default.revenue");
     }
 
     @Test

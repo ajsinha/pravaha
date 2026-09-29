@@ -78,9 +78,9 @@ class DeadLetterSurfacesTest {
 
     private static final String SQL = "SELECT id, amount FROM txn";
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
-    private static final Principal SLICED = new Principal("bob", "acme", Set.of("sliced"), Map.of());
+    private static final Principal SLICED = new Principal("bob", "public", Set.of("sliced"), Map.of());
 
     /** Allows everything, except that a "sliced" principal reads every view through a row filter. */
     private static final SecurityPolicy ROW_FILTERED = new SecurityPolicy() {

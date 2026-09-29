@@ -55,7 +55,7 @@ class ReplacementRestartTest {
             .field("amount", Types.int64())
             .build();
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     private static final String V1 = "SELECT 'all' AS bucket, SUM(amount) AS total FROM txn";
     private static final String V2 = "SELECT 'all' AS bucket, SUM(amount) AS total, COUNT(*) AS payments FROM txn";

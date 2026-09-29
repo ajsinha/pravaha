@@ -21,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.ash.messaging.pravaha.security.ViewNames;
 import com.ash.messaging.pravaha.sql.AlertStatement;
 
 /**
@@ -29,7 +30,8 @@ import com.ash.messaging.pravaha.sql.AlertStatement;
  *
  * @param id this alert's identity for its whole life: a new alert of the same name gets a new one, so
  *     its notifications' idempotency keys never collide with the old one's
- * @param view the view's engine name
+ * @param view the view's engine name, in the alert's tenant (ADR-060): an alert recorded before names
+ *     were per tenant recorded the bare name, which is read as its tenant's
  * @param owner who created it
  * @param snoozedUntil null when not snoozed
  */
@@ -49,6 +51,7 @@ public record AlertDefinition(
         String updatedBy) {
 
     public AlertDefinition {
+        view = view == null ? null : ViewNames.engineName(tenant, ViewNames.localName(view));
         where = List.copyOf(where);
         channels = List.copyOf(channels);
     }

@@ -30,6 +30,7 @@ import java.util.function.Supplier;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.security.Principal;
+import com.ash.messaging.pravaha.security.ViewNames;
 
 /**
  * The catalogue's state: every object, every grant, and whether a policy was imported -- held in
@@ -247,16 +248,42 @@ public final class Catalog {
     /**
      * As {@link #registerView}, for any kind a person creates by statement: a view, or an alert
      * (ADR-057). A name already recorded as that kind is left as it is.
+     *
+     * <p>A view's catalogue name is its bare name in its owner's tenant's default namespace; its engine
+     * name is {@code tenant.default.name} outside the default tenant (ADR-060). A view another tenant
+     * than the default registered before names were per tenant was recorded under its bare engine name:
+     * the first registration under its engine name re-keys that record, with its owner, grants and
+     * bindings, rather than recording a second view.
      */
     public synchronized CatalogObject registerObject(ObjectKind kind, String engineName, Principal owner) {
         Optional<CatalogObject> known = byEngineName(kind, engineName);
         if (known.isPresent()) {
             return known.get();
         }
+        String local = ViewNames.localName(engineName);
+        Optional<CatalogObject> recordedBare = local.equals(engineName)
+                ? Optional.empty()
+                : byEngineName(kind, local)
+                        .filter(o -> CatalogNames.tenantOf(o.fullName()).equals(ViewNames.tenantOf(engineName)));
+        if (recordedBare.isPresent()) {
+            CatalogObject was = recordedBare.get();
+            return replace(new CatalogObject(
+                    was.fullName(),
+                    kind,
+                    engineName,
+                    was.owner(),
+                    was.description(),
+                    was.tags(),
+                    was.createdAt(),
+                    was.createdBy(),
+                    clock.instant(),
+                    SYSTEM,
+                    was.version() + 1));
+        }
         String namespace = CatalogNames.defaultNamespaceOf(owner.tenant());
         ensureNamespace(namespace);
         Instant now = clock.instant();
-        String fullName = CatalogNames.object(namespace, engineName);
+        String fullName = CatalogNames.object(namespace, local);
         CatalogObject taken = objects.get(fullName);
         if (taken != null) {
             throw new PravahaException(
@@ -551,7 +578,16 @@ public final class Catalog {
     }
 
     private void index(CatalogObject object) {
-        objects.put(object.fullName(), object);
+        CatalogObject previous = objects.put(object.fullName(), object);
+        if (previous != null
+                && !previous.engineName().isEmpty()
+                && !previous.engineName().equals(object.engineName())) {
+            // Re-keyed (ADR-060): the old engine name no longer names it, and may name another tenant's.
+            Map<String, String> index = byEngineName.get(previous.kind());
+            if (index != null) {
+                index.remove(previous.engineName(), object.fullName());
+            }
+        }
         if (!object.engineName().isEmpty()) {
             byEngineName
                     .computeIfAbsent(object.kind(), k -> new LinkedHashMap<>())

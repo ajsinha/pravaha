@@ -95,6 +95,15 @@ the state. `pravaha queries` shows the fingerprint so you can see it holding. Sh
 one tenant. The same question from a principal in another tenant is a separate computation, and it
 counts against that tenant's quotas (ADR-050).
 
+**A name is your tenant's.** A view name is unique within its tenant, not on the node (ADR-060):
+another tenant may have its own `card_velocity`, and neither of you can see, read or learn of the
+other's. Every name you write -- in `FROM`, on `pravaha drop`, in a subscription, in a URL -- means the
+view your tenant holds under it, and a name only another tenant holds answers as a name nobody holds.
+An admin reaches another tenant's view by its catalogue name, `tenant.default.name`
+(`pravaha describe acme.default.card_velocity`, or `SELECT * FROM "acme.default.card_velocity"` --
+quoted, since the dots would otherwise read as a path); an admin's listing shows other tenants' views
+by that name.
+
 **The view needs a key.** A view with no key is a log, and a point read against it has nothing to look
 up. The ordinals are into the query's *output* columns.
 

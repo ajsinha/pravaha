@@ -61,7 +61,7 @@ class FeedStatusTest {
 
     private static final String SCHEMA_SPEC = "id:INT64,user_id:STRING,amount:INT64";
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     /** A credential the counting-scan binding is configured with, which a failure then quotes. */
     private static final String SECRET = "hunter2-long-enough-to-be-a-secret";

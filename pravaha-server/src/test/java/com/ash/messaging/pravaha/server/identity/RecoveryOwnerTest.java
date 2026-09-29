@@ -59,8 +59,9 @@ class RecoveryOwnerTest {
         try {
             assertThat(second.registry().orElseThrow().names())
                     .as("recovered under the store's principal for 'ann'")
-                    .contains("anns_view");
-            assertThat(second.registry().orElseThrow().tenantOf("anns_view")).contains("acme");
+                    .contains("acme.default.anns_view");
+            assertThat(second.registry().orElseThrow().tenantOf("acme.default.anns_view"))
+                    .contains("acme");
         } finally {
             second.stop();
         }
@@ -81,7 +82,7 @@ class RecoveryOwnerTest {
         try {
             // Disabling ends the account's sessions and keys, not its running queries, and a restart
             // must not change what runs; the recovery logs a warning naming the owner instead.
-            assertThat(second.registry().orElseThrow().names()).contains("anns_view");
+            assertThat(second.registry().orElseThrow().names()).contains("acme.default.anns_view");
         } finally {
             second.stop();
         }

@@ -83,7 +83,7 @@ class Sx5LatencyMeasurementTest {
             .field("amount", Types.int64())
             .build();
 
-    private static final Principal NOBODY = new Principal("outsider", "acme", Set.of(), Map.of());
+    private static final Principal NOBODY = new Principal("outsider", "public", Set.of(), Map.of());
 
     private static final String REAL_SQL = "SELECT employee_id FROM payroll";
     private static final String ABSENT_SQL = "SELECT employee_id FROM zzz_never_registered";

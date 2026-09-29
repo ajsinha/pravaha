@@ -40,7 +40,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Timeout(120)
 class ExactSharingTest {
 
-    private static final Principal DANA = new Principal("dana", "acme", java.util.Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", java.util.Set.of("analyst"), Map.of());
 
     private static final String ASKS_ONE = "SELECT id, amount FROM log WHERE amount > 0";
 

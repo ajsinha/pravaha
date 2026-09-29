@@ -75,10 +75,11 @@ final class PgInformationSchema {
     /**
      * Answers {@code sql} if it is one of the {@code information_schema} templates this class knows.
      *
-     * @param visible the views this principal may see, sorted -- the only names that can appear
+     * @param visible the views this principal may see, sorted, by the name each is shown under (ADR-060)
+     *     -- the only names that can appear
      * @return empty if {@code sql} is not one of them; the caller then refuses it by name
      */
-    Optional<ViewQuery.Result> tryAnswer(String sql, List<String> visible) {
+    Optional<ViewQuery.Result> tryAnswer(String sql, java.util.Map<String, ServedView> visible) {
         String shape = sql.strip().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
         if (!shape.contains("information_schema.")) {
             return Optional.empty();
@@ -197,13 +198,13 @@ final class PgInformationSchema {
     // ------------------------------------------------------------------------------------------
     // tables
 
-    private ViewQuery.Result tables(String sql, boolean withCatalog, List<String> visible) {
+    private ViewQuery.Result tables(String sql, boolean withCatalog, java.util.Map<String, ServedView> visible) {
         Filters filters = Filters.of(sql);
         StreamSchema schema = withCatalog
                 ? schema("tables", "table_catalog", "table_schema", "table_name", "table_type")
                 : schema("tables", "table_schema", "table_name", "table_type");
         List<Object[]> rows = new ArrayList<>();
-        for (String name : visible) {
+        for (String name : visible.keySet()) {
             if (!admitsTable(filters, name)) {
                 continue;
             }
@@ -218,7 +219,7 @@ final class PgInformationSchema {
     // ------------------------------------------------------------------------------------------
     // columns
 
-    private ViewQuery.Result columns(String sql, boolean npgsqlShape, List<String> visible) {
+    private ViewQuery.Result columns(String sql, boolean npgsqlShape, java.util.Map<String, ServedView> visible) {
         Filters filters = Filters.of(sql);
         StreamSchema schema = npgsqlShape
                 ? StreamSchema.builder("columns")
@@ -248,11 +249,11 @@ final class PgInformationSchema {
                         .field("data_type", Types.string())
                         .build();
         List<Object[]> rows = new ArrayList<>();
-        for (String name : visible) {
+        for (String name : visible.keySet()) {
             if (!admitsTable(filters, name)) {
                 continue;
             }
-            ServedView view = catalog.find(name).orElse(null);
+            ServedView view = visible.get(name);
             if (view == null) {
                 continue;
             }

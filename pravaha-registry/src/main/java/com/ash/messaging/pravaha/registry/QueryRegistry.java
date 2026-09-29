@@ -37,6 +37,7 @@ import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
+import com.ash.messaging.pravaha.security.ViewNames;
 import com.ash.messaging.pravaha.serving.Retention;
 import com.ash.messaging.pravaha.serving.ServedView;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
@@ -673,17 +674,7 @@ public final class QueryRegistry implements AutoCloseable {
     /** What planning and authorizing a registration produced, before anything is started. */
     record Preparation(PhysicalOperator plan, List<ParameterPlacement> placements, QueryFingerprint fingerprint) {}
 
-    /**
-     * Plans a registration and decides whether this principal may have it, without starting
-     * anything.
-     *
-     * <p>Shared by {@code register} and by a blue/green replacement's shadow (ADR-046), which has to
-     * be judged by exactly the same rules: a principal who may not read what the new version reads
-     * must not be able to put it behind a name whose readers would then be served by it. And by
-     * {@link DraftFingerprint}, for the fingerprint a registration would get (EXPLAINFP-1).
-     *
-     * @param action the audit action: {@code register}, {@code replace} or {@code explain}
-     */
+    /** Plans and authorizes a registration under the engine name {@code name}: {@link RegistrationPlanning}. */
     Preparation prepare(
             String name,
             String sql,
@@ -693,85 +684,34 @@ public final class QueryRegistry implements AutoCloseable {
             BoundParameters parameters,
             String sinkName,
             String action) {
-        if (keyColumns == null || keyColumns.isEmpty()) {
-            throw new IllegalArgumentException(
-                    "a registration needs at least one key column: a view with no key is a log, and a "
-                            + "point read against it has nothing to look up");
-        }
+        return RegistrationPlanning.prepare(
+                this, name, sql, keyColumns, principal, retention, parameters, sinkName, action);
+    }
 
-        PreparedContinuousQuery prepared = planAs(sql, parameters, principal);
-        List<ParameterPlacement> placements = prepared.placements();
-        PhysicalOperator plan = prepared.plan();
+    SinkFactory sinks() {
+        return sinks;
+    }
 
-        // SCAN-1. Every registration, sink or not: a COUNT over a source that re-reads its rows grows
-        // on every pass, and the view is where that was first wrong. The sink, when there is one, is
-        // described here too, so a sink that would write every copy as a row is refused with it.
-        SinkFactory.Description sink = sinkName == null ? null : sinks.describe(sinkName);
-        com.ash.messaging.pravaha.sql.plan.RepeatedRowsAnalysis.check(
-                plan, feeds::repeatingSource, sink == null ? null : sink.capabilities(), sinkName);
+    AuditSink audit() {
+        return audit;
+    }
 
-        if (sink != null) {
-            // Before the feed, before the view, before a row can exist. capabilitiesOf configures
-            // the plugin and asks it, without opening a connection, so a refusal costs nothing --
-            // and a query whose changelog the sink cannot take is refused as a PAIR: the query may
-            // be perfectly good against a different sink, and the fix is usually the sink rather
-            // than the SQL.
-            // Knowing which streams delete (HLP-3): a join or a filter over a change feed passes its
-            // deletes on as retractions, and a sink that can only append would write them as rows.
-            com.ash.messaging.pravaha.sql.plan.ChangelogAnalysis.checkAgainst(
-                    plan, stream -> chains.retracts(stream) || feeds.retracts(stream), sink.capabilities(), sinkName);
-            SinkShape.require(sink, plan.outputSchema(), keyColumns, sinkName);
-        }
-
-        // The policy's three questions, in RegistrationAuthorization: may they register, may they
-        // read each source, and -- below -- may they write to the sink.
-        List<String> rowFilters = RegistrationAuthorization.requireReads(
-                policy, audit, principal, action, name, sql, PlanSources.of(plan), chains.provenance(plan));
-        var narrowings = RegistrationAuthorization.narrowings(
-                policy, audit, principal, action, sql, PlanSources.of(plan), rowFilters);
-        if (!narrowings.isEmpty()) { // ADR-059 §4: read each input as the registrant is shown it
-            prepared = chains.plan(
-                    sql,
-                    parameters,
-                    principal,
-                    List.of(streams),
-                    List.copyOf(lookupSchemas.values()),
-                    narrowings,
-                    keyColumns);
-            plan = prepared.plan();
-            placements = prepared.placements();
-        }
-        chains.requireChainable(name, plan, retention, action);
-
-        // SINK-3, and the reason it is asked here rather than beside mayRegisterQuery, is in
-        // SinkAuthorization's own javadoc.
-        RegistrationAuthorization.requireSink(policy, audit, principal, action, name, sinkName, sql);
-
-        // Bound values are in the plan, so in the fingerprint: two bindings are two computations,
-        // which is why a parameter the view carries should be a tap filter instead. The principal's
-        // row filters are in it too: without them a principal restricted to one region and one
-        // restricted to none shared one computation, and only the read path stood between them.
-        // I-3: the key columns and the retention are part of what makes a computation itself.
-        // Without them `--keys 1` and `--keys 0,1` over identical SQL shared one view, keyed as the
-        // first registrant asked and with the second one's retention dropped, silently.
-        return new Preparation(
-                plan,
-                placements,
-                QueryFingerprint.of(
-                        plan, rowFilters, keyColumns, retention, principal.tenant(), chains.identities(plan)));
+    List<StreamSchema> lookupSchemas() {
+        return List.copyOf(lookupSchemas.values());
     }
 
     private synchronized RegisteredQuery register(
-            String name,
+            String local,
             String sql,
             List<Integer> keyColumns,
             Principal principal,
             Retention retention,
             BoundParameters parameters,
             String sinkName) {
+        // ADR-060: a name is registered in its registrant's tenant and keyed there by its engine name.
+        QueryNames.require(local, byName.keySet(), ViewNames.engineName(principal.tenant(), local));
+        String name = ViewNames.engineName(principal.tenant(), local);
         return EngineSpans.traced("pravaha.query.register", "pravaha.query", name, () -> {
-            tenants.auditTakenName(audit, principal, name, sql); // ADR-060: another tenant's name, said to the audit
-            QueryNames.require(name, byName.keySet());
             Preparation prepared =
                     prepare(name, sql, keyColumns, principal, retention, parameters, sinkName, "register");
             RegisteredQuery running = byFingerprint.get(prepared.fingerprint());
@@ -804,7 +744,7 @@ public final class QueryRegistry implements AutoCloseable {
                         prepared.placements(),
                         prepared.fingerprint(),
                         delivery,
-                        recoveringInto == null ? QueryCheckpoints.directoryFor(name) : recoveringInto);
+                        recoveringInto == null ? freeDirectoryFor(name) : recoveringInto);
                 tenants.assign(name, principal.tenant());
                 return registered;
             } catch (RuntimeException e) {
@@ -921,7 +861,7 @@ public final class QueryRegistry implements AutoCloseable {
             }
             try {
                 existing.declareIndexes(name, declaring.indexes());
-                journalRegistration(name, sql, keyColumns, principal, retention, parameters, sinkName);
+                journalRegistration(name, sql, keyColumns, principal, retention, parameters, sinkName, null);
             } catch (RuntimeException e) {
                 deliveries.remove(name);
                 // The same unwind the fresh path has. Without it a refusal the client could see left
@@ -946,7 +886,7 @@ public final class QueryRegistry implements AutoCloseable {
         }
         try {
             query.declareIndexes(name, declaring.indexes());
-            journalRegistration(name, sql, keyColumns, principal, retention, parameters, sinkName);
+            journalRegistration(name, sql, keyColumns, principal, retention, parameters, sinkName, checkpointDirectory);
         } catch (RuntimeException e) {
             deliveries.remove(name);
             // Unwound, because a refusal the caller can see and a query that is running anyway is
@@ -978,16 +918,46 @@ public final class QueryRegistry implements AutoCloseable {
             Principal principal,
             Retention retention,
             BoundParameters parameters,
-            String sinkName) {
+            String sinkName,
+            String checkpointDirectory) {
         if (journal != null) {
-            journal.recordRegistration(
-                    name, sql, keyColumns, principal.id(), retention, parameters, sinkName, declaring);
+            if (checkpointDirectory == null || checkpointDirectory.equals(QueryCheckpoints.directoryFor(name))) {
+                journal.recordRegistration(
+                        name, sql, keyColumns, principal.id(), retention, parameters, sinkName, declaring);
+            } else {
+                journal.recordRegistrationIn(
+                        checkpointDirectory,
+                        name,
+                        sql,
+                        keyColumns,
+                        principal.id(),
+                        retention,
+                        parameters,
+                        sinkName,
+                        declaring);
+            }
         }
         policy.registered(principal, name); // ADR-059: the catalogue records its owner
         owners.registered(principal, name);
     }
 
-    /** Registration during recovery: the journal is being read, so nothing is written back to it. */
+    /**
+     * The directory a new computation named {@code name} checkpoints into: the one its name implies,
+     * unless a running computation already checkpoints there -- another tenant's view registered before
+     * names were per tenant keeps the directory its bare name implied (ADR-060) -- and then one beside it.
+     */
+    private String freeDirectoryFor(String name) {
+        String wanted = QueryCheckpoints.directoryFor(name);
+        Set<java.nio.file.Path> taken = new java.util.HashSet<>();
+        byFingerprint.values().forEach(query -> query.checkpointDirectory().ifPresent(taken::add));
+        String directory = wanted;
+        for (int attempt = 1; checkpoints.enabled() && taken.contains(checkpoints.pathOf(directory)); attempt++) {
+            directory = wanted + "-" + attempt;
+        }
+        return directory;
+    }
+
+    /** Registration during recovery, of a name within its owner's tenant: nothing is written back to the journal. */
     RegisteredQuery registerWithoutJournalling(
             String name,
             String sql,
@@ -1063,7 +1033,7 @@ public final class QueryRegistry implements AutoCloseable {
         ServedView view = new ServedView(name, schema, keyColumns, DEFAULT_MAX_KEYS, retention)
                 // SX-11. What the query reads, recorded on the view, so a reader is judged against
                 // the data and not against the name a registrant happened to choose for it.
-                .derivedFrom(chains.provenance(plan));
+                .derivedFrom(chains.provenance(plan, ViewNames.tenantOf(name)));
         ViewSink sink = new ViewSink(view, schema);
 
         // The engine, not a pipeline of our own (a registered query once had no lane, arena, checkpoints
@@ -1357,7 +1327,7 @@ public final class QueryRegistry implements AutoCloseable {
         return owners;
     }
 
-    /** The query answering to {@code name}. */
+    /** The query answering to the engine name {@code name}; a surface resolves a caller's name first. */
     public synchronized Optional<RegisteredQuery> find(String name) {
         return Optional.ofNullable(byName.get(name));
     }
@@ -1379,7 +1349,37 @@ public final class QueryRegistry implements AutoCloseable {
         return find(name).orElseThrow(() -> QueryNames.noSuchQuery(name));
     }
 
-    /** Every name registered, in registration order. */
+    /**
+     * The engine name {@code name} means to {@code principal} (ADR-060): a bare name in the caller's
+     * tenant, a catalogue name ({@code tenant.default.name}) in its own tenant or, for an admin, any.
+     * Syntax only, so it answers alike for a registered name and an unregistered one.
+     *
+     * @throws PravahaException {@code PRV-7002} when a caller who is not an admin names another tenant
+     */
+    public static String engineName(Principal principal, String name) {
+        return ViewNames.resolve(principal, name);
+    }
+
+    /** The query {@code name} means to {@code principal}: resolved in the caller's tenant (ADR-060). */
+    public synchronized Optional<RegisteredQuery> find(Principal principal, String name) {
+        return find(engineName(principal, name));
+    }
+
+    /** As {@link #require(String)}, resolved in the caller's tenant; the refusal names what was asked for. */
+    public synchronized RegisteredQuery require(Principal principal, String name) {
+        return find(principal, name).orElseThrow(() -> QueryNames.noSuchQuery(name));
+    }
+
+    /** The engine names {@code principal} addresses: its own tenant's, or every one for an admin. */
+    public synchronized Set<String> names(Principal principal) {
+        Set<String> visible = new java.util.LinkedHashSet<>();
+        byName.keySet().stream()
+                .filter(name -> ViewNames.visibleTo(principal, name))
+                .forEach(visible::add);
+        return java.util.Collections.unmodifiableSet(visible);
+    }
+
+    /** Every engine name registered, in registration order: every tenant's (ADR-060). */
     public synchronized Set<String> names() {
         return java.util.Collections.unmodifiableSet(new java.util.LinkedHashSet<>(byName.keySet()));
     }

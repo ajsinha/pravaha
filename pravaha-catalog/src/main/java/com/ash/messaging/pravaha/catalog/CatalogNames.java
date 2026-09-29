@@ -26,7 +26,7 @@ import com.ash.messaging.pravaha.api.PravahaException;
  * <p>The hierarchy is four levels deep: the catalogue itself ({@value #ROOT}), a tenant
  * ({@code acme}), a namespace ({@code acme.sales}) and an object ({@code acme.sales.revenue}). A grant
  * at any level applies to everything under it. A view registered today is named by one identifier,
- * unique on the node (ADR-050), and lands in {@code <tenant>.default}, so every statement written
+ * unique within its tenant (ADR-060), and lands in {@code <tenant>.default}, so every statement written
  * before the catalogue keeps meaning what it meant.
  *
  * <p>What the node is configured with -- streams, source and sink bindings, lookups -- belongs to no

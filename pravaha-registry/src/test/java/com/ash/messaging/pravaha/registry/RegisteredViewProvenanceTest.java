@@ -54,7 +54,7 @@ class RegisteredViewProvenanceTest {
             .field("salary", Types.int64())
             .build();
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     private QueryRegistry registry;
 

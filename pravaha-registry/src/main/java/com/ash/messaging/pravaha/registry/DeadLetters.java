@@ -145,18 +145,18 @@ public final class DeadLetters {
      */
     public View page(Principal principal, String query, int offset, int limit) {
         QueryListing.Entry entry = require(principal, query, "dlq.list");
-        DeadLetterPage page = store.page(query, offset, limit);
+        // The queue is the engine name's (ADR-060): a tenant's orders and another's are two queues.
+        DeadLetterPage page = store.page(entry.engineName(), offset, limit);
         List<Visible> visible = new ArrayList<>(page.entries().size());
         for (DeadLetterEntry letter : page.entries()) {
             visible.add(new Visible(letter, entry.restricted()));
         }
-        return new View(entry.name(), visible, page, store.counts(query));
+        return new View(entry.name(), visible, page, store.counts(entry.engineName()));
     }
 
     /** How deep the queue is. The number a dashboard polls, and never the bytes. */
     public DeadLetterCounts counts(Principal principal, String query) {
-        require(principal, query, "dlq.count");
-        return store.counts(query);
+        return store.counts(require(principal, query, "dlq.count").engineName());
     }
 
     /**
@@ -166,7 +166,7 @@ public final class DeadLetters {
      */
     public Visible show(Principal principal, String query, String id) {
         QueryListing.Entry entry = require(principal, query, "dlq.show");
-        DeadLetterEntry letter = store.find(query, id).orElseThrow(() -> noSuchLetter(query, id));
+        DeadLetterEntry letter = store.find(entry.engineName(), id).orElseThrow(() -> noSuchLetter(query, id));
         return new Visible(letter, entry.restricted());
     }
 
@@ -181,17 +181,18 @@ public final class DeadLetters {
      *     {@code PRV-4091} when the id is not in the queue, {@code PRV-4092} when replaying it
      *     could not be correct
      */
-    public Replayed replay(Principal principal, String query, String id) {
+    public Replayed replay(Principal principal, String typed, String id) {
         // Administering, not reading. A replay changes the view every other reader sees, and
         // The owner, a grant or an admin: a reader, filtered or not, does not qualify as one.
+        String query = QueryRegistry.engineName(principal, typed); // ADR-060: in the caller's tenant
         ContinuousQueryStatements.requireAdministrable(registry, audit, principal, query, "dlq.replay");
         RegisteredQuery registered = registry.find(query)
                 .orElseThrow(() -> new PravahaException(
                         StateErrors.DLQ_REPLAY_REFUSED,
-                        "'" + query + "' is not registered any more, so there is no query to feed the record back "
+                        "'" + typed + "' is not registered any more, so there is no query to feed the record back "
                                 + "into. A dead letter belongs to the computation that rejected it: re-register the "
                                 + "query and let its source deliver the corrected record."));
-        DeadLetterEntry entry = store.find(query, id).orElseThrow(() -> noSuchLetter(query, id));
+        DeadLetterEntry entry = store.find(query, id).orElseThrow(() -> noSuchLetter(typed, id));
         String newestBefore = newestId(query);
         DeadLetterEntry.Replay outcome = registered
                 .feed()
@@ -206,7 +207,7 @@ public final class DeadLetters {
             return new Replayed(
                     id,
                     outcome,
-                    "the record decoded and is a row of '" + query + "' now, applied at the frontier the query "
+                    "the record decoded and is a row of '" + typed + "' now, applied at the frontier the query "
                             + "has reached -- not at the offset it originally came from.",
                     "");
         }

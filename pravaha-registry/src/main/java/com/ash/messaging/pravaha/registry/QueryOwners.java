@@ -24,6 +24,7 @@ import com.ash.messaging.pravaha.security.AccessDecision;
 import com.ash.messaging.pravaha.security.Administration;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
+import com.ash.messaging.pravaha.security.ViewNames;
 
 /**
  * Who owns each registered name, and so who may administer it: drop, pause, resume, replace, debug,
@@ -73,7 +74,13 @@ public final class QueryOwners {
      * to answer, so a permitted caller then meets the registry's "no such query".
      */
     public AccessDecision mayAdminister(Principal principal, String view) {
-        Principal owner = owners.get(view);
+        Principal owner = view == null ? null : owners.get(view);
+        if (owner != null && !ViewNames.visibleTo(principal, view)) {
+            // ADR-060: another tenant's view is administered by nobody outside it but an admin, under
+            // either rule -- a name reaches one only by a catalogue name, which only an admin may use.
+            return AccessDecision.deny(
+                    principal.id() + " may not administer a view outside tenant '" + principal.tenant() + "'");
+        }
         return Administration.decide(rule, policy, principal, view, owner != null, Optional.ofNullable(owner));
     }
 

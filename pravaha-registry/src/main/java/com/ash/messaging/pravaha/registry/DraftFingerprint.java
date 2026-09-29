@@ -61,7 +61,9 @@ public final class DraftFingerprint {
         Retention kept =
                 retention != null ? retention : sink != null ? Retention.forever() : registry.defaultRetention();
         synchronized (registry) {
-            return registry.prepare(name, sql, keys, principal, kept, BoundParameters.none(), sink, "explain")
+            // In the caller's tenant, as registering it would be (ADR-060).
+            String engine = com.ash.messaging.pravaha.security.ViewNames.engineName(principal.tenant(), name);
+            return registry.prepare(engine, sql, keys, principal, kept, BoundParameters.none(), sink, "explain")
                     .fingerprint();
         }
     }

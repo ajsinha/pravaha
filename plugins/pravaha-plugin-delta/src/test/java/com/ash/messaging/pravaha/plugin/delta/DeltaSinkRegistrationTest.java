@@ -69,7 +69,7 @@ class DeltaSinkRegistrationTest {
             .field("amount", Types.int64())
             .build();
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     /**
      * A global aggregate: the one revising query the engine runs over an unbounded stream without a

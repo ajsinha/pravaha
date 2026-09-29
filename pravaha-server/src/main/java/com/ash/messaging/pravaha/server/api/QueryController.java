@@ -439,7 +439,10 @@ public class QueryController {
                 query.failure()
                         .map(failure -> mapper.toProblem(failure, withheldOr(entry, failure)))
                         .orElse(null),
-                view.derivedFrom().stream().sorted().toList(),
+                view.derivedFrom().stream()
+                        .map(source -> com.ash.messaging.pravaha.security.ViewNames.shownSource(principal, source))
+                        .sorted()
+                        .toList(),
                 feed(entry),
                 query.executionPaths(),
                 query.lanePlacement(),

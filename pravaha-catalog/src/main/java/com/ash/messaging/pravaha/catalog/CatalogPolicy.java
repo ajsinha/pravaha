@@ -30,6 +30,7 @@ import com.ash.messaging.pravaha.security.Administration;
 import com.ash.messaging.pravaha.security.Narrowing;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
+import com.ash.messaging.pravaha.security.ViewNames;
 
 /**
  * The built-in policy that asks the catalogue (ADR-059 §8).
@@ -138,13 +139,17 @@ public final class CatalogPolicy implements SecurityPolicy {
      */
     @Override
     public AccessDecision mayRegisterQuery(Principal principal, String name) {
-        String wouldBe = CatalogNames.defaultNamespaceOf(principal.tenant()) + "." + name;
+        // The engine name (ADR-060): the view's catalogue name is its bare name in its tenant's default.
+        String wouldBe = ViewNames.catalogueName(name);
         Optional<CatalogObject> taken = service.catalog().object(wouldBe);
         if (taken.isPresent() && taken.get().kind() == ObjectKind.ALERT) {
             // One name, one object: the view would land on the alert's catalogue name (ADR-057).
             return AccessDecision.deny("'" + wouldBe + "' is an alert's name; a query cannot be registered as it");
         }
-        Optional<CatalogObject> existing = service.catalog().byEngineName(ObjectKind.VIEW, name);
+        // Recorded under its engine name, or -- registered before names were per tenant -- its bare one.
+        Optional<CatalogObject> existing = service.catalog()
+                .byEngineName(ObjectKind.VIEW, name)
+                .or(() -> taken.filter(o -> o.kind() == ObjectKind.VIEW));
         if (existing.isPresent()
                 && access.check(principal, Privilege.MODIFY, existing.get().fullName())
                         .allowed()) {
@@ -266,7 +271,9 @@ public final class CatalogPolicy implements SecurityPolicy {
     /**
      * The catalogue name an engine name stands for, for {@code principal}: a recorded view, a recorded
      * or configured stream, or -- for a name nothing records, such as one about to be refused as
-     * unknown -- the name it would have in the caller's default namespace, whose grants then decide.
+     * unknown -- the name it would have in its tenant's default namespace, whose grants then decide. An
+     * engine name is resolved in the caller's tenant already (ADR-060), so that is the caller's own
+     * default namespace unless an admin named another tenant.
      */
     public String target(Principal principal, String engineName) {
         Catalog catalog = service.catalog();
@@ -283,7 +290,9 @@ public final class CatalogPolicy implements SecurityPolicy {
                 return CatalogNames.infrastructureNamespace(kind) + "." + engineName;
             }
         }
-        return CatalogNames.defaultNamespaceOf(principal.tenant()) + "." + engineName;
+        return ViewNames.tenantOf(engineName).equals(ViewNames.DEFAULT_TENANT)
+                ? CatalogNames.defaultNamespaceOf(principal.tenant()) + "." + engineName
+                : ViewNames.catalogueName(engineName);
     }
 
     private AccessDecision decide(Principal principal, Privilege privilege, String target, String what) {

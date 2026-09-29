@@ -57,7 +57,7 @@ class CatalogServiceTest {
             default -> Optional.empty();
         });
         sql = new CatalogStatementExecutor(service);
-        catalog.registerView("revenue", OPS);
+        catalog.registerView("acme.default.revenue", OPS);
     }
 
     private CatalogStatementExecutor.Answer run(Principal who, String statement) {
@@ -155,7 +155,7 @@ class CatalogServiceTest {
     @Test
     void theOwnerMayGiveItAwayAndThenCannotTakeItBack() {
         Principal owner = new Principal("olga", "acme", Set.of(), Map.of());
-        service.catalog().registerView("ledger", owner);
+        service.catalog().registerView("acme.default.ledger", owner);
         run(owner, "ALTER VIEW ledger SET TAGS ('domain' = 'finance', 'certified')");
         run(owner, "COMMENT ON VIEW ledger IS 'The ledger'");
         run(owner, "ALTER VIEW ledger OWNER TO USER ana");

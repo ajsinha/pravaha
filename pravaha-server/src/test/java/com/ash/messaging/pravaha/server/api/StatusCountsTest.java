@@ -54,7 +54,7 @@ class StatusCountsTest {
         catalog.register(stream("a"));
         catalog.register(stream("b"));
         catalog.register(stream("c"));
-        Principal dana = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+        Principal dana = new Principal("dana", "public", Set.of("analyst"), Map.of());
         try (PravahaEngine engine = PravahaEngine.createDefault();
                 QueryRegistry registry = new QueryRegistry(new ViewCatalog(), stream("a"))) {
             registry.register("first", "SELECT user_id, amount FROM a", List.of(0), dana);
@@ -73,7 +73,7 @@ class StatusCountsTest {
 
     @Test
     void theLaneSummaryCountsPlacementsAndTheQueryDetailNamesEach() throws Exception {
-        Principal dana = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+        Principal dana = new Principal("dana", "public", Set.of("analyst"), Map.of());
         try (PravahaEngine engine = PravahaEngine.createDefault();
                 QueryRegistry registry =
                         new QueryRegistry(new ViewCatalog(), stream("a")).multiplexingLanes(2, 300, 1)) {

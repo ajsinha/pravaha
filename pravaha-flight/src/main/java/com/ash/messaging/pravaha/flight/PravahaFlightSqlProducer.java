@@ -591,21 +591,21 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                             query.fingerprint().shortForm())));
                 }
                 case ControlWire.DROP -> {
-                    requireName(fields, "drop");
-                    requireAdministrable(principal, fields.get(0), "drop");
-                    required.drop(fields.get(0));
+                    String name = named(principal, fields, "drop"); // ADR-060: in the caller's tenant
+                    requireAdministrable(principal, name, "drop");
+                    required.drop(name);
                     listener.onNext(new Result(ControlWire.encode(fields.get(0), "DROPPED")));
                 }
                 case ControlWire.PAUSE -> {
-                    requireName(fields, "pause");
-                    requireAdministrable(principal, fields.get(0), "pause");
-                    required.pause(fields.get(0));
+                    String name = named(principal, fields, "pause");
+                    requireAdministrable(principal, name, "pause");
+                    required.pause(name);
                     listener.onNext(new Result(ControlWire.encode(fields.get(0), "PAUSED")));
                 }
                 case ControlWire.RESUME -> {
-                    requireName(fields, "resume");
-                    requireAdministrable(principal, fields.get(0), "resume");
-                    required.resume(fields.get(0));
+                    String name = named(principal, fields, "resume");
+                    requireAdministrable(principal, name, "resume");
+                    required.resume(name);
                     listener.onNext(new Result(ControlWire.encode(fields.get(0), "RUNNING")));
                 }
                 case ControlWire.LIST -> {
@@ -659,45 +659,50 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                         options = ReplacementOptions.parse(fields.get(3));
                     }
                     QueryReplacement.Status status = required.replacements()
-                            .replace(fields.get(0), fields.get(1), keyOrdinals(fields.get(2)), principal, options);
-                    listener.onNext(new Result(ControlWire.encode(replacement(status))));
+                            .replace(
+                                    QueryRegistry.engineName(principal, fields.get(0)),
+                                    fields.get(1),
+                                    keyOrdinals(fields.get(2)),
+                                    principal,
+                                    options);
+                    listener.onNext(new Result(ControlWire.encode(replacement(status, principal))));
                 }
                 case ControlWire.CUTOVER -> {
-                    requireName(fields, "cutover");
-                    listener.onNext(new Result(ControlWire.encode(
-                            replacement(required.replacements().cutOver(fields.get(0), principal)))));
+                    listener.onNext(new Result(ControlWire.encode(replacement(
+                            required.replacements().cutOver(named(principal, fields, "cutover"), principal),
+                            principal))));
                 }
                 case ControlWire.ROLLBACK -> {
-                    requireName(fields, "rollback");
-                    listener.onNext(new Result(ControlWire.encode(
-                            replacement(required.replacements().rollBack(fields.get(0), principal)))));
+                    listener.onNext(new Result(ControlWire.encode(replacement(
+                            required.replacements().rollBack(named(principal, fields, "rollback"), principal),
+                            principal))));
                 }
                 case ControlWire.ABANDON -> {
-                    requireName(fields, "abandon");
-                    listener.onNext(new Result(ControlWire.encode(
-                            replacement(required.replacements().abandon(fields.get(0), principal)))));
+                    listener.onNext(new Result(ControlWire.encode(replacement(
+                            required.replacements().abandon(named(principal, fields, "abandon"), principal),
+                            principal))));
                 }
                 case ControlWire.FINISH -> {
-                    requireName(fields, "finish");
-                    listener.onNext(new Result(ControlWire.encode(
-                            replacement(required.replacements().finish(fields.get(0), principal)))));
+                    listener.onNext(new Result(ControlWire.encode(replacement(
+                            required.replacements().finish(named(principal, fields, "finish"), principal),
+                            principal))));
                 }
                 case ControlWire.BACKFILL -> {
-                    requireName(fields, "backfill");
+                    String name = named(principal, fields, "backfill");
                     String verb = fields.size() > 1 ? fields.get(1).strip().toLowerCase(java.util.Locale.ROOT) : "";
                     QueryReplacement.Status status =
                             switch (verb) {
-                                case "pause" -> required.replacements().pause(fields.get(0), principal);
-                                case "resume" -> required.replacements().resume(fields.get(0), principal);
+                                case "pause" -> required.replacements().pause(name, principal);
+                                case "resume" -> required.replacements().resume(name, principal);
                                 case "throttle" ->
-                                    required.replacements().throttle(fields.get(0), rowsPerSecond(fields), principal);
+                                    required.replacements().throttle(name, rowsPerSecond(fields), principal);
                                 default ->
                                     throw new PravahaException(
                                             FlightErrors.BAD_HANDLE,
                                             "a backfill is paused, resumed or throttled; this action asked for '" + verb
                                                     + "'");
                             };
-                    listener.onNext(new Result(ControlWire.encode(replacement(status))));
+                    listener.onNext(new Result(ControlWire.encode(replacement(status, principal))));
                 }
                 case ControlWire.REPLACEMENT -> {
                     // Reading the state of a replacement is administering the name, as changing it
@@ -709,15 +714,16 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                             if (required.owners()
                                     .mayAdminister(principal, status.name())
                                     .allowed()) {
-                                listener.onNext(new Result(ControlWire.encode(replacement(status))));
+                                listener.onNext(new Result(ControlWire.encode(replacement(status, principal))));
                             }
                         }
                     } else {
-                        requireAdministrable(principal, fields.get(0), "replacement");
+                        String name = QueryRegistry.engineName(principal, fields.get(0));
+                        requireAdministrable(principal, name, "replacement");
                         required.replacements()
-                                .of(fields.get(0))
-                                .ifPresent(
-                                        status -> listener.onNext(new Result(ControlWire.encode(replacement(status)))));
+                                .of(name)
+                                .ifPresent(status -> listener.onNext(
+                                        new Result(ControlWire.encode(replacement(status, principal)))));
                     }
                 }
 
@@ -828,10 +834,10 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
     }
 
     /** A replacement's status as {@link ControlWire#REPLACEMENT_FIELDS} names its fields. */
-    private static List<String> replacement(QueryReplacement.Status status) {
+    private static List<String> replacement(QueryReplacement.Status status, Principal principal) {
         com.ash.messaging.pravaha.backfill.BackfillJob.Progress progress = status.progress();
         return List.of(
-                status.name(),
+                com.ash.messaging.pravaha.security.ViewNames.shown(principal, status.name()),
                 status.state().name(),
                 status.sql(),
                 text(status.candidate()),
@@ -900,6 +906,12 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
         }
     }
 
+    /** The first field's name, required, as the engine name it means to {@code principal} (ADR-060). */
+    private static String named(Principal principal, List<String> fields, String verb) {
+        requireName(fields, verb);
+        return QueryRegistry.engineName(principal, fields.get(0));
+    }
+
     /** The one authorization rule for drop, pause and resume, shared with their SQL spellings. */
     private void requireAdministrable(Principal principal, String view, String verb) {
         ContinuousQueryStatements.requireAdministrable(requireRegistry(), audit, principal, view, verb);
@@ -927,8 +939,9 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
         try {
             SubscriptionTicket asked = SubscriptionTicket.read(ticket.getBytes());
             boolean fromSnapshot = asked.fromSnapshot();
-            String viewName = asked.view();
             Principal principal = principalOf(context);
+            // ADR-060: the name in the caller's tenant, before the policy is asked about it.
+            String viewName = QueryRegistry.engineName(principal, asked.view());
             QueryRegistry required = requireRegistry();
 
             // Authorized before resolved. Resolving first meant an unauthorized caller got the
@@ -944,7 +957,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                         SecurityErrors.FORBIDDEN,
                         principal.id() + " may not subscribe to '" + viewName + "': " + decision.reason());
             }
-            RegisteredQuery query = required.require(viewName);
+            RegisteredQuery query = required.require(principal, asked.view());
             if (decision.rowFilter().isPresent()) {
                 // Refused, because this path cannot enforce it, and an entitlement that is silently
                 // discarded is worse than one that is refused.

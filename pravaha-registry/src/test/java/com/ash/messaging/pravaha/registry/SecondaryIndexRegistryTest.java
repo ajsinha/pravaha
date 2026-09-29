@@ -66,7 +66,7 @@ class SecondaryIndexRegistryTest {
             .field("amount", Types.int64())
             .build();
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     /**
      * A view of each user's latest payment, keyed by user and indexed by region -- a column a

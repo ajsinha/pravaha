@@ -46,13 +46,13 @@ class CatalogAccessTest {
         catalog = Catalog.inMemory(CLOCK);
         access = new CatalogAccess(catalog);
         catalog.createNamespace("acme.sales", Grantee.user("ops"), "", false, "ops");
-        catalog.registerView("revenue", OPS);
+        catalog.registerView("acme.default.revenue", OPS);
         catalog.move("acme.default.revenue", "acme.sales", "ops");
     }
 
     @Test
     void unqualifiedRegistrationsLandInTheRegistrantsDefaultNamespaceOwnedByTheRegistrant() {
-        CatalogObject orders = catalog.registerView("orders_by_region", ANA);
+        CatalogObject orders = catalog.registerView("acme.default.orders_by_region", ANA);
         assertThat(orders.fullName()).isEqualTo("acme.default.orders_by_region");
         assertThat(orders.owner()).isEqualTo(Grantee.user("ana"));
         // The owner holds everything on it, and needs no grant to use their own default namespace.
@@ -74,7 +74,7 @@ class CatalogAccessTest {
         assertThat(access.check(ANA, Privilege.SELECT, "acme.sales.revenue").via())
                 .isEqualTo("grant SELECT on acme.sales to ROLE analyst");
 
-        catalog.registerView("margin", OPS);
+        catalog.registerView("acme.default.margin", OPS);
         catalog.move("acme.default.margin", "acme.sales", "ops");
         assertThat(access.check(ANA, Privilege.SELECT, "acme.sales.margin").allowed())
                 .isTrue();
@@ -134,7 +134,7 @@ class CatalogAccessTest {
     @Test
     void anOwnerOfANamespaceHoldsEveryRightOnWhatItHolds() {
         catalog.createNamespace("acme.risk", Grantee.role("risk_team"), "", false, "ops");
-        catalog.registerView("exposure", OPS);
+        catalog.registerView("acme.default.exposure", OPS);
         catalog.move("acme.default.exposure", "acme.risk", "ops");
         Principal riskAnalyst = new Principal("rita", "acme", Set.of("risk_team"), Map.of());
         assertThat(access.check(riskAnalyst, Privilege.MANAGE, "acme.risk.exposure")
@@ -184,7 +184,7 @@ class CatalogAccessTest {
         catalog.move("acme.sales.revenue", "acme.finance", "ops");
         assertThat(catalog.grantsOn("acme.finance.revenue")).hasSize(1);
         assertThat(catalog.grantsOn("acme.sales.revenue")).isEmpty();
-        assertThat(catalog.byEngineName(ObjectKind.VIEW, "revenue")
+        assertThat(catalog.byEngineName(ObjectKind.VIEW, "acme.default.revenue")
                         .orElseThrow()
                         .fullName())
                 .isEqualTo("acme.finance.revenue");

@@ -56,6 +56,11 @@ final class QueryCheckpoints {
         return root != null;
     }
 
+    /** Where {@code directory} is under the root, or null when nothing is checkpointed. */
+    Path pathOf(String directory) {
+        return root == null ? null : root.resolve(directory);
+    }
+
     /**
      * Restores the newest readable checkpoint, returning the offsets its sources should resume from.
      *

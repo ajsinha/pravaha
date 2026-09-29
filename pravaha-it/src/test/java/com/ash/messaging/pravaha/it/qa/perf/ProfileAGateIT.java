@@ -116,7 +116,7 @@ final class ProfileAGateIT {
 
     private static final int[] LANE_COUNTS = {1, 2, 4, 8};
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     private static final Duration DRAIN = Duration.ofMinutes(5);
 

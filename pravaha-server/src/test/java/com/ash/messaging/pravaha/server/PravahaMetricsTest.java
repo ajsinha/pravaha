@@ -85,14 +85,16 @@ class PravahaMetricsTest {
 
         metrics.sync();
 
-        assertThat(meters.find("pravaha.query.rows.in").tag("query", "by_user").gauge())
+        assertThat(meters.find("pravaha.query.rows.in")
+                        .tag("query", "acme.default.by_user")
+                        .gauge())
                 .isNotNull();
         assertThat(meters.find("pravaha.query.view.size")
-                        .tag("query", "by_user")
+                        .tag("query", "acme.default.by_user")
                         .gauge())
                 .isNotNull();
         assertThat(meters.find("pravaha.query.running")
-                        .tag("query", "by_user")
+                        .tag("query", "acme.default.by_user")
                         .gauge()
                         .value())
                 .isEqualTo(1);
@@ -108,14 +110,14 @@ class PravahaMetricsTest {
         query.view().scan();
 
         assertThat(meters.find("pravaha.query.view.reads")
-                        .tag("query", "by_user")
+                        .tag("query", "acme.default.by_user")
                         .tag("path", "scan")
                         .functionCounter())
                 .isNotNull()
                 .satisfies(counter -> assertThat(counter.count()).isGreaterThanOrEqualTo(2.0));
         for (String path : List.of("point", "range", "index")) {
             assertThat(meters.find("pravaha.query.view.reads")
-                            .tag("query", "by_user")
+                            .tag("query", "acme.default.by_user")
                             .tag("path", path)
                             .functionCounter())
                     .as(path)
@@ -139,16 +141,16 @@ class PravahaMetricsTest {
     void droppingAQueryRemovesItsMeters() {
         node.registry().orElseThrow().register("temporary", "SELECT user_id, amount FROM txn", List.of(0), DANA);
         metrics.sync();
-        assertThat(metrics.published()).containsKey("temporary");
+        assertThat(metrics.published()).containsKey("acme.default.temporary");
 
-        node.registry().orElseThrow().drop("temporary");
+        node.registry().orElseThrow().drop("acme.default.temporary");
         metrics.sync();
 
         // The leak this prevents has two parts: the meter itself, and the query state that the
         // meter's reference would otherwise keep alive for as long as the process runs.
-        assertThat(metrics.published()).doesNotContainKey("temporary");
+        assertThat(metrics.published()).doesNotContainKey("acme.default.temporary");
         assertThat(meters.find("pravaha.query.rows.in")
-                        .tag("query", "temporary")
+                        .tag("query", "acme.default.temporary")
                         .gauge())
                 .isNull();
     }
@@ -158,11 +160,13 @@ class PravahaMetricsTest {
         node.registry().orElseThrow().register("stable", "SELECT user_id, amount FROM txn", List.of(0), DANA);
 
         metrics.sync();
-        int afterFirst = metrics.published().get("stable");
+        int afterFirst = metrics.published().get("acme.default.stable");
         metrics.sync();
 
-        assertThat(metrics.published().get("stable")).isEqualTo(afterFirst);
-        assertThat(meters.find("pravaha.query.rows.in").tag("query", "stable").gauges())
+        assertThat(metrics.published().get("acme.default.stable")).isEqualTo(afterFirst);
+        assertThat(meters.find("pravaha.query.rows.in")
+                        .tag("query", "acme.default.stable")
+                        .gauges())
                 .hasSize(1);
     }
 
@@ -181,21 +185,21 @@ class PravahaMetricsTest {
         metrics.sync();
 
         assertThat(meters.find("pravaha.query.watermark.partitions")
-                        .tag("query", "stalled")
+                        .tag("query", "acme.default.stalled")
                         .gauge())
                 .isNotNull();
         assertThat(meters.find("pravaha.query.watermark.partitions.idle")
-                        .tag("query", "stalled")
+                        .tag("query", "acme.default.stalled")
                         .gauge())
                 .isNotNull();
         assertThat(meters.find("pravaha.query.watermark.idle.exclusions")
-                        .tag("query", "stalled")
+                        .tag("query", "acme.default.stalled")
                         .functionCounter())
                 .as("a counter, because a partition excluded once and back a second later is "
                         + "invisible in a gauge and is the reason a window fired early")
                 .isNotNull();
         assertThat(meters.find("pravaha.query.watermark.regressions")
-                        .tag("query", "stalled")
+                        .tag("query", "acme.default.stalled")
                         .functionCounter())
                 .isNotNull();
     }
@@ -206,7 +210,7 @@ class PravahaMetricsTest {
         metrics.sync();
 
         double lag = meters.find("pravaha.query.watermark.lag.seconds")
-                .tag("query", "quiet")
+                .tag("query", "acme.default.quiet")
                 .gauge()
                 .value();
 
@@ -222,13 +226,13 @@ class PravahaMetricsTest {
         metrics.sync();
 
         assertThat(meters.find("pravaha.query.subscribers")
-                        .tag("query", "watched")
+                        .tag("query", "acme.default.watched")
                         .gauge()
                         .value())
                 .isZero();
-        try (var subscription = registry.require("watched").subscribe(batch -> {})) {
+        try (var subscription = registry.require("acme.default.watched").subscribe(batch -> {})) {
             assertThat(meters.find("pravaha.query.subscribers")
-                            .tag("query", "watched")
+                            .tag("query", "acme.default.watched")
                             .gauge()
                             .value())
                     .isEqualTo(1);
@@ -236,22 +240,22 @@ class PravahaMetricsTest {
 
         // No checkpoint directory on this node: a timestamp of zero would read as 1970 to an age alert.
         assertThat(meters.find("pravaha.query.checkpoint.last.success.timestamp.seconds")
-                        .tag("query", "watched")
+                        .tag("query", "acme.default.watched")
                         .gauge()
                         .value())
                 .isNaN();
         assertThat(meters.find("pravaha.query.checkpoint.duration.seconds")
-                        .tag("query", "watched")
+                        .tag("query", "acme.default.watched")
                         .gauge()
                         .value())
                 .isNaN();
         assertThat(meters.find("pravaha.query.checkpoint.failures")
-                        .tag("query", "watched")
+                        .tag("query", "acme.default.watched")
                         .functionCounter()
                         .count())
                 .isZero();
         assertThat(meters.find("pravaha.query.commit.latency")
-                        .tag("query", "watched")
+                        .tag("query", "acme.default.watched")
                         .functionTimer())
                 .isNotNull();
     }
@@ -286,7 +290,7 @@ class PravahaMetricsTest {
         double stored = Double.NaN;
         while (Double.isNaN(stored) && System.nanoTime() < deadline) {
             stored = meters.find("pravaha.query.checkpoint.last.success.timestamp.seconds")
-                    .tag("query", "saved")
+                    .tag("query", "acme.default.saved")
                     .gauge()
                     .value();
             Thread.sleep(50);
@@ -294,7 +298,7 @@ class PravahaMetricsTest {
         assertThat(stored).as("a checkpoint was stored and its time published").isNotNaN();
         assertThat(stored).isCloseTo(System.currentTimeMillis() / 1000d, org.assertj.core.data.Offset.offset(60d));
         assertThat(meters.find("pravaha.query.checkpoint.duration.seconds")
-                        .tag("query", "saved")
+                        .tag("query", "acme.default.saved")
                         .gauge()
                         .value())
                 .isNotNaN()

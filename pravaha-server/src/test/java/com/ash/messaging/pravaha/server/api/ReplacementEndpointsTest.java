@@ -64,10 +64,10 @@ class ReplacementEndpointsTest {
     private static final String V1 = "SELECT 'all' AS bucket, SUM(amount) AS total FROM txn";
     private static final String V2 = "SELECT 'all' AS bucket, SUM(amount) AS total, COUNT(*) AS payments FROM txn";
 
-    private static final Principal OPERATOR = new Principal("dana", "acme", Set.of("operator"), Map.of());
+    private static final Principal OPERATOR = new Principal("dana", "public", Set.of("operator"), Map.of());
 
     /** Allowed to read everything and to administer nothing. */
-    private static final Principal READER = new Principal("ray", "acme", Set.of("reader"), Map.of());
+    private static final Principal READER = new Principal("ray", "public", Set.of("reader"), Map.of());
 
     private static final SecurityPolicy POLICY = new SecurityPolicy() {
         @Override

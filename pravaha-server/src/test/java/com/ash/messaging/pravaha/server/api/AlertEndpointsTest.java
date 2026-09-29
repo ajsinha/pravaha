@@ -158,12 +158,12 @@ class AlertEndpointsTest {
 
     @Test
     void dropping() {
-        assertThatThrownBy(() -> node.registry().orElseThrow().drop("low"))
+        assertThatThrownBy(() -> node.registry().orElseThrow().drop("acme.default.low"))
                 .hasMessageContaining("PRV-8024")
                 .hasMessageContaining("ALERT low_alert");
         statements.execute(
                 ContinuousStatements.recognize("DROP ALERT low_alert").orElseThrow(), BEA);
-        node.registry().orElseThrow().drop("low");
+        node.registry().orElseThrow().drop("acme.default.low");
         assertThat(rest.list(as(BEA)).items()).isEmpty();
     }
 }

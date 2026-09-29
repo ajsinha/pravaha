@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Matcher;
@@ -32,6 +33,7 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
+import com.ash.messaging.pravaha.security.ViewNames;
 import com.ash.messaging.pravaha.serving.ServedView;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 import com.ash.messaging.pravaha.serving.ViewQuery;
@@ -117,7 +119,7 @@ final class PgCatalogShim {
         if (types.isPresent()) {
             return types;
         }
-        Optional<ViewQuery.Result> standard = informationSchema.tryAnswer(sql, visibleViews(principal));
+        Optional<ViewQuery.Result> standard = informationSchema.tryAnswer(sql, shownViews(principal));
         if (standard.isPresent()) {
             return standard;
         }
@@ -318,7 +320,7 @@ final class PgCatalogShim {
                 .field("Owner", Types.string())
                 .build();
         List<Object[]> rows = new ArrayList<>();
-        for (String name : visibleViews(principal)) {
+        for (String name : shownViews(principal).keySet()) {
             rows.add(new Object[] {"public", name, "table", owner()});
         }
         return Optional.of(new ViewQuery.Result(schema, rows));
@@ -368,7 +370,7 @@ final class PgCatalogShim {
         boolean wantsOrdinaryTables = RELKIND_TABLE_WANTED.matcher(sql).find()
                 || !RELKIND_FILTERED_AT_ALL.matcher(sql).find();
         if (wantsOrdinaryTables) {
-            for (String name : visibleViews(principal)) {
+            for (String name : shownViews(principal).keySet()) {
                 rows.add(new Object[] {"pravaha", "public", name, "TABLE", null, "", "", "", "", ""});
             }
         }
@@ -423,11 +425,12 @@ final class PgCatalogShim {
         String tableNamePattern = likeLiteral(JDBC_TABLE_NAME_LIKE, sql);
         String columnNamePattern = likeLiteral(JDBC_COLUMN_NAME_LIKE, sql);
         List<Object[]> rows = new ArrayList<>();
-        for (String name : visibleViews(principal)) {
+        for (Map.Entry<String, ServedView> shown : shownViews(principal).entrySet()) {
+            String name = shown.getKey();
             if (tableNamePattern != null && !likeMatches(tableNamePattern, name)) {
                 continue;
             }
-            ServedView view = catalog.find(name).orElse(null);
+            ServedView view = shown.getValue();
             if (view == null) {
                 continue;
             }
@@ -512,10 +515,12 @@ final class PgCatalogShim {
             namePattern = compileOrNull(literal);
         }
         List<Object[]> rows = new ArrayList<>();
-        for (String name : visibleViews(principal)) {
+        for (String engine : visibleViews(principal)) {
+            // The oid is the engine name's (ADR-060): two tenants' orders are two relations.
+            String name = ViewNames.shown(principal, engine);
             boolean matches = namePattern == null || namePattern.matcher(name).find();
             if (matches == !negate) {
-                rows.add(new Object[] {String.valueOf(oids.oidOf(name)), "public", name});
+                rows.add(new Object[] {String.valueOf(oids.oidOf(engine)), "public", name});
             }
         }
         rows.sort(Comparator.comparing(row -> (String) row[2]));
@@ -626,7 +631,10 @@ final class PgCatalogShim {
             return Optional.empty();
         }
         int oid = Integer.parseInt(match.group(1));
-        return oids.nameOf(oid).filter(name -> mayRead(principal, name) && mayReadEverythingBehind(principal, name));
+        return oids.nameOf(oid)
+                .filter(name -> ViewNames.visibleTo(principal, name)
+                        && mayRead(principal, name)
+                        && mayReadEverythingBehind(principal, name));
     }
 
     // ------------------------------------------------------------------------------------------
@@ -641,10 +649,22 @@ final class PgCatalogShim {
      * payroll-reading views anyway, because somebody else had chosen their names.
      */
     private List<String> visibleViews(Principal principal) {
+        // ADR-060: by engine name, the caller's tenant's only -- every tenant's for an admin.
         List<String> names = new ArrayList<>(catalog.names());
-        names.removeIf(name -> !mayRead(principal, name) || !mayReadEverythingBehind(principal, name));
-        names.sort(Comparator.naturalOrder());
+        names.removeIf(name -> !ViewNames.visibleTo(principal, name)
+                || !mayRead(principal, name)
+                || !mayReadEverythingBehind(principal, name));
+        names.sort(Comparator.comparing(name -> ViewNames.shown(principal, name)));
         return names;
+    }
+
+    /** {@link #visibleViews}, by the name each is shown to {@code principal} under, in that order. */
+    private Map<String, ServedView> shownViews(Principal principal) {
+        Map<String, ServedView> shown = new java.util.LinkedHashMap<>();
+        for (String engine : visibleViews(principal)) {
+            catalog.find(engine).ifPresent(view -> shown.put(ViewNames.shown(principal, engine), view));
+        }
+        return shown;
     }
 
     private boolean mayRead(Principal principal, String name) {

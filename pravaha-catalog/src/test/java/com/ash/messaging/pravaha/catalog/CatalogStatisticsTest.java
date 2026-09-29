@@ -88,7 +88,7 @@ class CatalogStatisticsTest {
     @Test
     void changesAreCountedByKindAndAReplayCountsNothing(@TempDir Path dir) {
         Catalog journalled = Catalog.open(dir.resolve("catalog.journal"), CLOCK);
-        journalled.registerView("revenue", OPS);
+        journalled.registerView("acme.default.revenue", OPS);
         journalled.grant("acme.default.revenue", Privilege.SELECT, Grantee.role("analyst"), "ops");
         journalled.grant("acme.default.revenue", Privilege.SELECT, Grantee.role("analyst"), "ops"); // no change
         journalled.revoke("acme.default.revenue", Privilege.SELECT, Grantee.role("analyst"));

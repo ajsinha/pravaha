@@ -135,4 +135,15 @@ public interface SourceFeedFactory {
     default java.util.Optional<String> repeatingSource(String stream) {
         return java.util.Optional.empty();
     }
+
+    /**
+     * A registration's engine name changed before its feed opened (ADR-060): whatever this factory keeps
+     * under the old name -- a dead-letter queue -- is the new name's from now on.
+     *
+     * <p>Called at recovery for a view another tenant than the default registered before names were per
+     * tenant, under its bare name. A queue is read by name, so left where it was, a default-tenant view
+     * later registered under the same bare name would be shown another tenant's rejected records.
+     * Nothing by default.
+     */
+    default void renamed(String from, String to) {}
 }

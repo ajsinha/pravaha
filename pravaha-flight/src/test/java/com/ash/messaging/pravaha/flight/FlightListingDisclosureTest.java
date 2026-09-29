@@ -124,14 +124,14 @@ class FlightListingDisclosureTest {
         };
 
         StaticTokenVerifier verifier = StaticTokenVerifier.of(
-                        AUDITOR_TOKEN, new Principal("dana", "acme", Set.of("auditor"), Map.of()))
-                .and(SLICED_TOKEN, new Principal("bob", "acme", Set.of("sliced"), Map.of()))
-                .and(OUTSIDER_TOKEN, new Principal("carol", "acme", Set.of("outsider"), Map.of()))
-                .and(STRANGER_TOKEN, new Principal("erin", "acme", Set.of("stranger"), Map.of()));
+                        AUDITOR_TOKEN, new Principal("dana", "public", Set.of("auditor"), Map.of()))
+                .and(SLICED_TOKEN, new Principal("bob", "public", Set.of("sliced"), Map.of()))
+                .and(OUTSIDER_TOKEN, new Principal("carol", "public", Set.of("outsider"), Map.of()))
+                .and(STRANGER_TOKEN, new Principal("erin", "public", Set.of("stranger"), Map.of()));
 
         registry = new QueryRegistry(views, policy, audit, TRADE);
         arena = new RowArena(MemoryAccess.best(), 1 << 20, 8);
-        registry.register("sales_view", SQL, List.of(0), new Principal("root", "acme", Set.of("auditor"), Map.of()));
+        registry.register("sales_view", SQL, List.of(0), new Principal("root", "public", Set.of("auditor"), Map.of()));
 
         server = new PravahaFlightServer(views, allocator)
                 .hosting(registry)

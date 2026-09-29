@@ -74,7 +74,7 @@ class KafkaSinkRegistrationTest {
             .field("amount", Types.int64())
             .build();
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     /** A global aggregate: every change retracts the previous answer and writes the new one. */
     private static final String SPEND = "SELECT COUNT(*) AS n, SUM(amount) AS total FROM txn";

@@ -84,13 +84,13 @@ public class PermissionsController {
         List<AdminDtos.ObjectPermission> views = new ArrayList<>();
         registry.listing().ifPresent(listing -> {
             for (QueryListing.Entry entry : listing.list(principal, "http.permissions")) {
-                views.add(permission(entry.name(), policy, principal));
+                views.add(permission(entry.name(), entry.engineName(), policy, principal));
             }
         });
         List<AdminDtos.ObjectPermission> streams = new ArrayList<>();
         for (StreamSchema stream : catalog.all()) {
             if (policy.mayRead(principal, stream.name()).allowed()) {
-                streams.add(permission(stream.name(), policy, principal));
+                streams.add(permission(stream.name(), stream.name(), policy, principal));
             }
         }
         views.sort(java.util.Comparator.comparing(AdminDtos.ObjectPermission::name));
@@ -107,9 +107,11 @@ public class PermissionsController {
                 List.copyOf(streams));
     }
 
-    private AdminDtos.ObjectPermission permission(String name, SecurityPolicy policy, Principal principal) {
-        AccessDecision read = policy.mayRead(principal, name);
-        AccessDecision administer = authorizer.administerDecision(principal, name);
+    /** @param decided what the policy is asked about: a view's engine name (ADR-060), a stream's name */
+    private AdminDtos.ObjectPermission permission(
+            String name, String decided, SecurityPolicy policy, Principal principal) {
+        AccessDecision read = policy.mayRead(principal, decided);
+        AccessDecision administer = authorizer.administerDecision(principal, decided);
         if (read.rowFilter().isPresent() && !administer.allowed()) {
             // The default refusal quotes the row filter, which is not repeated on this surface.
             administer = AccessDecision.deny("a row-filtered read is not a claim on the whole view");

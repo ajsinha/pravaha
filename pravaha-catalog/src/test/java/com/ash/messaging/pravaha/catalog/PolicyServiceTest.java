@@ -67,7 +67,7 @@ class PolicyServiceTest {
             default -> Optional.empty();
         });
         sql = new CatalogStatementExecutor(service);
-        catalog.registerView("revenue", OPS);
+        catalog.registerView("acme.default.revenue", OPS);
     }
 
     private CatalogStatementExecutor.Answer run(Principal who, String statement) {
@@ -140,7 +140,7 @@ class PolicyServiceTest {
         run(OPS, "CREATE MASK email_hidden ON COLUMN email AS 'hidden'");
         run(OPS, "ALTER TAG 'domain=customers' SET POLICY email_hidden");
 
-        catalog.registerView("signups", OPS);
+        catalog.registerView("acme.default.signups", OPS);
         assertThat(narrowing(EU_ANA, "signups").isNone()).isTrue();
         run(OPS, "ALTER VIEW signups SET TAGS ('domain' = 'customers')");
         assertThat(narrowing(EU_ANA, "signups").masks()).containsEntry("email", "'hidden'");
@@ -149,7 +149,7 @@ class PolicyServiceTest {
         run(OPS, "ALTER VIEW revenue SET TAGS ('domain' = 'finance')");
         assertThat(narrowing(EU_ANA, "revenue").isNone()).isTrue();
         Principal eve = new Principal("eve", "globex", Set.of("admin"), Map.of());
-        catalog.registerView("leads", eve);
+        catalog.registerView("globex.default.leads", eve);
         catalog.setTags("globex.default.leads", Map.of("domain", "customers"), "eve");
         assertThat(service.policies().narrowing(eve, "globex.default.leads").isNone())
                 .isTrue();
@@ -242,7 +242,7 @@ class PolicyServiceTest {
                 .isInstanceOfSatisfying(
                         PravahaException.class, e -> assertThat(e.errorCode()).isEqualTo(CatalogErrors.NO_SUCH_OBJECT));
 
-        catalog.dropView("revenue");
+        catalog.dropView("acme.default.revenue");
         assertThat(catalog.bindings()).isEmpty();
         assertThat(run(OPS, "DROP ROW FILTER f").rows().get(0).get(2)).isEqualTo("DROPPED");
         assertThat(run(OPS, "DROP ROW FILTER IF EXISTS f").rows().get(0).get(2)).isEqualTo("NOT_FOUND");

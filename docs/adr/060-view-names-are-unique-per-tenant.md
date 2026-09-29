@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted; **slice 1 built** — a refusal no longer names the tenant that holds a name, and a registration choosing another tenant's name is audited as `register:name`. The per-tenant registry key and the resolution of names within the caller's tenant (§2–§6) are **not built**; until they are, names stay unique on the node and `PRV-8001` still tells a caller that a name is taken |
+| Status | Accepted; **built, with the amendments in *As built*** — the registry keys a view by (tenant, name), and every surface resolves a name in the caller's tenant: the registry, `ViewQuery`, Flight SQL and its actions, pgwire and its catalogue shim, REST, listings, subscriptions, dead letters, debug sessions, replacements, queries on queries, alerts and the catalogue. Closes TEN-1 |
 | Date | 2026-09-29 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-050 (tenancy) — **supersedes its §1 "Names" bullet**; ADR-056 (queries on queries), ADR-057 (alerts), ADR-059 (the catalogue's `tenant.namespace.object`) |
@@ -85,35 +85,115 @@ the CLI and the console all pass the caller's principal to the resolution; none 
 engine name. Operator surfaces that already show every tenant — `GET /api/v1/tenants`, the metrics
 endpoint, the audit trail — show engine names, which say the tenant.
 
-## Slice 1, as built
+## As built
 
-Stopping the oracle needs §1–§6 together: while two tenants cannot both hold `orders`, any refusal of
-the second registration tells the second tenant something. What was safe to build first:
+Built in three slices. The first made a refusal name no tenant: a cross-tenant replacement
+(`PRV-8022`, reached only by an admin now) still does not name the holder, while the `register:name`
+audit of a registration choosing another tenant's name is gone with the collision -- that name is
+free. The second (the registry, recovery, the catalogue, `ViewQuery`) and the third (Flight, pgwire,
+REST) build §1–§6. Where the code taught something the decision above did not say, or said
+differently, it is recorded here and this section wins.
 
-- **The refusal says nothing about whose a name is.** A registration of a name another tenant holds
-  is refused with `PRV-8001` in exactly the words used when the caller's own tenant holds it; a
-  cross-tenant replacement (`PRV-8022`, reached only by an admin, or by a reader under
-  `pravaha.security.administer=legacy-read`) no longer names the holding tenant.
-- **The probe is visible.** Each such registration is audited as `register:name` `DENY`, with the
-  holding tenant in the reason, so an operator can see one tenant probing another's names.
-- Under the ownership rule (`pravaha.security.administer=ownership`, the default), a principal of
-  another tenant cannot drop, pause or replace a view it did not register, so the `PRV-8001`
-  message's advice ("drop it first") no longer leads anywhere across tenants.
+### The engine name is the catalogue name
 
-`TenancyTest` proves both refusals and the audit record.
+§2 left the separator open ("a character the name grammar refuses"). It is the catalogue's own form:
+outside the default tenant a view's engine name is `tenant.default.name` -- `acme.default.orders` --
+which is also the name §5 has an admin address it by and the name `byEngineName` keys by (§4). A view
+name is a plain identifier and cannot hold a dot, so the form cannot collide with a default-tenant
+name or with another tenant's. `ViewNames` (in `pravaha-security`) is the one place a name is made,
+taken apart, resolved and shown. The catalogue records the view under its bare name in its tenant's
+default namespace, as before (`acme.default.orders`), so the two line up without a mapping.
 
-## Not built
+### Resolution, and what it refuses
 
-The registry key, the engine name and resolution in the caller's tenant (§1–§6), and with them the
-tests this ADR requires: two tenants register the same name and each sees only its own; a tenant
-cannot learn of another tenant's name by registration or lookup; a restart restores both; existing
-default-tenant state still loads. Until they are built `docs/SECURITY.md` says names are unique on
-the node, and TEN-1 stands.
+- A bare name is the caller's own tenant's. A catalogue name in the caller's own tenant is also its
+  own. A catalogue name of another tenant is honoured for an admin (the `admin` role) and refused to
+  anyone else with `PRV-7002`, in words that do not depend on whether the name is held -- resolution
+  is syntax only and never asks what exists. In a SQL `FROM` clause a catalogue name is quoted
+  (`SELECT * FROM "acme.default.orders"`); on a control action, a REST path or the CLI it is written
+  as it is.
+- A listing holds the caller's tenant's views under their bare names; an admin's holds every
+  tenant's, the others by catalogue name. Another tenant's name is not a name the caller is refused:
+  it is one nothing holds, so it is neither listed nor audited as a refusal.
+- `ViewQuery` plans against `ViewCatalog.scopedTo(principal)` -- the caller's views under the names
+  it writes -- and caches a plan per scope, since `FROM orders` is a different view in each tenant.
+- Another tenant's view is administered by nobody outside it but an admin, under either
+  `pravaha.security.administer` rule (`QueryOwners`): a name only reaches one through a catalogue
+  name.
+- The policy, the catalogue, the audit trail, checkpoints, dead letters, sinks and metrics are asked
+  and keyed by engine name. A policy written against bare names still matches every default-tenant
+  view; one that names another tenant's views names them `tenant.default.name`.
+
+### §3, corrected: what an entry records, and the one record recovery writes
+
+§3 said every journal entry records the directory it started with. An `R` record does not -- only a
+cutover's `C` does -- and its directory is the one its journalled name implies. So recovery restores
+each entry from the recorded directory, or from the one its **journalled** name implies, never from
+one derived from the new engine name: a view another tenant registered under a bare name keeps the
+directory that name implied, and nothing is moved.
+
+What recovery does write, once per such entry, is a journal record of a new kind, `N old new`: the
+entry is keyed by its engine name from then on, with its indexes, lane and pending replacement.
+Without it, a drop of the view would be journalled under a name its registration does not have, and
+a default-tenant registration of the same bare name would replace it at the next replay. `N` is a
+kind of its own so that a build that predates it refuses the journal by name rather than replaying a
+view under a name it no longer has -- a node that has run this cannot be downgraded past it.
+
+Two things §3 did not foresee follow from keeping the old directory:
+
+- **A default-tenant registration whose directory such an entry still holds** checkpoints beside it
+  (`orders-1`), and is journalled as a `C` record, the one that carries a directory. A `C` record now
+  carries a registration's bound values after its eight fields; a build that reads eight reads what it
+  always did.
+- **Restored sink state** recorded under the bare name is claimed by the engine name: a checkpoint is
+  one computation's and a computation one tenant's, so the bare name there can only be the view's own.
+
+### Dead letters move
+
+Unlike checkpoints, a view's dead-letter files (`<name>.dlq`, `.dlq.replays`, `.dlq.evicted`) are
+renamed to its engine name at the same recovery, before its feed opens a queue. A queue is read by
+name, so left where it was, a default-tenant view later registered under the same bare name would be
+shown another tenant's rejected records -- the raw bytes of them. A file the new name already has is
+not overwritten.
+
+### Alerts and the catalogue
+
+An alert's view is resolved in the alert's tenant; an alert recorded before names were per tenant
+recorded the bare name, which is read as its tenant's. A notification and an alert's status name the
+view by its bare name, beside the tenant. The catalogue re-keys a view recorded under its bare engine
+name the first time it is registered under its engine name, keeping where it was moved, its owner and
+its grants; a `GRANT … ON VIEW orders` resolves `orders` in the caller's tenant.
+
+### What operators see
+
+Operator surfaces show engine names, which say the tenant: the metrics endpoint's `query` label, the
+audit trail's targets, `GET /api/v1/tenants`, lane rebalancing, the registry journal and the recovery
+log (`Recovery.recovered()` is engine names). `GET /api/v1/status` counts registered names across the
+node; a count says nothing about which names exist.
+
+### Tests
+
+`TenantViewNamesTest` (registry: the same name in two tenants on every registry surface, the oracle
+closed on describe, require, drop, pause, dead letters, read, schema and prepare, admins by
+catalogue name, upstreams, and a restart restoring both tenants' same-named views with their own
+state); a fixture of the state develop `1f52ecf2` wrote (`src/test/resources/adr060/`, made by
+`Adr060DevelopFixture`) loading with the default tenant unchanged and another tenant's view under its
+tenant; `AlertTenantNamesTest`; `CatalogJournalTest`'s re-keying; `DeadLetterRenameTest`;
+`FlightTenantNamesTest`, `PgTenantNamesTest` and `TenantViewNamesHttpTest` on the wire. `TenancyTest`
+now proves the name is free in another tenant and the refusal within a tenant says nothing of others.
+
+### Left open
+
+- **Alert names** are still unique on the node (ADR-057), so `CREATE ALERT` of a name another tenant
+  holds is refused with `PRV-8041`: the same class of oracle, for alerts rather than views. Scoping
+  them is the same change over `AlertService`'s map and is not part of this ADR.
+- **pgwire oids** are minted from one node-wide counter, as before; an oid seen by one tenant
+  describes nothing to another, but the numbering says how many relations were described before.
 
 ## Consequences
 
 - Every published contract that takes a view name keeps its shape; what changes is which view a
   name means, and only on a node with more than one tenant.
 - A deployment that relied on reading another tenant's view by its bare name — possible under
-  `permissive` and `authenticated` — must use its catalogue name once §1 is built. That is the point
-  of the change and is called out in the release notes when it ships.
+  `permissive` and `authenticated` — must now be an admin and use its catalogue name. That is the
+  point of the change and is called out in the release notes.

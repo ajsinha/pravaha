@@ -195,6 +195,33 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
             com.ash.messaging.pravaha.runtime.dlq.FileDeadLetterQueue queue,
             com.ash.messaging.pravaha.runtime.dlq.DeadLetterRate rate) {}
 
+    /**
+     * Moves a query's dead-letter files to its new engine name (ADR-060), before its feed opens: the
+     * entries, what was replayed and what retention took, each only when the new name has none yet.
+     */
+    @Override
+    public void renamed(String from, String to) {
+        java.nio.file.Path directory = deadLetterDirectory;
+        if (directory == null || from.equals(to)) {
+            return;
+        }
+        List<java.util.function.BiFunction<java.nio.file.Path, String, java.nio.file.Path>> files = List.of(
+                com.ash.messaging.pravaha.runtime.dlq.DeadLetterFiles::letters,
+                com.ash.messaging.pravaha.runtime.dlq.DeadLetterFiles::replays,
+                com.ash.messaging.pravaha.runtime.dlq.DeadLetterFiles::evicted);
+        for (var file : files) {
+            java.nio.file.Path source = file.apply(directory, from);
+            java.nio.file.Path target = file.apply(directory, to);
+            try {
+                if (java.nio.file.Files.exists(source) && !java.nio.file.Files.exists(target)) {
+                    java.nio.file.Files.move(source, target, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+                }
+            } catch (java.io.IOException cannot) {
+                throw unusable(directory, cannot);
+            }
+        }
+    }
+
     public com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore deadLetters() {
         java.nio.file.Path directory = deadLetterDirectory;
         return directory == null

@@ -53,9 +53,9 @@ class ViewOwnershipHttpTest {
             .field("amount", Types.int64())
             .build();
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
-    private static final Principal RAY = new Principal("ray", "acme", Set.of("analyst"), Map.of());
-    private static final Principal ROOT = new Principal("root", "acme", Set.of("admin"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
+    private static final Principal RAY = new Principal("ray", "public", Set.of("analyst"), Map.of());
+    private static final Principal ROOT = new Principal("root", "public", Set.of("admin"), Map.of());
 
     private QueryRegistry registry;
     private HttpAuthorizer authorizer;

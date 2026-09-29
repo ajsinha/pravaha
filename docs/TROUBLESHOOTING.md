@@ -86,8 +86,11 @@ by a test, so it is true rather than aspirational.
 
 ### `PRV-4023` — "is not a registered view"
 
-Usually one of: the registration was dropped, the name is misspelled, or you are pointed at a
-different server than you think. The message does **not** list the views the server does serve —
+Usually one of: the registration was dropped, the name is misspelled, you are pointed at a
+different server than you think, or the view is **another tenant's**. A name is resolved in your own
+tenant (ADR-060), so a view registered under the same bare name by a principal of another tenant is
+not one you can name -- an admin reaches it as `tenant.default.name`, quoted in a `FROM` clause
+(`SELECT * FROM "acme.default.orders"`). The message does **not** list the views the server does serve —
 that would hand the node's inventory to whoever mistypes a name (SX-5). Ask for the list the way it
 can be authorized:
 
@@ -107,7 +110,7 @@ unknown **column** of a view that does exist is still `PRV-2002`, which is the r
 | | | Your move |
 |---|---|---|
 | `PRV-7001` | Not authenticated | Present a credential, or a fresh one |
-| `PRV-7002` | Authenticated, not authorized | Ask for access — a new credential will not help. On `drop`, `pause`, `resume`, `replace` or a debug session, "may not administer" means the view is somebody else's: ask its owner (`pravaha describe` names them), an admin, or for `MODIFY` on it |
+| `PRV-7002` | Authenticated, not authorized | Ask for access — a new credential will not help. On `drop`, `pause`, `resume`, `replace` or a debug session, "may not administer" means the view is somebody else's: ask its owner (`pravaha describe` names them), an admin, or for `MODIFY` on it. "May not address 'acme.default.orders': a qualified name reaches outside the caller's tenant" means you named another tenant's view by its catalogue name, which only an admin may do (ADR-060) — and it is said alike whether that view exists or not |
 | `PRV-7004` security misconfigured | A **security setting** this node refuses to start with — not a caller being denied. The message names the key and the value. Split from `PRV-7002` by E-3, which had accumulated four unrelated meanings across twenty sites: an authorization denial, the open-server refusal, the policy/authentication contradiction, and a bad configuration value. The advice for `7002` ("ask for access; a new credential will not help") is right for a denial and useless for a typo — an operator who wrote `policy: permisive` was being told to go and ask somebody for permission. One is about a caller and is answered by a grant; this one is about a file and is answered by an edit Also raised when `pravaha.security.audit: file` names a path this node cannot write (`pravaha.security.audit-file`) — refused at startup rather than at the first decision nobody sees, because a node that starts believing it is auditing and writes nowhere has no record at all (CFG-23). And when `pravaha.security.audit-recent`, the number of recent decisions kept readable over `GET /api/v1/audit`, is below 1 |
 | `PRV-7006` masked column used | A column masked for you (ADR-059 §4) is used where its value would be compared rather than shown: a `WHERE` operand, a `GROUP BY` key, a join key, an `ORDER BY` or ranking key, an aggregate's argument, a registered view's key column, a subscription's tap filter, or an alert's `WHERE`. Comparing it would tell you which rows share its value, or their order — what the mask hides. Select it to see its masked value; compare on another column. `SHOW EFFECTIVE ACCESS FOR USER <you> ON <view>` lists the masks that apply to you |
 | `PRV-7007` subscription ended: policy changed | The row filters or masks that apply to you on a view you were subscribed to changed, so the stream ended rather than change what it means half-way. Subscribe again: the new stream starts from what the new policy shows you. Sent over Flight as `UNAVAILABLE`, which clients already retry |

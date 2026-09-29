@@ -107,9 +107,10 @@ class FlightContinuousStatementTest {
                         : AccessDecision.deny(principal.id() + " administers nothing");
             }
         };
-        StaticTokenVerifier verifier = StaticTokenVerifier.of(ADMIN, new Principal("admin", "acme", Set.of(), Map.of()))
-                .and(GUEST, new Principal("guest", "acme", Set.of(), Map.of()))
-                .and(NOBODY, new Principal("nobody", "acme", Set.of(), Map.of()));
+        StaticTokenVerifier verifier = StaticTokenVerifier.of(
+                        ADMIN, new Principal("admin", "public", Set.of(), Map.of()))
+                .and(GUEST, new Principal("guest", "public", Set.of(), Map.of()))
+                .and(NOBODY, new Principal("nobody", "public", Set.of(), Map.of()));
         registry = new QueryRegistry(views, policy, audit, TRADE);
         server = new PravahaFlightServer(views, allocator)
                 .hosting(registry)

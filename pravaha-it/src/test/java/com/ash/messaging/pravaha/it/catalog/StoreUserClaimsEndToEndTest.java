@@ -129,7 +129,7 @@ class StoreUserClaimsEndToEndTest {
         closeClient();
         node.stop();
         start();
-        assertThat(node.registry().orElseThrow().find("ana_txn"))
+        assertThat(node.registry().orElseThrow().find("acme.default.ana_txn"))
                 .as("restored for a store user")
                 .isPresent();
         feed();
@@ -196,7 +196,8 @@ class StoreUserClaimsEndToEndTest {
     }
 
     private void feed() {
-        RegisteredQuery query = node.registry().orElseThrow().find("ana_txn").orElseThrow();
+        RegisteredQuery query =
+                node.registry().orElseThrow().find("acme.default.ana_txn").orElseThrow();
         push(query, "t1", "EU", 10);
         push(query, "t2", "US", 20);
         push(query, "t3", "EU", 30);

@@ -60,9 +60,9 @@ class ContinuousQueryStatementsTest {
             .field("salary", Types.int64())
             .build();
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
-    private static final Principal GUEST = new Principal("guest", "acme", Set.of(), Map.of());
-    private static final Principal NOBODY = new Principal("nobody", "acme", Set.of(), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
+    private static final Principal GUEST = new Principal("guest", "public", Set.of(), Map.of());
+    private static final Principal NOBODY = new Principal("nobody", "public", Set.of(), Map.of());
 
     /** guest may not read payroll, nor administer anything; nobody may not register. */
     private static final SecurityPolicy POLICY = new SecurityPolicy() {

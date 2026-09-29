@@ -58,7 +58,7 @@ class PgNarrowingTest {
             .field("amount", Types.int64())
             .build();
 
-    private static final Principal ANA = new Principal("ana", "acme", Set.of(), Map.of());
+    private static final Principal ANA = new Principal("ana", "public", Set.of(), Map.of());
 
     private PravahaPgWireServer server;
 

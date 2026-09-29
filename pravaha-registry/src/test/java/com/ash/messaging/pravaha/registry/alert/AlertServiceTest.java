@@ -288,19 +288,19 @@ class AlertServiceTest {
     @Test
     void droppingAViewAnAlertFollowsIsRefusedUntilTheAlertIsDropped() {
         AlertFixture f = start("");
-        assertThatThrownBy(() -> f.registry.drop("low_stock"))
+        assertThatThrownBy(() -> f.registry.drop("acme.default.low_stock"))
                 .hasMessageContaining("PRV-8024")
                 .hasMessageContaining("ALERT low");
         assertThat(f.sql(BUYER, "DROP ALERT low").rows().get(0)[1]).isEqualTo("DROPPED");
-        f.registry.drop("low_stock");
-        assertThat(f.registry.find("low_stock")).isEmpty();
+        f.registry.drop("acme.default.low_stock");
+        assertThat(f.registry.find("acme.default.low_stock")).isEmpty();
     }
 
     /** ALERTDEPS-1: a view's dependants include the alerts on it, as a caller may see them. */
     @Test
     void aViewsDependantsIncludeItsAlertsAsTheCallerMaySeeThem() {
         AlertFixture f = start("");
-        assertThat(f.registry.dependantsOf("low_stock")).containsExactly("ALERT low");
+        assertThat(f.registry.dependantsOf("acme.default.low_stock")).containsExactly("ALERT low");
 
         QueryListing listing = new QueryListing(f.registry, SecurityPolicy.PERMISSIVE, AuditSink.NONE);
         QueryListing.Entry entry = listing.find(BUYER, "low_stock", "describe").orElseThrow();

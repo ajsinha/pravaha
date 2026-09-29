@@ -80,12 +80,12 @@ class RegistryEndpointsTest {
     /** The one credential in this configuration. It must never appear in any response. */
     private static final String PASSWORD = "s3cr3t-hunter2-value";
 
-    private static final Principal ROOT = new Principal("root", "acme", Set.of("analyst"), Map.of());
-    private static final Principal ANALYST = new Principal("ann", "acme", Set.of("analyst"), Map.of());
+    private static final Principal ROOT = new Principal("root", "public", Set.of("analyst"), Map.of());
+    private static final Principal ANALYST = new Principal("ann", "public", Set.of("analyst"), Map.of());
     /** Denied everything named or reading payroll. */
-    private static final Principal INTERN = new Principal("carol", "acme", Set.of("intern"), Map.of());
+    private static final Principal INTERN = new Principal("carol", "public", Set.of("intern"), Map.of());
     /** Entitled to a row-filtered slice of everything. */
-    private static final Principal SLICED = new Principal("bob", "acme", Set.of("sliced"), Map.of());
+    private static final Principal SLICED = new Principal("bob", "public", Set.of("sliced"), Map.of());
 
     private static final SecurityPolicy POLICY = new SecurityPolicy() {
         @Override

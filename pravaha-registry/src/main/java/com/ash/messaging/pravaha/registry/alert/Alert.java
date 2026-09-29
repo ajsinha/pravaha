@@ -39,6 +39,7 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.TypeName;
 import com.ash.messaging.pravaha.api.plugin.Notification;
 import com.ash.messaging.pravaha.registry.ViewRowValues;
+import com.ash.messaging.pravaha.security.ViewNames;
 import com.ash.messaging.pravaha.serving.AnswerListener;
 import com.ash.messaging.pravaha.serving.ServedView;
 
@@ -424,7 +425,7 @@ final class Alert implements AnswerListener {
         Notification notification = new Notification(
                 idempotencyKey(definition.id(), keyText, state.episode, kind, reminder),
                 definition.name(),
-                definition.view(),
+                ViewNames.localName(definition.view()),
                 definition.tenant(),
                 kind,
                 options.severity(),
@@ -656,7 +657,7 @@ final class Alert implements AnswerListener {
         options.remove("severity");
         return new AlertStatus.Summary(
                 d.name(),
-                d.view(),
+                ViewNames.localName(d.view()),
                 d.tenant(),
                 d.owner(),
                 d.state(now),

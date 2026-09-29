@@ -101,7 +101,7 @@ class AerospikeSourceScaleIT {
     /** How long to let the queries run while the cluster's counters are watched. */
     private static final Duration WINDOW = Duration.ofSeconds(10);
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     private static GenericContainer<?> aerospike;
     private static IAerospikeClient admin;

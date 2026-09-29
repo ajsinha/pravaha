@@ -114,7 +114,7 @@ final class SourceScaleTest {
      */
     private static final long PLATFORM_THREAD_CEILING = Runtime.getRuntime().availableProcessors() + 4L;
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     /** How long to leave a fully-idle node alone while its CPU time is measured. */
     private static final Duration IDLE_WINDOW = Duration.ofSeconds(5);

@@ -58,7 +58,7 @@ class ViewProvenanceTest {
     private static final SecurityPolicy BY_NAME = (principal, view) ->
             view.contains("payroll") ? AccessDecision.deny("payroll is restricted") : AccessDecision.allow();
 
-    private static final Principal CAROL = new Principal("carol", "acme", Set.of("analyst"), Map.of());
+    private static final Principal CAROL = new Principal("carol", "public", Set.of("analyst"), Map.of());
 
     private ViewCatalog catalog;
     private ServedView secretPay;

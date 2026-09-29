@@ -78,7 +78,7 @@ class TransactionalSinkDeliveryTest {
             .field("amount", Types.int64())
             .build();
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     private static final String SQL = "SELECT user_id, amount FROM txn";
 

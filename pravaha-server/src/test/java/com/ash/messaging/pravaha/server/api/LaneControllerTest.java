@@ -40,8 +40,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** {@code /api/v1/lanes/rebalance}: an administrator's action, and a dry run that changes nothing. */
 class LaneControllerTest {
 
-    private static final Principal ADMIN = new Principal("root", "acme", Set.of("admin"), Map.of());
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    private static final Principal ADMIN = new Principal("root", "public", Set.of("admin"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     @Test
     void onlyAnAdministratorMayRebalanceAndADryRunMovesNothing() {

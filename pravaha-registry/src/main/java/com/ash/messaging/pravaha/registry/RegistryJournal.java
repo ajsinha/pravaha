@@ -131,6 +131,17 @@ public final class RegistryJournal {
      */
     private static final String LANE = "L";
 
+    /**
+     * A live name the registry now keys by another engine name (ADR-060): the old name, then the new.
+     *
+     * <p>Written once, at the first recovery after per-tenant names, for a registration another tenant
+     * than the default made under its bare name: from here it is its tenant's {@code tenant.default.name}.
+     * The registration keeps the checkpoint directory its old name implied -- nothing is moved -- and its
+     * indexes, lane and pending replacement travel with it. A kind of its own, so a build that predates
+     * per-tenant names refuses it by name rather than replaying the query under a name it no longer has.
+     */
+    private static final String RENAMED = "N";
+
     private final Path file;
 
     public RegistryJournal(Path file) {
@@ -199,6 +210,12 @@ public final class RegistryJournal {
                     checkpointDirectory,
                     columns,
                     dedicatedLane);
+        }
+
+        /** This registration under another name, checkpointing into {@code directory} (ADR-060). */
+        public Entry renamedTo(String newName, String directory) {
+            return new Entry(
+                    newName, sql, keyColumns, owner, retention, parameters, sink, directory, indexed, dedicatedLane);
         }
 
         /** This registration, on a lane of its own whatever the node's lane-sharing mode. */
@@ -405,6 +422,11 @@ public final class RegistryJournal {
         append(List.of(DROP, name));
     }
 
+    /** Appends that the live name {@code from} is {@code to} from now on (ADR-060); see {@link #RENAMED}. */
+    public void recordRenamed(String from, String to) {
+        append(List.of(RENAMED, from, to));
+    }
+
     /** One replacement that had been started and had not finished when the journal was written. */
     public record Pending(
             String name,
@@ -423,6 +445,11 @@ public final class RegistryJournal {
 
         public java.util.Optional<String> sinkName() {
             return java.util.Optional.ofNullable(sink);
+        }
+
+        /** This replacement, of the name its serving version is keyed by now (ADR-060). */
+        public Pending renamedTo(String newName) {
+            return new Pending(newName, sql, keyColumns, owner, retention, sink, options, checkpointDirectory);
         }
     }
 
@@ -445,7 +472,11 @@ public final class RegistryJournal {
      * whatever replacement was pending for it is over.
      */
     public void recordCutover(Entry entry) {
-        append(List.of(
+        append(cutover(entry));
+    }
+
+    private static List<String> cutover(Entry entry) {
+        List<String> fields = new ArrayList<>(List.of(
                 CUTOVER,
                 entry.name(),
                 entry.sql(),
@@ -454,6 +485,38 @@ public final class RegistryJournal {
                 encodeRetention(entry.retention()),
                 entry.sink() == null ? "" : entry.sink(),
                 entry.checkpointDirectory() == null ? "" : entry.checkpointDirectory()));
+        // Bound values trail the eight fields (ADR-060: a registration with a directory of its own is a
+        // C, and keeps them); a build that reads eight reads exactly what it always did.
+        fields.addAll(entry.parameters());
+        return fields;
+    }
+
+    /**
+     * Appends a registration that checkpoints into {@code directory} rather than the one its name
+     * implies, with what it declares, in one write (ADR-060).
+     *
+     * <p>A default-tenant name whose directory another tenant's registration from before per-tenant
+     * names still occupies: written as a {@code C} record, the one that carries a directory, so a restart
+     * restores each from its own.
+     */
+    void recordRegistrationIn(
+            String directory,
+            String name,
+            String sql,
+            List<Integer> keyColumns,
+            String owner,
+            Retention retention,
+            BoundParameters parameters,
+            String sink,
+            Declaring declared) {
+        List<String> encoded = new ArrayList<>();
+        for (int index = 0; index < parameters.size(); index++) {
+            encoded.add(encodeParameter(parameters.at(index)));
+        }
+        append(
+                cutover(new Entry(name, sql, keyColumns, owner, retention, encoded, sink, directory)),
+                indexRecord(name, declared.indexes()),
+                declared.dedicatedLane() ? laneRecord(name) : null);
     }
 
     /** Appends the end of a replacement that never took the name: abandoned, or failed. */
@@ -575,10 +638,14 @@ public final class RegistryJournal {
                             parseInts(fields.get(3)),
                             fields.get(4),
                             decodeRetention(fields.get(5)),
-                            List.of(),
+                            fields.subList(8, fields.size()),
                             fields.get(6),
                             fields.get(7)));
             pending.remove(cutName);
+            return;
+        }
+        if (RENAMED.equals(kind) && fields.size() >= 3) {
+            renamed(live, pending, fields.get(1), fields.get(2));
             return;
         }
         // W carries the sink name second; lifting it out leaves exactly R's fields.
@@ -608,6 +675,32 @@ public final class RegistryJournal {
         // Re-registering a live name replaces it, which is what the registry itself does.
         live.remove(name);
         live.put(name, entry);
+    }
+
+    /**
+     * Moves a live name and its pending replacement to {@code to}, in place, so the registration keeps
+     * its position in the order recovery replays in -- which is the order a chain's upstream comes back
+     * before its dependants. It keeps the directory its old name implied, where its state is.
+     */
+    private static void renamed(Map<String, Entry> live, Map<String, Pending> pending, String from, String to) {
+        Entry moved = live.get(from);
+        if (moved != null) {
+            String directory = moved.directory().orElse(QueryCheckpoints.directoryFor(from));
+            Map<String, Entry> reordered = new LinkedHashMap<>();
+            live.forEach((name, entry) -> {
+                if (name.equals(from)) {
+                    reordered.put(to, moved.renamedTo(to, directory));
+                } else if (!name.equals(to)) {
+                    reordered.put(name, entry);
+                }
+            });
+            live.clear();
+            live.putAll(reordered);
+        }
+        Pending replacing = pending.remove(from);
+        if (replacing != null) {
+            pending.put(to, replacing.renamedTo(to));
+        }
     }
 
     /** Appends records in one write and one force; a null record is skipped. */
