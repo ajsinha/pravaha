@@ -196,7 +196,9 @@ public final class AlertService implements Alerting, AutoCloseable {
                                     + "', which this engine does not know; it was written by a newer version");
             }
         });
-        byId.values().forEach(alert -> alerts.put(alert.definition().name(), alert));
+        // Keyed by engine name (ADR-060): an alert recorded before names were per tenant recorded its
+        // name and its tenant, which is all the key needs.
+        byId.values().forEach(alert -> alerts.put(alert.definition().engineName(), alert));
         int live = liveCount();
         compactedAt = live;
         if (journal.records() > live + 256) {
@@ -206,7 +208,7 @@ public final class AlertService implements Alerting, AutoCloseable {
             for (Alert alert : alerts.values()) {
                 AlertDefinition d = alert.definition();
                 try {
-                    catalog.alertCreated(new Principal(d.owner(), d.tenant(), Set.of(), Map.of()), d.name());
+                    catalog.alertCreated(new Principal(d.owner(), d.tenant(), Set.of(), Map.of()), d.engineName());
                 } catch (PravahaException e) {
                     LOG.log(
                             System.Logger.Level.WARNING,
@@ -373,11 +375,11 @@ public final class AlertService implements Alerting, AutoCloseable {
         return statistics;
     }
 
-    /** Keys firing now, per alert, by name. */
+    /** Keys firing now, per alert, by engine name: what an operator's meters label an alert with. */
     public Map<String, Integer> firingByAlert() {
         Map<String, Integer> firing = new java.util.TreeMap<>();
         for (Alert alert : alerts.values()) {
-            firing.put(alert.definition().name(), alert.firingCount());
+            firing.put(alert.definition().engineName(), alert.firingCount());
         }
         return firing;
     }
@@ -473,7 +475,10 @@ public final class AlertService implements Alerting, AutoCloseable {
         for (Alert alert : alerts.values()) {
             if (alert.definition().view().equals(view)
                     && (principal == null || access.maySee(principal, alert.definition()))) {
-                followers.add("ALERT " + alert.definition().name());
+                followers.add("ALERT "
+                        + (principal == null
+                                ? alert.definition().name()
+                                : ViewNames.shown(principal, alert.definition().engineName())));
             }
         }
         java.util.Collections.sort(followers);
@@ -500,7 +505,9 @@ public final class AlertService implements Alerting, AutoCloseable {
                     + "node's list of notifier channels, so the alert could not be reached by its own path. "
                     + "Choose another name");
         }
-        Alert existing = alerts.get(name);
+        // ADR-060: an alert name is unique within its tenant, so only the caller's own tenant can hold it.
+        String key = ViewNames.engineName(principal.tenant(), name);
+        Alert existing = alerts.get(key);
         if (existing != null) {
             if (statement.ifNotExists() && access.maySee(principal, existing.definition())) {
                 return existing.summary(clock.instant());
@@ -510,7 +517,7 @@ public final class AlertService implements Alerting, AutoCloseable {
                     "an alert called '" + name + "' exists already"
                             + (statement.ifNotExists() ? "" : "; add IF NOT EXISTS if that is fine"));
         }
-        if (registry.find(ViewNames.engineName(principal.tenant(), name)).isPresent()) {
+        if (registry.find(key).isPresent()) {
             throw new PravahaException(
                     AlertErrors.ALERT_EXISTS,
                     "'" + name + "' is a continuous query's name, and "
@@ -553,7 +560,7 @@ public final class AlertService implements Alerting, AutoCloseable {
         journal(List.of(definition.encode()));
         if (registry.policy() instanceof CatalogPolicy catalog) {
             try {
-                catalog.alertCreated(principal, name);
+                catalog.alertCreated(principal, key);
             } catch (PravahaException e) {
                 LOG.log(
                         System.Logger.Level.ERROR,
@@ -562,14 +569,14 @@ public final class AlertService implements Alerting, AutoCloseable {
             }
         }
         Alert alert = new Alert(this, definition, false);
-        alerts.put(name, alert);
+        alerts.put(key, alert);
         attach(alert);
         return alert.summary(now);
     }
 
     /** {@code ALTER ALERT ... NOTIFY} or {@code SET (...)}: {@code MANAGE}. */
     public synchronized AlertStatus.Summary alter(Principal principal, AlertStatement.Alter statement) {
-        Alert alert = require(statement.name());
+        Alert alert = require(principal, statement.name());
         access.require(principal, alert.definition(), Privilege.MANAGE, "alter");
         Instant now = clock.instant();
         AlertDefinition next = alert.definition();
@@ -595,7 +602,8 @@ public final class AlertService implements Alerting, AutoCloseable {
 
     /** {@code DROP ALERT}: {@code MANAGE}. False when {@code ifExists} and there was none. */
     public synchronized boolean drop(Principal principal, String name, boolean ifExists) {
-        Alert alert = alerts.get(name);
+        String key = key(principal, name);
+        Alert alert = alerts.get(key);
         if (alert == null || !access.maySee(principal, alert.definition())) {
             if (ifExists) {
                 return false;
@@ -604,18 +612,18 @@ public final class AlertService implements Alerting, AutoCloseable {
         }
         access.require(principal, alert.definition(), Privilege.MANAGE, "drop");
         journal(List.of(List.of("D", alert.definition().id())));
-        alerts.remove(name);
-        statistics.forget(name);
+        alerts.remove(key);
+        statistics.forget(key);
         alert.unfollow();
         if (registry.policy() instanceof CatalogPolicy catalog) {
-            catalog.alertDropped(name);
+            catalog.alertDropped(key);
         }
         return true;
     }
 
     /** {@code PAUSE ALERT}: {@code MODIFY}. It keeps following, and says nothing until resumed. */
     public synchronized AlertStatus.Summary pause(Principal principal, String name) {
-        Alert alert = require(name);
+        Alert alert = require(principal, name);
         access.require(principal, alert.definition(), Privilege.MODIFY, "pause");
         Instant now = clock.instant();
         return redefine(alert, alert.definition().withPaused(true, now, principal.id()), now);
@@ -623,7 +631,7 @@ public final class AlertService implements Alerting, AutoCloseable {
 
     /** {@code RESUME ALERT}: {@code MODIFY}. Ends a pause and a snooze; what changed meanwhile is sent. */
     public synchronized AlertStatus.Summary resume(Principal principal, String name) {
-        Alert alert = require(name);
+        Alert alert = require(principal, name);
         access.require(principal, alert.definition(), Privilege.MODIFY, "resume");
         Instant now = clock.instant();
         return redefine(alert, alert.definition().withPaused(false, now, principal.id()), now);
@@ -631,7 +639,7 @@ public final class AlertService implements Alerting, AutoCloseable {
 
     /** {@code SNOOZE ALERT ... FOR}: {@code MODIFY}. Quiet until then; what changed meanwhile is sent after. */
     public synchronized AlertStatus.Summary snooze(Principal principal, String name, Duration duration) {
-        Alert alert = require(name);
+        Alert alert = require(principal, name);
         access.require(principal, alert.definition(), Privilege.MODIFY, "snooze");
         if (duration.isZero() || duration.isNegative()) {
             throw AlertOptions.invalid("a snooze is for a positive time; RESUME ALERT " + name + " ends one");
@@ -649,27 +657,32 @@ public final class AlertService implements Alerting, AutoCloseable {
     public int acknowledge(Principal principal, String name, String key) {
         Alert alert;
         synchronized (this) {
-            alert = require(name);
+            alert = require(principal, name);
             access.require(principal, alert.definition(), Privilege.MODIFY, "ack");
         }
         return alert.acknowledge(key == null || key.isBlank() ? null : key.strip(), principal.id(), clock.instant());
     }
 
-    /** Every alert the caller may see, by name. */
+    /**
+     * Every alert the caller may see, by name: its own tenant's by name, and -- for an admin -- every
+     * other tenant's by {@code tenant.default.name} (ADR-060).
+     */
     public List<AlertStatus.Summary> list(Principal principal) {
         Instant now = clock.instant();
-        List<AlertStatus.Summary> listed = new ArrayList<>();
-        for (Alert alert : new java.util.TreeMap<>(alerts).values()) {
-            if (access.maySee(principal, alert.definition())) {
-                listed.add(alert.summary(now));
+        java.util.TreeMap<String, AlertStatus.Summary> listed = new java.util.TreeMap<>();
+        for (Alert alert : alerts.values()) {
+            AlertDefinition d = alert.definition();
+            if (ViewNames.visibleTo(principal, d.engineName()) && access.maySee(principal, d)) {
+                String shown = ViewNames.shown(principal, d.engineName());
+                listed.put(shown, alert.summary(now).named(shown));
             }
         }
-        return listed;
+        return List.copyOf(listed.values());
     }
 
     /** One alert with every key it holds and its recent notifications: {@code SELECT}. */
     public AlertStatus.Detail detail(Principal principal, String name) {
-        Alert alert = require(name);
+        Alert alert = require(principal, name);
         access.require(principal, alert.definition(), Privilege.SELECT, "show");
         return alert.detail(clock.instant());
     }
@@ -685,8 +698,17 @@ public final class AlertService implements Alerting, AutoCloseable {
         return alert.summary(now);
     }
 
-    private Alert require(String name) {
-        Alert alert = alerts.get(name);
+    /**
+     * The alert {@code name} means to {@code principal} (ADR-060): a bare name is the caller's tenant's; a
+     * {@code tenant.default.name} of another tenant is honoured for an admin and refused to anyone else,
+     * in words that do not depend on whether it exists.
+     */
+    private static String key(Principal principal, String name) {
+        return ViewNames.resolve(principal, name);
+    }
+
+    private Alert require(Principal principal, String name) {
+        Alert alert = alerts.get(key(principal, name));
         if (alert == null) {
             throw noSuch(name);
         }

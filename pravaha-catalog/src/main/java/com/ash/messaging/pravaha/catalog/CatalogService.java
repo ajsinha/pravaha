@@ -201,13 +201,8 @@ public final class CatalogService {
     private Optional<CatalogObject> resolveCreated(ObjectKind kind, Principal caller, List<String> parts) {
         Optional<CatalogObject> found =
                 switch (parts.size()) {
-                    // A bare view name is the caller's tenant's (ADR-060); an alert's name is its engine name.
-                    case 1 ->
-                        catalog.byEngineName(
-                                kind,
-                                kind == ObjectKind.VIEW
-                                        ? ViewNames.engineName(caller.tenant(), parts.get(0))
-                                        : parts.get(0));
+                    // A bare view or alert name is the caller's tenant's (ADR-060).
+                    case 1 -> catalog.byEngineName(kind, ViewNames.engineName(caller.tenant(), parts.get(0)));
                     case 2 -> catalog.object(caller.tenant() + "." + parts.get(0) + "." + parts.get(1));
                     default -> catalog.object(String.join(".", parts));
                 };

@@ -363,13 +363,14 @@ PART8: list[dict[str, Any]] = [
     },
     {
         "kind": "split",
-        "kicker": "Tenancy · ADR-050",
+        "kicker": "Tenancy · ADR-050, ADR-060",
         "title": "A tenant owns names and state, and shares only with itself",
         "left": {
             "head": "A tenant owns",
             "items": [
                 ("Its names, and the computations behind them",
-                 "The tenant is in the fingerprint: the same SQL from two tenants is two computations."),
+                 "A view or alert name is unique within its tenant; another tenant's is, to the caller, a "
+                 "name nothing holds. The same SQL from two tenants is two computations."),
                 ("The keys those views hold",
                  "What max-state-keys counts; max-queries counts names."),
                 ("Refused by name at registration",
@@ -381,7 +382,6 @@ PART8: list[dict[str, Any]] = [
         "right": {
             "head": "A tenant does not scope, by decision",
             "items": [
-                ("View names", "Unique on the node, whichever tenant holds them."),
                 ("Reads, sources and sinks", "The policy decides; no tenant boundary it did not draw."),
                 ("Lanes and CPU", "Shared; per-tenant CPU scheduling is not built."),
                 ("Operator state outside the view", "Bounded per query by its ceilings instead."),
@@ -389,7 +389,7 @@ PART8: list[dict[str, Any]] = [
             "size": 15.5,
         },
         "source": "Source: docs/adr/050-a-tenant-owns-names-and-state-and-shares-only-with-itself.md "
-        "§1–§2; docs/SECURITY.md 'Tenants'.",
+        "§1–§2; docs/adr/060-view-names-are-unique-per-tenant.md; docs/SECURITY.md 'Tenants'.",
     },
     {
         "kind": "bullets",

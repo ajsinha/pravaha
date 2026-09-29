@@ -242,9 +242,13 @@ public final class CatalogPolicy implements SecurityPolicy {
      * MANAGE} holds {@code MODIFY} too, as for a view.
      */
     public AccessDecision mayOnAlert(Principal principal, Privilege privilege, String alert) {
+        // By engine name, as a view is (ADR-060): tenant.default.name outside the default tenant.
         Optional<CatalogObject> object = service.catalog().byEngineName(ObjectKind.ALERT, alert);
         String target = object.map(CatalogObject::fullName)
-                .orElse(CatalogNames.defaultNamespaceOf(principal.tenant()) + "." + alert);
+                .orElse(
+                        ViewNames.tenantOf(alert).equals(ViewNames.DEFAULT_TENANT)
+                                ? CatalogNames.defaultNamespaceOf(principal.tenant()) + "." + alert
+                                : ViewNames.catalogueName(alert));
         if (privilege == Privilege.MODIFY
                 && access.check(principal, Privilege.MANAGE, target).allowed()) {
             return AccessDecision.allow();
@@ -252,7 +256,7 @@ public final class CatalogPolicy implements SecurityPolicy {
         return decide(principal, privilege, target, "hold " + privilege.name() + " on the alert '" + alert + "'");
     }
 
-    /** Records a new alert, owned by its creator, in the creator's default namespace. */
+    /** Records a new alert, by its engine name, owned by its creator, in the creator's default namespace. */
     public void alertCreated(Principal owner, String alert) {
         service.catalog().registerObject(ObjectKind.ALERT, alert, owner);
     }

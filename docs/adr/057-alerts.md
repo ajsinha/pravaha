@@ -84,7 +84,8 @@ answering rows. `ALTER ALERT … SET TAGS | UNSET TAGS | OWNER TO` stay the cata
 `SET (` is an alert option list, `SET TAGS` is governance. To change the condition or the view, drop
 and create: the state of every key is about the old condition, and carrying it across would be
 guessing. An alert and a query cannot share a name (`PRV-8041`), because every surface names both the
-same way.
+same way. *(Amended by [ADR-060](060-view-names-are-unique-per-tenant.md): an alert's name, like a
+view's, is unique within its tenant and resolved in the caller's tenant.)*
 
 Options, each refused by name if unknown rather than ignored (an ignored `dedupe` is a pager that goes
 off every second): `severity` (`info`, `warning` — the default — `critical`), `fire_after` (alias

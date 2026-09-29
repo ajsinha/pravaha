@@ -56,6 +56,15 @@ public record AlertDefinition(
         channels = List.copyOf(channels);
     }
 
+    /**
+     * The name this alert is keyed by on the node: its name in the default tenant, {@code
+     * tenant.default.name} in any other -- as a view's is (ADR-060). An alert name is unique within its
+     * tenant; the journal records the name and the tenant, so nothing written before changes.
+     */
+    public String engineName() {
+        return ViewNames.engineName(tenant, name);
+    }
+
     /** The condition as written, or empty when every row of the view counts. */
     public String condition() {
         return String.join(

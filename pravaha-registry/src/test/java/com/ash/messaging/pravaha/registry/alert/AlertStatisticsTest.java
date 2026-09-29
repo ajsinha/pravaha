@@ -64,18 +64,21 @@ class AlertStatisticsTest {
     void firesAndClearsAreCountedPerAlertAndKind() {
         AlertFixture f = start();
         AlertStatistics counted = f.service.statistics();
-        assertThat(counted.transitions("low", AlertStatistics.FIRED)).isZero();
+        assertThat(counted.transitions("acme.default.low", AlertStatistics.FIRED))
+                .isZero();
 
         f.stock("sku-1", "LDN", 1, 5, 1);
         f.tick();
-        assertThat(counted.transitions("low", AlertStatistics.FIRED)).isEqualTo(1);
-        assertThat(f.service.firingByAlert()).containsEntry("low", 1);
+        assertThat(counted.transitions("acme.default.low", AlertStatistics.FIRED))
+                .isEqualTo(1);
+        assertThat(f.service.firingByAlert()).containsEntry("acme.default.low", 1);
 
         f.stock("sku-1", "LDN", 1, 5, -1);
         f.tick();
-        assertThat(counted.transitions("low", AlertStatistics.CLEARED)).isEqualTo(1);
-        assertThat(f.service.firingByAlert()).containsEntry("low", 0);
-        assertThat(counted.alertsCounted()).containsExactly("low");
+        assertThat(counted.transitions("acme.default.low", AlertStatistics.CLEARED))
+                .isEqualTo(1);
+        assertThat(f.service.firingByAlert()).containsEntry("acme.default.low", 0);
+        assertThat(counted.alertsCounted()).containsExactly("acme.default.low");
 
         AlertStatistics.Channel buyers = counted.channel("buyers");
         assertThat(buyers.delivered()).isEqualTo(2);
