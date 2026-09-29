@@ -53,7 +53,7 @@ class NoSecretsInConfigurationTest {
         List<String> found = new ArrayList<>();
         Path root = repoRoot();
         try (Stream<Path> files = Files.walk(root)) {
-            for (Path file : files.filter(NoSecretsInConfigurationTest::isShippedConfiguration)
+            for (Path file : files.filter(f -> isShippedConfiguration(root.relativize(f)))
                     .toList()) {
                 found.addAll(
                         secretsIn(root.relativize(file).toString(), Files.readString(file, StandardCharsets.UTF_8)));
@@ -63,6 +63,16 @@ class NoSecretsInConfigurationTest {
                 .as("configuration that ships holds these secrets; use a placeholder install.sh fills (@@NAME@@) or "
                         + "an environment reference (${NAME}), and keep people's credentials in the engine's store")
                 .isEmpty();
+    }
+
+    @Test
+    void aRootInsideAWorktreeIsScannedAndOnlyNestedWorktreesAreSkipped() {
+        assertThat(isShippedConfiguration(Path.of("deploy/qa/server.application.yaml")))
+                .isTrue();
+        assertThat(isShippedConfiguration(Path.of(".claude/worktrees/other/deploy/qa/server.application.yaml")))
+                .isFalse();
+        assertThat(isShippedConfiguration(Path.of("pravaha-server/target/classes/application.yaml")))
+                .isFalse();
     }
 
     @Test
@@ -122,8 +132,14 @@ class NoSecretsInConfigurationTest {
         return path == null ? Path.of("").toAbsolutePath() : path;
     }
 
-    private static boolean isShippedConfiguration(Path path) {
-        String p = path.toString().replace('\\', '/');
+    /**
+     * Judged on the path relative to the root being scanned (NOSECRETSSKIP-1): excluding every absolute
+     * path that contains {@code /.claude/} excluded everything when the test ran from a worktree, which
+     * itself lives under {@code .claude/worktrees/}. Relative to the root, {@code .claude/} matches only
+     * other worktrees nested below it, which are other checkouts.
+     */
+    static boolean isShippedConfiguration(Path relative) {
+        String p = "/" + relative.toString().replace('\\', '/');
         return (p.endsWith(".yaml") || p.endsWith(".yml"))
                 && !p.contains("/target/")
                 && !p.contains("/.claude/")
