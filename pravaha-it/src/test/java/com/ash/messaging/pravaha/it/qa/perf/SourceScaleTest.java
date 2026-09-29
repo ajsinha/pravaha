@@ -254,20 +254,20 @@ final class SourceScaleTest {
         StreamSchema stream = schema("s0");
         PluginSourceFeeds feeds = new PluginSourceFeeds().bind(binding("s0", file, true));
 
-        long before = openDescriptors();
+        long before = descriptorsOn(file);
         ViewCatalog views = new ViewCatalog();
         try (QueryRegistry registry = new QueryRegistry(views, stream).feedingFrom(feeds)) {
             registry.register("same_a", "SELECT user_id FROM s0 WHERE amount > 1", List.of(0), DANA);
-            long afterFirst = openDescriptors();
+            long afterFirst = descriptorsOn(file);
 
             // Same text, so the same plan, so the same fingerprint: one computation, one feed.
             registry.register("same_b", "SELECT user_id FROM s0 WHERE amount > 1", List.of(0), DANA);
-            long afterIdentical = openDescriptors();
+            long afterIdentical = descriptorsOn(file);
 
             // Different text, same stream. A different plan is a different fingerprint, and nothing
             // downstream of the fingerprint is shared -- including the reading.
             registry.register("different", "SELECT user_id FROM s0 WHERE amount > 2", List.of(0), DANA);
-            long afterDifferent = openDescriptors();
+            long afterDifferent = descriptorsOn(file);
 
             System.out.printf(
                     "%nSOURCE SHARING: descriptors on one file%n"
@@ -391,6 +391,29 @@ final class SourceScaleTest {
      * Counting a directory is not elegant; being able to state a number here rather than reason
      * about one is worth the inelegance, and this is the ceiling nobody set.
      */
+    /**
+     * Descriptors this process holds on {@code file} itself. The process-wide count moves with
+     * whatever else the JVM opens or closes meanwhile -- a metrics or tracing thread, a finished
+     * test's leftovers -- and once went down by six between two registrations; the number this
+     * test is about is the file's own.
+     */
+    private static long descriptorsOn(Path file) throws IOException {
+        Path target = file.toRealPath();
+        long count = 0;
+        try (var entries = Files.list(Path.of("/proc/self/fd"))) {
+            for (Path fd : (Iterable<Path>) entries::iterator) {
+                try {
+                    if (Files.readSymbolicLink(fd).equals(target)) {
+                        count++;
+                    }
+                } catch (IOException | UnsupportedOperationException gone) {
+                    // Closed between the listing and the read: not open on the file.
+                }
+            }
+        }
+        return count;
+    }
+
     private static long openDescriptors() {
         java.lang.management.OperatingSystemMXBean os = ManagementFactory.getOperatingSystemMXBean();
         if (os instanceof com.sun.management.UnixOperatingSystemMXBean unix) {
