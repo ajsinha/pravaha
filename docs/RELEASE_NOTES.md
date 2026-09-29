@@ -12,6 +12,12 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **The PostgreSQL gateway's password with engine accounts on, verified and said (PGWIREPASS-1).**
+  With the engine's own accounts on (ADR-052) the gateway accepts an API key or a session token as
+  the password -- verified through the same transport verifier as Flight -- and refuses the account's
+  own password, a revoked key and a session that must change its password first, each with SQLSTATE
+  `28P01`. Nothing needed fixing; `PgWireSignInTest` now signs in with a real PostgreSQL driver both
+  ways, and the pgwire, clients and power-bi topics say which credential the password is.
 - **`/validate` judges a whole `CREATE CONTINUOUS QUERY` statement (VALIDATEREG-1).** It planned only
   a `SELECT`, so a key or index naming a column the view would not have (`PRV-2071`, `PRV-2074`), a
   sink the caller may not see or whose shape, key or changelog does not fit, a taken name or an

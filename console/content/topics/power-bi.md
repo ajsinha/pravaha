@@ -30,7 +30,7 @@ the report at each refresh.
 | Server | `host:port` of the gateway (`pravaha.pgwire.host`/`port`) |
 | Database | `pravaha` |
 | User name | informational: yours, for your own records |
-| Password | **a Pravaha token**: the credential decides who you are, as on every gateway connection |
+| Password | **a Pravaha token**: the credential decides who you are, as on every gateway connection. With the engine's own accounts on, an **API key** (`prv_k_…`) — or a session token, which ends with the sign-in — never the account's password |
 | Modes | **Import** and **DirectQuery**, both tested with the real Npgsql 4.0.17 |
 | Encryption | Power BI's "encrypted connection" needs the gateway's TLS pair configured ([below](#encryption)) |
 | What you see | Every view your token may read, as a table in schema `public`, and nothing else |
@@ -43,6 +43,9 @@ the report at each refresh.
 2. **Have a token** for the principal the report should read as. The report sees exactly what that
    principal may read. For a published report, use a service principal's long-lived token rather than
    your own: when a token expires, every scheduled refresh and every DirectQuery visual fails at once.
+   With the engine's own accounts on, that is an **API key** issued for a service account (`pravaha
+   key create --for <service-account>`); a session token works too but ends with its sign-in, and the
+   account's own password is refused (PGWIREPASS-1).
 
 ## Connecting from Power BI Desktop
 
