@@ -1604,7 +1604,9 @@ SHOW   CONTINUOUS QUERIES
   ([ADR-055](adr/055-an-equality-index-over-a-column-outside-the-key.md)). It is maintained in the
   view's own commit, from the row the view held rather than from the retraction that replaced it,
   so it is never a step behind the view; it is written down with the registration and comes back
-  with it after a restart, rebuilt over whatever a checkpoint restored. One column per clause — a
+  with it after a restart, rebuilt over whatever a checkpoint restored. Names sharing one computation
+  share its view and every index any of them declared; dropping one name lets go at once of an index
+  only that name declared (IDXSHR-1). One column per clause — a
   list would read as a composite index, which this is not (`PRV-2070`) — and at most four per view.
   Refused at registration with `PRV-2074`: `FLOAT`, `DECIMAL` and `BYTES`, whose equality in a
   `WHERE` clause is not the equality of their stored values (`0.0` and `-0.0`; `1.0` and `1.00`),

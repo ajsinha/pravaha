@@ -917,14 +917,14 @@ public final class QueryRegistry implements AutoCloseable {
                 delivery.announce(name);
             }
             try {
-                declaring.indexes().forEach(existing.view()::index);
+                existing.declareIndexes(name, declaring.indexes());
                 journalRegistration(name, sql, keyColumns, principal, retention, parameters, sinkName);
             } catch (RuntimeException e) {
                 deliveries.remove(name);
                 // The same unwind the fresh path has. Without it a refusal the client could see left
                 // the name held and the shared computation pinned open by a registration that,
                 // as far as its caller knew, had failed.
-                existing.removeName(name);
+                existing.dropName(name);
                 byName.remove(name);
                 views.remove(name);
                 throw e;
@@ -942,7 +942,7 @@ public final class QueryRegistry implements AutoCloseable {
             delivery.announce(name);
         }
         try {
-            declaring.indexes().forEach(query.view()::index);
+            query.declareIndexes(name, declaring.indexes());
             journalRegistration(name, sql, keyColumns, principal, retention, parameters, sinkName);
         } catch (RuntimeException e) {
             deliveries.remove(name);

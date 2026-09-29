@@ -356,7 +356,8 @@ SELECT txn_id, amount FROM by_merchant WHERE merchant IN ('acme', 'globex')
 ```
 
 The equality index is kept in the view's own commit, from the row the view held — never a step
-behind it — and comes back after a restart. `FLOAT`, `DECIMAL` and `BYTES` columns cannot be
+behind it — and comes back after a restart. Two names sharing a computation share its indexes;
+dropping one name drops an index only it declared, at once. `FLOAT`, `DECIMAL` and `BYTES` columns cannot be
 indexed (PRV-2074), because two values a filter calls equal can be different stored values. The
 grammar is in [CREATE CONTINUOUS QUERY](/help/topics/create-continuous-query#index-an-equality-index-over-a-column-outside-the-key).
 

@@ -12,6 +12,11 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **Dropping one name of a shared computation drops the index only it declared (IDXSHR-1).** The
+  view kept an equality index a dropped name had declared until the next restart -- memory, never
+  a wrong answer. Each name's `INDEX (column)` is now counted against the names still answered by
+  the computation; a replacement carries the indexes its own name declared.
+  `SecondaryIndexRegistryTest`.
 - **A view's dependants include its alerts (ALERTDEPS-1).** `dependants` in `GET
   /api/v1/queries/{name}`, `QueryRegistry.dependantsOf` and the console's query page listed only the
   queries over a view, although a drop or replace of it was already refused naming `ALERT x`. The

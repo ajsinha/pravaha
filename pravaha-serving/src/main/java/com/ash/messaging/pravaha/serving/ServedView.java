@@ -689,6 +689,18 @@ public final class ServedView {
         }
     }
 
+    /**
+     * Stops keeping the equality index over {@code ordinal}, and lets go of its entries (IDXSHR-1):
+     * called when no registration answered by this view declares it any more. Nothing when none is
+     * kept.
+     */
+    public synchronized void dropIndex(int ordinal) {
+        EqualityIndex<Key> index = equalityIndexes.remove(ordinal);
+        if (index != null) {
+            index.clear();
+        }
+    }
+
     /** The columns an equality index is kept over, in the order they were declared. */
     public synchronized List<Integer> indexedColumns() {
         return List.copyOf(equalityIndexes.keySet());

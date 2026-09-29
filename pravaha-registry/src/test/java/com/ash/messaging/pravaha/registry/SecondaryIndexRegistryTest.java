@@ -278,6 +278,39 @@ class SecondaryIndexRegistryTest {
         assertThat(registry.require("first_name").view().indexedColumns()).containsExactly(1, 2);
     }
 
+    /**
+     * IDXSHR-1: dropping one name of a shared computation lets go of the index only that name
+     * declared, at once; an index another name declared stays, and so does one both declared.
+     */
+    @Test
+    void droppingOneNameOfASharedComputationDropsTheIndexOnlyItDeclared() {
+        ViewCatalog views = new ViewCatalog();
+        QueryRegistry registry = new QueryRegistry(views, SecurityPolicy.PERMISSIVE, AuditSink.NONE, TXN);
+        registries.add(registry);
+        String select = "AS SELECT user_id, region, amount FROM txn";
+        run(registry, "CREATE CONTINUOUS QUERY first_name KEYED BY (user_id) INDEX (region) " + select);
+        run(registry, "CREATE CONTINUOUS QUERY second_name KEYED BY (user_id) INDEX (amount) " + select);
+        run(registry, "CREATE CONTINUOUS QUERY third_name KEYED BY (user_id) INDEX (region) " + select);
+        ServedView view = registry.require("first_name").view();
+        RegisteredQuery shared = registry.require("first_name");
+        txn(shared, "u1", "eu", 10, 1);
+        shared.commit();
+        assertThat(view.indexedColumns()).containsExactly(1, 2);
+
+        run(registry, "DROP CONTINUOUS QUERY second_name");
+        assertThat(view.indexedColumns())
+                .as("amount was declared by second_name alone")
+                .containsExactly(1);
+        assertThat(view.indexEntries(2)).isZero();
+
+        run(registry, "DROP CONTINUOUS QUERY first_name");
+        assertThat(view.indexedColumns())
+                .as("region is still declared by third_name")
+                .containsExactly(1);
+        assertThat(ids(views, "SELECT user_id FROM third_name WHERE region = 'eu'"))
+                .containsExactly("u1");
+    }
+
     // ------------------------------------------------------------------ a replacement
 
     @Test

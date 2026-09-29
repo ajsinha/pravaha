@@ -894,7 +894,57 @@ public final class RegisteredQuery implements AutoCloseable {
      */
     synchronized boolean dropName(String name) {
         endSubscriptionsUnder(name, SubscriptionEndings.dropped(name));
-        return removeName(name);
+        boolean last = removeName(name);
+        releaseIndexes(name);
+        return last;
+    }
+
+    /**
+     * The equality indexes each name declared (IDXSHR-1). A view shared by several names keeps the
+     * union; dropping one name lets go of the indexes only it declared. Guarded by this.
+     */
+    private final java.util.Map<String, java.util.Set<Integer>> indexesByName = new java.util.HashMap<>();
+
+    /**
+     * Keeps an equality index over each of {@code ordinals} on this computation's view, declared by
+     * {@code name}. Written down first, so a refusal part-way ({@code PRV-2074}) is undone by the
+     * drop that unwinds the registration.
+     */
+    synchronized void declareIndexes(String name, java.util.List<Integer> ordinals) {
+        if (ordinals.isEmpty()) {
+            return;
+        }
+        indexesByName
+                .computeIfAbsent(name, declared -> new java.util.LinkedHashSet<>())
+                .addAll(ordinals);
+        ordinals.forEach(view::index);
+    }
+
+    /** The equality indexes {@code name} declared on this computation, in declaration order. */
+    synchronized java.util.List<Integer> indexesDeclaredBy(String name) {
+        return java.util.List.copyOf(indexesByName.getOrDefault(name, java.util.Set.of()));
+    }
+
+    /**
+     * Forgets which indexes {@code name} declared here, keeping them on the view: a cutover moved the
+     * name to another computation, and this one keeps its indexes for a rollback.
+     */
+    synchronized void forgetIndexes(String name) {
+        indexesByName.remove(name);
+    }
+
+    /** Drops every index only {@code name} declared (IDXSHR-1); one another name declares stays. */
+    private void releaseIndexes(String name) {
+        java.util.Set<Integer> declared = indexesByName.remove(name);
+        if (declared == null) {
+            return;
+        }
+        for (int ordinal : declared) {
+            boolean stillDeclared = indexesByName.values().stream().anyMatch(others -> others.contains(ordinal));
+            if (!stillDeclared) {
+                view.dropIndex(ordinal);
+            }
+        }
     }
 
     /** Removes a name; returns true when none are left and the computation should be released. */

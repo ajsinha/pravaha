@@ -441,7 +441,10 @@ public final class QueryReplacements implements AutoCloseable {
         }
         com.ash.messaging.pravaha.api.data.StreamSchema leaving = from.view().schema();
         com.ash.messaging.pravaha.api.data.StreamSchema taking = to.view().schema();
-        for (int ordinal : from.view().indexedColumns()) {
+        // The indexes this name declared, not every one the view keeps: a computation other names share
+        // may keep theirs too (IDXSHR-1).
+        List<Integer> carriedIndexes = new java.util.ArrayList<>();
+        for (int ordinal : from.indexesDeclaredBy(name)) {
             com.ash.messaging.pravaha.api.data.Field column = leaving.field(ordinal);
             int carried = -1;
             for (int candidate = 0; candidate < taking.fieldCount(); candidate++) {
@@ -460,10 +463,12 @@ public final class QueryReplacements implements AutoCloseable {
                                 + "; reads by that column scan from now on");
                 continue;
             }
-            to.view().index(carried);
+            carriedIndexes.add(carried);
         }
-        if (journal != null && !to.view().indexedColumns().isEmpty()) {
-            journal.recordIndexes(name, to.view().indexedColumns());
+        to.declareIndexes(name, carriedIndexes);
+        from.forgetIndexes(name);
+        if (journal != null && !carriedIndexes.isEmpty()) {
+            journal.recordIndexes(name, carriedIndexes);
         }
     }
 
