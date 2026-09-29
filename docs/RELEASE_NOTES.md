@@ -12,6 +12,15 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **A view's dependants include its alerts (ALERTDEPS-1).** `dependants` in `GET
+  /api/v1/queries/{name}`, `QueryRegistry.dependantsOf` and the console's query page listed only the
+  queries over a view, although a drop or replace of it was already refused naming `ALERT x`. The
+  alerts now follow the queries, as `ALERT <name>`, each only where the caller may see that alert;
+  the console links them to the alert's page.
+- **An alert may not be called `channels` (ALERTPATH-1).** `/api/v1/alerts/channels` is the channel
+  list, so such an alert could not be reached, paused, snoozed or acknowledged by its own path.
+  `CREATE ALERT channels ...` is refused `PRV-8042`, naming the path. The channel list stays where it
+  is, so no caller changes.
 - **Answer-following subscriptions over the wire (SUBANSWERWIRE-1).** A subscription that follows
   the view's answer — per commit, the rows a reader stopped seeing at `-1` and started seeing at
   `+1`, so its weights sum to the view even for a keyed view that upserts — was reachable only

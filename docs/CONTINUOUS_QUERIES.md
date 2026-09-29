@@ -1053,8 +1053,8 @@ exactly as to any view — applied if the view carries the column, refused `PRV-
 aggregated away (`CONCEPTS.md` §6). Only views registered by your own tenant can be read this way;
 another tenant's is a name that does not exist.
 
-`GET /api/v1/queries/{name}` reports `readsFrom` and `dependants`, and the console's query page links
-them. A downstream costs one entry per upstream row for what it has consumed, sharing the upstream's
+`GET /api/v1/queries/{name}` reports `readsFrom` and `dependants` (queries first, then the alerts on the
+view as `ALERT <name>` — ALERTDEPS-1), and the console's query page links them. A downstream costs one entry per upstream row for what it has consumed, sharing the upstream's
 own row arrays.
 
 ---

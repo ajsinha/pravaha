@@ -185,9 +185,15 @@ public final class QueryListing {
         return visible(principal, registry.readsFrom(entry.name()), action);
     }
 
-    /** The queries that follow {@code entry}'s answer, that this caller may see (ADR-056). */
+    /**
+     * The queries that follow {@code entry}'s answer, that this caller may see (ADR-056), then the
+     * alerts on it the caller may see, as {@code ALERT <name>} (ALERTDEPS-1).
+     */
     public List<String> dependants(Principal principal, Entry entry, String action) {
-        return visible(principal, registry.dependantsOf(entry.name()), action);
+        List<String> shown =
+                new java.util.ArrayList<>(visible(principal, registry.chains.dependantsOf(entry.name()), action));
+        shown.addAll(registry.alerting().followersOf(entry.name(), principal));
+        return List.copyOf(shown);
     }
 
     private Optional<Entry> decide(

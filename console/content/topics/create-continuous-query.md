@@ -433,7 +433,8 @@ AS SELECT region, total FROM by_region WHERE total > 100
   downstream is refused (PRV-8012): its input has no history to replay.
 
 The query's page in the console shows what it **follows** and what it is **followed by**, and
-`GET /api/v1/queries/{name}` reports the same as `readsFrom` and `dependants`.
+`GET /api/v1/queries/{name}` reports the same as `readsFrom` and `dependants` — the latter with the
+alerts on the view too, as `ALERT <name>`, each only where you may see it (ALERTDEPS-1).
 
 ## What is still refused
 

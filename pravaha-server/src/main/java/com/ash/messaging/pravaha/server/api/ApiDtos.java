@@ -361,8 +361,9 @@ public final class ApiDtos {
      * @param sharedLane the shared lane it runs on when {@code lane} is {@code shared}, else null
      * @param readsFrom the registered queries whose answers this one follows (ADR-056), that this
      *     caller may see; empty for a query over streams
-     * @param dependants the registered queries that follow this one's answer, that this caller may
-     *     see; a drop is refused while there are any ({@code PRV-8024})
+     * @param dependants the registered queries that follow this one's answer, then the alerts on it
+     *     as {@code ALERT <name>} (ALERTDEPS-1), that this caller may see; a drop is refused while
+     *     there are any ({@code PRV-8024})
      */
     public record QueryDetail(
             String name,

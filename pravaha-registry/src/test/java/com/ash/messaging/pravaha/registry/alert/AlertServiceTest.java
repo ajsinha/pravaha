@@ -18,6 +18,8 @@ package com.ash.messaging.pravaha.registry.alert;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -25,6 +27,10 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 import com.ash.messaging.pravaha.api.plugin.Notification;
+import com.ash.messaging.pravaha.registry.QueryListing;
+import com.ash.messaging.pravaha.security.AuditSink;
+import com.ash.messaging.pravaha.security.Principal;
+import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.serving.ViewQuery;
 
 import static com.ash.messaging.pravaha.registry.alert.AlertFixture.BUYER;
@@ -288,6 +294,32 @@ class AlertServiceTest {
         assertThat(f.sql(BUYER, "DROP ALERT low").rows().get(0)[1]).isEqualTo("DROPPED");
         f.registry.drop("low_stock");
         assertThat(f.registry.find("low_stock")).isEmpty();
+    }
+
+    /** ALERTDEPS-1: a view's dependants include the alerts on it, as a caller may see them. */
+    @Test
+    void aViewsDependantsIncludeItsAlertsAsTheCallerMaySeeThem() {
+        AlertFixture f = start("");
+        assertThat(f.registry.dependantsOf("low_stock")).containsExactly("ALERT low");
+
+        QueryListing listing = new QueryListing(f.registry, SecurityPolicy.PERMISSIVE, AuditSink.NONE);
+        QueryListing.Entry entry = listing.find(BUYER, "low_stock", "describe").orElseThrow();
+        assertThat(listing.dependants(BUYER, entry, "describe")).containsExactly("ALERT low");
+        Principal stranger = new Principal("oli", "globex", Set.of("buyer"), Map.of());
+        assertThat(listing.dependants(stranger, entry, "describe"))
+                .as("an alert the caller may not see is not named")
+                .isEmpty();
+    }
+
+    /** ALERTPATH-1: an alert may not be called what the alert API's literal path is. */
+    @Test
+    void anAlertCannotBeCalledChannels() {
+        AlertFixture f = start("");
+        assertThatThrownBy(() -> f.sql(BUYER, "CREATE ALERT channels ON low_stock NOTIFY buyers"))
+                .hasMessageContaining("PRV-8042")
+                .hasMessageContaining("/api/v1/alerts/channels");
+        assertThatThrownBy(() -> f.sql(BUYER, "CREATE ALERT CHANNELS ON low_stock NOTIFY buyers"))
+                .hasMessageContaining("PRV-8042");
     }
 
     @Test
