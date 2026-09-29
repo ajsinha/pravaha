@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **465 findings carrying a
-status — 402 FIXED, 49 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 49 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 38 POST-GA and 11 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **466 findings carrying a
+status — 415 FIXED, 37 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 37 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 26 POST-GA and 11 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7066,65 +7066,53 @@ the lead.
 
 ### KSF-1 (LOW) — the record key is always JSON, even when the value is Avro or Protobuf
 
-> **Status:** OPEN — a registry-aware consumer that expects an Avro key cannot read it.
-> **Disposition:** POST-GA — a `key.format` beside `format`.
+> **Status:** FIXED — `key.format` json|string|avro|protobuf with `key.schema.*`; an Avro key is written under its registered id. `KafkaSinkKeyAndRegistryTest`, `KafkaSinkRegistryBrokerTest` (real Kafka and Schema Registry).
 
 ### KSF-2 (LOW) — Protobuf output cannot carry the Confluent prefix
 
-> **Status:** OPEN — the Confluent Protobuf framing needs message indexes after the schema id, which are not written; Protobuf values go out bare and `schema.id` is refused with them.
-> **Disposition:** POST-GA — write the message-index framing.
+> **Status:** FIXED — with `schema.id` and `schema.registry.url`, a Protobuf value carries the magic byte, the id and the message's index path, and reads back through the real registry; a Protobuf `schema.id` without a registry is refused (PRV-5100). `KafkaSinkRegistryBrokerTest`.
 
 ### KSF-3 (LOW) — `schema.id` is not checked against the registry
 
-> **Status:** OPEN — a wrong id makes every consumer decode with the wrong schema; nothing asks the registry whether the id names the schema in `schema.file`.
-> **Disposition:** POST-GA — fetch the id's schema at open and refuse a mismatch.
+> **Status:** FIXED — ids are fetched from `schema.registry.url` when the query registers and checked against `schema.file` / `schema.message` and the descriptor; a mismatch is PRV-5108, an unknown id or unreachable registry PRV-5109. An Avro id with no registry configured is still written unchecked (documented). Unit and real-registry tests; seed-proven.
 
 ### KSF-4 (LOW) — an Avro time finer than its field's precision fails at write time, not at configuration
 
-> **Status:** OPEN — PRV-5102 at the first such value, which detaches the sink, because the sink's schema string cannot declare a timestamp precision to compare at configuration.
-> **Disposition:** POST-GA — let the schema declare the precision and refuse at configuration.
+> **Status:** FIXED — `schema` accepts `TIMESTAMP(p)` and `TIME(p)`; an Avro `-millis` field needs a column declared `(3)` or coarser and `-micros` `(6)`, else PRV-5108 at configuration; values are floored to the declared precision, so the write-time failure is gone. Behaviour change noted in the release notes: existing bindings writing Avro time fields must declare the precision. `KafkaSinkFormatsTest`.
 
 ## Found building C3 and C4, mysql-cdc and iceberg-sink (2026-09-27), 8 findings
 
 ### ICE-1 (LOW) — iceberg-sink runs against Caffeine 3 on the server, built against Caffeine 2
 
-> **Status:** OPEN — Spring Boot pins Caffeine 3.2.4, and Iceberg 1.2.1 was built with 2.9.3. The server test loads the plugin; no write has been run on that combination.
-> **Disposition:** POST-GA — run a write through the server's own classpath.
+> **Status:** FIXED — the plugin declares Caffeine 3.2.4, the server's version; every Caffeine member Iceberg 1.2.1 calls resolves on it, and writes and reads run with the Caffeine-backed manifest cache on. `IcebergSinkFindingsTest`.
 
 ### ICE-2 (LOW) — iceberg-sink's upsert mode holds a checkpoint's changes in memory without a bound
 
-> **Status:** OPEN — The collapsed changes of one checkpoint interval are held until prepare.
-> **Disposition:** POST-GA — spill or refuse past a configured size.
+> **Status:** FIXED — `upsert.max.keys` (default 1,000,000) bounds a checkpoint interval's keys and the next is refused with PRV-5143; refused rather than spilled, because an equality delete cannot apply within its own commit. `IcebergSinkFindingsTest`; seed-proven.
 
 ### ICE-3 (LOW) — a repeated Iceberg commit may go undetected if another writer commits and the sink's snapshot is expired
 
-> **Status:** OPEN — The skip-on-repeat check reads the table's history; documented as "no other writer".
-> **Disposition:** POST-GA — record the label in a table property as well.
+> **Status:** FIXED — reproduced: another writer's commit followed by snapshot expiry let a repeated commit apply twice. Each labelled commit also records its label as a table property in the same Iceberg transaction, and the idempotency check reads both. `IcebergSinkFindingsTest`; seed-proven.
 
 ### ICE-4 (LOW) — Iceberg 1.2.1 brings old avro (1.11.1) and commons-compress (1.21)
 
-> **Status:** OPEN — Chosen to share Delta Kernel's Parquet 1.12.3.
-> **Disposition:** POST-GA — move both when Delta Kernel moves Parquet.
+> **Status:** FIXED — Iceberg stays 1.2.1 (every newer release moves Parquet past the 1.12.3 Delta and feedfile share); Avro is declared at 1.11.4 (CVE-2024-47561 fixed) and commons-compress 1.21 is excluded (Avro uses it only for bzip2, which Iceberg never writes); enforcer rules pass, THIRD-PARTY-NOTICES updated.
 
 ### MYC-1 (LOW) — an idle mysql-cdc table's offset does not advance, so a purged binlog file refuses a restart that missed nothing
 
-> **Status:** OPEN — The offset moves only when a transaction on the table commits; PRV-5155 then refuses a restart after the file is expired.
-> **Disposition:** POST-GA — advance on heartbeat events.
+> **Status:** FIXED — reproduced against a real MySQL 8: after `FLUSH BINARY LOGS` an idle table's position stayed in the old file, so purging it refused a restart. Heartbeats and real rotations between transactions now advance the position (never while a restored partial transaction is pending). `MySqlCdcFindingsIT` (purge, then restart), `TransactionAssemblerTest`; seed-proven.
 
 ### MYC-2 (LOW) — mysql-cdc positions are file and offset, not GTID
 
-> **Status:** OPEN — A checkpoint cannot survive a failover to another server.
-> **Disposition:** POST-GA — GTID positions.
+> **Status:** FIXED — with `gtid_mode=ON` offsets carry the executed GTID set and a restart resumes by it, so a checkpoint moves to a caught-up replica after failover (a partial transaction named by its own GTID); a replica behind the checkpoint is PRV-5158. File-style checkpoints stay file-style (re-register to move a binding to GTID). `MySqlCdcGtidIT`; seed-proven.
 
 ### MYC-3 (LOW) — a MySQL user granted replication through a role is refused
 
-> **Status:** OPEN — SHOW GRANTS does not expand roles.
-> **Disposition:** POST-GA — expand roles in the privilege check.
+> **Status:** FIXED (partly reproduced) — on MySQL 8.0.46 a replication privilege held through a default role was already accepted; a role granted but not active was refused with a message blaming role expansion. The check now expands the roles active at login explicitly and names an inactive role with `SET DEFAULT ROLE`. `MySqlCdcFindingsIT`.
 
 ### MYC-4 (LOW) — a MySQL type change that keeps the column count is not detected as DDL
 
-> **Status:** OPEN — It surfaces as rows rejected per value, to the dead-letter queue, or a stopped stream.
-> **Disposition:** POST-GA — compare column types, not only their count.
+> **Status:** FIXED — reproduced: resuming across `ALTER … SMALLINT → INT UNSIGNED` read −5 as 4294967291, and a DDL statement with a leading comment escaped the DDL match. Every table map is compared with the columns the stream was typed from (type, precision and scale, NOT NULL, and signedness under `binlog_row_metadata=FULL`); a mismatch refuses the transaction with PRV-5156 naming the column. CHAR/BINARY-style pairs share a binlog type and cannot be told apart (documented). `MySqlCdcFindingsIT`, `TransactionAssemblerTest`; seed-proven.
 
 ## Found running every case study end to end (2026-09-28), 3 findings
 
@@ -7334,4 +7322,10 @@ the lead.
 
 > **Status:** OPEN — unlike the SDK, the console carries no `[tool.ruff]` settings; `make lint` uses ruff's defaults (88-character lines against code written to about 110) and reports 14 existing errors, among them an import-order fix that would drop a `noqa`.
 > **Disposition:** POST-GA — pin a rule set for the console as the SDK does, then fix what remains and run it with the console's tests.
+
+## Found fixing the connector findings (2026-09-29), 1 finding
+
+### MYCCONN-1 (LOW) — a mysql-cdc refusal on the first binlog event was reported as a start-up timeout
+
+> **Status:** FIXED — a refusal arriving as the very first binlog event surfaced as PRV-5151 after `start.timeout`, because the connection had closed by the time the wait looked; `BinlogStream` now counts a connection once made. `MySqlCdcFindingsIT`.
 

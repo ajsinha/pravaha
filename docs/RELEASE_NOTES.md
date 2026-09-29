@@ -492,7 +492,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   help topic *Observability*.
 
 
-Register: **465 findings — 402 fixed, 49 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **466 findings — 415 fixed, 37 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ---
 
