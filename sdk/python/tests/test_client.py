@@ -746,6 +746,26 @@ def test_a_snapshot_ticket_has_its_own_verb_and_a_plain_one_is_unchanged():
     assert _wire_decode(_subscribe_ticket("v", [], snapshot=True)) == ["subscribe.snapshot", "v"]
 
 
+def test_an_answer_ticket_has_its_own_verb_with_and_without_a_snapshot():
+    # SUBANSWERWIRE-1: a verb of its own, so an older server refuses it rather than quietly
+    # handing the changelog to a client that asked for the answer.
+    from pravaha.client import _subscribe_ticket, _wire_decode
+
+    assert _wire_decode(_subscribe_ticket("v", ["c", "x"], answer=True)) == ["subscribe.answer", "v", "c", "x"]
+    assert _wire_decode(_subscribe_ticket("v", [], snapshot=True, answer=True)) == [
+        "subscribe.answer.snapshot",
+        "v",
+    ]
+
+
+def test_subscribe_refuses_a_changes_it_does_not_know():
+    from pravaha.client import Client
+
+    client = Client.__new__(Client)
+    with pytest.raises(QueryError, match="changelog.*answer"):
+        next(iter(client.subscribe("v", changes="answers")))
+
+
 def test_a_batch_mark_is_read_and_anything_else_is_no_mark():
     from pravaha.client import _mark_of
 

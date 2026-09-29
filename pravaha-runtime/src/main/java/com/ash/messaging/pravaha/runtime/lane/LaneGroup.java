@@ -233,7 +233,21 @@ public final class LaneGroup implements AutoCloseable {
             if (lanesIdle && (exchange == null || exchange.inFlight() == 0)) {
                 return true;
             }
+            if (halted()) {
+                // A lane that has stopped or failed will not make the group quiet (LIFE-067).
+                return false;
+            }
             java.util.concurrent.locks.LockSupport.parkNanos(100_000L);
+        }
+        return false;
+    }
+
+    /** Whether a lane of this group has stopped or failed, so waiting for it to go quiet is over. */
+    public boolean halted() {
+        for (Lane lane : lanes) {
+            if (lane.state() == Lane.State.STOPPED || lane.state() == Lane.State.FAILED) {
+                return true;
+            }
         }
         return false;
     }

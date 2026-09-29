@@ -571,9 +571,9 @@ public final class QueryRegistry implements AutoCloseable {
         return chains.readsFrom(name);
     }
 
-    /** The registered names that read {@code name}'s answer; a drop is refused while there are any. */
+    /** The queries, then the alerts ({@code ALERT <name>}), that follow {@code name}'s answer (ALERTDEPS-1). */
     public synchronized List<String> dependantsOf(String name) {
-        return chains.dependantsOf(name);
+        return chains.dependantsWithAlerts(name);
     }
 
     /** ADR-057's alerts: they follow views -- a drop is refused while they do -- and run their statements. */
@@ -917,14 +917,14 @@ public final class QueryRegistry implements AutoCloseable {
                 delivery.announce(name);
             }
             try {
-                declaring.indexes().forEach(existing.view()::index);
+                existing.declareIndexes(name, declaring.indexes());
                 journalRegistration(name, sql, keyColumns, principal, retention, parameters, sinkName);
             } catch (RuntimeException e) {
                 deliveries.remove(name);
                 // The same unwind the fresh path has. Without it a refusal the client could see left
                 // the name held and the shared computation pinned open by a registration that,
                 // as far as its caller knew, had failed.
-                existing.removeName(name);
+                existing.dropName(name);
                 byName.remove(name);
                 views.remove(name);
                 throw e;
@@ -942,7 +942,7 @@ public final class QueryRegistry implements AutoCloseable {
             delivery.announce(name);
         }
         try {
-            declaring.indexes().forEach(query.view()::index);
+            query.declareIndexes(name, declaring.indexes());
             journalRegistration(name, sql, keyColumns, principal, retention, parameters, sinkName);
         } catch (RuntimeException e) {
             deliveries.remove(name);

@@ -151,8 +151,10 @@ what a reader sees:
   latest_copy KEYED BY (id) AS SELECT id, status FROM latest` — and subscribe to that. A query over a query is
   fed the upstream's answer as it changes, the rows that left it (`-1`) and the rows that entered it
   (`+1`) per commit, evictions included (§1, [ADR-056](adr/056-queries-on-queries.md)), so its
-  changelog is exactly the upstream's answer and weights summed over it are the view. In the embedded
-  engine, `SubscriptionOptions.followingTheAnswer()` hands a subscription those changes directly.
+  changelog is exactly the upstream's answer and weights summed over it are the view. Or subscribe to
+  the view's answer directly: `changes="answer"` in the Python SDK, `subscribeToAnswer` in the Java
+  SDK, `pravaha subscribe --answer`, `SubscriptionOptions.followingTheAnswer()` embedded — the same
+  changes, over the wire since SUBANSWERWIRE-1.
 - **Or subscribe from a snapshot and upsert by key**, where a key's row is only ever replaced: load
   the snapshot keeping each key's last row, then overwrite the key on each `+1`. This stays exact only
   while nothing withdraws a key's shown row — a `-1` for it brings an older row back, which a copy

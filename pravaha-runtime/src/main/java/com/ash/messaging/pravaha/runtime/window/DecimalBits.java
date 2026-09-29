@@ -16,8 +16,9 @@
 package com.ash.messaging.pravaha.runtime.window;
 
 /**
- * A {@code DECIMAL} value as a windowed aggregate's group key or distinct value holds it: the whole
- * 128-bit unscaled value, both halves.
+ * A {@code DECIMAL} value as an aggregate's group key or distinct value holds it -- windowed,
+ * grouped or unwindowed, continuous or a read (DECKEYGROUP-1): the whole 128-bit unscaled value, both
+ * halves.
  *
  * <p>WINDECKEY-1. A decimal key was read with {@code getLong}, which is the high half of the slot
  * only -- zero for every value of eighteen digits or fewer -- so a windowed {@code GROUP BY} on a
@@ -31,4 +32,10 @@ package com.ash.messaging.pravaha.runtime.window;
  * @param high the upper 64 bits of the two's-complement unscaled value
  * @param low the lower 64 bits
  */
-public record DecimalBits(long high, long low) {}
+public record DecimalBits(long high, long low) {
+
+    /** The value at its column's {@code scale}, for somebody reading it. */
+    public java.math.BigDecimal toBigDecimal(int scale) {
+        return com.ash.messaging.pravaha.common.row.Decimals.toBigDecimal(high, low, scale);
+    }
+}

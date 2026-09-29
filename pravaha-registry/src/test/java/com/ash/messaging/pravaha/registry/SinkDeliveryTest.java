@@ -418,7 +418,8 @@ class SinkDeliveryTest {
         }
 
         RecordingSink sink(String name) {
-            return byName.computeIfAbsent(name, n -> new RecordingSink(n, bound.get(n)));
+            return byName.computeIfAbsent(
+                    name, n -> new RecordingSink(n, bound.get(n), keys.getOrDefault(n, List.of())));
         }
 
         int opened() {
@@ -455,14 +456,25 @@ class SinkDeliveryTest {
     static final class RecordingSink implements StreamSinkPlugin {
         private final String sinkName;
         private final SinkCapabilities capabilities;
+        private final List<String> keyColumns;
         private final List<String> rows = new CopyOnWriteArrayList<>();
         private volatile int flushes;
         private volatile boolean closed;
         private volatile boolean failNext;
 
         RecordingSink(String sinkName, SinkCapabilities capabilities) {
+            this(sinkName, capabilities, List.of());
+        }
+
+        RecordingSink(String sinkName, SinkCapabilities capabilities, List<String> keyColumns) {
             this.sinkName = sinkName;
             this.capabilities = capabilities == null ? SinkCapabilities.appendOnly() : capabilities;
+            this.keyColumns = List.copyOf(keyColumns);
+        }
+
+        @Override
+        public List<String> keyColumns() {
+            return keyColumns;
         }
 
         void failNextWrite() {

@@ -39,7 +39,7 @@ this surface.
 | GET | `/api/v1/streams` | Every stream you may read: name, version, fields, `eventTime`, `outOfOrderness`, `allowedLateness`, `source` plugin | `streams()` |
 | GET | `/api/v1/streams/{name}` | One stream | `stream(name)` |
 | POST | `/api/v1/streams` | Declares a stream; **201** with its summary. Needs administer on the name | `declare_stream(…)` |
-| POST | `/api/v1/queries/validate` | Plans SQL without running it: `valid`, `diagnostics`, `outputFields`, `elapsedMicros` | `validate(sql)` |
+| POST | `/api/v1/queries/validate` | Plans SQL without running it: `valid`, `diagnostics`, `outputFields`, `elapsedMicros`. Given a whole `CREATE CONTINUOUS QUERY` statement, every refusal registering it would give — keys, index, sink, name, options — without registering (VALIDATEREG-1) | `validate(sql)` |
 | POST | `/api/v1/queries/explain?level=&format=` | The plan: `level` = `physical` (default), `logical`, `codegen`; `format=graph` adds nodes and edges; with `keys` in the body, the fingerprint a registration would get | `explain(sql, level, graph=, keys=, retention=, sink=)` |
 | GET | `/api/v1/queries` | Every registered query you may see, described in full | `describe_queries()` |
 | GET | `/api/v1/queries/{name}` | One query: keys by name, retention, sink and whether it is attached, rows in, names sharing it, streams it reads, failure | `describe_query(name)` |

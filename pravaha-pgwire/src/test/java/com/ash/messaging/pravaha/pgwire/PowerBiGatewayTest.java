@@ -481,6 +481,38 @@ class PowerBiGatewayTest {
         }
     }
 
+    /**
+     * AVGINT-1: Power BI's average over an integer column is PostgreSQL's -- a {@code numeric}, not a
+     * truncated integer. 982300, 611850 and 1204990 average 933046.666..., which the engine's integer
+     * AVG answered as 933046.
+     */
+    @Test
+    void anAverageOfAnIntegerColumnIsANumericAsPostgreSqlAnswersIt() throws Exception {
+        start();
+        try (PgTestClient client = connected()) {
+            client.query("select avg(\"_\".\"revenue\") as \"a0\" from \"public\".\"region_revenue\" \"_\"");
+            List<PgTestClient.Message> reply = client.readUntilReady();
+            assertThat(PgTestClient.described(PgTestClient.ofType(reply, 'T').get(0))
+                            .get(0)
+                            .typeOid())
+                    .as("numeric")
+                    .isEqualTo(1700);
+            assertThat(new BigDecimal(rows(reply).get(0).get(0)))
+                    .isEqualByComparingTo(new BigDecimal("933046.6666666666666667"));
+
+            client.query("select \"region\", avg(\"revenue\") from \"region_revenue\" group by \"region\"");
+            reply = client.readUntilReady();
+            assertThat(rows(reply).stream()
+                            .map(row -> row.get(0) + "="
+                                    + new BigDecimal(row.get(1))
+                                            .stripTrailingZeros()
+                                            .toPlainString())
+                            .sorted()
+                            .toList())
+                    .containsExactly("AMER=1204990", "APAC=611850", "EMEA=982300");
+        }
+    }
+
     @Test
     void anOrderByOrALimitInsideADerivedTableIsStillRefusedByThePlanner() throws Exception {
         start();

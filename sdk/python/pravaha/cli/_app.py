@@ -260,6 +260,8 @@ def build_parser() -> _Parser:
                    help="equality filters applied on the server; repeatable")
     p.add_argument("--snapshot", action="store_true",
                    help="print the view's rows first, then every commit after them, none missed")
+    p.add_argument("--answer", action="store_true",
+                   help="how the view's answer moves (rows leaving -1, entering +1), not its changelog")
     p.add_argument("--reconnect", action="store_true",
                    help="reopen the stream after a restart instead of ending")
     p.add_argument("--reconnect-timeout", type=float, metavar="SECONDS",

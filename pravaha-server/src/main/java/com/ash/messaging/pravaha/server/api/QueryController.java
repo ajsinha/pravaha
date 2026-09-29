@@ -197,6 +197,12 @@ public class QueryController {
         requireSql(request);
         requireReadable(http, request.sql());
         long start = System.nanoTime();
+        // A whole CREATE CONTINUOUS QUERY: every refusal registering it would give (VALIDATEREG-1).
+        java.util.Optional<ApiDtos.ValidationResult> registration =
+                RegistrationValidation.of(request.sql(), registry, authorizer, http, mapper, start);
+        if (registration.isPresent()) {
+            return registration.get();
+        }
         try {
             PhysicalOperator plan = planFor(request.sql());
             return ApiDtos.ValidationResult.ok(
@@ -439,7 +445,18 @@ public class QueryController {
                 query.lanePlacement(),
                 query.sharedLane().orElse(null),
                 listing.readsFrom(principal, entry, action),
-                listing.dependants(principal, entry, action));
+                listing.dependants(principal, entry, action),
+                accessPaths(view));
+    }
+
+    /** How this view's reads found their rows (IDXVIS-1), read from the view's own counters. */
+    static ApiDtos.AccessPaths accessPaths(com.ash.messaging.pravaha.serving.ServedView view) {
+        java.util.Map<String, Long> indexes = new java.util.LinkedHashMap<>();
+        for (int ordinal : view.indexedColumns()) {
+            indexes.put(view.schema().field(ordinal).name(), view.indexEntries(ordinal));
+        }
+        return new ApiDtos.AccessPaths(
+                view.pointLookups(), view.rangeLookups(), view.indexLookups(), view.scans(), indexes);
     }
 
     /**

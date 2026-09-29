@@ -86,8 +86,23 @@ public final class SqlPlanner {
 
     private final PravahaSchema schema;
 
+    private final org.apache.calcite.rel.type.RelDataTypeSystem typeSystem;
+
     public SqlPlanner(PravahaSchema schema) {
+        this(schema, PravahaTypeSystem.INSTANCE);
+    }
+
+    private SqlPlanner(PravahaSchema schema, org.apache.calcite.rel.type.RelDataTypeSystem typeSystem) {
         this.schema = schema;
+        this.typeSystem = typeSystem;
+    }
+
+    /**
+     * This planner, planning {@code AVG} of an integer as an exact {@code DECIMAL(38, 16)} rather than
+     * a truncated integer: the PostgreSQL gateway's reads (AVGINT-1). Nothing else uses it.
+     */
+    public SqlPlanner withNumericAverages() {
+        return new SqlPlanner(schema, PravahaTypeSystem.NUMERIC_AVERAGES);
     }
 
     /** A planner over a fresh, empty catalog. */
@@ -417,7 +432,7 @@ public final class SqlPlanner {
                         .withConformance(SqlConformanceEnum.LENIENT))
                 .context(org.apache.calcite.plan.Contexts.of(new CalciteConnectionConfigImpl(properties)))
                 .operatorTable(PravahaFunctions.operatorTable())
-                .typeSystem(PravahaTypeSystem.INSTANCE)
+                .typeSystem(typeSystem)
                 .build();
     }
 

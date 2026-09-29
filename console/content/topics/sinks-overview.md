@@ -154,6 +154,14 @@ A keyed sink (`jdbc-sink`, `kafka-sink` and `delta-sink` in upsert mode, `aerosp
 by **exactly the view's key**. On fewer columns, distinct rows collapse onto one record and retracting one
 deletes the other; on more, a changed row leaves its old record behind.
 
+A keyed sink in upsert mode is handed **how the view's answer changed** at each commit, not the
+changelog: the row that left a key (`-1`) and the row that entered it (`+1`). A keyed view keeps
+every distinct row of a key and shows the newest; retracting the row it shows brings the one
+behind it back. The changelog of that commit is the retraction alone, and an upsert sink fed it
+deleted a key the view still showed (SINKKEYROWS-1). A sink in changelog mode (`mode: changelog`)
+is still handed the changelog, weights as applied. A row that retention ages out of the view is
+not deleted from either: it was not withdrawn, and the sink is where it is kept.
+
 The query below plans perfectly — and is refused at registration, because the columns are in the
 wrong order for `large_payments` (`txn_id, user_id, amount`):
 

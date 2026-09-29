@@ -161,7 +161,9 @@ class EngineApi:
     def validate(self, sql: str) -> dict[str, Any]:
         """Plans ``sql`` without running it: ``valid``, ``diagnostics`` (each with ``code``,
         ``message``, ``helpUrl`` and, when the parser knew it, ``range``), ``outputFields``
-        and ``elapsedMicros``. An invalid query is an answer, not an error.
+        and ``elapsedMicros``. An invalid query is an answer, not an error. Given a whole
+        ``CREATE CONTINUOUS QUERY`` statement, every refusal registering it would give --
+        key and index columns, sink, name, options -- without registering (VALIDATEREG-1).
         ``POST /api/v1/queries/validate``."""
         return dict(self._rest.post("/api/v1/queries/validate", {"sql": sql}) or {})
 

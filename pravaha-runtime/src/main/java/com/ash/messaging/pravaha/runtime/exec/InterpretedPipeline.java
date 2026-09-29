@@ -1078,6 +1078,14 @@ public final class InterpretedPipeline implements AutoCloseable {
         return windowed.stream().mapToLong(WindowedAggregate::corrections).sum();
     }
 
+    /**
+     * Fired windows whose published answer is still held for a correction, across every windowed
+     * operator: none once a window's allowed lateness has passed (EMIT-1).
+     */
+    public int retainedWindows() {
+        return windowed.stream().mapToInt(WindowedAggregate::retainedWindows).sum();
+    }
+
     /** The arena stages allocate their output rows in. */
     public RowArena arena() {
         return arena;
@@ -1314,6 +1322,11 @@ public final class InterpretedPipeline implements AutoCloseable {
                     // exactly like the query being wrong about its last period.
                     finishers.add(aggregate::finish);
                     windowed.add(aggregate);
+                    if (w.allowedLatenessNanos() > 0) {
+                        // A late row's correction is published at the next commit, not the next
+                        // watermark advance (EMIT-2).
+                        continuousEmitters.add(aggregate::publishCorrections);
+                    }
                     // Off-heap only, which is what there is a byte count for: the accumulators and,
                     // since ADR-044, COUNT(DISTINCT)'s values. The slice bookkeeping above them is
                     // on the heap and has no number that is not a guess.

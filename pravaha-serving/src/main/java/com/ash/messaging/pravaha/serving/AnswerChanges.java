@@ -48,6 +48,21 @@ final class AnswerChanges {
      * @return what was handed over, or null when the commit changed nothing in the answer
      */
     static Netted handOver(List<AnswerListener> listeners, List<Object[]> left, List<Object[]> entered, long frontier) {
+        Netted netted = net(left, entered);
+        if (netted != null) {
+            for (AnswerListener listener : listeners) {
+                listener.onAnswer(netted.leaving(), netted.entering(), frontier);
+            }
+        }
+        return netted;
+    }
+
+    /**
+     * Nets {@code left} against {@code entered}, handing it to nobody.
+     *
+     * @return the netted change, or null when it changes nothing in the answer
+     */
+    static Netted net(List<Object[]> left, List<Object[]> entered) {
         if (left == null || (left.isEmpty() && entered.isEmpty())) {
             return null;
         }
@@ -68,12 +83,7 @@ final class AnswerChanges {
         if (leaving.isEmpty() && entering.isEmpty()) {
             return null;
         }
-        List<Object[]> leftView = Collections.unmodifiableList(leaving);
-        List<Object[]> enteredView = Collections.unmodifiableList(entering);
-        for (AnswerListener listener : listeners) {
-            listener.onAnswer(leftView, enteredView, frontier);
-        }
-        return new Netted(leftView, enteredView);
+        return new Netted(Collections.unmodifiableList(leaving), Collections.unmodifiableList(entering));
     }
 
     /** A row compared by its values, arrays included. */

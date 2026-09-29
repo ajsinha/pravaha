@@ -137,6 +137,87 @@ class LateDataTest {
     }
 
     /**
+     * EMIT-1: a fired window whose lateness has passed is never fired again.
+     *
+     * <p>Hopping windows of twenty seconds every ten, and no lateness. A row at 5 s belongs to
+     * [-10, 10) and [0, 20). The watermark reaching 11 s fires [-10, 10) and releases no slice -- the
+     * row's slice still belongs to [0, 20) -- so the fired window's published answer stayed held, and
+     * a second row at 8 s, on time for [0, 20), marked [-10, 10) as corrected: the next advance fired
+     * again a window closed with no lateness, revising an answer nothing may revise.
+     */
+    @Test
+    void aWindowPastItsLatenessIsNotReFiredByARowOnTimeForALaterWindow() {
+        String hop = "SELECT window_start, window_end, user_id, SUM(amount) FROM "
+                + "TABLE(HOP(TABLE txn, DESCRIPTOR(event_time), INTERVAL '10' SECOND, INTERVAL '20' SECOND)) "
+                + "GROUP BY window_start, window_end, user_id";
+        Harness harness = new Harness(hop, 0);
+
+        harness.feed(100, 10, 5 * SECOND);
+        harness.advanceWatermark(11 * SECOND);
+        assertThat(harness.emitted).containsExactly(new Emitted(-10 * SECOND, 100, 10, 1));
+
+        harness.feed(100, 5, 8 * SECOND);
+        harness.advanceWatermark(12 * SECOND);
+        assertThat(harness.pipeline.corrections()).isZero();
+        assertThat(harness.emitted)
+                .as("[-10, 10) closed with no lateness keeps the answer it published")
+                .containsExactly(new Emitted(-10 * SECOND, 100, 10, 1));
+
+        harness.advanceWatermark(21 * SECOND);
+        assertThat(harness.emitted)
+                .as("the second row counts in the window it was on time for")
+                .containsExactly(new Emitted(-10 * SECOND, 100, 10, 1), new Emitted(0, 100, 15, 1));
+        assertThat(harness.pipeline.retainedWindows())
+                .as("no lateness: nothing is held to correct a window that can never be corrected")
+                .isZero();
+        harness.close();
+    }
+
+    /**
+     * EMIT-2: a correction is published when the query commits, not when the watermark next moves.
+     *
+     * <p>A watermark that moves only with later rows left the late row applied to the window's
+     * state and its correction unpublished until some later row arrived.
+     */
+    @Test
+    void aCorrectionIsPublishedAtTheNextCommitWithoutWaitingForTheWatermark() {
+        Harness harness = new Harness(SQL, 30 * SECOND);
+        harness.feed(100, 10, 1 * SECOND);
+        harness.advanceWatermark(15 * SECOND);
+        assertThat(harness.emitted).containsExactly(new Emitted(0, 100, 10, 1));
+
+        harness.feed(100, 5, 3 * SECOND);
+        // What a commit asks every pipeline to do before it publishes the view.
+        harness.pipeline.emitContinuousAggregates();
+
+        assertThat(harness.emitted)
+                .containsExactly(new Emitted(0, 100, 10, 1), new Emitted(0, 100, 10, -1), new Emitted(0, 100, 15, 1));
+        assertThat(harness.pipeline.corrections()).isEqualTo(1);
+
+        harness.advanceWatermark(16 * SECOND);
+        assertThat(harness.emitted).as("and not again at the advance").hasSize(3);
+        harness.close();
+    }
+
+    /** EMIT-1: what a fired window holds for its corrections goes when its lateness does. */
+    @Test
+    void aFiredWindowsPublishedAnswerIsReleasedWhenItsLatenessPasses() {
+        Harness harness = new Harness(SQL, 30 * SECOND);
+        harness.feed(100, 10, 1 * SECOND);
+        harness.feed(200, 10, 2 * SECOND);
+        harness.advanceWatermark(15 * SECOND);
+        assertThat(harness.pipeline.retainedWindows())
+                .as("[0,10) correctable until 40 s")
+                .isEqualTo(1);
+
+        harness.advanceWatermark(39 * SECOND);
+        assertThat(harness.pipeline.retainedWindows()).isEqualTo(1);
+        harness.advanceWatermark(40 * SECOND);
+        assertThat(harness.pipeline.retainedWindows()).isZero();
+        harness.close();
+    }
+
+    /**
      * Sets the allowed lateness on a planned windowed aggregate.
      *
      * <p>SQL has nowhere to say it yet -- design 11.2's {@code EMIT CHANGES WITH ('allowed.lateness'

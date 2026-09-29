@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **466 findings carrying a
-status — 415 FIXED, 37 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 37 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 26 POST-GA and 11 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **467 findings carrying a
+status — 431 FIXED, 22 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 22 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 12 POST-GA and 10 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -6745,8 +6745,7 @@ runs is how a default becomes folklore, and this project has already found two o
 
 ### CG-1 (LOW) — a DECIMAL literal keeps a filter off the generated path, and a restart compiles every distinct chain serially
 
-> **Status:** OPEN — `ratio > 0.5` compiles to `CompareExpressions`, which the generator refuses, so that query stays interpreted (its `execution` line says so). And stages now compile at registration, one Janino compile per distinct chain, which a node restarting with many distinct queries pays serially.
-> **Disposition:** POST-GA — neither is a wrong answer; the first is a missed optimisation, the second a start-up cost worth measuring before it is worth parallelising.
+> **Status:** FIXED (the literal half) — a DECIMAL literal no longer keeps a filter off the generated path: `Predicate.CompareDecimal` compares exactly and codegen emits it (a literal with more places than the column keeps the exact interpreted path). The serial compile of every distinct plan on restart is split out as CGRESTART-1. `DecimalGeneratedPathTest`; seed-proven.
 
 ### FLT-2 (MEDIUM) — a Flight server lent an allocator did not wait for its calls to release their buffers
 
@@ -6754,8 +6753,7 @@ runs is how a default becomes folklore, and this project has already found two o
 
 ### EMIT-1 (MEDIUM) — a fired window still costs heap per group while its lateness lasts, and can be re-fired late
 
-> **Status:** OPEN — found closing SPILL-3. `WindowedAggregate.emitted` keeps a map entry per group for every fired window until allowed lateness passes, so a large window still costs heap at operator level after SPILL-3 moved the firing itself off the heap. Separately, if a watermark advance releases no slices, a window past its lateness can stay in `emitted` and be re-fired as a correction.
-> **Disposition:** POST-GA — bounded by allowed lateness, which defaults to zero; the fix is to key `emitted` off-heap like the accumulators and to expire it on the watermark rather than on slice release.
+> **Status:** FIXED — reproduced: a hopping window closed with zero lateness was re-fired as a correction by a row on time for the next window, and fired windows' rows were freed only when an advance released a slice. Fired windows now expire on every watermark advance, a window is re-opened only while inside its lateness, and at zero lateness (the default) nothing is kept per group; the remaining cost — published rows of windows still within lateness — is documented in CONTINUOUS_QUERIES §6. `LateDataTest`; seed-proven.
 
 ### SPILL-4 (LOW) — with state on disk, firing a window is bound by random reads
 
@@ -6951,8 +6949,7 @@ triaged by the lead.
 
 ### EMIT-2 (LOW) — a correction inside allowed lateness is published at the next watermark advance, not when the late row arrives
 
-> **Status:** OPEN — in the manufacturing study, appending only the late reading changes nothing until a later row arrives: the late row is applied to the window's state at once, and the corrected window is published when the watermark next advances. `CONTINUOUS_QUERIES.md` §6 reads as if the correction were immediate; the study's README documents what happens.
-> **Disposition:** POST-GA — either publish a correction when it is applied, or say in §6 that corrections ride the next watermark advance.
+> **Status:** FIXED — a correction inside allowed lateness is now published at the next commit rather than the next watermark advance (`WindowedAggregate.publishCorrections`). `LateDataTest`; seed-proven.
 
 ### CLITOKEN-1 (LOW) — the QA configuration said the CLI reads PRAVAHA_TOKEN; it does not
 
@@ -7027,20 +7024,17 @@ the lead.
 
 ### CASS-1 (LOW) — a Cassandra token-range reader stopped part way through a partition skips the rest of it until the next pass
 
-> **Status:** OPEN — `TokenRangeScanReader` resumes with `token(pk) > last`, so a stop in the middle of a wide partition leaves that partition's remaining clustering rows for the next full pass.
-> **Disposition:** POST-GA — resume within the partition by its clustering key.
+> **Status:** FIXED — reproduced: a token-range reader resumes with `token >= last`, re-reading the interrupted partition, rather than `>` which skipped its remainder. `TokenRangeScanReaderTest`; seed-proven.
 
 ### INLIST-1 (LOW) — SQL `IN` lists are pushed to no source
 
-> **Status:** OPEN — `Pushdown.flatten` handles comparisons, AND and IS NULL; an `IN` on a Cassandra partition key reaches the plugin only as a shared reader's OR of several queries' equalities.
-> **Disposition:** POST-GA — flatten `IN` into an OR of equalities where the list is short.
+> **Status:** FIXED — an `IN` list of 2–64 equalities on one column is pushed as a single OR of alternatives, which the jdbc, cassandra and aerospike sources already handle (`NOT IN` is not pushed). `PushdownEquivalenceTest`.
 
 ## Found by the gate (2026-09-27), 1 finding
 
 ### LIFE-067 (LOW) — once, under the full gate's load, a query dropped mid-ingest left its feeder thread alive past the test's wait
 
-> **Status:** OPEN — `LifeDropTest.life067_droppingMidIngestDoesNotCorruptTheShutdownOrdering` failed once in `tools/verify-clean.sh` ("the drop must not hang the feeder thread") and passed three runs of its own immediately after. Either the wait is too short for a loaded machine or a drop can rarely leave the feeder parked; not yet told apart.
-> **Disposition:** POST-GA — record the feeder's stack when the wait expires, so the next occurrence says which.
+> **Status:** FIXED — cause found: a row claimed after its lane had drained and stopped was never taken, so `awaitApplied` sat out its 10 s timeout, past the test's 5 s wait. A stopped or failed lane now answers at once (`LaneGroup.halted()`). `LaneTest` reproduces it deterministically and is seed-proven; `LifeDropTest` prints the feeder's stack if it ever hangs again.
 
 ### CDCREPL-1 (MEDIUM) — replacing a query over a postgres-cdc stream probably contends for the running version's replication slot
 
@@ -7054,13 +7048,11 @@ the lead.
 
 ### IDXSHR-1 (LOW) — dropping one name of a shared computation keeps the index that name declared until restart
 
-> **Status:** OPEN — memory only, never an answer: the index stays on the shared view the other names still read.
-> **Disposition:** POST-GA — reference-count indexes by the names that declared them.
+> **Status:** FIXED — equality indexes are counted per name: dropping a name releases an index only when no remaining name declared it (`ServedView.dropIndex`), and a cutover carries only the indexes that name declared. `SecondaryIndexRegistryTest`; seed-proven.
 
 ### IDXVIS-1 (LOW) — nothing shows a user which access path a view read took
 
-> **Status:** OPEN — the counters (`indexLookups`, `scans`, `indexEntries`) exist in the view and its tests but reach no metric, API or console screen; true of ADR-049's paths too.
-> **Disposition:** POST-GA — expose them per view in the metrics and on the query page.
+> **Status:** FIXED — `GET /api/v1/queries/{name}` answers `accessPaths` (point, range, index and scan reads, and entries per index), the console query page shows them, and `pravaha_query_view_reads_total{query,path}` counts them. `AccessPathsVisibleTest`, `PravahaMetricsTest`.
 
 ## Found building C2, Avro and Protobuf out of kafka-sink (2026-09-27), 4 findings
 
@@ -7186,8 +7178,7 @@ the lead.
 
 ### AVGINT-1 (LOW) — AVG of an integer column is an integer, where PostgreSQL clients expect numeric
 
-> **Status:** OPEN — documented engine behaviour (AVG over integers truncates), but a PostgreSQL client such as Power BI computes averages expecting PostgreSQL's numeric result, so its averages over integer columns are truncated. The power-bi topic says so.
-> **Disposition:** NOTE — a compatibility choice: keep it documented, or return a numeric AVG over the gateway.
+> **Status:** FIXED — over the PostgreSQL gateway, `AVG` of an integer is DECIMAL(38,16), exact and rounded half-up, as PostgreSQL's numeric average; Flight, REST, the SDKs and continuous queries keep the documented integer average, since changing it would change existing views' column types. `PowerBiGatewayTest`; seed-proven.
 
 ## Found building ADR-059 phase 1, the catalogue (2026-09-28), 3 findings
 
@@ -7211,25 +7202,22 @@ the lead.
 
 ### VALIDATEREG-1 (LOW) — /validate plans only the SELECT, so registration-only refusals come late
 
-> **Status:** OPEN — key and index columns (PRV-2071/2074), sink visibility and retention format are judged only at registration, so a draft can pass /validate and be refused on register. The assistant checks them itself against `outputFields` and the sink list and labels those verdicts as its own.
-> **Disposition:** POST-GA — a validate that takes the whole CREATE CONTINUOUS QUERY statement and answers every refusal registration would give, without registering.
+> **Status:** FIXED — `/api/v1/validate` accepts a whole CREATE CONTINUOUS QUERY statement and answers every refusal registration would give (keys, index, name, sink shape and authorization, `WITH` options, replace rules) without registering; tenant quota is not judged. The assistant validates the whole statement, falling back on older engines. `ValidateRegistrationTest` (6 of 7 fail on the old code).
 
 ### FLIGHTFLAKE-1 (LOW) — two Flight CLI tests failed once with exit 3 in a full SDK run
 
-> **Status:** OPEN — `test_register_sends_the_name_sql_keys_sink_and_retention` and `test_dead_letters_list_show_and_replay` in `sdk/python/tests/test_cli_flight.py` exited 3 (unreachable) once, then passed alone and in two further full runs. Probably the test Flight server's start-up racing the first call.
+> **Status:** OPEN — `test_register_sends_the_name_sql_keys_sink_and_retention` and `test_dead_letters_list_show_and_replay` in `sdk/python/tests/test_cli_flight.py` exited 3 (unreachable) once, then passed alone and in two further full runs. Probably the test Flight server's start-up racing the first call. A second trigger since: running the SDK suite while Maven rebuilds `pravaha-flight/target` makes `test_client.py` fail with PRV-1041, because its test server loads classes from that directory.
 > **Disposition:** POST-GA — make the fixture wait for the server to accept a connection before the first test.
 
 ## Found building ADR-057, alerts (2026-09-28), 3 findings
 
 ### ALERTDEPS-1 (LOW) — a view's listed dependants leave out its alerts
 
-> **Status:** OPEN — `GET /api/v1/queries/{name}`'s `dependants` and `registry.dependantsOf` list only queries; alerts are counted only where it matters most (a drop or replace of the view is refused naming `ALERT x`), so the lineage a person reads is incomplete.
-> **Disposition:** POST-GA — include alerts (and later sinks) in the dependants the API and console show.
+> **Status:** FIXED — a view's dependants list its alerts as `ALERT <name>` after its queries, filtered to what the caller may see; the console query page links them. `AlertServiceTest`; seed-proven.
 
 ### ALERTPATH-1 (LOW) — an alert named `channels` cannot be reached by its detail path
 
-> **Status:** OPEN — the literal route `/api/v1/alerts/channels` shadows `/api/v1/alerts/{name}` for an alert of that name.
-> **Disposition:** POST-GA — refuse the name at CREATE ALERT, or move the channel list to `/api/v1/notifiers`.
+> **Status:** FIXED — `CREATE ALERT channels` (any case) is refused with PRV-8042 naming the path it would be shadowed by; refused rather than moving the route, which would change every caller. Seed-proven.
 
 ### CATMYPY-1 (LOW) — mypy reports two errors in the console's catalogue routes
 
@@ -7291,25 +7279,21 @@ the lead.
 
 ### PGWIREPASS-1 (LOW) — the PostgreSQL gateway's docs say the password is "your token" without saying which
 
-> **Status:** OPEN — `pgwire` and `clients` topics say to use "your token" as the password; with engine accounts on (ADR-052) that is an API key or a session token, and the gateway's behaviour in that mode was not verified when the help was reworked.
-> **Disposition:** POST-GA — a test signing in over pgwire with an API key and with a session token; then state both in the topics.
+> **Status:** FIXED — verified, nothing broken: with engine accounts on, an API key or a session token is the PostgreSQL password; the account's own password, a revoked key and a must-change-password session are refused with 28P01. `PgWireSignInTest` (real PostgreSQL JDBC driver); the pgwire, clients and power-bi topics say so.
 
 ## Found fixing SUMWRAP-1, WINDECKEY-1, RESTOREPART-1 and KEYEDWT-1 (2026-09-29), 4 findings
 
 ### SUBANSWERWIRE-1 (LOW) — answer-following subscriptions are not reachable over the wire
 
-> **Status:** OPEN — `SubscriptionOptions.followingTheAnswer()` exists in the engine and the embedded API only; Flight tickets, the Python and Java SDKs and the CLI cannot ask for it, so over the wire the exact way to keep a copy of a keyed view is to subscribe to a query over it.
-> **Disposition:** POST-GA — a subscribe option on the ticket and in both SDKs and `pravaha subscribe`.
+> **Status:** FIXED — answer-following subscriptions over the wire: ticket verbs `subscribe.answer` and `subscribe.answer.snapshot` (an older server refuses them rather than sending the changelog), Java `subscribeToAnswer`/`subscribeToAnswerFromSnapshot`, Python `subscribe(..., changes='answer')`, `pravaha subscribe --answer`. `JavaSdkAnswerSubscriptionTest` (seed-proven), SDK and CLI tests.
 
 ### SINKKEYROWS-1 (MEDIUM) — an UPSERT sink may delete a key the view still shows
 
-> **Status:** OPEN — not reproduced; found by reading. UPSERT sinks follow the changelog: when a key holds several rows (VIEWW-1) and its shown row is retracted, the sink receives `-B` and presumably deletes the key while the view goes back to showing A.
-> **Disposition:** POST-GA — reproduce against the JDBC and Kafka upsert sinks; feed upsert sinks from the answer (as `followingTheAnswer`) if confirmed.
+> **Status:** FIXED — reproduced against a recording upsert sink, jdbc-sink over H2 and kafka-sink over MockProducer: a key's shown row retracted while another row remained sent only `-B`, deleting a key the view still showed. A sink that accepts UPSERT and declares key columns now follows the view's answer (`ViewSink.onRetainedAnswer`), within the same commit, so exactly-once is unchanged; row expiry under retention still never deletes from a sink; changelog sinks get the changelog verbatim. `UpsertSinkKeyRowsTest`, `JdbcSinkRegistrationTest`, `KafkaUpsertKeyRowsTest`; seed-proven.
 
 ### DECKEYGROUP-1 (LOW) — decimal group keys work in windowed aggregates but are refused in unwindowed ones
 
-> **Status:** OPEN — after WINDECKEY-1, windowed aggregates key and count distinct over DECIMAL; unwindowed and grouped aggregates (and the read path) still refuse a DECIMAL group key or `COUNT(DISTINCT decimal)` with PRV-3020 — correct but inconsistent.
-> **Disposition:** POST-GA — carry the whole unscaled value in the keyed and global aggregates' keys too.
+> **Status:** FIXED — grouped and global aggregates, the read path and queries over a view carry the whole DECIMAL value as a group key and a distinct value (`DecimalBits`; a new checkpoint tag for decimal distinct values). `DecimalGroupKeyReadTest`, `DecimalGroupKeyChainTest` (with checkpoint and restart); seed-proven.
 
 ### TRANSOVF-1 (LOW) — a total that overflows only inside one batch is refused
 
@@ -7328,4 +7312,11 @@ the lead.
 ### MYCCONN-1 (LOW) — a mysql-cdc refusal on the first binlog event was reported as a start-up timeout
 
 > **Status:** FIXED — a refusal arriving as the very first binlog event surfaced as PRV-5151 after `start.timeout`, because the connection had closed by the time the wait looked; `BinlogStream` now counts a connection once made. `MySqlCdcFindingsIT`.
+
+## Found fixing the behaviour findings (2026-09-29), 1 finding
+
+### CGRESTART-1 (LOW) — a restart compiles every distinct plan serially
+
+> **Status:** OPEN — the second half of CG-1: at restart each distinct plan's generated code is compiled one after another (Janino), so a node with many distinct queries takes longer to come back than it need.
+> **Disposition:** POST-GA — measure the restart cost at scale first; then compile in parallel or cache compiled classes by fingerprint.
 

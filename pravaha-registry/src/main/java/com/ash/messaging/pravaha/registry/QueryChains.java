@@ -212,6 +212,17 @@ final class QueryChains {
         return List.copyOf(dependants);
     }
 
+    /**
+     * {@link #dependantsOf}, then the alerts following {@code name}'s answer as {@code ALERT <name>}
+     * (ALERTDEPS-1): everything a drop of it is refused for (PRV-8024), which is the lineage a person
+     * reading the view's page needs.
+     */
+    List<String> dependantsWithAlerts(String name) {
+        List<String> dependants = new ArrayList<>(dependantsOf(name));
+        dependants.addAll(registry.alerting().followersOf(name));
+        return List.copyOf(dependants);
+    }
+
     /** The views {@code name}'s computation reads, or empty when it reads only streams. */
     List<String> readsFrom(String name) {
         return registry.find(name).map(query -> upstreamsOf(query.plan())).orElse(List.of());
@@ -288,9 +299,8 @@ final class QueryChains {
 
     /** Refuses dropping a name other queries read (PRV-8024), naming them. */
     void refuseDrop(String name) {
-        List<String> dependants = new ArrayList<>(dependantsOf(name));
         // An alert follows the answer as a query over it does (ADR-057), and is refused for alike.
-        dependants.addAll(registry.alerting().followersOf(name));
+        List<String> dependants = dependantsWithAlerts(name);
         if (!dependants.isEmpty()) {
             throw new PravahaException(
                     RegistryErrors.QUERY_HAS_DEPENDANTS,
@@ -326,8 +336,7 @@ final class QueryChains {
                 }
             }
         }
-        List<String> dependants = new ArrayList<>(dependantsOf(name));
-        dependants.addAll(registry.alerting().followersOf(name));
+        List<String> dependants = dependantsWithAlerts(name);
         if (!dependants.isEmpty()) {
             throw unsupported("'" + name + "' is read by " + dependants + ", which follow the computation answering "
                     + "it now. A cutover would move the name to another computation behind them. Drop them, replace "

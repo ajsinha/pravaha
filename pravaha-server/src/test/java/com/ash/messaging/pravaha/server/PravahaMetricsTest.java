@@ -98,6 +98,31 @@ class PravahaMetricsTest {
                 .isEqualTo(1);
     }
 
+    /** IDXVIS-1: how reads of a view found their rows, one series per access path. */
+    @Test
+    void aViewsReadsAreCountedByTheAccessPathTheyTook() {
+        var query =
+                node.registry().orElseThrow().register("by_user", "SELECT user_id, amount FROM txn", List.of(0), DANA);
+        metrics.sync();
+        query.view().scan();
+        query.view().scan();
+
+        assertThat(meters.find("pravaha.query.view.reads")
+                        .tag("query", "by_user")
+                        .tag("path", "scan")
+                        .functionCounter())
+                .isNotNull()
+                .satisfies(counter -> assertThat(counter.count()).isGreaterThanOrEqualTo(2.0));
+        for (String path : List.of("point", "range", "index")) {
+            assertThat(meters.find("pravaha.query.view.reads")
+                            .tag("query", "by_user")
+                            .tag("path", path)
+                            .functionCounter())
+                    .as(path)
+                    .isNotNull();
+        }
+    }
+
     @Test
     void aTenantThatRegistersGetsItsTenancyMeters() {
         // ADR-050: the node's metrics publish each tenant's use, quotas and refusals.

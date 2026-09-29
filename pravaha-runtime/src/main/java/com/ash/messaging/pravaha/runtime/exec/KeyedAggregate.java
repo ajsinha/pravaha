@@ -35,6 +35,7 @@ import com.ash.messaging.pravaha.common.row.RowLayout;
 import com.ash.messaging.pravaha.runtime.AggregateTotals;
 import com.ash.messaging.pravaha.runtime.RuntimeErrors;
 import com.ash.messaging.pravaha.runtime.plan.AggregateOperator;
+import com.ash.messaging.pravaha.runtime.window.DecimalBits;
 
 /**
  * A keyed {@code GROUP BY} with no window, over an input that ends.
@@ -185,6 +186,7 @@ final class KeyedAggregate implements RowProcessor {
             case FLOAT32 -> row.getFloat(ordinal);
             case FLOAT64 -> row.getDouble(ordinal);
             case STRING -> row.getString(ordinal);
+            case DECIMAL -> new DecimalBits(row.getDecimalHigh(ordinal), row.getDecimalLow(ordinal));
             default ->
                 throw new PravahaException(
                         RuntimeErrors.UNSUPPORTED_AGGREGATE,
@@ -222,6 +224,11 @@ final class KeyedAggregate implements RowProcessor {
                 writeKey(i, key[i]);
             }
             for (int i = 0; i < calls.size(); i++) {
+                if (AggregateSlots.exactAverage(calls.get(i).kind(), outputTypes[key.length + i])) {
+                    AggregateSlots.writeAverage(
+                            writer, key.length + i, group.sums[i], group.counts[i], operator.outputSchema());
+                    continue;
+                }
                 AggregateSlots.write(
                         writer, key.length + i, group.valueOf(i, calls.get(i)), outputTypes[key.length + i]);
             }
@@ -421,6 +428,10 @@ final class KeyedAggregate implements RowProcessor {
             case FLOAT32 -> writer.setFloat(outputOrdinal, ((Number) value).floatValue());
             case FLOAT64 -> writer.setDouble(outputOrdinal, ((Number) value).doubleValue());
             case STRING -> writer.setString(outputOrdinal, (String) value);
+            case DECIMAL -> {
+                DecimalBits decimal = (DecimalBits) value;
+                writer.setDecimal(outputOrdinal, decimal.high(), decimal.low());
+            }
             default ->
                 throw new PravahaException(
                         RuntimeErrors.UNSUPPORTED_AGGREGATE, "cannot group by a column of type " + type + " yet");
@@ -454,6 +465,8 @@ final class KeyedAggregate implements RowProcessor {
             case FLOAT32 -> row.getFloat(ordinal);
             case FLOAT64 -> row.getDouble(ordinal);
             case STRING -> row.getString(ordinal);
+            // The whole unscaled value (DECKEYGROUP-1, as WINDECKEY-1 for windows).
+            case DECIMAL -> new DecimalBits(row.getDecimalHigh(ordinal), row.getDecimalLow(ordinal));
             default ->
                 throw new PravahaException(
                         RuntimeErrors.UNSUPPORTED_AGGREGATE,
@@ -479,12 +492,12 @@ final class KeyedAggregate implements RowProcessor {
                 if (i > 0) {
                     text.append('|');
                 }
-                text.append(key[i]);
+                text.append(keyText(key[i], output, i));
             }
             Group group = entry.getValue();
             Map<String, String> values = new java.util.LinkedHashMap<>();
             for (int i = 0; i < key.length; i++) {
-                values.put(output.field(i).name(), String.valueOf(key[i]));
+                values.put(output.field(i).name(), keyText(key[i], output, i));
             }
             values.put("rows", Long.toString(group.rowCount));
             for (int i = 0; i < calls.size(); i++) {
@@ -494,6 +507,16 @@ final class KeyedAggregate implements RowProcessor {
             }
             into.accept(text.toString(), values);
         }
+    }
+
+    /** One key column as a person reads it: a decimal at its column's scale, not its bits. */
+    private static String keyText(Object value, StreamSchema output, int ordinal) {
+        return value instanceof DecimalBits decimal
+                ? decimal.toBigDecimal(((com.ash.messaging.pravaha.api.data.DecimalType)
+                                        output.field(ordinal).type())
+                                .scale())
+                        .toPlainString()
+                : String.valueOf(value);
     }
 
     /** Groups present, including any whose weights have cancelled to zero. */

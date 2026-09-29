@@ -136,14 +136,58 @@ class LifeDropTest extends LifecycleTestSupport {
         keepGoing.set(false);
         feeder.join(Duration.ofSeconds(5).toMillis());
 
+        // LIFE-067: when it does not end, say where it is, so the next occurrence names its cause.
         assertThat(feeder.isAlive())
-                .as("the drop must not hang the feeder thread")
+                .as(() -> "the drop must not hang the feeder thread; it is at "
+                        + java.util.Arrays.toString(feeder.getStackTrace()))
                 .isFalse();
         assertThat(registry.names()).containsExactly("ctrl");
         push("ctrl", 1, "ann", 100, 1);
         assertThat(registry.require("ctrl").rowsIn())
                 .as("an unrelated query is unaffected by a concurrent drop")
                 .isGreaterThan(0);
+    }
+
+    /**
+     * LIFE-067 under repetition: a pushing thread racing a drop is answered promptly every time. A
+     * row it handed over as the lane stopped was never applied, and its wait for the row ran to the
+     * push's ten-second timeout -- past the five the test above allows -- so the feeder appeared
+     * hung. Now a stopped lane answers at once.
+     */
+    @Test
+    void life067_aFeederRacingADropIsAnsweredPromptlyEveryTime() throws Exception {
+        for (int round = 0; round < 40; round++) {
+            int which = round;
+            String name = "race" + round;
+            registry.register(name, S1, List.of(0), Principal.ANONYMOUS);
+            AtomicBoolean keepGoing = new AtomicBoolean(true);
+            java.util.concurrent.atomic.AtomicLong slowest = new java.util.concurrent.atomic.AtomicLong();
+            Thread feeder = new Thread(() -> {
+                long id = 0;
+                while (keepGoing.get()) {
+                    long started = System.nanoTime();
+                    try {
+                        push(name, ++id, "u" + id, id, 1);
+                    } catch (RuntimeException e) {
+                        break;
+                    } finally {
+                        slowest.accumulateAndGet(System.nanoTime() - started, Math::max);
+                    }
+                }
+            });
+            feeder.start();
+            Thread.sleep(5);
+            registry.drop(name);
+            keepGoing.set(false);
+            feeder.join(Duration.ofSeconds(8).toMillis());
+            assertThat(feeder.isAlive())
+                    .as(() -> "round " + which + ": the feeder is at "
+                            + java.util.Arrays.toString(feeder.getStackTrace()))
+                    .isFalse();
+            assertThat(slowest.get() / 1_000_000L)
+                    .as("round %d: no push waited out its timeout past the drop", round)
+                    .isLessThan(3_000L);
+        }
     }
 
     @Test

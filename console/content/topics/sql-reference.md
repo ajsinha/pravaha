@@ -661,6 +661,10 @@ refused `PRV-3020`, naming the column. **`AVG` of a decimal is refused `PRV-2021
 quotient, SQL types it at the column's own scale, and answering would round most groups silently.
 Ask for `SUM` and `COUNT` and divide where the rounding is yours.
 
+**A decimal can be a group key, and counted distinct** — in a window, on a read of a view, and (the
+key) in a continuous query over a view — by its whole unscaled value, so `1.50` and `2.75` are two
+groups (WINDECKEY-1, DECKEYGROUP-1).
+
 A schema string that will not parse answers **`PRV-1028`**, a configuration code, and names both
 places: `stream 'd', column 'amt': unknown type 'DECIMAL'`. It used to answer `PRV-5040` — the
 filesystem plugin's decode code — which made `POST /api/v1/streams` return `500` for a typo in the

@@ -43,10 +43,14 @@ import com.ash.messaging.pravaha.api.plugin.SourceOffset;
  *
  * <p><strong>The offset is a token, and resuming continues the pass it was taken from.</strong> A
  * fresh reader with no resume offset starts a pass at the bottom of its assigned range; a reader
- * resumed from a token continues that same pass with {@code token(pk) > <resumed>}, which is exact
- * because nothing about the range or the query has changed in between. Once a pass finishes, this
- * reader goes back to the bottom of its range for the next one -- there is no partial state between
- * passes to resume into, because a full scan does not have one.
+ * resumed from a token -- after a restart, or after a page of its own pass failed -- continues that
+ * same pass with {@code token(pk) >= <resumed>}: the partition it stopped in is read again from its
+ * first clustering row (CASS-1). It resumed with {@code >}, and a stop part way through a wide
+ * partition skipped the rest of that partition until the next pass. Reading the partition's first
+ * rows twice is what every pass of this reader does to every row anyway: it re-reads the whole range
+ * at {@code +1} each time, which is why only a keyed view may be built over it. Once a pass
+ * finishes, this reader goes back to the bottom of its range for the next one -- there is no partial
+ * state between passes to resume into, because a full scan does not have one.
  *
  * <p>Iteration is lazy: the driver's {@link ResultSet} fetches pages on demand as {@link #poll}
  * consumes rows, rather than this reader materialising a whole pass into memory the way {@code
@@ -55,9 +59,15 @@ import com.ash.messaging.pravaha.api.plugin.SourceOffset;
  */
 final class TokenRangeScanReader implements PartitionReader {
 
-    private final CqlSession session;
-    private final PreparedStatement greaterThan;
-    private final PreparedStatement greaterOrEqual;
+    /**
+     * Opens a pass over {@code token(pk) > floor} (or {@code >=}, when {@code inclusive}) up to the
+     * range's top: the one call to the cluster, so a test can stand in for it.
+     */
+    interface PassOpener {
+        Iterator<Row> open(long floor, boolean inclusive);
+    }
+
+    private final PassOpener opener;
     private final StreamSchema schema;
 
     /** Per schema ordinal, whether the statements select it -- false only under a projection. */
@@ -67,9 +77,6 @@ final class TokenRangeScanReader implements PartitionReader {
     private final long lowerBound;
     private final long upperBound;
     private final boolean inclusiveLower;
-    private final int fetchSize;
-    private final ConsistencyLevel consistencyLevel;
-    private final Duration timeout;
     private final long scanIntervalNanos;
 
     private Iterator<Row> current;
@@ -97,18 +104,44 @@ final class TokenRangeScanReader implements PartitionReader {
             Duration timeout,
             int scanIntervalMillis,
             SourceOffset resumeFrom) {
-        this.session = session;
-        this.greaterThan = greaterThan;
-        this.greaterOrEqual = greaterOrEqual;
+        this(
+                (floor, inclusive) -> execute(
+                        session,
+                        (inclusive ? greaterOrEqual : greaterThan)
+                                .boundStatementBuilder(floor, upperBound)
+                                .setPageSize(fetchSize)
+                                .setConsistencyLevel(consistencyLevel)
+                                .setTimeout(timeout)
+                                .build(),
+                        floor,
+                        upperBound),
+                read,
+                schema,
+                eventTimeColumn,
+                lowerBound,
+                upperBound,
+                inclusiveLower,
+                scanIntervalMillis,
+                resumeFrom);
+    }
+
+    TokenRangeScanReader(
+            PassOpener opener,
+            boolean[] read,
+            StreamSchema schema,
+            String eventTimeColumn,
+            long lowerBound,
+            long upperBound,
+            boolean inclusiveLower,
+            int scanIntervalMillis,
+            SourceOffset resumeFrom) {
+        this.opener = opener;
         this.schema = schema;
         this.read = read.clone();
         this.eventTimeColumn = eventTimeColumn;
         this.lowerBound = lowerBound;
         this.upperBound = upperBound;
         this.inclusiveLower = inclusiveLower;
-        this.fetchSize = fetchSize;
-        this.consistencyLevel = consistencyLevel;
-        this.timeout = timeout;
         this.scanIntervalNanos =
                 Duration.ofMillis(Math.max(0, scanIntervalMillis)).toNanos();
         this.lastConsumedToken = parse(resumeFrom);
@@ -210,13 +243,14 @@ final class TokenRangeScanReader implements PartitionReader {
 
     private Iterator<Row> startPass() {
         passStartedNanos = System.currentTimeMillis() * 1_000_000L;
-        PreparedStatement prepared = lastConsumedToken == null && inclusiveLower ? greaterOrEqual : greaterThan;
+        // Resuming: from the partition it stopped in, inclusive, so the rest of it is not skipped
+        // (CASS-1). Starting: from the range's own lower bound, as the range says.
+        boolean inclusive = lastConsumedToken != null || inclusiveLower;
         long floor = lastConsumedToken != null ? lastConsumedToken : lowerBound;
-        BoundStatement bound = prepared.boundStatementBuilder(floor, upperBound)
-                .setPageSize(fetchSize)
-                .setConsistencyLevel(consistencyLevel)
-                .setTimeout(timeout)
-                .build();
+        return opener.open(floor, inclusive);
+    }
+
+    private static Iterator<Row> execute(CqlSession session, BoundStatement bound, long floor, long upperBound) {
         try {
             ResultSet resultSet = session.execute(bound);
             return resultSet.iterator();

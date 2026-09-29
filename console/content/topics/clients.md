@@ -164,7 +164,8 @@ psql "host=localhost port=5432 user=ann dbname=pravaha" \
 
 It speaks the simple and extended query protocols, answers `psql`'s catalogue queries (`\d`), and
 upgrades to TLS on `SSLRequest` when the node has a certificate. It authenticates with a cleartext
-password that is your **token** — verified by the same verifier as Flight — so give it a certificate
+password that is your **token** — with the engine's own accounts on, an API key or a session token,
+never the account's password (PGWIREPASS-1) — verified by the same verifier as Flight, so give it a certificate
 before it crosses a network. It is **read-only**: the management statements are refused with
 PRV-6211 (SQLSTATE `25006`). `BYTES` and `TIME` columns are refused by name rather than encoded.
 

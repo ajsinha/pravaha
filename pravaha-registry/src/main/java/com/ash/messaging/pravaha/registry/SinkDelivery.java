@@ -149,6 +149,12 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
     private final boolean idempotent;
     private final boolean acceptsRetractions;
 
+    /**
+     * Whether this sink keys its records and upserts them, so it is handed the answer's change at
+     * each commit rather than the changelog (SINKKEYROWS-1). See {@link #followsAnswer}.
+     */
+    private final boolean upserting;
+
     private final AtomicLong rowsWritten = new AtomicLong();
     private final AtomicLong batchesWritten = new AtomicLong();
 
@@ -204,6 +210,8 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
         this.transactional = capabilities.transactional();
         this.idempotent = capabilities.idempotentUpsert();
         this.acceptsRetractions = capabilities.accepts(EmitMode.UPSERT) || capabilities.accepts(EmitMode.RETRACT);
+        this.upserting =
+                capabilities.accepts(EmitMode.UPSERT) && !plugin.keyColumns().isEmpty();
     }
 
     /**
@@ -271,6 +279,22 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
             plugin.commit(each.handle());
         }
         plugin.abortAfter(restored.checkpointId());
+    }
+
+    /**
+     * Whether this sink follows the view's answer rather than its changelog (SINKKEYROWS-1).
+     *
+     * <p>True for a sink that keys records by the view's key and upserts them. Such a sink keeps, per
+     * key, the last change it was handed, and a retraction deletes the key's record. A keyed view
+     * holds every distinct row of a key and shows the newest (VIEWW-1), so retracting the shown row
+     * is a changelog of one retraction while the view goes back to the row behind it -- and the sink
+     * deleted a key the view still showed. Handed the answer instead, each commit arrives as the row
+     * that left and the row that entered, and the sink's record is the row the view shows. A
+     * changelog sink ({@code RETRACT} without {@code UPSERT}) is handed the changelog verbatim,
+     * as its consumers apply the weights themselves (STRM-008 to STRM-012).
+     */
+    boolean followsAnswer() {
+        return upserting;
     }
 
     @Override

@@ -356,7 +356,11 @@ SELECT txn_id, amount FROM by_merchant WHERE merchant IN ('acme', 'globex')
 ```
 
 The equality index is kept in the view's own commit, from the row the view held — never a step
-behind it — and comes back after a restart. `FLOAT`, `DECIMAL` and `BYTES` columns cannot be
+behind it — and comes back after a restart. **Which path a read took** is counted per view: the
+query's page in the console shows its reads by key, by range, by index and scanned, with the entries
+each index holds; `GET /api/v1/queries/{name}` reports them as `accessPaths`, and the metric
+`pravaha_query_view_reads_total{query,path}` counts them (IDXVIS-1). Two names sharing a computation share its indexes;
+dropping one name drops an index only it declared, at once. `FLOAT`, `DECIMAL` and `BYTES` columns cannot be
 indexed (PRV-2074), because two values a filter calls equal can be different stored values. The
 grammar is in [CREATE CONTINUOUS QUERY](/help/topics/create-continuous-query#index-an-equality-index-over-a-column-outside-the-key).
 

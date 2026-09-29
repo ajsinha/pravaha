@@ -67,6 +67,119 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 - **`mysql-cdc`: a refusal right after connecting is reported as itself.** A PRV-5156 arriving as the
   first event used to surface as PRV-5151 after `start.timeout`.
 
+- **The PostgreSQL gateway answers `AVG` of an integer as a `numeric` (AVGINT-1).** Power BI and
+  every PostgreSQL client expect `avg(integer)` to be `numeric`; the engine's `AVG` keeps its
+  argument's integer type and truncates, so a report's averages over integer columns were
+  truncated. The gateway now plans reads with `AVG` of an integer typed `DECIMAL(38, 16)` -- the
+  exact sum over the count, rounded half away from zero at the sixteenth place, as PostgreSQL's
+  numeric division does -- sent as `numeric`, and `NULL` over no rows. Decided for the gateway only:
+  Flight SQL, the HTTP API, the SDKs and continuous queries keep the integer average, as documented,
+  since changing it would change every existing view's column type. `PowerBiGatewayTest`.
+- **A `DECIMAL` column compared with a decimal literal runs on the generated path (CG-1).** `ratio >
+  0.5` compiled to a comparison of two expressions, which the code generator refuses, so the whole
+  filter-and-project chain ran interpreted. A decimal column against a literal it can hold exactly at
+  its scale is now a typed comparison of 128-bit unscaled values (`Predicate.CompareDecimal`), which
+  the generator emits; a literal with more fractional digits than the column, and decimal arithmetic,
+  keep the exact general path. `DecimalGeneratedPathTest` holds the generated and interpreted
+  answers equal. The finding's other half -- a restart compiling every distinct chain serially -- is
+  not changed: it is a start-up cost still to be measured before it is worth parallelising.
+- **`IN` lists reach the source (INLIST-1).** The pushdown extractor sent a source column-against-
+  literal comparisons joined by `AND` and nothing OR'd, so `WHERE id IN (7, 8, 9)` was filtered only
+  in the engine. An `IN` of up to 64 literals on one column is now the request's one disjunction --
+  an equality per value -- which the sources that push filters already honour: `jdbc` as `(id = ? OR
+  id = ? ...)`, `cassandra` as a read per partition when the column is part of the partition key,
+  `aerospike` as an OR expression. A second `IN` in the same `WHERE`, and `NOT IN`, stay with the
+  engine; the engine keeps its own filter either way. `PushdownEquivalenceTest` holds the answers
+  equal with the lists pushed.
+- **Waiting for a dropped query's rows no longer waits out the timeout (LIFE-067).** A row a
+  producer handed over as the query was dropped -- after its lane had drained and stopped -- was
+  never applied, and `awaitApplied` (the embedded engine's and the tests' way to wait for a push to
+  land) waited for the inbox to empty until its timeout ran out. A stopped or failed lane now
+  answers at once, and so do the lane group and the query's execution. This is the likely cause of
+  the one-off gate failure, where a feeder pushing into a dropped query outlived the test's
+  five-second wait inside a ten-second one; the mechanism is reproduced deterministically at the
+  lane (`LaneTest`), and `LifeDropTest` now repeats the race forty times and prints the feeder's
+  stack if it ever hangs.
+- **A Cassandra token-range reader stopped inside a wide partition reads the rest of it (CASS-1).**
+  The reader resumed its pass -- after a restart, or after a page failed -- with `token(pk) > <last
+  token>`, so a stop part way through a partition's clustering rows skipped the rest of that
+  partition until the next full pass. It resumes with `>=`, re-reading that partition from its first
+  row (at `+1`, as every pass re-reads every row; `deletes: detect` restarts its pass and was not
+  affected). `TokenRangeScanReaderTest`.
+- **The PostgreSQL gateway's password with engine accounts on, verified and said (PGWIREPASS-1).**
+  With the engine's own accounts on (ADR-052) the gateway accepts an API key or a session token as
+  the password -- verified through the same transport verifier as Flight -- and refuses the account's
+  own password, a revoked key and a session that must change its password first, each with SQLSTATE
+  `28P01`. Nothing needed fixing; `PgWireSignInTest` now signs in with a real PostgreSQL driver both
+  ways, and the pgwire, clients and power-bi topics say which credential the password is.
+- **`/validate` judges a whole `CREATE CONTINUOUS QUERY` statement (VALIDATEREG-1).** It planned only
+  a `SELECT`, so a key or index naming a column the view would not have (`PRV-2071`, `PRV-2074`), a
+  sink the caller may not see or whose shape, key or changelog does not fit, a taken name or an
+  unknown `WITH` option passed it and was refused only on register. Given the statement, it runs
+  registration's own reading and preparation without registering -- nothing is started, no sink is
+  opened, no name is taken -- and answers every refusal as a diagnostic, with the view's columns as
+  `outputFields`. The Python SDK's `validate`, `pravaha validate` and the assistant's drafting use it;
+  the assistant falls back to its own checks against an older engine. A plain `SELECT` is validated
+  as before. `ValidateRegistrationTest`, `test_assist_drafting`.
+- **Which access path a view's reads took is visible (IDXVIS-1).** The view counted reads by the
+  whole key, by a `RANGE` run, by an `INDEX (column)` probe and by scan, and nothing a user could
+  reach read the counts. `GET /api/v1/queries/{name}` now carries `accessPaths` (`point`, `range`,
+  `index`, `scan`, and each index's entries), the console's query page shows them under "Reads of
+  its view", and `pravaha_query_view_reads_total{query,path}` counts them. Chosen over a field on
+  every read response, which would have changed three wire formats for a diagnostic.
+  `AccessPathsVisibleTest`, `PravahaMetricsTest`.
+- **Dropping one name of a shared computation drops the index only it declared (IDXSHR-1).** The
+  view kept an equality index a dropped name had declared until the next restart -- memory, never
+  a wrong answer. Each name's `INDEX (column)` is now counted against the names still answered by
+  the computation; a replacement carries the indexes its own name declared.
+  `SecondaryIndexRegistryTest`.
+- **A view's dependants include its alerts (ALERTDEPS-1).** `dependants` in `GET
+  /api/v1/queries/{name}`, `QueryRegistry.dependantsOf` and the console's query page listed only the
+  queries over a view, although a drop or replace of it was already refused naming `ALERT x`. The
+  alerts now follow the queries, as `ALERT <name>`, each only where the caller may see that alert;
+  the console links them to the alert's page.
+- **An alert may not be called `channels` (ALERTPATH-1).** `/api/v1/alerts/channels` is the channel
+  list, so such an alert could not be reached, paused, snoozed or acknowledged by its own path.
+  `CREATE ALERT channels ...` is refused `PRV-8042`, naming the path. The channel list stays where it
+  is, so no caller changes.
+- **Answer-following subscriptions over the wire (SUBANSWERWIRE-1).** A subscription that follows
+  the view's answer — per commit, the rows a reader stopped seeing at `-1` and started seeing at
+  `+1`, so its weights sum to the view even for a keyed view that upserts — was reachable only
+  embedded (`SubscriptionOptions.followingTheAnswer()`). The Flight ticket now carries it, as two
+  new verbs (`subscribe.answer`, `subscribe.answer.snapshot`) an older server refuses rather than
+  misreads: `client.subscribe(view, changes="answer")` in Python, `subscribeToAnswer` and
+  `subscribeToAnswerFromSnapshot` in the Java SDK, `pravaha subscribe --answer`.
+  `JavaSdkAnswerSubscriptionTest`, SDK and CLI tests.
+- **A `DECIMAL` group key and `COUNT(DISTINCT decimal)` work without a window too (DECKEYGROUP-1).**
+  A read of a view grouping by a decimal column or counting its distinct values, and a continuous
+  query over a view grouping by one, were refused `PRV-3020` (the continuous query at registration,
+  `PRV-2075`), where windowed aggregates had handled both since WINDECKEY-1. The grouped and
+  unwindowed aggregates now carry the whole unscaled value as their key and distinct value, through
+  checkpoints (a new distinct-value tag; a checkpoint without one is unchanged).
+  `DecimalGroupKeyReadTest`, `DecimalGroupKeyChainTest`.
+- **A window past its lateness is never fired again, and a fired window holds nothing it cannot
+  need (EMIT-1).** What a fired window published is kept, per group, only while the window can
+  still be corrected, and let go on every watermark advance once its lateness passes — it used to
+  go only when an advance happened to release a slice, so a hopping window closed with no lateness
+  could be fired again as a "correction" by a row on time for the next window it overlaps. With no
+  allowed lateness, the default, nothing is kept per group at all, not even while the window
+  fires. A late row within lateness now corrects a window that fired empty too. `LateDataTest`.
+- **A correction is published at the next commit (EMIT-2).** A late row within allowed lateness is
+  applied at once; its retraction and corrected row used to wait for the next watermark advance,
+  which on a quiet stream moves only with later rows. They are now published with the query's
+  next commit. `CONTINUOUS_QUERIES.md` §6 says so, and what lateness costs in heap.
+- **An upsert sink holds the row the view shows (SINKKEYROWS-1).** A keyed view keeps every
+  distinct row of a key and shows the newest; retracting that row shows the one behind it again. A
+  keyed sink in upsert mode (`jdbc-sink`, `kafka-sink`, `delta-sink`, `iceberg-sink`,
+  `aerospike-sink`) was handed the changelog, whose only change for that commit was the retraction,
+  so it deleted the key's record while the view still showed a row. Such a sink is now handed how
+  the answer changed at each commit — the row that left the key, then the row that entered it — as
+  an answer-following subscription is (KEYEDWT-1), so its last word on every key is the view's. A
+  sink in changelog mode still receives the changelog verbatim, a row retention ages out is still
+  never deleted from a sink, and the exactly-once protocol is unchanged (the answer is delivered
+  inside the same commit, before a checkpoint's cut). Reproduced against `jdbc-sink` (H2) and
+  `kafka-sink` (Kafka's `MockProducer`): `UpsertSinkKeyRowsTest`, `JdbcSinkRegistrationTest`,
+  `KafkaUpsertKeyRowsTest`.
 - **A total past 2^63 stops by name instead of wrapping (SUMWRAP-1).** Every `SUM`, `COUNT` and
   `AVG` accumulator — unwindowed, grouped, windowed (per slice and when a window's slices are
   combined), a pushed-down partial, and the read path — adds with checked arithmetic, and a
@@ -79,8 +192,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   eighteen digits or fewer — so the `GROUP BY` failed with an uncoded "is DECIMAL, not INT64" and
   `COUNT(DISTINCT price)` counted `1.50` and `2.75` as one. Both now use the whole unscaled value,
   through the off-heap state and checkpoints (a new key tag; a checkpoint without decimal keys is
-  unchanged). The unwindowed and grouped aggregates still refuse a decimal key or distinct value by
-  name (`PRV-3020`), as before.
+  unchanged). The unwindowed and grouped aggregates followed in DECKEYGROUP-1.
 - **A restore that fails half-way leaves nothing behind (RESTOREPART-1).** A checkpoint is restored
   lane by lane, operator by operator, then the view; when a later part was refused, the earlier parts
   stayed restored while the query started from the beginning of its sources — counting every row
@@ -492,7 +604,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   help topic *Observability*.
 
 
-Register: **466 findings — 415 fixed, 37 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **467 findings — 431 fixed, 22 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ---
 

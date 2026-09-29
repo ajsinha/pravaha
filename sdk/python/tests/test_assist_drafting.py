@@ -261,7 +261,12 @@ def test_a_draft_the_engine_accepts(tmp_path, engine):
     assert draft.inputs == ("orders",) and len(draft.turns) == 1 and draft.repairs == 0
     assert draft.answered_by["modelId"] == "m" and draft.tokens > 0
     assert draft.prompt == "draft_query@v1"
-    assert engine.calls("/api/v1/queries/validate") == [{"sql": WINDOWED}]
+    # The SELECT, then the whole statement -- which this engine, older than VALIDATEREG-1, cannot
+    # read, so the assistant made the registration checks itself.
+    validated = engine.calls("/api/v1/queries/validate")
+    assert validated[0] == {"sql": WINDOWED}
+    assert validated[1]["sql"].startswith("CREATE CONTINUOUS QUERY orders_per_minute")
+    assert len(validated) == 2
     statement = draft.statement()
     assert statement.startswith("CREATE CONTINUOUS QUERY orders_per_minute\n  KEYED BY "
                                 "(window_end, customer)")
@@ -345,6 +350,24 @@ def test_a_key_the_select_does_not_produce_is_refused_before_it_is_called_accept
     assert draft.turns[0].verdict.by == "assistant" and draft.turns[0].verdict.code == "PRV-2071"
     assert "'minute'" in (draft.turns[0].verdict.message or "")
     assert "PRV-2071" in router.provider("m").requests[1].messages[-1].content
+
+
+def test_an_engine_that_reads_the_statement_judges_the_registration_itself(tmp_path, engine):
+    # VALIDATEREG-1: the whole CREATE CONTINUOUS QUERY goes to /validate, and the engine's refusal
+    # -- here a key the view would not have -- is the verdict, in its words, not the assistant's.
+    engine.reads_statements = True
+    engine.statement_rule = lambda sql: (("PRV-2071", "KEYED BY names 'minute', which the view "
+                                          "does not have") if "minute" in sql else None)
+    assistant, _ = assistant_for(tmp_path, engine, [answer(keys=["minute", "customer"])])
+    draft = assistant.draft("orders per customer per minute", max_repairs=0)
+    assert draft.status == "refused"
+    assert draft.verdict.by == "engine" and draft.verdict.code == "PRV-2071"
+    assert "which the view does not have" in (draft.verdict.message or "")
+
+    engine.statement_rule = None
+    assistant, _ = assistant_for(tmp_path, engine, [answer(sink="payroll_out")])
+    draft = assistant.draft("orders per customer per minute", max_repairs=0)
+    assert draft.status == "accepted" and draft.verdict.by == "engine"
 
 
 def test_a_sink_the_caller_cannot_see_is_refused(tmp_path, engine):

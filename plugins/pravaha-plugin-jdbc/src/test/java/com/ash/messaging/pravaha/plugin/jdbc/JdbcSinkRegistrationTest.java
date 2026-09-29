@@ -224,6 +224,40 @@ class JdbcSinkRegistrationTest {
                 .containsExactly("3|425");
     }
 
+    /**
+     * SINKKEYROWS-1: a keyed view holding two rows of a key shows the newer (VIEWW-1); retracting it
+     * shows the older again. The changelog of that commit is the retraction alone, and the table
+     * deleted the key. Fed the answer, the table holds the row the view shows.
+     */
+    @Test
+    void retractingTheShownRowOfAKeyWithTwoRowsLeavesTheTableHoldingTheRowBehindIt() throws Exception {
+        QueryRegistry registry = checkpointed(new JdbcSinks().bind("latest_table", LATEST));
+        RegisteredQuery query =
+                registry.registerWritingTo("latest_amount", LATEST_SQL, List.of(0), DANA, "latest_table");
+
+        feed(query, "u1", 10L, 1L);
+        query.commit();
+        feed(query, "u1", 20L, 1L);
+        feed(query, "u2", 5L, 1L);
+        query.commit();
+        checkpointerOf(query).checkpointNow();
+        assertThat(latest()).containsExactly("u1|20", "u2|5");
+
+        feed(query, "u1", 20L, -1L);
+        query.commit();
+        checkpointerOf(query).checkpointNow();
+
+        assertThat(query.view().scan())
+                .as("the view went back to the row behind the one retracted")
+                .anySatisfy(row -> assertThat(row).containsExactly("u1", 10L));
+        assertThat(latest()).as("the table holds what the view shows").containsExactly("u1|10", "u2|5");
+
+        feed(query, "u1", 10L, -1L);
+        query.commit();
+        checkpointerOf(query).checkpointNow();
+        assertThat(latest()).containsExactly("u2|5");
+    }
+
     @Test
     void withoutCheckpointsEachViewCommitIsItsOwnTransaction() throws Exception {
         QueryRegistry registry = new QueryRegistry(new ViewCatalog(), TXN)
@@ -286,6 +320,10 @@ class JdbcSinkRegistrationTest {
     }
 
     private void feed(RegisteredQuery query, String user, long amount) {
+        feed(query, user, amount, 1L);
+    }
+
+    private void feed(RegisteredQuery query, String user, long amount, long weight) {
         RowLayout layout = RowLayout.of(TXN);
         BinaryRowWriter writer = new BinaryRowWriter(layout);
         BinaryRowView view = new BinaryRowView(layout);
@@ -293,7 +331,7 @@ class JdbcSinkRegistrationTest {
         writer.begin(arena.regionOf(handle), arena.offsetOf(handle));
         writer.setString(0, user);
         writer.setLong(1, amount);
-        writer.weight(1L).eventTimestampNanos(0).sequence(0).commit();
+        writer.weight(weight).eventTimestampNanos(0).sequence(0).commit();
         arena.trimTo(handle, writer.sizeSoFar());
         query.accept(view.wrap(arena.regionOf(handle), arena.offsetOf(handle)));
         query.awaitApplied(Duration.ofSeconds(10));

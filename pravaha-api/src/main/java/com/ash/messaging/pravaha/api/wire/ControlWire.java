@@ -384,6 +384,51 @@ public final class ControlWire {
      */
     public static final String SUBSCRIBE_FROM_SNAPSHOT = "subscribe.snapshot";
 
+    /**
+     * The first field of a subscription ticket that follows the view's answer rather than its
+     * changelog (SUBANSWERWIRE-1, KEYEDWT-1): each commit as the rows a reader stopped seeing at
+     * {@code -1} and the rows a reader started seeing at {@code +1}, so the weights sum to exactly
+     * the rows the view shows -- which for a keyed view that upserts the changelog does not.
+     *
+     * <p>A verb of its own, as {@link #SUBSCRIBE_FROM_SNAPSHOT} is: a server that does not know it
+     * refuses the ticket rather than quietly handing the changelog to a client that asked for the
+     * answer.
+     */
+    public static final String SUBSCRIBE_ANSWER = "subscribe.answer";
+
+    /** {@link #SUBSCRIBE_ANSWER} starting from the answer's snapshot: each row a reader sees, once. */
+    public static final String SUBSCRIBE_ANSWER_FROM_SNAPSHOT = "subscribe.answer.snapshot";
+
+    /** Whether {@code verb} opens a subscription of any kind. */
+    public static boolean isSubscribeVerb(String verb) {
+        return SUBSCRIBE.equals(verb)
+                || SUBSCRIBE_FROM_SNAPSHOT.equals(verb)
+                || SUBSCRIBE_ANSWER.equals(verb)
+                || SUBSCRIBE_ANSWER_FROM_SNAPSHOT.equals(verb);
+    }
+
+    /** Whether a subscription opened with {@code verb} starts from a snapshot. */
+    public static boolean startsFromSnapshot(String verb) {
+        return SUBSCRIBE_FROM_SNAPSHOT.equals(verb) || SUBSCRIBE_ANSWER_FROM_SNAPSHOT.equals(verb);
+    }
+
+    /** Whether a subscription opened with {@code verb} follows the answer rather than the changelog. */
+    public static boolean followsAnswer(String verb) {
+        return SUBSCRIBE_ANSWER.equals(verb) || SUBSCRIBE_ANSWER_FROM_SNAPSHOT.equals(verb);
+    }
+
+    /**
+     * A subscription ticket of any kind: {@code answer} for the answer rather than the changelog,
+     * {@code snapshot} to start from the view's state; {@code preference} may be null.
+     */
+    public static byte[] subscribeTicket(
+            String view, List<String> filterPairs, SubscriberPreference preference, boolean snapshot, boolean answer) {
+        String verb = answer
+                ? (snapshot ? SUBSCRIBE_ANSWER_FROM_SNAPSHOT : SUBSCRIBE_ANSWER)
+                : (snapshot ? SUBSCRIBE_FROM_SNAPSHOT : SUBSCRIBE);
+        return ticket(verb, view, filterPairs, preference);
+    }
+
     /** The ticket a subscriber returns with: a view name, then alternating filter column and value. */
     public static byte[] subscribeTicket(String view, List<String> filterPairs) {
         return ticket(SUBSCRIBE, view, filterPairs, null);

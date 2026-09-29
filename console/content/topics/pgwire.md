@@ -30,7 +30,7 @@ It is **read-only**, and **off by default**.
 | Announces itself as | PostgreSQL `9.4.26 (Pravaha)` — the version whose catalogue queries `psql` sends and the shim answers |
 | Catalogue | A minimal read-only `pg_catalog` (`pg_class`, `pg_namespace`, `pg_attribute`, `version()`, `current_schema()`), Npgsql's type loading (`pg_type`) and the `information_schema` questions Npgsql's `GetSchema` and Power BI's navigator ask — all filtered by what you may read — so `\d`, a driver's `getTables()` and Power BI's navigator work |
 | Tested clients | `psql`, pgjdbc 42.7 (simple and extended protocol) and **Npgsql 4.0.17** — the driver inside Power BI — each driven by the module's own tests. DBeaver connects through pgjdbc |
-| Authentication | The **password** is the node's credential (a bearer token under `authentication: token`); the user name is informational |
+| Authentication | The **password** is the node's credential (a bearer token under `authentication: token`); with the engine's own accounts on, an **API key** or a **session token** — never the account's own password (PGWIREPASS-1). The user name is informational |
 | Writes | None. `INSERT`/`UPDATE`/`DELETE` are refused by the planner; continuous-query statements with PRV-6211 (SQLSTATE `25006`) |
 | TLS | `pravaha.pgwire.tls.certificate` and `pravaha.pgwire.tls.key` (PEM chain, PKCS#8 key): the gateway then answers `SSLRequest` on the same port. **Off until both are set** — see below |
 
@@ -97,6 +97,15 @@ Type "help" for help.
 
 pravaha=>
 ```
+
+**With the engine's own accounts on** ([authentication](/help/topics/authentication)), the password
+is one of two things, and both are verified exactly as Flight verifies them: an **API key**
+(`prv_k_…`, from `pravaha key create` or Admin · Keys) — the one to give a BI tool, since it lives for
+its days rather than a sign-in's hours — or a **session token** (`prv_s_…`, from `pravaha login`),
+which stops working when the session ends. The account's own password is **not** accepted here, nor is
+a revoked or expired key; each fails the sign-in with `28P01`. A session held back to change its
+password is refused too (PRV-7018): the gateway has no way to change it. `PgWireSignInTest` signs in
+with a real PostgreSQL driver both ways.
 
 The user name is informational: the **credential decides who you are**. If the token belongs to a
 different principal from the name you typed, the gateway says so rather than silently running as

@@ -322,9 +322,10 @@ Lateness belongs to windows. A stateless filter has nothing to be late for.
 
 ## Pitfalls
 
-- **A correction waits for event time to move.** Within allowed lateness a late reading changes the
-  window's state at once, but the corrected row is published at the next watermark advance. On a
-  quiet sensor that can be a while; a periodic heartbeat row per machine keeps it prompt.
+- **A correction is published at the next commit.** Within allowed lateness a late reading changes
+  the window's state at once, and the corrected row reaches the view with the query's next commit
+  (within the feed's publish interval). Before EMIT-2 it waited for the next watermark advance,
+  which on a quiet sensor could be a while.
 - **Allowed lateness makes the windowed answer revisable**, so the windowed view cannot feed an
   append-only sink (`PRV-2041`). Keep sinks on the filter, or use a sink that accepts retractions.
 - **A filter passes late rows.** `press-01-stale` became an alarm for a minute that had closed long

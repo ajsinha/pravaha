@@ -61,7 +61,9 @@ public final class MaintainedViews {
             TypeName.DATE,
             TypeName.TIME,
             TypeName.TIMESTAMP_LTZ,
-            TypeName.STRING);
+            TypeName.STRING,
+            // By its whole unscaled value (DECKEYGROUP-1).
+            TypeName.DECIMAL);
 
     private final Set<String> names;
 

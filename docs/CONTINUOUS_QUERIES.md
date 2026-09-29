@@ -1053,8 +1053,8 @@ exactly as to any view — applied if the view carries the column, refused `PRV-
 aggregated away (`CONCEPTS.md` §6). Only views registered by your own tenant can be read this way;
 another tenant's is a name that does not exist.
 
-`GET /api/v1/queries/{name}` reports `readsFrom` and `dependants`, and the console's query page links
-them. A downstream costs one entry per upstream row for what it has consumed, sharing the upstream's
+`GET /api/v1/queries/{name}` reports `readsFrom` and `dependants` (queries first, then the alerts on the
+view as `ALERT <name>` — ALERTDEPS-1), and the console's query page links them. A downstream costs one entry per upstream row for what it has consumed, sharing the upstream's
 own row arrays.
 
 ---
@@ -1288,6 +1288,20 @@ Allowed lateness is the stream's: `allowed-lateness` under `pravaha.streams.<nam
 `allowedLateness` on `POST /api/v1/streams`), zero by default, which makes a window final when it
 closes and drops a row that arrives after. Until HLP-7 a server had no way to set it, so the
 correction above could only happen in an embedded engine.
+
+**A correction is published at the query's next commit** (EMIT-2): the late row is applied to the
+window's state when it arrives, and the retraction and the corrected row reach the view and its
+subscribers with the commit after it — within the feed's publish interval — not at the next
+watermark advance. (It used to wait for the watermark, which moves only with later rows, so on a
+quiet stream a correction could wait indefinitely.)
+
+**What a correction costs.** To retract a window's answer exactly, the engine keeps what the window
+published, per group, from when it fires until its lateness has passed, and then lets it go on the
+next watermark advance; with no allowed lateness, the default, nothing is kept at all, because a
+fired window can never be corrected (EMIT-1). So allowed lateness is heap in proportion to the
+groups of the windows still correctable: a window's published rows × (lateness ÷ slide) windows. A
+window whose lateness has passed is never fired again, even by a row on time for a later window it
+shares a slice with.
 
 This is what `weight` means, and it is why the engine can be incremental at all
 ([`CONCEPTS.md`](CONCEPTS.md) §4).
@@ -1590,7 +1604,9 @@ SHOW   CONTINUOUS QUERIES
   ([ADR-055](adr/055-an-equality-index-over-a-column-outside-the-key.md)). It is maintained in the
   view's own commit, from the row the view held rather than from the retraction that replaced it,
   so it is never a step behind the view; it is written down with the registration and comes back
-  with it after a restart, rebuilt over whatever a checkpoint restored. One column per clause — a
+  with it after a restart, rebuilt over whatever a checkpoint restored. Names sharing one computation
+  share its view and every index any of them declared; dropping one name lets go at once of an index
+  only that name declared (IDXSHR-1). One column per clause — a
   list would read as a composite index, which this is not (`PRV-2070`) — and at most four per view.
   Refused at registration with `PRV-2074`: `FLOAT`, `DECIMAL` and `BYTES`, whose equality in a
   `WHERE` clause is not the equality of their stored values (`0.0` and `-0.0`; `1.0` and `1.00`),
@@ -1837,6 +1853,7 @@ Rewrite the filter as a range comparison, or join against a table of values inst
 | `SUM` or `AVG` over a text column | ❌ | `PRV-2020`, naming the column — the same code the float-accumulator refusal carries, because it is the same kind of answer: the accumulator takes a number and this operand is not one. SQL would otherwise cast the column to `DECIMAL(38,19)` on your behalf, and the refusal you got was about decimal arithmetic in a ledger rather than about summing text (TY-16) |
 | Renaming a window column — `window_end AS hour_end` | ❌ | `PRV-2050`: the window columns must keep their names. Project `window_start` and `window_end` under their own names (or `window_end AS window_end`) and rename them downstream |
 | `COUNT(DISTINCT x)` | ✅ | Windowed. Over an unwindowed stream it is refused `PRV-2050`, like any other unbounded key space. Of a `DECIMAL` column each value is its whole unscaled value, as it is for a windowed `GROUP BY` on one; until WINDECKEY-1 both read only the high half, so the `GROUP BY` failed "is DECIMAL, not INT64" and the count took `1.50` and `2.75` for one value |
+| `GROUP BY` on a `DECIMAL` column, and `COUNT(DISTINCT)` of one, without a window | ✅ | On a read of a view, and — the `GROUP BY` — in a continuous query over a view (§3.1): by the whole unscaled value, through checkpoints, as in a window. Until DECKEYGROUP-1 both were refused `PRV-3020` (and the continuous `GROUP BY` `PRV-2075`) |
 | Aggregate over an expression — `SUM(amount * 2)` | ✅ | |
 | `HAVING` on an aggregate | ✅ | |
 | `GROUP BY key` **without** a window, over a stream | ❌ | `PRV-2050` — unbounded state |

@@ -27,7 +27,11 @@ CREATE ALERT low_stock_alert ON low_stock
   WITH (severity = 'warning', dedupe = '10m', include = (on_hand, reorder_point));
 ```
 
-- **`ON`** names a registered query's view (under the catalogue, `namespace.view` too).
+- **The alert's name** shares the namespace of queries (PRV-8041) and may not be `channels`, which
+  is the path of the channel list (`/api/v1/alerts/channels`): PRV-8042 (ALERTPATH-1).
+- **`ON`** names a registered query's view (under the catalogue, `namespace.view` too). The view's
+  page, and `dependants` in `GET /api/v1/queries/{name}`, list the alert as `ALERT <name>`
+  (ALERTDEPS-1).
 - **`WHERE`** narrows it: comparisons of the view's own columns with literals (`=`, `!=`, `<`, `<=`,
   `>`, `>=`, `IS [NOT] NULL`) joined by `AND`. Anything richer — `OR`, arithmetic, two columns — is
   a question: register it as a query over the view and alert on that.

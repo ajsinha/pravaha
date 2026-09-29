@@ -208,7 +208,8 @@ public final class PravahaPgWireServer implements AutoCloseable {
         if (listener != null) {
             throw new IllegalStateException("this server is already started on port " + port());
         }
-        ViewQuery queries = new ViewQuery(catalog, policy, audit, admission, readDeadline);
+        // AVG of an integer as numeric, as a PostgreSQL client expects (AVGINT-1).
+        ViewQuery queries = new ViewQuery(catalog, policy, audit, admission, readDeadline).withNumericAverages();
         PgCatalogShim catalogShim = new PgCatalogShim(catalog, policy, oids, SERVER_VERSION);
         try {
             ServerSocket bound = new ServerSocket();

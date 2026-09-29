@@ -689,6 +689,18 @@ public final class ServedView {
         }
     }
 
+    /**
+     * Stops keeping the equality index over {@code ordinal}, and lets go of its entries (IDXSHR-1):
+     * called when no registration answered by this view declares it any more. Nothing when none is
+     * kept.
+     */
+    public synchronized void dropIndex(int ordinal) {
+        EqualityIndex<Key> index = equalityIndexes.remove(ordinal);
+        if (index != null) {
+            index.clear();
+        }
+    }
+
     /** The columns an equality index is kept over, in the order they were declared. */
     public synchronized List<Integer> indexedColumns() {
         return List.copyOf(equalityIndexes.keySet());
@@ -1112,6 +1124,15 @@ public final class ServedView {
     private List<Object[]> entering;
 
     /**
+     * {@link #leaving} and {@link #entering} as they stood before this commit's first eviction, or
+     * null when nothing aged out: the answer change a sink is handed, to which eviction stays silent
+     * (SINKKEYROWS-1).
+     */
+    private List<Object[]> keptLeaving;
+
+    private List<Object[]> keptEntering;
+
+    /**
      * Hands {@code listener} the committed answer now, and every change to it after, from inside
      * the critical section of each commit (ADR-056).
      *
@@ -1147,6 +1168,9 @@ public final class ServedView {
         leaving = null;
         entering = null;
         lastAnswer = AnswerChanges.handOver(answerListeners, left, entered, frontier);
+        lastRetained = keptLeaving == null ? lastAnswer : AnswerChanges.net(keptLeaving, keptEntering);
+        keptLeaving = null;
+        keptEntering = null;
     }
 
     /**
@@ -1166,6 +1190,16 @@ public final class ServedView {
     synchronized AnswerChanges.Netted takeAnswer() {
         AnswerChanges.Netted taken = lastAnswer;
         lastAnswer = null;
+        return taken;
+    }
+
+    /** The last commit's answer change with nothing aged out, for a sink (SINKKEYROWS-1); null when none. */
+    private AnswerChanges.Netted lastRetained;
+
+    /** Takes {@link #lastRetained}, as {@link #takeAnswer} takes the answer. */
+    synchronized AnswerChanges.Netted takeRetainedAnswer() {
+        AnswerChanges.Netted taken = lastRetained;
+        lastRetained = null;
         return taken;
     }
 
@@ -1232,6 +1266,10 @@ public final class ServedView {
                         index.remove(key, entry.getValue());
                     }
                     entries.remove();
+                    if (leaving != null && keptLeaving == null) {
+                        keptLeaving = new ArrayList<>(leaving);
+                        keptEntering = new ArrayList<>(entering);
+                    }
                     // A row that entered in this very commit never reached the answer: it leaves
                     // the entering list rather than being handed over as both.
                     if (leaving != null && !entering.remove(entry.getValue())) {

@@ -942,6 +942,12 @@ public final class QueryExecution implements AutoCloseable {
                 checkHealth();
                 return true;
             }
+            if (lanes.halted()) {
+                // Stopped -- a drop, a close -- or failed: nothing more will be applied, so the
+                // caller is answered now rather than at its deadline (LIFE-067).
+                checkHealth();
+                return false;
+            }
         }
         checkHealth();
         return false;

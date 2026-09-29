@@ -179,7 +179,15 @@ public final class PredicateCompiler {
         // column-against-literal shapes below read a fixed-width primitive, which a 128-bit
         // decimal is not, and would read a decimal literal as a double.
         if (isDecimal(left) || isDecimal(right)) {
-            return compareExpressions(call, op);
+            // A decimal column against a decimal literal it can hold exactly: a typed comparison the
+            // code generator emits (CG-1). Anything else -- arithmetic, a cast, a literal with more
+            // fractional digits than the column -- is compared by the general path.
+            Predicate typed = left instanceof RexInputRef ref && right instanceof RexLiteral literal
+                    ? decimalAgainstLiteral(ref.getIndex(), op, literal)
+                    : left instanceof RexLiteral literal && right instanceof RexInputRef ref
+                            ? decimalAgainstLiteral(ref.getIndex(), flip(op), literal)
+                            : null;
+            return typed != null ? typed : compareExpressions(call, op);
         }
 
         // Column against literal, in either order, first: those are the shapes the code generator
@@ -252,6 +260,37 @@ public final class PredicateCompiler {
                 : expressions.compile(call.getOperands().get(1));
         rejectTextOrdering(call, op, left, right);
         return new Predicate.CompareExpressions(left, op, right);
+    }
+
+    /**
+     * {@code column op literal} over a DECIMAL column as a {@link Predicate.CompareDecimal}, or null
+     * when the literal is not exactly representable at the column's scale in 128 bits, or either side
+     * is not a plain decimal.
+     */
+    private Predicate decimalAgainstLiteral(int ordinal, Predicate.Op op, RexLiteral literal) {
+        if (!(schema.field(ordinal).type() instanceof com.ash.messaging.pravaha.api.data.DecimalType column)
+                || literal.isNull()
+                || literal.getType().getSqlTypeName() != org.apache.calcite.sql.type.SqlTypeName.DECIMAL) {
+            return null;
+        }
+        java.math.BigDecimal value = literal.getValueAs(java.math.BigDecimal.class);
+        if (value == null) {
+            return null;
+        }
+        try {
+            int scale = column.scale();
+            return new Predicate.CompareDecimal(
+                    ordinal,
+                    columnName(ordinal),
+                    op,
+                    com.ash.messaging.pravaha.common.row.Decimals.high(value, scale),
+                    com.ash.messaging.pravaha.common.row.Decimals.low(value, scale),
+                    scale);
+        } catch (ArithmeticException notExact) {
+            // More fractional digits than the column has, or past 128 bits: the general path
+            // compares it exactly without rescaling it into a shape it does not fit.
+            return null;
+        }
     }
 
     private static boolean isDecimal(RexNode node) {

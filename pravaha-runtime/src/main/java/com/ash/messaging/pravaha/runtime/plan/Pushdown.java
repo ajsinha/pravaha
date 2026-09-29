@@ -41,9 +41,15 @@ import com.ash.messaging.pravaha.api.plugin.SourceCapabilities;
  * <p>What is extracted is a conjunction of column-against-literal comparisons. A disjunction is not:
  * {@code a = 1 OR b = 2} cannot be weakened into separate ANDed filters without dropping rows, and
  * pushing one half alone would drop the rows that satisfy only the other. Rather than reason about
- * that per store, an OR is simply not pushed.
+ * that per store, an OR is simply not pushed -- with one exception: an {@code IN} list, an OR of
+ * equalities on one column, is sent whole as the request's one disjunction ({@link
+ * ReadRequest#alternatives()}, INLIST-1), which every source that pushes filters already honours or
+ * ignores as a whole. One list per request; a second is left to the engine.
  */
 public final class Pushdown {
+
+    /** The longest IN list sent to a source; a longer one stays in the engine. */
+    static final int MAX_IN_LIST = 64;
 
     private Pushdown() {}
 
@@ -67,8 +73,12 @@ public final class Pushdown {
             return ReadRequest.NOTHING;
         }
         List<ReadRequest.Filter> filters = new ArrayList<>();
-        collect(plan, stream, filters);
-        return filters.isEmpty() ? ReadRequest.NOTHING : new ReadRequest(filters);
+        List<List<ReadRequest.Filter>> alternatives = new ArrayList<>();
+        collect(plan, stream, filters, alternatives);
+        if (filters.isEmpty() && alternatives.isEmpty()) {
+            return ReadRequest.NOTHING;
+        }
+        return new ReadRequest(filters, List.of(), List.of(), alternatives);
     }
 
     /**
@@ -79,13 +89,17 @@ public final class Pushdown {
      * ones; both would push a predicate that means something else. The conservative reading costs a
      * missed optimisation, and the other reading costs correct answers.
      */
-    private static void collect(PhysicalOperator operator, String stream, List<ReadRequest.Filter> into) {
+    private static void collect(
+            PhysicalOperator operator,
+            String stream,
+            List<ReadRequest.Filter> into,
+            List<List<ReadRequest.Filter>> alternatives) {
         if (operator instanceof FilterOperator filter && readsOnly(filter.input(), stream)) {
-            flatten(filter.predicate(), into);
-            collect(filter.input(), stream, into);
+            flatten(filter.predicate(), into, alternatives);
+            collect(filter.input(), stream, into, alternatives);
             return;
         }
-        operator.inputs().forEach(input -> collect(input, stream, into));
+        operator.inputs().forEach(input -> collect(input, stream, into, alternatives));
     }
 
     /** How many times the plan scans the named stream. */
@@ -114,9 +128,17 @@ public final class Pushdown {
      * arrive at all, and nothing downstream can tell. So every case that is not obviously the first
      * kind falls through to nothing.
      */
-    private static void flatten(Predicate predicate, List<ReadRequest.Filter> into) {
+    private static void flatten(
+            Predicate predicate, List<ReadRequest.Filter> into, List<List<ReadRequest.Filter>> alternatives) {
         switch (predicate) {
-            case Predicate.And and -> and.parts().forEach(part -> flatten(part, into));
+            case Predicate.And and -> and.parts().forEach(part -> flatten(part, into, alternatives));
+            case Predicate.Or or
+            when alternatives.isEmpty() -> {
+                // INLIST-1: an IN list -- equalities on one column -- as the one disjunction a request
+                // carries. Anything else OR'd stays in the engine, as before.
+                List<ReadRequest.Filter> values = inList(or);
+                values.forEach(value -> alternatives.add(List.of(value)));
+            }
             case Predicate.CompareLong c -> into.add(filter(c.columnName(), c.op(), c.value()));
             case Predicate.CompareInt c -> into.add(filter(c.columnName(), c.op(), c.value()));
             case Predicate.CompareDouble c -> into.add(filter(c.columnName(), c.op(), c.value()));
@@ -133,6 +155,32 @@ public final class Pushdown {
             // column-and-literal shape to send. All three simply stay in the engine.
             default -> {}
         }
+    }
+
+    /** Each term of an OR of equalities on one column, or empty when {@code or} is anything else. */
+    private static List<ReadRequest.Filter> inList(Predicate.Or or) {
+        if (or.parts().size() < 2 || or.parts().size() > MAX_IN_LIST) {
+            return List.of();
+        }
+        List<ReadRequest.Filter> values = new ArrayList<>(or.parts().size());
+        for (Predicate part : or.parts()) {
+            ReadRequest.Filter equality =
+                    switch (part) {
+                        case Predicate.CompareLong c
+                        when c.op() == Predicate.Op.EQ -> filter(c.columnName(), c.op(), c.value());
+                        case Predicate.CompareInt c
+                        when c.op() == Predicate.Op.EQ -> filter(c.columnName(), c.op(), c.value());
+                        case Predicate.CompareString c
+                        when c.op() == Predicate.Op.EQ -> filter(c.columnName(), c.op(), c.value());
+                        default -> null;
+                    };
+            if (equality == null
+                    || (!values.isEmpty() && !values.get(0).column().equals(equality.column()))) {
+                return List.of();
+            }
+            values.add(equality);
+        }
+        return values;
     }
 
     private static ReadRequest.Filter filter(String column, Predicate.Op op, Object value) {

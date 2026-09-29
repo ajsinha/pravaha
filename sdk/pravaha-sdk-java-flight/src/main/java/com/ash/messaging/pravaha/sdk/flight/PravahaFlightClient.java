@@ -760,6 +760,30 @@ public final class PravahaFlightClient implements AutoCloseable {
         return subscribeFromSnapshot(view, Map.of(), onBatch);
     }
 
+    /**
+     * Watches how a view's <em>answer</em> changes, rather than its changelog (SUBANSWERWIRE-1).
+     *
+     * <p>Each batch is one commit as the rows a reader of the view stopped seeing, at weight {@code
+     * -1}, and the rows a reader started seeing, at {@code +1}. For a keyed view that upserts -- the
+     * latest row per key over a stream that only inserts -- the changelog {@link #subscribe} delivers
+     * is not that: a replaced row arrives with no {@code -1}, and a row retention evicts arrives as
+     * nothing, so its weights do not sum to the view (KEYEDWT-1). These do. A server older than this
+     * SDK refuses the subscription as a ticket it does not know.
+     */
+    public Subscription subscribeToAnswer(String view, Map<String, String> filters, Consumer<ChangeBatch> onBatch) {
+        return open(ControlWire.subscribeTicket(view, pairs(filters), preference, false, true), onBatch);
+    }
+
+    /**
+     * {@link #subscribeToAnswer}, starting from the answer as it stands: the first batch holds each
+     * row a reader of the view sees, once, at {@code +1}; every batch after it is a commit's change
+     * to the answer. The exact way to keep a copy of a keyed view over the wire.
+     */
+    public Subscription subscribeToAnswerFromSnapshot(
+            String view, Map<String, String> filters, Consumer<ChangeBatch> onBatch) {
+        return open(ControlWire.subscribeTicket(view, pairs(filters), null, true, true), onBatch);
+    }
+
     private static List<String> pairs(Map<String, String> filters) {
         List<String> pairs = new java.util.ArrayList<>();
         filters.forEach((column, value) -> {

@@ -80,7 +80,7 @@ public final class SourcePushdown {
         if (columns.isEmpty() && aggregates.isEmpty()) {
             return filterRequest;
         }
-        return new ReadRequest(filterRequest.filters(), columns, aggregates);
+        return new ReadRequest(filterRequest.filters(), columns, aggregates, filterRequest.alternatives());
     }
 
     // ---- projection ----
@@ -185,6 +185,7 @@ public final class SourcePushdown {
             case Predicate.CompareLong p -> Set.of(p.ordinal());
             case Predicate.CompareInt p -> Set.of(p.ordinal());
             case Predicate.CompareDouble p -> Set.of(p.ordinal());
+            case Predicate.CompareDecimal p -> Set.of(p.ordinal());
             case Predicate.CompareString p -> Set.of(p.ordinal());
             case Predicate.CompareBoolean p -> Set.of(p.ordinal());
             case Predicate.IsNull p -> Set.of(p.ordinal());

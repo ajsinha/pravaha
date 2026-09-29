@@ -462,9 +462,16 @@ public final class AlertService implements Alerting, AutoCloseable {
 
     @Override
     public List<String> followersOf(String view) {
+        return followersOf(view, null);
+    }
+
+    /** {@link #followersOf(String)}, those {@code principal} may see; every one when it is null. */
+    @Override
+    public List<String> followersOf(String view, Principal principal) {
         List<String> followers = new ArrayList<>();
         for (Alert alert : alerts.values()) {
-            if (alert.definition().view().equals(view)) {
+            if (alert.definition().view().equals(view)
+                    && (principal == null || access.maySee(principal, alert.definition()))) {
                 followers.add("ALERT " + alert.definition().name());
             }
         }
@@ -480,8 +487,18 @@ public final class AlertService implements Alerting, AutoCloseable {
     // ------------------------------------------------------------------ the statements
 
     /** {@code CREATE ALERT}. */
+    /** Names an alert may not take: the alert API's own literal paths (ALERTPATH-1). */
+    private static final java.util.Set<String> RESERVED_NAMES = java.util.Set.of("channels");
+
     public synchronized AlertStatus.Summary create(Principal principal, AlertStatement.Create statement) {
         String name = CatalogNames.part(statement.name(), "an alert's name");
+        if (RESERVED_NAMES.contains(name.toLowerCase(java.util.Locale.ROOT))) {
+            // ALERTPATH-1: GET /api/v1/alerts/channels is the channel list, so an alert of that name
+            // could never be reached by its own detail path, nor paused, snoozed or acknowledged there.
+            throw AlertOptions.invalid("'" + name + "' cannot name an alert: /api/v1/alerts/" + name + " is the "
+                    + "node's list of notifier channels, so the alert could not be reached by its own path. "
+                    + "Choose another name");
+        }
         Alert existing = alerts.get(name);
         if (existing != null) {
             if (statement.ifNotExists() && access.maySee(principal, existing.definition())) {

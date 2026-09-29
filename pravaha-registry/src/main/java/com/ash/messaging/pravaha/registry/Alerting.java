@@ -50,6 +50,14 @@ public interface Alerting {
     /** The alerts following {@code view}'s answer, as {@code ALERT <name>}; empty when none do. */
     List<String> followersOf(String view);
 
+    /**
+     * {@link #followersOf(String)}, only those {@code principal} may see (ALERTDEPS-1): a view's
+     * dependants as a caller is shown them name no alert the alert listing would not.
+     */
+    default List<String> followersOf(String view, Principal principal) {
+        return followersOf(view);
+    }
+
     /** Runs an alert statement as {@code principal}. */
     ViewQuery.Result execute(AlertStatement statement, Principal principal);
 }
