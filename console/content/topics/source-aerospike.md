@@ -10,6 +10,7 @@ audience: Operators
 keywords: [aerospike, lut-scan, deletes, detect, PRV-2042, repeats rows, deletes.max.keys, deletes.state.dir, retraction, last update time, scan, set, namespace, bins, expressions, pushdown, projection, share.reader, shared reader, xdr, community edition, tls.name]
 guide: continuous-queries#21-every-source-type-configured
 related: [sources-overview, lookups, connector-security, sink-aerospike, sharing]
+listed_on: sources-overview
 ---
 
 The `aerospike` plugin reads an Aerospike **set** as a stream by scanning it for records whose

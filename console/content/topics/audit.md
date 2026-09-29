@@ -9,7 +9,7 @@ badge: SECURITY
 audience: Operators
 keywords: [audit, audit trail, pravaha.security.audit, audit-file, audit-rotate-bytes, audit-keep, audit-recent, audit-readers, jsonl, "/api/v1/audit", mayReadAudit, http.audit.read, PRV-1051]
 guide: security#audit
-related: [authorization, authentication, row-filters, metrics-alerts]
+related: [authorization, authentication, row-filters-and-masks, observability]
 ---
 
 Every decision the policy makes is recorded — **allows as well as denials**. A log of refusals

@@ -9,7 +9,7 @@ badge: SECURITY
 audience: Operators
 keywords: [authorization, policy, permissive, authenticated, SecurityPolicy, mayRead, mayRegisterQuery, mayAdminister, mayReadAudit, audit-readers, permissions, PRV-7002, "/api/v1/me/permissions"]
 guide: security#authorization-is-enforced-here-not-in-the-store
-related: [authentication, row-filters, audit, sharing, query-lifecycle]
+related: [authentication, row-filters-and-masks, audit, sharing, query-lifecycle]
 ---
 
 Once [authentication](/help/topics/authentication) has named the caller, a **policy** decides what
@@ -166,7 +166,7 @@ about rows they are not entitled to. The CLI prints it as `-`.
 
 Two registrations with the same plan share one computation (see [sharing](/help/topics/sharing)) --
 but the fingerprint folds in the **row filters** the registrant's policy imposed. Two principals with
-the same entitlement share; two with different ones do not. See [row filters](/help/topics/row-filters).
+the same entitlement share; two with different ones do not. See [row filters](/help/topics/row-filters-and-masks).
 
 ## A policy of your own
 
@@ -234,6 +234,6 @@ rules and reading by the other.
 
 ## Where next
 
-- [Row filters](/help/topics/row-filters) — allow, but only these rows
+- [Row filters](/help/topics/row-filters-and-masks) — allow, but only these rows
 - [Audit](/help/topics/audit) — every decision this page describes, recorded
 - [Authentication](/help/topics/authentication) — where the principal comes from

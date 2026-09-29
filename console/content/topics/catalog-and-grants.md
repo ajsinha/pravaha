@@ -91,6 +91,25 @@ with rows. The same is `/api/v1/catalog/...` over REST, `pravaha catalog`, `prav
 `pravaha revoke` and `pravaha access why ana sales.revenue` on the command line, and the console's
 **Catalog → Objects and grants** tab and **Admin → Grants** editor. Every change is an audit event.
 
+## User attributes as claims {#user-attributes-as-claims}
+
+A grant is to a role or a user. What a [row filter or mask](/help/topics/row-filters-and-masks) may
+say about the reader goes further: `session_attribute('region')` reads a **claim** of the reader's
+credential. For a person the engine keeps, the claims are their **attributes**, set by an
+administrator:
+
+- in the console, **Admin · Users**, the Attributes column (`region=EU, desk=rates`);
+- `pravaha user attrs ann region=EU desk=rates` on the command line;
+- `PUT /api/v1/users/{username}/attributes` over HTTP.
+
+Every session and API key of that person presents them from their next call on; an API key carries
+exactly its holder's attributes, never more. A static token (`pravaha.security.tokens`) carries the
+`claims` configured for it. A policy that reads a claim the reader lacks refuses the read with
+`PRV-7039` rather than guess — so set the attribute before binding the filter that reads it. A person
+carries at most 32 attributes of up to 256 characters each, and the names the engine gives a
+credential's own claims (`via`, `session`, `key`, `mustChangePassword`) are refused. Changing an
+attribute is an audit event (`user.attributes_changed`), like a grant.
+
 ## What goes wrong
 
 - `PRV-7002` — a read, subscription or registration the grants do not allow. The message says which

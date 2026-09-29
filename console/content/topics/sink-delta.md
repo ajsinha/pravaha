@@ -10,6 +10,7 @@ audience: Engineers
 keywords: [delta sink, delta-sink, delta lake, lakehouse, kernel, parquet, upsert, changelog, exactly once, exactly-once, transaction.id, key.columns, staging.dir, OPTIMIZE, VACUUM, small files, copy-on-write, merge]
 guide: connectors#a-transactional-sink-on-a-format-with-no-delete-delta
 related: [sinks-overview, delivery-guarantees, source-delta, sink-jdbc, sink-kafka, checkpoints-recovery, zset-weights]
+listed_on: sinks-overview
 ---
 
 `delta-sink` keeps a **Delta Lake table** equal to a query's view. Each row the query commits is

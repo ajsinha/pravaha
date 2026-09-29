@@ -9,7 +9,7 @@ badge: GATEWAY
 audience: Analysts
 keywords: [power bi, powerbi, directquery, direct query, import, npgsql, fabric, eventstream, event hubs, on-premises data gateway, dashboard, navigator, "limit 1000001", PostgreSQL.Database, realtime, real-time]
 guide: architecture
-related: [pgwire, sink-kafka, tls, authentication, point-reads, zset-weights]
+related: [pgwire, sink-kafka, tls, authentication, views-and-keys, zset-weights]
 ---
 
 Power BI's built-in **PostgreSQL database** connector reads Pravaha views through the

@@ -10,6 +10,7 @@ audience: Operators
 keywords: [kafka, kafka source, topic, partition, offset, consumer, consumer group, monitoring.group, read_committed, isolation.level, exactly once, changelog, tombstone, json, avro, protobuf, schema registry, schema.file, schema.reader.file, schema resolution, schema evolution, aliases, nested record, schema.descriptor, schema.registry.url, confluent, karapace, apicurio, descriptor set, DynamicMessage, logical type, start.from, earliest, latest, retention, retention.ms, lag, sasl, scram, dead letter, PRV-5106, PRV-5108, PRV-5109]
 guide: connectors#a-replayable-source-kafka
 related: [sources-overview, sink-kafka, source-postgres-cdc, checkpoints-recovery, zset-weights, dead-letters, connector-security, delivery-guarantees]
+listed_on: sources-overview
 ---
 
 The `kafka` plugin reads a **Kafka topic as a stream**. Each partition of the topic gets its own

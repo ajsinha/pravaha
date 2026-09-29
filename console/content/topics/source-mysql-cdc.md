@@ -10,6 +10,7 @@ audience: Operators
 keywords: [mysql-cdc, cdc, change data capture, mysql, binlog, binary log, binlog_format, binlog_row_image, row-based replication, replica, server.id, binlog_expire_logs_seconds, truncate, debezium, retraction, delete]
 guide: connectors
 related: [sources-overview, source-postgres-cdc, source-jdbc, zset-weights, checkpoints-recovery, delivery-guarantees, errors-plugins]
+listed_on: sources-overview
 ---
 
 The `mysql-cdc` plugin reads a MySQL table's **changes** — every committed `INSERT`, `UPDATE` and

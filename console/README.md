@@ -310,7 +310,7 @@ fingerprints when both sides are registered; otherwise plans that differ cannot 
 ones *may* (keys, retention and row filters are in the fingerprint too); output columns, v1's keys
 in v2's output, stateful operators changed — and, always, that fill time and state size are not
 determinable before registration. The island (`static/app/diff.js`) only draws it: Monaco's diff
-editor, the plan graph twice with marks, the lists. Help: `content/topics/compare-versions.md`.
+editor, the plan graph twice with marks, the lists. Help: `content/topics/backfill-cutover.md#comparing-two-versions`.
 
 ## What the engine now provides, and what it still does not
 

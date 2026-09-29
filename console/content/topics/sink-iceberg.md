@@ -10,6 +10,7 @@ audience: Engineers
 keywords: [iceberg sink, iceberg-sink, apache iceberg, lakehouse, equality deletes, format version 2, parquet, upsert, changelog, exactly once, exactly-once, transaction.id, key.columns, snapshot, compaction]
 guide: connectors#a-transactional-sink-with-equality-deletes-iceberg
 related: [sinks-overview, delivery-guarantees, sink-delta, sink-jdbc, sink-kafka, checkpoints-recovery, zset-weights]
+listed_on: sinks-overview
 ---
 
 `iceberg-sink` keeps an **Apache Iceberg table** equal to a query's view. Each row the query commits

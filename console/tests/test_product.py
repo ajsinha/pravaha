@@ -1995,8 +1995,12 @@ def test_comparing_needs_something_on_each_side(signed_in, engine_down):
 
 def test_the_workbench_offers_the_compare_topic(signed_in):
     page = signed_in.get("/workbench?query=big_txn").text
-    assert 'href="/help/topics/compare-versions"' in page
-    assert signed_in.get("/help/topics/compare-versions").status_code == 200
+    assert 'href="/help/topics/backfill-cutover#comparing-two-versions"' in page
+    assert 'id="comparing-two-versions"' in signed_in.get("/help/topics/backfill-cutover").text
+    # The old address still answers, and says where it went.
+    moved = signed_in.get("/help/topics/compare-versions", follow_redirects=False)
+    assert moved.status_code == 301
+    assert moved.headers["location"] == "/help/topics/backfill-cutover#comparing-two-versions"
 
 
 # ============================================================ the UI string catalog
@@ -2123,7 +2127,7 @@ def test_the_shell_and_the_palette_speak_from_the_catalog(signed_in):
 
 #: Every kind of page the shell wraps: signed in and anonymous, a product screen, the
 #: documentation, the sign-in page, the landing page and the two refusals.
-EVERY_KIND_OF_PAGE = ["/", "/about", "/help", "/help/topics/first-view", "/login",
+EVERY_KIND_OF_PAGE = ["/", "/about", "/help", "/help/topics/getting-started", "/login",
                       "/catalog", "/queries/big_txn", "/operations", "/workbench",
                       "/views/no_such_view"]
 

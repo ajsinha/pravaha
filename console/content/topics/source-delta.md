@@ -9,7 +9,8 @@ badge: SOURCE
 audience: Operators
 keywords: [delta, delta lake, lakehouse, kernel, parquet, start.version, snapshot, commit, vacuum, deletion vectors, retraction]
 guide: continuous-queries#21-every-source-type-configured
-related: [sources-overview, zset-weights, source-feedfile, late-data]
+related: [sources-overview, zset-weights, source-feedfile, event-time-watermarks]
+listed_on: sources-overview
 ---
 
 The `delta` plugin reads a **Delta Lake table** as a continuous stream. It starts from a snapshot —

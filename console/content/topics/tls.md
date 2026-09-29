@@ -9,7 +9,7 @@ badge: SECURITY
 audience: Operators
 keywords: [tls, ssl, encryption, pravaha.flight.tls, pravaha.pgwire.tls, "grpc+tls", mtls, certificate, ca, truststore, keystore, hostname verification, sslmode, server.ssl, openssl]
 guide: connector-tls
-related: [authentication, connector-security, pgwire, client-snippets, configuration]
+related: [authentication, connector-security, pgwire, clients, configuration]
 ---
 
 Pravaha makes and accepts connections on several surfaces, and each is encrypted separately. They

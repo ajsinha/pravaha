@@ -388,7 +388,7 @@ PAGES: list[tuple[str, str, bool, str]] = [
     ("about", "/about", False, "true"),
     ("help", "/help", False, "true"),
     ("help-topic", "/help/quickstart", False, "true"),
-    ("help-topic-page", "/help/topics/first-view", False, "true"),
+    ("help-topic-page", "/help/topics/getting-started", False, "true"),
     ("help-connector", "/help/topics/source-jdbc", False, "true"),
     ("help-search", "/help/search?q=watermark", False, "true"),
     ("help-codes", "/help/codes", False, "true"),

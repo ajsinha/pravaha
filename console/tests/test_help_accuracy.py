@@ -574,3 +574,23 @@ def test_every_metric_a_page_names_is_one_that_is_published():
                                      ("pravaha_query_rows_in_total_nonsense", False)])
 def test_the_metric_check_itself_tells_a_real_name_from_an_invented_one(name, ok):
     assert _is_published(name, _published_metrics()) is ok
+
+
+# ================================================================== the version a page tells you to use
+
+def test_every_dependency_version_a_page_shows_is_the_build_s_own():
+    # A <dependency> block, an image tag or an artifact version copied from the help has to resolve
+    # against this build; four pages still said 0.1.0-SNAPSHOT two releases on.
+    version = re.search(r"<artifactId>pravaha</artifactId>\s*<version>([^<]+)</version>",
+                        (REPO_ROOT / "pom.xml").read_text(encoding="utf-8")).group(1)
+    wrong, checked = [], 0
+    for label, text in documents():
+        for found in re.findall(r"<version>(\d+\.\d+\.\d+-SNAPSHOT)</version>|pravaha-server:(\d+\.\d+\.\d+-SNAPSHOT)"
+                                r"|version `(\d+\.\d+\.\d+-SNAPSHOT)` in this repository"
+                                r"|\"version\": \"(\d+\.\d+\.\d+-SNAPSHOT)\"", text):
+            stated = next(v for v in found if v)
+            checked += 1
+            if stated != version:
+                wrong.append(f"{label}: {stated}")
+    assert checked >= 5, f"only {checked} versions checked"
+    assert not wrong, f"the build is {version}:\n  " + "\n  ".join(wrong)

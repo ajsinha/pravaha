@@ -9,7 +9,7 @@ badge: GATEWAY
 audience: Developers
 keywords: [psql, postgres, postgresql, pgwire, dbeaver, grafana, jdbc, pgjdbc, npgsql, power bi, 5432, sslmode, "25006", read-only, "\\d", PRV-6211, PRV-6200]
 guide: architecture
-related: [point-reads, client-snippets, power-bi, authentication, tls, consistency]
+related: [views-and-keys, clients, power-bi, authentication, tls, consistency]
 ---
 
 Almost nothing a person already has installed speaks Arrow Flight SQL; almost everything speaks
@@ -147,7 +147,7 @@ catalogue on every call.)
 
 ## Reading
 
-Every read on [Point reads](/help/topics/point-reads) works here unchanged. At the prompt:
+Every read on [Point reads](/help/topics/views-and-keys#point-reads) works here unchanged. At the prompt:
 
 <!-- sql: read -->
 ```sql
@@ -340,6 +340,6 @@ PRV code, which is the part to search for.
 
 ## Where next
 
-- [Point reads](/help/topics/point-reads) — what every read here does underneath.
+- [Point reads](/help/topics/views-and-keys#point-reads) — what every read here does underneath.
 - [Authentication](/help/topics/authentication) — where the token the password carries comes from.
 - [TLS everywhere](/help/topics/tls) — encrypting every other connection.

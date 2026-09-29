@@ -8,7 +8,7 @@ summary: "Two registrations that plan to the same computation share one copy of 
 audience: Everyone
 keywords: [fingerprint, sharing, shared, dedup, deduplication, same computation, normalised plan, siblings, drop last name, security predicates, row filters, parameters, fork]
 guide: concepts#5-sharing-is-by-fingerprint-not-by-name-or-text
-related: [query-lifecycle, views-and-keys, sql-parameters, row-filters, subscriptions]
+related: [query-lifecycle, views-and-keys, sql-reference, row-filters-and-masks, subscriptions]
 ---
 
 When a query is registered, its physical plan is **fingerprinted**. If a computation with the same
@@ -146,7 +146,28 @@ A subscriber gets the same effect at the tap with `--filter region=EU`: ten desk
 computation. The rule that decides whether a filter can be applied to a view rather than forking a
 computation is one rule in three places — row filters, subscription filters and parameters: **a
 filter can be applied to a view iff the view carries every column it names.** See
-[parameters](/help/topics/sql-parameters).
+[parameters](/help/topics/sql-reference#parameters).
+
+## One reader for many queries {#one-reader-for-many-queries}
+
+A fingerprint shares a *computation*. Queries that ask **different** questions of one source can
+still share its **reader**: one read of the source, each record handed to every query that reads it.
+Which sources allow it depends on what they promise:
+
+| Source | Readers | Why |
+|---|---|---|
+| Aerospike, Cassandra | **one** per binding | at-least-once and unordered, so a query joining late can catch up privately and overlap harmlessly (SRC-3) |
+| Kafka, a file read once through | **one** per binding, met at an **exact seam** (ADR-054) | their positions are ordered and a reader can stop exactly at one, so a joining query catches up to the shared reader's position and is attached there: each record reaches each query once, in order |
+| JDBC, `postgres-cdc`, `mysql-cdc`, Delta, a followed file | one **per query** | not yet shown to have a total order of positions (JDBC, Delta), or a replication slot confirmed per reader (CDC) |
+
+At the exact seam, a query joining **behind** the shared reader reads only the gap, privately, until
+its position equals the shared one; a query joining **ahead** of it (after a restore from a newer
+checkpoint) waits until the reader reaches it. Pausing, resuming and restoring cost only that gap.
+A catch-up that stops making progress towards its seam fails the group with a named error rather
+than read past it and deliver a record twice. A thousand queries over one topic read it **once**.
+
+On [shared lanes](/help/topics/lanes#sharing-lanes) the saving compounds: a shared reader writes each
+record into each shared lane once, and every query on that lane is handed the one copy.
 
 ## Subscribers share too
 
@@ -169,6 +190,6 @@ further: ten browsers on one live view are **one** subscription on the engine.
 ## Where next
 
 - [Continuous queries and their lifecycle](/help/topics/query-lifecycle)
-- [Parameters](/help/topics/sql-parameters) — when a parameter forks a computation
-- [Row filters](/help/topics/row-filters) — the security predicates in a fingerprint
+- [Parameters](/help/topics/sql-reference#parameters) — when a parameter forks a computation
+- [Row filters](/help/topics/row-filters-and-masks) — the security predicates in a fingerprint
 - The long form: [Concepts §5–§6](/help/concepts#5-sharing-is-by-fingerprint-not-by-name-or-text)

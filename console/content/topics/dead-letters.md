@@ -8,7 +8,7 @@ summary: "pravaha.dlq.directory: where a record a source cannot decode is kept, 
 audience: Operators
 keywords: [dlq, dead letter queue, undecodable, malformed record, decode failure, replay, retention, evicted, max-bytes, PRV-4090, PRV-4091, PRV-4092, PRV-5040, PRV-5105, kafka, tombstone, jq, base64, pravaha-engine run --dlq, pravaha dlq list]
 guide: operations#files-that-hold-data
-related: [source-filesystem, source-kafka, metrics-alerts, checkpoints-recovery, configuration]
+related: [source-filesystem, source-kafka, observability, checkpoints-recovery, configuration]
 ---
 
 A dead-letter queue keeps two rules that pull against each other: **never drop a record silently**,
@@ -306,5 +306,5 @@ a run that reports `ok` while having discarded input is what the queue exists to
 - [State and serving codes](/help/topics/errors-state) — PRV-4090, PRV-4091, PRV-4092
 - [The filesystem source](/help/topics/source-filesystem)
 - [The Kafka source](/help/topics/source-kafka) — its dead letters are named `topic/partition@offset`
-- [Metrics and alerts](/help/topics/metrics-alerts)
+- [Metrics and alerts](/help/topics/observability)
 - [Configuring a node](/help/topics/configuration)

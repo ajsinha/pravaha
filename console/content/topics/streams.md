@@ -8,7 +8,7 @@ summary: "A stream is a named, typed, unbounded sequence of rows. How to declare
 audience: Everyone
 keywords: [stream, schema, declare, pravaha.streams, event-time, out-of-orderness, allowed-lateness, allowedLateness, types, nullable, source binding, POST /api/v1/streams, catalog]
 guide: continuous-queries#2-declaring-a-stream
-related: [event-time-watermarks, sources-overview, source-filesystem, query-lifecycle, sql-types]
+related: [event-time-watermarks, sources-overview, source-filesystem, query-lifecycle, sql-reference]
 ---
 
 A **stream** is a named, typed, unbounded sequence of rows. It is the input side of everything:
@@ -158,7 +158,7 @@ engine.declareStream(txn);
 
 Out-of-orderness decides how long the engine **waits** before calling a window complete. Allowed
 lateness decides whether a row arriving **after** that still corrects the published answer. See
-[late data and corrections](/help/topics/late-data).
+[late data and corrections](/help/topics/event-time-watermarks#late-data).
 
 ## A query over it
 
@@ -208,7 +208,7 @@ may not read them that they are there. `GET /api/v1/streams` lists what you may 
 !!! tip "Nullable columns and three-valued logic"
     `status:STRING?` is nullable. `WHERE status = 'COMPLETED'` keeps only rows where the
     comparison is TRUE, so null statuses are excluded; `SELECT status = 'ok'` is refused because
-    it would write UNKNOWN into a boolean — `SELECT (status = 'ok') IS TRUE` plans. See [types](/help/topics/sql-types).
+    it would write UNKNOWN into a boolean — `SELECT (status = 'ok') IS TRUE` plans. See [types](/help/topics/sql-reference#types-nulls-and-expressions).
 
 ## Where next
 

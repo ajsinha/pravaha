@@ -162,6 +162,11 @@ class PublicRoutes(Routes):
         @self.app.get("/help/topics/{slug}", response_class=HTMLResponse, tags=["public"])
         def help_topic_page(request: Request, slug: str):
             found = catalog.topic(slug)
+            moved = catalog.moved(slug) if found is None else None
+            if moved:
+                # A topic merged into another: the address somebody bookmarked says it has moved,
+                # and where to -- the section that holds what the old page said.
+                return RedirectResponse(f"/help/topics/{moved}", status_code=301)
             if found is None:
                 return self.page(request, "not_found.html", http_status=404, current="/help",
                                  what=self.t("not_found.what.help_topic"), identifier=slug,

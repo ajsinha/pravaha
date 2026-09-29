@@ -10,6 +10,7 @@ audience: Operators
 keywords: [csv, delimited, file, follow, tail, op.column, op.delete.values, skip.header, null.literal, event.time, delimiter, rotation]
 guide: continuous-queries#21-every-source-type-configured
 related: [sources-overview, source-feedfile, zset-weights, event-time-watermarks, sink-filesystem]
+listed_on: sources-overview
 ---
 
 The `filesystem` plugin reads **one delimited text file** and turns each line into a row of a

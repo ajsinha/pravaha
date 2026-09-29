@@ -10,6 +10,7 @@ audience: Analysts, operators, developers
 keywords: [registry, dependants, cycle, chain, queries on queries, name in use, reserved word, no such query, drop, pause, resume, failed, journal, replay, sink detached, sink shape, keyed by, embedded, push, backpressure, row rejected, debug, debugger, debug session, fork, step, fixture, checkpoint, with, option, unknown option, tenant, tenancy, quota, max-queries, max-state-keys, 409]
 guide: continuous-queries#8-the-life-of-a-query
 related: [query-lifecycle, create-continuous-query, sinks-overview, time-travel-debugger, embedded-engine, errors-overview]
+listed_on: errors-overview
 ---
 
 The registry is where a continuous query lives once it is registered: its name, its state
@@ -365,7 +366,7 @@ engine's to decide.
 Also raised for `lane = 'dedicated'` on a query that asks the same question as one already running
 on a shared lane: the two would share one computation, and a running query is never moved in place.
 Register it `lane = 'shared'`, or move the running one onto a lane of its own with
-`CREATE OR REPLACE ... WITH (lane = 'dedicated')` ([Sharing lanes](/help/topics/lane-sharing)).
+`CREATE OR REPLACE ... WITH (lane = 'dedicated')` ([Sharing lanes](/help/topics/lanes#sharing-lanes)).
 
 The same code covers the same setting said twice — `RETAIN FOR` and `retention`, `WRITING TO`
 and a different `sink`, or `INDEX` and `index` — because which of two answers wins is not something to leave to the order
@@ -406,7 +407,7 @@ The node refuses to start with a negative limit or a blank tenant name under `pr
 ## Queries over queries
 
 A continuous query can read another query's answer (see
-[CREATE CONTINUOUS QUERY](/help/topics/create-continuous-query#over-another-querys-answer)). Four codes
+[CREATE CONTINUOUS QUERY](/help/topics/create-continuous-query#queries-on-queries)). Four codes
 keep a chain exact.
 
 ### PRV-8024 — a query other queries read

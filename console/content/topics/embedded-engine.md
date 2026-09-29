@@ -9,7 +9,7 @@ badge: JAVA
 audience: Developers
 keywords: [PravahaEngine, pravaha-embedded, createDefault, declareStream, push, advanceEventTime, register, subscribe, RowChange, ContinuousQuery, in-process, library, Configuration]
 guide: user-guide#9-embed-the-engine-in-your-application
-related: [spring-boot-starter, point-reads, subscriptions, event-time-watermarks, configuration]
+related: [spring-boot-starter, views-and-keys, subscriptions, event-time-watermarks, configuration]
 ---
 
 `pravaha-embedded` is the engine as a library. Everything the server does to a continuous query —
@@ -26,7 +26,7 @@ Spring integration is a separate layer — [Spring Boot starter](/help/topics/sp
 
 | | |
 |---|---|
-| Artifact | `com.ash.messaging:pravaha-embedded` (version `0.1.0-SNAPSHOT` in this repository) |
+| Artifact | `com.ash.messaging:pravaha-embedded` (version `0.2.1-SNAPSHOT` in this repository) |
 | Entry point | `PravahaEngine.createDefault()` or `PravahaEngine.create(Configuration)` |
 | Lifecycle | create → **declare** → `start()` → register, push, read, subscribe → `close()` |
 | Security | None: every call runs as the anonymous principal under a permissive policy. The host decides who may call |
@@ -265,4 +265,4 @@ service that must survive a restart. See [Checkpoints and recovery](/help/topics
 
 - [Spring Boot starter](/help/topics/spring-boot-starter) — the same engine as a bean.
 - [Subscriptions](/help/topics/subscriptions) — weights and whole commits.
-- [SDK reference](/help/topics/sdk-reference) — talking to a server instead.
+- [SDK reference](/help/topics/clients#sdk-reference) — talking to a server instead.

@@ -8,7 +8,7 @@ summary: "What survives a restart: the registry journal remembers the questions,
 audience: Operators
 keywords: [checkpoint, restart, journal, registry.journal, recovery, replay, offsets, keep, interval, timeout, ownership, .pravaha-owner, PRV-4003, PRV-4004, PRV-4002, PRV-8005, PRV-8006, backup]
 guide: operations#restarts-what-survives
-related: [standby, delivery-guarantees, upgrades, metrics-alerts, state-spill, source-kafka]
+related: [standby, delivery-guarantees, upgrades, observability, state-spill, source-kafka]
 ---
 
 A restarted node has to answer two different questions, and Pravaha keeps two different files for
@@ -195,7 +195,7 @@ SELECT user_id, window_end, spend FROM hourly_spend_ckpt WHERE user_id = 'u-1042
 
 The console's operations screen flags "Checkpoints are failing" on any new failure and "No recent
 checkpoint" when the last one is more than fifteen minutes old. Rules are in
-[Metrics and alerts](/help/topics/metrics-alerts).
+[Metrics and alerts](/help/topics/observability).
 
 ## Backup
 

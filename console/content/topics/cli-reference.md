@@ -9,7 +9,7 @@ badge: REFERENCE
 audience: Developers
 keywords: [cli, pravaha, pravaha-engine, command line, query, register, queries, subscribe, pause, resume, drop, replace, cutover, rollback, dlq, debug, status, health, streams, views, describe, plan, lanes, rebalance, audit, tenants, permissions, login, logout, whoami, user, key, session, version, ask, explain-sql, why, assist, "--url", "--http", "--token", "--insecure-token", "--json", "--yes", "--sql-file", "--params", "--filter", "--snapshot", "--reconnect", PRAVAHA_URL, PRAVAHA_HTTP, PRAVAHA_TOKEN, NO_COLOR, exit code, alerts, alert, snooze, ack]
 guide: quickstart
-related: [choosing-a-client, client-snippets, sdk-reference, http-api, subscriptions, lane-sharing, authentication]
+related: [clients, http-api, subscriptions, lanes, authentication]
 ---
 
 `pravaha` is the command line for a **running engine**. It is written in Python on the Python SDK
@@ -518,7 +518,7 @@ big_txn        RUNNING  shared     3
 `lanes rebalance` **without `--yes` is a plan**: the queries it would move off shared lanes onto lanes
 of their own while there is room, and nothing moves. With `--yes` it starts moving them, one at a
 time; `lanes rebalance status` shows how the last or running one went. A rebalance is an
-administrator's act and never automatic. See [Lane sharing](/help/topics/lane-sharing).
+administrator's act and never automatic. See [Lane sharing](/help/topics/lanes#sharing-lanes).
 
 ## Governance
 
@@ -833,7 +833,7 @@ name `pravaha-engine`.
 
 ## Where next
 
-- [Choosing a client](/help/topics/choosing-a-client) — the CLI beside the SDKs, drivers and the HTTP API.
-- [Client snippets](/help/topics/client-snippets) — the same operations from code.
+- [Choosing a client](/help/topics/clients) — the CLI beside the SDKs, drivers and the HTTP API.
+- [Client snippets](/help/topics/clients#snippets) — the same operations from code.
 - [HTTP API](/help/topics/http-api) — the endpoints the HTTP commands call.
 - [Quick start](/help/quickstart) — the CLI end to end against a fresh node.

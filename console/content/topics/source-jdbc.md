@@ -10,6 +10,7 @@ audience: Operators
 keywords: [jdbc, PRV-2042, repeats rows, watermark.moves.on.update, watermark.unit, event time, postgres, postgresql, mysql, oracle, sql server, h2, polling, watermark.column, key.column, page.clause, fetch.size, keyset, pushdown, projection, partial aggregate, pushdown.partial.aggregate, collation.binary]
 guide: continuous-queries#21-every-source-type-configured
 related: [sources-overview, source-postgres-cdc, lookups, connector-security, sink-jdbc, delivery-guarantees]
+listed_on: sources-overview
 ---
 
 The `jdbc` plugin turns a database table into a stream by **polling** it: each poll asks for the rows

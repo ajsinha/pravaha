@@ -52,11 +52,12 @@ class Card:
     icon: str
     badge: str = ""
     keywords: str = ""        # extra words the index search matches, never shown
+    anchor: str = ""          # a section of the topic, for a screen card that wants one part of it
 
     @property
     def href(self) -> str:
         if self.kind == "topic":
-            return f"{TOPIC_PATH}/{self.slug}"
+            return f"{TOPIC_PATH}/{self.slug}" + (f"#{self.anchor}" if self.anchor else "")
         if self.kind == "guide":
             return f"{GUIDE_PATH}/{self.slug}"
         return self.slug
@@ -114,7 +115,7 @@ CATEGORIES: list[Category] = [
                             "The single source of truth for what you write and what happens when you write it.")]),
     Category("reading", "Reading answers", "eye",
              "A view is read, not re-run: point reads, subscriptions to its changes, what a read "
-             "is consistent with, the PostgreSQL gateway, and client code for every language.",
+             "is consistent with, the PostgreSQL gateway, Power BI, the HTTP API, and every client and SDK.",
              guide="user-guide",
              extras=[_guide("user-guide", "User guide (long form)", "book",
                             "Registering, reading and subscribing from the CLI and both SDKs."),
@@ -135,8 +136,8 @@ CATEGORIES: list[Category] = [
              "to exactly-once, and one page per shipped sink.",
              guide="continuous-queries#4-reading-the-answer"),
     Category("operating", "Operating", "speedometer2",
-             "Running a node: configuration, sizing and lanes, lane sharing, state and spill, "
-             "checkpoints and recovery, standby, metrics and alerts, upgrades.",
+             "Running a node: configuration and every setting, lanes (sized, shared, dedicated), state and "
+             "spill, checkpoints and recovery, standby, observability and alerts, changing a running query.",
              guide="operations",
              extras=[_guide("operations", "Operations (long form)", "gear",
                             "Every setting, every metric, and the runbooks."),
@@ -146,8 +147,8 @@ CATEGORIES: list[Category] = [
                             "The one root under /opt/pravaha, a QA host from two images and two files, "
                             "the container image, the Helm chart, upgrades and releases.")]),
     Category("security", "Security", "shield-lock",
-             "Who may connect, what they may read and do, the row filters that follow them into "
-             "every view, the audit trail, and TLS on every connection.",
+             "Who may connect, what they may read and do, the grants and namespaces of the catalogue, the "
+             "row filters and masks that follow them into every view, the audit trail, and TLS everywhere.",
              guide="security",
              extras=[_guide("security", "Security (long form)", "shield-lock",
                             "Authentication, the policies, row-level security and the audit trail."),
@@ -157,7 +158,7 @@ CATEGORIES: list[Category] = [
              "Pravaha inside your own JVM process: the embedded engine and the Spring Boot starter.",
              guide="architecture"),
     Category("errors", "Errors", "exclamation-octagon",
-             "Every PRV code, by range: what it means, why the engine says it, and what to do.",
+             "Every PRV code, range by range: what it means, why the engine says it, and what to do.",
              guide="troubleshooting",
              extras=[_page("/help/codes", "Every code", "list-ol",
                            "All PRV codes in one table, each opening its own page.", "INDEX",
@@ -165,7 +166,7 @@ CATEGORIES: list[Category] = [
                      _guide("troubleshooting", "Troubleshooting (long form)", "life-preserver",
                             "Nothing is happening, the numbers are wrong, it ran out of memory — by symptom.")]),
     Category("reference", "Reference", "journal-bookmark",
-             "The glossary, every setting, every metric, the HTTP API, the SDKs and the CLI — "
+             "The glossary, the CLI and the assistant — "
              "and the long-form guides behind all of it.",
              guide="operations",
              extras=[_page("/help/guides", "All guides", "journal-richtext",
@@ -203,36 +204,74 @@ CATEGORIES: list[Category] = [
 
 CATEGORY_IDS = [c.id for c in CATEGORIES]
 
+#: The most cards a screen offers. Three is what a person reads at the foot of a page; the rest
+#: of the help is one click away on the index.
+SCREEN_CARDS = 3
+
 #: The contextual help each product screen offers, most relevant first. The first is also the
-#: target of the screen's "?" link. Checked by a test: every slug must be a topic that exists.
+#: target of the screen's "?" link. An entry is a topic, or ``topic#section`` for one part of a
+#: longer page. Checked by a test: every entry is a topic that exists, every section one it has,
+#: no screen offers more than SCREEN_CARDS, and every screen a template names is here.
 SCREEN_HELP: dict[str, list[str]] = {
-    "home": ["start-here", "first-view", "console-tour"],
-    "start": ["first-view", "streams", "views-and-keys"],
-    "overview": ["console-tour", "query-lifecycle", "metrics-alerts"],
-    "workbench": ["sql-reference", "create-continuous-query", "sql-refusals", "compare-versions",
-                  "reading-a-plan"],
-    "catalog": ["streams", "sources-overview", "sinks-overview", "catalog-and-grants"],
+    "start": ["getting-started#your-first-maintained-view", "streams", "views-and-keys"],
+    "overview": ["getting-started#the-console-screen-by-screen", "observability", "query-lifecycle"],
+    "workbench": ["sql-reference", "sql-refusals", "backfill-cutover#comparing-two-versions"],
+    "catalog": ["streams", "catalog-and-grants", "sources-overview"],
+    "catalog-object": ["catalog-and-grants", "row-filters-and-masks", "streams"],
     "stream": ["streams", "event-time-watermarks", "sources-overview"],
-    "views": ["views-and-keys", "point-reads", "client-snippets"],
-    "view": ["point-reads", "client-snippets", "pgwire", "power-bi"],
-    "live": ["subscriptions", "zset-weights", "late-data"],
-    "operations": ["metrics-alerts", "reading-a-plan", "sizing-lanes", "checkpoints-recovery"],
-    "alerts": ["alerts", "views-and-keys", "errors-registry"],
-    "queries": ["query-lifecycle", "sharing", "create-continuous-query"],
-    "query": ["query-lifecycle", "sinks-overview", "sharing", "backfill-cutover"],
-    # B9. The blue/green screen (design 23.10): what the backfill reads and why there is no
-    # ETA on it, what a cutover moves, and how long a rollback stays open.
-    "replacement": ["backfill-cutover", "query-lifecycle", "compare-versions"],
-    # B9. The debugger (design 23.9, ADR-048): what a fork starts from, what the weights on
-    # its view changes mean, and the six refusals it can answer with.
-    "debug": ["time-travel-debugger", "checkpoints-recovery", "zset-weights",
-              "errors-registry"],
-    "dead-letters": ["dead-letters", "source-filesystem", "metrics-alerts"],
+    "views": ["views-and-keys", "clients", "pgwire"],
+    "view": ["views-and-keys#point-reads", "clients", "power-bi"],
+    "live": ["subscriptions", "zset-weights", "event-time-watermarks#late-data"],
+    "operations": ["observability", "reading-a-plan", "lanes"],
+    "alerts": ["alerts", "observability", "views-and-keys"],
+    "queries": ["query-lifecycle", "sharing", "create-continuous-query#queries-on-queries"],
+    "query": ["query-lifecycle", "sharing", "backfill-cutover"],
+    # B9. The blue/green screen (design 23.10): comparing the versions, what the backfill reads and
+    # why there is no ETA on it, what a cutover moves, and how long a rollback stays open.
+    "replacement": ["backfill-cutover", "query-lifecycle", "sharing"],
+    # B9. The debugger (design 23.9, ADR-048): what a fork starts from, and what the weights on
+    # its view changes mean.
+    "debug": ["time-travel-debugger", "checkpoints-recovery", "zset-weights"],
+    "dead-letters": ["dead-letters", "sources-overview", "observability"],
     "plugins": ["sources-overview", "sinks-overview", "connector-security"],
-    "admin": ["authorization", "audit", "authentication", "catalog-and-grants"],
+    "admin": ["authorization", "audit", "authentication"],
+    "admin-users": ["authentication", "catalog-and-grants#user-attributes-as-claims", "audit"],
+    "admin-keys": ["authentication", "authorization", "audit"],
+    "admin-sessions": ["authentication", "audit", "authorization"],
+    "admin-lanes": ["lanes", "observability", "reading-a-plan"],
+    "admin-grants": ["catalog-and-grants", "row-filters-and-masks", "authorization"],
+    "admin-policies": ["row-filters-and-masks", "catalog-and-grants", "audit"],
     # ADR-058 phase 3: Admin · AI models, and an assist answer drawn as a page of its own.
-    "ai-models": ["admin-ai-models", "assistant"],
-    "assistant": ["assistant", "admin-ai-models"],
+    "ai-models": ["assistant#admin-ai-models", "assistant", "observability"],
+    "assistant": ["assistant", "sql-refusals", "create-continuous-query"],
+}
+
+#: Topics that were merged into another, and where each one's content now is. The old address
+#: answers 301 to the new one, so a bookmark, a link in somebody's runbook or a page not yet
+#: updated keeps working. Checked by a test: every target is a topic and section that exists, and
+#: no page the help serves still links to an old address.
+MOVED: dict[str, str] = {
+    "start-here": "getting-started",
+    "first-view": "getting-started#your-first-maintained-view",
+    "console-tour": "getting-started#the-console-screen-by-screen",
+    "choosing-a-client": "clients",
+    "client-snippets": "clients#snippets",
+    "sdk-reference": "clients#sdk-reference",
+    "point-reads": "views-and-keys#point-reads",
+    "windows-worked": "windows#worked-examples",
+    "late-data": "event-time-watermarks#late-data",
+    "sql-types": "sql-reference#types-nulls-and-expressions",
+    "sql-parameters": "sql-reference#parameters",
+    "temporal-joins": "joins#temporal-joins",
+    "compare-versions": "backfill-cutover#comparing-two-versions",
+    "sizing-lanes": "lanes#sizing-lanes",
+    "lane-sharing": "lanes#sharing-lanes",
+    "metrics-alerts": "observability",
+    "metrics-index": "observability#every-metric",
+    "settings-index": "configuration#every-setting",
+    "row-filters": "row-filters-and-masks",
+    "admin-ai-models": "assistant#admin-ai-models",
+    "cluster-mode": "standby#cluster-mode",
 }
 
 #: Each PRV range and the errors topic that explains it (the /help/codes browser and each
@@ -290,10 +329,16 @@ class HelpCatalog:
 
     # ----------------------------------------------------------------- index
     def index(self) -> list[dict[str, Any]]:
-        """Every category with its cards, in order: its topics, then its extras."""
+        """Every category with its cards, in order: its topics, then its extras.
+
+        A topic whose front matter says ``listed_on: <slug>`` -- one connector's page, one range
+        of error codes -- is not a card of its own: the page it names lists it (the Sources card
+        opens every source), so the index stays a page somebody can scan. It is still searched,
+        still in the reading order, and a test holds that its list page links to it."""
         out = []
         for category in CATEGORIES:
-            cards = [self.card(t) for t in self.topics_in(category.id)] + list(category.extras)
+            cards = [self.card(t) for t in self.topics_in(category.id) if not t.meta.get("listed_on")]
+            cards += list(category.extras)
             out.append({"category": category, "cards": cards})
         return out
 
@@ -335,9 +380,28 @@ class HelpCatalog:
     # --------------------------------------------------------------- screens
     def for_screen(self, screen: str) -> list[Card]:
         """The topics a product screen offers as contextual help. Unknown slugs are skipped here
-        and fail the catalog test, rather than breaking a screen in production."""
-        found = [self.topic(s) for s in SCREEN_HELP.get(screen, [])]
-        return [self.card(t) for t in found if t is not None]
+        and fail the catalog test, rather than breaking a screen in production. A ``topic#section``
+        entry is a card titled by that section, opening at it."""
+        cards = []
+        for entry in SCREEN_HELP.get(screen, [])[:SCREEN_CARDS]:
+            slug, _, anchor = entry.partition("#")
+            topic = self.topic(slug)
+            if topic is None:
+                continue
+            card = self.card(topic)
+            if anchor:
+                heading = next((h["name"] for h in topic.headings if h["id"] == anchor), None)
+                if heading is None:
+                    continue
+                card = Card("topic", slug, heading, topic.summary, card.icon, card.badge, card.keywords,
+                            anchor)
+            cards.append(card)
+        return cards
+
+    @staticmethod
+    def moved(slug: str) -> str | None:
+        """Where a merged topic's content is now (``slug#section``), or None."""
+        return MOVED.get(slug)
 
     # ---------------------------------------------------------------- search
     def search(self, query: str, limit: int = 40) -> list[dict[str, Any]]:

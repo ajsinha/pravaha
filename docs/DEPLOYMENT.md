@@ -19,14 +19,14 @@ bounds its memory, what to watch, what a restart costs, what is not solved — i
 ./mvnw -o -pl pravaha-server -am package -DskipTests
 
 # 2. build the image from them
-deploy/docker/build.sh --tag pravaha/pravaha-server:0.1.0-SNAPSHOT
+deploy/docker/build.sh --tag pravaha/pravaha-server:0.2.1-SNAPSHOT
 
 # 3. prove it serves, end to end, against a real container
-deploy/docker/smoke.sh --image pravaha/pravaha-server:0.1.0-SNAPSHOT
+deploy/docker/smoke.sh --image pravaha/pravaha-server:0.2.1-SNAPSHOT
 
 # 4. install it
 helm install pravaha deploy/helm/pravaha \
-  --set image.tag=0.1.0-SNAPSHOT \
+  --set image.tag=0.2.1-SNAPSHOT \
   --set auth.existingSecret=pravaha-tokens
 ```
 
@@ -169,7 +169,7 @@ docker run -d --name pravaha \
   -v pravaha-data:/opt/pravaha/data \
   -v "$PWD/application.yaml:/opt/pravaha/conf/application.yaml:ro" \
   --read-only --tmpfs /tmp:rw,size=64m \
-  pravaha/pravaha-server:0.1.0-SNAPSHOT
+  pravaha/pravaha-server:0.2.1-SNAPSHOT
 ```
 
 `--read-only` works and is tested: the node needs nothing writable but the volume and `/tmp`.
@@ -445,7 +445,7 @@ re-checks its own work.
 
 PEP 440 has no snapshot, so a Python version is the Maven one with `-SNAPSHOT` removed:
 `0.2.0-SNAPSHOT` and `0.2.0` both give `0.2.0`. That is why the repository is consistent today at
-`0.1.0-SNAPSHOT` / `0.1.0` rather than wrong — and why **a snapshot wheel is never published**, as
+`0.2.1-SNAPSHOT` / `0.2.1` rather than wrong — and why **a snapshot wheel is never published**, as
 it would claim to be the release. The **chart's own `version`** is not the engine's; it moves when
 the chart changes, under `--chart-version`.
 

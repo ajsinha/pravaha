@@ -9,7 +9,7 @@ badge: FAQ
 audience: Everyone
 keywords: [faq, questions, two ports, 19090, 18080, 17070, token, plaintext, policy, authenticated, opt pravaha, replace, why refused, late window, qa host]
 guide: troubleshooting
-related: [start-here, sql-refusals, event-time-watermarks, authentication, authorization, backfill-cutover]
+related: [getting-started, sql-refusals, event-time-watermarks, authentication, authorization, backfill-cutover]
 ---
 
 <!-- Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved. Proprietary and confidential. -->
@@ -106,7 +106,7 @@ input holds the rest back. A bounded file read fires every open window when it e
 A stream's allowed lateness is zero unless it declares one, so a row for a window that has already
 published is dropped and the published answer stands. With allowed lateness set, the same row
 reopens the window as a retraction of the old answer and the corrected one.
-[Late data →](/help/topics/late-data)
+[Late data →](/help/topics/event-time-watermarks#late-data)
 
 ### Why did a count go down?
 
@@ -159,7 +159,7 @@ Boot starter makes it a bean. [Embedded engine →](/help/topics/embedded-engine
 
 Not yet. Execution is single-node; a standby can take over a node whose claim goes stale, and a node
 refuses `PARTITIONED` mode (PRV-9002) rather than pretend to own partitions. Multi-node is designed
-and on hold. [Cluster mode →](/help/topics/cluster-mode) · [Standby →](/help/topics/standby)
+and on hold. [Cluster mode →](/help/topics/standby#cluster-mode) · [Standby →](/help/topics/standby)
 
 ### How fast is it?
 

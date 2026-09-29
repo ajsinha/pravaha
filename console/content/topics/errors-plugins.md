@@ -10,6 +10,7 @@ audience: Operators
 keywords: [plugin, iceberg, mysql, binlog, equality deletes, classpath, deletes, detect, deletes.max.keys, deletes.state.dir, serviceloader, binding, options, filesystem, decode, delta, vacuum, deletion vectors, feedfile, jdbc, aerospike, cassandra, kafka, fenced, staging topic, retention, resume point, tombstone, undecodable record, postgres-cdc, replication slot, wal_level, replica identity, truncate, offset, sink, source, connect failed, schema]
 guide: connectors
 related: [sources-overview, sinks-overview, source-jdbc, source-postgres-cdc, source-mysql-cdc, source-kafka, sink-kafka, source-delta, connector-security, errors-overview]
+listed_on: errors-overview
 ---
 
 Every source, lookup and sink is a **plugin**, found on the classpath by its name

@@ -10,6 +10,7 @@ audience: Operators
 keywords: [cassandra, cql, deletes, detect, PRV-2042, repeats rows, deletes.max.keys, deletes.state.dir, retraction, scylla, token range, scan, partition.key, local.datacenter, consistency.level, fetch.size, writetime, cdc, tombstone, pushdown, projection, allow filtering]
 guide: continuous-queries#21-every-source-type-configured
 related: [sources-overview, source-aerospike, connector-security, event-time-watermarks]
+listed_on: sources-overview
 ---
 
 The `cassandra` plugin reads a table by paging through it in **`token()` order**: each of its readers

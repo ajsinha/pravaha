@@ -1,10 +1,10 @@
 ---
-title: Sources, and choosing one
+title: Sources — every connector, and choosing one
 slug: sources-overview
 category: sources
 order: 10
 icon: box-arrow-in-right
-summary: "Where rows come from: the three configuration blocks (streams, sources, lookups), how a plugin is found, what each of the eight shipped sources can and cannot see, and how to pick one."
+summary: "Where rows come from: one page per shipped source, the three configuration blocks (streams, sources, lookups), how a plugin is found, what each source can and cannot see, and how to pick one."
 badge: START HERE
 audience: Operators
 keywords: [source, binding, plugin, connector, pravaha.sources, pravaha.streams, pravaha.lookups, options, classpath, serviceloader, capabilities, delivery guarantee, share.reader, pushdown, projection, partial aggregate, cdc, kafka]
@@ -13,10 +13,30 @@ related: [streams, source-filesystem, source-jdbc, source-postgres-cdc, source-m
 ---
 
 A **source** is what feeds a stream: a plugin, and the options that tell it where to read. Pravaha
-ships eight stream sources and two lookup plugins, each discovered by name, each declaring honestly what
+ships nine stream sources and two lookup plugins, each discovered by name, each declaring honestly what
 it can deliver. This page is the map: how a node is told about its data, what happens when a query
-first needs a source, and how the eight differ in the one thing that decides whether your answer is
+first needs a source, and how the nine differ in the one thing that decides whether your answer is
 right — **what they can see**.
+
+## Every source {#every-source}
+
+Each has a page of its own: its options, a complete binding, what it pushes down, what it guarantees,
+and how it goes wrong.
+
+| Plugin | Page |
+|---|---|
+| `aerospike` | [The Aerospike source](/help/topics/source-aerospike) |
+| `cassandra` | [The Cassandra source](/help/topics/source-cassandra) |
+| `delta` | [The Delta Lake source](/help/topics/source-delta) |
+| `feedfile` | [The feedfile source](/help/topics/source-feedfile) |
+| `filesystem` | [The filesystem source](/help/topics/source-filesystem) |
+| `jdbc` | [The jdbc source](/help/topics/source-jdbc) |
+| `kafka` | [The Kafka source — a topic read exactly once](/help/topics/source-kafka) |
+| `mysql-cdc` | [The mysql-cdc source — change data capture from MySQL](/help/topics/source-mysql-cdc) |
+| `postgres-cdc` | [The postgres-cdc source — change data capture from PostgreSQL](/help/topics/source-postgres-cdc) |
+
+The [lookup tables](/help/topics/lookups) a temporal join asks, and [credentials and
+TLS](/help/topics/connector-security) for every connector, have pages of their own too.
 
 ## Three blocks, kept separate on purpose
 

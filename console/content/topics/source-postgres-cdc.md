@@ -10,6 +10,7 @@ audience: Operators
 keywords: [postgres-cdc, cdc, change data capture, postgresql, logical replication, pgoutput, wal, wal_level, replication slot, slot, publication, replica identity full, lsn, heartbeat, slot lag, truncate, debezium, retraction, delete]
 guide: operations#change-data-capture-the-replication-slot
 related: [sources-overview, source-jdbc, zset-weights, checkpoints-recovery, sink-kafka, source-kafka, delivery-guarantees, connector-security]
+listed_on: sources-overview
 ---
 
 The `postgres-cdc` plugin reads a PostgreSQL table's **changes** — every committed `INSERT`, `UPDATE`

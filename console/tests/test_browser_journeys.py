@@ -544,9 +544,8 @@ def test_a_screen_s_question_mark_opens_its_help(page, console):
     href = page.eval("document.querySelector('h1 .screen-help').getAttribute('href')")
     assert href == "/help/topics/sql-reference"
     cards = page.eval("[...document.querySelectorAll('.helpcards a')].map(a => a.getAttribute('href'))")
-    assert len(cards) == 5 and all(c.startswith("/help/topics/") for c in cards)
-    assert "/help/topics/compare-versions" in cards
-    assert "/help/topics/reading-a-plan" in cards, "the numbers the plan now draws"
+    assert len(cards) == 3 and all(c.startswith("/help/topics/") for c in cards)
+    assert "/help/topics/backfill-cutover#comparing-two-versions" in cards, "the Compare panel's section"
     page.wait_for_navigation(lambda: page.click("h1 .screen-help"))
     assert page.url().endswith(href)
 

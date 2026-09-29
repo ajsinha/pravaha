@@ -9,7 +9,7 @@ badge: SECURITY
 audience: Operators
 keywords: [authentication, token, bearer, pravaha.security.authentication, tokens, allow-anonymous, principal, TokenVerifier, PRV-7001, dev profile, console token]
 guide: security#the-three-seams
-related: [authorization, audit, tls, row-filters, configuration]
+related: [authorization, audit, tls, row-filters-and-masks, configuration]
 ---
 
 Authentication answers one question — **who is this?** — and nothing else. A credential comes in; a

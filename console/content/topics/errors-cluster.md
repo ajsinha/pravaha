@@ -9,7 +9,8 @@ badge: PRV-9XXX
 audience: Operators, architects
 keywords: [cluster, coordinator, mechanism, mode, single, socket, zookeeper, replicated, partitioned, split-brain, consensus, leader, membership, handoff, rebalance, flapping]
 guide: operations#clustering-choosing-a-coordinator
-related: [cluster-mode, standby, errors-overview, configuration]
+related: [standby, errors-overview, configuration]
+listed_on: errors-overview
 ---
 
 A deployment declares two separate things about clustering, and the codes in this range are the
@@ -131,6 +132,6 @@ seconds is a cluster that never finishes one.
 
 ## Where next
 
-- [Cluster mode](/help/topics/cluster-mode) — what each mode and mechanism means, and what is built
+- [Cluster mode](/help/topics/standby#cluster-mode) — what each mode and mechanism means, and what is built
 - [Standby](/help/topics/standby) — takeover without consensus
 - [Operations: clustering (long form)](/help/operations#clustering-choosing-a-coordinator)

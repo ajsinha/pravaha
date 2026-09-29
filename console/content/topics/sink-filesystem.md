@@ -9,7 +9,8 @@ badge: SINK
 audience: Engineers
 keywords: [filesystem, csv, file, delimited, append, flush.every.batch, null.literal, at-least-once]
 guide: operations#one-engine-and-what-the-server-still-lacks
-related: [sinks-overview, delivery-guarantees, source-filesystem, windows-worked]
+related: [sinks-overview, delivery-guarantees, source-filesystem, windows]
+listed_on: sinks-overview
 ---
 
 The `filesystem` sink writes every row a query commits to one delimited text file, one line per row,

@@ -9,7 +9,8 @@ badge: PRV-6XXX
 audience: Developers, operators
 keywords: [flight, arrow, grpc, pgwire, postgresql, psql, jdbc, sqlstate, set, pg_catalog, prepared statement, portal, binary format, $1, read-only, tls, certificate]
 guide: continuous-queries#16-types
-related: [pgwire, client-snippets, tls, errors-overview, sql-types]
+related: [pgwire, clients, tls, errors-overview, sql-reference]
+listed_on: errors-overview
 ---
 
 A **gateway** is how a client reaches the engine. There are two, and each has a block in this range:
@@ -229,5 +230,5 @@ query --sql`, or the console's workbench -- where it runs as your principal.
 ## Where next
 
 - [The PostgreSQL gateway](/help/topics/pgwire) — enabling it, what it answers, `psql` and Grafana
-- [Client code](/help/topics/client-snippets) — Flight SQL from every language
+- [Client code](/help/topics/clients#snippets) — Flight SQL from every language
 - [TLS everywhere](/help/topics/tls)

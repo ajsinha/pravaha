@@ -9,7 +9,7 @@ badge: ALERTS
 audience: Analysts, operators
 keywords: [alert, alerts, "CREATE ALERT", "SHOW ALERTS", "PAUSE ALERT", "SNOOZE ALERT", "ACK ALERT", notify, notifier, webhook, hmac, signature, idempotency, fired, cleared, reminder, snooze, dedupe, flapping, fire_after, clear_after, resend_every, severity, "pravaha alerts", "pravaha alert create", ADR-057, PRV-8040, PRV-8042, PRV-8043, PRV-8046, PRV-8047]
 guide: continuous-queries
-related: [views-and-keys, create-continuous-query, catalog-and-grants, metrics-alerts, errors-registry, cli-reference]
+related: [views-and-keys, create-continuous-query, catalog-and-grants, observability, errors-registry, cli-reference]
 ---
 
 An **alert** watches a continuous query's view. A key **fires** when its row enters the view's
