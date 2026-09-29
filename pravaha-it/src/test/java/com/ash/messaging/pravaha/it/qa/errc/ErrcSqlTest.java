@@ -259,11 +259,20 @@ class ErrcSqlTest extends ErrcTestSupport {
         // check must precede the feed opening. Reading the source is crude, and it is the only way
         // to assert an ordering that has no runtime observable when the query is well-formed -- a
         // correctly-checked registration and an unchecked one look identical unless the sink refuses.
+        // Planning moved to RegistrationPlanning (ADR-060, QueryRegistry at its size limit): the check
+        // lives there, and the registry's call into it is what must precede the feed and the sink.
+        String planning = Files.readString(root.resolve(
+                "pravaha-registry/src/main/java/com/ash/messaging/pravaha/registry/RegistrationPlanning.java"));
+        assertThat(planning.indexOf("ChangelogAnalysis.checkAgainst("))
+                .as("registration planning must call checkAgainst at all")
+                .isNotNegative();
         String registry = Files.readString(
                 root.resolve("pravaha-registry/src/main/java/com/ash/messaging/pravaha/registry/QueryRegistry.java"));
-        int checkedAt = registry.indexOf("ChangelogAnalysis.checkAgainst(");
+        int checkedAt = registry.indexOf("RegistrationPlanning.prepare(");
         int feedOpenedAt = registry.indexOf("feeds.open(");
-        assertThat(checkedAt).as("the registry must call checkAgainst at all").isNotNegative();
+        assertThat(checkedAt)
+                .as("the registry must plan through RegistrationPlanning")
+                .isNotNegative();
         assertThat(feedOpenedAt).as("the registry must still open a feed").isNotNegative();
         assertThat(checkedAt)
                 .as("checkAgainst must be called BEFORE feeds.open: a sink that cannot take this "
