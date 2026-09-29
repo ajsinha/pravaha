@@ -12,6 +12,14 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **`IN` lists reach the source (INLIST-1).** The pushdown extractor sent a source column-against-
+  literal comparisons joined by `AND` and nothing OR'd, so `WHERE id IN (7, 8, 9)` was filtered only
+  in the engine. An `IN` of up to 64 literals on one column is now the request's one disjunction --
+  an equality per value -- which the sources that push filters already honour: `jdbc` as `(id = ? OR
+  id = ? ...)`, `cassandra` as a read per partition when the column is part of the partition key,
+  `aerospike` as an OR expression. A second `IN` in the same `WHERE`, and `NOT IN`, stay with the
+  engine; the engine keeps its own filter either way. `PushdownEquivalenceTest` holds the answers
+  equal with the lists pushed.
 - **Waiting for a dropped query's rows no longer waits out the timeout (LIFE-067).** A row a
   producer handed over as the query was dropped -- after its lane had drained and stopped -- was
   never applied, and `awaitApplied` (the embedded engine's and the tests' way to wait for a push to

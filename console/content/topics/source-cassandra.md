@@ -159,8 +159,9 @@ every column. A shared reader selects the union of the columns its queries read.
 are pushed:
 
 - **The whole partition key by equality** (`WHERE tenant = 'acme' AND id = 7` over
-  `PRIMARY KEY ((tenant, id), ...)`): each pass reads that partition instead of the token range. A
-  reader shared by several queries, each pinning its own key, reads each of those partitions, up to 256.
+  `PRIMARY KEY ((tenant, id), ...)`): each pass reads that partition instead of the token range. An
+  `IN` list on a key column (`AND id IN (7, 8, 9)`, up to 64 values) reads each of those partitions
+  (INLIST-1), and so does a reader shared by several queries, each pinning its own key -- up to 256.
 - **Then the clustering columns, in their declared order**: equality down a prefix, then a range on the
   next one (`AND day = 3 AND ts > '2026-09-01'`), which Cassandra answers by slicing the partition.
 

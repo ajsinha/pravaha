@@ -190,12 +190,14 @@ What is pushed:
 
 - conjuncts (`AND`) of **one column compared with a literal**: `=`, `<>`, `<`, `<=`, `>`, `>=`,
   `IS NULL`, `IS NOT NULL`;
+- one **`IN` list** of up to 64 literals on one column, as `(col = ? OR col = ? ...)` (INLIST-1); a
+  second `IN` in the same `WHERE` stays with the engine;
 - only filters sitting **directly above this stream's scan** — a `WHERE` over a join or an aggregate
   refers to columns that are not the table's, and is not pushed;
 - only columns the database's own metadata named. A filter on anything else is dropped (costing
   bandwidth, never rows).
 
-What is never pushed from a query: an `OR` written in its `WHERE`, a `NOT`, a `LIKE`, a comparison
+What is never pushed from a query: any other `OR` written in its `WHERE`, a `NOT` (so `NOT IN`), a `LIKE`, a comparison
 between two expressions — those stay with the engine. Values are **bound, never interpolated** — no
 quoting, no injection, and the statement is cacheable.
 

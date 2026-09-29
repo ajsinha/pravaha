@@ -92,11 +92,15 @@ class PushdownEquivalenceTest {
             "status = 'DONE' OR amount > 150",
             "NOT (amount > 100)",
             "amount * 2 > 100",
-            "amount > 100 AND (status = 'DONE' OR id < 10)");
+            "amount > 100 AND (status = 'DONE' OR id < 10)",
+            "id IN (1, 4, 9, 16, 25)",
+            "status IN ('DONE', 'LOST') AND amount > 20",
+            "id IN (2, 3) AND amount IN (14, 21, 100)",
+            "id NOT IN (1, 2, 3)");
 
-    @Property(tries = 50)
+    @Property(tries = 80)
     void aSourceThatHonoursEveryPushedFilterReturnsTheSameRows(
-            @ForAll @IntRange(min = 0, max = 8) int predicate, @ForAll @IntRange(min = 1, max = 60) int rowCount) {
+            @ForAll @IntRange(min = 0, max = 12) int predicate, @ForAll @IntRange(min = 1, max = 60) int rowCount) {
         String sql = "SELECT id, amount FROM txn WHERE " + PREDICATES.get(predicate);
         List<Row> rows = data(rowCount);
 
@@ -119,6 +123,26 @@ class PushdownEquivalenceTest {
 
         // A conjunction with a disjunction inside still yields its simple half.
         assertThat(describe("amount > 100 AND (status = 'DONE' OR id < 10)")).containsExactly("amount > 100");
+    }
+
+    /**
+     * INLIST-1: an {@code IN} list is pushed as the request's one disjunction -- an equality per value
+     * -- where it used to reach no source at all. A second list in the same conjunction stays in the
+     * engine, and a {@code NOT IN} is not a disjunction of equalities.
+     */
+    @Test
+    void anInListIsPushedAsAnOrOfEqualities() {
+        assertThat(alternatives("id IN (1, 4, 9)")).containsExactly("id = 1", "id = 4", "id = 9");
+        assertThat(describe("id IN (1, 4, 9)")).isEmpty();
+        assertThat(alternatives("status IN ('DONE', 'LOST') AND amount > 20"))
+                .containsExactly("status = 'DONE'", "status = 'LOST'");
+        assertThat(describe("status IN ('DONE', 'LOST') AND amount > 20")).containsExactly("amount > 20");
+        assertThat(alternatives("id IN (2, 3) AND amount IN (14, 21)"))
+                .as("one disjunction per request; the other list is the engine's")
+                .hasSize(2);
+        assertThat(alternatives("id NOT IN (1, 2, 3)")).isEmpty();
+        // Different columns OR'd together are not an IN list.
+        assertThat(alternatives("status = 'DONE' OR amount > 150")).isEmpty();
     }
 
     @Test
@@ -187,6 +211,20 @@ class PushdownEquivalenceTest {
                 .toList();
     }
 
+    /** The request's disjunction, one alternative per line, each alternative's filters joined. */
+    private static List<String> alternatives(String where) {
+        return Pushdown.requestFor(plan("SELECT id, amount FROM txn WHERE " + where), "txn", PUSHES_FILTERS)
+                .alternatives()
+                .stream()
+                .map(alternative -> String.join(
+                        " AND ",
+                        alternative.stream()
+                                .map(f -> f.column() + " " + f.comparison().sql() + " "
+                                        + (f.value() instanceof String s ? "'" + s + "'" : f.value()))
+                                .toList()))
+                .toList();
+    }
+
     private static PhysicalOperator plan(String sql) {
         return new PhysicalPlanBuilder().build(SqlPlanner.withStreams(schema()).plan(sql));
     }
@@ -230,7 +268,15 @@ class PushdownEquivalenceTest {
 
     /** A source honouring the request to the letter, which is the worst case for correctness. */
     private static boolean satisfies(Row row, ReadRequest request) {
-        for (ReadRequest.Filter filter : request.filters()) {
+        if (!request.alternatives().isEmpty()
+                && request.alternatives().stream().noneMatch(alternative -> allHold(row, alternative))) {
+            return false;
+        }
+        return allHold(row, request.filters());
+    }
+
+    private static boolean allHold(Row row, List<ReadRequest.Filter> filters) {
+        for (ReadRequest.Filter filter : filters) {
             Object value =
                     switch (filter.column()) {
                         case "id" -> row.id();
