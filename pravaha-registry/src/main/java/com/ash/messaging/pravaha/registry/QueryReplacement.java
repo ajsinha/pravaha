@@ -109,6 +109,8 @@ public final class QueryReplacement {
     private final String sink;
     private final ReplacementOptions options;
     private final String owner;
+    private final com.ash.messaging.pravaha.security.Principal replacedBy;
+    private final com.ash.messaging.pravaha.security.Principal previousOwner;
     private final Instant startedAt;
     private final String shadowDirectory;
     private final BackfillJob job;
@@ -131,7 +133,8 @@ public final class QueryReplacement {
             List<Integer> keyColumns,
             String sink,
             ReplacementOptions options,
-            String owner,
+            com.ash.messaging.pravaha.security.Principal replacedBy,
+            com.ash.messaging.pravaha.security.Principal previousOwner,
             Instant startedAt,
             String shadowDirectory,
             BackfillJob job,
@@ -143,7 +146,9 @@ public final class QueryReplacement {
         this.keyColumns = List.copyOf(keyColumns);
         this.sink = sink;
         this.options = options;
-        this.owner = owner;
+        this.owner = replacedBy.id();
+        this.replacedBy = replacedBy;
+        this.previousOwner = previousOwner;
         this.startedAt = startedAt;
         this.shadowDirectory = shadowDirectory;
         this.job = job;
@@ -180,6 +185,16 @@ public final class QueryReplacement {
 
     String owner() {
         return owner;
+    }
+
+    /** Who started it: the new version runs on their authority, so the name is theirs at the cutover. */
+    com.ash.messaging.pravaha.security.Principal replacedBy() {
+        return replacedBy;
+    }
+
+    /** Whose the name was before, for a rollback to give it back to; null when nobody was recorded. */
+    com.ash.messaging.pravaha.security.Principal previousOwner() {
+        return previousOwner;
     }
 
     String shadowDirectory() {

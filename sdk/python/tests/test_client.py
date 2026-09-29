@@ -410,6 +410,9 @@ def test_a_query_with_no_sink_says_so_rather_than_saying_nothing(client):
         assert listed.sink_state == "NONE"
         assert not listed.is_sink_detached
         assert listed.sink_failure is None
+        # The owner trails the sink's state: whoever registered it, which this unauthenticated
+        # fixture server records as the anonymous principal.
+        assert listed.owner == "anonymous"
     finally:
         client.drop("py_no_sink")
 

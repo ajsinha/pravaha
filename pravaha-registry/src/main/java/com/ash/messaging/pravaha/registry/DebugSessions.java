@@ -107,7 +107,7 @@ public final class DebugSessions implements AutoCloseable {
      */
     public DebugSession.Status fork(String name, Long checkpointId, Principal principal) {
         expireStale();
-        ContinuousQueryStatements.requireAdministrable(policy, audit, principal, name, "debug");
+        ContinuousQueryStatements.requireAdministrable(registry, audit, principal, name, "debug");
         RegisteredQuery query = registry.require(name);
         if (query.state().isTerminal()) {
             throw new PravahaException(
@@ -227,7 +227,7 @@ public final class DebugSessions implements AutoCloseable {
 
     /** Which checkpoints of {@code name} a session could be forked from, newest first. */
     public List<Long> checkpointsOf(String name, Principal principal) {
-        ContinuousQueryStatements.requireAdministrable(policy, audit, principal, name, "debug-checkpoints");
+        ContinuousQueryStatements.requireAdministrable(registry, audit, principal, name, "debug-checkpoints");
         RegisteredQuery query = registry.require(name);
         return query.checkpointDirectory()
                 .map(directory -> new FileCheckpointStore(directory).availableIds())
@@ -262,7 +262,7 @@ public final class DebugSessions implements AutoCloseable {
         if (session == null) {
             return Optional.empty();
         }
-        ContinuousQueryStatements.requireAdministrable(policy, audit, principal, session.queryName(), "debug-status");
+        ContinuousQueryStatements.requireAdministrable(registry, audit, principal, session.queryName(), "debug-status");
         return Optional.of(session.status());
     }
 
@@ -271,7 +271,7 @@ public final class DebugSessions implements AutoCloseable {
         expireStale();
         List<DebugSession.Status> visible = new ArrayList<>();
         for (DebugSession session : byId.values()) {
-            if (policy.mayAdminister(principal, session.queryName()).allowed()) {
+            if (registry.owners().mayAdminister(principal, session.queryName()).allowed()) {
                 visible.add(session.status());
             }
         }
@@ -380,7 +380,7 @@ public final class DebugSessions implements AutoCloseable {
                             + ttl + " untouched -- a session holds a second copy of a query's state, so it is "
                             + "not kept for ever. Fork again from the checkpoint.");
         }
-        ContinuousQueryStatements.requireAdministrable(policy, audit, principal, session.queryName(), action);
+        ContinuousQueryStatements.requireAdministrable(registry, audit, principal, session.queryName(), action);
         return session;
     }
 

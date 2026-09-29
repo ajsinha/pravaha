@@ -973,6 +973,7 @@ public class PravahaNode implements SmartLifecycle {
         SecurityPolicy policy = securityPolicy();
         AuditSink audit = auditSink();
         registry = new QueryRegistry(views, policy, audit, streams.all().toArray(new StreamSchema[0]));
+        registry.owners().administering(security.administerRule()); // owner, grant or admin
         // The knobs eleven error messages have been telling operators to turn (PF-3). Nothing on this
         // path ever called executingWith, so every query on every node ran with the library's sizes
         // -- chosen for one high-throughput query, and paid for by each of a thousand small ones.
@@ -1018,12 +1019,13 @@ public class PravahaNode implements SmartLifecycle {
                 lanes.idleBytesPerQuery() / 1024);
         log.info("{}", laneSharing());
         log.info(
-                "security: authentication={}, policy={}, audit={}, flight transport={}",
+                "security: authentication={}, policy={}, administer={}, audit={}, flight transport={}",
                 security.authenticates() ? "token" : "none",
                 // The configured name, not the object: SecurityPolicy.PERMISSIVE is an anonymous
                 // class, and "SecurityPolicy$1@7657d90b" in the one line an operator reads to check
                 // how a node is secured is worse than not logging it.
                 security.getPolicy(),
+                security.administerRule().setting(),
                 security.getAudit(),
                 tlsCertificate == null ? "PLAINTEXT" : "TLS");
         // CFG-10(b). SecurityProperties.verifier() returns TokenVerifier.rejectAll() for an empty

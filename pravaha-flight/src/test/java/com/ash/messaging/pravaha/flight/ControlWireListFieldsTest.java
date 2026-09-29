@@ -54,9 +54,9 @@ class ControlWireListFieldsTest {
     @Test
     void aFieldTheListingDoesNotHaveIsRefusedByName() {
         assertThat(ControlWire.listField("name")).isZero();
-        assertThat(ControlWire.listField("sink_message")).isEqualTo(ControlWire.LIST_FIELDS.size() - 1);
-        assertThatThrownBy(() -> ControlWire.listField("owner"))
+        assertThat(ControlWire.listField("owner")).isEqualTo(ControlWire.LIST_FIELDS.size() - 1);
+        assertThatThrownBy(() -> ControlWire.listField("tenant"))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("'owner'");
+                .hasMessageContaining("'tenant'");
     }
 }

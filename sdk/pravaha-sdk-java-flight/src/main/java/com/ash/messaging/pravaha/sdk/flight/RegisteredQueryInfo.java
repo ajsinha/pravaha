@@ -40,6 +40,8 @@ package com.ash.messaging.pravaha.sdk.flight;
  *     written) or {@code NONE} (the query writes nowhere); null from a server that predates the
  *     field (SINK-3)
  * @param sinkFailure why it was detached, or null while it writes
+ * @param owner the id of the principal who registered it, or replaced it last -- who may drop, pause or
+ *     replace it without a grant; null from a server that predates the field
  */
 public record RegisteredQueryInfo(
         String name,
@@ -53,7 +55,8 @@ public record RegisteredQueryInfo(
         String feed,
         FeedStop feedStop,
         String sinkState,
-        SinkFailure sinkFailure) {
+        SinkFailure sinkFailure,
+        String owner) {
 
     public RegisteredQueryInfo {
         keyColumns = keyColumns == null ? java.util.List.of() : java.util.List.copyOf(keyColumns);
@@ -74,7 +77,7 @@ public record RegisteredQueryInfo(
             java.util.List<Integer> keyColumns,
             String sink,
             String retention) {
-        this(name, state, sql, fingerprint, rowsIn, keyColumns, sink, retention, null, null, null, null);
+        this(name, state, sql, fingerprint, rowsIn, keyColumns, sink, retention, null, null, null, null, null);
     }
 
     /** Thirteen fields, as a server that predates the sink's state reports them (FEED-1's shape). */
@@ -89,7 +92,37 @@ public record RegisteredQueryInfo(
             String retention,
             String feed,
             FeedStop feedStop) {
-        this(name, state, sql, fingerprint, rowsIn, keyColumns, sink, retention, feed, feedStop, null, null);
+        this(name, state, sql, fingerprint, rowsIn, keyColumns, sink, retention, feed, feedStop, null, null, null);
+    }
+
+    /** Sixteen fields, as a server that predates the owner reports them (SINK-3's shape). */
+    public RegisteredQueryInfo(
+            String name,
+            String state,
+            String sql,
+            String fingerprint,
+            long rowsIn,
+            java.util.List<Integer> keyColumns,
+            String sink,
+            String retention,
+            String feed,
+            FeedStop feedStop,
+            String sinkState,
+            SinkFailure sinkFailure) {
+        this(
+                name,
+                state,
+                sql,
+                fingerprint,
+                rowsIn,
+                keyColumns,
+                sink,
+                retention,
+                feed,
+                feedStop,
+                sinkState,
+                sinkFailure,
+                null);
     }
 
     /**

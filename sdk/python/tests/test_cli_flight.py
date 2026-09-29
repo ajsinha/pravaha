@@ -188,7 +188,7 @@ def test_queries_lists_and_says_why_a_source_stopped_or_a_sink_detached(engine):
     code, out, err = run(engine, "queries", "--verbose")
     assert code == EXIT_OK
     lines = out.splitlines()
-    assert lines[0].split() == ["NAME", "STATE", "FINGERPRINT", "ROWS", "IN", "SINK", "FEED"]
+    assert lines[0].split() == ["NAME", "STATE", "FINGERPRINT", "ROWS", "IN", "SINK", "FEED", "OWNER"]
     assert "t (detached)" in out and "RUNNING (source stopped)" in out
     assert "w10: source stopped with PRV-5040 reading ev#0" in err
     assert "spend: sink 't' detached with PRV-8009: refused" in err

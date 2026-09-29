@@ -165,13 +165,35 @@ final class NodeCatalog {
             catalog.importPolicy(
                     configured,
                     CatalogPolicy.importedGrants(
-                            configured, "import", Clock.systemUTC().instant()));
+                            configured, "import", Clock.systemUTC().instant(), security.administerRule()));
             log.info("catalog: imported pravaha.security.policy={} as grants, once", configured);
             return;
         }
         if (!imported.get().equals(configured)) {
             throw twoAuthorities("the catalogue imported pravaha.security.policy=" + imported.get() + " and the "
                     + "setting is now '" + configured + "'");
+        }
+        warnOfImportedAdministration(catalog);
+    }
+
+    /**
+     * Said, not undone: an import written before ownership (pravaha.security.administer) granted MODIFY
+     * on everything to every verified caller, which is the rule ownership replaces. Grants are the
+     * catalogue's to change, by REVOKE, and the engine does not rewrite them behind the operator.
+     */
+    private void warnOfImportedAdministration(Catalog catalog) {
+        boolean readersAdminister = catalog.grants().stream()
+                .anyMatch(grant -> grant.object().equals(com.ash.messaging.pravaha.catalog.CatalogNames.ROOT)
+                        && grant.privilege() == com.ash.messaging.pravaha.catalog.Privilege.MODIFY
+                        && grant.grantee().role()
+                        && grant.grantee().name().equals(com.ash.messaging.pravaha.catalog.Grantee.AUTHENTICATED));
+        if (readersAdminister
+                && security.administerRule() == com.ash.messaging.pravaha.security.Administration.Rule.OWNERSHIP) {
+            log.warn(
+                    "catalog: the catalogue grants MODIFY ON CATALOG TO ROLE authenticated (imported before views were "
+                            + "administered by their owners), so every verified caller may still drop, pause and replace "
+                            + "every view. REVOKE MODIFY ON CATALOG FROM ROLE authenticated to leave that to owners, grantees and "
+                            + "admins.");
         }
     }
 

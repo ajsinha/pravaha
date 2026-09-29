@@ -40,6 +40,7 @@ LIST_FIELDS = (
     "sink_state",
     "sink_code",
     "sink_message",
+    "owner",
 )
 
 
@@ -223,6 +224,9 @@ class RegisteredQuery:
     sink_state: Optional[str] = None
     #: Why the sink was detached, or ``None`` while it writes.
     sink_failure: Optional[SinkFailure] = None
+    #: The id of the principal who registered it (or replaced it last): who may drop, pause or
+    #: replace it without a grant. ``None`` from a server that predates the field.
+    owner: Optional[str] = None
 
     @property
     def is_running(self) -> bool:

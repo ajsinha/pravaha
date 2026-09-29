@@ -140,7 +140,7 @@ public final class AlertService implements Alerting, AutoCloseable {
         this.journal = journal;
         this.notifiers = notifiers == null ? Notifiers.none() : notifiers;
         this.audit = audit == null ? AuditSink.NONE : audit;
-        this.access = new AlertAccess(registry.policy(), this.audit);
+        this.access = new AlertAccess(registry.policy(), this.audit, registry.owners()::mayAdminister);
         this.clock = clock == null ? Clock.systemUTC() : clock;
         this.settings = settings == null ? Settings.defaults() : settings;
     }

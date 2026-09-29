@@ -72,6 +72,7 @@ public final class QueryRegistry implements AutoCloseable {
 
     private final ViewCatalog views;
     private final SecurityPolicy policy;
+    private final QueryOwners owners;
     private final AuditSink audit;
     private final StreamSchema[] streams;
     /**
@@ -353,6 +354,7 @@ public final class QueryRegistry implements AutoCloseable {
     public QueryRegistry(ViewCatalog views, SecurityPolicy policy, AuditSink audit, StreamSchema... streams) {
         this.views = views;
         this.policy = policy;
+        this.owners = new QueryOwners(policy);
         this.audit = audit;
         this.streams = StreamIdentities.identify(streams);
     }
@@ -981,6 +983,7 @@ public final class QueryRegistry implements AutoCloseable {
                     name, sql, keyColumns, principal.id(), retention, parameters, sinkName, declaring);
         }
         policy.registered(principal, name); // ADR-059: the catalogue records its owner
+        owners.registered(principal, name);
     }
 
     /** Registration during recovery: the journal is being read, so nothing is written back to it. */
@@ -1179,16 +1182,6 @@ public final class QueryRegistry implements AutoCloseable {
         return feeds;
     }
 
-    /** The registration the journal holds for {@code name}, for a rollback to put back. */
-    java.util.Optional<RegistryJournal.Entry> journalledEntry(String name) {
-        if (journal == null) {
-            return java.util.Optional.empty();
-        }
-        return journal.replay().stream()
-                .filter(entry -> entry.name().equals(name))
-                .findFirst();
-    }
-
     /** The streams {@code sql} would read if it were registered here, planned as registration plans it. */
     synchronized List<String> sourceStreamsOf(String sql) {
         return PlanSources.of(PreparedContinuousQuery.of(
@@ -1358,6 +1351,11 @@ public final class QueryRegistry implements AutoCloseable {
         return policy;
     }
 
+    /** Who owns each name, and so who may drop, pause, resume or replace it (every surface asks here). */
+    public QueryOwners owners() {
+        return owners;
+    }
+
     /** The query answering to {@code name}. */
     public synchronized Optional<RegisteredQuery> find(String name) {
         return Optional.ofNullable(byName.get(name));
@@ -1425,6 +1423,7 @@ public final class QueryRegistry implements AutoCloseable {
             journal.recordDrop(name);
         }
         policy.dropped(name);
+        owners.dropped(name);
         byName.remove(name);
         tenants.release(name);
         // This name's sink alone. Another name on the same computation may write to a sink of its

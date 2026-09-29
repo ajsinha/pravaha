@@ -92,6 +92,13 @@ public interface SecurityPolicy {
      * row filter into an administrative right: a principal shown one row of a view could drop it
      * for every other reader, including those entitled to all of it. A restricted read is the
      * weakest claim on a thing there is, and it does not carry the right to destroy it.
+     *
+     * <p><strong>For a registered view this default is no longer the rule.</strong> The engine
+     * records who registered each view and asks {@link Administration}: the owner, an admin, or a
+     * principal this method grants it to -- and it counts as a grant only when a policy implements
+     * this method itself. Inherited, as here, it grants nothing beyond ownership. This default still
+     * decides for a name no view holds (a stream), and for every view under {@code
+     * pravaha.security.administer=legacy-read}.
      */
     default AccessDecision mayAdminister(Principal principal, String view) {
         AccessDecision read = mayRead(principal, view);

@@ -46,6 +46,7 @@
         <dl class="row small mt-3 mb-0" id="registration">
           <dt class="col-4">{{ t('query.keyed_by') }}</dt><dd class="col-8">{% for k in detail.keyColumns or [] %}<span class="mono">{{ k.name }}</span> <span class="text-muted">(#{{ k.ordinal }})</span>{{ ', ' if not loop.last }}{% else %}—{% endfor %}</dd>
           <dt class="col-4">{{ t('query.retention') }}</dt><dd class="col-8 mono">{{ detail.retention or '—' }}</dd>
+          {% if detail.owner %}<dt class="col-4" title="{{ t('query.owner_title') }}">{{ t('query.owner') }}</dt><dd class="col-8 mono" id="query-owner">{{ detail.owner }}</dd>{% endif %}
           <dt class="col-4">{{ t('query.reads') }}</dt><dd class="col-8">{% for r in detail.reads or [] %}<a class="mono" href="/catalog/streams/{{ r }}">{{ r }}</a>{{ ', ' if not loop.last }}{% else %}<span class="text-muted">—</span>{% endfor %}</dd>
           {% if detail.readsFrom %}<dt class="col-4">{{ t('query.reads_from') }}</dt><dd class="col-8">{% for r in detail.readsFrom %}<a class="mono" href="/queries/{{ r }}">{{ r }}</a>{{ ', ' if not loop.last }}{% endfor %}</dd>{% endif %}
           {% if detail.accessPaths %}{% set paths = detail.accessPaths %}

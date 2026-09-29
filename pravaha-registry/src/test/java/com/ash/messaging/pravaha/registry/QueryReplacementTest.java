@@ -365,7 +365,8 @@ class QueryReplacementTest {
             }
         };
         QueryRegistry registry = registry(log, readOnly);
-        registry.register("orders", V1, List.of(0), DANA);
+        // Registered by somebody else: dana may read it, and the policy grants her nothing over it.
+        registry.register("orders", V1, List.of(0), new Principal("erin", "acme", Set.of("analyst"), Map.of()));
 
         assertThatThrownBy(() ->
                         registry.replacements().replace("orders", V2, List.of(0), DANA, ReplacementOptions.defaults()))

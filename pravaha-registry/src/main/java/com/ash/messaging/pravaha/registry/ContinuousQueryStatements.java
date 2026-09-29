@@ -111,17 +111,17 @@ public final class ContinuousQueryStatements {
         return switch (statement) {
             case ContinuousStatement.Create create -> create(create, principal);
             case ContinuousStatement.Drop drop -> {
-                requireAdministrable(policy, audit, principal, drop.name(), "drop");
+                requireAdministrable(registry, audit, principal, drop.name(), "drop");
                 registry.drop(drop.name());
                 yield changed(drop.name(), "DROPPED");
             }
             case ContinuousStatement.Pause pause -> {
-                requireAdministrable(policy, audit, principal, pause.name(), "pause");
+                requireAdministrable(registry, audit, principal, pause.name(), "pause");
                 registry.pause(pause.name());
                 yield changed(pause.name(), "PAUSED");
             }
             case ContinuousStatement.Resume resume -> {
-                requireAdministrable(policy, audit, principal, resume.name(), "resume");
+                requireAdministrable(registry, audit, principal, resume.name(), "resume");
                 registry.resume(resume.name());
                 yield changed(resume.name(), "RUNNING");
             }
@@ -420,13 +420,17 @@ public final class ContinuousQueryStatements {
      * denied principal dropped another principal's payroll query -- destroying its accumulated state
      * and taking the view away from everyone holding a name for it.
      *
+     * <p>Asked of the registry rather than the policy: the registry knows who owns the view, and the
+     * owner, a principal the policy grants it to, or an admin may administer it ({@link
+     * QueryOwners#mayAdminister}).
+     *
      * @param verb the audit action and the word in the refusal: {@code drop}, {@code pause} or {@code
      *     resume}
-     * @throws PravahaException {@code PRV-7002} when the policy denies it
+     * @throws PravahaException {@code PRV-7002} when it is refused
      */
     public static void requireAdministrable(
-            SecurityPolicy policy, AuditSink audit, Principal principal, String view, String verb) {
-        AccessDecision decision = policy.mayAdminister(principal, view);
+            QueryRegistry registry, AuditSink audit, Principal principal, String view, String verb) {
+        AccessDecision decision = registry.owners().mayAdminister(principal, view);
         audit.record(AuditEvent.of(principal, verb, view, decision, ""));
         if (!decision.allowed()) {
             throw new PravahaException(

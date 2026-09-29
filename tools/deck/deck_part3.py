@@ -396,9 +396,6 @@ PART8: list[dict[str, Any]] = [
         "kicker": "Stated plainly",
         "title": "What the security model does not do yet",
         "items": [
-            ("Drop, pause and resume are authorized as reads",
-             "mayAdminister defaults to mayRead: anyone entitled to any rows of a view may drop it "
-             "for everyone. A deployment that needs ownership must override mayAdminister."),
             ("The HTTP API's TLS is Spring Boot's",
              "Flight carries TLS by default; /api/v1 is reached over HTTPS only through server.ssl.*."),
             ("No mTLS between nodes, no OIDC or JWT verifier out of the box",
@@ -406,8 +403,7 @@ PART8: list[dict[str, Any]] = [
             ("No column masking; grants live in the deployment's policy",
              "The console shows grants and does not edit them."),
         ],
-        "source": "Source: docs/SECURITY.md 'Drop, pause and resume are authorized as reads' (SX-2), "
-        "'Transport', 'What is not built'; README.md 'Boundaries' (grants).",
+        "source": "Source: docs/SECURITY.md 'Transport', 'What is not built'; README.md 'Boundaries' (grants).",
     },
 ]
 

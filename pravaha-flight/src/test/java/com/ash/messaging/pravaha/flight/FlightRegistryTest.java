@@ -46,6 +46,7 @@ import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
 import com.ash.messaging.pravaha.common.row.RowLayout;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.RegisteredQuery;
+import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -185,8 +186,10 @@ class FlightRegistryTest {
                     .containsExactly("NONE", "", "", "", "");
             // SINK-3, trailing after the feed: this query writes nowhere, so there is no sink to
             // be attached or detached and no failure.
-            assertThat(row.subList(ControlWire.listField("sink_state"), ControlWire.LIST_FIELDS.size()))
+            assertThat(row.subList(ControlWire.listField("sink_state"), ControlWire.listField("owner")))
                     .containsExactly("NONE", "", "");
+            // Last, the owner: who registered it, and so who may drop it without a grant.
+            assertThat(row.get(ControlWire.listField("owner"))).isEqualTo(Principal.ANONYMOUS.id());
         });
     }
 

@@ -284,6 +284,12 @@ def test_the_view_page_shows_its_key_retention_and_sink_from_the_engine(signed_i
     assert signed_in.get("/api/v1/views/big_txn/schema").json()["fields"][0]["name"] == "txn_id"
 
 
+def test_the_query_page_names_its_owner(signed_in):
+    # Who may pause, replace or drop it without a grant: the engine's QueryDetail.owner.
+    page = signed_in.get("/queries/big_txn").text
+    assert '<dd class="col-8 mono" id="query-owner">ops</dd>' in page
+
+
 def test_the_query_page_shows_a_detached_sink_and_its_failure(signed_in):
     page = signed_in.get("/queries/big_txn").text
     assert 'id="sink-failure"' in page and "PRV-8009" in page and "detached" in page

@@ -61,11 +61,11 @@ import com.ash.messaging.pravaha.state.StateErrors;
  * data. And it is <em>said</em>, in {@link Visible#withheld()}, rather than left as an empty
  * field: an operator who cannot see a record must not be left thinking the record was empty.
  *
- * <p><strong>Whether you may replay</strong> is {@link SecurityPolicy#mayAdminister}, the check
+ * <p><strong>Whether you may replay</strong> is {@link QueryOwners#mayAdminister}, the check
  * {@code drop}, {@code pause} and {@code resume} use. A replay puts a row into a view that other
  * people read, so it is an act on the whole view and not on the caller's slice of it -- and that
- * policy already refuses a row-filtered principal by name, for exactly this reason: being shown a
- * slice of something is the weakest claim on it there is. Reading a dead letter's bytes and
+ * check is the view's owner, a grant or an admin, never a reader as such: being shown a slice of
+ * something is the weakest claim on it there is. Reading a dead letter's bytes and
  * replaying it are therefore two different rights, and a deployment that separates operators from
  * readers gets to separate them here.
  *
@@ -183,8 +183,8 @@ public final class DeadLetters {
      */
     public Replayed replay(Principal principal, String query, String id) {
         // Administering, not reading. A replay changes the view every other reader sees, and
-        // mayAdminister already refuses a principal whose read is row-filtered, by name.
-        ContinuousQueryStatements.requireAdministrable(policy, audit, principal, query, "dlq.replay");
+        // The owner, a grant or an admin: a reader, filtered or not, does not qualify as one.
+        ContinuousQueryStatements.requireAdministrable(registry, audit, principal, query, "dlq.replay");
         RegisteredQuery registered = registry.find(query)
                 .orElseThrow(() -> new PravahaException(
                         StateErrors.DLQ_REPLAY_REFUSED,

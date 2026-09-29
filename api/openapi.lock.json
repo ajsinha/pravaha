@@ -1664,6 +1664,7 @@
       "keyColumns[].ordinal" : "optional integer/int32",
       "lane" : "optional string",
       "name" : "optional string",
+      "owner" : "optional string",
       "readsFrom[]" : "optional string",
       "reads[]" : "optional string",
       "registeredAt" : "optional string/date-time",

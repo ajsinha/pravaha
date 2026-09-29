@@ -131,25 +131,55 @@ sources or sinks, which the policy decides, and it does not scope lanes, which e
   `DENY`, and counted. A running query is never stopped by a quota.
 - **A replacement stays in its tenant.** Only a principal of the tenant that registered a name can
   replace it (`PRV-8022`, HTTP `403`, audited as `replace:tenant`). `drop`, `pause` and `resume`
-  are still decided by `mayAdminister`, as the next section describes.
+  are decided by ownership, as the next section describes.
 - **Who sees the use.** `GET /api/v1/tenants` shows every tenant to a principal allowed to read the
   audit trail. Any other principal sees only their own tenant.
 
-## Drop, pause and resume are authorized as reads, not as ownership
+## Drop, pause, resume and replace are authorized by ownership, not by reading
 
-`mayAdminister` — the check behind `drop`, `pause` and `resume` — **defaults to `mayRead`**. The
-owning principal is recorded at registration and journalled, but nothing in the drop/pause/resume
-path consults it (§25 records the intent; the code does not implement it). The practical consequence,
-confirmed live in the SECX round: **any principal entitled to read any rows of a view may destroy or
-freeze it for every other reader**, even a principal entitled to only a filtered slice of it, and even
-one denied the view under the name it is registered against but who reaches it under a different,
-innocuous name that computation happens to share (within one tenant; a computation is never shared
-across tenants since ADR-050). A row-filtered principal who may read only the
-`region = 'EU'` rows of a view may `drop` the whole view out from under every other reader, or
-`pause` it and freeze the row count everyone else sees, not only their own filtered view of it. A
-deployment that needs drop/pause/resume gated on registration ownership, rather than read access,
-must implement and wire its own `SecurityPolicy.mayAdminister` override — the shipped default does
-not do this, and nothing here previously said so. See `docs/qa/FINDINGS.md`'s SX-2.
+A registered view is administered — dropped, paused, resumed, replaced, debugged, or fed a replayed
+dead letter — by:
+
+1. **its owner**: the principal who registered it, or who replaced it last (the new version runs on
+   their authority). The same id in the same tenant; anonymous callers are one principal, so on an
+   open node an anonymous registration stays administrable by anonymous callers;
+2. **a principal the policy grants it to**: with the catalogue on, `MODIFY` or `MANAGE` on the view;
+   without it, a `SecurityPolicy` that implements `mayAdminister` itself is taken at its word. A
+   policy that inherits the interface's default (`permissive`, `authenticated`) grants nothing
+   beyond ownership;
+3. **the `admin` role.**
+
+Anyone else is refused `PRV-7002` (HTTP `403`), audited as the verb with `DENY`. Reading a view,
+unfiltered or not, is no longer a claim on it: before this, any principal entitled to read every row
+of a view could drop it out from under every other reader (SX-2, SX-6, LIFE-040). The refusal says
+what administering takes and does not say whose the view is.
+
+**The owner is recorded where it always was.** The registry journal has recorded the registrant of
+every registration since it was written, and recovery registers each view again as that principal —
+so the owner survives a restart, and a view registered before ownership was enforced comes back owned
+by whoever registered it. There is no owner-less view to decide for. A name no view holds (a stream
+declared over `POST /api/v1/streams`, or a name that is not registered) is decided by the policy's
+`mayAdminister` as before, so a permitted caller still meets `PRV-8002` for a name that does not
+exist. Each name of a shared computation has its own owner.
+
+The owner is shown to anyone who may see the query: `owner` in `GET /api/v1/queries` and
+`GET /api/v1/queries/{name}`, the last field of the Flight `pravaha.list` row, `owner` on the Python
+and Java SDKs' registered-query records, `pravaha describe`, `pravaha queries --verbose`, and the
+console's query page. `GET /api/v1/me/permissions` answers `administer` by the same rule.
+
+**`pravaha.security.administer`** chooses the rule:
+
+| Value | Who may administer a registered view |
+|---|---|
+| `ownership` (default) | its owner, a principal the policy grants it to, or the `admin` role |
+| `legacy-read` | the policy's `mayAdminister` alone — by default anyone whose read carries no row filter, as before. **Kept for one release**, so a deployment whose operators relied on reading can move them to grants (`GRANT MODIFY ON VIEW ...`) or the `admin` role first |
+
+Anything else is refused at start with `PRV-7004`. The embedded engine reads the same key from its
+`Configuration`. With the catalogue on, `authority: import` now imports `authenticated` without
+`MODIFY` on the catalogue; a catalogue that imported it before this change keeps that grant — the
+engine does not rewrite grants — and the node warns at every start until `REVOKE MODIFY ON CATALOG
+FROM ROLE authenticated`. `permissive` is imported whole either way: it makes every caller a manager
+of the catalogue, who may grant themselves `MODIFY`.
 
 ## Row filters, and the rule that bounds them
 
@@ -384,7 +414,7 @@ a built-in policy, `CatalogPolicy`, at every enforcement point this document des
 | may this principal read a view or stream | `SELECT` on it |
 | may it subscribe | `SUBSCRIBE` on the view — separate from `SELECT`, and re-asked every two seconds on an open Flight subscription, so a revocation ends the stream with `PRV-7002` |
 | may it register | `CREATE` on its tenant's `default` namespace, and `BUILD_ON` on every input the query names |
-| may it drop, pause, resume or replace | `MODIFY` (or `MANAGE`) on the view |
+| may it drop, pause, resume or replace | ownership of the view, `MODIFY` (or `MANAGE`) on it, or the `admin` role |
 | may it write to a sink | `WRITE` on the sink |
 | may it read the audit trail | the `admin` role, a `pravaha.security.audit-readers` role, or `MANAGE` on the whole catalogue |
 

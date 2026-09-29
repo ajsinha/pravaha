@@ -136,27 +136,27 @@ class LifeAuthorizationTest extends LifecycleTestSupport {
     }
 
     @Test
-    void life040_pauseResumeAndDropDefaultToMayRead() {
-        // mayAdminister's own javadoc: "Defaults to mayRead ... the weakest defensible rule". A
-        // policy that never overrides it means read access is destroy access -- verified here
-        // against the shipped default rather than assumed.
+    void life040_aReaderMayNotAdministerAViewItDoesNotOwn() {
+        // LIFE-040 found that read access was destroy access: PERMISSIVE never overrides
+        // mayAdminister, whose default is "anyone who may read it unfiltered". The registry now
+        // records who registered each view and decides by ownership (QueryOwners); the policy's
+        // default is the rule only under pravaha.security.administer=legacy-read.
         QueryRegistry policed = new QueryRegistry(views, SecurityPolicy.PERMISSIVE, AuditSink.NONE, TXN);
         try {
-            policed.register("v1", S1, List.of(0), Principal.ANONYMOUS);
+            Principal owner = Principal.of("owner");
+            policed.register("v1", S1, List.of(0), owner);
             Principal reader = Principal.of("reader");
 
-            assertThat(policed.policy().mayAdminister(reader, "v1").allowed())
-                    .as("PERMISSIVE never overrides mayAdminister, so it delegates to mayRead, which allows "
-                            + "everyone -- a reader with no ownership stake can pause, resume and drop")
-                    .isTrue();
+            assertThat(policed.policy().mayRead(reader, "v1").allowed()).isTrue();
+            assertThat(policed.owners().mayAdminister(reader, "v1").allowed())
+                    .as("a reader with no ownership stake may not pause, resume or drop it")
+                    .isFalse();
+            assertThat(policed.owners().mayAdminister(owner, "v1").allowed()).isTrue();
 
-            policed.pause("v1");
-            assertThat(policed.require("v1").state().name()).isEqualTo("PAUSED");
-            policed.resume("v1");
-            policed.drop("v1");
-            assertThat(policed.names())
-                    .as("a mere reader destroyed another principal's computation")
-                    .isEmpty();
+            policed.owners().administering(com.ash.messaging.pravaha.security.Administration.Rule.LEGACY_READ);
+            assertThat(policed.owners().mayAdminister(reader, "v1").allowed())
+                    .as("legacy-read restores the old rule for one release")
+                    .isTrue();
         } finally {
             policed.close();
         }

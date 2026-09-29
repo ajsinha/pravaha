@@ -64,6 +64,15 @@ public class SecurityProperties {
     private String policy = "permissive";
 
     /**
+     * Who may drop, pause, resume, replace or debug a registered view. {@code ownership} (the default):
+     * the principal who registered it, a principal the policy grants it to, or a holder of the {@code
+     * admin} role. {@code legacy-read}: anyone whose read of it carries no row filter, as before --
+     * kept for one release so a deployment can move to grants first. Anything else is refused at
+     * startup with PRV-7004.
+     */
+    private String administer = "ownership";
+
+    /**
      * {@code none}, {@code memory} or {@code file}. Anything else is refused at startup with
      * PRV-7004.
      *
@@ -132,6 +141,19 @@ public class SecurityProperties {
 
     public void setPolicy(String policy) {
         this.policy = policy;
+    }
+
+    public String getAdminister() {
+        return administer;
+    }
+
+    public void setAdminister(String administer) {
+        this.administer = administer;
+    }
+
+    /** The administer rule, validated; see {@link #trimmedPolicy()} for why the refusal lives here. */
+    public com.ash.messaging.pravaha.security.Administration.Rule administerRule() {
+        return com.ash.messaging.pravaha.security.Administration.Rule.parse(administer);
     }
 
     public String getAudit() {
@@ -231,6 +253,7 @@ public class SecurityProperties {
     public void validate() {
         trimmedAuthentication();
         trimmedPolicy();
+        administerRule();
         trimmedAudit();
         tokens.forEach((credential, spec) -> principalIdOf(credential, spec));
         tokens.keySet().forEach(SecurityProperties::refuseAnUnusableCredentialKey);

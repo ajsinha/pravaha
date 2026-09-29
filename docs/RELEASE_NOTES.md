@@ -12,6 +12,21 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **A view is administered by its owner, not by everyone who may read it (LIFE-040, SX-6).** Drop,
+  pause, resume, replace, debug and dead-letter replay were allowed to anyone whose read of the view
+  carried no row filter, so one reader could destroy the state every other reader depends on. They
+  are now allowed to the principal who registered the view (or replaced it last), to a principal the
+  policy grants it to — `MODIFY` or `MANAGE` on the view with the catalogue on, or a policy that
+  implements `mayAdminister` itself — and to the `admin` role; anyone else is refused `PRV-7002`.
+  The owner is the registrant the registry journal has always recorded, so views registered before
+  this change come back owned by whoever registered them. It is shown as `owner` in
+  `GET /api/v1/queries[/{name}]`, as the last field of the Flight `pravaha.list` row, as `owner` on
+  both SDKs' registered-query records, in `pravaha describe` and `pravaha queries --verbose`, and on
+  the console's query page. **`pravaha.security.administer: legacy-read`** restores the old rule for
+  one release; the default is `ownership`, and anything else is refused at start with `PRV-7004`. A
+  catalogue that imports `authenticated` now imports it without `MODIFY`; one that imported it
+  earlier keeps the grant, and the node warns at start until `REVOKE MODIFY ON CATALOG FROM ROLE
+  authenticated`.
 - **A window whose state has spilled fires at memory speed again (SPILL-4).** Firing a window and
   discarding dead slices walked every accumulator in the index's hash order, a random read each;
   they now walk the store slab by slab (`RowStore.forEachLive`). Under a 384 MiB cap, 1.18 M

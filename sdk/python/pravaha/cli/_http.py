@@ -260,6 +260,7 @@ def describe(ctx: Context) -> int:
         [
             ("name", query.get("name")),
             ("state", query.get("state")),
+            ("owner", query.get("owner")),
             ("fingerprint", query.get("fingerprint")),
             ("lane", lane),
             ("key", _keys_text(query.get("keyColumns"))),

@@ -32,6 +32,7 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.security.AuditEvent;
 import com.ash.messaging.pravaha.security.Principal;
+import com.ash.messaging.pravaha.security.SecurityErrors;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 
@@ -276,8 +277,14 @@ class TenancyTest {
         QueryRegistry registry = registry(TenantQuotas.unbounded()).feedingFrom(log);
         registry.register("totals", BY_USER, List.of(0), DANA);
 
+        // Not dana's, so not omar's to replace: refused as administering someone else's view is.
         assertThatThrownBy(() -> registry.replacements()
                         .replace("totals", ROWS, List.of(0, 1), OMAR, ReplacementOptions.defaults()))
+                .satisfies(e -> assertThat(((PravahaException) e).errorCode()).isEqualTo(SecurityErrors.FORBIDDEN));
+        // An admin of another tenant may administer it, and is still refused a replacement across tenants.
+        Principal omarAdmin = new Principal(OMAR.id(), OMAR.tenant(), Set.of("admin"), Map.of());
+        assertThatThrownBy(() -> registry.replacements()
+                        .replace("totals", ROWS, List.of(0, 1), omarAdmin, ReplacementOptions.defaults()))
                 .satisfies(
                         e -> assertThat(((PravahaException) e).errorCode()).isEqualTo(RegistryErrors.TENANT_MISMATCH))
                 .hasMessageContaining("belongs to tenant 'acme'");

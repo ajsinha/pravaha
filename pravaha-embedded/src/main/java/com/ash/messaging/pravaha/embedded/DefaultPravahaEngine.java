@@ -235,6 +235,11 @@ final class DefaultPravahaEngine implements PravahaEngine {
         StreamSchema[] streams = declaredStreams.values().toArray(new StreamSchema[0]);
         ViewCatalog views = new ViewCatalog();
         QueryRegistry built = new QueryRegistry(views, SecurityPolicy.PERMISSIVE, AuditSink.NONE, streams);
+        // Who may drop, pause or replace a view: its owner, a grant or an admin, unless configured back.
+        built.owners()
+                .administering(com.ash.messaging.pravaha.security.Administration.Rule.parse(configuration
+                        .getString(com.ash.messaging.pravaha.security.Administration.SETTING)
+                        .orElse("")));
         registry = built;
         reads = new ViewQuery(views);
 

@@ -1654,7 +1654,8 @@ answered with the row count.
 
 **Authorization is the registration's.** A `CREATE` is authorized as `pravaha register` is — may
 this principal register, and may it read every stream the query reads — and `DROP`, `PAUSE` and
-`RESUME` as the actions are, by the policy's `mayAdminister`, audited under the same verbs. The
+`RESUME` as the actions are — the view's owner, a principal the policy grants it to, or an admin —
+audited under the same verbs. The
 spelling changes nothing about who may do what.
 
 **The design's spellings are accepted where they mean the same thing** (design §11.2): `INTO sink`
