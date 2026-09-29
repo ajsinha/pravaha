@@ -277,7 +277,7 @@ the query off (`pravaha.lane.multiplex.max-queries-per-lane`) or add lanes.
 counters are compiled into a query's stages, so a running query does not gain them), and read
 `GET /api/v1/queries/{name}/plan`. Each node carries its own rows in, rows out, state bytes and a
 sampled self time, and `bottleneck` names the node most of the query's own time went into. It
-costs about 8 % of throughput, which is why it is off by default; `docs/OPERATIONS.md` has the
+costs about 12 % of a narrow query's throughput, which is why it is off by default; `docs/OPERATIONS.md` has the
 measurement and what the sampling error is.
 
 **Common answers once the operator is named.** A join holding megabytes of state and most of the

@@ -83,12 +83,10 @@ final class RestartCompileIT {
 
     @BeforeAll
     static void refuseACoverageAgent() {
-        List<String> arguments =
-                java.lang.management.ManagementFactory.getRuntimeMXBean().getInputArguments();
+        // It also instruments every class the generator loads (PERF-1's shared check).
         org.junit.jupiter.api.Assumptions.assumeFalse(
-                arguments.stream().anyMatch(argument -> argument.contains("jacoco")),
-                "a JaCoCo agent is attached to this JVM, and it instruments every class the generator "
-                        + "loads: the measurement would be of the agent. Run with -Djacoco.skip=true.");
+                com.ash.messaging.pravaha.common.observe.CoverageAgent.attached(),
+                com.ash.messaging.pravaha.common.observe.CoverageAgent.DECLINED);
     }
 
     @ParameterizedTest(name = "{0} distinct queries")

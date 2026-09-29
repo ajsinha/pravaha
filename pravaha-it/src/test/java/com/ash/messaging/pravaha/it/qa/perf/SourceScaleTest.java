@@ -230,11 +230,16 @@ final class SourceScaleTest {
         // only from a run on a quiet machine, which is what the line below says out loud.
         double linearity = halfEach == 0 ? Double.NaN : fullEach / halfEach;
         System.out.printf(
-                "  idle cpu per source: %.0f us/s at n=%d, %.0f at n=%d -- ratio %.2f%n"
+                "  idle cpu per source: %.0f us/s at n=%d, %.0f at n=%d -- ratio %.2f"
+                        + com.ash.messaging.pravaha.common.observe.CoverageAgent.caveat() + "%n"
                         + "  Quotable only from a quiet machine. Inside a full verify this is noise:%n"
                         + "  the verify's own compilation lands in the same process-CPU counter.%n"
                         + "  A ratio near 1 says the cost is per-source; near 2, a constant of the node.%n",
-                halfEach, followingHalf.sources(), fullEach, following.sources(), linearity);
+                halfEach,
+                followingHalf.sources(),
+                fullEach,
+                following.sources(),
+                linearity);
     }
 
     /**

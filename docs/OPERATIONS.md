@@ -1742,7 +1742,19 @@ best of five passes after three warm-ups.
 | off | 11.4 – 12.6 M |
 | on | 10.5 – 11.6 M |
 
-**Cost: 7.9 %, 8.2 %, 8.6 % — call it 8 %.**
+**Cost: 7.9 %, 8.2 %, 8.6 % — call it 8 %.** Those runs had the JaCoCo agent attached, as every
+test JVM did by default (PERF-1), and the agent's probes slowed both arms and diluted the share.
+
+**Re-taken 2026-09-29 without it** (`-Djacoco.skip=true`; the harness now refuses to run under the
+agent), three runs at load 1.7–3.9 of 24:
+
+| `pravaha.metrics.operators` | Rows a second |
+|---|---|
+| off | 16.3 – 16.4 M |
+| on | 14.3 – 14.5 M |
+
+**Cost: 12.6 %, 11.9 %, 11.5 % — call it 12 %.** Faster in absolute terms on both arms, and the
+wrappers are a larger share of a smaller total. This is the figure to quote.
 
 **This measurement needs an idle machine, and says so.** Repeated while another build was running
 (load 8 to 14 of 24 threads) the same harness gave 6.1 %, 13.8 %, 14.1 % and 17.1 % — an eleven-point

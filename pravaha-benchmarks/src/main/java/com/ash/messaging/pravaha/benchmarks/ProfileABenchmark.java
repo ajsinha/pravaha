@@ -42,6 +42,7 @@ import com.ash.messaging.pravaha.codegen.FusedStage;
 import com.ash.messaging.pravaha.codegen.StageCompiler;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.common.memory.MemoryRegion;
+import com.ash.messaging.pravaha.common.observe.CoverageAgent;
 import com.ash.messaging.pravaha.common.row.BinaryRowView;
 import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
 import com.ash.messaging.pravaha.common.row.RowLayout;
@@ -112,6 +113,12 @@ public class ProfileABenchmark {
                 .field("user_id", Types.int64())
                 .field("amount", Types.int64())
                 .build();
+    }
+
+    /** PERF-1: a benchmark run under a coverage agent measures the agent; refused, by name. */
+    @Setup(Level.Trial)
+    public void declineUnderACoverageAgent() {
+        CoverageAgent.refuseToMeasure("ProfileABenchmark");
     }
 
     @Setup(Level.Trial)

@@ -29,6 +29,26 @@ java -jar pravaha-benchmarks/target/benchmarks.jar -rf json -rff benchmarks/resu
 Add `--add-exports java.base/jdk.internal.misc=ALL-UNNAMED` to include the Agrona arm; without it
 `AgronaMemoryAccess.isAvailable()` is false and that arm is skipped (design §4.6).
 
+### Taking a figure: never under the coverage agent (PERF-1)
+
+The root POM attaches JaCoCo to every test JVM by default, and its per-class probe arrays are
+written by every thread on every branch: under it, eight lanes measured 1 % of linear where the
+same code measured 49 %. So every harness asks `CoverageAgent` (`pravaha-common`) first and
+declines under the agent: the JUnit harnesses (`ProfileAGateIT`, `ProfileBGateIT`,
+`NexmarkCoverageIT`'s timing half, `RestartCompileIT`, `OperatorMetricsOverheadIT`) skip, naming
+it; the JMH benchmarks refuse in their trial setup; and the harnesses that assert counts rather
+than times (`NodeScaleTest`, `SourceScaleTest`, `ThousandQueryTest`) keep asserting and mark the
+times they print `NOT A FIGURE`. To take a figure, turn the agent off:
+
+```bash
+./mvnw -o -pl pravaha-it -am test -Dtest=ProfileAGateIT -Djacoco.skip=true \
+    -DfailIfNoSpecifiedTests=false -Dsurefire.failIfNoSpecifiedTests=false
+./mvnw -o -pl pravaha-runtime test -Dtest=OperatorMetricsOverheadIT -Djacoco.skip=true \
+    -DfailIfNoSpecifiedTests=false -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+and record the load average beside the number, as the harnesses print it.
+
 ## Reading the numbers
 
 **What this machine actually is.** Earlier notes in this repository described it as "a shared 24-core

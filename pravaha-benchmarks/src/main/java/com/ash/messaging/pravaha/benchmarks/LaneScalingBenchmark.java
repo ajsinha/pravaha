@@ -34,6 +34,7 @@ import org.openjdk.jmh.infra.ThreadParams;
 
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.common.memory.MemoryRegion;
+import com.ash.messaging.pravaha.common.observe.CoverageAgent;
 import com.ash.messaging.pravaha.common.queue.WaitStrategy;
 import com.ash.messaging.pravaha.runtime.lane.Lane;
 import com.ash.messaging.pravaha.runtime.lane.LaneConfig;
@@ -102,6 +103,12 @@ public class LaneScalingBenchmark {
         public void tearDown() {
             scratch.close();
         }
+    }
+
+    /** PERF-1: a benchmark run under a coverage agent measures the agent; refused, by name. */
+    @Setup(Level.Trial)
+    public void declineUnderACoverageAgent() {
+        CoverageAgent.refuseToMeasure("LaneScalingBenchmark");
     }
 
     @Setup(Level.Trial)

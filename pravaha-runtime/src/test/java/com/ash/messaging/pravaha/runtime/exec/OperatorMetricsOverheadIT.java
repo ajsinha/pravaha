@@ -98,6 +98,10 @@ class OperatorMetricsOverheadIT {
 
     @Test
     void measureTheCostOfPerOperatorCounters() {
+        // PERF-1: a timing under the coverage agent is the agent's.
+        org.junit.jupiter.api.Assumptions.assumeFalse(
+                com.ash.messaging.pravaha.common.observe.CoverageAgent.attached(),
+                com.ash.messaging.pravaha.common.observe.CoverageAgent.DECLINED);
         double[] both = bestRowsPerSecondInterleaved();
         double off = both[0];
         double on = both[1];

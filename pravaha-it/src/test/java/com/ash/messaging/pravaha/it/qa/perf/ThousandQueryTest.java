@@ -107,7 +107,8 @@ final class ThousandQueryTest {
 
             System.out.printf(
                     "THOUSAND QUERIES on one node, default sizing:%n"
-                            + "  registration: %d ms total, %.1f ms each%n"
+                            + "  registration: %d ms total, %.1f ms each"
+                            + com.ash.messaging.pravaha.common.observe.CoverageAgent.caveat() + "%n"
                             + "  platform threads: %d -> %d (+%d) on %d cores%n"
                             + "  off-heap: %d MiB -> %d MiB (%d KiB per query)%n"
                             + "  heap after gc: %d MiB -> %d MiB (%d KiB per query)%n"

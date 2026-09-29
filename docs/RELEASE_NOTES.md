@@ -12,6 +12,14 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **Performance harnesses decline under the coverage agent (PERF-1).** One check, `CoverageAgent` in
+  `pravaha-common`, is asked by every harness that times: `ProfileAGateIT`, `ProfileBGateIT`,
+  `NexmarkCoverageIT`'s timing test, `RestartCompileIT` and `OperatorMetricsOverheadIT` skip naming
+  the agent; the JMH benchmarks refuse in their trial setup; `NodeScaleTest`, `SourceScaleTest` and
+  `ThousandQueryTest` keep asserting their counts and mark the times they print. Take figures with
+  `-Djacoco.skip=true` (`benchmarks/README.md`). Re-taken without it: per-operator metrics cost
+  **about 12 %** of a narrow query's throughput (was quoted as 8 %, measured under the agent); eight
+  lanes scale to 30–31 % of linear (gate P2 still not reached).
 - **A debug fixture comes out formatted, or says it is not (FIX-3).** Exported where the Palantir
   formatter is on the classpath, the fixture is formatted as `spotless:check` requires; a node has no
   formatter, so its fixture carries a comment above the `package` line asking for
