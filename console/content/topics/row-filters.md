@@ -120,10 +120,15 @@ alarm.
 
 ### A filter that restricts nothing is refused too
 
-When a filter is true for every row — `TRUE`, `1 = 1`, a column compared to itself — the planner
-folds it away and no filter survives in the plan. Rather than serve the read unrestricted while the
-audit trail records "allowed with a row filter", the engine refuses it with PRV-7003. A policy that
-means "this principal may see everything" says so with `allow()`. A policy that builds its predicate
+When a filter is true for every row — `TRUE`, `1 = 1 OR region = 'EU'`, `x IS NULL OR x IS NOT
+NULL`, a `NOT NULL` column compared with itself — or drops only the rows where a column it compares is
+NULL, as `region = region` does on a nullable column, it restricts nothing. Rather than serve the read
+unrestricted while the audit trail records "allowed with a row filter", the engine refuses it with
+PRV-7003. It decides this over the predicate that would run, not over whether the planner folded it
+away, which it does for `TRUE` and almost nothing else (TAUTOFILTER-1); it never refuses a filter that
+keeps some rows and not others by their values, and it does not find every tautology. A filter that
+says `region IS NOT NULL` is a restriction and is applied. A policy that means "this principal may see
+everything" says so with `allow()`. A policy that builds its predicate
 from a claim should check the claim is present, rather than let a missing value produce a predicate
 that means something other than intended.
 

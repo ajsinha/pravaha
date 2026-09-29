@@ -12,6 +12,33 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **A row filter that restricts nothing is refused, not only one the planner folds to `TRUE`
+  (TAUTOFILTER-1).** `region = region`, `1 = 1 OR region = 'x'`, `x IS NULL OR x IS NOT NULL`,
+  `NOT (a <> a)`, `a >= a` and `lower(r) = lower(r)` used to be enforced as though they restricted
+  something. The compiled predicate is now decided as a formula (constants folded, an expression
+  compared with itself given its value, `NOT NULL` columns read as never null): a filter true for
+  every row, or one dropping only rows with a NULL in a compared column without saying `IS NOT NULL`,
+  is refused with `PRV-7003` where it is applied, and with `PRV-7038` when a session-free catalogue
+  policy is bound; a session-free policy false for every row is refused at binding too. A filter
+  bound to a reader that keeps no row is enforced. Sound, not complete: a property test holds it to
+  never refusing a filter that restricts by value. **Behaviour change**: a policy that was accepted
+  and restricts nothing now refuses its readers, naming the filter; exempt them with `EXCEPT ROLE`
+  or write the comparison that was meant.
+- **Users in the identity store carry attributes, presented as claims (STORECLAIMS-1).**
+  `PUT /api/v1/users/{u}/attributes`, `pravaha user attrs <u> key=value ... [--unset key]` and an
+  Attributes column in Admin · Users set them; every session and API key of the user's (a key exactly
+  its holder's) carries them as claims, so a policy reading `session_attribute('region')` applies to
+  store users instead of refusing them with `PRV-7039`. Journalled with the user, audited as
+  `user.attributes_changed` (names only). A registration by a store user is now restored at restart
+  as that user — recovery used to ask only the static token table, so it was refused.
+- **Writes document the status they answer (CAT201-1).** The catalogue's `POST`s (namespaces,
+  grants, policies, bindings) answer 201 and every endpoint answering 204 (sign-out, password change
+  and reset, key revocation, session end, revoking a grant, dropping a policy) now says so in the
+  OpenAPI document and `api/openapi.lock.json`, which said 200. The contract test derives each
+  handler's status and holds the document to it for every operation, and calls the catalogue's
+  writes for real. A generated client that treated the documented status as the only success now
+  sees the one the engine sends.
+
 - **The Pravaha Catalog, phase 2: row filters and column masks as catalogue objects (ADR-059 §4).**
   `CREATE ROW FILTER p AS <predicate> [EXCEPT ROLE r, ...]` and `CREATE MASK p ON COLUMN c AS
   <expression> [EXCEPT ROLE ...]` define a policy (kind `POLICY`: owner, description, tags, version,

@@ -158,6 +158,37 @@ class CatalogPoliciesEndToEndTest {
         assertThat(rows("bob", "SELECT id, card FROM payments")).containsExactly("p2|XXXX-2222");
     }
 
+    @Test
+    void aFilterThatRestrictsNothingIsRefusedWhenBoundOrWhenApplied() throws Exception {
+        // TAUTOFILTER-1. Only a filter the planner folded to TRUE used to be refused; these reached the
+        // plan as predicates and were bound as though they restricted something.
+        start();
+        run("ops", "CREATE CONTINUOUS QUERY payments KEYED BY (id) AS SELECT id, region, card, amount FROM txn");
+        run("ops", "GRANT SELECT ON VIEW payments TO ROLE analyst");
+        run("ops", "CREATE ROW FILTER same_region AS region = region");
+        run("ops", "CREATE ROW FILTER either AS 1 = 1 OR region = 'EU'");
+        run("ops", "CREATE ROW FILTER nothing AS amount <> amount");
+        for (String vacuous : List.of("same_region", "either")) {
+            assertThatThrownBy(() -> run("ops", "ALTER VIEW payments SET POLICY " + vacuous))
+                    .as(vacuous)
+                    .hasMessageContaining("PRV-7038")
+                    .hasMessageContaining("TAUTOFILTER-1");
+        }
+        assertThatThrownBy(() -> run("ops", "ALTER VIEW payments SET POLICY nothing"))
+                .hasMessageContaining("false for every row");
+
+        // A filter that reads the session is judged when it is bound to a reader: under the probe it
+        // is TRUE, and for a member of auditor it would restrict; for ana it restricts nothing.
+        run("ops", "CREATE ROW FILTER outsiders AS NOT is_member('auditor') OR region = 'EU' EXCEPT ROLE admin");
+        run("ops", "ALTER VIEW payments SET POLICY outsiders");
+        pay();
+        assertRefused(() -> run("ana", "SELECT id FROM payments"), "PRV-7003");
+        run("ops", "ALTER VIEW payments UNSET POLICY outsiders");
+        run("ops", "CREATE ROW FILTER eu AS region = 'EU' EXCEPT ROLE admin");
+        run("ops", "ALTER VIEW payments SET POLICY eu");
+        assertThat(rows("ana", "SELECT id FROM payments")).containsExactly("p1", "p3");
+    }
+
     // ----------------------------------------------------------------------------------- set-up
 
     private void start() {

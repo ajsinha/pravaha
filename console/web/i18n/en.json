@@ -1034,9 +1034,15 @@
         "tenant": "Tenant",
         "roles": "Roles",
         "status": "Status",
-        "last_login": "Last sign-in"
+        "last_login": "Last sign-in",
+        "attributes": "Attributes"
       },
       "roles_for": "Roles for {user}, separated by commas",
+      "attributes_for": "Attributes of {user}, as name=value separated by commas",
+      "set_attributes": "Set",
+      "set_attributes_label": "Set the attributes of {user}",
+      "attributes_note": "Attributes are facts about a person, e.g. region=EU. Every session and API key of theirs carries them as claims, which a policy reads with session_attribute('region'). Leave one out to remove it.",
+      "attributes_set": "The attributes of {user} are set.",
       "set_roles": "Set",
       "set_roles_label": "Set the roles of {user}",
       "must_change": "must change password",

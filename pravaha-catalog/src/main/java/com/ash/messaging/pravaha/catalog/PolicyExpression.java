@@ -43,7 +43,9 @@ import com.ash.messaging.pravaha.security.Principal;
  * that answers differently for the same row twice is no boundary), and any function not on the list --
  * a function the engine cannot see into could carry the value somewhere, which is ADR-031's "no function
  * that could leak". Which columns exist is not known until the policy is bound to an object; the planner
- * checks that then, and refuses a filter that is true for every row as ADR-031 already does.
+ * checks that then. Whether a filter restricts anything (ADR-031, TAUTOFILTER-1) is decided over the
+ * compiled predicate by the SQL module's {@code FilterVacuity}: at binding for an expression that reads
+ * nothing about the session, and for one that does, each time it is bound to a principal.
  *
  * <p>Held and bound as tokens, never as text spliced into text: the claim a principal carries becomes one
  * SQL string literal with its quotes doubled, so no claim value can end the literal and add a clause.

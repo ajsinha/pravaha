@@ -106,6 +106,7 @@ class User:
     failures: list[float] = dataclasses.field(default_factory=list)
     locked_until: float = 0.0
     last_login: float | None = None
+    attributes: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
 class FakeIdentity:
@@ -315,6 +316,19 @@ class FakeIdentity:
         self.calls.append(("roles", username))
         return self._user_json(user)
 
+    def set_attributes(self, token: str | None, username: str, attributes: dict) -> dict:
+        """As the engine does (STORECLAIMS-1): replaced whole; a name the engine owns refused."""
+        self._admin(token, "setting attributes")
+        user = self._user(username)
+        for name, value in attributes.items():
+            if name in ("via", "session", "key", "mustChangePassword"):
+                self._refuse(400, "PRV-7020", f"'{name}' is a claim the engine sets, so it cannot be an attribute")
+            if not value:
+                self._refuse(400, "PRV-7020", f"the attribute '{name}' needs a value")
+        user.attributes = {str(k): str(v) for k, v in attributes.items()}
+        self.calls.append(("attributes", username))
+        return self._user_json(user)
+
     def reset(self, token: str | None, username: str) -> dict:
         self._admin(token, "issuing a password reset")
         user = self._user(username)
@@ -455,7 +469,8 @@ class FakeIdentity:
                 "tenant": user.tenant, "roles": list(user.roles), "status": user.status,
                 "mustChangePassword": user.must_change,
                 "lockedUntil": _iso(user.locked_until) if user.locked_until else None,
-                "lastLoginAt": _iso(user.last_login) if user.last_login else None}
+                "lastLoginAt": _iso(user.last_login) if user.last_login else None,
+                "attributes": dict(sorted(user.attributes.items()))}
 
     @staticmethod
     def _key_json(record: dict) -> dict:

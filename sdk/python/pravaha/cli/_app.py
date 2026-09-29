@@ -423,6 +423,11 @@ def build_parser() -> _Parser:
     v.add_argument("--roles", metavar="A,B")
     v = add("reset", "Issue a single-use password reset token.")
     v.add_argument("target", metavar="<name>")
+    v = add("attrs", "Show, set or unset a user's attributes, the claims their credentials carry.")
+    v.add_argument("target", metavar="<name>")
+    v.add_argument("pairs", nargs="*", metavar="KEY=VALUE", help="attributes to set")
+    v.add_argument("--unset", action="append", default=[], metavar="KEY",
+                   help="an attribute to remove; repeat for more")
 
     p = b.add("key", _identity.key, "API keys: shown once, scoped to a subset of your roles.")
     add = b.verbs(p, _identity.key)

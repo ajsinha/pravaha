@@ -77,13 +77,21 @@ not do.
 
 A **row filter** — the predicate a policy attaches to a principal for a view, so that it reads only its
 own rows — cannot be applied to the view it is for: it names a column the view does not carry, or it
-left no predicate in the plan. The alternative to refusing is serving an aggregate that mixed in rows
-this principal may not see, which is why the read is refused and treated like a denial (it maps to the
-same statuses as PRV-7002).
+**restricts nothing**. The alternative to refusing is serving an aggregate that mixed in rows this
+principal may not see, or serving every row while the audit records a restriction, which is why the
+read is refused and treated like a denial (it maps to the same statuses as PRV-7002).
+
+A filter restricts nothing when it is true for every row — `TRUE`, `1 = 1 OR region = 'x'`,
+`x IS NULL OR x IS NOT NULL`, a `NOT NULL` column compared with itself — or when the only rows it
+drops are those with a NULL in a column it compares, as `region = region` does on a nullable column
+(TAUTOFILTER-1). The message says which.
 
 **Do:** make the filter's column part of the view — keep `region` in the `SELECT` list if the filter
-is `region = 'EU'` — or change the policy's filter to a column the view has. See
-[Row filters](/help/topics/row-filters).
+is `region = 'EU'` — or change the policy's filter to a column the view has. For a filter that
+restricts nothing, write the comparison that was meant (`region = session_attribute('region')`), say
+`region IS NOT NULL` if dropping rows with no region is the point, or exempt the reader with
+`EXCEPT ROLE` if they may see every row. See [Row filters](/help/topics/row-filters) and
+[Row filters and masks](/help/topics/row-filters-and-masks).
 
 !!! note "Subscribing with a row filter is refused on purpose"
     Reading a view applies the caller's row filter. Subscribing to its changes is the one path that

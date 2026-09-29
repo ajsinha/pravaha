@@ -132,8 +132,8 @@ Semantics, as built (phase 2):
   `CURRENT_TIMESTAMP`, …), any function not on the list — ADR-031's "no function that could leak" as
   an allow-list — a parameter, a second statement. A mask may name only its own column and must keep
   its type (checked by planning it over that column alone). At binding the node plans the expression
-  over the object's own columns; a filter naming a column the object lacks, or one the planner folds
-  to true for every row, is refused (ADR-031's rules, reused).
+  over the object's own columns; a filter naming a column the object lacks, or one that restricts
+  nothing, is refused (ADR-031's rules, reused; see "Vacuity" below).
 - **Binding to the principal.** Session functions become SQL literals — a claim as a string with its
   quotes doubled, a membership as `TRUE`/`FALSE`, the user as a string — before the planner sees the
   text, so no claim can end its literal. A claim the principal lacks is refused with `PRV-7039`,
@@ -371,6 +371,25 @@ rows leave an object, before any operator of the reader's query, rather than by 
 reader's projection: one place covers scans, point reads, prepared statements, pgwire and
 subscriptions alike. There is no REST endpoint that serves a view's rows, so there was no REST read
 to mask.
+
+**Vacuity (TAUTOFILTER-1, 2026-09-28).** ADR-031's "a filter must restrict something" is decided
+over the compiled predicate by `FilterVacuity` (sound, not complete): one true for every row, or
+dropping only rows with a NULL in a compared column without saying `IS NOT NULL`, is refused. Where
+that is decided depends on what the expression reads. **A policy that reads nothing about the session**
+is the same filter for everybody, so `PolicyCheck` decides at `ALTER … SET POLICY`: vacuous and
+nulls-only are refused with `PRV-7038`, and so is one **false for every row** — it keeps no row for
+anybody, a deny that `REVOKE` says plainly. **A policy that reads the session** is planned at binding
+under stand-in values (claims `'0'`, memberships FALSE), whose verdict describes nobody:
+`NOT is_member('auditor') OR region = 'EU'` is TRUE under them and a real filter for an auditor. So only
+whether it plans is decided then, and its vacuity is decided when it is bound to a reader, at each read
+and registration (`PRV-7003`); a bound filter false for every row is enforced, since for that reader it
+can be the right answer (`is_member('eu') AND region = 'EU'` for a non-member).
+
+**Store users carry claims (STORECLAIMS-1, 2026-09-28).** A user in the identity store (ADR-052) has
+attributes, administered like roles (`PUT /api/v1/users/{u}/attributes`, `pravaha user attrs`, Admin ·
+Users), which every credential of theirs presents as claims — an API key exactly its holder's — so
+`session_attribute('region')` applies to them, and `SHOW EFFECTIVE ACCESS FOR USER` binds it. A
+registration by a store user is restored at restart as that user, attributes included.
 
 **Not in phase 2**: column-level tags and tags that follow lineage (phase 3); a running registration
 re-planned when its inputs' policies change (it is re-planned at replacement or restart); a lookup

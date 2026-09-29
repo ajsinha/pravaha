@@ -181,24 +181,29 @@ class ViewQueryAuthorizationTest {
         assertThatThrownBy(() -> queries.execute("SELECT user_id FROM user_volume", ANALYST))
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-7003")
-                .hasMessageContaining("left no predicate in the plan");
+                .hasMessageContaining("true for every row");
     }
 
     @Test
-    void aFilterThatSurvivesPlanningIsAppliedEvenWhenItMatchesEveryRow() {
-        // The distinction the fix turns on, and worth stating because the two look identical from
-        // outside. `1 = 1` is *not* folded away -- it survives as a real predicate that evaluates
-        // true per row, so the filter is applied and simply excludes nothing, which is what the
-        // policy asked for. Only the case where no predicate survives is a failure of enforcement,
-        // and only that one is refused.
-        //
-        // A third spelling, `user_id = user_id`, is refused for a reason of its own: comparing a
-        // text column to a column is beyond what the predicate compiler supports. Also safe, and
-        // not this fix's doing.
-        ViewQuery queries = queryWith((principal, view) -> AccessDecision.allowWithRowFilter("1 = 1"));
-
+    void aFilterThatRestrictsNothingIsRefusedEvenWhenItSurvivesPlanning() {
+        // TAUTOFILTER-1. This test used to assert the opposite: `1 = 1` is not folded away, so it
+        // survived as a predicate, was "applied", and excluded nothing -- and the audit recorded an
+        // entitlement restricted by a filter. The refusal now judges the predicate that runs, not
+        // whether one survived: true for every row, or dropping only rows with a NULL in a compared
+        // column (tier is nullable), is refused the way TRUE is.
+        for (String vacuous : List.of("1 = 1", "user_id = user_id", "1 = 1 OR tier = 'gold'", "tier = tier")) {
+            ViewQuery queries = queryWith((principal, view) -> AccessDecision.allowWithRowFilter(vacuous));
+            assertThatThrownBy(() -> queries.execute("SELECT user_id FROM user_volume", ANALYST))
+                    .as(vacuous)
+                    .isInstanceOf(PravahaException.class)
+                    .hasMessageContaining("PRV-7003")
+                    .hasMessageContaining("TAUTOFILTER-1");
+        }
+        // A real restriction that happens to match every row present today is applied, not refused:
+        // what is judged is the filter, never the data.
+        ViewQuery queries = queryWith((principal, view) -> AccessDecision.allowWithRowFilter("total >= 0"));
         assertThat(queries.execute("SELECT user_id FROM user_volume", ANALYST).rows())
-                .as("a surviving predicate is applied even when it matches every row")
+                .as("a surviving restriction is applied even when it matches every row")
                 .isNotEmpty();
     }
 

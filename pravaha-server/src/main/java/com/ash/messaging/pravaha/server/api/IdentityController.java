@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.Set;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
@@ -88,6 +89,9 @@ public class IdentityController {
 
     public record Roles(List<String> roles) {}
 
+    /** A user's attributes, name to value, replaced whole; each is a claim on every credential of theirs. */
+    public record Attributes(Map<String, String> attributes) {}
+
     public record ResetIssued(String resetToken, Instant expiresAt) {}
 
     public record NewKey(String name, List<String> roles, Integer expiresDays, String forUser) {}
@@ -146,6 +150,7 @@ public class IdentityController {
 
     @PostMapping("/auth/logout")
     @Operation(summary = "End the calling session")
+    @ApiResponse(responseCode = "204", description = "The session has ended")
     public ResponseEntity<Void> logout(HttpServletRequest request) {
         String header = request.getHeader("authorization");
         if (header != null && header.regionMatches(true, 0, "Bearer ", 0, 7)) {
@@ -191,6 +196,7 @@ public class IdentityController {
 
     @PostMapping("/auth/password")
     @Operation(summary = "Change the caller's own password; ends their other sessions")
+    @ApiResponse(responseCode = "204", description = "The password was changed")
     public ResponseEntity<Void> changePassword(@RequestBody Map<String, String> body, HttpServletRequest request) {
         String replacement = body.getOrDefault("new", body.get("password"));
         identity().changePassword(who(request), body.get("current"), replacement);
@@ -199,6 +205,7 @@ public class IdentityController {
 
     @PostMapping("/auth/reset/redeem")
     @Operation(summary = "Set a password with a single-use reset token an administrator issued")
+    @ApiResponse(responseCode = "204", description = "The password was set")
     public ResponseEntity<Void> redeem(@RequestBody Redeem body) {
         identity().redeemReset(body.token(), body.password());
         return ResponseEntity.noContent().build();
@@ -242,6 +249,18 @@ public class IdentityController {
         return identity().setRoles(who(request), username, roles(body.roles()));
     }
 
+    @PutMapping("/users/{username}/attributes")
+    @Operation(
+            summary = "Set a user's attributes (admin)",
+            description = "Replaces the whole set, like roles: an attribute left out is removed. Each attribute "
+                    + "is presented as a claim by every session and API key of the user's, which is what a "
+                    + "policy's session_attribute('name') reads (STORECLAIMS-1). The names via, session, key and "
+                    + "mustChangePassword are the engine's own and are refused (PRV-7020).")
+    public IdentityService.UserView setAttributes(
+            @PathVariable String username, @RequestBody Attributes body, HttpServletRequest request) {
+        return identity().setAttributes(who(request), username, body.attributes());
+    }
+
     @PostMapping("/users/{username}/password-reset")
     @Operation(summary = "Issue a single-use reset token, shown once (admin)")
     public ResetIssued issueReset(@PathVariable String username, HttpServletRequest request) {
@@ -273,6 +292,7 @@ public class IdentityController {
 
     @DeleteMapping("/keys/{keyId}")
     @Operation(summary = "Revoke a key, at once")
+    @ApiResponse(responseCode = "204", description = "The key was revoked")
     public ResponseEntity<Void> revokeKey(@PathVariable String keyId, HttpServletRequest request) {
         identity().revokeKey(who(request), keyId);
         return ResponseEntity.noContent().build();
@@ -319,6 +339,7 @@ public class IdentityController {
 
     @DeleteMapping("/sessions/{id}")
     @Operation(summary = "End a session: the caller's own, or anybody's (admin)")
+    @ApiResponse(responseCode = "204", description = "The session has ended")
     public ResponseEntity<Void> endSession(@PathVariable String id, HttpServletRequest request) {
         identity().endSession(who(request), id);
         return ResponseEntity.noContent().build();

@@ -67,7 +67,7 @@
       "post" : {
         "hasBody" : false,
         "parameters" : [ ],
-        "responses" : [ "200", "default" ]
+        "responses" : [ "204", "default" ]
       }
     },
     "/api/v1/auth/me" : {
@@ -81,14 +81,14 @@
       "post" : {
         "hasBody" : true,
         "parameters" : [ ],
-        "responses" : [ "200", "default" ]
+        "responses" : [ "204", "default" ]
       }
     },
     "/api/v1/auth/reset/redeem" : {
       "post" : {
         "hasBody" : true,
         "parameters" : [ ],
-        "responses" : [ "200", "default" ]
+        "responses" : [ "204", "default" ]
       }
     },
     "/api/v1/catalog/access" : {
@@ -102,7 +102,7 @@
       "delete" : {
         "hasBody" : false,
         "parameters" : [ "query:grantee", "query:granteeType", "query:object", "query:privileges" ],
-        "responses" : [ "200", "default" ]
+        "responses" : [ "204", "default" ]
       },
       "get" : {
         "hasBody" : false,
@@ -112,7 +112,7 @@
       "post" : {
         "hasBody" : true,
         "parameters" : [ ],
-        "responses" : [ "200", "default" ]
+        "responses" : [ "201", "default" ]
       }
     },
     "/api/v1/catalog/namespaces" : {
@@ -124,7 +124,7 @@
       "post" : {
         "hasBody" : true,
         "parameters" : [ ],
-        "responses" : [ "200", "default" ]
+        "responses" : [ "201", "default" ]
       }
     },
     "/api/v1/catalog/objects" : {
@@ -155,14 +155,14 @@
       "post" : {
         "hasBody" : true,
         "parameters" : [ ],
-        "responses" : [ "200", "default" ]
+        "responses" : [ "201", "default" ]
       }
     },
     "/api/v1/catalog/policies/{name}" : {
       "delete" : {
         "hasBody" : false,
         "parameters" : [ "path:name" ],
-        "responses" : [ "200", "default" ]
+        "responses" : [ "204", "default" ]
       },
       "get" : {
         "hasBody" : false,
@@ -179,7 +179,7 @@
       "post" : {
         "hasBody" : true,
         "parameters" : [ "path:name" ],
-        "responses" : [ "200", "default" ]
+        "responses" : [ "201", "default" ]
       }
     },
     "/api/v1/debug/sessions" : {
@@ -259,7 +259,7 @@
       "delete" : {
         "hasBody" : false,
         "parameters" : [ "path:keyId" ],
-        "responses" : [ "200", "default" ]
+        "responses" : [ "204", "default" ]
       }
     },
     "/api/v1/keys/{keyId}/rotate" : {
@@ -463,7 +463,7 @@
       "delete" : {
         "hasBody" : false,
         "parameters" : [ "path:id" ],
-        "responses" : [ "200", "default" ]
+        "responses" : [ "204", "default" ]
       }
     },
     "/api/v1/sinks" : {
@@ -520,6 +520,13 @@
     },
     "/api/v1/users/{username}" : {
       "patch" : {
+        "hasBody" : true,
+        "parameters" : [ "path:username" ],
+        "responses" : [ "200", "default" ]
+      }
+    },
+    "/api/v1/users/{username}/attributes" : {
+      "put" : {
         "hasBody" : true,
         "parameters" : [ "path:username" ],
         "responses" : [ "200", "default" ]

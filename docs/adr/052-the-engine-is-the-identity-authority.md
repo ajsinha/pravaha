@@ -45,6 +45,16 @@ history (last 5 hashes), `failed_attempts`, `locked_until`, `last_login_at`, MFA
 `external_subject` (stage 5). A user is disabled, never deleted: the audit trail and the registry
 journal name owners by id.
 
+**Attributes** (added 2026-09-28, STORECLAIMS-1): name-to-value facts about a user (`region=EU`),
+journalled with the user record as trailing name/value pairs (a record written before them has none,
+and an older engine ignores them), replaced whole by an administrator like roles, and presented as
+the principal's **claims** by every credential of the user's -- a session, an API key (exactly its
+holder's; a key carries no attributes of its own), and the principal a registration is restored as or
+an alert runs as. So a catalogue policy's `session_attribute('claim')` (ADR-059) applies to store
+users. `via`, `session`, `key` and `mustChangePassword` are the engine's own claim names and are
+refused; at most 32, values 1 to 256 characters. The audit event `user.attributes_changed` names the
+attributes set and removed, never their values.
+
 **Password policy** (`pravaha.identity.password.*`, each overridable): at least **12 characters from
 3 of 4 classes**; not one of the last **5**; a **90-day** maximum age that sets `must_change_password`
 at login. One code path accepts every new password -- creation, change, admin reset, reset-token
@@ -115,6 +125,7 @@ usual JSON (`code`, `message`, `helpUrl`).
 | `GET users` / `POST users` | list / `{username, displayName?, email?, tenant?, roles[], password}` | admin |
 | `PATCH users/{u}` | `{displayName?, email?, tenant?, status?}` | admin |
 | `PUT users/{u}/roles` | `{roles[]}` | admin |
+| `PUT users/{u}/attributes` | `{attributes: {name: value}}`, the whole set; the user, with `attributes` | admin |
 | `POST users/{u}/password-reset` | → `{resetToken, expiresAt}`, shown once, 60 minutes | admin |
 | `GET keys` (`?all=true` for admin) / `POST keys` | `{name, roles[], expiresDays, forUser?}` → `{key, keyId, expiresAt}`, key shown once | the holder; admin for a service account |
 | `DELETE keys/{keyId}` | revoke → 204 | the holder or admin |

@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
@@ -145,6 +146,7 @@ public class PolicyController {
     @Operation(
             summary = "Create a row filter or a mask",
             description = "Needs CREATE on the namespace; the caller owns it. Bind it to take effect")
+    @ApiResponse(responseCode = "201", description = "The policy was created")
     public ResponseEntity<PolicyDto> create(HttpServletRequest http, @RequestBody NewPolicy body) {
         Principal caller = authorizer.principalOf(http);
         if (body == null || body.name() == null || body.name().isBlank()) {
@@ -166,6 +168,7 @@ public class PolicyController {
     @Operation(
             summary = "Bind a policy to a stream, a view or a tag",
             description = "MANAGE on the object; for a tag, MANAGE on the policy's tenant")
+    @ApiResponse(responseCode = "201", description = "The policy was bound")
     public ResponseEntity<BindingDto> bind(
             HttpServletRequest http, @PathVariable String name, @RequestBody BindRequest body) {
         Principal caller = authorizer.principalOf(http);
@@ -199,6 +202,7 @@ public class PolicyController {
     @Operation(
             summary = "Drop a row filter or mask",
             description = "MANAGE on the policy, and no binding left: unbind it first, so the widening is audited")
+    @ApiResponse(responseCode = "204", description = "The policy was dropped")
     public ResponseEntity<Void> drop(HttpServletRequest http, @PathVariable String name) {
         Principal caller = authorizer.principalOf(http);
         PolicyService policies = service().policies();

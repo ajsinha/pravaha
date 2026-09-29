@@ -751,6 +751,11 @@ class Engine:
         return dict(self._identity("PUT", "/users/" + _segment(username) + "/roles",
                                    {"roles": list(roles)}) or {})
 
+    def set_attributes(self, username: str, attributes: dict) -> dict:
+        """Replaces a user's attributes -- the claims their credentials carry (STORECLAIMS-1)."""
+        return dict(self._identity("PUT", "/users/" + _segment(username) + "/attributes",
+                                   {"attributes": dict(attributes)}) or {})
+
     def reset_password(self, username: str) -> dict:
         """``{resetToken, expiresAt}``: the token is in this answer and nowhere else, ever."""
         return dict(self._identity("POST", "/users/" + _segment(username) + "/password-reset", {}) or {})

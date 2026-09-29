@@ -516,6 +516,26 @@ def test_user_administration(engine, home):
     assert "rt" in run("user", "reset", "bob", "--http", engine)[1]
 
 
+def test_user_attributes_are_shown_set_and_unset_as_one_whole_set(engine, home):
+    # STORECLAIMS-1: the engine replaces the whole set, so the CLI reads it and sends it back changed.
+    answer("GET", "/api/v1/users", {"users": [{"username": "ann", "attributes": {"desk": "rates"}}]})
+    code, out, _ = run("user", "attrs", "ann", "--http", engine)
+    assert code == EXIT_OK and out == "ann: desk=rates\n"
+    assert last()["method"] == "GET"
+    answer("PUT", "/api/v1/users/ann/attributes", {"username": "ann",
+                                                   "attributes": {"region": "EU", "note": "a=b"}})
+    code, out, _ = run("user", "attrs", "ann", "region=EU", "note=a=b", "--unset", "desk",
+                       "--http", engine)
+    assert code == EXIT_OK and out == "ann: note=a=b, region=EU\n"
+    assert (last()["method"], last()["body"]) == (
+        "PUT", {"attributes": {"region": "EU", "note": "a=b"}})
+    calls = len(_Engine.calls)
+    assert run("user", "attrs", "ann", "region", "--http", engine)[0] == EXIT_USAGE
+    assert run("user", "attrs", "ann", "--unset", "nothing", "--http", engine)[0] == EXIT_USAGE
+    assert run("user", "attrs", "nobody", "x=y", "--http", engine)[0] == EXIT_USAGE
+    assert all(call["method"] == "GET" for call in _Engine.calls[calls:])
+
+
 def test_disabling_a_user_needs_yes(engine, home):
     code, out, _ = run("user", "disable", "bob", "--http", engine)
     assert code == EXIT_OK and "would disable bob" in out

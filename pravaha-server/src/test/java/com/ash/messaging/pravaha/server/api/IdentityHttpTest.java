@@ -17,6 +17,7 @@ package com.ash.messaging.pravaha.server.api;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -34,6 +35,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -153,6 +155,77 @@ class IdentityHttpTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("PRV-7017"));
         login("ana", "Brand-new-pass-7");
+    }
+
+    @Test
+    void attributesAreSetByAnAdministratorAndEveryIdentityWriteAnswersWhatTheDocumentStates() throws Exception {
+        JsonNode paths = json.readTree(mvc.perform(get("/api/v1/openapi.json"))
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString())
+                .path("paths");
+        String admin = login("admin", "pravaha-dev-admin");
+        postJson(
+                        "/api/v1/users",
+                        admin,
+                        "{\"username\":\"dora\",\"roles\":[\"analyst\"],\"password\":\"" + GOOD + "\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.attributes").isEmpty());
+
+        // STORECLAIMS-1: replaced whole, shown to an administrator, refused for a name the engine owns.
+        putJson("/api/v1/users/dora/attributes", admin, "{\"attributes\":{\"region\":\"EU\",\"desk\":\"rates\"}}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.attributes.region").value("EU"))
+                .andExpect(jsonPath("$.attributes.desk").value("rates"));
+        mvc.perform(get("/api/v1/users").header("Authorization", "Bearer " + admin))
+                .andExpect(jsonPath("$.users[?(@.username == 'dora')].attributes.region")
+                        .value("EU"));
+        putJson("/api/v1/users/dora/attributes", admin, "{\"attributes\":{\"via\":\"sso\"}}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PRV-7020"));
+        String dora = login("dora", GOOD);
+        putJson("/api/v1/users/dora/attributes", dora, "{\"attributes\":{\"region\":\"US\"}}")
+                .andExpect(status().isForbidden());
+        documented(paths, "put", "/api/v1/users/{username}/attributes", 200);
+
+        // CAT201-1: the writes that answer 204 say so in the document.
+        String issued = postJson("/api/v1/keys", dora, "{\"name\":\"k\",\"expiresDays\":5}")
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String keyId = json.readTree(issued).get("keyId").asText();
+        documented(
+                paths,
+                "delete",
+                "/api/v1/keys/{keyId}",
+                mvc.perform(delete("/api/v1/keys/" + keyId).header("Authorization", "Bearer " + dora))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        documented(
+                paths,
+                "post",
+                "/api/v1/auth/logout",
+                postJson("/api/v1/auth/logout", dora, "{}")
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+    }
+
+    private ResultActions putJson(String path, String token, String body) throws Exception {
+        return mvc.perform(put(path)
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body));
+    }
+
+    private static void documented(JsonNode paths, String verb, String path, int actual) {
+        List<String> statuses =
+                OpenApiContractTest.names(paths.path(path).path(verb).path("responses"));
+        assertThat(actual).as("%s %s", verb, path).isBetween(200, 299);
+        assertThat(statuses)
+                .as("%s %s answered %d; the document must say so", verb, path, actual)
+                .contains(String.valueOf(actual));
     }
 
     @Test

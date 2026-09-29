@@ -50,6 +50,7 @@ import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.sql.SqlErrors;
 import com.ash.messaging.pravaha.sql.SqlPlanner;
 import com.ash.messaging.pravaha.sql.plan.BoundParameters;
+import com.ash.messaging.pravaha.sql.plan.FilterVacuity;
 import com.ash.messaging.pravaha.sql.plan.ParameterMetadata;
 import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
 
@@ -769,28 +770,24 @@ public final class ViewQuery {
                             + "may and may not see. Register a view that applies the filter before aggregating.",
                     e);
         }
-        if (predicate == null) {
-            // Fail closed. Calcite folds a predicate it can decide at plan time -- TRUE, 1 = 1,
-            // region = region -- so no FilterOperator survives, predicateOf found nothing, and
-            // injectAboveScan returned the plan untouched. The read then ran with no restriction at
-            // all while the audit recorded it as "allowed with a row filter": a false record of
-            // enforcement, which is worse than no record.
-            //
-            // Confirmed live: a principal entitled to two of four rows, with his filter text set to
-            // TRUE, received all four.
-            //
-            // A policy that means "this principal may see everything" says so with allow(). Saying
-            // it with a filter of TRUE asks this code to prove a restriction it cannot find, and
-            // between serving everything and refusing, a security decision refuses.
-            throw new PravahaException(
-                    SecurityErrors.FILTER_NOT_ENFORCEABLE,
-                    "the row filter for " + view.name() + " (" + filterSql + ") left no predicate in the plan, "
-                            + "so nothing would restrict this read. That happens when the filter is true for "
-                            + "every row -- TRUE, 1 = 1, a column compared to itself -- and the planner folds "
-                            + "it away. If this principal may read the whole view, say so with an unrestricted "
-                            + "allow rather than a filter that restricts nothing; if not, write a filter over a "
-                            + "column the view carries. Refused rather than served unrestricted.");
-        }
+        // Fail closed on a filter that restricts nothing. TAUTOFILTER-1: this comment used to say the
+        // planner folds TRUE, 1 = 1 and region = region away, so that a missing FilterOperator caught
+        // them all. It folds TRUE and almost nothing else -- region = region and 1 = 1 OR region = 'x'
+        // reached here as predicates and were enforced as though they restricted something, while the
+        // audit recorded "allowed with a row filter". FilterVacuity judges the predicate that will run:
+        // one true for every row, or one that drops only rows with a NULL in a compared column, is
+        // refused. (Confirmed live, for the TRUE case: a principal entitled to two of four rows, his
+        // filter text set to TRUE, received all four.)
+        //
+        // A policy that means "this principal may see everything" says so with allow(). Saying it with
+        // a filter that restricts nothing asks this code to prove a restriction it cannot find, and
+        // between serving everything and refusing, a security decision refuses.
+        FilterVacuity.requireRestricts(
+                predicate,
+                schema,
+                "the row filter for " + view.name() + " (" + filterSql + ")",
+                "if this principal may read the whole view, say so with an unrestricted allow rather than a filter "
+                        + "that restricts nothing; if not, write a filter over a column the view carries");
         return injectAboveScan(plan, predicate);
     }
 

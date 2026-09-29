@@ -66,7 +66,7 @@ final class IdentityStore {
     }
 
     void putUser(Identities.User u) {
-        append(List.of(
+        List<String> fields = new ArrayList<>(List.of(
                 "user",
                 u.username(),
                 n(u.displayName()),
@@ -84,6 +84,13 @@ final class IdentityStore {
                 t(u.lockedUntil()),
                 t(u.lastLoginAt()),
                 t(u.createdAt())));
+        // STORECLAIMS-1. The attributes follow as name, value pairs: a record written before them has
+        // none, and an engine that predates them reads the fields it knows and ignores the rest.
+        u.attributes().forEach((name, value) -> {
+            fields.add(name);
+            fields.add(value);
+        });
+        append(fields);
         users.put(u.username(), u);
     }
 
@@ -167,7 +174,8 @@ final class IdentityStore {
                                 i(f.get(13)),
                                 i(f.get(14)),
                                 i(f.get(15)),
-                                i(f.get(16))));
+                                i(f.get(16)),
+                                pairs(f, 17)));
             case "key" ->
                 keys.put(
                         f.get(1),
@@ -244,6 +252,14 @@ final class IdentityStore {
 
     private static Set<String> set(String csv) {
         return csv.isEmpty() ? Set.of() : new LinkedHashSet<>(Arrays.asList(csv.split(",")));
+    }
+
+    private static Map<String, String> pairs(List<String> fields, int from) {
+        Map<String, String> out = new LinkedHashMap<>();
+        for (int at = from; at + 1 < fields.size(); at += 2) {
+            out.put(fields.get(at), fields.get(at + 1));
+        }
+        return out;
     }
 
     private static List<String> list(String spaced) {
