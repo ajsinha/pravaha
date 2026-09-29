@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **454 findings carrying a
-status — 390 FIXED, 50 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 50 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 43 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **456 findings carrying a
+status — 393 FIXED, 49 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 49 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 40 POST-GA and 9 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7256,18 +7256,15 @@ the lead.
 
 ### TAUTOFILTER-1 (MEDIUM) — a row filter that is always true is accepted unless it is literally TRUE
 
-> **Status:** OPEN — the always-true refusal (`SECURITY: an always-true row filter is refused`) sees only a filter the planner folds to `TRUE`; `region = region` or `1 = 1 OR region = 'x'` are accepted as if they restricted something, so an administrator can believe a filter is in force that lets every row through. `ViewQuery`'s comment claims more than the check does.
-> **Disposition:** POST-GA — normalise the predicate (reflexive comparisons, constant disjuncts) before the check, and refuse what still cannot be shown to restrict; correct the comment.
+> **Status:** FIXED — the check saw only a filter the planner folded to TRUE. `FilterVacuity` now decides vacuity over the compiled predicate with three-valued logic: a filter true for every row, or one that drops only rows where a compared column is NULL (`region = region`), is refused (PRV-7003; PRV-7038 when a session-free policy is bound); an explicit `IS NOT NULL` counts as a restriction; an always-false session-free policy is refused at binding. Sound by construction and property-tested over an exhaustive domain with NULLs and NaN (4,000 predicates); seed-proven. The `ViewQuery` comment and SECURITY.md are corrected.
 
 ### STORECLAIMS-1 (MEDIUM) — identity-store users carry no claims, so claim-based policies refuse them
 
-> **Status:** OPEN — `session_attribute('claim')` reads the principal's claims; static tokens gained `claims`, but users in the identity store (ADR-052) have none, so any policy reading a claim refuses them with PRV-7039, and a query narrowed that way cannot be restored for such an owner at restart.
-> **Disposition:** POST-GA — user attributes in the identity store (administered like roles), surfaced as claims.
+> **Status:** FIXED — identity-store users carry attributes (journalled; `PUT /api/v1/users/{u}/attributes`, `pravaha user attrs`, Admin · Users; audited by name, never value), presented as claims by sessions, by API keys (exactly their holder's, read live) and to recovery. `IdentityAttributesTest`, `IdentityHttpTest`, `StoreUserClaimsEndToEndTest` (a claim-narrowed query by a store user survives a restart); seed-proven.
 
 ### CAT201-1 (LOW) — catalogue POST endpoints answer 201 while the OpenAPI document says 200
 
-> **Status:** OPEN — grants, namespaces (phase 1) and policies (phase 2) return 201 Created; the generated document and `api/openapi.lock.json` record 200, and the P-5 status check covers only `/api/v1/streams`.
-> **Disposition:** POST-GA — annotate the responses and widen the status check to every POST.
+> **Status:** FIXED — every `ResponseEntity` handler declares its status: the catalogue POSTs 201 and eleven 204 writes that were documented as 200; the lock is regenerated, `OpenApiContractTest` holds every operation's documented 2xx to its handler, and `WriteStatusContractTest` calls each catalogue write for real; seed-proven.
 
 ## Found fixing DECSUM-1 (2026-09-28), 2 findings
 
@@ -7280,4 +7277,16 @@ the lead.
 
 > **Status:** OPEN — not reproduced; found by reading. `WindowedAggregate`'s `readKey` and key hash read a DECIMAL with `getLong` (the high half only), so a windowed `GROUP BY` on a decimal column, or `COUNT(DISTINCT decimal)`, would treat different values as one.
 > **Disposition:** POST-GA — read the whole unscaled value, or refuse a decimal window key by name until then.
+
+## Found closing TAUTOFILTER-1 (2026-09-28), 2 findings
+
+### FILTERBREAK-1 (LOW) — filters that restricted nothing for some readers now refuse those readers
+
+> **Status:** OPEN — a deployed filter such as `is_member('eu') OR …`, true for some readers, was already refused when it folded to literal TRUE; with vacuity decided properly, more such filters are caught, and those readers get PRV-7003 where they were served before. Documented in RELEASE_NOTES as a behaviour change.
+> **Disposition:** NOTE — the correct remedy is `EXCEPT ROLE`; operators upgrading should be told, which the release notes do.
+
+### VACUITYGAP-1 (LOW) — the vacuity analysis misses tautologies across different constants
+
+> **Status:** OPEN — by design the analysis is sound but incomplete: `a < 5 OR a > 2` or `a + 1 > a` are not recognised as always true, so such a filter is accepted as restricting. It never refuses a filter that genuinely restricts.
+> **Disposition:** NOTE — range reasoning over constants could close the common cases; accepted as a documented limit meanwhile.
 
