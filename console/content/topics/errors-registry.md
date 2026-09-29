@@ -183,6 +183,12 @@ permission: replaying it blindly would let someone keep an entitlement after it 
 having registered before it was. The registration is not restored; the principal registers it again
 if they still may.
 
+The owner is looked up in the identity store first and the static token table second (ADR-052,
+RECOVERYOWNER-1), so a query registered by a signed-in user comes back as that user. The code is also
+given for an owner neither of them knows. A **disabled** user is still known: their queries keep
+running after a restart, as they did before it, and the node logs a warning naming the owner — drop
+the queries to stop them.
+
 ## Sinks
 
 A query registered `WRITING TO` a sink (or with `--sink`) writes every commit of its view there too.
@@ -427,6 +433,16 @@ would feed the whole answer again on top of it.
 
 At most eight queries over queries above a stream. Each level adds a commit's latency and a copy of
 its input's answer; fold some steps into one query.
+
+### PRV-8028 — a single-consumer binding another query holds
+
+The stream is bound to a source with one consumer at a time — a `postgres-cdc` replication slot, a
+`mysql-cdc` replica `server.id` — and another query, named in the message, is reading it. The
+registration is refused before anything opens, and the running query is untouched; the REST API
+answers `409`. A second name for the *same* SQL is one computation and is not refused. For a second,
+different question, bind the table again under another stream name with a `slot` (or `server.id`) of
+its own, or drop the query holding the binding. It used to be accepted and fail `PRV-5117` about
+fifteen seconds later (CDCREPL-2).
 
 ## Alerts
 
