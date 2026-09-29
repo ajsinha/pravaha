@@ -98,7 +98,10 @@ over the compiled predicate, the one that runs, by `FilterVacuity`:
 The analysis is sound and deliberately incomplete: it refuses what it shows to restrict nothing and
 assumes the rest restricts, because refusing a genuine filter stops a reader entitled to rows, and a
 filter too large to decide within a fixed budget is assumed to restrict. Floating point follows IEEE
-754 (`d = d` is false for NaN, so it restricts).
+754 (`d = d` is false for NaN, so it restricts). An integer or decimal column compared with constants
+is judged by the values the comparisons cover, not comparison by comparison: `a < 5 OR a > 2` and
+`a <= 4 OR a >= 5` are recognised (VACUITYGAP-1); comparisons of a floating-point column, or of two
+expressions, are still judged one by one.
 
 ## Where the filter goes
 

@@ -16,6 +16,7 @@
 package com.ash.messaging.pravaha.sql.plan;
 
 import java.lang.reflect.Proxy;
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -59,8 +60,12 @@ import com.ash.messaging.pravaha.security.SecurityErrors;
  *
  * <p>The formula is decided exactly by case-splitting on its variables. Every real row is one assignment
  * of them, so a formula true under every assignment is a filter true for every row -- the analysis is
- * <em>sound</em>: it never calls a restricting filter vacuous. It is not complete ({@code a < 5 OR a > 2}
- * restricts nothing and is not recognised), and a filter too large to decide within a fixed budget is
+ * <em>sound</em>: it never calls a restricting filter vacuous. An integer or decimal column compared with
+ * constants is split on its value's region rather than comparison by comparison, so {@code a < 5 OR a > 2}
+ * and {@code a <= 4 OR a >= 5} are recognised (VACUITYGAP-1; see {@link #regions}). It is still not
+ * complete -- floating point, and comparisons between two expressions, keep a variable per comparison;
+ * {@code d < 5 OR d >= 5} is not recognised, and would not be a tautology for {@code NaN} anyway -- and a
+ * filter too large to decide within a fixed budget is
  * accepted rather than refused; the rule is "refuse what is shown vacuous", never "refuse what cannot be
  * shown to restrict", because refusing a genuine filter would stop a reader who is entitled to rows.
  *
@@ -294,10 +299,115 @@ public final class FilterVacuity {
 
     /** A total order's comparison: {@code op} and its negation are one variable and its complement. */
     private Formula ordered(List<Object> key, Predicate.Op op) {
-        return switch (op) {
-            case EQ, LT, LE -> literal(append(key, op), true);
-            case NE, GE, GT -> literal(append(key, op.negated()), false);
-        };
+        Predicate.Op base =
+                switch (op) {
+                    case EQ, LT, LE -> op;
+                    case NE, GE, GT -> op.negated();
+                };
+        Formula literal = literal(append(key, base), base == op);
+        bound(key, base);
+        return literal;
+    }
+
+    // ---------------------------------------------------------------------------- one column's values
+
+    /**
+     * A variable that stands for one column compared with a constant: {@code column} is {@code
+     * ("integer", ordinal)} or {@code ("decimal", ordinal)}, {@code op} one of {@code =}, {@code <},
+     * {@code <=} (the others are these negated).
+     */
+    private record Bound(List<Object> column, BigInteger constant, Predicate.Op op) {}
+
+    private final Map<Integer, Bound> bounds = new HashMap<>();
+
+    private final Map<List<Object>, List<Integer>> boundsByColumn = new HashMap<>();
+
+    /** {@link #regions} per column, worked out once per question rather than once per split. */
+    private final Map<List<Object>, List<Map<Integer, Boolean>>> regionsOf = new HashMap<>();
+
+    /**
+     * Records that the variable for {@code key}+{@code op} compares a column with a constant, so that
+     * {@link #decide} splits on the column's value rather than on each comparison alone (VACUITYGAP-1).
+     *
+     * <p>Only integers and decimals: both compare as whole numbers -- a decimal's unscaled value against
+     * the constant's, at the column's scale -- so the values between two constants are known exactly.
+     * A comparison of two expressions has no constant, and floating point has {@code NaN}, unordered
+     * against everything; both keep their independent variables, which is sound and merely less complete.
+     */
+    private void bound(List<Object> key, Predicate.Op op) {
+        Object kind = key.get(0);
+        BigInteger constant;
+        if ("integer".equals(kind)) {
+            constant = BigInteger.valueOf((Long) key.get(2));
+        } else if ("decimal".equals(kind)) {
+            constant = BigInteger.valueOf((Long) key.get(2))
+                    .shiftLeft(64)
+                    .add(new BigInteger(Long.toUnsignedString((Long) key.get(3))));
+        } else {
+            return;
+        }
+        int id = variables.get(append(key, op));
+        if (bounds.containsKey(id)) {
+            return;
+        }
+        List<Object> column = List.of(kind, key.get(1));
+        bounds.put(id, new Bound(column, constant, op));
+        boundsByColumn.computeIfAbsent(column, k -> new ArrayList<>()).add(id);
+        regionsOf.remove(column);
+    }
+
+    /** The least and greatest value a column of this kind can hold, as {@link #bound} reads it. */
+    private static BigInteger[] domain(List<Object> column) {
+        return "integer".equals(column.get(0))
+                ? new BigInteger[] {BigInteger.valueOf(Long.MIN_VALUE), BigInteger.valueOf(Long.MAX_VALUE)}
+                : new BigInteger[] {
+                    BigInteger.ONE.shiftLeft(127).negate(),
+                    BigInteger.ONE.shiftLeft(127).subtract(BigInteger.ONE)
+                };
+    }
+
+    /**
+     * Every consistent truth assignment of one column's comparisons with constants: one per region of
+     * the number line the constants cut it into -- each constant itself, and each run of whole numbers
+     * strictly between two neighbouring constants (or beyond the outermost) that has a number in it.
+     * Every present value falls in exactly one region, and every comparison answers the same across a
+     * region, so these are exactly the assignments some real value makes: {@code a < 5 OR a >= 5} is
+     * then true under all of them, where as independent variables it was not. Regions with no number in
+     * them ({@code 4 < a < 5}) are left out, which is what makes {@code a <= 4 OR a >= 5} a tautology;
+     * leaving out a region some value lies in would be unsound, so a region is kept unless provably empty.
+     */
+    private List<Map<Integer, Boolean>> regions(List<Object> column) {
+        List<Integer> ids = boundsByColumn.get(column);
+        java.util.TreeSet<BigInteger> constants = new java.util.TreeSet<>();
+        for (int id : ids) {
+            constants.add(bounds.get(id).constant());
+        }
+        BigInteger[] domain = domain(column);
+        List<Map<Integer, Boolean>> out = new ArrayList<>();
+        BigInteger previous = null;
+        for (BigInteger constant : constants) {
+            // The open run below this constant: from the previous constant (or the domain's floor) up.
+            BigInteger low = previous == null ? domain[0].subtract(BigInteger.ONE) : previous;
+            if (constant.subtract(low).compareTo(BigInteger.ONE) > 0) {
+                out.add(assignment(ids, low.add(BigInteger.ONE)));
+            }
+            out.add(assignment(ids, constant));
+            previous = constant;
+        }
+        if (previous.compareTo(domain[1]) < 0) {
+            out.add(assignment(ids, previous.add(BigInteger.ONE)));
+        }
+        return out;
+    }
+
+    /** Each comparison's answer for {@code value}, which stands for its whole region. */
+    private Map<Integer, Boolean> assignment(List<Integer> ids, BigInteger value) {
+        Map<Integer, Boolean> out = new HashMap<>();
+        for (int id : ids) {
+            Bound bound = bounds.get(id);
+            out.put(id, bound.op().matches(value.compareTo(bound.constant())));
+        }
+        return out;
     }
 
     /**
@@ -408,6 +518,20 @@ public final class FilterVacuity {
             throw new Exhausted();
         }
         int split = firstVariable(formula);
+        Bound bound = bounds.get(split);
+        if (bound != null) {
+            // A column compared with constants: split on its value's region, all its comparisons at once.
+            for (Map<Integer, Boolean> region : regionsOf.computeIfAbsent(bound.column(), this::regions)) {
+                Formula assigned = formula;
+                for (Map.Entry<Integer, Boolean> each : region.entrySet()) {
+                    assigned = assign(assigned, each.getKey(), each.getValue());
+                }
+                if (!decide(assigned, target)) {
+                    return false;
+                }
+            }
+            return true;
+        }
         return decide(assign(formula, split, true), target) && decide(assign(formula, split, false), target);
     }
 

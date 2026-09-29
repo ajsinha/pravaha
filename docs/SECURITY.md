@@ -208,8 +208,11 @@ complement one variable) and deciding it exactly. The rules:
 
 The analysis is **sound, not complete**: it never calls a filter vacuous that keeps some rows and not
 others by their values (a property test evaluates thousands of random predicates over every row of a
-small domain, NULLs and a NaN included), but it does not find every tautology (`a < 5 OR a > 2`), and a
-filter too large to decide within its budget is assumed to restrict. Floating point is taken as IEEE
+small domain, NULLs and a NaN included), but it does not find every tautology, and a filter too large
+to decide within its budget is assumed to restrict. An integer or decimal column compared with constants
+is judged by the values the comparisons cover — `k < 5 OR k > 2` and `k <= 4 OR k >= 5` are vacuous,
+`k < 4 OR k > 4` restricts, and over a nullable column they are "nulls only" (VACUITYGAP-1); comparisons
+of a floating-point column, or of two expressions, are judged one by one and such a tautology is missed. Floating point is taken as IEEE
 754: `d = d` is false for NaN, so over a `DOUBLE` it restricts and is accepted. A catalogue policy that
 reads the session (`session_attribute`, `current_user()`, `is_member`) is judged when it is bound to a
 reader, at each read — under the stand-in values `CREATE`'s check plans it with, its verdict describes

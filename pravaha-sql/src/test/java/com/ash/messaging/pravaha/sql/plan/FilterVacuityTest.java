@@ -237,6 +237,133 @@ class FilterVacuityTest {
     }
 
     @Test
+    void comparisonsOfOneColumnWithDifferentConstantsAreJudgedByTheValuesTheyCover() {
+        // VACUITYGAP-1: the column's value is split into the regions its constants cut the line into.
+        StreamSchema r = StreamSchema.builder("r")
+                .field("a", Types.int64().withNullable(true))
+                .field("k", Types.int64())
+                .field("p", Types.decimal(10, 2))
+                .field("q", Types.decimal(10, 2).withNullable(true))
+                .build();
+        verdict(r, "k < 5 OR k > 2", FilterVacuity.Verdict.ALWAYS_TRUE);
+        verdict(r, "k < 5 OR k >= 5", FilterVacuity.Verdict.ALWAYS_TRUE);
+        verdict(r, "k <= 4 OR k >= 5", FilterVacuity.Verdict.ALWAYS_TRUE);
+        verdict(r, "k <> 3 OR k <> 4", FilterVacuity.Verdict.ALWAYS_TRUE);
+        verdict(r, "k < 3 OR k = 3 OR k > 3", FilterVacuity.Verdict.ALWAYS_TRUE);
+        verdict(r, "NOT (k > 3 AND k < 4)", FilterVacuity.Verdict.ALWAYS_TRUE);
+        verdict(r, "p < 5 OR p >= 5", FilterVacuity.Verdict.ALWAYS_TRUE);
+        verdict(r, "p <= 4.98 OR p >= 4.99", FilterVacuity.Verdict.ALWAYS_TRUE);
+        verdict(r, "a < 5 OR a > 2 OR a IS NULL", FilterVacuity.Verdict.ALWAYS_TRUE);
+        // A nullable column: every present value is kept and NULL is dropped by the comparisons, which
+        // is IS NOT NULL written as comparisons -- the same verdict as region = 'x' OR region <> 'x'.
+        verdict(r, "a < 5 OR a >= 5", FilterVacuity.Verdict.NULLS_ONLY);
+        verdict(r, "q <= 4.98 OR q >= 4.99", FilterVacuity.Verdict.NULLS_ONLY);
+        // A gap with a value in it is a restriction.
+        verdict(r, "k < 4 OR k > 4", FilterVacuity.Verdict.RESTRICTS);
+        verdict(r, "k <= 3 OR k >= 5", FilterVacuity.Verdict.RESTRICTS);
+        verdict(r, "p <= 4.97 OR p >= 4.99", FilterVacuity.Verdict.RESTRICTS);
+        verdict(r, "a < 5 OR a > 2 OR k = 1", FilterVacuity.Verdict.NULLS_ONLY);
+        verdict(r, "k < 5 OR a >= 5", FilterVacuity.Verdict.RESTRICTS);
+        // And nothing between two neighbours.
+        verdict(r, "k > 3 AND k < 4", FilterVacuity.Verdict.ALWAYS_FALSE);
+        verdict(r, "k < 3 AND k > 2", FilterVacuity.Verdict.ALWAYS_FALSE);
+        // The ends of the range: nothing lies below the least value or above the greatest.
+        StreamSchema one = StreamSchema.builder("o").field("k", Types.int64()).build();
+        assertThat(FilterVacuity.of(new Predicate.CompareLong(0, "k", Predicate.Op.GE, Long.MIN_VALUE), one))
+                .isEqualTo(FilterVacuity.Verdict.ALWAYS_TRUE);
+        assertThat(FilterVacuity.of(new Predicate.CompareLong(0, "k", Predicate.Op.LE, Long.MAX_VALUE), one))
+                .isEqualTo(FilterVacuity.Verdict.ALWAYS_TRUE);
+        assertThat(FilterVacuity.of(new Predicate.CompareLong(0, "k", Predicate.Op.GT, Long.MIN_VALUE), one))
+                .isEqualTo(FilterVacuity.Verdict.RESTRICTS);
+    }
+
+    /**
+     * The interval check's property: over random filters of comparisons of two integer columns (one
+     * nullable) with constants near each other and at the ends of the range, every verdict holds of
+     * every row whose values are each constant, its neighbours and the extremes -- a representative of
+     * every region the analysis splits on, so a region wrongly left out would show here.
+     */
+    @Test
+    void theIntervalCheckNeverCallsARestrictingFilterVacuous() {
+        StreamSchema two = StreamSchema.builder("two")
+                .field("a", Types.int64().withNullable(true))
+                .field("k", Types.int64())
+                .build();
+        long[] constants = {-2, -1, 0, 1, 2, 3, Long.MIN_VALUE, Long.MAX_VALUE, Long.MIN_VALUE + 1, Long.MAX_VALUE - 1};
+        java.util.TreeSet<Long> values = new java.util.TreeSet<>();
+        for (long c : constants) {
+            values.add(c);
+            if (c != Long.MIN_VALUE) {
+                values.add(c - 1);
+            }
+            if (c != Long.MAX_VALUE) {
+                values.add(c + 1);
+            }
+        }
+        values.add(1_000L);
+        values.add(-1_000L);
+        List<Long> aValues = new ArrayList<>(values);
+        aValues.add(null);
+        Random random = new Random(20260929L);
+        int alwaysTrue = 0;
+        for (int round = 0; round < 3000; round++) {
+            Predicate predicate = comparisons(random, 3, constants);
+            FilterVacuity.Verdict verdict = FilterVacuity.of(predicate, two);
+            boolean keepsAll = true;
+            boolean keepsNone = true;
+            boolean keepsAllPresent = true;
+            for (Long a : aValues) {
+                for (long k : values) {
+                    boolean kept = predicate.test(view(new Object[] {a, k}));
+                    keepsAll &= kept;
+                    keepsNone &= !kept;
+                    if (a != null) {
+                        keepsAllPresent &= kept;
+                    }
+                }
+            }
+            switch (verdict) {
+                case ALWAYS_TRUE -> assertThat(keepsAll).as("%s", predicate).isTrue();
+                case ALWAYS_FALSE -> assertThat(keepsNone).as("%s", predicate).isTrue();
+                case NULLS_ONLY ->
+                    assertThat(keepsAllPresent).as("%s", predicate).isTrue();
+                case RESTRICTS -> {
+                    // sound, not complete
+                }
+            }
+            if (verdict == FilterVacuity.Verdict.ALWAYS_TRUE) {
+                alwaysTrue++;
+            }
+        }
+        assertThat(alwaysTrue)
+                .as("the property must see tautologies to test them")
+                .isGreaterThan(50);
+    }
+
+    private static Predicate comparisons(Random random, int depth, long[] constants) {
+        if (depth == 0 || random.nextInt(3) == 0) {
+            int ordinal = random.nextInt(2);
+            if (ordinal == 0 && random.nextInt(8) == 0) {
+                return new Predicate.IsNull(0, "a", random.nextBoolean());
+            }
+            Predicate.Op op = Predicate.Op.values()[random.nextInt(Predicate.Op.values().length)];
+            long constant = constants[random.nextInt(random.nextInt(4) == 0 ? constants.length : 6)];
+            return new Predicate.CompareLong(ordinal, ordinal == 0 ? "a" : "k", op, constant);
+        }
+        return switch (random.nextInt(3)) {
+            case 0 -> new Predicate.Not(comparisons(random, depth - 1, constants));
+            case 1 ->
+                new Predicate.And(
+                        List.of(comparisons(random, depth - 1, constants), comparisons(random, depth - 1, constants)));
+            default ->
+                new Predicate.Or(List.of(
+                        comparisons(random, depth - 1, constants),
+                        comparisons(random, depth - 1, constants),
+                        comparisons(random, depth - 1, constants)));
+        };
+    }
+
+    @Test
     void aFilterTooLargeToDecideIsAssumedToRestrictAndAWideOneIsDecidedWithinTheBudget() {
         Predicate vacuous = predicateOf(T, "(s = 'a' OR s <> 'a' OR s IS NULL) AND (i > 0 OR i <= 0 OR i IS NULL)");
         assertThat(FilterVacuity.of(vacuous, T)).isEqualTo(FilterVacuity.Verdict.ALWAYS_TRUE);
