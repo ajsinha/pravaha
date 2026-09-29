@@ -12,6 +12,14 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **A `DECIMAL` column compared with a decimal literal runs on the generated path (CG-1).** `ratio >
+  0.5` compiled to a comparison of two expressions, which the code generator refuses, so the whole
+  filter-and-project chain ran interpreted. A decimal column against a literal it can hold exactly at
+  its scale is now a typed comparison of 128-bit unscaled values (`Predicate.CompareDecimal`), which
+  the generator emits; a literal with more fractional digits than the column, and decimal arithmetic,
+  keep the exact general path. `DecimalGeneratedPathTest` holds the generated and interpreted
+  answers equal. The finding's other half -- a restart compiling every distinct chain serially -- is
+  not changed: it is a start-up cost still to be measured before it is worth parallelising.
 - **`IN` lists reach the source (INLIST-1).** The pushdown extractor sent a source column-against-
   literal comparisons joined by `AND` and nothing OR'd, so `WHERE id IN (7, 8, 9)` was filtered only
   in the engine. An `IN` of up to 64 literals on one column is now the request's one disjunction --

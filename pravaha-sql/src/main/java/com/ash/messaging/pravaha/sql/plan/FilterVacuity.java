@@ -234,6 +234,10 @@ public final class FilterVacuity {
                 and(List.of(
                         columnPresent(compare.ordinal(), faceValue),
                         floating(List.of("floating", compare.ordinal(), compare.value()), compare.op())));
+            case Predicate.CompareDecimal compare ->
+                and(List.of(
+                        columnPresent(compare.ordinal(), faceValue),
+                        ordered(List.of("decimal", compare.ordinal(), compare.high(), compare.low()), compare.op())));
             case Predicate.Like like ->
                 and(List.of(
                         columnPresent(like.ordinal(), faceValue),

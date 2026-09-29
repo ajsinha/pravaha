@@ -93,6 +93,7 @@ final class PredicateSource {
                 comparison(rowVar, c.ordinal(), "getDouble", DOUBLE_READ, c.op().java(), doubleLiteral(c.value()));
             case Predicate.CompareBoolean c ->
                 comparison(rowVar, c.ordinal(), "getBoolean", BOOLEAN_READ, "==", Boolean.toString(c.value()));
+            case Predicate.CompareDecimal c -> decimal(rowVar, c);
             case Predicate.CompareString c -> string(rowVar, c);
             case Predicate.Like like ->
                 // Refused for a structural reason rather than an unfinished one. This generator's
@@ -155,6 +156,27 @@ final class PredicateSource {
         }
         int offset = layout.offsetOf(ordinal);
         String test = "region." + getter + "(" + rowVar + " + " + offset + ") " + operator + " " + literal;
+        return "(!" + nullTest(rowVar, ordinal) + " && (" + test + "))";
+    }
+
+    /**
+     * A decimal column against a literal at its scale (CG-1): the two 64-bit limbs the interpreted
+     * predicate reads ({@code getDecimalHigh} at the slot, {@code getDecimalLow} eight bytes on),
+     * compared by the same signed 128-bit order.
+     */
+    private String decimal(String rowVar, Predicate.CompareDecimal c) {
+        int ordinal = c.ordinal();
+        TypeName type = schema.field(ordinal).type().typeName();
+        if (type != TypeName.DECIMAL) {
+            throw new PravahaException(
+                    CodegenErrors.UNSUPPORTED,
+                    "the predicate compares column '" + schema.field(ordinal).name() + "' (" + type
+                            + ") as a decimal; the interpreted path runs this.");
+        }
+        int offset = layout.offsetOf(ordinal);
+        String test = "com.ash.messaging.pravaha.runtime.plan.Predicate.CompareDecimal.compare128(region.getLong("
+                + rowVar + " + " + offset + "), region.getLong(" + rowVar + " + " + (offset + 8) + "), "
+                + c.high() + "L, " + c.low() + "L) " + c.op().java() + " 0";
         return "(!" + nullTest(rowVar, ordinal) + " && (" + test + "))";
     }
 

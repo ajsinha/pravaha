@@ -227,6 +227,43 @@ public sealed interface Predicate {
     }
 
     /**
+     * {@code decimal column op <decimal literal>}, compared exactly as 128-bit unscaled values at the
+     * column's scale (CG-1).
+     *
+     * <p>The literal is held rescaled to the column's scale, so the comparison is two's-complement
+     * integers, high limb then low: exactly the order of the decimals. A literal with more fractional
+     * digits than the column holds, or none that fits 128 bits at its scale, is not given this shape;
+     * the general decimal comparison takes it. What this shape buys is the generated path: the code
+     * generator emits it as two loads and a compare, where {@link CompareExpressions} kept a whole
+     * filter interpreted.
+     *
+     * @param high the literal's unscaled value at {@code scale}, high 64 bits
+     * @param low the low 64 bits
+     * @param scale the column's scale, for {@link #describe}
+     */
+    record CompareDecimal(int ordinal, String columnName, Op op, long high, long low, int scale) implements Predicate {
+
+        @Override
+        public boolean test(RowView row) {
+            return !row.isNull(ordinal)
+                    && op.matches(compare128(row.getDecimalHigh(ordinal), row.getDecimalLow(ordinal), high, low));
+        }
+
+        /** Signed 128-bit comparison of {@code (aHigh, aLow)} with {@code (bHigh, bLow)}. */
+        public static int compare128(long aHigh, long aLow, long bHigh, long bLow) {
+            int byHigh = Long.compare(aHigh, bHigh);
+            return byHigh != 0 ? byHigh : Long.compareUnsigned(aLow, bLow);
+        }
+
+        @Override
+        public String describe() {
+            return columnName + " " + op.sql() + " "
+                    + com.ash.messaging.pravaha.common.row.Decimals.toBigDecimal(high, low, scale)
+                            .toPlainString();
+        }
+    }
+
+    /**
      * {@code column = 'literal'} or {@code <>}.
      *
      * <p>Equality only. Ordering comparisons on text need collation, and guessing one is worse than

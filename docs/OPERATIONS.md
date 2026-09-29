@@ -1759,6 +1759,11 @@ generated: Filter(amount > 10) <- Scan(txn) -- generated: ...
 The second and third lines are one query: its text projection is refused, and the filter beneath it
 is generated alone. A plan with no filter or projection directly on a scan says so in one line.
 
+A `DECIMAL` column compared with a decimal literal it can hold exactly -- `ratio > 0.5` on a
+`DECIMAL(12, 2)` -- is generated, as two loads and a 128-bit compare (CG-1); it used to keep the
+whole chain interpreted. A literal with more fractional digits than the column (`ratio > 0.125`),
+decimal arithmetic, and a comparison of two expressions still run interpreted, exactly.
+
 - **Off switch:** `-Dpravaha.codegen.enabled=false` on the node's JVM. Every query registered after
   start-up then runs interpreted. It is read at start-up; a running query keeps the path it was
   built on.
