@@ -37,7 +37,7 @@ from cdp import Browser, Page
 
 pytestmark = pytest.mark.browser
 
-THEMES = ["light", "dark", "terminal", "blue", "green"]
+THEMES = ["light", "dark", "blue", "green"]
 
 
 @pytest.fixture(scope="module")

@@ -2,18 +2,31 @@
    Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
    Proprietary and confidential. See LICENSE at the repository root.
 
-   Every colour is a token from base.html, so each theme is the redefinition of that one block
+   Every colour is a token (static/css/tokens.css), so each theme is the redefinition of that one file
    and nothing here: no hex, no rgba of a brand colour. */
 
 /* ------------------------------------------------------------------ index */
-.help-hero{padding:1.4rem 0 .4rem}
-.help-hero h1{margin-bottom:.35rem}
-.help-hero .lede{max-width:48rem;line-height:1.6;color:var(--slate)}
-.help-toolbar{position:sticky;top:0;z-index:5;background:var(--canvas);padding:.8rem 0 .6rem;
+/* The index hero, as MAYA's: a centred panel on the bar's own gradient, white on every stop. */
+.help-hero,.about-hero{position:relative;overflow:hidden;text-align:center;color:var(--on-bar);border-radius:20px;
+  padding:2.4rem 1.5rem;margin-bottom:1.4rem;background:linear-gradient(120deg,var(--bar-from),var(--bar-via) 50%,var(--bar-to));
+  box-shadow:0 24px 50px -24px color-mix(in srgb,var(--bar-to) 70%,transparent)}
+.help-hero h1,.about-hero h1{background:none;-webkit-text-fill-color:currentColor;color:var(--on-bar);margin:0 auto .3rem;font-size:2.2rem}
+.help-hero h1 span,.about-hero h1 span{-webkit-text-fill-color:currentColor;color:var(--on-bar)!important}
+.help-hero .kicker,.about-hero .kicker{color:var(--on-bar)}
+.help-hero .lede,.about-hero .lede{color:var(--on-bar)!important;margin-left:auto;margin-right:auto}
+.help-hero .d-flex,.about-hero .d-flex{justify-content:center}
+.help-hero .btn-outline-secondary,.about-hero .btn-outline-secondary{--bs-btn-color:var(--on-bar);--bs-btn-border-color:var(--on-bar-dim);
+  --bs-btn-hover-bg:rgba(255,255,255,.15);--bs-btn-hover-color:var(--on-bar);--bs-btn-hover-border-color:var(--on-bar);
+  --bs-btn-active-bg:rgba(255,255,255,.2);--bs-btn-active-color:var(--on-bar)}
+.about-hero .btn-primary{--bs-btn-bg:var(--on-bar);--bs-btn-color:var(--bar-from);--bs-btn-border-color:var(--on-bar);
+  --bs-btn-hover-bg:var(--on-bar);--bs-btn-hover-color:var(--bar-from);background-image:none}
+
+.help-hero .lede{max-width:48rem;line-height:1.6}
+.help-toolbar{position:sticky;top:64px;z-index:5;background:var(--canvas);padding:.8rem 0 .6rem;
   border-bottom:1px solid var(--hairline);margin-bottom:1.1rem}
 .help-search{display:flex;gap:.5rem;max-width:44rem}
 .help-search input{flex:1;min-width:0;padding:.55rem .85rem;font-size:1rem;border:1px solid var(--edge);
-  border-radius:8px;background:var(--surface);color:var(--ink)}
+  border-radius:999px;background:var(--surface);color:var(--ink)}
 .help-search input:focus{outline:2px solid var(--flow);outline-offset:1px}
 .cat-chips{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.65rem;padding:0;list-style:none}
 .cat-chips a{display:inline-flex;align-items:center;gap:.35rem;font-size:.8rem;padding:.18rem .7rem;
@@ -75,7 +88,7 @@
 .doc a.prv{font-family:var(--mono,monospace);white-space:nowrap}
 .toc a{display:block;padding:.18rem 0;font-size:.82rem;color:var(--muted);text-decoration:none}
 .toc a:hover,.toc a:focus{color:var(--flow)}
-.toc-side{position:sticky;top:1rem}
+.toc-side{position:sticky;top:84px}
 
 /* the shared footer */
 .help-footer{margin-top:1.6rem}
@@ -110,8 +123,8 @@
 .screen-help{font-size:.85rem;margin-left:.5rem;vertical-align:middle;text-decoration:none}
 
 /* ------------------------------------------------------------------ about */
-.about-hero{padding:1.2rem 0 .6rem}
-.about-hero .lede{font-size:1.1rem;line-height:1.6;color:var(--slate);max-width:54rem}
+
+.about-hero .lede{font-size:1.1rem;line-height:1.6;max-width:54rem}
 .about-diagram{width:100%;height:auto;display:block}
 .about-diagram .box{fill:var(--surface);stroke:var(--edge);stroke-width:1.2}
 .about-diagram .box.core{stroke:var(--flow);stroke-width:2}
@@ -145,7 +158,7 @@
 .compete tbody th,.compete thead th:first-child{position:sticky;left:0;z-index:1}
 .compete thead th:first-child{background:var(--stripe)}
 @media (max-width:576px){.compete tbody th{min-width:9.5rem}}
-.cmp-note{scroll-margin-top:1rem}
+.cmp-note{scroll-margin-top:84px}
 .cmp-note h3 .bi{color:var(--flow)}
 .cmp-scores{display:flex;flex-wrap:wrap;gap:.3rem;list-style:none;padding:0;margin:0}
 .cmp-scores .chip{font-size:.72rem}

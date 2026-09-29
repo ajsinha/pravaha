@@ -1,0 +1,214 @@
+/*
+ * Pravaha console — the token set. The ONLY place colours are defined.
+ * Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+ * Proprietary and confidential. See LICENSE at the repository root.
+ *
+ * Ask once. Answer always.
+ *
+ * The console follows the design language of MAYA, its sibling product: the same token roles,
+ * the same four themes (Crimson, Dark, Blue, Green), the same navigation gradient and glow. The
+ * names are MAYA's with a `pv-` prefix -- `--pv-crimson` is MAYA's `--maya-crimson` -- and they
+ * name a ROLE rather than a hue: `--pv-crimson` is the accent, which is blue in the blue theme.
+ *
+ * Where a value differs from MAYA's it is for one of two reasons, each held by
+ * tests/test_contrast.py rather than by eye:
+ *   - a text pair below WCAG AA 4.5:1 (MAYA's light slate on its canvas is 4.35; its blue accent
+ *     as a link on the blue canvas is 4.25), so the text token moves one step darker in the same hue;
+ *   - a status colour that could be read as the brand (MAYA's `bad` is its crimson-strong), so
+ *     `bad` stays the orange-shifted red the console has always used.
+ * Below MAYA's set are the tokens only Pravaha needs: soft grounds for the status chips, a neutral
+ * wash, a form-control edge that holds 3:1, the retraction colour, and the data series.
+ */
+:root {
+  --pv-crimson: #A51C30;
+  --pv-crimson-strong: #8A1626;
+  --pv-crimson-deep: #6E1120;
+  --pv-crimson-tint: #FBEEF0;
+  --pv-ink: #1A1A1A;
+  --pv-slate: #5C6470;         /* MAYA: #6B7480, 4.35:1 on the canvas */
+  --pv-surface: #FFFFFF;
+  --pv-canvas: #F7F5F2;
+  --pv-indigo: #293352;
+  --pv-on-crimson: #FFFFFF;
+  --pv-border: #E3DED7;
+  --pv-ok: #1E6B3A;
+  --pv-warn: #7A5200;
+  --pv-bad: #CC2200;           /* MAYA: #8A1626, the accent's own step */
+  --pv-highlight: #F4DDA0;
+  --pv-heading: #6E1120;
+  /* the navigation gradient: crimson-deep → crimson → indigo, white text on all three */
+  --pv-nav-from: #5C0E1B;
+  --pv-nav-via: #A51C30;
+  --pv-nav-to: #293352;
+  --pv-on-nav: #FFFFFF;
+  --pv-glow: #F3C6CF;
+  /* Pravaha's own */
+  --pv-crimson-light: #C4384B;
+  --pv-wash: #F1EEE9;
+  --pv-edge: #6B7480;
+  --pv-ok-soft: #E6F2EA;
+  --pv-warn-soft: #F8F0E2;
+  --pv-bad-soft: #FBE9E4;
+  --pv-info: #293352;
+  --pv-info-soft: #E9ECF3;
+  --pv-retract: #293352;
+  --pv-series-1: #2a78d6; --pv-series-2: #eb6834; --pv-series-3: #1baf7a; --pv-series-4: #eda100;
+  --pv-series-5: #e87ba4; --pv-series-6: #008300; --pv-series-7: #4a3aa7; --pv-series-8: #e34948;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --pv-crimson: #E47F92;
+    --pv-crimson-strong: #EA8FA0;
+    --pv-crimson-deep: #E07A8E;
+    --pv-crimson-tint: #2A1A1E;
+    --pv-ink: #ECECEF;
+    --pv-slate: #8996A0;
+    --pv-surface: #1F1F23;
+    --pv-canvas: #151517;
+    --pv-indigo: #A9B6D6;
+    --pv-on-crimson: #151517;
+    --pv-border: #34343A;
+    --pv-ok: #7FD39B;
+    --pv-warn: #E8C26A;
+    --pv-bad: #FF8B63;
+    --pv-highlight: #5A4712;
+    --pv-heading: #E47F92;
+    --pv-nav-from: #2E0810;
+    --pv-nav-via: #6E1120;
+    --pv-nav-to: #1B2138;
+    --pv-on-nav: #FFFFFF;
+    --pv-glow: #4A2530;
+    --pv-crimson-light: #EC9EAC;
+    --pv-wash: #232329;
+    --pv-edge: #767C86;
+    --pv-ok-soft: #14241A;
+    --pv-warn-soft: #291F12;
+    --pv-bad-soft: #2E1A12;
+    --pv-info: #A9B6D6;
+    --pv-info-soft: #1A1E2A;
+    --pv-retract: #A9B6D6;
+    --pv-series-1: #3987e5; --pv-series-2: #d95926; --pv-series-3: #199e70; --pv-series-4: #c98500;
+    --pv-series-5: #d55181; --pv-series-6: #008300; --pv-series-7: #9085e9; --pv-series-8: #e66767;
+    color-scheme: dark;
+  }
+}
+
+/* Dark. The accent lightens one step past MAYA's #DE6B81, and hovers lighter still (#EA8FA0),
+   because the stale state greys a page out and every pair must still hold 4.5:1 after that. */
+:root[data-theme="dark"] {
+  --pv-crimson: #E47F92;
+  --pv-crimson-strong: #EA8FA0;
+  --pv-crimson-deep: #E07A8E;
+  --pv-crimson-tint: #2A1A1E;
+  --pv-ink: #ECECEF;
+  --pv-slate: #8996A0;
+  --pv-surface: #1F1F23;
+  --pv-canvas: #151517;
+  --pv-indigo: #A9B6D6;
+  --pv-on-crimson: #151517;
+  --pv-border: #34343A;
+  --pv-ok: #7FD39B;
+  --pv-warn: #E8C26A;
+  --pv-bad: #FF8B63;           /* MAYA: #F08A9C, a step of the accent */
+  --pv-highlight: #5A4712;
+  --pv-heading: #E47F92;
+  --pv-nav-from: #2E0810;
+  --pv-nav-via: #6E1120;
+  --pv-nav-to: #1B2138;
+  --pv-on-nav: #FFFFFF;
+  --pv-glow: #4A2530;
+  --pv-crimson-light: #EC9EAC;
+  --pv-wash: #232329;
+  --pv-edge: #767C86;
+  --pv-ok-soft: #14241A;
+  --pv-warn-soft: #291F12;
+  --pv-bad-soft: #2E1A12;
+  --pv-info: #A9B6D6;
+  --pv-info-soft: #1A1E2A;
+  --pv-retract: #A9B6D6;
+  --pv-series-1: #3987e5; --pv-series-2: #d95926; --pv-series-3: #199e70; --pv-series-4: #c98500;
+  --pv-series-5: #d55181; --pv-series-6: #008300; --pv-series-7: #9085e9; --pv-series-8: #e66767;
+  color-scheme: dark;
+}
+
+/*
+ * Blue and green, as MAYA has them. Each redefines the same tokens and nothing else, so every
+ * gradient, glow and layout stays exactly as the crimson theme has it: only the colour changes.
+ * Blue is the SAJHA server's palette (#0079C1 on the bar, #003168 the deep navy); as TEXT the
+ * accent is one step deeper, #006BAC, which holds 4.5:1 on the blue canvas where #0079C1 is 4.25.
+ * Green follows Rolex: #006039 as the accent on a warm cream ground; its `ok` is a yellower green
+ * than the accent, so "running" is never read as "this product".
+ */
+:root[data-theme="blue"] {
+  --pv-crimson: #006BAC;       /* MAYA: #0079C1, 4.25:1 as a link on this canvas */
+  --pv-crimson-strong: #00609A;
+  --pv-crimson-deep: #003168;
+  --pv-crimson-tint: #E6F2FA;
+  --pv-ink: #1E293B;
+  --pv-slate: #536578;
+  --pv-surface: #FFFFFF;
+  --pv-canvas: #F0F5FA;
+  --pv-indigo: #003168;
+  --pv-on-crimson: #FFFFFF;
+  --pv-border: #DCE4EE;
+  --pv-ok: #1E6B3A;
+  --pv-warn: #7A5200;
+  --pv-bad: #B42318;
+  --pv-highlight: #CDE8F7;
+  --pv-heading: #003168;
+  --pv-nav-from: #002654;
+  --pv-nav-via: #0079C1;
+  --pv-nav-to: #003168;
+  --pv-on-nav: #FFFFFF;
+  --pv-glow: #CBE6F7;
+  --pv-crimson-light: #00A3E0;
+  --pv-wash: #E9F0F7;
+  --pv-edge: #64748B;
+  --pv-ok-soft: #E6F2EA;
+  --pv-warn-soft: #F8F0E2;
+  --pv-bad-soft: #FBE9E4;
+  --pv-info: #293352;
+  --pv-info-soft: #E9ECF3;
+  --pv-retract: #6F42C1;
+  --pv-series-1: #2a78d6; --pv-series-2: #eb6834; --pv-series-3: #1baf7a; --pv-series-4: #eda100;
+  --pv-series-5: #e87ba4; --pv-series-6: #008300; --pv-series-7: #4a3aa7; --pv-series-8: #e34948;
+  color-scheme: light;
+}
+
+:root[data-theme="green"] {
+  --pv-crimson: #006039;
+  --pv-crimson-strong: #004D2E;
+  --pv-crimson-deep: #00331F;
+  --pv-crimson-tint: #E8F3EC;
+  --pv-ink: #1A1A1A;
+  --pv-slate: #5E6A64;
+  --pv-surface: #FFFFFF;
+  --pv-canvas: #F7F5EF;
+  --pv-indigo: #1C3A2E;
+  --pv-on-crimson: #FFFFFF;
+  --pv-border: #E3DECF;
+  --pv-ok: #3D6B00;            /* MAYA: #3A6B1E */
+  --pv-warn: #7A5200;
+  --pv-bad: #A4161A;
+  --pv-highlight: #EBDDB2;
+  --pv-heading: #004D2E;
+  --pv-nav-from: #00261A;
+  --pv-nav-via: #006039;
+  --pv-nav-to: #1C3A2E;
+  --pv-on-nav: #FFFFFF;
+  --pv-glow: #E6D7A8;
+  --pv-crimson-light: #2E8B5F;
+  --pv-wash: #EFEDE4;
+  --pv-edge: #6B736D;
+  --pv-ok-soft: #EEF3E2;
+  --pv-warn-soft: #F8F0E2;
+  --pv-bad-soft: #FBE9E4;
+  --pv-info: #293352;
+  --pv-info-soft: #E9ECF3;
+  --pv-retract: #8A6A1F;
+  --pv-series-1: #2a78d6; --pv-series-2: #eb6834; --pv-series-3: #1baf7a; --pv-series-4: #eda100;
+  --pv-series-5: #e87ba4; --pv-series-6: #008300; --pv-series-7: #4a3aa7; --pv-series-8: #e34948;
+  color-scheme: light;
+}

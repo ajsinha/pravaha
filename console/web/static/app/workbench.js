@@ -113,7 +113,6 @@ function monarch() {
 
 function defineThemes(monaco) {
   const dark = document.documentElement.getAttribute("data-theme") === "dark"
-    || document.documentElement.getAttribute("data-theme") === "terminal"
     || (!document.documentElement.getAttribute("data-theme")
         && window.matchMedia("(prefers-color-scheme: dark)").matches);
   const hex = (name, fallback) => {

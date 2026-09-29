@@ -12,6 +12,28 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **The console follows MAYA's design language.** Tokens and themes (`static/css/tokens.css`,
+  `theme.css`), the navigation bar, the menu, the theme menu, the banners, the flashes and the footer
+  are MAYA's files with only names, routes and content changed. **Themes**: MAYA's four — Crimson,
+  Dark, Blue, Green — picked from a theme menu with swatches (`pravaha.theme` in `localStorage`, as
+  `data-theme` and `data-bs-theme`); the terminal theme is gone and a stored `terminal` falls back to
+  the system's light or dark. **Navigation**: a fixed top bar with the mark and three brand lines
+  (Pravaha, *Continuous SQL where your data already lives*, *Ask once. Answer always.*), and one menu
+  defined once as data and drawn as mega-menu panels — Catalog, Workbench, Operate (alerts is an
+  item here, not a new tab), Admin (administrators only) and Help; the search (the command palette),
+  alerts, the theme menu and the user menu on the right; collapsed behind one button on a phone.
+  Every screen is in the menu or listed with the reason it is not (`core/navigation.EXCLUDED`), and a
+  test holds it. **Signed out**, every page has MAYA's public bar (Help, About, theme, Sign in) and
+  never the app's menu; signing out lands on the landing page with that bar. The sign-in and reset
+  pages stand on the gradient with no bar. **Banners** under the bar: the bootstrap `admin` still on
+  its published password, the engine not answering, and where this is (engine, `app.environment`,
+  version). **Footer**: *Ask once. Answer always.* Pravaha 0.2.1 · Help · About · © 2026 Ashutosh
+  Sinha. All rights reserved. Density moved into the user menu (*Compact rows*, still `d`). The
+  landing page takes MAYA's layout and keeps its three figures. Contrast departures from MAYA's
+  values (light slate, the blue accent as text, the dark accent, `bad`) are noted in `tokens.css`
+  and held by `test_contrast.py`; every page passes axe in all four themes and both densities, and
+  the visual baselines were retaken for the four themes.
+
 - **A row filter that restricts nothing is refused, not only one the planner folds to `TRUE`
   (TAUTOFILTER-1).** `region = region`, `1 = 1 OR region = 'x'`, `x IS NULL OR x IS NOT NULL`,
   `NOT (a <> a)`, `a >= a` and `lower(r) = lower(r)` used to be enforced as though they restricted

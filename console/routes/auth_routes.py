@@ -69,6 +69,12 @@ def current_user(request: Request):
         return None
 
 
+#: The engine's bootstrap administrator and the password it is created with on a dev node
+#: (``IdentityService.DEFAULT_ADMIN_PASSWORD``). Published, which is the point of the banner.
+BOOTSTRAP_ADMIN = "admin"
+BOOTSTRAP_PASSWORD = "pravaha-dev-admin"
+
+
 def login_required(request: Request):
     """A redirect when the caller is anonymous, otherwise None."""
     if current_user(request) is None:
@@ -212,7 +218,10 @@ class AuthRoutes(Routes):
                 token=token, user=name, expires=str(answer.get("expiresAt") or ""),
                 must_change=bool(answer.get("mustChangePassword") or me.get("mustChangePassword")),
                 roles=[str(r) for r in (me.get("roles") or [])],
-                tenant=str(me.get("tenant") or ""))
+                tenant=str(me.get("tenant") or ""),
+                # The shell's warning banner, as MAYA shows one: the engine's bootstrap
+                # administrator, signed in with the password every copy of the engine publishes.
+                default_admin_password=(name == BOOTSTRAP_ADMIN and password == BOOTSTRAP_PASSWORD))
             landing = remembered_landing(request, name)
             if landing:
                 request.session["role"] = landing
@@ -309,6 +318,7 @@ class AuthRoutes(Routes):
                 return RedirectResponse("/account/password", status_code=303)
             forced = bool(request.session.get("must_change"))
             request.session["must_change"] = False
+            request.session["default_admin_password"] = False
             logger.info("'%s' changed their password", current_user(request))
             # The engine may end every session of the person on a change (ADR-052), this one
             # included; if it did, the way on is to sign in with the new password.

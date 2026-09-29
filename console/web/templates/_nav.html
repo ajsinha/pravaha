@@ -1,0 +1,152 @@
+{# The top navigation: one menu, defined once as data, rendered as mega-menu panels.
+   Each top-level entry: (label, icon, [(column title, [(href, icon, label, description, match)])]).
+   MAYA's _nav.html, with Pravaha's screens in it: the markup, the class names, the brand block,
+   the tools on the right and the collapse are MAYA's; the entries, the words (from the string
+   catalog) and the user menu's contents are Pravaha's. tests/test_navigation.py holds that every
+   screen is here or is listed in core/navigation.EXCLUDED with the reason it is not. #}
+{% set staff = signed_in and is_admin %}
+{% set path = request.url.path %}
+{% set MENU = [
+  (t('menu.catalog'), 'boxes', [
+    (t('menu.col.browse'), [
+      ('/catalog', 'collection', t('menu.item.streams'), t('menu.desc.streams'), '/catalog'),
+      ('/catalog?tab=queries', 'diagram-3', t('menu.item.registered'), t('menu.desc.registered'), None),
+      ('/catalog?tab=sinks', 'box-arrow-right', t('menu.item.sinks'), t('menu.desc.sinks'), None),
+      ('/views', 'table', t('menu.item.views'), t('menu.desc.views'), '/views')])]),
+  (t('menu.workbench'), 'tools', [
+    (t('menu.col.design'), [
+      ('/workbench', 'code-square', t('menu.item.workbench'), t('menu.desc.workbench'), None),
+      ('/workbench#assist-describe', 'chat-square-text', t('menu.item.describe'), t('menu.desc.describe'), None)]),
+    (t('menu.col.change'), [
+      ('/workbench?panel=diff', 'layout-split', t('menu.item.compare'), t('menu.desc.compare'), None),
+      ('/queries?replace=1', 'arrow-left-right', t('menu.item.replace'), t('menu.desc.replace'), None)])]),
+  (t('menu.operate'), 'speedometer2', [
+    (t('menu.col.watch'), [
+      ('/operations', 'activity', t('menu.item.operations'), t('menu.desc.operations'), None),
+      ('/overview', 'grid-1x2', t('menu.item.overview'), t('menu.desc.overview'), None),
+      ('/alerts', 'bell', t('menu.item.alerts'), t('menu.desc.alerts'), '/alerts')]),
+    (t('menu.col.run'), [
+      ('/queries', 'list-task', t('menu.item.queries'), t('menu.desc.queries'), '/queries'),
+      ('/admin/lanes', 'signpost-split', t('menu.item.lanes'), t('menu.desc.lanes'), None)])]),
+] %}
+{% if staff %}{% set MENU = MENU + [
+  (t('menu.admin'), 'shield-lock', [
+    (t('menu.col.people'), [
+      ('/admin/users', 'people', t('menu.item.users'), t('menu.desc.users'), None),
+      ('/admin/keys', 'key', t('menu.item.keys'), t('menu.desc.keys'), None),
+      ('/admin/sessions', 'person-badge', t('menu.item.sessions'), t('menu.desc.sessions'), None),
+      ('/admin/tenants', 'building', t('menu.item.tenants'), t('menu.desc.tenants'), None),
+      ('/admin/grants', 'shield-check', t('menu.item.grants'), t('menu.desc.grants'), None),
+      ('/admin/policies', 'funnel', t('menu.item.policies'), t('menu.desc.policies'), None)]),
+    (t('menu.col.integration'), [
+      ('/plugins', 'plug', t('menu.item.plugins'), t('menu.desc.plugins'), None)]),
+    (t('menu.col.operations'), [
+      ('/admin/ai-models', 'stars', t('menu.item.ai_models'), t('menu.desc.ai_models'), None)]),
+    (t('menu.col.evidence'), [
+      ('/admin/audit', 'journal-text', t('menu.item.audit'), t('menu.desc.audit'), None),
+      ('/admin/access', 'clipboard-check', t('menu.item.access'), t('menu.desc.access'), None)])])] %}{% endif %}
+{% set MENU = MENU + [
+  (t('menu.help'), 'question-circle', [
+    (t('menu.col.learn'), [
+      ('/help', 'book', t('menu.item.concepts'), t('menu.desc.concepts'), '/help/topics'),
+      ('/help/guides', 'journal-bookmark', t('menu.item.guides'), t('menu.desc.guides'), None),
+      ('/tutorials', 'mortarboard', t('menu.item.tutorials'), t('menu.desc.tutorials'), '/tutorials'),
+      ('/help/case-studies', 'briefcase', t('menu.item.case_studies'), t('menu.desc.case_studies'), '/help/case-studies')]),
+    (t('menu.col.reference'), [
+      ('/start', 'flag', t('menu.item.start'), t('menu.desc.start'), None),
+      ('/help/topics/cli-reference', 'terminal', t('menu.item.cli'), t('menu.desc.cli'), None),
+      ('/help/codes', 'exclamation-diamond', t('menu.item.codes'), t('menu.desc.codes'), '/help/codes'),
+      ('/help/search', 'search', t('menu.item.search'), t('menu.desc.search'), None)]),
+    (t('menu.col.about'), [
+      ('/about', 'info-circle', t('menu.item.about'), t('menu.desc.about'), None),
+      ('/about/competitive', 'bar-chart-steps', t('menu.item.competitive'), t('menu.desc.competitive'), None)])])] %}
+
+{% macro _on(href, match) -%}{{ 'yes' if (path == href) or (match and path.startswith(match)) else '' }}{%- endmacro %}
+{# MAYA marks a panel current with namespace(); a page here may pass its own `namespace` (the
+   catalog's), so the same answer is reached with a macro. #}
+{% macro _any_on(columns) -%}{% for _t, items in columns %}{% for href, _i, _l, _d, match in items %}{{ _on(href, match) }}{% endfor %}{% endfor %}{%- endmacro %}
+
+<nav class="navbar navbar-expand-lg pv-nav fixed-top" aria-label="{{ t('shell.primary_nav') }}">
+  <div class="container-fluid">
+    <a class="navbar-brand pv-brand" href="/home"><img src="/static/img/pravaha-mark-white.svg" alt="">
+      {# Three lines, in the order a reader needs them: the name, what Pravaha is, and what it
+         undertakes to do. The claim sits with the brand rather than out in the bar, where it
+         would read as one more control competing for a click. #}
+      <span><span class="name">{{ app_name }}</span><small>{{ t('shell.tagline') }}</small>
+        <small class="creed">{{ t('shell.slogan') }}</small></span></a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#pravaha-nav"
+            aria-controls="pravaha-nav" aria-expanded="false" aria-label="{{ t('shell.menu') }}">
+      <i class="bi bi-list" aria-hidden="true"></i></button>
+    <div class="collapse navbar-collapse" id="pravaha-nav">
+      <ul class="navbar-nav me-auto">
+      {% for label, icon, columns in MENU %}
+        {% set ns = {'active': _any_on(columns)|trim != ''} %}
+        <li class="nav-item dropdown mega">
+          <a class="nav-link dropdown-toggle {% if ns.active %}active{% endif %}" href="#" role="button"
+             data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false"
+             {% if ns.active %}aria-current="true"{% endif %}>
+            <i class="bi bi-{{ icon }}" aria-hidden="true"></i> {{ label }}</a>
+          <div class="dropdown-menu mega-panel cols-{{ columns|length }}">
+            {% for title, items in columns %}
+            <div class="mega-col">
+              <div class="mega-title">{{ title }}</div>
+              {% for href, i, l, d, match in items %}
+              {% set on = _on(href, match) %}
+              <a class="mega-item {% if on %}active{% endif %}" href="{{ href }}" {% if on %}aria-current="page"{% endif %}>
+                <span class="mega-icon"><i class="bi bi-{{ i }}" aria-hidden="true"></i></span>
+                <span><span class="mega-label">{{ l }}</span><span class="mega-desc">{{ d }}</span></span></a>
+              {% endfor %}
+            </div>
+            {% endfor %}
+          </div>
+        </li>
+      {% endfor %}
+      </ul>
+      {# MAYA's search field, in its place and shape. Here it opens the command palette, which
+         finds every screen, stream, view and query by name; the palette's module unhides it. #}
+      <button type="button" class="pv-search" id="palette-trigger" hidden
+              title="{{ t('shell.palette_title') }}" aria-label="{{ t('shell.palette_open') }}">
+        <i class="bi bi-search" aria-hidden="true"></i><span class="ph">{{ t('shell.search') }}</span><kbd>Ctrl K</kbd></button>
+      <div class="pv-tools">
+        <a class="tool" href="/alerts" aria-label="{{ t('shell.alerts') }}" title="{{ t('shell.alerts') }}"><i class="bi bi-bell" aria-hidden="true"></i></a>
+        {% include "_theme_menu.html" %}
+        <div class="dropdown">
+          <button class="tool user dropdown-toggle" id="account-menu" data-bs-toggle="dropdown" type="button" aria-expanded="false"
+                  title="{{ t('shell.account_title') }}">
+            <span class="avatar" aria-hidden="true">{{ (username or '?')[:1]|upper }}</span><span class="uname">{{ username }}</span></button>
+          <div class="dropdown-menu dropdown-menu-end pv-user-menu" aria-labelledby="account-menu">
+            <div class="px-3 py-2"><div class="fw-semibold" id="account-who">{{ t('shell.signed_in_as', user=username) }}</div>
+              <div class="small-muted">{{ t(roles[role].label) }}</div></div>
+            <div class="dropdown-divider"></div>
+            <a class="dropdown-item" href="/account"><i class="bi bi-person-circle" aria-hidden="true"></i> {{ t('shell.account') }}</a>
+            <a class="dropdown-item" href="/account/password"><i class="bi bi-lock" aria-hidden="true"></i> {{ t('shell.change_password') }}</a>
+            {% if is_admin %}
+            <a class="dropdown-item" href="/admin/users"><i class="bi bi-people" aria-hidden="true"></i> {{ t('shell.people') }}</a>
+            {% endif %}
+            <div class="dropdown-divider"></div>
+            {# Pravaha's landing persona (design 23.2): real forms, so the switch works with
+               scripting off, like every control. MAYA's menu has no personas. #}
+            <div class="dropdown-header">{{ t('shell.land_on') }}</div>
+            {% for key, meta in roles.items() %}
+            <form method="post" action="/preferences/role" class="m-0">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="role" value="{{ key }}">
+              <input type="hidden" name="next" value="/home">
+              <button class="dropdown-item persona{{ ' active' if key == role else '' }}" type="submit"
+                      {% if key == role %}aria-current="true"{% endif %}>
+                <i class="bi bi-{{ 'check2' if key == role else 'dot' }}" aria-hidden="true"></i>
+                <strong>{{ t(meta.label) }}</strong> <span>— {{ t(meta.blurb)|lower }}</span></button>
+            </form>
+            {% endfor %}
+            <div class="dropdown-divider"></div>
+            <button class="dropdown-item" type="button" id="density-toggle" role="menuitemcheckbox" aria-checked="false"
+                    title="{{ t('shell.density_title') }}"><i class="bi bi-list" aria-hidden="true"></i> {{ t('shell.compact_rows') }}</button>
+            <div class="dropdown-divider"></div>
+            <form method="post" action="/logout" id="sign-out-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button class="dropdown-item" type="submit" title="{{ t('shell.sign_out_title') }}"><i class="bi bi-box-arrow-right" aria-hidden="true"></i> {{ t('shell.sign_out') }}</button></form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</nav>

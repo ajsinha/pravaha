@@ -6,7 +6,7 @@ order: 30
 icon: window-sidebar
 summary: "Every screen in this console — what it is for, who lands there, what it shows, the deep links it understands — and what the engine does not publish yet."
 audience: Everyone
-keywords: [console, ui, workbench, catalog, views, live, operations, queries, plugins, admin, audit, palette, deep link, roles, ports]
+keywords: [console, ui, workbench, catalog, views, live, operations, queries, plugins, admin, audit, palette, deep link, roles, ports, menu, navigation, theme, dark mode, maya]
 guide: quickstart#7-open-the-console
 related: [start-here, choosing-a-client, sql-reference, point-reads, metrics-alerts, authorization]
 ---
@@ -53,6 +53,34 @@ land, not what you may do:
 
 The engine decides what you may see: the console reaches it **as you**, and every screen shows
 exactly what the engine's policy lets you see. It is remembered for you on that browser.
+
+## Finding your way: the bar, the menu, the themes
+
+The console is drawn in the design language of MAYA, its sibling product. Signed in, the bar across
+the top holds the mark and the three brand lines, then five menus, each opening a panel of columns:
+
+| Menu | What is in it |
+|---|---|
+| **Catalog** | Streams, registered queries, sinks, views |
+| **Workbench** | Design: the workbench, *Describe it*. Change safely: compare versions, replace a running query |
+| **Operate** | Watch: operations, overview, alerts. Run: queries (each query's dead letters, replacement and debugger are on its page), lanes |
+| **Admin** | For administrators: users, API keys, sessions, tenants, grants, row filters and masks; plugins; AI models; the audit trail and access |
+| **Help** | Concepts and topics, guides, tutorials, case studies; get started, the command line, error codes, search; About |
+
+On a wide screen a panel opens when you point at its menu; on a phone the whole menu sits behind
+the ☰ button. On the right are the search (it opens the command palette, **Ctrl-K**), alerts, the
+**theme menu** and your **user menu** — your account, your password, the persona you land as,
+*Compact rows*, and Sign out. Signed out, the bar is the public one: Help, About, the theme menu
+and Sign in.
+
+**Themes.** Four, as MAYA has them: **Crimson**, **Dark**, **Blue** and **Green**, each shown with
+a swatch in the theme menu (the palette button), or cycled with **t**. Your choice is kept in this
+browser; until you choose, the console follows your system's light or dark setting. **d** switches
+between comfortable and compact rows.
+
+Under the bar, a line says where you are — the engine's address, the environment when one is
+configured (`app.environment`), the console's version — and a warning takes its place when the
+engine is not answering, or while the bootstrap `admin` still has its published password.
 
 ## Home and onboarding
 

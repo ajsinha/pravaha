@@ -220,6 +220,16 @@ def problem(exc: ServiceError) -> dict[str, Any]:
     return body
 
 
+def _copyright(config) -> str:
+    """The footer's closing words, from ``app.copyright`` -- "© 2026 Ashutosh Sinha. All rights
+    reserved." as MAYA writes its own."""
+    years = str(config.get("app.copyright.years", "") or "").strip()
+    holder = str(config.get("app.copyright.holder", "") or "").strip()
+    if not holder:
+        return ""
+    return f"© {years + ' ' if years else ''}{holder}. {ui_text('shell.rights')}"
+
+
 class Routes:
     """Base for every route module. Subclasses implement ``register``."""
 
@@ -304,6 +314,13 @@ class Routes:
             # Asset versions are part of the page, so a cached module can never run against
             # a template from another release.
             "asset_version": c.get("app.version", "0"),
+            # The shell, in MAYA's form: the footer's copyright, and what the banners under the
+            # bar say.
+            "copyright": _copyright(c),
+            "environment": c.get("app.environment", ""),
+            # Set at sign-in when the engine's bootstrap administrator signed in with its
+            # published default password; a password change ends the session that carries it.
+            "default_admin_password": bool(_session_value(request, "default_admin_password")) if signed_in else False,
         }
 
     def page(self, request: Request, template: str, *, http_status: int = 200,

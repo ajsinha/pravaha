@@ -1,40 +1,46 @@
 {% extends "base.html" %}
+{#- ADR-052: the username and password are the engine's to check. This form posts them to the
+    console, which asks the engine and keeps only the session token it answers with. Drawn as
+    MAYA's sign-in page: no bar, the mark and the three brand lines on the gradient, one card. -#}
+{% set bare_page = True %}
 {% block title %}{{ t('shell.sign_in') }} — {{ app_name }}{% endblock %}
 {% block content %}
-{#- ADR-052: the username and password are the engine's to check. This form posts them to the
-    console, which asks the engine and keeps only the session token it answers with. -#}
-<div class="row justify-content-center">
-  <div class="col-md-6 col-lg-5">
-    <div class="accent"></div>
-    <p class="kicker mt-2 mb-1">{{ t('login.kicker') }}</p>
-    <h1>{{ t('shell.sign_in') }}</h1>
-    <div class="rule"></div>
-
-    {% if notice %}
-    <div class="alert alert-info py-2" role="status" id="login-notice">{{ notice }}</div>
-    {% endif %}
-    {% if error %}
-    <div class="alert alert-danger py-2" role="alert" id="login-error">{{ error }}</div>
-    {% endif %}
-
-    <form method="post" action="/login" class="card"><div class="card-body">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <input type="hidden" name="next" value="{{ next }}">
-      <div class="mb-3">
-        <label class="form-label small text-muted mb-1" for="username">{{ t('login.username') }}</label>
-        <input class="form-control" type="text" id="username" name="username" value="{{ login_username }}"
-               autocomplete="username" autocapitalize="none" spellcheck="false" autofocus required>
-      </div>
-      <div class="mb-3">
-        <label class="form-label small text-muted mb-1" for="password">{{ t('login.password') }}</label>
-        <input class="form-control" type="password" id="password" name="password"
-               autocomplete="current-password" required>
-      </div>
-      <button class="btn btn-primary w-100" type="submit">{{ t('shell.sign_in') }}</button>
-    </div></form>
-
-    <p class="small text-muted mt-3">{{ t('login.gate_note') }}</p>
-    <p class="small text-muted">{{ t('login.forgot') }} <a href="/login/reset" id="login-reset-link">{{ t('login.reset_link') }}</a></p>
+<div class="row justify-content-center mt-4 mt-md-5">
+  <div class="col-sm-10 col-md-6 col-lg-5 col-xl-4">
+    <div class="text-center mb-4 pv-hero">
+      <img src="/static/img/pravaha-mark-white.svg" alt="" class="login-mark" width="64" height="64">
+      <div class="login-name">{{ app_name }}</div>
+      <div class="small">{{ t('shell.tagline') }}</div>
+      <div class="fst-italic">{{ t('shell.slogan') }}</div>
+    </div>
+    <div class="card"><div class="card-body p-4">
+      <h1 class="h3 mb-3">{{ t('shell.sign_in') }}</h1>
+      {% if notice %}
+      <div class="alert alert-info py-2" role="status" id="login-notice">{{ notice }}</div>
+      {% endif %}
+      {% if error %}
+      <div class="alert alert-danger py-2" role="alert" id="login-error">{{ error }}</div>
+      {% endif %}
+      <form method="post" action="/login">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="next" value="{{ next }}">
+        <div class="mb-2">
+          <label class="form-label" for="username">{{ t('login.username') }}</label>
+          <input class="form-control" type="text" id="username" name="username" value="{{ login_username }}"
+                 autocomplete="username" autocapitalize="none" spellcheck="false" autofocus required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="password">{{ t('login.password') }}</label>
+          <input class="form-control" type="password" id="password" name="password"
+                 autocomplete="current-password" required>
+        </div>
+        <button class="btn btn-primary w-100" type="submit">{{ t('shell.sign_in') }}</button>
+      </form>
+      <p class="small-muted mt-3 mb-2">{{ t('login.gate_note') }}</p>
+      <p class="small-muted mb-0">{{ t('login.forgot') }} <a href="/login/reset" id="login-reset-link">{{ t('login.reset_link') }}</a></p>
+    </div></div>
+    <p class="small text-center mt-3 on-gradient"><a class="fw-semibold" href="/help">{{ t('nav.help') }}</a>
+      · <a class="fw-semibold" href="/about">{{ t('nav.about') }}</a> · {{ app_name }} {{ version }}</p>
   </div>
 </div>
 {% endblock %}
