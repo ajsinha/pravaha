@@ -12,6 +12,17 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **A window past its lateness is never fired again, and a fired window holds nothing it cannot
+  need (EMIT-1).** What a fired window published is kept, per group, only while the window can
+  still be corrected, and let go on every watermark advance once its lateness passes — it used to
+  go only when an advance happened to release a slice, so a hopping window closed with no lateness
+  could be fired again as a "correction" by a row on time for the next window it overlaps. With no
+  allowed lateness, the default, nothing is kept per group at all, not even while the window
+  fires. A late row within lateness now corrects a window that fired empty too. `LateDataTest`.
+- **A correction is published at the next commit (EMIT-2).** A late row within allowed lateness is
+  applied at once; its retraction and corrected row used to wait for the next watermark advance,
+  which on a quiet stream moves only with later rows. They are now published with the query's
+  next commit. `CONTINUOUS_QUERIES.md` §6 says so, and what lateness costs in heap.
 - **An upsert sink holds the row the view shows (SINKKEYROWS-1).** A keyed view keeps every
   distinct row of a key and shows the newest; retracting that row shows the one behind it again. A
   keyed sink in upsert mode (`jdbc-sink`, `kafka-sink`, `delta-sink`, `iceberg-sink`,

@@ -1289,6 +1289,20 @@ Allowed lateness is the stream's: `allowed-lateness` under `pravaha.streams.<nam
 closes and drops a row that arrives after. Until HLP-7 a server had no way to set it, so the
 correction above could only happen in an embedded engine.
 
+**A correction is published at the query's next commit** (EMIT-2): the late row is applied to the
+window's state when it arrives, and the retraction and the corrected row reach the view and its
+subscribers with the commit after it — within the feed's publish interval — not at the next
+watermark advance. (It used to wait for the watermark, which moves only with later rows, so on a
+quiet stream a correction could wait indefinitely.)
+
+**What a correction costs.** To retract a window's answer exactly, the engine keeps what the window
+published, per group, from when it fires until its lateness has passed, and then lets it go on the
+next watermark advance; with no allowed lateness, the default, nothing is kept at all, because a
+fired window can never be corrected (EMIT-1). So allowed lateness is heap in proportion to the
+groups of the windows still correctable: a window's published rows × (lateness ÷ slide) windows. A
+window whose lateness has passed is never fired again, even by a row on time for a later window it
+shares a slice with.
+
 This is what `weight` means, and it is why the engine can be incremental at all
 ([`CONCEPTS.md`](CONCEPTS.md) §4).
 

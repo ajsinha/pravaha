@@ -151,8 +151,17 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
         }
     }
 
-    /** What each window last emitted per key, so a correction can retract it exactly. */
-    private final java.util.Map<Long, java.util.Map<GroupKey, Published>> emitted = new java.util.HashMap<>();
+    /**
+     * What each fired window last emitted per key, so a correction can retract it exactly.
+     *
+     * <p>Held only while the window can still be corrected, and only for a window that published
+     * something (EMIT-1). Ordered by window end so the windows whose lateness has passed are the
+     * head of the map and leave it on every watermark advance -- they used to leave only when an
+     * advance happened to release a slice, and a window kept past its lateness could be marked
+     * corrected by a row on time for a later window and fired again. With no allowed lateness, the
+     * default, nothing is held at all: a fired window can never be corrected.
+     */
+    private final java.util.NavigableMap<Long, java.util.Map<GroupKey, Published>> emitted = new java.util.TreeMap<>();
     /** Windows a late record has changed since they last fired. */
     private final java.util.Set<Long> dirty = new java.util.LinkedHashSet<>();
 
@@ -312,9 +321,12 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
 
         // Late but still correctable: mark every already-fired window this record belongs to, so the
         // next advance re-emits them with the correction rather than leaving the old answer standing.
-        if (watermark != Long.MIN_VALUE) {
+        // Fired, and still inside its lateness -- decided from the watermark, not from whether an
+        // answer happens to be held for it (EMIT-1): a window whose lateness has passed is never
+        // fired again, and one that fired empty can still receive its first correction.
+        if (lastFiredWatermark != Long.MIN_VALUE) {
             for (long windowEnd : windows.windowEndsContaining(windowStart)) {
-                if (emitted.containsKey(windowEnd)) {
+                if (windowEnd <= lastFiredWatermark && windowEnd + operator.allowedLatenessNanos() > watermark) {
                     dirty.add(windowEnd);
                 }
             }
@@ -345,11 +357,7 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
         long from = lastFiredWatermark == Long.MIN_VALUE ? firstWindowStart() : lastFiredWatermark;
         // Corrections first: a consumer applying results in arrival order should see the fix for an
         // old window before the results of newer ones.
-        for (long windowEnd : List.copyOf(dirty)) {
-            corrections++;
-            emitWindow(windowEnd);
-        }
-        dirty.clear();
+        publishCorrections();
 
         for (long windowEnd : windows.windowsCompletedBetween(from, watermark)) {
             emitWindow(windowEnd);
@@ -358,12 +366,32 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
         // Release what no window can need again -- at the watermark plus the stream's declared
         // allowed lateness, which is what keeps a closed window correctable for as long as its
         // source said corrections might arrive.
-        int released = state.discardSlicesEndingBefore(watermark, operator.allowedLatenessNanos());
-        if (released > 0) {
-            // Forget what those windows emitted too: keeping it would be state that outlives the
-            // state it describes, which is the definition of a leak.
-            emitted.keySet().removeIf(windowEnd -> windowEnd + operator.allowedLatenessNanos() <= watermark);
+        state.discardSlicesEndingBefore(watermark, operator.allowedLatenessNanos());
+        // Forget what windows past their lateness emitted, on every advance and not only on one that
+        // released a slice (EMIT-1): keeping it would be state that outlives the window's
+        // correctability, and it let such a window be fired again.
+        while (!emitted.isEmpty() && emitted.firstKey() + operator.allowedLatenessNanos() <= watermark) {
+            emitted.pollFirstEntry();
         }
+    }
+
+    /**
+     * Fires again every window a late row has corrected since it last fired, now (EMIT-2).
+     *
+     * <p>Called at each watermark advance and, for an aggregate with allowed lateness, whenever the
+     * query commits ({@link InterpretedPipeline#emitContinuousAggregates}): a correction used to wait
+     * for the next advance, and a watermark that moves only with later rows left a late reading's
+     * correction unpublished until some later reading arrived.
+     */
+    void publishCorrections() {
+        if (dirty.isEmpty()) {
+            return;
+        }
+        for (long windowEnd : List.copyOf(dirty)) {
+            corrections++;
+            emitWindow(windowEnd);
+        }
+        dirty.clear();
     }
 
     /**
@@ -396,7 +424,11 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
 
     private void emitWindow(long windowEnd) {
         java.util.Map<GroupKey, Published> previous = emitted.get(windowEnd);
-        java.util.Map<GroupKey, Published> current = new java.util.HashMap<>();
+        // Null when this window can never be corrected -- no allowed lateness, so the watermark that
+        // fired it already put it past correction: nothing is kept per group, not even while firing,
+        // which with SPILL-3's streamed firing is the whole window's result set on the heap (EMIT-1).
+        java.util.Map<GroupKey, Published> current =
+                operator.allowedLatenessNanos() > 0 || previous != null ? new java.util.HashMap<>() : null;
 
         // Streamed: each group is emitted as the state combines it, so firing holds one result at a
         // time rather than the window's whole list (SPILL-3). `current` still holds what the window
@@ -410,13 +442,17 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
                         // Unchanged by the correction. Emitting a retraction and an identical
                         // insertion would be two rows that consolidate to nothing, which is
                         // arithmetically harmless and pure noise on the wire.
-                        current.put(key, before);
+                        if (current != null) {
+                            current.put(key, before);
+                        }
                         return;
                     }
                     emitRow(result.keyValues(), result.windowStartNanos(), windowEnd, before.values(), -1L);
                 }
             }
-            current.put(key, new Published(result.keyValues(), result.windowStartNanos(), result.values()));
+            if (current != null) {
+                current.put(key, new Published(result.keyValues(), result.windowStartNanos(), result.values()));
+            }
             emitRow(result.keyValues(), result.windowStartNanos(), windowEnd, result.values(), 1L);
         });
 
@@ -427,14 +463,19 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
         // the harder half and the one a Z-set exists to get right.
         if (previous != null) {
             for (java.util.Map.Entry<GroupKey, Published> gone : previous.entrySet()) {
-                if (!current.containsKey(gone.getKey())) {
+                if (current == null || !current.containsKey(gone.getKey())) {
                     Published row = gone.getValue();
                     emitRow(row.keyValues(), row.windowStartNanos(), windowEnd, row.values(), -1L);
                     withdrawals++;
                 }
             }
         }
-        emitted.put(windowEnd, current);
+        if (current == null || current.isEmpty()) {
+            // Nothing published is nothing to retract; a later correction finds no previous answer.
+            emitted.remove(windowEnd);
+        } else {
+            emitted.put(windowEnd, current);
+        }
     }
 
     /**
@@ -447,8 +488,8 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
      * is debugging is worse than one that shows less, so this shows what has fired and is still
      * within allowed lateness, which is exactly the state a correction would retract.
      *
-     * <p>Sorted by window end and then by key, because {@code emitted} is a hash map and a page of
-     * an unordered collection is a different page every time it is asked for.
+     * <p>Sorted by window end and then by key, because a page of an unordered collection is a
+     * different page every time it is asked for.
      */
     void describe(java.util.function.BiConsumer<String, java.util.Map<String, String>> into) {
         java.util.List<com.ash.messaging.pravaha.runtime.plan.AggregateOperator.AggregateCall> calls =
