@@ -261,11 +261,14 @@ public class QueryController {
                             + "this, not an absent one: write the value or leave the parameter out.");
         }
         ApiDtos.ExplainResult text = explainText(request, wanted);
-        if ("text".equals(shape)) {
-            return text;
-        }
+        DraftFingerprints.Answer fingerprint = DraftFingerprints.answer(registry, authorizer, request, http);
         return new ApiDtos.ExplainResult(
-                text.level(), text.plan(), text.outputFields(), mapper.toPlanGraph(planFor(request.sql()), null));
+                text.level(),
+                text.plan(),
+                text.outputFields(),
+                "text".equals(shape) ? null : mapper.toPlanGraph(planFor(request.sql()), null),
+                fingerprint.value(),
+                fingerprint.refusal());
     }
 
     private ApiDtos.ExplainResult explainText(ValidateRequest request, String level) {
@@ -515,5 +518,19 @@ public class QueryController {
                 lanes.inboxCells());
     }
 
-    public record ValidateRequest(String sql) {}
+    /**
+     * The body of {@code /validate} and {@code /explain}.
+     *
+     * <p>{@code keys}, {@code retention}, {@code sink} and {@code name} are read by {@code /explain}
+     * only, to give the fingerprint a registration would get (EXPLAINFP-1): the key columns in order,
+     * the retention as a registration takes it (ISO-8601 or {@code forever}; absent for the
+     * registration's default), the sink it would write to and the name it would be registered under.
+     * Without {@code keys} there is no fingerprint, since one is part of it.
+     */
+    public record ValidateRequest(String sql, List<Integer> keys, String retention, String sink, String name) {
+
+        public ValidateRequest(String sql) {
+            this(sql, null, null, null, null);
+        }
+    }
 }

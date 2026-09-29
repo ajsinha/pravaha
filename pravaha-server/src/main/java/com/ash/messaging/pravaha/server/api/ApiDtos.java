@@ -97,11 +97,27 @@ public final class ApiDtos {
      *
      * @param graph the physical plan as nodes and edges, present when {@code format=graph} was asked
      *     for; null otherwise
+     * @param fingerprint the fingerprint a registration of this SQL would get for the caller, with
+     *     the {@code keys}, {@code retention} and {@code sink} the request gave -- the short form
+     *     {@code GET /api/v1/queries} lists (EXPLAINFP-1); null when no {@code keys} were given, or
+     *     when a registration would be refused
+     * @param fingerprintRefusal why a registration would be refused, and so why there is no
+     *     fingerprint: the code and sentence {@code register} would answer; null otherwise
      */
-    public record ExplainResult(String level, String plan, List<FieldInfo> outputFields, PlanGraph graph) {
+    public record ExplainResult(
+            String level,
+            String plan,
+            List<FieldInfo> outputFields,
+            PlanGraph graph,
+            String fingerprint,
+            Diagnostic fingerprintRefusal) {
 
         public ExplainResult(String level, String plan, List<FieldInfo> outputFields) {
-            this(level, plan, outputFields, null);
+            this(level, plan, outputFields, null, null, null);
+        }
+
+        public ExplainResult(String level, String plan, List<FieldInfo> outputFields, PlanGraph graph) {
+            this(level, plan, outputFields, graph, null, null);
         }
     }
 

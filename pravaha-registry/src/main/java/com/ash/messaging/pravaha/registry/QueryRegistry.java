@@ -680,11 +680,12 @@ public final class QueryRegistry implements AutoCloseable {
      *
      * <p>Shared by {@code register} and by a blue/green replacement's shadow (ADR-046), which has to
      * be judged by exactly the same rules: a principal who may not read what the new version reads
-     * must not be able to put it behind a name whose readers would then be served by it.
+     * must not be able to put it behind a name whose readers would then be served by it. And by
+     * {@link DraftFingerprint}, for the fingerprint a registration would get (EXPLAINFP-1).
      *
-     * @param action the audit action: {@code register} or {@code replace}
+     * @param action the audit action: {@code register}, {@code replace} or {@code explain}
      */
-    private Preparation prepare(
+    Preparation prepare(
             String name,
             String sql,
             List<Integer> keyColumns,

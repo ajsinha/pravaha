@@ -207,6 +207,12 @@ statement → what to change), and **describe a view** (schema and plan → a se
   not proof; the result says `match: "plan"`. `assist eval --run` registers both and compares the
   engine's fingerprints, then answers. An `explain` that returned the fingerprint would remove the
   approximation; the engine was not changed for it.
+  **Since EXPLAINFP-1 it does:** `explain` given `keys` (and optionally `retention`, `sink`, `name`)
+  answers `fingerprint`, the value a registration would get for the caller — computed by the
+  registration's own preparation, so plan, row filters, keys, retention and tenant — or
+  `fingerprintRefusal` with the code registration would give. The assistant compares that with each
+  running query's fingerprint (`match: "fingerprint"`) and the evaluation compares the draft's with the
+  reference's, and both fall back to plan text against an engine that answers no fingerprint.
 - **Registration-time checks the API cannot be asked.** `validate` plans a `SELECT`; the key, index,
   sink and retention are checked only when a query is registered. The assistant checks them against
   what the engine answered (`outputFields`, `/api/v1/sinks`) and labels those verdicts

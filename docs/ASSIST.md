@@ -312,16 +312,21 @@ declares an index or a lane, which `register` cannot carry), so it is authorized
 statement you typed; it speaks Flight, so it needs `--url`. The model has no tool: nothing it says is
 executed.
 
-**What the engine exposes, and what is approximated.** The HTTP API gives **no fingerprint for SQL
-that is not registered**: `POST /api/v1/queries/explain` answers `level`, `plan`, `outputFields` and,
-with `format=graph`, `graph`; a fingerprint appears only on a registered query (`GET /api/v1/queries`,
-`/views/{name}`, and a registration's answer). So "the same computation as a running query" is
-decided by comparing the engine's physical plan text for the draft with its plan for each running
-query that reads the same inputs, whitespace-normalised, plus the key and retention — labelled
-`match: "plan"`. The plan text is a summary written for people (the fingerprint hashes each
-operator's identity, a different rendering), so two plans that print alike are very likely, not
-certainly, one computation; registering says for sure. **Guarantees** are what `GET /api/v1/sinks`
-reports for the chosen sink on this node; lane placement is not predicted.
+**The same computation as a running query, by the engine's fingerprint.** For an accepted draft the
+assistant asks `POST /api/v1/queries/explain` with the draft's key (as output ordinals), retention and
+sink, and the engine answers the **fingerprint a registration would get** for you (EXPLAINFP-1):
+computed by the registration's own code — the plan, your row filters, the key, the retention and your
+tenant — and given in the short form `GET /api/v1/queries` lists. A running query with that
+fingerprint is the same computation (`match: "fingerprint"`, `sameComputation: true`); one with the
+same plan, key and retention but another fingerprint is someone else's computation (their row
+filters or tenant differ), and is said to be. The draft carries it as `fingerprint`. **An engine
+older than EXPLAINFP-1** answers no fingerprint, and the assistant falls back to comparing the
+engine's physical plan text for the draft with its plan for each running query that reads the same
+inputs, whitespace-normalised, plus the key and retention — labelled `match: "plan"`: two plans that
+print alike are very likely, not certainly, one computation, and registering says for sure. A
+fingerprint says what registration would share, not that registration will be accepted: key and
+index refusals (`PRV-2071`/`PRV-2074`) still come at registration (VALIDATEREG-1). **Guarantees** are
+what `GET /api/v1/sinks` reports for the chosen sink on this node; lane placement is not predicted.
 
 **Exit codes:** `0` accepted, or the model asked questions; `1` refused after the repair turns (or,
 with `--register`, questions instead of a draft), a model failure, a budget; `2` configuration; `3`
@@ -352,8 +357,11 @@ raise a question:
 **Scoring by meaning, not text.** Each case is drafted exactly as `pravaha ask` would, with the case's
 own worked example taken out of the prompt (it would be the answer). A **reference** case passes when
 the engine accepts the draft, the draft reads the same streams as the reference, and it is the same
-computation: by **plan** (the engine's physical plan for both equal, and the same key), or with
-`--run` by **fingerprint** or **answer** (below). A **negative** case passes when the draft is refused
+computation: by **fingerprint** (the fingerprint `explain` answers for the draft and for the
+reference, neither registered, equal — EXPLAINFP-1), else by **plan** (the engine's physical plan for
+both equal, and the same key: the fallback for an engine that answers no fingerprint, and the rule
+for a draft that differs from the reference only in retention), or with `--run` by **fingerprint** of
+both registered or by **answer** (below). A **negative** case passes when the draft is refused
 or asks a question; an accepted one is a model that loosened the question, and is reported as one.
 A case whose streams this engine does not have is **skipped**, not failed.
 

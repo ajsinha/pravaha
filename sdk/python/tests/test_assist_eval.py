@@ -91,6 +91,19 @@ SCRIPT = [
 ]
 
 
+def test_an_engine_with_fingerprints_scores_the_reference_by_fingerprint(tmp_path, engine):
+    # EXPLAINFP-1: the draft and the reference, neither registered, compared by the fingerprint
+    # the engine says each would get.
+    engine.fingerprints = True
+    report = evaluator(tmp_path, engine, SCRIPT[:2]).run(
+        only=["retail-inventory-mysql/low_stock", "retail-inventory-mysql/stock_levels"])
+    results = {r.id: r for r in report.results}
+    low = results["retail-inventory-mysql/low_stock"]
+    assert low.passed and low.equal == "fingerprint" and "neither registered" in low.reason
+    levels = results["retail-inventory-mysql/stock_levels"]
+    assert levels.passed is False and levels.equal is None
+
+
 def test_the_golden_set_is_scored_by_meaning_and_a_loosened_question_is_caught(tmp_path, engine):
     report = evaluator(tmp_path, engine, SCRIPT).run(only=CASES)
     results = {r.id: r for r in report.results}

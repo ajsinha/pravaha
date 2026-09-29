@@ -504,7 +504,8 @@ class FakeEngine:
             {"name": "user_id", "type": "VARCHAR", "nullable": False, "ordinal": 1},
             {"name": "amount", "type": "BIGINT", "nullable": False, "ordinal": 2}]}
 
-    def explain(self, sql, level="physical"):
+    def explain(self, sql, level="physical", **_registration):
+        # keys/retention/sink/name are ignored: this fake is an engine that answers no fingerprint.
         self._check()
         if "PLANONLY" in sql:
             raise EngineHttpError(400, "an unwindowed COUNT(DISTINCT) is refused", "PRV-2050")

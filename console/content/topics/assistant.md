@@ -173,9 +173,11 @@ confirm — it asks at a terminal; `--yes` confirms in a script; otherwise nothi
 the ordinary registration call under your own credentials (so it needs `--url`), authorized exactly
 like a statement you typed. The model has no way to register anything.
 
-**One approximation, stated.** The engine's API has no fingerprint for SQL that is not registered, so
-"the same as a running query" compares the engine's plan text, key and retention. Registering tells
-you for sure: the fingerprint the engine answers is exact.
+**The same as a running query, by fingerprint.** The engine answers, for an accepted draft, the
+fingerprint registering it would get for you — plan, your row filters, key, retention and tenant — and
+a running query with that fingerprint is the same computation. Against an engine too old to answer one,
+the assistant compares the engine's plan text, key and retention instead, and says `match: plan`:
+registering then tells you for sure.
 
 ## Measure a model
 

@@ -40,7 +40,7 @@ this surface.
 | GET | `/api/v1/streams/{name}` | One stream | `stream(name)` |
 | POST | `/api/v1/streams` | Declares a stream; **201** with its summary. Needs administer on the name | `declare_stream(…)` |
 | POST | `/api/v1/queries/validate` | Plans SQL without running it: `valid`, `diagnostics`, `outputFields`, `elapsedMicros` | `validate(sql)` |
-| POST | `/api/v1/queries/explain?level=&format=` | The plan: `level` = `physical` (default), `logical`, `codegen`; `format=graph` adds nodes and edges | `explain(sql, level, graph=)` |
+| POST | `/api/v1/queries/explain?level=&format=` | The plan: `level` = `physical` (default), `logical`, `codegen`; `format=graph` adds nodes and edges; with `keys` in the body, the fingerprint a registration would get | `explain(sql, level, graph=, keys=, retention=, sink=)` |
 | GET | `/api/v1/queries` | Every registered query you may see, described in full | `describe_queries()` |
 | GET | `/api/v1/queries/{name}` | One query: keys by name, retention, sink and whether it is attached, rows in, names sharing it, streams it reads, failure | `describe_query(name)` |
 | GET | `/api/v1/queries/{name}/plan` | The plan it is **running**, as nodes and edges, with its measured totals | `query_plan(name)` |
@@ -128,6 +128,23 @@ curl -s -X POST "http://engine:18080/api/v1/queries/explain?level=physical" \
 The `plan` text is one line per operator with its inputs indented beneath it (the labels above are
 illustrative). `level=codegen` returns the Java the engine will actually run. `format=graph` adds `graph.nodes` (each
 `id`, `operator`, `detail`, `stateful`, `fields`) and `graph.edges` (`from`, `to`).
+
+**The fingerprint a registration would get.** Add `keys` — the view's key columns as ordinals of the
+`SELECT` list, in order — and optionally `retention` (ISO-8601 or `forever`; absent for the
+registration's default), `sink` and `name`, and the answer carries `fingerprint`: the short value
+`GET /api/v1/queries` would list for the query once you register it, computed by the registration's
+own code for **you** — plan, your row filters, the key, the retention and your tenant (EXPLAINFP-1).
+Equal to a running query's, it is the same computation, and registering it would share it. When a
+registration would be refused — you may not register, a sink you may not write to — `fingerprint` is
+`null` and `fingerprintRefusal` is the diagnostic registration would answer. Without `keys` both are
+`null`. A fingerprint does not promise acceptance: a key column the view cannot keep is still refused
+at registration (`PRV-2071`).
+
+```bash
+curl -s -X POST "http://engine:18080/api/v1/queries/explain" \
+  -H "Authorization: Bearer $PRAVAHA_TOKEN" -H "Content-Type: application/json" \
+  -d '{"sql": "SELECT txn_id, amount FROM txn WHERE amount > 1000", "keys": [0], "retention": "P7D"}'
+```
 
 ## Describing what is registered
 
