@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **467 findings carrying a
-status — 431 FIXED, 22 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 22 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 12 POST-GA and 10 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **469 findings carrying a
+status — 434 FIXED, 21 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 21 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 11 POST-GA and 10 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -6797,8 +6797,7 @@ runs is how a default becomes folklore, and this project has already found two o
 
 ### PKG-4 (LOW) — Flight is tested on Netty 4.2 and ships on Netty 4.1
 
-> **Status:** OPEN — `pravaha-flight` resolves `netty-handler` 4.2.9 for its own tests, while `pravaha-server`, whose dependency versions Spring Boot's BOM manages, resolves and ships 4.1.135. So the module's test suite exercises a different Netty from the one the node runs on. Everything passes on both, including the container smoke journey, which runs the shipped one; this records that the two are not the same run.
-> **Disposition:** POST-GA — tried 2026-09-26 and not committed. Importing `netty-bom` 4.1.135 ahead of `arrow-bom` gives one Netty everywhere and the Flight suites pass on it (110 and 61, TLS included), but the enforcer's `requireUpperBoundDeps` refuses it in `pravaha-flight`, because Arrow 19's flight-core asks for 4.2.9. Two ways out: pin 4.1.135 and skip that rule in the Flight modules as the server already does, or pin 4.2.9 reactor-wide and move the server to Netty 4.2 beside Spring Boot 3.5, which needs the server suite and the container smoke journey. Also: `pravaha-server/pom.xml`'s Netty comments have the direction backwards, and its `netty.version` property does not govern what it resolves.
+> **Status:** FIXED — `netty-bom` 4.1.135 (Spring Boot's) is imported ahead of `arrow-bom`, so `pravaha-flight` and `sdk/pravaha-sdk-java-flight` test on the Netty the server ships; `requireUpperBoundDeps` there excludes only `netty-buffer`, `-common`, `-handler` and `-transport` rather than being skipped; the portable-native rule (ADR-053) still passes. The server's skip turned out to hide four non-Netty skews, recorded as SERVERSKEW-1. Flight, SDK and server suites pass, TLS included.
 
 ### CON-11 (MEDIUM) — the engine's address was on every page a stranger could open
 
@@ -6823,8 +6822,7 @@ runs is how a default becomes folklore, and this project has already found two o
 
 ### CON-10 (LOW) — the accent sits nearer a data series in dark than the blue did
 
-> **Status:** OPEN — restated 2026-09-26: the first measurement was taken against the light theme's series, which the dark theme does not use. The dark theme declares its own; measured against them, the dark accent `#E47F92` is **19.9 ΔE** from both `--series-5` (`#d55181`) and `--series-8` (`#e66767`). The proposed `#D18BE0` would be 22.3 from the dark theme's own `--series-7` and leave `--series-8` where it is, so it closes nothing and was not adopted. No test measures accent against series; the contrast test covers text/ground pairs and status colours only.
-> **Disposition:** POST-GA — a chart mark next to an accent control in the dark theme reads as nearly the same colour. `#D18BE0` as the dark theme's own `--series-5` is 40 from the accent and at least 41 from every other series, if it is worth closing.
+> **Status:** FIXED — measured in all four themes (CIE76, the contrast test's measure): light `--series-8` → `#f1353e`, dark `--series-5` → `#d44487` and `--series-8` → `#f25d61`, blue `--series-1` → `#2176e4` (green needed none), each ≥ 27 from its accent and ≥ 25 from every other series. `test_contrast.py` now holds accent-vs-series ≥ 25 and series pairwise ≥ 20 in every theme; no visual baseline changed (charts are masked, plan-graph fills moved under the comparer's threshold).
 
 ### CKPT-6 (LOW) — a continuous query dropped before its first publish tick still emits a zero at close
 
@@ -7317,6 +7315,17 @@ the lead.
 
 ### CGRESTART-1 (LOW) — a restart compiles every distinct plan serially
 
-> **Status:** OPEN — the second half of CG-1: at restart each distinct plan's generated code is compiled one after another (Janino), so a node with many distinct queries takes longer to come back than it need.
-> **Disposition:** POST-GA — measure the restart cost at scale first; then compile in parallel or cache compiled classes by fingerprint.
+> **Status:** FIXED — measured, no change needed: `RestartCompileIT` restarts 100/500/1,000 distinct queries from journal and checkpoints; every query is RUNNING on generated code when `start()` returns, in 0.51/1.04/1.54 s, of which generation and Janino are 0.23/0.76/1.15 s (≈1.2 ms a query) — far under the 30 s that would justify parallel compilation. Numbers in OPERATIONS.md.
+
+## Found closing PKG-4 and CGRESTART-1 (2026-09-29), 2 findings
+
+### SERVERSKEW-1 (LOW) — the server's upper-bound skip hides four dependency skews
+
+> **Status:** OPEN — narrowing `pravaha-server`'s `requireUpperBoundDeps` skip to the Netty artifacts exposed four non-Netty skews it had been hiding: jackson-dataformat-yaml, commons-lang3, HdrHistogram and jspecify. The skip stays, with the four named in the pom.
+> **Disposition:** POST-GA — align each (dependency management) and narrow the skip to what is left.
+
+### CODEGENPROP-1 (LOW) — `pravaha.codegen.enabled` in YAML binds nothing
+
+> **Status:** OPEN — the switch is read only as a JVM system property (`-Dpravaha.codegen.enabled=false`); the key in `deploy/qa/server.application.yaml` looks like configuration and changes nothing.
+> **Disposition:** POST-GA — bind it through the server's configuration (and name it in the settings index), or remove the YAML key and document the system property.
 
