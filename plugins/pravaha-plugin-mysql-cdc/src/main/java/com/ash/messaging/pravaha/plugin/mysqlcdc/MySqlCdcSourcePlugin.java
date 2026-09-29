@@ -51,10 +51,14 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  * {@code PRV-5153}; {@code snapshot.mode: initial} is {@code PRV-5150}, not built yet.
  *
  * <p><strong>The guarantee is {@code EXACTLY_ONCE}.</strong> The position is a binlog file and
- * offset at a transaction boundary, and replay from it is deterministic, so a restore re-delivers
- * exactly what the checkpoint does not hold. MySQL keeps binlog files by time ({@code
- * binlog_expire_logs_seconds}), not by what a replica has read, so a restore whose file has been
- * purged is refused ({@code PRV-5155}) rather than resumed from wherever the log now starts.
+ * offset at a transaction boundary -- with {@code gtid_mode = ON}, the executed GTID set as well,
+ * which another server holding the same transactions can resume from (a failover) -- and replay from
+ * it is deterministic, so a restore re-delivers exactly what the checkpoint does not hold. MySQL keeps
+ * binlog files by time ({@code binlog_expire_logs_seconds}), not by what a replica has read, so a
+ * restore whose file (or whose following transactions) has been purged is refused ({@code PRV-5155})
+ * rather than resumed from wherever the log now starts; a GTID restore holding transactions the server
+ * has not executed is {@code PRV-5158}. Heartbeats and binlog rotations advance an idle table's
+ * position, so a purge of files it had nothing in does not refuse its restart.
  *
  * <p>A registration with no checkpoint reads changes from the end of the log as it stood when the
  * plugin opened. One partition, one replica connection per reader.
@@ -64,6 +68,7 @@ public final class MySqlCdcSourcePlugin implements StreamSourcePlugin {
     private MySqlCdcOptions options;
     private MySqlSchema.Mapping mapping;
     private BinlogOffset openedAt;
+    private boolean gtidMode;
     private final List<MySqlCdcReader> readers = new CopyOnWriteArrayList<>();
 
     @Override
@@ -85,9 +90,9 @@ public final class MySqlCdcSourcePlugin implements StreamSourcePlugin {
     public void open() {
         requireConfigured();
         try (MySqlClient client = connect()) {
-            MySqlPreflight.check(client, options);
+            gtidMode = MySqlPreflight.check(client, options);
             mapping = MySqlSchema.resolve(options, MySqlSchema.load(client, options));
-            openedAt = MySqlPreflight.current(client, options);
+            openedAt = MySqlPreflight.current(client, options, gtidMode);
         } catch (IOException e) {
             throw new PravahaException(
                     MySqlCdcErrors.CONNECT_FAILED,
@@ -157,7 +162,7 @@ public final class MySqlCdcSourcePlugin implements StreamSourcePlugin {
         BinlogOffset start = requested == null ? openedAt : requested;
         if (requested != null) {
             try (MySqlClient client = connect()) {
-                MySqlPreflight.requireRetained(client, options, requested);
+                MySqlPreflight.requireRetained(client, options, requested, gtidMode);
             } catch (IOException e) {
                 throw new PravahaException(
                         MySqlCdcErrors.CONNECT_FAILED,

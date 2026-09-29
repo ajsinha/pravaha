@@ -23,10 +23,13 @@ import java.math.RoundingMode;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import com.github.shyiko.mysql.binlog.event.TableMapEventData;
 
 import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.data.DecimalType;
@@ -77,8 +80,15 @@ final class MySqlSchema {
     /** One column as {@code information_schema.COLUMNS} has it. */
     record Column(String name, String dataType, String columnType, boolean nullable, String charset) {}
 
-    /** The stream, and for each of its fields how to read the binlog value. */
-    record Mapping(StreamSchema schema, Kind[] kinds, Charset[] charsets) {
+    /**
+     * The stream, and for each of its fields how to read the binlog value, and the column as {@code
+     * information_schema} described it when the plugin opened.
+     */
+    record Mapping(StreamSchema schema, Kind[] kinds, Charset[] charsets, List<Column> columns) {
+
+        Mapping(StreamSchema schema, Kind[] kinds, Charset[] charsets) {
+            this(schema, kinds, charsets, List.of());
+        }
 
         int columnCount() {
             return kinds.length;
@@ -136,7 +146,7 @@ final class MySqlSchema {
             }
             builder.eventTime(options.eventTimeColumn());
         }
-        return new Mapping(builder.build(), kinds, charsets);
+        return new Mapping(builder.build(), kinds, charsets, List.copyOf(columns));
     }
 
     static Kind kind(MySqlCdcOptions options, Column column) {
@@ -273,6 +283,110 @@ final class MySqlSchema {
             case BYTES -> writer.setBytes(ordinal, (byte[]) value);
             default -> throw new IllegalStateException("no writer for " + type.typeName());
         }
+    }
+
+    /**
+     * How a binlog table map of the captured table disagrees with the columns the stream was typed
+     * from, or null when it does not (MYC-4): an {@code ALTER} that keeps the column count -- {@code
+     * SMALLINT} to {@code INT UNSIGNED}, {@code DECIMAL(10,2)} to {@code DECIMAL(12,4)} -- would
+     * otherwise be read with the old conversion, value by value.
+     *
+     * <p>Compared: the binlog column type (each of the stream's types has one, or two for the pre-5.6
+     * temporal encodings), a decimal's precision and scale, a column the stream declares {@code NOT
+     * NULL} arriving nullable, and, when the server writes it ({@code binlog_row_metadata = FULL}), an
+     * integer's signedness. {@code CHAR} and {@code BINARY}, {@code VARCHAR} and {@code VARBINARY},
+     * {@code TEXT} and {@code BLOB} share a binlog type and are told apart only by character set, which
+     * the table map carries only under {@code FULL} metadata; a change between them is not detected.
+     */
+    static String binlogMismatch(Mapping mapping, TableMapEventData map) {
+        if (mapping.columns().size() != mapping.columnCount()) {
+            return null;
+        }
+        byte[] types = map.getColumnTypes();
+        int[] metadata = map.getColumnMetadata();
+        BitSet nullability = map.getColumnNullability();
+        BitSet unsigned =
+                map.getEventMetadata() == null ? null : map.getEventMetadata().getSignedness();
+        for (int i = 0; i < types.length; i++) {
+            Column column = mapping.columns().get(i);
+            int actual = types[i] & 0xFF;
+            int meta = metadata == null || i >= metadata.length ? 0 : metadata[i];
+            String name = "column '" + column.name() + "' (" + column.columnType() + ")";
+            if (!binlogTypeMatches(column, actual, meta)) {
+                return name + " arrives in the binlog as MySQL type " + actual + " (" + describe(actual, meta) + ")";
+            }
+            if (actual == 246 && metadata != null) {
+                int[] declared = precisionAndScale(column);
+                if (declared != null && (declared[0] != (meta & 0xFF) || declared[1] != (meta >> 8))) {
+                    return name + " arrives in the binlog as " + describe(actual, meta);
+                }
+            }
+            if (!column.nullable() && nullability != null && nullability.get(i)) {
+                return name + " is NOT NULL in the stream and nullable in the binlog";
+            }
+            Kind kind = mapping.kinds()[i];
+            if (unsigned != null
+                    && isInteger(kind)
+                    && unsigned.get(i) != kind.name().endsWith("_UNSIGNED")) {
+                return name + " is " + (unsigned.get(i) ? "UNSIGNED" : "signed") + " in the binlog";
+            }
+        }
+        return null;
+    }
+
+    private static boolean isInteger(Kind kind) {
+        return kind.ordinal() <= Kind.BIG_UNSIGNED.ordinal();
+    }
+
+    /** The binlog type codes a column of this {@code DATA_TYPE} is written with. */
+    private static boolean binlogTypeMatches(Column column, int actual, int meta) {
+        return switch (column.dataType()) {
+            case "tinyint" -> actual == 1;
+            case "smallint" -> actual == 2;
+            case "mediumint" -> actual == 9;
+            case "int", "integer" -> actual == 3;
+            case "bigint" -> actual == 8;
+            case "float" -> actual == 4;
+            case "double", "real" -> actual == 5;
+            case "decimal", "numeric" -> actual == 246;
+            // CHAR and BINARY are STRING (254) with the real type, also 254, in the metadata's high
+            // byte, whose 0x30 bits may carry the length instead; ENUM (247) and SET (248) share 254.
+            case "char", "binary" -> actual == 254 && (((meta >> 8) | 0x30) & 0xFF) == 254;
+            case "varchar", "varbinary" -> actual == 15;
+            case "tinytext", "text", "mediumtext", "longtext", "tinyblob", "blob", "mediumblob", "longblob" ->
+                actual == 252;
+            case "date" -> actual == 10 || actual == 14;
+            case "datetime" -> actual == 18 || actual == 12;
+            case "timestamp" -> actual == 17 || actual == 7;
+            default -> true;
+        };
+    }
+
+    private static String describe(int type, int meta) {
+        return switch (type) {
+            case 1 -> "TINYINT";
+            case 2 -> "SMALLINT";
+            case 3 -> "INT";
+            case 4 -> "FLOAT";
+            case 5 -> "DOUBLE";
+            case 7, 17 -> "TIMESTAMP";
+            case 8 -> "BIGINT";
+            case 9 -> "MEDIUMINT";
+            case 10, 14 -> "DATE";
+            case 11, 19 -> "TIME";
+            case 12, 18 -> "DATETIME";
+            case 13 -> "YEAR";
+            case 15 -> "VARCHAR or VARBINARY";
+            case 16 -> "BIT";
+            case 245 -> "JSON";
+            case 246 -> "DECIMAL(" + (meta & 0xFF) + "," + (meta >> 8) + ")";
+            case 247 -> "ENUM";
+            case 248 -> "SET";
+            case 252 -> "TEXT or BLOB";
+            case 254 -> "CHAR, BINARY, ENUM or SET";
+            case 255 -> "GEOMETRY";
+            default -> "type " + type;
+        };
     }
 
     private static ConfigurationException mismatch(MySqlCdcOptions options, String message) {

@@ -4,7 +4,7 @@ slug: errors-plugins
 category: errors
 order: 60
 icon: plug
-summary: "PRV-5001 to PRV-5157: loading and naming plugins, then every connector's own refusals — filesystem, Delta, Iceberg, MySQL CDC, feedfile, JDBC, Aerospike, Cassandra, Kafka, PostgreSQL CDC — and attaching a source or a sink to a registered query."
+summary: "PRV-5001 to PRV-5158: loading and naming plugins, then every connector's own refusals — filesystem, Delta, Iceberg, MySQL CDC, feedfile, JDBC, Aerospike, Cassandra, Kafka, PostgreSQL CDC — and attaching a source or a sink to a registered query."
 badge: PRV-5XXX
 audience: Operators
 keywords: [plugin, iceberg, mysql, binlog, equality deletes, classpath, deletes, detect, deletes.max.keys, deletes.state.dir, serviceloader, binding, options, filesystem, decode, delta, vacuum, deletion vectors, feedfile, jdbc, aerospike, cassandra, kafka, fenced, staging topic, retention, resume point, tombstone, undecodable record, postgres-cdc, replication slot, wal_level, replica identity, truncate, offset, sink, source, connect failed, schema]
@@ -44,8 +44,8 @@ a support conversation should have to start with.
 | PRV-5110 – PRV-5118 | `postgres-cdc` |
 | PRV-5120 – PRV-5121 | `aerospike` with `deletes: detect` (5080 – 5084 was full) |
 | PRV-5122 – PRV-5123 | `cassandra` with `deletes: detect` (5085 – 5089 was full) |
-| PRV-5140 – PRV-5142 | `iceberg-sink` |
-| PRV-5150 – PRV-5157 | `mysql-cdc` |
+| PRV-5140 – PRV-5143 | `iceberg-sink` |
+| PRV-5150 – PRV-5158 | `mysql-cdc` |
 
 ## Loading and naming plugins
 
@@ -412,6 +412,14 @@ for values the sink will not round: a `TIMESTAMP` or `TIME` that is not a whole 
 microseconds, or a decimal that does not fit its declared scale. A null key and a handle from
 another `transaction.id` are refused with it too. See [iceberg-sink](/help/topics/sink-iceberg).
 
+### PRV-5143 — Iceberg sink buffer full
+
+In upsert mode the changes of one checkpoint interval, collapsed by key, are held in memory until the
+checkpoint commits them as one snapshot, at most `upsert.max.keys` distinct keys (default 1,000,000).
+The key after that is refused, and the sink is detached (PRV-8009); nothing of the interval was
+committed. Checkpoint more often, raise `upsert.max.keys` (each key holds its latest row in memory),
+or use `mode: changelog`, which writes each batch as it comes.
+
 ## Attaching sources and sinks to a query
 
 These are raised by the engine's binding layer, between the registry and a plugin: resolving the
@@ -564,11 +572,14 @@ records after them cost nothing.
 Fix the binding's `schema` to match the producer, or the producer to match the stream. What each
 column accepts from each format is on [the Kafka source](/help/topics/source-kafka).
 
-**On `kafka-sink`** (`format: avro` or `protobuf`) it is raised the other way round: a column the
-schema cannot hold exactly — no field for it, a nullable column into a field that cannot be null, an
-`INT64` into an Avro `int`, a Protobuf unsigned integer, a `FLOAT64` into a `float`, or an Avro field
-no column fills that cannot be written null. What each column needs is on
-[the Kafka sink](/help/topics/sink-kafka).
+**On `kafka-sink`** (`format` or `key.format` `avro` or `protobuf`) it is raised the other way round:
+a column the schema cannot hold exactly — no field for it, a nullable column into a field that cannot
+be null, an `INT64` into an Avro `int`, a Protobuf unsigned integer, a `FLOAT64` into a `float`, a
+`TIMESTAMP` or `TIME` declared finer than its Avro `-millis` or `-micros` field (declare it
+`TIMESTAMP(3)`, `TIME(6)` …), or an Avro field no column fills that cannot be written null. With
+`schema.registry.url` it is also a `schema.id` or `key.schema.id` that names a different schema in the
+registry than `schema.file` or `schema.descriptor`, or a Protobuf id whose schema has no
+`schema.message`. What each column needs is on [the Kafka sink](/help/topics/sink-kafka).
 
 ### PRV-5109 — Kafka: schema registry unavailable
 
@@ -584,6 +595,9 @@ or a login page in front of the registry.
 record's fault, and setting good records aside would lose them for an outage that will end. The
 source's health turns `UNHEALTHY` with the reason; once the registry answers again, a restart
 resumes from the checkpoint's offsets with nothing lost.
+
+**On `kafka-sink`** the registry is asked only at registration, to check `schema.id` and
+`key.schema.id`: the same causes refuse the registration, and nothing is written until it answers.
 
 ## postgres-cdc
 
@@ -668,8 +682,10 @@ The server unreachable, the credentials refused, or no binlog connection within 
 
 The server cannot support change capture, and the message names the fix: binary logging off,
 `binlog_format` not `ROW`, `binlog_row_image` not `FULL` (a delete could otherwise retract only part of
-the row), `binlog_transaction_compression` on, or the user without `REPLICATION SLAVE` and
-`REPLICATION CLIENT` granted directly.
+the row), `binlog_transaction_compression` on, the user without `REPLICATION SLAVE` and
+`REPLICATION CLIENT` — granted directly or through a role active at login; a role that is granted but
+not active is named, with `SET DEFAULT ROLE` — or a GTID checkpoint on a server with `gtid_mode` not
+`ON`.
 
 ### PRV-5153 — MySQL CDC: schema mismatch
 
@@ -684,18 +700,28 @@ A checkpoint holds an offset this plugin did not write. It is refused rather tha
 ### PRV-5155 — MySQL CDC: resume point purged
 
 At a restart: the binlog file the checkpoint names has been purged by the server
-(`binlog_expire_logs_seconds`), so the changes in between are gone. Starting anyway would skip them
-silently.
+(`binlog_expire_logs_seconds`) — or, for a GTID checkpoint, transactions after it have been — so the
+changes in between are gone. Starting anyway would skip them silently. An idle table's position
+follows the log through heartbeats and file rotations, so a purge of files that held nothing for the
+table does not cause it.
 
 ### PRV-5156 — MySQL CDC: unrepresentable change
 
 The binary log carried something that cannot become rows: a `TRUNCATE` of the captured table (it names
-no rows to retract), an `ALTER`, `DROP` or `RENAME` of it, or an event the plugin cannot decode.
-Everything before it was delivered.
+no rows to retract), an `ALTER`, `DROP` or `RENAME` of it, a column whose binlog type, decimal
+precision or scale, nullability or signedness no longer matches the stream (an `ALTER` that kept the
+column count), or an event the plugin cannot decode. Everything before it was delivered.
 
 ### PRV-5157 — MySQL CDC: stream failed
 
 The binlog connection failed ten times in a row, or the reader stopped on an internal error.
+
+### PRV-5158 — MySQL CDC: resume point ahead
+
+At a restart from a GTID checkpoint: the checkpoint holds transactions the server has not executed. It
+is a replica that has not caught up with the server the checkpoint was read from — after a failover,
+promote or wait for one that has — or another server altogether. Nothing is read; once
+`GTID_SUBSET('<the checkpoint's set>', @@GLOBAL.gtid_executed)` returns 1, start again.
 
 For PRV-5155, 5156 and 5157 the recovery is the same: stop the registration, delete its checkpoint
 directory, register again.

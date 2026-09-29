@@ -69,7 +69,10 @@ class KafkaSinkFormatsTest {
 
     static final String ALL_COLUMNS = "id:STRING,flag:BOOLEAN,tiny:INT8,small:INT16,mid:INT32,big:INT64,"
             + "f32:FLOAT32,f64:FLOAT64,amount:DECIMAL(10,2),fixedamt:DECIMAL(12,3),blob:BYTES,"
-            + "day:DATE,clock:TIME,clockms:TIME,at:TIMESTAMP,atms:TIMESTAMP,note:STRING?";
+            + "day:DATE,clock:TIME(6),clockms:TIME(3),at:TIMESTAMP(6),atms:TIMESTAMP(3),note:STRING?";
+
+    /** ALL_COLUMNS' declared time precisions, which decide the Avro time fields they may go to. */
+    static final int[] ALL_PRECISIONS = KafkaSchema.precisions(ALL_COLUMNS);
 
     private final TestRows rows = new TestRows();
 
@@ -87,7 +90,8 @@ class KafkaSinkFormatsTest {
     void avroRowsComeBackThroughTheSourceAsTheSameRows() throws Undecodable {
         StreamSchema schema = KafkaSchema.parse("all", ALL_COLUMNS);
         AvroSchema.Node writer = AvroSchema.parse(ALL_AVRO);
-        KafkaRecords records = new KafkaRecords(schema, new int[] {0}, false, AvroRowWriter.map(schema, writer, -1));
+        KafkaRecords records =
+                new KafkaRecords(schema, new int[] {0}, false, AvroRowWriter.map(schema, writer, -1, ALL_PRECISIONS));
         AvroRowReader reader = AvroRowReader.map(schema, writer, -1);
 
         for (Object[] row : new Object[][] {allTypes("u1", 1, "a note"), allTypes("ü-2", -1, null), extremes()}) {
@@ -100,7 +104,10 @@ class KafkaSinkFormatsTest {
     void aRetractionIsStillATombstone() {
         StreamSchema schema = KafkaSchema.parse("all", ALL_COLUMNS);
         KafkaRecords records = new KafkaRecords(
-                schema, new int[] {0}, false, AvroRowWriter.map(schema, AvroSchema.parse(ALL_AVRO), -1));
+                schema,
+                new int[] {0},
+                false,
+                AvroRowWriter.map(schema, AvroSchema.parse(ALL_AVRO), -1, ALL_PRECISIONS));
         KafkaRecords.Encoded retraction = records.encode(rows.row(schema, -1, allTypes("u1", 1, null)));
         assertThat(retraction.value()).isNull();
         assertThat(new String(retraction.key(), StandardCharsets.UTF_8)).isEqualTo("{\"id\":\"u1\"}");
@@ -111,7 +118,7 @@ class KafkaSinkFormatsTest {
         StreamSchema schema = KafkaSchema.parse("all", ALL_COLUMNS);
         AvroSchema.Node writer = AvroSchema.parse(ALL_AVRO);
         Object[] row = allTypes("u1", 1, "n");
-        byte[] value = AvroRowWriter.map(schema, writer, 258).encode(row);
+        byte[] value = AvroRowWriter.map(schema, writer, 258, ALL_PRECISIONS).encode(row);
         assertThat(Arrays.copyOf(value, 5)).containsExactly(0, 0, 0, 1, 2);
         assertThat(AvroRowReader.map(schema, writer, -1).read(value, 5, 0L).values())
                 .containsExactly(row);
@@ -156,26 +163,62 @@ class KafkaSinkFormatsTest {
     }
 
     @Test
-    void aTimeFinerThanItsFieldIsRefusedWhenWrittenNotTruncated() {
-        StreamSchema schema = KafkaSchema.parse("t", "at:TIMESTAMP,clock:TIME,amount:DECIMAL(4,2)");
+    void aTimeDeclaredFinerThanItsAvroFieldIsRefusedAtConfigurationByName() {
+        // KSF-4: known at configuration, not at the first value with a nanosecond part.
+        String avro = "{\"type\":\"record\",\"name\":\"R\",\"fields\":["
+                + "{\"name\":\"at\",\"type\":{\"type\":\"long\",\"logicalType\":\"timestamp-millis\"}},"
+                + "{\"name\":\"clock\",\"type\":{\"type\":\"long\",\"logicalType\":\"time-micros\"}}]}";
+        assertThatThrownBy(() -> map("at:TIMESTAMP,clock:TIME(6)", avro))
+                .isInstanceOf(Unmappable.class)
+                .hasMessageContaining("Avro field 'at' is timestamp-millis and column 'at' is TIMESTAMP(9)")
+                .hasMessageContaining("Declare the column TIMESTAMP(3)")
+                .hasMessageContaining("timestamp-micros field");
+        assertThatThrownBy(() -> map("at:TIMESTAMP(6),clock:TIME(6)", avro)).hasMessageContaining("TIMESTAMP(6)");
+        assertThatThrownBy(() -> map("at:TIMESTAMP(3),clock:TIME", avro))
+                .hasMessageContaining("column 'clock' is TIME(9)")
+                .hasMessageContaining("Declare the column TIME(6)");
+        assertThat(map("at:TIMESTAMP(3),clock:TIME(6)", avro)).isNotNull();
+        assertThat(map("at:TIMESTAMP(0),clock:TIME(3)", avro))
+                .as("coarser is fine")
+                .isNotNull();
+    }
+
+    @Test
+    void aDeclaredPrecisionFloorsEveryValueToItsDigitsBeforeItIsWritten() throws Undecodable {
+        String avro = "{\"type\":\"record\",\"name\":\"R\",\"fields\":["
+                + "{\"name\":\"at\",\"type\":{\"type\":\"long\",\"logicalType\":\"timestamp-millis\"}},"
+                + "{\"name\":\"coarse\",\"type\":{\"type\":\"long\",\"logicalType\":\"timestamp-micros\"}},"
+                + "{\"name\":\"clock\",\"type\":{\"type\":\"int\",\"logicalType\":\"time-millis\"}}]}";
+        String columns = "at:TIMESTAMP(3),coarse:TIMESTAMP(1),clock:TIME(3)";
+        StreamSchema schema = KafkaSchema.parse("t", columns);
+        AvroRowWriter writer = map(columns, avro);
+        AvroRowReader reader = AvroRowReader.map(schema, AvroSchema.parse(avro), -1);
+        // 1.999999999 s, 0.999999999 s before the epoch, and 10:15:30.123456789.
+        Object[] written = {1_999_999_999L, -999_999_999L, 36_930_123_456_789L};
+        assertThat(reader.read(writer.encode(written), 0, 0L).values())
+                .as("floored toward the past: a negative instant goes back, not toward zero")
+                .containsExactly(1_999_000_000L, -1_000_000_000L, 36_930_123_000_000L);
+    }
+
+    @Test
+    void aDecimalWithMorePlacesOrDigitsThanItsFieldIsStillRefusedWhenWritten() {
+        StreamSchema schema = KafkaSchema.parse("t", "amount:DECIMAL(4,2)");
         AvroRowWriter writer = AvroRowWriter.map(
                 schema,
                 AvroSchema.parse("{\"type\":\"record\",\"name\":\"R\",\"fields\":["
-                        + "{\"name\":\"at\",\"type\":{\"type\":\"long\",\"logicalType\":\"timestamp-micros\"}},"
-                        + "{\"name\":\"clock\",\"type\":{\"type\":\"int\",\"logicalType\":\"time-millis\"}},"
                         + "{\"name\":\"amount\",\"type\":{\"type\":\"bytes\",\"logicalType\":\"decimal\","
                         + "\"precision\":4,\"scale\":2}}]}"),
                 -1);
-        assertThatThrownBy(() -> writer.encode(new Object[] {1_000_000_001L, 0L, new BigDecimal("1.00")}))
+        assertThatThrownBy(() -> writer.encode(new Object[] {new BigDecimal("1.005")}))
                 .isInstanceOf(PravahaException.class)
-                .hasMessageContaining("column 'at'")
-                .hasMessageContaining("sub-microsecond");
-        assertThatThrownBy(() -> writer.encode(new Object[] {0L, 1_000L, new BigDecimal("1.00")}))
-                .hasMessageContaining("sub-millisecond");
-        assertThatThrownBy(() -> writer.encode(new Object[] {0L, 0L, new BigDecimal("1.005")}))
                 .hasMessageContaining("more than the field's 2 places");
-        assertThatThrownBy(() -> writer.encode(new Object[] {0L, 0L, new BigDecimal("123.00")}))
+        assertThatThrownBy(() -> writer.encode(new Object[] {new BigDecimal("123.00")}))
                 .hasMessageContaining("more than the field's 4 digits");
+    }
+
+    private static AvroRowWriter map(String columns, String avro) {
+        return AvroRowWriter.map(
+                KafkaSchema.parse("t", columns), AvroSchema.parse(avro), -1, KafkaSchema.precisions(columns));
     }
 
     // ---- protobuf -----------------------------------------------------------------------------
@@ -298,8 +341,20 @@ class KafkaSinkFormatsTest {
         refused(Map.of("schema.id", "3"), "schema.id is for format: avro");
         refused(Map.of("schema.descriptor", desc.toString()), "schema.descriptor is for format: protobuf");
         refused(Map.of("schema.message", "x"), "schema.message is for format: protobuf");
-        refused(Map.of("format", "protobuf"), "has no schema.descriptor");
-        refused(Map.of("format", "protobuf", "schema.descriptor", desc.toString()), "has no schema.message");
+        refused(Map.of("format", "protobuf"), "needs schema.message");
+        refused(Map.of("format", "protobuf", "schema.message", ProtoFixtures.ORDER), "needs schema.descriptor");
+        refused(Map.of("format", "protobuf", "schema.descriptor", desc.toString()), "needs schema.message");
+        refused(
+                Map.of(
+                        "format",
+                        "protobuf",
+                        "schema.descriptor",
+                        desc.toString(),
+                        "schema.message",
+                        ProtoFixtures.ORDER,
+                        "schema.id",
+                        "4"),
+                "schema.id with format: protobuf needs schema.registry.url");
         refused(
                 Map.of(
                         "format",

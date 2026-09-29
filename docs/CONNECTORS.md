@@ -553,10 +553,16 @@ shape as an invalidated slot.
 **`mysql-cdc` is built on exactly that.** It registers as a replica through
 `mysql-binlog-connector-java` (pure Java; no JDBC driver, no Debezium), refuses at open a server whose
 `binlog_format` is not `ROW` or whose `binlog_row_image` is not `FULL`, and a user without `REPLICATION
-SLAVE` and `REPLICATION CLIENT` (`PRV-5152`). Its offset is `binlog=FILE:POSITION` at a transaction
-boundary, with `;partial=N` when a transaction larger than any poll was handed over in parts; a
-restore whose file has expired is refused (`PRV-5155`) rather than resumed from wherever the log now
-starts. Options: `host`, `port` (3306), `user`, `password`, `table` (`database.table`), `stream`,
+SLAVE` and `REPLICATION CLIENT`, directly or through a role active at login (`PRV-5152`). Its offset
+is `binlog=FILE:POSITION` at a transaction boundary, with `;partial=N` when a transaction larger than
+any poll was handed over in parts; with `gtid_mode = ON` it is prefixed by the executed GTID set
+(`gtid=SET;`) and read back with `COM_BINLOG_DUMP_GTID`, so it survives a failover to a replica that has
+caught up (`PRV-5158` for one that has not; a partial transaction is then named by its GTID). A
+restore whose following changes have expired is refused (`PRV-5155`) rather than resumed from
+wherever the log now starts, and heartbeats and rotations move an idle table's position so that a
+quiet table does not expire. Each table map is compared with the columns the stream was typed from,
+so an `ALTER` that keeps the column count stops the stream (`PRV-5156`) rather than being read with
+the old types (MYC-1 to MYC-4; `MySqlCdcFindingsIT`, `MySqlCdcGtidIT`). Options: `host`, `port` (3306), `user`, `password`, `table` (`database.table`), `stream`,
 `server.id` (unique among the server's replicas; derived from the binding by default), `event.time`,
 `buffer.rows`, `start.timeout`, `heartbeat.interval`, `snapshot.mode` (`never` only in this version).
 
@@ -1099,12 +1105,18 @@ a broker.
 **Formats.** The value is JSON by default. In upsert mode `format: avro` writes Avro's binary
 encoding of the record in `schema.file` (`AvroRowWriter` over `AvroBinaryWriter`, written from the
 specification beside the source's reader; no `org.apache.avro`), behind the Confluent prefix when
-`schema.id` is set — the id is written as given and nothing is registered — and `format: protobuf`
-writes one `DynamicMessage` of `schema.message` in `schema.descriptor`. The key stays JSON and a
-retraction stays a tombstone. Columns map by name at registration, and a column the schema cannot
-hold exactly is `PRV-5108`; `mode: changelog` with either is `PRV-5100`, because the op and weight
-have no field to go in. `KafkaSinkFormatsTest` proves each by round trip through the source's own
-decoders, and `KafkaSourceFormatBrokerTest` through a broker.
+`schema.id` is set, and `format: protobuf` writes one `DynamicMessage` of `schema.message` in
+`schema.descriptor` — behind the Confluent framing, id and message indexes, when `schema.id` is set
+with a registry. Nothing is registered; with `schema.registry.url` every id is fetched at
+registration and must name the binding's schema (`KafkaSinkEncoders`, KSF-2 and KSF-3). The key is
+JSON unless `key.format` makes it one column's text or an Avro or Protobuf record of the key columns
+(KSF-1), and a retraction stays a tombstone. Columns map by name at registration, and a column the
+schema cannot hold exactly is `PRV-5108` — a `TIMESTAMP` or `TIME` declared finer than its Avro
+field included, each value otherwise floored to the declared digits (KSF-4); `mode: changelog` with
+either format is `PRV-5100`, because the op and weight have no field to go in.
+`KafkaSinkFormatsTest` and `KafkaSinkKeyAndRegistryTest` prove each by round trip through the
+source's own decoders, `KafkaSourceFormatBrokerTest` through a broker, and
+`KafkaSinkRegistryBrokerTest` against a real broker and Confluent Schema Registry.
 
 ### A transactional sink on a format with no delete: Delta
 
@@ -1190,8 +1202,10 @@ REST service. `path` names that directory; a URI such as `s3://` is refused with
 the sink stages *in the table*: a transaction's Parquet files go to
 `<path>/data/_pravaha/<transaction.id>/<label>/`, durable and unreferenced once `prepare` returns,
 and `commit` adds them all in **one** snapshot. That snapshot's summary carries
-`pravaha.transaction-id` and `pravaha.label`, and a commit whose label the table's snapshot history
-already records is skipped — the idempotence is the table's, as `delta-sink`'s `txn` action is.
+`pravaha.transaction-id` and `pravaha.label`, and the same Iceberg transaction sets the table
+property `pravaha.committed-label.<transaction.id>`; a commit whose label the property or the snapshot
+history already records is skipped — the idempotence is the table's, as `delta-sink`'s `txn` action
+is, and survives another engine committing after the sink and expiring its snapshot (ICE-3).
 `abortAfter` removes every uncommitted label after the restored checkpoint; a committed label's files
 belong to the table and are never removed by the sink.
 
@@ -1202,7 +1216,9 @@ replaced without reading or rewriting the table: **a commit costs in proportion 
 to the table as `delta-sink`'s copy-on-write does. The table is format version 2 with the key
 columns as identifier fields. The price is at read time: a reader applies the deletes until the
 table's own engine compacts it. Upsert mode holds a checkpoint's collapsed changes in memory until
-`prepare`; changelog mode writes a Parquet file per batch and holds nothing.
+`prepare`, at most `upsert.max.keys` distinct keys (`PRV-5143` past that, ICE-2): an equality delete
+does not apply to data files of its own commit, so the interval cannot be spilled to files and stay one
+snapshot. Changelog mode writes a Parquet file per batch and holds nothing.
 
 **Changelog mode** appends every change with `_op` and the Z-set weight in `_weight`.
 
@@ -1211,12 +1227,16 @@ table whose columns, types, nullability or format version (upsert needs 2) are n
 (`PRV-5141`). Refused at write: a `TIMESTAMP` or `TIME` that is not a whole number of microseconds,
 or a decimal that does not fit its declared scale (`PRV-5142`). Not built: partitioned tables, object
 stores and catalog services, schema evolution, compaction and snapshot expiry (the table's own
-engine does those — but not the sink's newest snapshot, which holds its commit record).
-`IcebergSinkPluginTest` holds the behaviour against real tables, read back through Iceberg's own
+engine does those, the sink's own snapshots included). `IcebergSinkPluginTest` and
+`IcebergSinkFindingsTest` hold the behaviour against real tables, read back through Iceberg's own
 reader.
 
 The version is Iceberg 1.2.1, deliberately: it is the newest Iceberg on Parquet 1.12.3, the Parquet
-Delta Kernel uses, and the server is one classpath.
+Delta Kernel and feedfile use, and the server is one classpath. Two of its transitive versions are
+decided here instead (ICE-1, ICE-4): Caffeine 3.2.4, the version Spring Boot gives the server (Iceberg
+was built against 2.9.3; every Caffeine member it calls resolves on 3, which a test checks), and Avro
+1.11.4 for its manifests, with Commons Compress excluded — Avro needs it only for a bzip2 codec Iceberg
+never writes.
 
 ### The remote connector — the source that inverts this table
 

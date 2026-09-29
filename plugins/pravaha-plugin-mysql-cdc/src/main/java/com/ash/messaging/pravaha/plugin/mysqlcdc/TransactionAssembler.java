@@ -24,10 +24,12 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.github.shyiko.mysql.binlog.GtidSet;
 import com.github.shyiko.mysql.binlog.event.DeleteRowsEventData;
 import com.github.shyiko.mysql.binlog.event.Event;
 import com.github.shyiko.mysql.binlog.event.EventHeaderV4;
 import com.github.shyiko.mysql.binlog.event.EventType;
+import com.github.shyiko.mysql.binlog.event.GtidEventData;
 import com.github.shyiko.mysql.binlog.event.QueryEventData;
 import com.github.shyiko.mysql.binlog.event.RotateEventData;
 import com.github.shyiko.mysql.binlog.event.TableMapEventData;
@@ -46,14 +48,29 @@ import com.ash.messaging.pravaha.api.PravahaException;
  * appears. Transactions that do not touch the captured table become position markers.
  *
  * <p>Refused, whole, with {@code PRV-5156}: a {@code TRUNCATE} of the table (it names no rows to
- * retract), an {@code ALTER}, {@code DROP} or {@code RENAME} of it, a table map whose column count
- * disagrees with the stream, and a compressed transaction payload.
+ * retract), an {@code ALTER}, {@code DROP} or {@code RENAME} of it (a statement's leading comments are
+ * skipped before it is read), a table map whose columns disagree with the stream -- in count, in type,
+ * in a decimal's precision or scale, in nullability or in signedness ({@link
+ * MySqlSchema#binlogMismatch}, MYC-4) -- and a compressed transaction payload.
+ *
+ * <p><strong>Positions between transactions</strong> (MYC-1). Outside a transaction, a heartbeat (the
+ * server's "you have everything up to here") and a rotation to a new binlog file are position markers
+ * too: nothing before them can concern the table unless it was already assembled, so an idle table's
+ * position follows the log and a purged file does not refuse a restart that missed nothing. Never
+ * while a restored checkpoint's partial transaction is still to come, whose position must hold.
+ *
+ * <p><strong>GTID mode</strong> (MYC-2): each transaction's GTID is added to the executed set it
+ * started from, and every transaction and marker carries the set as it stands after it.
  */
 final class TransactionAssembler {
 
     private static final Pattern DDL = Pattern.compile(
             "^\\s*(truncate|alter|drop|rename)\\s+(?:table\\s+)?(?:if\\s+exists\\s+)?(.*)$",
             Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+
+    /** Comments before a statement: C-style blocks, and {@code --} and {@code #} lines. */
+    private static final Pattern LEADING_COMMENTS = Pattern.compile(
+            "^(?:\\s+|/\\*(?!!).*?\\*/|--(?:[ \\t][^\\n]*)?(?:\\n|$)|#[^\\n]*(?:\\n|$))+", Pattern.DOTALL);
 
     private final MySqlCdcOptions options;
     private final MySqlSchema.Mapping mapping;
@@ -63,16 +80,38 @@ final class TransactionAssembler {
     private boolean inTransaction;
     private List<BinlogTransaction.Change> changes = new ArrayList<>();
     private PravahaException failure;
+    /** GTID mode: what has executed so far, and the GTID of the transaction under way. */
+    private final GtidSet executed;
+
+    private String currentGtid;
+    /** GTID mode: the transaction {@code skip} counts into; null means the first one. */
+    private final String skipGtid;
 
     /**
      * @param file the binlog file reading starts in
      * @param skip changes of the first transaction a restored checkpoint already holds
      */
     TransactionAssembler(MySqlCdcOptions options, MySqlSchema.Mapping mapping, String file, int skip) {
+        this(options, mapping, file, skip, null, null);
+    }
+
+    /**
+     * @param gtidSet the executed GTID set reading starts after, or null in file mode
+     * @param skipGtid in GTID mode, the transaction {@code skip} counts into, or null
+     */
+    TransactionAssembler(
+            MySqlCdcOptions options,
+            MySqlSchema.Mapping mapping,
+            String file,
+            int skip,
+            String gtidSet,
+            String skipGtid) {
         this.options = options;
         this.mapping = mapping;
         this.file = file;
         this.skip = skip;
+        this.executed = gtidSet == null ? null : new GtidSet(gtidSet);
+        this.skipGtid = skipGtid;
     }
 
     /** Takes one event; returns a transaction when this event completes one, otherwise null. */
@@ -80,10 +119,20 @@ final class TransactionAssembler {
         EventHeaderV4 header = event.getHeader();
         EventType type = header.getEventType();
         if (type == EventType.ROTATE) {
-            // Only the file: the next transaction's end is the next position worth recording. The
-            // rotate the server sends on connecting repeats the requested file and is harmless.
+            // The rotate the server sends on connecting has no position of its own (0) and repeats
+            // where reading starts; a real one closes the old file, and the new file's start is a
+            // position a restart may resume from.
             RotateEventData rotate = event.getData();
             file = rotate.getBinlogFilename();
+            return header.getNextPosition() > 0 ? between(rotate.getBinlogPosition()) : null;
+        }
+        if (type == EventType.HEARTBEAT) {
+            return header.getNextPosition() > 0 ? between(header.getNextPosition()) : null;
+        }
+        if (type == EventType.GTID) {
+            if (executed != null) {
+                currentGtid = ((GtidEventData) event.getData()).getGtid();
+            }
             return null;
         }
         if (type == EventType.QUERY) {
@@ -110,8 +159,33 @@ final class TransactionAssembler {
         return null;
     }
 
+    /**
+     * A marker at {@code position} of the current file when no transaction is open and no restored
+     * partial transaction is still to come; otherwise nothing.
+     */
+    private BinlogTransaction between(long position) {
+        if (inTransaction || skip > 0 || position < 4) {
+            return null;
+        }
+        return BinlogTransaction.marker(file, position, executedText());
+    }
+
+    private String executedText() {
+        return executed == null ? null : executed.toString();
+    }
+
+    /** GTID mode: the transaction under way is done, delivered or not. */
+    private String commitGtid() {
+        String gtid = currentGtid;
+        if (executed != null && gtid != null) {
+            executed.add(gtid);
+        }
+        currentGtid = null;
+        return gtid;
+    }
+
     private BinlogTransaction query(EventHeaderV4 header, QueryEventData data) {
-        String sql = data.getSql().strip();
+        String sql = LEADING_COMMENTS.matcher(data.getSql()).replaceFirst("").strip();
         if (sql.equalsIgnoreCase("BEGIN")) {
             begin();
             return null;
@@ -125,9 +199,11 @@ final class TransactionAssembler {
             return null;
         }
         // DDL outside a transaction is a transaction of its own.
+        String gtid = commitGtid();
         return refusal == null
-                ? BinlogTransaction.marker(file, header.getNextPosition())
-                : BinlogTransaction.refused(file, header.getNextPosition(), refusal);
+                ? BinlogTransaction.marker(file, header.getNextPosition(), executedText())
+                : new BinlogTransaction(
+                        file, header.getNextPosition(), 0, List.of(), 0L, refusal, gtid, executedText());
     }
 
     /** A refusal when {@code sql} truncates, alters, drops or renames the captured table. */
@@ -172,12 +248,19 @@ final class TransactionAssembler {
         boolean ours =
                 options.database().equals(data.getDatabase()) && options.table().equals(data.getTable());
         tables.put(data.getTableId(), ours);
-        if (ours && data.getColumnTypes().length != mapping.columnCount()) {
+        if (!ours) {
+            return;
+        }
+        String mismatch = data.getColumnTypes().length != mapping.columnCount()
+                ? "has " + data.getColumnTypes().length + " columns in the binlog and " + mapping.columnCount()
+                        + " in the stream"
+                : MySqlSchema.binlogMismatch(mapping, data);
+        if (mismatch != null) {
             fail(new PravahaException(
                     MySqlCdcErrors.UNREPRESENTABLE_CHANGE,
-                    options.qualifiedTable() + " has " + data.getColumnTypes().length + " columns in the binlog and "
-                            + mapping.columnCount() + " in the stream: the table was altered. Drop the registration "
-                            + "and its checkpoint and register again."));
+                    options.qualifiedTable() + " " + mismatch + " at " + file + ": the table was altered, and its "
+                            + "rows can no longer be read as this stream. Everything before it was delivered; drop "
+                            + "the registration and its checkpoint and register again."));
         }
     }
 
@@ -240,8 +323,9 @@ final class TransactionAssembler {
 
     private BinlogTransaction complete(EventHeaderV4 header) {
         long end = header.getNextPosition();
+        String gtid = commitGtid();
         if (!inTransaction) {
-            return BinlogTransaction.marker(file, end);
+            return BinlogTransaction.marker(file, end, executedText());
         }
         inTransaction = false;
         List<BinlogTransaction.Change> done = changes;
@@ -250,14 +334,14 @@ final class TransactionAssembler {
         if (failure != null) {
             PravahaException refused = failure;
             failure = null;
-            return new BinlogTransaction(file, end, 0, List.of(), commitNanos, refused);
+            return new BinlogTransaction(file, end, 0, List.of(), commitNanos, refused, gtid, executedText());
         }
         int already = 0;
-        if (skip > 0) {
+        if (skip > 0 && (skipGtid == null || skipGtid.equals(gtid))) {
             already = Math.min(skip, done.size());
             done = done.subList(already, done.size());
             skip = 0;
         }
-        return new BinlogTransaction(file, end, already, List.copyOf(done), commitNanos, null);
+        return new BinlogTransaction(file, end, already, List.copyOf(done), commitNanos, null, gtid, executedText());
     }
 }

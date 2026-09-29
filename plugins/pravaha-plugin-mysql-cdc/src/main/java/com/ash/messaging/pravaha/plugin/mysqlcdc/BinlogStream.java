@@ -47,10 +47,17 @@ final class BinlogStream implements AutoCloseable {
     private String resumeFile;
     private long resumePosition;
     private int resumeSkip;
+    /** GTID mode: the executed set the last queued transaction left, and the partial one's GTID. */
+    private String resumeGtids;
+
+    private String resumeSkipGtid;
     private int failures;
     private volatile boolean running = true;
     private volatile boolean halted;
     private volatile boolean connected;
+    /** Set once the first connection is made, and never reset: a refusal may close it at once. */
+    private volatile boolean everConnected;
+
     private volatile PravahaException failure;
     private volatile String lastProblem = "";
     private volatile long reconnects;
@@ -63,6 +70,8 @@ final class BinlogStream implements AutoCloseable {
         this.resumeFile = start.file();
         this.resumePosition = start.position();
         this.resumeSkip = (int) Math.min(Integer.MAX_VALUE, start.partial());
+        this.resumeGtids = start.gtidSet();
+        this.resumeSkipGtid = start.partialGtid();
     }
 
     void start() {
@@ -75,13 +84,13 @@ final class BinlogStream implements AutoCloseable {
     /** Waits, bounded, for the replica connection; refuses when it does not come. */
     void awaitConnected(Duration timeout) {
         long deadline = System.nanoTime() + timeout.toNanos();
-        while (!connected && failure == null && System.nanoTime() < deadline) {
+        while (!everConnected && failure == null && System.nanoTime() < deadline) {
             sleep(20);
         }
         if (failure != null) {
             throw failure;
         }
-        if (!connected) {
+        if (!everConnected) {
             throw new PravahaException(
                     MySqlCdcErrors.CONNECT_FAILED,
                     "plugin '" + options.instanceName() + "' could not open a binlog connection to " + options.host()
@@ -164,6 +173,12 @@ final class BinlogStream implements AutoCloseable {
         created.setServerId(options.serverId());
         created.setBinlogFilename(resumeFile);
         created.setBinlogPosition(resumePosition);
+        if (resumeGtids != null) {
+            // Every transaction not in the set, from whichever file holds the first of them: the
+            // position that survives a failover (MYC-2). Never gtid_purged as a fallback.
+            created.setGtidSet(resumeGtids);
+            created.setGtidSetFallbackToPurged(false);
+        }
         created.setKeepAlive(false);
         created.setBlocking(true);
         created.setSSLMode(SSLMode.DISABLED);
@@ -176,7 +191,8 @@ final class BinlogStream implements AutoCloseable {
                 EventDeserializer.CompatibilityMode.DATE_AND_TIME_AS_LONG_MICRO,
                 EventDeserializer.CompatibilityMode.CHAR_AND_BINARY_AS_BYTE_ARRAY);
         created.setEventDeserializer(deserializer);
-        TransactionAssembler assembler = new TransactionAssembler(options, mapping, resumeFile, resumeSkip);
+        TransactionAssembler assembler = new TransactionAssembler(
+                options, mapping, resumeFile, resumeSkip, resumeGtids, resumeSkip > 0 ? resumeSkipGtid : null);
         created.registerEventListener(event -> {
             if (!halted) {
                 BinlogTransaction done = assembler.accept(event);
@@ -189,6 +205,7 @@ final class BinlogStream implements AutoCloseable {
             @Override
             public void onConnect(BinaryLogClient connectedClient) {
                 connected = true;
+                everConnected = true;
                 lastProblem = "";
             }
 
@@ -243,8 +260,12 @@ final class BinlogStream implements AutoCloseable {
         if (transaction.failure() == null) {
             resumeFile = transaction.file();
             resumePosition = transaction.endPosition();
+            if (transaction.executedGtids() != null) {
+                resumeGtids = transaction.executedGtids();
+            }
             if (!marker) {
                 resumeSkip = 0;
+                resumeSkipGtid = null;
             }
         }
         failures = 0;

@@ -33,7 +33,8 @@ import com.ash.messaging.pravaha.common.row.Decimals;
 
 /**
  * A row as a Kafka record's key and value, in JSON; or, with a {@link ValueEncoder}, an upsert
- * value in Avro or protobuf behind the same JSON key.
+ * value in Avro or protobuf, and with a key encoder the key as text, Avro or protobuf ({@code
+ * key.format}, KSF-1).
  *
  * <p><strong>Upsert mode.</strong> The key is a JSON object of the key columns, in {@code
  * key.columns} order: {@code {"user_id":"u1"}}. The value is a JSON object of every column, by the
@@ -60,6 +61,8 @@ final class KafkaRecords {
     private final int[] keyOrdinals;
     private final boolean changelog;
     private final ValueEncoder valueEncoder;
+    /** The key writer over the key columns (every column when there are none), or null for JSON. */
+    private final ValueEncoder keyEncoder;
 
     /**
      * An upsert value in a format other than JSON ({@link AvroRowWriter}, {@link ProtobufRowWriter}):
@@ -75,6 +78,19 @@ final class KafkaRecords {
 
     /** With {@code valueEncoder} null the value is JSON; otherwise upsert mode only, tombstones as ever. */
     KafkaRecords(StreamSchema schema, int[] keyOrdinals, boolean changelog, ValueEncoder valueEncoder) {
+        this(schema, keyOrdinals, changelog, valueEncoder, null);
+    }
+
+    /**
+     * With {@code keyEncoder} null the key is JSON; otherwise it is given the key columns' values, in
+     * {@code keyOrdinals} order -- every column when there are none -- and writes the key (KSF-1).
+     */
+    KafkaRecords(
+            StreamSchema schema,
+            int[] keyOrdinals,
+            boolean changelog,
+            ValueEncoder valueEncoder,
+            ValueEncoder keyEncoder) {
         if (changelog && valueEncoder != null) {
             throw new IllegalArgumentException("the changelog envelope is JSON only");
         }
@@ -82,6 +98,7 @@ final class KafkaRecords {
         this.keyOrdinals = keyOrdinals.clone();
         this.changelog = changelog;
         this.valueEncoder = valueEncoder;
+        this.keyEncoder = keyEncoder;
     }
 
     /** A record's key and value; the value is null for a tombstone. */
@@ -90,7 +107,8 @@ final class KafkaRecords {
     Encoded encode(RowView row) {
         Object[] values = read(row);
         long weight = row.weight();
-        byte[] key = keyOrdinals.length > 0 ? object(values, keyOrdinals) : object(values, allOrdinals());
+        int[] ordinals = keyOrdinals.length > 0 ? keyOrdinals : allOrdinals();
+        byte[] key = keyEncoder != null ? keyEncoder.encode(project(values, ordinals)) : object(values, ordinals);
         if (!changelog) {
             if (weight < 0) {
                 return new Encoded(key, null);
@@ -106,6 +124,14 @@ final class KafkaRecords {
         appendObject(value, values, allOrdinals());
         value.append('}');
         return new Encoded(key, value.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static Object[] project(Object[] values, int[] ordinals) {
+        Object[] projected = new Object[ordinals.length];
+        for (int i = 0; i < ordinals.length; i++) {
+            projected[i] = values[ordinals[i]];
+        }
+        return projected;
     }
 
     private int[] allOrdinals() {

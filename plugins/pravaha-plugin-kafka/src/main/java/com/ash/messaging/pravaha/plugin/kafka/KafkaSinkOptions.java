@@ -15,11 +15,8 @@
  */
 package com.ash.messaging.pravaha.plugin.kafka;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.InvalidPathException;
-import java.nio.file.Path;
+import java.net.URI;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -27,6 +24,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+
+import javax.net.ssl.SSLContext;
 
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -38,6 +37,7 @@ import com.ash.messaging.pravaha.api.ConfigurationException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.TypeName;
 import com.ash.messaging.pravaha.api.plugin.PluginContext;
+import com.ash.messaging.pravaha.api.plugin.PluginTls;
 
 /**
  * A {@code kafka-sink} binding's options, checked, and turned into the three clients' configurations.
@@ -60,7 +60,7 @@ final class KafkaSinkOptions {
         Map<String, String> refused = new LinkedHashMap<>();
         refused.put("bootstrap.servers", "set bootstrap.servers on the binding itself");
         refused.put("transactional.id", "set transactional.id on the binding itself");
-        refused.put("key.serializer", "the sink writes the key itself, as JSON");
+        refused.put("key.serializer", "the sink writes the key itself, in the binding's key.format");
         refused.put("value.serializer", "the sink writes the value itself, in the binding's format");
         refused.put("key.deserializer", "the sink reads its staging topic itself");
         refused.put("value.deserializer", "the sink reads its staging topic itself");
@@ -85,6 +85,10 @@ final class KafkaSinkOptions {
     final String format;
     /** The Avro or protobuf value writer, or null for JSON. */
     final KafkaRecords.ValueEncoder valueEncoder;
+    /** {@code json}, {@code string}, {@code avro} or {@code protobuf}. */
+    final String keyFormat;
+    /** The key writer over the key columns, or null for a JSON key. */
+    final KafkaRecords.ValueEncoder keyEncoder;
 
     final boolean transactional;
     final String transactionalId;
@@ -108,7 +112,8 @@ final class KafkaSinkOptions {
             default -> throw refusal("mode '" + mode + "' is not upsert or changelog");
         };
         this.format = context.get("format", "json").strip().toLowerCase(Locale.ROOT);
-        this.valueEncoder = valueEncoder(context);
+        this.keyFormat = context.get("key.format", "json").strip().toLowerCase(Locale.ROOT);
+        int[] precisions = KafkaSchema.precisions(context.require("schema"));
 
         List<String> names = new ArrayList<>();
         for (String part : context.get("key.columns", "").split(",")) {
@@ -125,6 +130,16 @@ final class KafkaSinkOptions {
         this.keyOrdinals = new int[keyNames.size()];
         for (int k = 0; k < keyNames.size(); k++) {
             keyOrdinals[k] = keyOrdinal(keyNames.get(k));
+        }
+        SchemaRegistry registry = registry(context);
+        try {
+            KafkaSinkEncoders encoders = new KafkaSinkEncoders(instanceName, registry, this::refusal);
+            this.valueEncoder = valueEncoder(context, encoders, precisions);
+            this.keyEncoder = keyEncoder(context, encoders, precisions);
+        } finally {
+            if (registry != null) {
+                registry.close();
+            }
         }
 
         this.transactional = parseBoolean(context, "transactional", "true");
@@ -160,7 +175,8 @@ final class KafkaSinkOptions {
      * another format, a changelog mode with nowhere to put its weight, or a column the schema cannot
      * hold exactly is refused at configure rather than at the first batch.
      */
-    private KafkaRecords.ValueEncoder valueEncoder(PluginContext context) {
+    private KafkaRecords.ValueEncoder valueEncoder(
+            PluginContext context, KafkaSinkEncoders encoders, int[] precisions) {
         String schemaFile = context.get("schema.file", "").strip();
         String schemaId = context.get("schema.id", "").strip();
         String descriptor = context.get("schema.descriptor", "").strip();
@@ -179,69 +195,156 @@ final class KafkaSinkOptions {
                         + "encoding of schema.file; protobuf writes one message of schema.descriptor.");
         }
         refuseUnless(format.equals("avro") || schemaFile.isEmpty(), "schema.file", "avro");
-        refuseUnless(format.equals("avro") || schemaId.isEmpty(), "schema.id", "avro");
+        refuseUnless(
+                format.equals("avro") || format.equals("protobuf") || schemaId.isEmpty(),
+                "schema.id",
+                "avro or format: protobuf");
         refuseUnless(format.equals("protobuf") || descriptor.isEmpty(), "schema.descriptor", "protobuf");
         refuseUnless(format.equals("protobuf") || message.isEmpty(), "schema.message", "protobuf");
-        try {
-            if (format.equals("avro")) {
-                if (schemaFile.isEmpty()) {
-                    throw refusal("format: avro needs schema.file, the writer schema as Avro JSON");
-                }
-                return AvroRowWriter.map(
-                        schema,
-                        AvroSchema.parse(new String(read(schemaFile, "schema.file"), StandardCharsets.UTF_8)),
-                        schemaId(schemaId));
-            }
-            if (format.equals("protobuf")) {
-                if (descriptor.isEmpty() || message.isEmpty()) {
-                    throw refusal("format: protobuf needs schema.descriptor (a FileDescriptorSet, written with "
-                            + "protoc --include_imports --descriptor_set_out=x.desc) and schema.message, and has no "
-                            + (descriptor.isEmpty() ? "schema.descriptor" : "schema.message"));
-                }
-                return ProtobufRowWriter.map(
-                        schema, ProtobufSchemas.message(read(descriptor, "schema.descriptor"), message));
+        if (format.equals("json")) {
+            return null;
+        }
+        return encoders.build(
+                new KafkaSinkEncoders.Spec("value", "schema.", format, schemaFile, schemaId, descriptor, message),
+                schema,
+                precisions);
+    }
+
+    /**
+     * The key writer {@code key.format} names, over the key columns in {@code key.columns} order --
+     * or every column, in a changelog with no key columns -- with its options checked here (KSF-1).
+     */
+    private KafkaRecords.ValueEncoder keyEncoder(PluginContext context, KafkaSinkEncoders encoders, int[] precisions) {
+        String file = context.get("key.schema.file", "").strip();
+        String id = context.get("key.schema.id", "").strip();
+        String message = context.get("key.schema.message", "").strip();
+        String descriptor = context.get("key.schema.descriptor", "").strip();
+        switch (keyFormat) {
+            case "json", "string", "avro", "protobuf" -> {}
+            default ->
+                throw refusal("key.format '" + keyFormat + "' is not json, string, avro or protobuf. json writes the "
+                        + "key columns as a JSON object; string one key column as its text; avro and protobuf "
+                        + "the key columns as key.schema.file's record or key.schema.message");
+        }
+        refuseUnless(keyFormat.equals("avro") || file.isEmpty(), "key.schema.file", "avro", "key.format");
+        refuseUnless(
+                keyFormat.equals("avro") || keyFormat.equals("protobuf") || id.isEmpty(),
+                "key.schema.id",
+                "avro or key.format: protobuf",
+                "key.format");
+        refuseUnless(keyFormat.equals("protobuf") || message.isEmpty(), "key.schema.message", "protobuf", "key.format");
+        refuseUnless(
+                keyFormat.equals("protobuf") || descriptor.isEmpty(),
+                "key.schema.descriptor",
+                "protobuf",
+                "key.format");
+        if (keyFormat.equals("json")) {
+            return null;
+        }
+        if (keyFormat.equals("protobuf") && descriptor.isEmpty() && id.isEmpty()) {
+            // The key message is usually declared in the same .proto as the value's.
+            descriptor = context.get("schema.descriptor", "").strip();
+        }
+        int[] ordinals = keyOrdinals.length > 0 ? keyOrdinals : allOrdinals();
+        StreamSchema.Builder keys = StreamSchema.builder(topic + "-key");
+        int[] keyPrecisions = new int[ordinals.length];
+        for (int k = 0; k < ordinals.length; k++) {
+            keys.field(
+                    schema.field(ordinals[k]).name(), schema.field(ordinals[k]).type());
+            keyPrecisions[k] = precisions[ordinals[k]];
+        }
+        return encoders.build(
+                new KafkaSinkEncoders.Spec("key", "key.schema.", keyFormat, file, id, descriptor, message),
+                keys.build(),
+                keyPrecisions);
+    }
+
+    private int[] allOrdinals() {
+        int[] all = new int[schema.fieldCount()];
+        for (int i = 0; i < all.length; i++) {
+            all[i] = i;
+        }
+        return all;
+    }
+
+    /**
+     * The registry {@code schema.registry.url} names, to check the binding's schema ids against at
+     * configuration (KSF-3), or null when there is none. The caller closes it.
+     */
+    private SchemaRegistry registry(PluginContext context) {
+        String url = context.get("schema.registry.url", "").strip();
+        String user = context.get("schema.registry.user", "").strip();
+        String password = context.get("schema.registry.password", "");
+        String token = context.get("schema.registry.token", "").strip();
+        if (url.isEmpty()) {
+            if (!user.isEmpty() || !password.strip().isEmpty() || !token.isEmpty()) {
+                throw refusal("sets schema.registry.user, schema.registry.password or schema.registry.token "
+                        + "without schema.registry.url, so there is no registry to send them to");
             }
             return null;
-        } catch (AvroSchema.Invalid e) {
-            throw new ConfigurationException(
-                    KafkaErrors.SCHEMA_UNMAPPABLE,
-                    "sink '" + instanceName + "': schema.file '" + schemaFile + "' is not an Avro schema: "
-                            + e.getMessage());
-        } catch (KafkaValueDecoder.Unmappable e) {
-            throw new ConfigurationException(
-                    KafkaErrors.SCHEMA_UNMAPPABLE,
-                    "sink '" + instanceName + "': the stream's columns cannot be written as " + format + ": "
-                            + e.getMessage());
+        }
+        if (context.get("schema.id", "").isBlank()
+                && context.get("key.schema.id", "").isBlank()) {
+            throw refusal("sets schema.registry.url and neither schema.id nor key.schema.id: the sink registers "
+                    + "nothing, and asks the registry only to check the ids it writes. Set the id the schema was "
+                    + "registered under, or remove schema.registry.url");
+        }
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            throw refusal("schema.registry.url '" + url + "' is not an http:// or https:// URL");
+        }
+        try {
+            URI.create(url);
+        } catch (IllegalArgumentException e) {
+            throw refusal("schema.registry.url '" + url + "' is not a URL: " + e.getMessage());
+        }
+        SSLContext tls = null;
+        if (url.startsWith("https://")) {
+            if (!PluginTls.verifyHostname(context)) {
+                throw refusal("sets tls.verify-hostname: false with an https schema.registry.url. The JDK's HTTP "
+                        + "client verifies the certificate's name and cannot be told not to for one client; use "
+                        + "http:// for the registry, or a certificate whose name matches");
+            }
+            tls = PluginTls.from(context, KafkaErrors.BAD_CONFIGURATION).orElse(null);
+        }
+        return new SchemaRegistry(
+                instanceName,
+                "sink",
+                "Its schema ids are checked against the registry before the sink writes a record, so the sink is "
+                        + "not registered until the registry answers.",
+                url,
+                tls,
+                SchemaRegistry.authorizationHeader(user, password, token),
+                registryTimeout(context));
+    }
+
+    private Duration registryTimeout(PluginContext context) {
+        String raw = context.get("schema.registry.timeout", "10s").strip().toLowerCase(Locale.ROOT);
+        try {
+            Duration parsed = raw.endsWith("ms")
+                    ? Duration.ofMillis(
+                            Long.parseLong(raw.substring(0, raw.length() - 2).strip()))
+                    : raw.endsWith("s")
+                            ? Duration.ofSeconds(Long.parseLong(
+                                    raw.substring(0, raw.length() - 1).strip()))
+                            : Duration.ofMinutes(Long.parseLong(
+                                    raw.substring(0, raw.length() - 1).strip()));
+            if (parsed.isNegative() || parsed.isZero() || !(raw.endsWith("s") || raw.endsWith("m"))) {
+                throw new NumberFormatException(raw);
+            }
+            return parsed;
+        } catch (RuntimeException e) {
+            throw refusal("schema.registry.timeout must be a duration such as 500ms, 10s or 1m, got '" + raw + "'");
         }
     }
 
     private void refuseUnless(boolean fine, String option, String format) {
+        refuseUnless(fine, option, format, "format");
+    }
+
+    private void refuseUnless(boolean fine, String option, String format, String formatOption) {
         if (!fine) {
-            throw refusal(option + " is for format: " + format + ", and this sink writes " + this.format);
-        }
-    }
-
-    private byte[] read(String path, String option) {
-        try {
-            return Files.readAllBytes(Path.of(path));
-        } catch (IOException | InvalidPathException e) {
-            throw refusal("cannot read " + option + " '" + path + "': " + e.getMessage());
-        }
-    }
-
-    /** The Confluent prefix's id, or -1 for bare Avro. Written as given: this sink registers nothing. */
-    private int schemaId(String value) {
-        if (value.isEmpty()) {
-            return -1;
-        }
-        try {
-            int id = Integer.parseInt(value);
-            if (id < 0) {
-                throw new NumberFormatException();
-            }
-            return id;
-        } catch (NumberFormatException e) {
-            throw refusal("schema.id must be a schema registry id, a non-negative 32-bit integer; got '" + value + "'");
+            throw refusal(option + " is for " + formatOption + ": " + format + ", and this sink writes "
+                    + (formatOption.equals("format") ? this.format : keyFormat));
         }
     }
 

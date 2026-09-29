@@ -39,7 +39,10 @@ public final class MySqlCdcErrors {
     /** A stored offset this plugin did not write. */
     public static final ErrorCode MALFORMED_OFFSET = new ErrorCode(5154, "MYCDC_MALFORMED_OFFSET");
 
-    /** The binlog file a restore asks to resume from has been purged from the server. */
+    /**
+     * The binlog file a restore asks to resume from has been purged from the server; for a GTID
+     * position, transactions after it have been.
+     */
     public static final ErrorCode RESUME_POINT_PURGED = new ErrorCode(5155, "MYCDC_RESUME_POINT_PURGED");
 
     /**
@@ -50,6 +53,12 @@ public final class MySqlCdcErrors {
 
     /** The binlog stream failed and reconnecting did not bring it back. */
     public static final ErrorCode STREAM_FAILED = new ErrorCode(5157, "MYCDC_STREAM_FAILED");
+
+    /**
+     * A GTID checkpoint holds transactions the server has not executed: a replica that has not caught
+     * up with the server the checkpoint was read from, or another server altogether.
+     */
+    public static final ErrorCode RESUME_POINT_AHEAD = new ErrorCode(5158, "MYCDC_RESUME_POINT_AHEAD");
 
     private MySqlCdcErrors() {}
 }

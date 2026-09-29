@@ -93,8 +93,11 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   **Delta and Iceberg are the lakehouse formats written**; there is no Hudi sink.
   `iceberg-sink` writes unpartitioned tables on the **local filesystem only** (no object store, no
   catalog service), never evolves a table's schema, holds an upsert checkpoint's collapsed changes
-  in memory until `prepare`, and runs no compaction or snapshot expiry; its equality deletes cost a
-  reader until the table's own engine compacts. `delta-sink` writes unpartitioned or partitioned tables
+  in memory until `prepare` — at most `upsert.max.keys` distinct keys, refused past that with
+  `PRV-5143` rather than spilled (an equality delete cannot apply to data of its own commit) — and
+  runs no compaction or snapshot expiry; its equality deletes cost a reader until the table's own
+  engine compacts. It stays on Iceberg 1.2.1, the newest on the Parquet the Delta and feedfile
+  connectors share, with Avro and Caffeine moved to fixed and server-aligned versions. `delta-sink` writes unpartitioned or partitioned tables
   (`partition.columns`), creates no deletion vectors — and refuses to rewrite a table whose files
   carry them (`PRV-5055`) — and runs no compaction: `OPTIMIZE` and `VACUUM` belong to an engine that
   has them. The `delta` source reads deletion vectors, so a row a `DELETE` marks deleted reaches a
@@ -102,8 +105,12 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   rather than to the change.
 
   `kafka-sink` writes Avro and Protobuf values in upsert mode only (built 2026-09-27); its changelog
-  envelope is JSON, since a schema's fields have no place for the op and weight. It registers no
-  schema: `schema.id` is written as given.
+  envelope is JSON, since a schema's fields have no place for the op and weight. Keys are JSON by
+  default, or text, Avro or Protobuf (`key.format`). It registers no schema: `schema.id` and
+  `key.schema.id` are checked against `schema.registry.url` at registration when it is set (an Avro
+  id without a registry is written unchecked; a Protobuf id needs one, for its message indexes). An
+  Avro time field takes a column declared no finer than it (`TIMESTAMP(3)` for `-millis`), each value
+  floored to the declared digits.
 
   **Buildable:** `iceberg-sink` on an object store (S3 through Iceberg's own FileIO) or a REST or
   Hive catalog, and partitioned Iceberg tables. Compaction stays with the table's own engine.
@@ -130,12 +137,15 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   `mysql-cdc` streams one MySQL table per binding from the row-based binary log
   (`binlog_format = ROW`, `binlog_row_image = FULL`, both refused otherwise, by name). This version
   reads changes only: `snapshot.mode: initial` is refused (`PRV-5150`), so rows already in the table
-  must come another way. It connects in plaintext (`tls.*` is refused), positions by binlog file and
-  offset rather than GTID (a failover to another server cannot resume a checkpoint), takes no
-  declared `schema`, and maps no `JSON`, `ENUM`, `SET`, `BIT`, `TIME`, `YEAR` or spatial column.
-  MySQL keeps binlog files by time, not by what a replica has read, so a checkpoint older than
-  `binlog_expire_logs_seconds` cannot be resumed (`PRV-5155`). `TRUNCATE`, `ALTER`, `DROP` or `RENAME`
-  of the captured table stops it (`PRV-5156`).
+  must come another way. It connects in plaintext (`tls.*` is refused), takes no declared `schema`,
+  and maps no `JSON`, `ENUM`, `SET`, `BIT`, `TIME`, `YEAR` or spatial column. Positions are a binlog
+  file and offset, and with `gtid_mode = ON` the executed GTID set too, which survives a failover to a
+  replica that has caught up (one that has not is `PRV-5158`). MySQL keeps binlog files by time, not by
+  what a replica has read, so a checkpoint whose following changes are purged cannot be resumed
+  (`PRV-5155`); an idle table's position follows the log, so that takes an outage, not a quiet table.
+  `TRUNCATE`, `ALTER`, `DROP` or `RENAME` of the captured table, or a column type change seen in the
+  binlog's table description, stops it (`PRV-5156`); `CHAR`/`BINARY`, `VARCHAR`/`VARBINARY` and
+  `TEXT`/`BLOB` share a binlog type, and a change between them is seen only as the `ALTER` itself.
 
   **Neither CDC source can be replaced in place** (`CREATE OR REPLACE`, `PRV-4018` naming the slot or
   replica id): the running version is the one reader of the binding's replication slot or replica
@@ -143,7 +153,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   Drop and register the new version, or register it on a second binding with a slot (`server.id`)
   of its own. A debug fork is refused the same way (`PRV-8012`).
 
-  **Buildable:** `mysql-cdc`'s initial snapshot, TLS and GTID positions. A CDC replacement that
+  **Buildable:** `mysql-cdc`'s initial snapshot and TLS. A CDC replacement that
   catches up on a slot of its own from an initial snapshot, for a query whose running version also
   began from one. `TRUNCATE` stays a refusal: it names no rows to retract.
 

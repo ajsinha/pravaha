@@ -187,7 +187,8 @@ public final class KafkaSinkPlugin implements StreamSinkPlugin {
     @Override
     public void configure(PluginContext context) {
         this.options = new KafkaSinkOptions(context);
-        this.records = new KafkaRecords(options.schema, options.keyOrdinals, options.changelog, options.valueEncoder);
+        this.records = new KafkaRecords(
+                options.schema, options.keyOrdinals, options.changelog, options.valueEncoder, options.keyEncoder);
         this.staging = new TopicPartition(options.stagingTopic, 0);
     }
 

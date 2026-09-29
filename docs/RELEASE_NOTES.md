@@ -12,6 +12,61 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **`kafka-sink` keys in Avro, Protobuf or text (KSF-1).** `key.format: string | avro | protobuf`
+  (default `json`) writes the key columns, in `key.columns` order, as one column's text, an Avro record
+  (`key.schema.file`, `key.schema.id`) or a Protobuf message (`key.schema.message`,
+  `key.schema.descriptor`, defaulting to `schema.descriptor`), so a registry-aware consumer expecting
+  an Avro key can read it. A tombstone keeps the same key bytes.
+- **Protobuf values behind the Confluent framing (KSF-2).** With `schema.id` and `schema.registry.url`
+  a Protobuf value is the byte `0`, the id and the message's index path in the registered file, then
+  the message; the registry's serialized descriptor says where the message is. A Protobuf `schema.id`
+  without a registry is refused (PRV-5100); `schema.descriptor` may be left out when the registry has
+  the schema.
+- **Schema ids are checked at registration (KSF-3).** `kafka-sink` takes `schema.registry.url` (and
+  its user, password or token and timeout, as the source does) and fetches `schema.id` and
+  `key.schema.id` when the query registers: an Avro id must hold the schema in `schema.file` (or is
+  the writer schema when there is no file), a Protobuf id must hold `schema.message` as
+  `schema.descriptor` describes it, and the columns must map to it — else **PRV-5108** naming the id.
+  An unreachable registry or an unknown id is **PRV-5109**. An Avro id without a registry is still
+  written unchecked.
+- **An Avro time field's precision is checked at registration (KSF-4).** `schema` now takes
+  `TIMESTAMP(p)` and `TIME(p)`. A column goes to a `-millis` field only when declared `(3)` or
+  coarser, to `-micros` at `(6)`; an undeclared `TIMESTAMP` (nanoseconds) is refused with PRV-5108
+  naming the declaration. Each value is floored to the declared digits, so the old write-time
+  refusal (PRV-5102 at the first finer value, which detached the sink) is gone. **Bindings that write
+  `TIMESTAMP`/`TIME` columns to Avro time fields must declare the precision.**
+- **`iceberg-sink` on the server's Caffeine 3, and Avro 1.11.4 (ICE-1, ICE-4).** The plugin declares
+  Caffeine 3.2.4 (Iceberg 1.2.1 asked for 2.9.3; the server already resolved 3) and Avro 1.11.4 (was
+  1.11.1, CVE-2024-47561), and no longer ships Commons Compress 1.21 (CVE-2024-25710, -26308): Avro
+  reaches it only for a bzip2 codec Iceberg never writes. Iceberg stays 1.2.1: every newer release
+  moves Parquet past the 1.12.3 the Delta and feedfile connectors share.
+- **`iceberg-sink` upsert memory is bounded (ICE-2).** `upsert.max.keys` (default 1,000,000) caps the
+  distinct keys one checkpoint interval holds in memory; the next is refused with the new
+  **PRV-5143 ICEBERG_SINK_BUFFER_FULL**.
+- **A repeated Iceberg commit is detected after snapshot expiry (ICE-3).** Each labelled commit also
+  sets the table property `pravaha.committed-label.<transaction.id>` in the same Iceberg transaction;
+  a restart reads it as well as the snapshot history. Before, another engine committing after the sink
+  and expiring its snapshot let a repeated commit apply the checkpoint's rows twice.
+- **`mysql-cdc`: an idle table's position follows the log (MYC-1).** Heartbeats and binlog rotations
+  between transactions move the position, so a purge of files that held nothing for the table no
+  longer refuses a restart with PRV-5155.
+- **`mysql-cdc` GTID positions (MYC-2).** With `gtid_mode = ON` a new registration's offset carries the
+  executed GTID set (`gtid=…;binlog=…`) and a restart resumes by GTID, so a checkpoint survives a
+  failover to a replica. A replica that has not executed all of the checkpoint is refused with the new
+  **PRV-5158 MYCDC_RESUME_POINT_AHEAD**; purged transactions after it are PRV-5155. File positions
+  stay file positions.
+- **`mysql-cdc` reads replication privileges through active roles (MYC-3).** The check expands the
+  roles active at login (`SHOW GRANTS … USING`), and a granted role that is not active is named with
+  `SET DEFAULT ROLE`. (On MySQL 8.0.46 a default role was already accepted; the refusal for an inactive
+  one wrongly blamed role expansion.)
+- **`mysql-cdc` refuses a column type change that keeps the column count (MYC-4).** Each binlog table
+  map is compared with the columns the stream was typed from — type, decimal precision and scale,
+  `NOT NULL`, and signedness under `binlog_row_metadata = FULL` — and a mismatch is PRV-5156 naming
+  the column, before a value is read with the old conversion (a `SMALLINT` −5 was read as 4294967291
+  after `ALTER … INT UNSIGNED`). A DDL statement's leading comments no longer hide it.
+- **`mysql-cdc`: a refusal right after connecting is reported as itself.** A PRV-5156 arriving as the
+  first event used to surface as PRV-5151 after `start.timeout`.
+
 - **A total past 2^63 stops by name instead of wrapping (SUMWRAP-1).** Every `SUM`, `COUNT` and
   `AVG` accumulator — unwindowed, grouped, windowed (per slice and when a window's slices are
   combined), a pushed-down partial, and the read path — adds with checked arithmetic, and a

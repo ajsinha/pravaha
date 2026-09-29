@@ -72,7 +72,7 @@ final class MySqlCdcReader implements PartitionReader {
                 taken += remaining;
                 stream.remove(head);
                 headTaken = 0;
-                position = BinlogOffset.at(head.file(), head.endPosition());
+                position = head.offset();
                 continue;
             }
             if (taken == 0 && remaining > largestOffered) {
@@ -80,7 +80,12 @@ final class MySqlCdcReader implements PartitionReader {
                 deliver(sink, head, headTaken, room);
                 headTaken += room;
                 taken += room;
-                position = new BinlogOffset(position.file(), position.position(), head.alreadyDelivered() + headTaken);
+                position = new BinlogOffset(
+                        position.file(),
+                        position.position(),
+                        head.alreadyDelivered() + headTaken,
+                        position.gtidSet(),
+                        position.isGtid() ? head.gtid() : null);
             }
             break;
         }

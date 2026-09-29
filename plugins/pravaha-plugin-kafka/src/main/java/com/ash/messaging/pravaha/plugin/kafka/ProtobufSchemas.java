@@ -160,6 +160,50 @@ final class ProtobufSchemas {
                 + List.copyOf(messages.keySet()));
     }
 
+    /** A message of a registered schema and its Confluent message-index path in the schema's root file. */
+    record Located(Descriptor message, List<Integer> indexes) {}
+
+    /**
+     * The message called {@code messageName} -- by full name, or by simple name when only one has it
+     * -- among the messages of the registered schema's root file {@code root}, top-level and nested,
+     * with the index path the Confluent framing names it by (KSF-2).
+     *
+     * @throws Unmappable if a file does not build, or the root file has no such message
+     */
+    static Located locate(Map<String, FileDescriptorProto> files, String root, String messageName, String origin) {
+        ProtobufSchemas schemas = new ProtobufSchemas(
+                origin, "The registry lists every import as a reference; this one was not among them");
+        schemas.sources.putAll(files);
+        FileDescriptor file = schemas.build(root);
+        Map<String, Located> found = new LinkedHashMap<>();
+        List<Descriptor> top = file.getMessageTypes();
+        for (int i = 0; i < top.size(); i++) {
+            index(top.get(i), List.of(i), found);
+        }
+        Located exact = found.get(messageName);
+        if (exact != null) {
+            return exact;
+        }
+        List<Located> bySimpleName = found.values().stream()
+                .filter(located -> located.message().getName().equals(messageName))
+                .toList();
+        if (bySimpleName.size() == 1) {
+            return bySimpleName.get(0);
+        }
+        throw new Unmappable(origin + (bySimpleName.isEmpty() ? " has no message called '" : " has more than one '")
+                + messageName + "'. Its root file holds " + List.copyOf(found.keySet()));
+    }
+
+    private static void index(Descriptor message, List<Integer> path, Map<String, Located> into) {
+        into.put(message.getFullName(), new Located(message, path));
+        List<Descriptor> nested = message.getNestedTypes();
+        for (int i = 0; i < nested.size(); i++) {
+            List<Integer> next = new ArrayList<>(path);
+            next.add(i);
+            index(nested.get(i), List.copyOf(next), into);
+        }
+    }
+
     private static void collect(Descriptor message, Map<String, Descriptor> into) {
         into.put(message.getFullName(), message);
         for (Descriptor nested : message.getNestedTypes()) {

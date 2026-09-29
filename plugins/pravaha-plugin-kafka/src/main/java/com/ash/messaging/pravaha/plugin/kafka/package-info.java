@@ -21,8 +21,9 @@
  * by default -- decoding JSON rows by column name, or {@code kafka-sink}'s changelog with its weights.
  *
  * <p>A sink, {@code kafka-sink} ({@code KafkaSinkPlugin}): a continuous query's changes written to a
- * topic as keyed upserts with tombstones, or as an explicit changelog, in JSON -- exactly once to a
- * {@code read_committed} consumer, through a staging topic and Kafka transactions tied to the engine's
- * checkpoints.
+ * topic as keyed upserts with tombstones -- value and key in JSON, Avro or Protobuf, schema ids
+ * checked against a schema registry ({@code KafkaSinkEncoders}) -- or as an explicit JSON changelog,
+ * exactly once to a {@code read_committed} consumer, through a staging topic and Kafka transactions
+ * tied to the engine's checkpoints.
  */
 package com.ash.messaging.pravaha.plugin.kafka;

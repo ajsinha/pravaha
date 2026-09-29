@@ -41,6 +41,7 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotUpdate;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.Transaction;
 import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.data.parquet.GenericParquetWriter;
@@ -67,14 +68,19 @@ import com.ash.messaging.pravaha.api.PravahaException;
  * label is committed its files belong to the table and are never removed by this sink.
  *
  * <p><strong>The table remembers what it committed.</strong> Every commit's snapshot summary carries
- * {@value #TXN_PROPERTY} and {@value #LABEL_PROPERTY}, so {@link #committedLabel} is read from the
- * table itself, and a commit repeated by a restore that cannot know the first one arrived is
- * detected and skipped -- delta-sink's {@code txn} action, in Iceberg's terms.
+ * {@value #TXN_PROPERTY} and {@value #LABEL_PROPERTY}, and the same Iceberg transaction sets the
+ * table property {@value #COMMITTED_PREFIX}{@code <transaction.id>} to the label, so {@link
+ * #committedLabel} is read from the table itself, and a commit repeated by a restore that cannot know
+ * the first one arrived is detected and skipped -- delta-sink's {@code txn} action, in Iceberg's
+ * terms. The property is what survives another engine committing after the sink and then expiring
+ * the sink's snapshot (ICE-3): snapshot expiry removes history, never table properties.
  */
 final class IcebergSinkTable {
 
     static final String TXN_PROPERTY = "pravaha.transaction-id";
     static final String LABEL_PROPERTY = "pravaha.label";
+    /** The table property recording, per transaction id, the newest label committed. */
+    static final String COMMITTED_PREFIX = "pravaha.committed-label.";
 
     private static final String DELETE_PREFIX = "delete-";
     private static final String SUFFIX = ".parquet";
@@ -227,13 +233,15 @@ final class IcebergSinkTable {
             }
         }
         try {
+            // One Iceberg transaction: the snapshot and the label property land together or not at all.
+            Transaction transaction = table.newTransaction();
             SnapshotUpdate<?> update;
             if (deletes.isEmpty()) {
-                var append = table.newAppend();
+                var append = transaction.newAppend();
                 data.forEach(append::appendFile);
                 update = append;
             } else {
-                RowDelta delta = table.newRowDelta();
+                RowDelta delta = transaction.newRowDelta();
                 data.forEach(delta::addRows);
                 deletes.forEach(delta::addDeletes);
                 update = delta;
@@ -243,6 +251,13 @@ final class IcebergSinkTable {
                 update.set(LABEL_PROPERTY, Long.toString(label));
             }
             update.commit();
+            if (txn != null) {
+                transaction
+                        .updateProperties()
+                        .set(COMMITTED_PREFIX + txn, Long.toString(label))
+                        .commit();
+            }
+            transaction.commitTransaction();
         } catch (RuntimeException e) {
             throw writeFailed("cannot commit " + files.size() + " files to the Iceberg table at " + location(), e);
         }
@@ -250,21 +265,36 @@ final class IcebergSinkTable {
     }
 
     /**
-     * The newest label committed for {@code txn}, read from the current snapshot's ancestry: the
-     * first snapshot carrying the transaction id is the newest, since labels only increase.
+     * The newest label committed for {@code txn}: the table property this sink sets with every
+     * labelled commit, or -- for a table written before the property existed -- the current
+     * snapshot's ancestry, walked past any other writer's snapshots to the first carrying the
+     * transaction id, which is the newest since labels only increase. The larger of the two.
      */
     OptionalLong committedLabel(String txn) {
         table.refresh();
+        OptionalLong recorded = OptionalLong.empty();
+        String property = table.properties().get(COMMITTED_PREFIX + txn);
+        if (property != null) {
+            try {
+                recorded = OptionalLong.of(Long.parseLong(property.strip()));
+            } catch (NumberFormatException e) {
+                throw writeFailed(
+                        "the table property " + COMMITTED_PREFIX + txn + " is '" + property + "', not a label; it "
+                                + "was edited by hand, and a repeated commit could not be told from a new one",
+                        e);
+            }
+        }
         Snapshot snapshot = table.currentSnapshot();
         while (snapshot != null) {
             Map<String, String> summary = snapshot.summary();
             if (txn.equals(summary.get(TXN_PROPERTY)) && summary.containsKey(LABEL_PROPERTY)) {
-                return OptionalLong.of(Long.parseLong(summary.get(LABEL_PROPERTY)));
+                long walked = Long.parseLong(summary.get(LABEL_PROPERTY));
+                return OptionalLong.of(recorded.isPresent() ? Math.max(walked, recorded.getAsLong()) : walked);
             }
             Long parent = snapshot.parentId();
             snapshot = parent == null ? null : table.snapshot(parent);
         }
-        return OptionalLong.empty();
+        return recorded;
     }
 
     /** The labels that have a directory under {@code stagingRoot}, ascending. */

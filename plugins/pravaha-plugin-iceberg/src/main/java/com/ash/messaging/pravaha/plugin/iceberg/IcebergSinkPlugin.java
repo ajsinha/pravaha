@@ -60,6 +60,13 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  * label; a commit whose label the table already records is skipped, so a restore that repeats it
  * changes nothing. {@link #abortAfter} removes every uncommitted label after the restored checkpoint.
  *
+ * <p><strong>Upsert mode's memory is bounded</strong> (ICE-2): the collapsed changes of one checkpoint
+ * interval are held until prepare, at most {@code upsert.max.keys} distinct keys (default {@value
+ * #DEFAULT_MAX_KEYS}); the key after that is refused ({@code PRV-5143}) naming the three ways out --
+ * checkpoint more often, raise the bound, or use changelog mode, which writes each batch as it comes.
+ * An Iceberg equality delete does not apply to data files of its own commit, so the interval cannot
+ * be spilled to files and still be one snapshot.
+ *
  * <p>Without checkpoints each write is its own snapshot: atomic, and at least once after a restart.
  *
  * <p><strong>What it assumes:</strong> one writer per {@code transaction.id}, a table on the local
@@ -69,12 +76,16 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  * <p>Configuration: {@code path} (required, the table directory), {@code schema} (required,
  * {@code name:TYPE,...}), {@code mode} ({@code upsert} | {@code changelog}), {@code key.columns}
  * (required in upsert mode), {@code transactional} (default {@code true}), {@code transaction.id}
- * (default the binding's name), {@code create} (default {@code true}).
+ * (default the binding's name), {@code create} (default {@code true}), {@code upsert.max.keys}
+ * (default {@value #DEFAULT_MAX_KEYS}).
  */
 public final class IcebergSinkPlugin implements StreamSinkPlugin {
 
     private static final int MAX_BATCH_ROWS = 1000;
     private static final String HANDLE_PREFIX = "iceberg-sink:v1:";
+
+    /** Distinct keys upsert mode holds for one checkpoint interval, unless the binding says otherwise. */
+    static final long DEFAULT_MAX_KEYS = 1_000_000L;
 
     private String instanceName = "iceberg-sink";
     private String path;
@@ -84,6 +95,7 @@ public final class IcebergSinkPlugin implements StreamSinkPlugin {
     private boolean changelog;
     private boolean transactional;
     private boolean create;
+    private long maxKeys = DEFAULT_MAX_KEYS;
     private String transactionId;
     private Path stagingRoot;
 
@@ -146,6 +158,7 @@ public final class IcebergSinkPlugin implements StreamSinkPlugin {
         this.transactional =
                 Boolean.parseBoolean(context.get("transactional", "true").strip());
         this.create = Boolean.parseBoolean(context.get("create", "true").strip());
+        this.maxKeys = maxKeys(context.get("upsert.max.keys", "").strip());
         this.transactionId = context.get("transaction.id", instanceName).strip();
         if (!transactionId.matches("[A-Za-z0-9._-]{1,200}")) {
             throw new ConfigurationException(
@@ -157,6 +170,31 @@ public final class IcebergSinkPlugin implements StreamSinkPlugin {
         this.table = new IcebergSinkTable(
                 instanceName, root, IcebergSinkSchema.toIceberg(instanceName, schema, changelog, keyNames), !changelog);
         table.check();
+    }
+
+    private long maxKeys(String value) {
+        if (value.isEmpty()) {
+            return DEFAULT_MAX_KEYS;
+        }
+        long parsed;
+        try {
+            parsed = Long.parseLong(value.replace("_", ""));
+        } catch (NumberFormatException e) {
+            parsed = 0;
+        }
+        if (parsed < 1) {
+            throw new ConfigurationException(
+                    IcebergErrors.SINK_BAD_CONFIGURATION,
+                    "plugin '" + instanceName + "' upsert.max.keys must be a positive whole number of keys, got '"
+                            + value + "'");
+        }
+        if (changelog) {
+            throw new ConfigurationException(
+                    IcebergErrors.SINK_BAD_CONFIGURATION,
+                    "plugin '" + instanceName + "' is in changelog mode, which holds nothing in memory, so "
+                            + "upsert.max.keys would mean nothing. Remove it, or use mode: upsert.");
+        }
+        return parsed;
     }
 
     private void readKeyColumns(String keys) {
@@ -273,7 +311,15 @@ public final class IcebergSinkPlugin implements StreamSinkPlugin {
             }
             key.add(change.values()[ordinal]);
         }
-        pending.remove(key);
+        if (pending.remove(key) == null && pending.size() >= maxKeys) {
+            throw new PravahaException(
+                    IcebergErrors.SINK_BUFFER_FULL,
+                    "sink '" + instanceName + "' holds " + pending.size() + " distinct keys changed since "
+                            + (openLabel >= 0 ? "checkpoint " + openLabel + " began" : "this write began")
+                            + ", upsert.max.keys, and upsert mode keeps them in memory until the checkpoint "
+                            + "commits them as one snapshot. Checkpoint more often, raise upsert.max.keys (each key "
+                            + "holds its latest row), or use mode: changelog, which writes each batch as it comes.");
+        }
         pending.put(List.copyOf(key), change);
     }
 

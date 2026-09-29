@@ -23,14 +23,18 @@ import java.util.List;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.DecimalType;
+import com.ash.messaging.pravaha.api.data.Field;
 import com.ash.messaging.pravaha.api.data.PravahaType;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
+import com.ash.messaging.pravaha.api.data.TimestampType;
+import com.ash.messaging.pravaha.api.data.TypeName;
 import com.ash.messaging.pravaha.plugin.kafka.KafkaValueDecoder.Unmappable;
 
 /**
  * {@code kafka-sink} with {@code format: avro}: a row as Avro's binary encoding of the record
  * {@code schema.file} declares, optionally behind the Confluent wire format's prefix (the byte 0 and
- * the four-byte {@code schema.id}). The id is written as given; no schema is registered.
+ * the four-byte {@code schema.id}). No schema is registered; with {@code schema.registry.url} the id
+ * is checked against the registry at configuration ({@link KafkaSinkEncoders}).
  *
  * <p><strong>The mapping is made once, by name, and refuses what it cannot write exactly</strong>
  * ({@link Unmappable}, which the options turn into {@code PRV-5108} at configuration):
@@ -51,9 +55,15 @@ import com.ash.messaging.pravaha.plugin.kafka.KafkaValueDecoder.Unmappable;
  *       {@code timestamp-micros}.
  * </ul>
  *
- * <p>The engine's times are nanoseconds, and Avro's are millis or micros. A {@code TIME} or {@code
- * TIMESTAMP} value with more precision than its field is refused when it is written ({@code
- * PRV-5102}), naming the column and the value, rather than truncated.
+ * <p><strong>Times</strong> (KSF-4). The engine's times are nanoseconds, and Avro's are millis or
+ * micros. A {@code TIME} or {@code TIMESTAMP} column is written to a {@code -millis} field only when
+ * the binding's {@code schema} declares it at most millisecond precision ({@code TIMESTAMP(3)}, {@code
+ * TIME(3)} or coarser), and to a {@code -micros} field only when at most microsecond ({@code (6)});
+ * anything finer -- an undeclared {@code TIMESTAMP} is nanoseconds -- is refused at configuration
+ * ({@code PRV-5108}) naming the column, the field and the declaration that fixes it. The declaration
+ * is the rounding rule: each value is floored (toward the past) to the declared digits, then written
+ * in the field's unit, so a nanosecond part a declared {@code TIMESTAMP(3)} does not carry is dropped
+ * the same way for every row rather than refusing the row that happens to have one.
  */
 final class AvroRowWriter implements KafkaRecords.ValueEncoder {
 
@@ -63,11 +73,14 @@ final class AvroRowWriter implements KafkaRecords.ValueEncoder {
     private final StreamSchema schema;
     private final Slot[] slots;
     private final int schemaId;
+    /** Per column, the nanoseconds a TIME or TIMESTAMP value is floored to; 1 for anything else. */
+    private final long[] floorNanos;
 
-    private AvroRowWriter(StreamSchema schema, Slot[] slots, int schemaId) {
+    private AvroRowWriter(StreamSchema schema, Slot[] slots, int schemaId, long[] floorNanos) {
         this.schema = schema;
         this.slots = slots;
         this.schemaId = schemaId;
+        this.floorNanos = floorNanos;
     }
 
     /**
@@ -75,6 +88,26 @@ final class AvroRowWriter implements KafkaRecords.ValueEncoder {
      * Confluent prefix's id, or -1 for bare Avro.
      */
     static AvroRowWriter map(StreamSchema schema, AvroSchema.Node writer, int schemaId) {
+        return map(schema, writer, schemaId, declared(schema));
+    }
+
+    /** Each TIMESTAMP column's own precision, and nanoseconds for a TIME: what nothing declared says. */
+    static int[] declared(StreamSchema schema) {
+        int[] precisions = new int[schema.fieldCount()];
+        for (int ordinal = 0; ordinal < precisions.length; ordinal++) {
+            PravahaType type = schema.field(ordinal).type();
+            precisions[ordinal] = type instanceof TimestampType timestamp
+                    ? timestamp.precision()
+                    : type.typeName() == TypeName.TIME ? KafkaSchema.NANOS : -1;
+        }
+        return precisions;
+    }
+
+    /**
+     * The same, with each TIME or TIMESTAMP column's declared fractional-second digits ({@link
+     * KafkaSchema#precisions}), which decide the Avro time fields it may be written to.
+     */
+    static AvroRowWriter map(StreamSchema schema, AvroSchema.Node writer, int schemaId, int[] precisions) {
         if (writer.kind != AvroSchema.Kind.RECORD) {
             throw new Unmappable("the Avro schema is " + writer + ", not a record, so it has no fields for the "
                     + "stream's columns");
@@ -111,8 +144,43 @@ final class AvroRowWriter implements KafkaRecords.ValueEncoder {
                     nullBranch,
                     schema.field(ordinal).type(),
                     schema.field(ordinal).name());
+            requirePrecision(slots[i].node(), schema.field(ordinal), field, precisions[ordinal]);
         }
-        return new AvroRowWriter(schema, slots, schemaId);
+        long[] floorNanos = new long[schema.fieldCount()];
+        for (int ordinal = 0; ordinal < floorNanos.length; ordinal++) {
+            floorNanos[ordinal] = precisions[ordinal] < 0 ? 1 : pow10(KafkaSchema.NANOS - precisions[ordinal]);
+        }
+        return new AvroRowWriter(schema, slots, schemaId, floorNanos);
+    }
+
+    /** Refuses a TIME or TIMESTAMP column declared finer than its Avro field's unit. */
+    private static void requirePrecision(AvroSchema.Node node, Field column, AvroSchema.Field field, int digits) {
+        TypeName type = column.type().typeName();
+        if (type != TypeName.TIME && type != TypeName.TIMESTAMP_LTZ) {
+            return;
+        }
+        int fieldDigits = node.logical.endsWith("-millis") ? 3 : 6;
+        if (digits <= fieldDigits) {
+            return;
+        }
+        String kind = type == TypeName.TIME ? "TIME" : "TIMESTAMP";
+        throw new Unmappable("Avro field '" + field.name() + "' is " + node.logical + " and column '" + column.name()
+                + "' is " + kind + "(" + digits + "), whose values may carry "
+                + (digits == KafkaSchema.NANOS ? "nanoseconds" : digits + " fractional digits") + " the field cannot "
+                + "hold. Declare the column " + kind + "(" + fieldDigits
+                + ") (or coarser) in schema, and each value is "
+                + "floored to that precision before it is written"
+                + (fieldDigits == 3
+                        ? ", or write it to a " + node.logical.replace("-millis", "-micros") + " field"
+                        : ""));
+    }
+
+    private static long pow10(int exponent) {
+        long value = 1;
+        for (int i = 0; i < exponent; i++) {
+            value *= 10;
+        }
+        return value;
     }
 
     private static Slot slot(AvroSchema.Field field, int ordinal, int nullBranch, PravahaType type, String column) {
@@ -271,25 +339,20 @@ final class AvroRowWriter implements KafkaRecords.ValueEncoder {
             case STRING -> out.writeString((String) value);
             case BYTES -> out.writeBytes((byte[]) value);
             case TIME ->
-                out.writeLong(
-                        exactly((Long) value, node.logical.equals("time-micros") ? 1_000L : 1_000_000L, node, ordinal));
+                out.writeLong(floored((Long) value, node.logical.equals("time-micros") ? 1_000L : 1_000_000L, ordinal));
             case TIMESTAMP_LTZ ->
-                out.writeLong(exactly(
-                        (Long) value, node.logical.equals("timestamp-micros") ? 1_000L : 1_000_000L, node, ordinal));
+                out.writeLong(
+                        floored((Long) value, node.logical.equals("timestamp-micros") ? 1_000L : 1_000_000L, ordinal));
             default -> throw refused(ordinal, value, "its type is not one this sink writes as Avro");
         }
     }
 
-    /** Nanoseconds in the field's unit, refused rather than truncated when they do not divide. */
-    private long exactly(long nanos, long unit, AvroSchema.Node node, int ordinal) {
-        if (nanos % unit != 0) {
-            throw refused(
-                    ordinal,
-                    nanos + " ns",
-                    "the field is " + node + ", which cannot hold its " + "sub-"
-                            + (unit == 1_000L ? "microsecond" : "millisecond") + " part");
-        }
-        return nanos / unit;
+    /**
+     * Nanoseconds floored to the column's declared precision, in the field's unit: exact, since the
+     * mapping made sure the declared precision is no finer than the unit.
+     */
+    private long floored(long nanos, long unit, int ordinal) {
+        return Math.floorDiv(nanos, floorNanos[ordinal]) * floorNanos[ordinal] / unit;
     }
 
     private void decimal(AvroBinaryWriter out, AvroSchema.Node node, BigDecimal value, int ordinal) {
