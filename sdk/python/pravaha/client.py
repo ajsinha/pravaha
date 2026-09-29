@@ -876,6 +876,7 @@ class Client(DebugCommands):
         overflow: Optional[str] = None,
         reconnect: bool = False,
         reconnect_timeout: Optional[float] = 300.0,
+        changes: str = "changelog",
     ) -> Iterator[ChangeBatch]:
         """Yields one list of rows per commit, for as long as you keep iterating.
 
@@ -909,9 +910,8 @@ class Client(DebugCommands):
         there are none -- and every batch after it is a commit after that one, so adding
         weights gives the view's Z-set with nothing missed and nothing counted twice. For a
         keyed view that upserts (the latest row per key over a stream that only inserts) that
-        is not what a reader sees: a replaced row arrives with no ``-1`` (KEYEDWT-1), so
-        subscribe instead to a query registered over the view, which is fed the view's answer
-        changing and whose weights sum to exactly the rows a reader sees. A subscriber
+        is not what a reader sees: a replaced row arrives with no ``-1`` (KEYEDWT-1), so pass
+        ``changes="answer"`` as well (below). A subscriber
         that falls too far behind has its stream ended with ``PRV-6105`` rather than skipped
         past a commit; subscribe again to start from a fresh snapshot. A server older than
         this SDK refuses ``snapshot=True`` with ``PRV-6102``.
@@ -926,6 +926,15 @@ class Client(DebugCommands):
         remote subscriber could have. Whatever is lost is reported on each batch as
         ``batch.dropped_before`` (STRM-10).
 
+        **The changelog or the answer.** ``changes="changelog"`` (the default) is what the
+        query applied to its view, weights verbatim. ``changes="answer"`` is how the view's
+        answer moved at each commit: the rows a reader stopped seeing at ``-1`` and the rows a
+        reader started seeing at ``+1`` -- so the weights sum to exactly the rows the view
+        shows, through upserts and retention, which a keyed view's changelog does not
+        (SUBANSWERWIRE-1). With ``snapshot=True`` the first batch is each row a reader sees,
+        once. A server older than this SDK refuses ``changes="answer"`` as a ticket it does not
+        know.
+
         **Surviving a restart.** A server that restarts ends every stream it serves. By default
         that ends this generator with :class:`ConnectError` (``PRV-1040``, retryable) or simply
         ends it. With ``reconnect=True`` the subscription opens itself again instead: after the
@@ -938,7 +947,14 @@ class Client(DebugCommands):
         hold with it loses nothing. A plain subscription resumes at the next commit, and what was
         committed while it was down is not delivered.
         """
-        opened = self._subscription_ticket(view, filters, snapshot, buffer_rows, overflow)
+        if changes not in ("changelog", "answer"):
+            raise QueryError(
+                f"changes is 'changelog' (what the query applied) or 'answer' (how the view's "
+                f"answer moved), not {changes!r}"
+            )
+        opened = self._subscription_ticket(
+            view, filters, snapshot, buffer_rows, overflow, answer=changes == "answer"
+        )
         if not reconnect:
             yield from self._batches(self._open_subscription(opened))
             return
@@ -977,7 +993,8 @@ class Client(DebugCommands):
             reopened = True
 
     def _subscription_ticket(self, view: str, filters: Optional[dict[str, Any]], snapshot: bool,
-                             buffer_rows: Optional[int], overflow: Optional[str]) -> Any:
+                             buffer_rows: Optional[int], overflow: Optional[str],
+                             answer: bool = False) -> Any:
         pairs: list[Any] = []
         for column, value in (filters or {}).items():
             pairs.append(str(column))
@@ -989,7 +1006,7 @@ class Client(DebugCommands):
                 raise QueryError(f"a subscriber's buffer must hold at least one row, not {capacity}")
             preference = f"rows={capacity};overflow={(overflow or 'CONFLATE').upper()}"
         return _flight.Ticket(
-            _subscribe_ticket(view, pairs, snapshot=snapshot, preference=preference)
+            _subscribe_ticket(view, pairs, snapshot=snapshot, preference=preference, answer=answer)
         )
 
     def _open_subscription(self, ticket: Any) -> Any:

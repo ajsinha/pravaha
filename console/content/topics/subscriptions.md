@@ -158,8 +158,11 @@ AS SELECT order_id, status FROM latest_status;
 A query over a query is fed its upstream's answer as it changes — per commit, the rows that left it
 at `-1` and the rows that entered it at `+1`, evictions included — so its changelog is the upstream's
 answer and weights summed over it are exactly the view
-([queries on queries](/help/topics/create-continuous-query#queries-on-queries)). In the embedded engine,
-`SubscriptionOptions.DEFAULT.followingTheAnswer()` hands a subscription those changes directly.
+([queries on queries](/help/topics/create-continuous-query#queries-on-queries)). Or ask a
+subscription for those changes directly: `client.subscribe(view, changes="answer")` in Python,
+`subscribeToAnswer` / `subscribeToAnswerFromSnapshot` in the Java SDK, `pravaha subscribe --answer`,
+and `SubscriptionOptions.DEFAULT.followingTheAnswer()` embedded (SUBANSWERWIRE-1). A server older than
+the SDK refuses such a ticket as one it does not know, rather than handing over the changelog.
 Overwriting by key from a plain subscription is exact only while nothing withdraws a key's newest row
 (a `-1` for it brings an older row back) and retention is forever.
 

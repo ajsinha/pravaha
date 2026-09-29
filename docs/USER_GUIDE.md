@@ -226,13 +226,13 @@ for row in batch:
 you what the query applied. For a view keeping the latest row per key over a stream that only
 inserts, a second row under a key arrives as `+1` with **no `-1` for the row it replaced** — the view
 holds both and shows the newer — so summing weights counts that key twice while a reader sees it
-once. To hold exactly what a reader sees, follow the answer: register a continuous query over the
-view (`CREATE CONTINUOUS QUERY latest_copy KEYED BY (order_id) AS SELECT order_id, status FROM
-latest`) and subscribe to it. A query over a query is fed its upstream's answer changing — the rows
-that left at `-1`, the rows that entered at `+1`, per commit — so its weights sum to the view exactly
+once. To hold exactly what a reader sees, **follow the answer**: each commit as the rows that left
+the answer at `-1` and the rows that entered it at `+1`, so the weights sum to the view exactly
 ([CONCEPTS §4](CONCEPTS.md#4-changes-carry-weights-and-a-correction-is-a-retraction-plus-an-insert)).
-Embedded, `SubscriptionOptions.DEFAULT.followingTheAnswer()` hands a subscription those changes
-directly.
+Over the wire: `subscribe(view, changes="answer")` in Python, `subscribeToAnswer` /
+`subscribeToAnswerFromSnapshot` in the Java SDK, `pravaha subscribe --answer` (SUBANSWERWIRE-1);
+embedded, `SubscriptionOptions.DEFAULT.followingTheAnswer()`. A continuous query registered over
+the view is fed the same changes, so a plain subscription to it sums to the view too.
 
 The weight is not one of the view's columns: `row.columns()` lists what the query selected, and a
 positional read gets the column it always got.

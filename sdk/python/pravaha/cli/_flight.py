@@ -415,9 +415,11 @@ def subscribe(ctx: Context) -> int:
         overflow=ctx.arg("overflow"),
         reconnect=reconnect,
         reconnect_timeout=timeout,
+        changes="answer" if ctx.arg("answer") else "changelog",
     )
     ctx.out.note(
         f"subscribing to {view}"
+        + (" (its answer)" if ctx.arg("answer") else "")
         + (f" {filters}" if filters else "")
         + ("; the view's rows print first, then" if snapshot else ";")
         + " changes print as they are committed. Ctrl-C to stop."

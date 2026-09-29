@@ -12,6 +12,14 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **Answer-following subscriptions over the wire (SUBANSWERWIRE-1).** A subscription that follows
+  the view's answer — per commit, the rows a reader stopped seeing at `-1` and started seeing at
+  `+1`, so its weights sum to the view even for a keyed view that upserts — was reachable only
+  embedded (`SubscriptionOptions.followingTheAnswer()`). The Flight ticket now carries it, as two
+  new verbs (`subscribe.answer`, `subscribe.answer.snapshot`) an older server refuses rather than
+  misreads: `client.subscribe(view, changes="answer")` in Python, `subscribeToAnswer` and
+  `subscribeToAnswerFromSnapshot` in the Java SDK, `pravaha subscribe --answer`.
+  `JavaSdkAnswerSubscriptionTest`, SDK and CLI tests.
 - **A `DECIMAL` group key and `COUNT(DISTINCT decimal)` work without a window too (DECKEYGROUP-1).**
   A read of a view grouping by a decimal column or counting its distinct values, and a continuous
   query over a view grouping by one, were refused `PRV-3020` (the continuous query at registration,

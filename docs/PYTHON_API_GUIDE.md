@@ -211,15 +211,18 @@ That copy is the view's Z-set: every row it holds, with its weight. For a **keye
 upserts** — the latest row per key over a stream that only inserts — the view holds a key's old row
 beside its new one and shows the newer, and a subscription carries the new row's `+1` with no `-1`
 for the old (KEYEDWT-1), so `live` above lists both where a reader sees one. To hold exactly what a
-reader sees, subscribe to a continuous query registered **over** the view: it is fed the view's
-answer as it changes, the row that left at `-1` and the row that entered at `+1`, so its weights sum
-to the view:
+reader sees, **follow the answer**: `changes="answer"` hands each commit as the row that left the
+answer at `-1` and the row that entered it at `+1` (evictions included), and with `snapshot=True`
+starts from each row a reader sees, once — so the weights sum to the view (SUBANSWERWIRE-1):
 
 ```python
-client.register("latest_copy", "SELECT order_id, status FROM latest", key_columns=[0])
-for batch in client.subscribe("latest_copy", snapshot=True, overflow="FAIL"):
+for batch in client.subscribe("latest", snapshot=True, overflow="FAIL", changes="answer"):
     ...   # apply weights exactly as above
 ```
+
+A server older than this SDK refuses `changes="answer"` as a ticket it does not know. A continuous
+query registered **over** the view is fed the same changes, and a plain subscription to it sums to
+the view too.
 
 Subscribing and then reading the view separately **can lose the commit in flight between the two**,
 silently; `snapshot=True` exists to close that gap. Ask for `overflow="FAIL"` when you keep a copy:

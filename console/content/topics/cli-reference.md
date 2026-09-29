@@ -7,7 +7,7 @@ icon: terminal
 summary: "Every pravaha command and flag — query, register, subscribe, lifecycle, blue/green, dead letters, the debugger, status, lanes, audit, identity and the assistant — with output, --json, exit codes and its refusals; and pravaha-engine for SQL with no server."
 badge: REFERENCE
 audience: Developers
-keywords: [cli, pravaha, pravaha-engine, command line, query, register, queries, subscribe, pause, resume, drop, replace, cutover, rollback, dlq, debug, status, health, streams, views, describe, plan, lanes, rebalance, audit, tenants, permissions, login, logout, whoami, user, key, session, version, ask, explain-sql, why, assist, "--url", "--http", "--token", "--insecure-token", "--json", "--yes", "--sql-file", "--params", "--filter", "--snapshot", "--reconnect", PRAVAHA_URL, PRAVAHA_HTTP, PRAVAHA_TOKEN, NO_COLOR, exit code, alerts, alert, snooze, ack]
+keywords: [cli, pravaha, pravaha-engine, command line, query, register, queries, subscribe, pause, resume, drop, replace, cutover, rollback, dlq, debug, status, health, streams, views, describe, plan, lanes, rebalance, audit, tenants, permissions, login, logout, whoami, user, key, session, version, ask, explain-sql, why, assist, "--url", "--http", "--token", "--insecure-token", "--json", "--yes", "--sql-file", "--params", "--filter", "--snapshot", "--answer", "--reconnect", PRAVAHA_URL, PRAVAHA_HTTP, PRAVAHA_TOKEN, NO_COLOR, exit code, alerts, alert, snooze, ack]
 guide: quickstart
 related: [clients, http-api, subscriptions, lanes, authentication]
 ---
@@ -309,7 +309,7 @@ DROP CONTINUOUS QUERY spend_by_hour;
 ### `subscribe`
 
 ```text
-pravaha subscribe --view <name> [--filter col=val[,col=val]]... [--snapshot] [--limit N]
+pravaha subscribe --view <name> [--filter col=val[,col=val]]... [--snapshot] [--answer] [--limit N]
                   [--reconnect [--reconnect-timeout S]] [--buffer-rows N --overflow CONFLATE|DROP_OLDEST|FAIL]
 ```
 
@@ -318,6 +318,7 @@ pravaha subscribe --view <name> [--filter col=val[,col=val]]... [--snapshot] [--
 | `--view` | required | The view to follow |
 | `--filter` | none | Equality filters applied at the tap on the server; repeatable. A column the view lacks is refused with PRV-8002; a malformed pair is exit `2` |
 | `--snapshot` | off | Print the view's rows first, then every commit after them — none missed and none counted twice. Without it the stream starts at the next commit |
+| `--answer` | off | Print how the view's **answer** moves — rows a reader stops seeing at `-1`, rows a reader starts seeing at `+1` — instead of the changelog. For a keyed view that upserts, only these weights sum to the view |
 | `--limit` | `0` (none) | Stop after this many rows, at the end of that commit |
 | `--reconnect` | off | When the node restarts, open the stream again (backoff 0.25–10 s) instead of ending |
 | `--reconnect-timeout` | `300` | Seconds without a stream before giving up; `0` never gives up |

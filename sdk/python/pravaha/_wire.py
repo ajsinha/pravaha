@@ -79,10 +79,14 @@ def _subscribe_ticket(
     *,
     snapshot: bool = False,
     preference: Optional[str] = None,
+    answer: bool = False,
 ) -> bytes:
-    # A verb of its own for the snapshot form, so an older server refuses it as a ticket it
-    # does not know rather than reading a flag as a filter column.
-    verb = "subscribe.snapshot" if snapshot else "subscribe"
+    # A verb of its own for the snapshot form, and for following the answer (SUBANSWERWIRE-1),
+    # so an older server refuses it as a ticket it does not know rather than reading a flag as a
+    # filter column -- or quietly handing the changelog to a client that asked for the answer.
+    verb = "subscribe.answer" if answer else "subscribe"
+    if snapshot:
+        verb += ".snapshot"
     fields = [verb, view, *filter_pairs]
     if preference is not None:
         # Last, and that is what makes it safe to add (STRM-16). Filter pairs are alternating

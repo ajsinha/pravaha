@@ -73,7 +73,7 @@ class _Engine(flight.FlightServerBase):
         schema = pa.schema([pa.field("user_id", pa.string()), weight])
 
         def batches():
-            if fields[0] == "subscribe.snapshot":
+            if fields[0].endswith(".snapshot"):
                 snap = pa.record_batch([pa.array(["u1"]), pa.array([1])], schema=schema)
                 yield snap, pa.py_buffer(b"pravaha:snapshot-end:5")
             change = pa.record_batch([pa.array(["u1", "u2"]), pa.array([-1, 1])], schema=schema)
@@ -235,6 +235,16 @@ def test_subscribe_prints_the_snapshot_then_each_commit_with_signed_weights(engi
     ]
     assert "subscribing to spend" in err
     assert engine.actions[-1] == ("ticket", ["subscribe.snapshot", "spend", "user_id", "u1"])
+
+
+def test_subscribe_answer_asks_for_the_answer_on_the_ticket(engine):
+    # SUBANSWERWIRE-1: --answer is the answer's own verb; with --snapshot, its snapshot form.
+    code, _, err = run(engine, "subscribe", "--view", "spend", "--answer")
+    assert code == EXIT_OK
+    assert "(its answer)" in err
+    assert engine.actions[-1] == ("ticket", ["subscribe.answer", "spend"])
+    run(engine, "subscribe", "--view", "spend", "--answer", "--snapshot")
+    assert engine.actions[-1] == ("ticket", ["subscribe.answer.snapshot", "spend"])
 
 
 def test_subscribe_as_json_lines_and_with_a_limit(engine):

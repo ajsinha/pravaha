@@ -18,7 +18,6 @@ package com.ash.messaging.pravaha.flight;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -923,12 +922,9 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
      */
     private void streamSubscription(CallContext context, Ticket ticket, ServerStreamListener listener) {
         try {
-            List<String> fields = ControlWire.decode(ticket.getBytes());
-            boolean fromSnapshot = fields.size() >= 2 && ControlWire.SUBSCRIBE_FROM_SNAPSHOT.equals(fields.get(0));
-            if (fields.size() < 2 || !(fromSnapshot || ControlWire.SUBSCRIBE.equals(fields.get(0)))) {
-                throw new PravahaException(FlightErrors.BAD_HANDLE, "this is not a subscription ticket");
-            }
-            String viewName = fields.get(1);
+            SubscriptionTicket asked = SubscriptionTicket.read(ticket.getBytes());
+            boolean fromSnapshot = asked.fromSnapshot();
+            String viewName = asked.view();
             Principal principal = principalOf(context);
             QueryRegistry required = requireRegistry();
 
@@ -939,7 +935,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
             // authorized for, and which names exist is data.
             // SUBSCRIBE, not SELECT (ADR-059): receiving changes live is a right of its own.
             AccessDecision decision = policy.maySubscribe(principal, viewName);
-            audit.record(AuditEvent.of(principal, "subscribe", viewName, decision, filterText(fields)));
+            audit.record(AuditEvent.of(principal, "subscribe", viewName, decision, asked.filterText()));
             if (!decision.allowed()) {
                 throw new PravahaException(
                         SecurityErrors.FORBIDDEN,
@@ -971,20 +967,8 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                                 + "carries only the rows this principal may see.");
             }
 
-            // An odd tail is this subscriber's buffer preference, riding last (STRM-16). Filter
-            // pairs are alternating column and value, so their count is even; one more field makes
-            // it odd, which is why a preference can be added without a version bump and with no
-            // chance of a filter column being read as a policy.
-            int pairsEnd = fields.size();
-            ControlWire.SubscriberPreference preference = null;
-            if ((fields.size() - 2) % 2 == 1) {
-                preference = ControlWire.SubscriberPreference.decode(fields.get(fields.size() - 1));
-                pairsEnd = fields.size() - 1;
-            }
-            Map<String, Object> equals = new LinkedHashMap<>();
-            for (int i = 2; i + 1 < pairsEnd; i += 2) {
-                equals.put(fields.get(i), fields.get(i + 1));
-            }
+            // The tap filter and the buffer preference (STRM-16) are read by SubscriptionTicket.
+            Map<String, Object> equals = asked.equals();
             // ADR-059 §4: what this principal is shown of the view -- its row filter and masks -- applied to
             // the snapshot and every commit; a tap filter on a masked column would compare its real value.
             Narrowing opened = policy.narrowing(principal, viewName);
@@ -1000,7 +984,8 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
             SubscriptionFilter filter = equals.isEmpty()
                     ? SubscriptionFilter.none()
                     : SubscriptionFilter.matching(query.outputSchema(), equals);
-            SubscriptionOptions options = SubscriptionHandover.optionsOf(preference);
+            // Following the answer rather than the changelog, when the ticket asked (SUBANSWERWIRE-1).
+            SubscriptionOptions options = asked.options();
 
             StreamSchema schema = query.outputSchema();
             Schema arrow = ArrowSchemas.subscriptionSchema(schema);
@@ -1024,7 +1009,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                 listener.start(root);
                 listener.setOnCancelHandler(finished::countDown);
                 try (Subscription subscription = fromSnapshot
-                        ? subscribeFromSnapshot(query, filter, handover, fellBehind)
+                        ? subscribeFromSnapshot(query, asked.snapshotOptions(), filter, handover, fellBehind)
                         // subscribeAs, not subscribe: the subscription remembers the name this
                         // client asked for, so dropping that name ends this stream even when the
                         // computation survives under another (STRM-14).
@@ -1217,13 +1202,12 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
      */
     private static Subscription subscribeFromSnapshot(
             RegisteredQuery query,
+            SubscriptionOptions options,
             SubscriptionFilter filter,
             BlockingQueue<Handed> handover,
             AtomicBoolean fellBehind) {
         return query.subscribeFromSnapshot(
-                SubscriptionOptions.of(Integer.MAX_VALUE, SubscriptionOptions.Overflow.FAIL),
-                filter,
-                new com.ash.messaging.pravaha.registry.SubscriptionListener() {
+                options, filter, new com.ash.messaging.pravaha.registry.SubscriptionListener() {
                     @Override
                     public void onSnapshot(List<com.ash.messaging.pravaha.serving.ViewChange> rows, long frontier) {
                         hand(rows, new ControlWire.BatchMark(ControlWire.BatchMark.SNAPSHOT_END, frontier));
@@ -1299,10 +1283,6 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
         org.apache.arrow.memory.ArrowBuf metadata = allocator.buffer(encoded.length);
         metadata.writeBytes(encoded);
         listener.putNext(metadata);
-    }
-
-    private static String filterText(List<String> fields) {
-        return fields.size() > 2 ? String.join("=", fields.subList(2, fields.size())) : "no filter";
     }
 
     private QueryRegistry requireRegistry() {
