@@ -409,7 +409,10 @@ public final class SlicedAggregateState implements AutoCloseable {
             WindowDistinctCounts counts = distinctCounts;
             SliceAccumulator combined = new SliceAccumulator(kinds.length);
             long[] emitted = {0};
-            offHeap.forEach(handle -> {
+            // SPILL-4: in store order, not the index's hash order. Deciding whether an
+            // accumulator is in this window reads it; in hash order that read landed at a random
+            // address, which past the page cache is a fault reading far more than the entry.
+            offHeap.forEachInStoreOrder(handle -> {
                 int position = indexOf(sliceStarts, offHeap.sliceStartOf(handle));
                 if (position < 0) {
                     return;
@@ -551,7 +554,10 @@ public final class SlicedAggregateState implements AutoCloseable {
         // was a heap the size of the whole state at every watermark advance (SPILL-3's sibling).
         long[][] deadHandles = {new long[64]};
         int[] deadCount = {0};
-        offHeap.forEach(handle -> {
+        // In store order (SPILL-4): every watermark advance reads every accumulator's slice here,
+        // and in the index's hash order each of those reads was a random one. Removed after the
+        // walk, never during it.
+        offHeap.forEachInStoreOrder(handle -> {
             if (dead.test(offHeap.sliceStartOf(handle))) {
                 if (deadCount[0] == deadHandles[0].length) {
                     deadHandles[0] = java.util.Arrays.copyOf(deadHandles[0], deadCount[0] * 2);

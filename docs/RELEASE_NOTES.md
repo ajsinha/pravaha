@@ -12,6 +12,32 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **A window whose state has spilled fires at memory speed again (SPILL-4).** Firing a window and
+  discarding dead slices walked every accumulator in the index's hash order, a random read each;
+  they now walk the store slab by slab (`RowStore.forEachLive`). Under a 384 MiB cap, 1.18 M
+  accumulators: firing 295,384 groups took 0.6 s instead of 87.3 s, 2,517 major faults instead of
+  452,758, 154 MB read instead of 25.3 GB.
+- **A periodic task that overruns its period says so, and cannot stop its schedule (OBS-1).** The
+  shared clock skipped ticks while a checkpoint or watermark tick was still running without a word;
+  it now logs once when a firing overruns and again, with the count, when it finishes. A firing that
+  could not be handed to a thread left its flag set, so every later tick was skipped for good, and an
+  exception out of the timer would have cancelled the schedule; both are caught.
+- **Performance harnesses decline under the coverage agent (PERF-1).** One check, `CoverageAgent` in
+  `pravaha-common`, is asked by every harness that times: `ProfileAGateIT`, `ProfileBGateIT`,
+  `NexmarkCoverageIT`'s timing test, `RestartCompileIT` and `OperatorMetricsOverheadIT` skip naming
+  the agent; the JMH benchmarks refuse in their trial setup; `NodeScaleTest`, `SourceScaleTest` and
+  `ThousandQueryTest` keep asserting their counts and mark the times they print. Take figures with
+  `-Djacoco.skip=true` (`benchmarks/README.md`). Re-taken without it: per-operator metrics cost
+  **about 12 %** of a narrow query's throughput (was quoted as 8 %, measured under the agent); eight
+  lanes scale to 30–31 % of linear (gate P2 still not reached).
+- **A debug fixture comes out formatted, or says it is not (FIX-3).** Exported where the Palantir
+  formatter is on the classpath, the fixture is formatted as `spotless:check` requires; a node has no
+  formatter, so its fixture carries a comment above the `package` line asking for
+  `./mvnw -pl pravaha-it spotless:apply`, which that step replaces with the licence header, and
+  `pravaha debug fixture --out` prints the same note.
+- **Exporting a session that stepped no rows is refused by name (FIX-2).** A session that stepped only
+  event time answers `PRV-8015` ("has stepped no rows") on `debug fixture`: its fixture would replay
+  nothing and assert an empty view. It was refused before as `PRV-3022`, windows from 1970.
 - **`pravaha.codegen.enabled` is a configuration key (CODEGENPROP-1).** It was read only as a JVM
   system property, so `codegen: enabled: false` in `application.yaml` changed nothing. It is now
   bound like every `pravaha.*` key (YAML, `PRAVAHA_CODEGEN_ENABLED`, `--pravaha.codegen.enabled`),

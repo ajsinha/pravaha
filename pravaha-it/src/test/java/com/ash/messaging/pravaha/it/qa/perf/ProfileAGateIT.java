@@ -126,18 +126,14 @@ final class ProfileAGateIT {
 
     @BeforeAll
     static void refuseACoverageAgent() {
-        List<String> arguments =
-                java.lang.management.ManagementFactory.getRuntimeMXBean().getInputArguments();
         // Skipped, not failed. Under the agent there is no measurement to take -- its per-class probe
         // arrays are written by every lane on every row, which put eight lanes at 1 % of linear -- so
         // the harness declines to report a number. But the build runs with coverage on as a matter
         // of course, and a harness that failed it every time would fail every gate for a reason that
         // is not a defect; the skip says why, by name, in the report.
         org.junit.jupiter.api.Assumptions.assumeFalse(
-                arguments.stream().anyMatch(argument -> argument.contains("jacoco")),
-                "a JaCoCo agent is attached to this JVM, and its per-class probe arrays are written by "
-                        + "every lane on every row: the measurement would be of the agent. Run with "
-                        + "-Djacoco.skip=true to measure.");
+                com.ash.messaging.pravaha.common.observe.CoverageAgent.attached(),
+                com.ash.messaging.pravaha.common.observe.CoverageAgent.DECLINED);
     }
 
     /** Installs the generator, or removes it, for the queries a pass is about to start. */

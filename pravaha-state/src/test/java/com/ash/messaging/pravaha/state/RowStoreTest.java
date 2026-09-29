@@ -43,6 +43,33 @@ class RowStoreTest {
 
     private static final int SLAB = 1 << 16;
 
+    /** SPILL-4: every live block once, freed ones not at all, in the order they lie in memory. */
+    @Test
+    void aWalkInMemoryOrderVisitsEveryLiveBlockOnceInAddressOrder() {
+        try (RowStore store = new RowStore(MemoryAccess.best(), SLAB, 64)) {
+            List<Long> live = new ArrayList<>();
+            for (int i = 0; i < 3000; i++) {
+                live.add(store.allocate(i % 3 == 0 ? 40 : 300));
+            }
+            for (int i = 0; i < live.size(); i += 7) {
+                store.release(live.get(i));
+            }
+            List<Long> kept = new ArrayList<>();
+            for (int i = 0; i < live.size(); i++) {
+                if (i % 7 != 0) {
+                    kept.add(live.get(i));
+                }
+            }
+            assertThat(store.slabCount()).as("the walk crosses slabs").isGreaterThan(1);
+
+            List<Long> visited = new ArrayList<>();
+            store.forEachLive(visited::add);
+
+            assertThat(visited).containsExactlyInAnyOrderElementsOf(kept);
+            assertThat(visited).as("slab, then offset: a handle's own order").isSorted();
+        }
+    }
+
     @Test
     void aBlockHoldsWhatIsWrittenToIt() {
         try (RowStore store = new RowStore(MemoryAccess.best(), SLAB, 4)) {

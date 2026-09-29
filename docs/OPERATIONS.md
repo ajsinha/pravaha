@@ -146,7 +146,11 @@ count on the disk. Firing a window no longer needs heap in proportion to it (SPI
 streams each group out as it is combined, so a window of 1.6 M accumulators fired with a 32 MiB heap
 (it threw `OutOfMemoryError` at 160 MiB before). What it does need, once the state is on disk, is the
 disk: under a 512 MiB cap that window fired at about 900 groups/s, against about 650,000 with the
-files in the page cache.
+files in the page cache. That was the walk, not the disk (SPILL-4): `fire` and the watermark's
+discard read every accumulator in the index's hash order, a random address each; they now read the
+store slab by slab. Measured the same way at a smaller size (384 MiB cap, 1.18 M accumulators, 295,384
+groups): the capped fire went from 87.3 s at 3,385 groups/s, 452,758 major faults and 25.3 GB read to
+0.6 s at 454,563 groups/s, 2,517 faults and 154 MB read.
 
 With it, join and windowed-aggregate state that outgrows memory is written to mapped files and the
 query keeps running, slower, instead of dying with `PRV-4001`. It is off by default, and stays so
@@ -1742,7 +1746,19 @@ best of five passes after three warm-ups.
 | off | 11.4 – 12.6 M |
 | on | 10.5 – 11.6 M |
 
-**Cost: 7.9 %, 8.2 %, 8.6 % — call it 8 %.**
+**Cost: 7.9 %, 8.2 %, 8.6 % — call it 8 %.** Those runs had the JaCoCo agent attached, as every
+test JVM did by default (PERF-1), and the agent's probes slowed both arms and diluted the share.
+
+**Re-taken 2026-09-29 without it** (`-Djacoco.skip=true`; the harness now refuses to run under the
+agent), three runs at load 1.7–3.9 of 24:
+
+| `pravaha.metrics.operators` | Rows a second |
+|---|---|
+| off | 16.3 – 16.4 M |
+| on | 14.3 – 14.5 M |
+
+**Cost: 12.6 %, 11.9 %, 11.5 % — call it 12 %.** Faster in absolute terms on both arms, and the
+wrappers are a larger share of a smaller total. This is the figure to quote.
 
 **This measurement needs an idle machine, and says so.** Repeated while another build was running
 (load 8 to 14 of 24 threads) the same harness gave 6.1 %, 13.8 %, 14.1 % and 17.1 % — an eleven-point

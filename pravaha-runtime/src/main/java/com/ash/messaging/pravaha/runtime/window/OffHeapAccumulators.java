@@ -230,6 +230,11 @@ final class OffHeapAccumulators implements AutoCloseable {
         map.forEach(visitor::accept);
     }
 
+    /** {@link #forEach}, in the order accumulators lie in the store: one pass over it (SPILL-4). */
+    void forEachInStoreOrder(java.util.function.LongConsumer visitor) {
+        map.forEachInStoreOrder(visitor::accept);
+    }
+
     int size() {
         return map.size();
     }

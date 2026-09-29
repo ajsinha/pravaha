@@ -244,6 +244,26 @@ lane of one query sit on whichever cores the scheduler gives them, possibly on d
 each row crosses between them through the inbox. Pinning is not available from Java, and was not
 tried.
 
+### Re-taken on 2026-09-29, without the coverage agent (PERF-1)
+
+Once, to confirm the 2026-09-26 figures were not an artefact of the agent that section found. Same
+machine, `-Djacoco.skip=true`, `-am` so the modules measured are the tree's own, only the scaling arm
+(`-Dtest='ProfileAGateIT#profileAScalingFromOneLaneToEight'`), 8,000,000 rows a lane a pass, best of
+three; load average 3.1 at the start and 5.2 at the end (0.22 per processor).
+
+| Lanes | Interpreted | Generated |
+|---|---|---|
+| 1 | 59,029,313 | 58,545,613 |
+| 2 | 101,693,508 (**86 %**) | 102,869,778 (**88 %**) |
+| 4 | 156,895,529 (**66 %**) | 97,559,877 (**42 %**) |
+| 8 | 148,067,427 (**31 %**) | 138,225,027 (**30 %**) |
+
+**Eight lanes: 30–31 % of linear, NOT REACHED** — inside the 2026-09-26 range's neighbourhood (33–46 %)
+and nowhere near 1 %, so the 2026-09-26 figures stand as figures about the engine. Every harness that
+times now declines under the agent through one check (`CoverageAgent`, `pravaha-common`): the JUnit
+harnesses skip naming it, the JMH benchmarks refuse in their trial setup, and the harnesses that
+assert counts mark the times they print `NOT A FIGURE`. `benchmarks/README.md` says how to take one.
+
 ### C-7: generated against interpreted, end to end, 2026-09-26
 
 Since C-7 a registered query's filter and projection run generated code. What that is worth end to

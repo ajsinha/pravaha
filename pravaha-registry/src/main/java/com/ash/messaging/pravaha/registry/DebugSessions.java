@@ -290,6 +290,18 @@ public final class DebugSessions implements AutoCloseable {
      */
     public FixtureExport export(String id, String name, Principal principal) {
         DebugSession session = require(id, principal, "debug-export");
+        // FIX-2. A fixture replays the session's rows from empty state, so a session that stepped
+        // only event time has nothing to replay: its fixture would assert an empty view, which
+        // reproduces nothing. It was refused before, but as PRV-3022, a window operator walking from
+        // the epoch -- the right refusal for the wrong reason. Refused here, by what is missing.
+        if (session.script().stream().allMatch(DebugSession.Action::isWatermark)) {
+            throw new PravahaException(
+                    DebugErrors.BAD_STEP,
+                    "debug session " + id + " has stepped no rows, only event time, and a fixture replays "
+                            + "the rows a session stepped from empty state -- this one would assert an empty "
+                            + "view and reproduce nothing. Step the rows the incident needs (debug step --step rows:N, "
+                            + "or until:<column>:<op>:<value>), then export.");
+        }
         List<ViewChange> expected = rehearse(session);
         FixtureExport export = session.export(name, expected);
         audit.record(com.ash.messaging.pravaha.security.AuditEvent.of(

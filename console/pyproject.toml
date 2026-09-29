@@ -53,3 +53,22 @@ markers = [
   "browser: drives a real headless Chrome over the DevTools protocol; skips when none is installed (PRAVAHA_CHROME, PRAVAHA_BROWSER_TESTS=0)",
 ]
 
+[tool.ruff]
+# Written to about 110 columns; ruff's default of 88 reported lines nobody had chosen to wrap
+# (CONSOLERUFF-1).
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+# Named rather than inherited, as the SDK names its own: ruff widens its default rule set between
+# releases, and a lint that changes under code nobody touched is not a lint anyone can hold.
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# A pytest fixture shared by importing it is then "redefined" by every test that takes it as a
+# parameter, which is how a fixture is used; F811 reads that as a mistake.
+"tests/*" = ["F811", "E402"]
+# The entry point and the tests put the console's root on sys.path before importing from it, so
+# they run from a checkout without an install; an import after that line is the point, not a slip.
+"run_pravaha_web.py" = ["E402"]
+

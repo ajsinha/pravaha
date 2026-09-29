@@ -361,6 +361,16 @@ public final class VariableKeyStateMap implements AutoCloseable {
         }
     }
 
+    /**
+     * Visits every entry in the order entries lie in the store rather than in the slot table
+     * (SPILL-4): a sequential read of the store instead of a random one per entry, which is the
+     * difference that matters once the store has spilled past the page cache. Every live block in
+     * this map's store is an entry. Nothing may be added or removed while it runs.
+     */
+    public void forEachInStoreOrder(EntryVisitor visitor) {
+        store.forEachLive(visitor::visit);
+    }
+
     @FunctionalInterface
     public interface EntryVisitor {
         void visit(long handle);

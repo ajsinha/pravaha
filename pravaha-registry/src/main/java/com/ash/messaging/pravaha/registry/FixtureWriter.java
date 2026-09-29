@@ -93,7 +93,8 @@ final class FixtureWriter {
         out.append("}\n");
 
         String path = FixtureExport.DIRECTORY + "/" + className + ".java";
-        return new FixtureExport(className, path, Map.of(path, out.toString()));
+        // FIX-3: formatted as the build formats, or saying it is not.
+        return new FixtureExport(className, path, Map.of(path, FixtureFormatter.format(out.toString())));
     }
 
     private static void licence(StringBuilder out) {

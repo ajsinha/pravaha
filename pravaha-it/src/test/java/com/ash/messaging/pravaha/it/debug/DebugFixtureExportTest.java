@@ -123,7 +123,82 @@ final class DebugFixtureExportTest {
             sessions.end(id, OWNER);
         }
 
-        // Compile it exactly as pravaha-it would, then run it.
+        assertPassesSpotless(source);
+        compileAndRun(dir, className, source);
+    }
+
+    /**
+     * FIX-2: a session that stepped only event time is refused by name -- not as PRV-3022, a window
+     * operator walking from 1970 -- and one that stepped a watermark before its rows exports a
+     * fixture that runs.
+     */
+    @Test
+    void aSessionThatSteppedOnlyEventTimeIsRefusedByNameAndAWatermarkFirstSessionExports(@TempDir Path dir)
+            throws Exception {
+        long now = 1_790_413_560_000_000_000L;
+        List<String> before = List.of(DebugTestSupport.row("ann", 100, now + DebugTestSupport.SECOND));
+        List<String> after = List.of(
+                DebugTestSupport.row("ann", 20, now + 2 * DebugTestSupport.SECOND),
+                DebugTestSupport.row("bob", 40, now + 2 * DebugTestSupport.SECOND),
+                DebugTestSupport.row("ann", 5, now + 3 * DebugTestSupport.SECOND));
+        String source;
+        String className;
+        try (DebugTestSupport engine =
+                new DebugTestSupport(dir, DebugTestSupport.PER_SECOND, List.of(0, 2), before, after)) {
+            DebugSessions sessions = engine.registry().debugSessions();
+            String id = sessions.fork("spend", engine.checkpoint(), OWNER).id();
+            sessions.step(id, DebugStep.Request.toWatermark(now + 2 * DebugTestSupport.SECOND), OWNER);
+            assertThatThrownBy(() -> sessions.export(id, "only a watermark", OWNER))
+                    .isInstanceOf(PravahaException.class)
+                    .hasMessageContaining("PRV-8015")
+                    .hasMessageContaining("has stepped no rows")
+                    .hasMessageNotContaining("PRV-3022");
+
+            sessions.step(id, DebugStep.Request.rows(3), OWNER);
+            sessions.step(id, DebugStep.Request.toWatermark(now + 10 * DebugTestSupport.SECOND), OWNER);
+            FixtureExport export = sessions.export(id, "watermark first", OWNER);
+            className = export.className();
+            source = export.source();
+            assertThat(source)
+                    .as("the leading watermark is in the script, before the rows")
+                    .contains("harness.watermark(" + (now + 2 * DebugTestSupport.SECOND) + "L);");
+            sessions.end(id, OWNER);
+        }
+        assertPassesSpotless(source);
+        compileAndRun(dir, className, source);
+    }
+
+    /**
+     * FIX-3: what {@code spotless:check} holds a file in {@code pravaha-it} to -- the Palantir layout,
+     * the licence header, and no stray whitespace -- checked on the exported source. The formatter
+     * is on this module's test classpath, so the export formatted it; the assertion is that the
+     * formatter has nothing left to change.
+     */
+    private static void assertPassesSpotless(String source) throws Exception {
+        assertThat(source)
+                .as("formatted at export, so no note asking for spotless:apply")
+                .doesNotContain("spotless:apply");
+        assertThat(com.palantir.javaformat.java.Formatter.create().formatSource(source))
+                .as("the Palantir formatter, at the version spotless runs, leaves the fixture as it is")
+                .isEqualTo(source);
+        String header = Files.readString(repoRoot().resolve("config/spotless/license-header.txt"));
+        assertThat(source).startsWith(header.strip() + "\npackage ");
+        assertThat(source).endsWith("}\n");
+        assertThat(source.lines().filter(line -> !line.equals(line.stripTrailing())))
+                .as("lines with trailing whitespace")
+                .isEmpty();
+    }
+
+    private static Path repoRoot() {
+        Path path = Path.of("").toAbsolutePath();
+        while (path != null && !Files.exists(path.resolve("config/spotless/license-header.txt"))) {
+            path = path.getParent();
+        }
+        return java.util.Objects.requireNonNull(path, "no config/spotless above the working directory");
+    }
+
+    /** Compiles the fixture exactly as pravaha-it would, then runs its test method. */
+    private static void compileAndRun(Path dir, String className, String source) throws Exception {
         Path generated = Files.createDirectories(dir.resolve("gen/com/ash/messaging/pravaha/it/fixtures"));
         Path sourceFile = generated.resolve(className + ".java");
         Files.writeString(sourceFile, source, StandardCharsets.UTF_8);

@@ -131,7 +131,8 @@ final class NodeScaleTest {
             // the test: whoever is asked "how many queries does one node hold" should find an
             // answer here rather than an opinion.
             System.out.printf(
-                    "NODE SCALE: %d distinct continuous queries registered in %d ms%n"
+                    "NODE SCALE: %d distinct continuous queries registered in %d ms"
+                            + com.ash.messaging.pravaha.common.observe.CoverageAgent.caveat() + "%n"
                             + "  platform threads: %d -> %d (%.2f per query)%n"
                             + "  heap after gc:    %d KiB -> %d KiB (%d KiB per query)%n"
                             + "  off-heap:         %d KiB -> %d KiB (%d KiB per query)%n"

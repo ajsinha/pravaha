@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import shutil
 import subprocess
 import threading
 import time
@@ -41,10 +42,60 @@ def _classpath() -> str:
     return os.pathsep.join(entries)
 
 
+def _stable_classpath(snapshot: pathlib.Path) -> str:
+    """:func:`_classpath`, with every entry inside the checkout copied into ``snapshot`` first.
+
+    FLIGHTFLAKE-1: the server loads classes lazily, for as long as it runs, from the modules'
+    ``target`` directories -- which a Maven build running beside the tests deletes and rewrites.
+    A class loaded mid-rebuild is missing or half-written, and the test saw PRV-1041 from a server
+    that had been healthy a moment before. A copy taken once, at fixture start, cannot move. Jars
+    in the local repository are left where they are; nothing rebuilds those under a test run.
+    """
+    stable = []
+    for index, entry in enumerate(e for e in _classpath().split(os.pathsep) if e):
+        path = pathlib.Path(entry)
+        if not path.exists() or REPO_ROOT not in path.resolve().parents:
+            stable.append(entry)
+            continue
+        copy = snapshot / f"{index:03d}-{path.name}"
+        if path.is_dir():
+            shutil.copytree(path, copy)
+        else:
+            shutil.copy2(path, copy)
+        stable.append(str(copy))
+    return os.pathsep.join(stable)
+
+
+def _await_accepting(port: int, deadline: float) -> bool:
+    """Whether the server answers a Flight call before ``deadline``.
+
+    FLIGHTFLAKE-1: the port line is printed once the socket is bound, but the first call can still
+    meet a server that is not yet serving -- or a JVM too busy warming up to answer inside a CLI
+    test's timeout -- and the first test then exited 3 (unreachable). Any answer counts, a refusal
+    included: it proves a call reaches the server's handlers. Only "unavailable" and a timeout are
+    retried.
+    """
+    from pyarrow import flight
+
+    while time.time() < deadline:
+        client = flight.FlightClient(f"grpc://localhost:{port}")
+        try:
+            list(client.list_actions(options=flight.FlightCallOptions(timeout=5)))
+            return True
+        except (flight.FlightUnavailableError, flight.FlightTimedOutError):
+            time.sleep(0.1)
+        except flight.FlightError:
+            return True
+        finally:
+            client.close()
+    return False
+
+
 @pytest.fixture(scope="module")
-def server():
+def server(tmp_path_factory):
     if not FLIGHT_CLASSES.exists():
         pytest.skip("pravaha-flight is not built; run ./mvnw -pl pravaha-flight test-compile")
+    classpath = _stable_classpath(tmp_path_factory.mktemp("flight-classpath"))
     java = os.environ.get("JAVA_HOME", "")
     java_bin = str(pathlib.Path(java) / "bin" / "java") if java else "java"
 
@@ -54,7 +105,7 @@ def server():
             "--add-opens=java.base/java.nio=ALL-UNNAMED",
             "--add-opens=java.base/java.lang=ALL-UNNAMED",
             "-cp",
-            _classpath(),
+            classpath,
             "com.ash.messaging.pravaha.flight.TestFlightServerMain",
             "0",
         ],
@@ -97,10 +148,24 @@ def server():
     if port is None:
         process.kill()
         pytest.skip("the Pravaha server did not start; is the module built?")
+    if not _await_accepting(port, deadline):
+        process.kill()
+        pytest.fail("the Pravaha server reported port %d but answered no call within 90 s:\n%s"
+                    % (port, "".join(drained[-40:])))
 
     yield port, feed_file
     process.kill()
     process.wait(timeout=30)
+
+
+def test_the_fixture_server_runs_from_a_copy_of_the_build(tmp_path):
+    """FLIGHTFLAKE-1: nothing the server loads from is a directory a concurrent build rewrites."""
+    if not FLIGHT_CLASSES.exists():
+        pytest.skip("pravaha-flight is not built; run ./mvnw -pl pravaha-flight test-compile")
+    entries = [pathlib.Path(e) for e in _stable_classpath(tmp_path).split(os.pathsep) if e]
+    assert entries
+    assert not [e for e in entries if REPO_ROOT in e.resolve().parents]
+    assert (tmp_path / "000-test-classes").is_dir()
 
 
 @pytest.fixture

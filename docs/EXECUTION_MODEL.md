@@ -182,7 +182,8 @@ whole operators, because sampling per operator would charge an untimed child's w
 parent. That is what makes "the bottleneck operator" a measurement rather than a guess from
 selectivity.
 
-The wrappers are not free — 8 % of a narrow query's throughput on the reference machine — so they
+The wrappers are not free — about 12 % of a narrow query's throughput on the reference machine
+(8 % as first measured, under a coverage agent: PERF-1) — so they
 are compiled in only when the switch is on, and off means there is no wrapper at all rather than a
 wrapper that checks a flag. The number and the method are in `OPERATIONS.md`.
 

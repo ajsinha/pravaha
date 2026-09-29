@@ -22,12 +22,16 @@ import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
 import org.openjdk.jmh.annotations.Group;
 import org.openjdk.jmh.annotations.GroupThreads;
+import org.openjdk.jmh.annotations.Level;
 import org.openjdk.jmh.annotations.Measurement;
 import org.openjdk.jmh.annotations.Mode;
 import org.openjdk.jmh.annotations.OutputTimeUnit;
 import org.openjdk.jmh.annotations.Scope;
+import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.Warmup;
+
+import com.ash.messaging.pravaha.common.observe.CoverageAgent;
 
 /**
  * What the padding is worth.
@@ -55,6 +59,12 @@ public class FalseSharingBenchmark {
     /** Two cursors on one cache line, which is what the padding exists to prevent. */
     @State(Scope.Group)
     public static class Shared {
+        /** PERF-1: a benchmark run under a coverage agent measures the agent; refused, by name. */
+        @Setup(Level.Trial)
+        public void declineUnderACoverageAgent() {
+            CoverageAgent.refuseToMeasure("FalseSharingBenchmark");
+        }
+
         volatile long producer;
         volatile long consumer;
     }
@@ -62,6 +72,12 @@ public class FalseSharingBenchmark {
     /** The same two cursors, a cache line apart. */
     @State(Scope.Group)
     public static class Padded {
+        /** PERF-1: a benchmark run under a coverage agent measures the agent; refused, by name. */
+        @Setup(Level.Trial)
+        public void declineUnderACoverageAgent() {
+            CoverageAgent.refuseToMeasure("FalseSharingBenchmark");
+        }
+
         volatile long producer;
 
         @SuppressWarnings("unused")

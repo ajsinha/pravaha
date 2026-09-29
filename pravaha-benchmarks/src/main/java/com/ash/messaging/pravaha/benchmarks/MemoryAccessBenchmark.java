@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
+import org.openjdk.jmh.annotations.Level;
 import org.openjdk.jmh.annotations.Measurement;
 import org.openjdk.jmh.annotations.Mode;
 import org.openjdk.jmh.annotations.OutputTimeUnit;
@@ -35,6 +36,7 @@ import com.ash.messaging.pravaha.common.memory.AgronaMemoryAccess;
 import com.ash.messaging.pravaha.common.memory.ByteBufferMemoryAccess;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
 import com.ash.messaging.pravaha.common.memory.MemoryRegion;
+import com.ash.messaging.pravaha.common.observe.CoverageAgent;
 
 /**
  * Decides {@code MemoryAccess} selection with numbers instead of argument (implementation plan
@@ -67,6 +69,12 @@ public class MemoryAccessBenchmark {
 
     private MemoryRegion region;
     private int index;
+
+    /** PERF-1: a benchmark run under a coverage agent measures the agent; refused, by name. */
+    @Setup(Level.Trial)
+    public void declineUnderACoverageAgent() {
+        CoverageAgent.refuseToMeasure("MemoryAccessBenchmark");
+    }
 
     @Setup
     public void setUp() {
