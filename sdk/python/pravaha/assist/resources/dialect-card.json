@@ -477,7 +477,7 @@
   },
   "21-every-source-type-configured": {
    "number": "2.1",
-   "text": "Eight stream sources ship today. Each is a plugin discovered by `ServiceLoader`, so the set grows\nwithout the engine changing — [`CONNECTORS.md`](CONNECTORS.md) is how you add one.\n\n**Only `filesystem` is inside the server jar.** `feedfile`, `jdbc`, `delta`, `aerospike`,\n`cassandra`, `postgres-cdc` and `kafka` are separate modules, and adding one to a deployment means dropping a jar on the\nclasspath rather than rebuilding the server — which is why a server that only reads a directory does\nnot carry Hadoop and Parquet.\n\nDiscovery happens when a query is first registered against the stream, **not at startup**, so a\nbinding naming a plugin that is not on the classpath starts a server cleanly and fails at the\nregistration that needs it — with a message listing the plugin names that *are* available. A stream\nwith no binding at all is not an error either: it registers, runs, and reports that nothing is\nattached, because an embedder pushing rows in directly is a legitimate way to feed a query.",
+   "text": "Nine stream sources ship today. Each is a plugin discovered by `ServiceLoader`, so the set grows\nwithout the engine changing — [`CONNECTORS.md`](CONNECTORS.md) is how you add one.\n\n**Only `filesystem` is inside the server jar.** `feedfile`, `jdbc`, `delta`, `aerospike`,\n`cassandra`, `postgres-cdc`, `mysql-cdc` and `kafka` are separate modules, and adding one to a deployment means dropping a jar on the\nclasspath rather than rebuilding the server — which is why a server that only reads a directory does\nnot carry Hadoop and Parquet.\n\nDiscovery happens when a query is first registered against the stream, **not at startup**, so a\nbinding naming a plugin that is not on the classpath starts a server cleanly and fails at the\nregistration that needs it — with a message listing the plugin names that *are* available. A stream\nwith no binding at all is not an error either: it registers, runs, and reports that nothing is\nattached, because an embedder pushing rows in directly is a legitimate way to feed a query.",
    "title": "2.1 Every source type, configured"
   },
   "3-registering-a-continuous-query": {
@@ -562,5 +562,5 @@
   }
  },
  "source": "docs/CONTINUOUS_QUERIES.md",
- "sourceSha256": "36cd1b94b191d1f562dcb63e367fa7cfcbe333c5e45205a90eda418501cf7b6d"
+ "sourceSha256": "468aa653db783d2c871dd7d6abf1ec79f88e7c2835a2d6bd31dd08f132a847e7"
 }

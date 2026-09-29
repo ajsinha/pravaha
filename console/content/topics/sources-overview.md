@@ -133,19 +133,19 @@ bundled because their licences do not allow a proprietary product to redistribut
 plugin module on your application's classpath is found by `ServiceLoader` like any other — nothing
 else to do. See [the embedded engine](/help/topics/embedded-engine).
 
-## The eight sources side by side
+## The nine sources side by side
 
 What each can see decides what a view over it can mean. "Emits deletes" is the question to ask first:
 a source that cannot see a delete gives a view that keeps serving deleted rows.
 
 | | Reads | Emits deletes | Before-image | Incremental | Guarantee | Pushdown | Shared by queries |
 |---|---|---|---|---|---|---|---|
-| [filesystem](/help/topics/source-filesystem) | one delimited file, once or followed | only through `op.column` | no | yes (appends) | exactly-once | none | no |
+| [filesystem](/help/topics/source-filesystem) | one delimited file, once or followed | only through `op.column` | no | yes (appends) | exactly-once | none | **yes** when read once through, met at an exact position (ADR-054); a followed file, no |
 | [feedfile](/help/topics/source-feedfile) | a directory of CSV/Parquet files | no | no | yes (new files) | exactly-once *or* at-least-once, by configuration | none | no |
 | [jdbc](/help/topics/source-jdbc) | a table or `SELECT`, polled on a monotonic column | no | no | yes (beyond the watermark) | at-least-once | filter, columns, and `COUNT`/`SUM` partials with `key.column` | no |
 | [postgres-cdc](/help/topics/source-postgres-cdc) | a PostgreSQL table's changes, from its write-ahead log | **yes** (the whole old row at `−1`) | **yes** — an update is `−1` then `+1` | yes (every commit) | exactly-once | none | no |
 | [mysql-cdc](/help/topics/source-mysql-cdc) | a MySQL table's changes, from its row-based binary log | **yes** (the whole old row at `−1`) | **yes** — an update is `−1` then `+1` | yes (every commit) | exactly-once | none | no |
-| [kafka](/help/topics/source-kafka) | a Kafka topic, one reader per partition | only with `format: changelog` (`kafka-sink`'s envelope, weights and all) | with `format: changelog` | yes (new records) | exactly-once | none | no |
+| [kafka](/help/topics/source-kafka) | a Kafka topic, one reader per partition | only with `format: changelog` (`kafka-sink`'s envelope, weights and all) | with `format: changelog` | yes (new records) | exactly-once | none | **yes** — one reader per binding, met at an exact position (ADR-054) |
 | [delta](/help/topics/source-delta) | a Delta table: snapshot, then each commit | **yes** (removed files at `−1`) | as a retraction of the old row | yes (new commits) | exactly-once | none | no |
 | [aerospike](/help/topics/source-aerospike) | a set, scanned by last-update time | no | no | yes (server-side filter) | at-least-once | filter, columns | **yes** |
 | [cassandra](/help/topics/source-cassandra) | a table, scanned by `token()` range | no | no | **no** — every pass reads everything | at-least-once | columns | **yes** |

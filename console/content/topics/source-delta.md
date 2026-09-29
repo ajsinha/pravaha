@@ -206,4 +206,4 @@ configuration, which this plugin does not manage.
 
 - [Weights and retractions](/help/topics/zset-weights) — why a removed file's rows at `−1` are exactly right
 - [The feedfile source](/help/topics/source-feedfile) — files that only ever add
-- [Sources overview](/help/topics/sources-overview) — the seven sources side by side
+- [Sources overview](/help/topics/sources-overview) — every source side by side

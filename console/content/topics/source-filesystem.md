@@ -36,7 +36,7 @@ into the data: name an operation column and a row can withdraw what an earlier r
 | Pushdown | none — every line is read and the engine filters |
 | Schema comes from | the `schema` option you write (the file has no types of its own) |
 | Partitions | one per file |
-| Shared between queries | no — an exactly-once source is read once per query (see [sources overview](/help/topics/sources-overview)) |
+| Shared between queries | **yes** for a file read once through — one reader, a late query caught up to its exact line first ([ADR-054](/help/decisions/054-an-ordered-source-is-shared-at-an-exact-seam)); **no** for a followed file, whose line count restarts when it rotates |
 
 ## Options
 
@@ -54,7 +54,7 @@ YAML tooling is fussy.
 | `follow` | no | `false` | `false`: read to the end and stop — a bounded read. `true`: end of file is not end of stream; appended lines keep arriving |
 | `op.column` | no | none | A column whose value says whether the row inserts or retracts. Without it every row is an insertion (weight `+1`) |
 | `op.delete.values` | no | `D,DELETE,-,-1` | The values of `op.column` that mean *retract* (weight `−1`). Anything else is an insertion |
-| `share.reader` | no | `true` | Read by the engine's binding layer, not the plugin. Has no effect here, because an exactly-once source is never shared |
+| `share.reader` | no | `true` | Read by the engine's binding layer, not the plugin: `false` gives each query its own read of the file |
 
 ### What a line may contain
 

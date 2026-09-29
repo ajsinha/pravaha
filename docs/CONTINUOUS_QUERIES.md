@@ -131,11 +131,11 @@ current as its laggiest input, which is correct and surprises people.
 
 ### 2.1 Every source type, configured
 
-Eight stream sources ship today. Each is a plugin discovered by `ServiceLoader`, so the set grows
+Nine stream sources ship today. Each is a plugin discovered by `ServiceLoader`, so the set grows
 without the engine changing — [`CONNECTORS.md`](CONNECTORS.md) is how you add one.
 
 **Only `filesystem` is inside the server jar.** `feedfile`, `jdbc`, `delta`, `aerospike`,
-`cassandra`, `postgres-cdc` and `kafka` are separate modules, and adding one to a deployment means dropping a jar on the
+`cassandra`, `postgres-cdc`, `mysql-cdc` and `kafka` are separate modules, and adding one to a deployment means dropping a jar on the
 classpath rather than rebuilding the server — which is why a server that only reads a directory does
 not carry Hadoop and Parquet.
 

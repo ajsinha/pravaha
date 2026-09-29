@@ -393,8 +393,8 @@ class HelpCatalog:
                 heading = next((h["name"] for h in topic.headings if h["id"] == anchor), None)
                 if heading is None:
                     continue
-                card = Card("topic", slug, heading, topic.summary, card.icon, card.badge, card.keywords,
-                            anchor)
+                card = Card("topic", slug, heading, _section_lede(topic.body, anchor) or topic.summary,
+                            card.icon, card.badge, card.keywords, anchor)
             cards.append(card)
         return cards
 
@@ -446,6 +446,25 @@ class HelpCatalog:
                                 "snippet": _snippet(page.body, words)})
         results.sort(key=lambda r: (-r["score"], r["title"]))
         return results[:limit]
+
+
+def _section_lede(body: str, anchor: str, limit: int = 220) -> str:
+    """The first paragraph of the section a heading ``{#anchor}`` opens, as plain text: what a
+    screen card says when it opens one part of a longer topic, rather than the whole topic's summary."""
+    heading = re.search(r"^#{2,3} .*\{#" + re.escape(anchor) + r"\}\s*$", body, re.MULTILINE)
+    if not heading:
+        return ""
+    for paragraph in re.split(r"\n\s*\n", body[heading.end():]):
+        text = paragraph.strip()
+        if not text or text.startswith(("#", "|", "```", "!!!", "<!--", "-", ">")):
+            continue
+        text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+        text = re.sub(r"`|\*\*|(?<![\w*])\*(?![\s*])|(?<=\S)\*(?![\w*])", "", re.sub(r"\s+", " ", text))
+        if len(text) <= limit:
+            return text
+        cut = text[:limit].rsplit(" ", 1)[0]
+        return cut.rstrip(",;:—-") + " …"
+    return ""
 
 
 def _snippet(body: str, words: list[str], width: int = 180) -> str:

@@ -44,7 +44,7 @@ The same Kafka plugin ships the sink, `kafka-sink`; this page is its source, nam
 | Formats | `json` (default): a JSON object by column name, every row `+1`. `changelog`: `kafka-sink`'s `{"op","weight","row"}` envelope, weight applied. `avro`: Avro binary, against `schema.file` or a schema registry. `protobuf`: one message of a `FileDescriptorSet` |
 | Isolation | `read_committed` by default: an aborted transaction's records are never delivered |
 | Pushdown | none — Kafka has no server-side filter; every record is fetched whole |
-| Shared between queries | **no** — an exactly-once source never is: one consumer and one fetch thread per partition per registration |
+| Shared between queries | **yes** — one reader per binding feeds every query over it, a query joining late caught up to the shared reader's exact offset first ([ADR-054](/help/decisions/054-an-ordered-source-is-shared-at-an-exact-seam)); `share.reader: "false"` gives each query its own |
 | Event time | the `event.time` column (on a server, the stream's declared `event-time`); without one, the record's Kafka timestamp |
 | The topic | **must exist**; the source never creates it |
 | Security | the shared `tls.*` options; SASL `PLAIN` (TLS required), `SCRAM-SHA-256` or `SCRAM-SHA-512` |
@@ -78,7 +78,7 @@ The same Kafka plugin ships the sink, `kafka-sink`; this page is its source, nam
 | `sasl.mechanism` | no | `PLAIN` when `user` is set | `PLAIN`, `SCRAM-SHA-256` or `SCRAM-SHA-512`. `PLAIN` without TLS is refused — it sends the password in the clear |
 | `tls.*` | no | off | The shared TLS options — see [connector security](/help/topics/connector-security) |
 | `kafka.<property>` | no | — | Any other **Kafka consumer** property, prefix removed: `kafka.fetch.max.bytes: "52428800"`. A name that is not a consumer property is refused, so a typo is not silently dropped |
-| `share.reader` | no | `true` | Read by the binding layer. An exactly-once source is never shared, so it has no effect here |
+| `share.reader` | no | `true` | Read by the binding layer: `false` gives each query its own consumers instead of one shared reader |
 
 Durations take `500ms`, `10s`, `5m`, `1h`, or ISO-8601 (`PT30S`).
 
@@ -118,8 +118,12 @@ is found at the restart and read from its first record too. The query's feed say
 shown there until one succeeds. A new partition's rows are late like any other if their event times are
 behind the watermark.
 
-**Threads.** Because an exactly-once source is never shared, ten queries over a 12-partition topic are
-120 consumers and 120 fetch threads, each holding up to `buffer.records` decoded records.
+**Threads.** Queries over one binding share its reader: ten queries over a 12-partition topic are
+12 consumers and 12 fetch threads, each holding up to `buffer.records` decoded records, and each
+record is handed to all ten. A query registered later reads only the gap between its checkpoint (or
+the topic's beginning) and the shared reader's offset, privately, and is attached at that exact
+offset — every record reaches every query once, in order (ADR-054). With `share.reader: "false"` —
+or a query that reads a different set of columns — each query keeps its own consumers: 120 for ten.
 
 ## Exactly once: the checkpoint owns the offsets
 
