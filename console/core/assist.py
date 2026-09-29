@@ -59,6 +59,7 @@ from pravaha.assist import (
 )
 from pravaha.assist.store import default_config_path
 
+from core.observability import AssistMetrics, ledger_today
 from core.services import ServiceError, _refusal
 
 logger = logging.getLogger(__name__)
@@ -173,11 +174,13 @@ class ClientAdapter:
 
 class _PersonRouter:
     """The console's one router, asked on behalf of one person: every request is charged to
-    their name in the usage ledger and checked against their daily budget."""
+    their name in the usage ledger and checked against their daily budget -- and counted, by
+    model and profile, for ``/metrics`` (never by person: the assist log is where that is kept)."""
 
-    def __init__(self, router: ModelRouter, user: str) -> None:
+    def __init__(self, router: ModelRouter, user: str, metrics: AssistMetrics | None = None) -> None:
         self._router = router
         self._user = user
+        self._metrics = metrics
 
     @property
     def config(self) -> AssistConfig:
@@ -185,7 +188,17 @@ class _PersonRouter:
 
     def complete(self, request: Any, *, profile: str | None = None, model: str | None = None,
                  user: str | None = None) -> Any:
-        return self._router.complete(request, profile=profile, model=model, user=self._user)
+        if self._metrics is None:
+            return self._router.complete(request, profile=profile, model=model, user=self._user)
+        label = "direct" if model else (profile or self._router.config.default_profile or "default")
+        started = time.monotonic()
+        try:
+            routed = self._router.complete(request, profile=profile, model=model, user=self._user)
+        except Exception as exc:
+            self._metrics.failed(label, exc, time.monotonic() - started)
+            raise
+        self._metrics.answered(label, routed, time.monotonic() - started)
+        return routed
 
 
 # ====================================================================== failures
@@ -259,6 +272,8 @@ class AssistService:
         self.log_path = pathlib.Path(log_path) if log_path else path.parent / "console-assist-log.jsonl"
         self._log_lock = threading.Lock()
         self._drafts: dict[str, _Held] = {}
+        #: Requests, tokens, failures, fallbacks and latency per model and profile, for /metrics.
+        self.metrics = AssistMetrics()
         self._drafts_lock = threading.Lock()
         #: Why the stored configuration could not be applied when the console started, if so.
         self.load_problem: str | None = None
@@ -472,6 +487,15 @@ class AssistService:
         return {"days": sorted(days), "today": today, "byModel": order(by_model),
                 "byUser": order(by_user), "ledger": str(self.ledger.path)}
 
+    def prometheus(self, version: str = "") -> str:
+        """The assistant's metrics in the Prometheus text format, with today's tokens from the
+        usage ledger (every person together, by model). Read-only."""
+        try:
+            document = json.loads(self.ledger.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            document = {}
+        return self.metrics.render(version=version, ledger_today=ledger_today(document, UsageLedger.today()))
+
     def _record(self, user: str, task: str, *, asked: str, answered_by: Any = None,
                 verdict: str | None = None, registered: bool | None = None,
                 failure: AssistFailure | None = None, tokens: int | None = None) -> None:
@@ -489,7 +513,7 @@ class AssistService:
 
     def _assistant(self, user: str) -> Assistant:
         # Duck-typed stand-ins for ModelRouter and EngineApi: the slices the assistant calls.
-        router: Any = _PersonRouter(self.router, user)
+        router: Any = _PersonRouter(self.router, user, self.metrics)
         api: Any = EngineApiAdapter(self._engine)
         return Assistant(router, api,
                          client=ClientAdapter(self._engine))

@@ -41,6 +41,7 @@ from core.content.library import ContentLibrary
 from core.engine import Engine
 from core.help_catalog import HelpCatalog
 from core.i18n import Messages
+from core.observability import RequestContext, configure_logging
 from core.services import Services
 from routes import ALL_ROUTES
 from routes.base import use_messages
@@ -118,6 +119,10 @@ def create_app(config: PropertiesConfigurator, engine: Engine | None = None) -> 
         logger.info("responses are not compressed: this Starlette would buffer event streams")
     else:
         app.add_middleware(GZipMiddleware, minimum_size=1024)
+    # Outermost: every request gets its correlation id (the one api.js sent, else a new one) for the
+    # log lines written while serving it, and a traceparent it arrived with is carried onto the
+    # engine calls made for it (core.observability).
+    app.add_middleware(RequestContext)
 
     # Vendored assets only: the console renders with no external network. A
     # streaming engine is deployed inside networks that do not reach the
@@ -189,9 +194,9 @@ def main() -> None:
     parser.parse_known_args()
 
     config = PropertiesConfigurator(config_path())
-    logging.basicConfig(
-        level=getattr(logging, config.get("logging.level", "INFO").upper(), logging.INFO),
-        format="%(asctime)s %(levelname)-5s %(name)s — %(message)s")
+    # text (the default) or json: one JSON object per line for Loki or Elasticsearch. Anything else
+    # refuses the start rather than writing what a log pipeline did not ask for.
+    configure_logging(config.get("logging.format", "text"), config.get("logging.level", "INFO"))
 
     host = config.get("server.host", "127.0.0.1")
     port = config.get_int("server.port", 17070)

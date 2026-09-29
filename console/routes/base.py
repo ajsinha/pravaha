@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from core.i18n import Messages
+from core.observability import correlation
 from core.services import ServiceError
 
 logger = logging.getLogger(__name__)
@@ -125,8 +126,10 @@ def _correlation(request: Request | None) -> str:
     same string ends up in this log line and nowhere else it could drift from.
     """
     if request is None:
-        return "-"
-    return request.headers.get("x-correlation-id", "-")
+        return correlation.get() or "-"
+    # The request's own id when api.js sent one; else the one core.observability.RequestContext gave
+    # it, which is also on every JSON log line written while serving it.
+    return request.headers.get("x-correlation-id") or correlation.get() or "-"
 
 #: The personas a signed-in person can be (design 23.2), where each lands, and what the
 #: landing is for. A persona picks a landing, not a permission: the admin persona lands on Access,

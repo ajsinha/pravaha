@@ -25,6 +25,7 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+from pravaha import tracecontext
 from pravaha.errors import InvalidOptionsError, PravahaError
 from pravaha.tls import TlsOptions
 
@@ -149,6 +150,9 @@ class RestClient:
             request.add_header("Content-Type", "application/json")
         if self._token:
             request.add_header("Authorization", "Bearer " + self._token)
+        # W3C trace context, when the caller has a trace (pravaha.tracecontext): the node continues it.
+        for name, value in tracecontext.headers().items():
+            request.add_header(name, value)
         try:
             with urllib.request.urlopen(request, timeout=self._timeout, context=self._context) as response:
                 answer: bytes = response.read()
