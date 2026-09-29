@@ -4,10 +4,10 @@ slug: source-mysql-cdc
 category: sources
 order: 46
 icon: journal-arrow-down
-summary: "Streams one MySQL table's inserts, updates and deletes from the row-based binary log, the plugin registered as a replica: +1 and −1 weights, an update as both, exactly once from a binlog file and offset. Changes only in this version."
+summary: "Streams one MySQL table's inserts, updates and deletes from the row-based binary log as a replica: +1 and −1 weights, an update as both, exactly once from a binlog position or a GTID set that survives a failover. Changes only."
 badge: SOURCE
 audience: Operators
-keywords: [mysql-cdc, cdc, change data capture, mysql, binlog, binary log, binlog_format, binlog_row_image, row-based replication, replica, server.id, binlog_expire_logs_seconds, truncate, debezium, retraction, delete]
+keywords: [mysql-cdc, cdc, change data capture, mysql, binlog, binary log, binlog_format, binlog_row_image, row-based replication, replica, server.id, binlog_expire_logs_seconds, truncate, debezium, retraction, delete, gtid, gtid_mode, failover, role, default role, heartbeat, alter, binlog_row_metadata]
 guide: connectors
 related: [sources-overview, source-postgres-cdc, source-jdbc, zset-weights, checkpoints-recovery, delivery-guarantees, errors-plugins]
 listed_on: sources-overview
@@ -30,7 +30,7 @@ A transaction arrives whole, and only once committed.
 | Module | `plugins/pravaha-plugin-mysql-cdc` — in the server jar; needs **no JDBC driver** |
 | Database | MySQL 8 with the binary log on |
 | Kind | stream source, one table per binding |
-| Delivery guarantee | **`EXACTLY_ONCE`** — the offset is a binlog file and offset at a transaction boundary |
+| Delivery guarantee | **`EXACTLY_ONCE`** — the offset is a binlog file and offset at a transaction boundary, with the executed GTID set when `gtid_mode = ON` |
 | Emits deletes / before-image | **yes / yes** |
 | Initial snapshot | **not built**: `snapshot.mode: initial` is refused (PRV-5150). Changes from the moment the plugin opened only |
 | Schema comes from | the table's columns in `information_schema`; a declared `schema` is refused |
@@ -56,10 +56,27 @@ GRANT SELECT ON sales.orders TO 'pravaha_cdc'@'%';
 - **`binlog_row_image = FULL`.** With `MINIMAL`, a delete carries only the key, the retraction
   matches nothing, and the view stays wrong for ever with no error anywhere. That is the trap this
   source refuses.
-- **The privileges are granted directly.** `SHOW GRANTS` does not expand roles, so a privilege held
-  only through a role is not seen.
+- **The privileges may come through a role — one active at login.** The check reads the user's
+  grants together with the roles active when it logs in (`SHOW GRANTS … USING` them): its default
+  roles, or every role under `activate_all_roles_on_login`. A role that grants replication but is not
+  active is named in the refusal, with the fix: `SET DEFAULT ROLE ALL TO 'pravaha_cdc'@'%';`.
 - **`binlog_expire_logs_seconds` longer than any outage.** MySQL deletes binlog files by age, not by
-  what a replica has read. A checkpoint whose file is gone is refused at restart (PRV-5155).
+  what a replica has read. A checkpoint whose file is gone is refused at restart (PRV-5155). An idle
+  table's position still follows the log: heartbeats and binlog rotations move it, so a purge of files
+  that held nothing for the table does not refuse its restart.
+
+## Positions: file and offset, or GTID
+
+With `gtid_mode = OFF` the offset is `binlog=FILE:POSITION`, valid on the server that wrote it.
+
+With **`gtid_mode = ON`** a new registration's offset also carries the executed GTID set —
+`gtid=3E11FA47-…:1-5;binlog=FILE:POSITION` — and a restart asks the server for every transaction not in
+the set. Any server holding those transactions can answer, so after a **failover** point `host` at the
+promoted replica (with `log_replica_updates`, MySQL 8's default) and restart: nothing is lost or
+repeated. The replica must have caught up with the checkpoint first: one holding fewer transactions is
+refused (PRV-5158) rather than read from wherever it is, and one that has purged transactions after the
+checkpoint is PRV-5155. A checkpoint written as a file position stays one; register again to move a
+binding to GTID positions.
 
 ## A binding
 
@@ -101,8 +118,16 @@ Not `JSON`, `ENUM`, `SET`, `BIT`, `TIME`, `YEAR` or spatial types.
 ## What stops it
 
 - A `TRUNCATE` of the table — it names no rows, so there is nothing to retract — or an `ALTER`,
-  `DROP` or `RENAME` of it: PRV-5156. Everything before it was delivered.
+  `DROP` or `RENAME` of it, comments before the statement included: PRV-5156. Everything before it was
+  delivered.
+- A change of a column's type that keeps the column count — `SMALLINT` to `INT UNSIGNED`,
+  `DECIMAL(10,2)` to `DECIMAL(12,4)`, `NOT NULL` to nullable — seen in the binlog's own description of
+  the table: PRV-5156, naming the column, before any row is read with the old conversion. This also
+  covers a restart from a checkpoint older than an `ALTER` the plugin opened after. A signedness change
+  alone (`SMALLINT` to `SMALLINT UNSIGNED`) is seen when the server writes `binlog_row_metadata = FULL`;
+  `CHAR`↔`BINARY`, `VARCHAR`↔`VARBINARY` and `TEXT`↔`BLOB` share a binlog type and are not told apart.
 - The binlog connection failing ten times in a row: PRV-5157.
 
-For both, and for PRV-5155: stop the registration, delete its checkpoint directory, register again.
+For these, and for PRV-5155: stop the registration, delete its checkpoint directory, register again.
+For PRV-5158, wait for the replica to catch up and start again.
 Every code is on [the plugin codes page](/help/topics/errors-plugins).

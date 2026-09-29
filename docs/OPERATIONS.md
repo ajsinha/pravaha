@@ -1008,6 +1008,20 @@ nothing the running version has read. To change the query, drop it and register 
 under another name on a second binding with a `slot` of its own and drop the old one once it has
 caught up. `mysql-cdc` is refused the same way, for its replica `server.id`.
 
+**`mysql-cdc` positions, purges and failover.** With `gtid_mode = OFF` a checkpoint is a binlog file
+and offset on the server that wrote it; with `gtid_mode = ON` (and `enforce_gtid_consistency`) it also
+carries the executed GTID set, which is what lets it move servers. To fail a `mysql-cdc` binding over
+to a promoted replica: stop the registration, make sure the replica has executed everything the old
+primary had (`SELECT GTID_SUBSET('<checkpoint's gtid set>', @@GLOBAL.gtid_executed)` on it returns 1 —
+otherwise the restart is refused with `PRV-5158`), point the binding's `host` at it, and start: the
+reader asks it for every transaction not in the set. The replica needs `log_replica_updates` (MySQL
+8's default) and its own binlog retention. An idle table's position follows the log through heartbeats
+(`heartbeat.interval`, default `10s`) and file rotations, so `binlog_expire_logs_seconds` needs to
+outlast the longest outage, not the longest quiet spell. The user's replication privileges may come
+from a role, provided it is active at login: `SET DEFAULT ROLE ALL TO 'pravaha_cdc'@'%';`. An `ALTER`
+of the captured table — including one run while the plugin was stopped, found when a restart replays
+the rows written before it — stops the binding with `PRV-5156` naming the column.
+
 **A second, different query over the same binding is refused too** (`PRV-8028`, at registration,
 naming the query that holds the binding — CDCREPL-2). It used to be accepted and fail `PRV-5117`
 about fifteen seconds later, when the slot stayed busy. For two queries over one table, bind the
@@ -1303,6 +1317,18 @@ pravaha:
   configuration and refuses with `PRV-5100` on a platform where it does not load, or where
   `java.io.tmpdir` does not allow executing files. `lz4` is refused with `PRV-5100`, and an lz4
   batch stops the source with `PRV-5107`.
+- **Avro and Protobuf, keys and schema ids.** `format: avro` or `protobuf` writes the value against
+  `schema.file` or `schema.descriptor`; `key.format` (`json` by default, `string`, `avro`,
+  `protobuf`) writes the key columns the same way with `key.schema.*`, so a registry-aware consumer
+  that expects an Avro key can read it. `schema.id` and `key.schema.id` put the Confluent wire format
+  in front — for Protobuf with the message indexes, which is why a Protobuf id needs
+  `schema.registry.url`. **Set `schema.registry.url` whenever you set an id**: the sink then fetches
+  each id when the query registers and refuses (`PRV-5108`) an id that names another schema than the
+  binding's, before a record goes out that every consumer would decode wrongly; a registry that does
+  not answer refuses the registration with `PRV-5109`. The sink registers nothing and asks the
+  registry nothing after that. An Avro `timestamp-millis` or `time-millis` field takes a column the
+  `schema` declares `TIMESTAMP(3)` or `TIME(3)` (`-micros`: `(6)`); each value is floored to the
+  declared digits, and an undeclared (nanosecond) column is refused at registration.
 
 `delta-sink` maintains the query's answer in a **Delta Lake table**, on Delta Kernel and not Spark,
 and is transactional as the two above are:
@@ -1356,6 +1382,19 @@ pravaha:
   microseconds are refused with `PRV-5058` — Delta stores microseconds and the engine nanoseconds,
   and rounding would put a value in the table that reads as true and is not. `PRV-5056` is a binding
   that cannot be honoured as written.
+
+`iceberg-sink` keeps an Apache Iceberg table on the local filesystem equal to the view, one snapshot
+per checkpoint ([the help page](../console/content/topics/sink-iceberg.md) has every option). Two
+things to size and to know:
+
+- **Upsert mode holds a checkpoint interval's changes in memory**, collapsed by key, until the
+  checkpoint commits them — at most `upsert.max.keys` distinct keys (default 1,000,000; each holds its
+  latest row). The next key detaches the sink with `PRV-5143`. A query that changes more keys than
+  that between checkpoints wants a shorter `pravaha.checkpoint.interval`, a larger bound and the heap
+  for it, or `mode: changelog`.
+- **Other engines may compact the table and expire its snapshots**, the sink's own included: each
+  commit also sets the table property `pravaha.committed-label.<transaction.id>`, which is what a
+  restart reads to skip a commit that already landed. Do not remove that property.
 
 A registration names the sink, not the configuration: `pravaha register --name big_txn --sql-file
 q.sql --sink audit_trail`, or the `sink` argument of either SDK's `register`. The query's view is
