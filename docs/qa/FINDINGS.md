@@ -876,7 +876,7 @@ Any valid token, from any tenant, reads and writes everything on the HTTP surfac
 the contradictory configuration is now refused at startup; that closed one hole and left this one.
 
 ## P-2 (HIGH) — the listing filter is bypassed on the subscribe path
-> **Status:** SUPERSEDED — by SX-1 and SX-5, which reconfirm and quantify this exact existence-oracle mechanism and remain OPEN; `PravahaFlightSqlProducer.streamSubscription` still calls `required.require(viewName)` before `policy.mayRead(...)`
+> **Status:** SUPERSEDED — by SX-1 and SX-5, which reconfirm and quantify this exact existence-oracle mechanism and are both FIXED; `PravahaFlightSqlProducer.streamSubscription` now calls `policy.mayRead(...)` before `required.require(viewName)`, so a principal denied the name never reaches the registry. (This line said the two remained open after they had closed; corrected 2026-09-29.)
 
 
 `pravaha.list` filters by `mayRead`, and three error paths undo it: `PRV-8002`, `PRV-2002` and
