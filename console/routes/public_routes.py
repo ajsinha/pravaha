@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import time
 
-from fastapi import Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 from core import credential
-from core.about import MEASURED, PRINCIPLES, PROBLEMS, AboutSource
+from core.about import (CAPABILITIES, DIFFERENT, LIMITS, MEASURED, PRINCIPLES, PROBLEM_LEAD, PROBLEMS,
+                        TECHNOLOGY, AboutSource)
 from core.competitive import BEHIND, SHINE
 from core.help_catalog import ERROR_FAMILIES, HelpCatalog
 from routes.base import Routes
@@ -42,7 +43,9 @@ class PublicRoutes(Routes):
 
         @self.app.get("/about", response_class=HTMLResponse, tags=["public"])
         def about(request: Request):
-            """What Pravaha is, how it works, what is built, what it measures, who made it.
+            """What Pravaha is, the problem, what makes it different, how it works, what is built,
+            what it measures, where it stands against the alternatives, and who made it -- in MAYA's
+            About's shape (core/about.py).
 
             Public, like the documentation. The engine's version and state come from its own
             status call when it answers -- and only those two: the node's id, its plugins and its
@@ -50,21 +53,20 @@ class PublicRoutes(Routes):
             """
             source = AboutSource(content.include_root, content.renderer)
             topics = {t.slug: t for t in content.topics("about")}
-            from core.content.case_studies import catalog as studies
-
-            case_studies = studies(content.include_root)
             land = source.landscape()
             columns, rows = land.table()
-            landscape = {"columns": columns, "rows": rows, "shine": land.cards(SHINE),
-                         "loses": land.loses(), "disclaimer": land.disclaimer()}
+            landscape = {"columns": columns, "rows": rows,
+                         "shine": [r for r in rows if r["pravaha"] == "Yes"],
+                         "behind": [r for r in rows if r["pravaha"] != "Yes"],
+                         "disclaimer": land.disclaimer()}
             return self.page(request, "about.html", current="/about", topics=topics,
                              engine_status=engine_status(), built=source.built(),
-                             not_built=source.not_built(), how_built=source.how_built(),
-                             status_line=source.status_line(), decisions=source.decisions(),
+                             not_built=source.not_built(), status_line=source.status_line(),
                              measured=MEASURED, principles=PRINCIPLES, problems=PROBLEMS,
+                             problem_lead=PROBLEM_LEAD, different=DIFFERENT, capabilities=CAPABILITIES,
+                             limits=LIMITS, technology=TECHNOLOGY, readings=source.readings(),
                              release=source.release(), landscape=landscape,
-                             legal=source.legal(),
-                             licence=source.licence(), case_studies=case_studies,
+                             legal=source.legal(), licence=source.licence(),
                              console_version=self.ctx["config"].get("app.version"),
                              topic_count=len(catalog.topics()))
 
@@ -72,15 +74,27 @@ class PublicRoutes(Routes):
         def competitive(request: Request):
             """Where Pravaha stands against the product categories that do part of its job.
 
-            Drawn whole from docs/COMPETITIVE_LANDSCAPE.md, which is canonical: the scored table,
-            a card per row -- where Pravaha shines, where it is partial or behind -- and the
-            sections after. Public, like About.
+            Drawn whole from docs/COMPETITIVE_LANDSCAPE.md, which is canonical, in MAYA's form: the
+            landscape, the scored table, a note per row -- where Pravaha shines, where it is partial
+            or behind -- what the rows have in common, and the sections after. Public, like About.
             """
             land = AboutSource(content.include_root, content.renderer).landscape()
             columns, rows = land.table()
             return self.page(request, "competitive.html", current="/about", columns=columns, rows=rows,
+                             short=land.short(columns), landscape=land.landscape(),
                              notes=land.table_notes(), intro=land.intro(), shine=land.cards(SHINE),
-                             behind=land.cards(BEHIND), sections=land.sections())
+                             behind=land.cards(BEHIND), common=land.common(), reading=land.reading(),
+                             sections=land.sections(), disclaimer=land.disclaimer())
+
+        @self.app.get("/about/papers/{name}", tags=["public"])
+        def paper(name: str):
+            """The research paper and the deck, as files: only a name core.about.PAPERS lists, and
+            only when this installation carries it -- anything else is a 404."""
+            found = AboutSource(content.include_root, content.renderer).paper(name)
+            if found is None:
+                raise HTTPException(404, "no such paper")
+            path, media = found
+            return FileResponse(path, media_type=media, filename=name)
 
         def engine_status() -> dict:
             # On a credential of its own: a public page reports what the engine said, and never

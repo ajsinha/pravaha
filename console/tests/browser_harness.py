@@ -398,9 +398,10 @@ PAGES: list[tuple[str, str, bool, str]] = [
     ("case-studies", "/help/case-studies", False, "true"),
     ("case-study", "/help/case-studies/trade-processing", False, "true"),
     ("help-code", "/help/codes/PRV-2050", False, "true"),
-    # The competitive landscape (its own page, drawn whole from docs/COMPETITIVE_LANDSCAPE.md,
-    # whose scored table is the widest thing in the help) and the FAQ: audited in every theme,
-    # not photographed -- their pixels move with the prose.
+    # The competitive landscape, drawn whole from docs/COMPETITIVE_LANDSCAPE.md in MAYA's form:
+    # photographed like About, first screen only (the hero and the landscape's opening), because
+    # its layout is the console's. The FAQ is audited in every theme and not photographed: its
+    # pixels move with the prose.
     ("competitive", "/about/competitive", False, "true"),
     ("help-faq", "/help/topics/faq", False, "true"),
     ("login", "/login", False, "true"),
@@ -457,8 +458,9 @@ PAGES: list[tuple[str, str, bool, str]] = [
 #: other page, but not photographed: their pixels change whenever the documentation does,
 #: and a baseline that breaks on a README edit teaches people to regenerate without looking.
 #: The help's own pages -- the index, a topic, a connector page, search, the guides browser --
-#: and About ARE photographed: their layout is the console's, and only the first screen is taken.
-DOCUMENT_PAGES = {"help-topic", "tutorial", "help-code", "help-codes", "competitive", "help-faq"}
+#: About and the competitive landscape ARE photographed: their layout is the console's, and only the
+#: first screen is taken.
+DOCUMENT_PAGES = {"help-topic", "tutorial", "help-code", "help-codes", "help-faq"}
 
 AXE = (CONSOLE_ROOT / "tests" / "vendor" / "axe-core" / "axe.min.js").read_text(encoding="utf-8")
 

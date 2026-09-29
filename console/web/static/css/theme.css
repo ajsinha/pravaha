@@ -495,3 +495,52 @@ pre:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--pv-crimso
 .lp2-btn-ghost { color: var(--pv-on-nav); border: 1.5px solid color-mix(in srgb, var(--pv-on-nav) 55%, transparent); }
 .lp2-btn-ghost:hover { color: var(--pv-on-nav); border-color: var(--pv-on-nav); }
 @media (prefers-reduced-motion: reduce) { .lp2-btn, .lp2-card { transition: none; } .lp2-card:hover, .lp2-btn:hover { transform: none; } }
+
+/* ------------------------------------------------------------------ About and the competitive landscape
+   MAYA's classes for its About and comparison pages (its theme.css, "About" and "The competitive
+   table's verdicts"), with the colours re-pointed at the pv- tokens: the hero's mark and version
+   badge, the feature cards with their gradient icon, the problem/fix pairs, the capability groups,
+   the technology badges, the author card, and the Yes / Partial / No chips. */
+.about-hero { padding: 3rem 1.5rem; }
+.about-hero img { height: 76px; position: relative; margin-bottom: .8rem;
+  filter: drop-shadow(0 6px 14px color-mix(in srgb, var(--pv-nav-to) 60%, transparent)); }
+.about-hero h1 { font-size: 2.8rem; letter-spacing: .2em; }
+.about-hero .about-tagline { font-size: 1.15rem; font-weight: 600; color: var(--pv-on-nav); }
+.about-hero .about-creed { font-style: italic; color: var(--pv-on-nav); }
+.about-hero .version-badge { display: inline-block; margin-top: 1rem; padding: .35rem 1.1rem; border-radius: 999px; font-weight: 700;
+  position: relative; color: var(--pv-on-nav); border: 2px solid color-mix(in srgb, var(--pv-on-nav) 65%, transparent);
+  background: color-mix(in srgb, var(--pv-on-nav) 12%, transparent); }
+.about-feature { height: 100%; transition: transform .15s, box-shadow .15s; }
+.about-feature:hover { transform: translateY(-4px); box-shadow: 0 18px 34px -18px color-mix(in srgb, var(--pv-nav-to) 55%, transparent); }
+.about-feature .fi { width: 54px; height: 54px; border-radius: 14px; display: grid; place-items: center; font-size: 1.45rem; margin-bottom: .8rem;
+  color: var(--pv-on-nav); background: linear-gradient(135deg, var(--pv-nav-via), var(--pv-nav-to)); box-shadow: 0 8px 18px -8px var(--pv-crimson); }
+.about-feature h3 { font-size: 1.05rem; margin-bottom: .35rem; }
+.about-feature p { color: var(--pv-slate); margin: 0; font-size: 14px; line-height: 1.55; }
+.about-feature .more { display: inline-block; margin-top: .6rem; font-size: 13px; font-weight: 600; }
+.about-problem .bad { color: var(--pv-bad); }
+.about-problem .fix { color: var(--pv-slate); font-size: 13px; margin-left: 1.5rem; }
+.cap-group { color: var(--pv-crimson); font-weight: 700; padding-bottom: .35rem; margin-bottom: .6rem; border-bottom: 1px solid var(--pv-border); }
+.cap-list { list-style: none; padding: 0; margin: 0; }
+.cap-list li { position: relative; padding-left: 1.4rem; margin-bottom: .4rem; line-height: 1.45; }
+.cap-list li::before { content: "\F270"; font-family: "bootstrap-icons"; position: absolute; left: 0; color: var(--pv-crimson); }
+.tech-badge { display: inline-block; margin: .2rem; padding: .3rem .75rem; border-radius: 8px; font-size: 12.5px; font-weight: 600;
+  background: var(--pv-crimson-tint); border: 1px solid var(--pv-border); color: var(--pv-ink); }
+.about-author { text-align: center; padding: 2rem; }
+.about-author .avatar { width: 88px; height: 88px; border-radius: 50%; margin: 0 auto 1rem; display: grid; place-items: center; font-size: 2.4rem;
+  color: var(--pv-on-nav); background: linear-gradient(135deg, var(--pv-nav-via), var(--pv-nav-to)); }
+.about-author h3 { font-size: 1.25rem; }
+.about-read a { display: flex; gap: .75rem; align-items: flex-start; padding: .8rem 1rem; border-radius: 12px; text-decoration: none; height: 100%;
+  background: var(--pv-surface); border: 1px solid var(--pv-border); color: var(--pv-ink); }
+.about-read a:hover { border-color: var(--pv-crimson); color: var(--pv-ink); }
+.about-read a i { font-size: 1.4rem; color: var(--pv-crimson); line-height: 1.2; }
+.about-read a strong { display: block; color: var(--pv-heading); }
+.about-read a span span { font-size: 13px; color: var(--pv-slate); }
+/* The competitive table's verdicts: a word always, a colour only as a second signal. Each ground
+   is its status token's own soft fill, so every pair is one test_contrast.py already holds. */
+.cmp { display: inline-block; padding: .08rem .55rem; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.cmp-yes { color: var(--pv-ok); background: var(--pv-ok-soft); }
+.cmp-partial { color: var(--pv-warn); background: var(--pv-warn-soft); }
+.cmp-no { color: var(--pv-slate); background: var(--pv-wash); }
+.cmp-info { color: var(--pv-info); background: var(--pv-info-soft); }
+.cmp-own { box-shadow: 0 0 0 1px currentColor; }
+@media (prefers-reduced-motion: reduce) { .about-feature { transition: none; } .about-feature:hover { transform: none; } }

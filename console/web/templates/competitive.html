@@ -1,59 +1,67 @@
 {% extends "base.html" %}
-{# The competitive landscape, whole. Public, like About.
+{# The competitive landscape, whole, in MAYA's form. Public, like About.
 
-   Drawn from docs/COMPETITIVE_LANDSCAPE.md, which is canonical (core/competitive.py): the scored
-   table at the top, then one card per row -- where Pravaha shines, then where it is partial or
-   behind -- then the document's own sections: where it loses, the categories, adjacent tools,
-   what it borrows, the dated disclaimer and the verdict. Categories, not vendors. #}
+   Drawn from docs/COMPETITIVE_LANDSCAPE.md, which is canonical (core/competitive.py): a hero with
+   the way back to About and Help; the landscape (the families of product, well-known examples of
+   each, what each is good at, the pattern); the scored table, each capability linking to its note;
+   the dated disclaimer under it; the notes -- where Pravaha shines, then where it is partial or
+   behind -- each with the problem elsewhere and how Pravaha does it; what the rows have in common
+   and the practical reading; then adjacent tools and what Pravaha borrows. Categories, not vendors:
+   products are named in the prose, never in the table. #}
 {% from "_compete.html" import scored_table, card with context %}
 {% block title %}{{ t('competitive.title') }} — {{ app_name }}{% endblock %}
 {% block head %}<link href="/static/app/help.css?v={{ asset_version }}" rel="stylesheet">{% endblock %}
 {% block content %}
-<div class="about-hero">
-  <div class="accent"></div>
-  <p class="kicker mt-2 mb-1">{{ t('competitive.kicker') }}</p>
-  <h1>{{ t('competitive.heading') }}</h1>
+<section class="about-hero" aria-labelledby="h-competitive">
+  <h1 id="h-competitive"><i class="bi bi-bar-chart-steps" aria-hidden="true"></i> {{ t('competitive.heading') }}</h1>
   <p class="lede">{{ t('competitive.lede') }}</p>
   <div class="d-flex flex-wrap gap-2 mt-3">
-    <a class="btn btn-outline-secondary btn-sm px-3" href="/about">{{ t('competitive.nav.about') }}</a>
-    <a class="btn btn-outline-secondary btn-sm px-3" href="/help">{{ t('competitive.nav.help') }}</a>
+    <a class="btn btn-outline-secondary px-3" href="/about"><i class="bi bi-info-circle" aria-hidden="true"></i> {{ t('competitive.nav.about') }}</a>
+    <a class="btn btn-outline-secondary px-3" href="/help"><i class="bi bi-book" aria-hidden="true"></i> {{ t('competitive.nav.help') }}</a>
   </div>
-</div>
-
-<nav class="card mt-3" aria-label="{{ t('about.contents') }}"><div class="card-body py-2">
-  <ul class="chip-links mb-0">
-    <li><a href="#table">{{ t('competitive.s.table') }}</a></li>
-    <li><a href="#shine">{{ t('competitive.s.shine') }}</a></li>
-    <li><a href="#behind">{{ t('competitive.s.behind') }}</a></li>
-    {% for s in sections %}<li><a href="#{{ s.id }}">{{ s.title }}</a></li>{% endfor %}
-  </ul>
-</div></nav>
-
-{% if rows %}
-<section class="mt-4" id="table" aria-labelledby="h-table">
-  <h2 id="h-table">{{ t('competitive.s.table') }}</h2>
-  <div class="card"><div class="card-body">
-    <div class="doc small">{{ notes.before|safe }}</div>
-    {{ scored_table(columns, rows) }}
-    <div class="doc small mt-2">{{ notes.after|safe }}</div>
-  </div></div>
 </section>
 
-<section class="mt-4" id="shine" aria-labelledby="h-shine">
-  <h2 id="h-shine"><i class="bi bi-stars" aria-hidden="true"></i> {{ t('competitive.s.shine') }}</h2>
+{% if rows %}
+<section class="card mb-4 about-compete" id="landscape" aria-label="{{ t('competitive.s.table') }}">
+  <div class="card-body">
+    <div class="doc">{{ landscape|safe }}</div>
+    <div class="doc small">{{ notes.before|safe }}</div>
+    {{ scored_table(columns, rows) }}
+    {% if notes.after %}<div class="doc small mt-2">{{ notes.after|safe }}</div>{% endif %}
+    <div class="small-muted mt-3 mb-0 doc" id="disclaimer">{{ disclaimer|safe }}</div>
+  </div>
+</section>
+
+<section id="shine" aria-labelledby="h-shine">
+  <h2 class="mb-3" id="h-shine"><i class="bi bi-stars" aria-hidden="true"></i> {{ t('competitive.s.shine') }}</h2>
   <div class="doc small mb-3">{{ intro|safe }}</div>
-  {% for c in shine %}{{ card(c, columns) }}{% endfor %}
+  {% for c in shine %}{{ card(c, columns, short) }}{% endfor %}
 </section>
 
 <section class="mt-4" id="behind" aria-labelledby="h-behind">
-  <h2 id="h-behind"><i class="bi bi-signpost-split" aria-hidden="true"></i> {{ t('competitive.s.behind') }}</h2>
-  {% for c in behind %}{{ card(c, columns) }}{% endfor %}
+  <h2 class="mb-3" id="h-behind"><i class="bi bi-signpost-split" aria-hidden="true"></i> {{ t('competitive.s.behind') }}</h2>
+  {% for c in behind %}{{ card(c, columns, short) }}{% endfor %}
+</section>
+
+<section class="card mb-4 mt-4" id="reading" aria-label="{{ t('competitive.s.reading') }}">
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="cap-group">{{ t('competitive.s.common') }}</div>
+        <ul class="cap-list">{% for i in common %}<li>{{ i|safe }}</li>{% endfor %}</ul>
+      </div>
+      <div class="col-md-6">
+        <div class="cap-group">{{ t('competitive.s.reading') }}</div>
+        <div class="doc">{{ reading|safe }}</div>
+      </div>
+    </div>
+  </div>
 </section>
 
 {% for s in sections %}
-<section class="mt-4" id="{{ s.id }}" aria-labelledby="h-{{ s.id }}">
-  <h2 id="h-{{ s.id }}">{{ s.title }}</h2>
-  <div class="card"><div class="card-body doc">{{ s.html|safe }}</div></div>
+<section class="card mb-4" id="{{ s.id }}" aria-labelledby="h-{{ s.id }}">
+  <div class="card-header" id="h-{{ s.id }}">{{ s.title }}</div>
+  <div class="card-body doc">{{ s.html|safe }}</div>
 </section>
 {% endfor %}
 {% else %}

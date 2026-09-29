@@ -12,6 +12,23 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **About and the competitive landscape follow MAYA's.** `/about` takes MAYA's About section for
+  section: the hero (mark, name, tagline, creed, version), what it is, the problem (asking again
+  against a maintained answer, with problem-and-fix pairs), twelve cards of what makes it different
+  (exact cuts, exact seams, lossless cutover, governed live answers, alerts that clear, queries on
+  queries, refusal, any model with the engine as judge, …), how it works, what is built by area, this
+  release beside the honest limits, the measured numbers with their sources, a competitive summary
+  (the table, where Pravaha shines and where it is behind, and the way to the full comparison), the
+  principles, the research paper, deck and Medium post, the technology and the author.
+  `docs/COMPETITIVE_LANDSCAPE.md` is rewritten in MAYA's form: a landscape naming the families and
+  well-known examples of each, a table of 28 capabilities against six categories — a new
+  **Governance catalogues** column among them — and a note per row with *the problem elsewhere* and a
+  list of *how Pravaha does it*. New rows: the governed catalogue of live answers, alerts that fire and
+  clear, BI tools over the PostgreSQL protocol with security applied, plain English with the engine as
+  judge, lanes, native CDC, observability, queries on queries (Partial), Delta and Iceberg sinks
+  (Partial), and the honest ones — governing many engines, MFA and SSO, a managed service. The paper
+  and the deck are served at `/about/papers/` from a fixed list when the installation carries them.
+
 - **The console follows MAYA's design language.** Tokens and themes (`static/css/tokens.css`,
   `theme.css`), the navigation bar, the menu, the theme menu, the banners, the flashes and the footer
   are MAYA's files with only names, routes and content changed. **Themes**: MAYA's four — Crimson,

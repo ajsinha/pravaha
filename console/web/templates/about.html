@@ -1,90 +1,82 @@
 {% extends "base.html" %}
-{# About Pravaha. Public, like the help.
+{# About Pravaha, in MAYA's About's shape. Public, like the help.
 
-   Where the repository already states a thing, it is read from there (core/about.py): what is
-   built and what is not (README), the decision summaries (docs/adr/README.md), the legal
-   wording (README "Legal", LICENSE), the newest release (docs/RELEASE_NOTES.md) and the
-   competitive landscape (docs/COMPETITIVE_LANDSCAPE.md). The measured numbers each carry where and on what they were
-   taken. Nothing about the running node beyond its version and state is shown here. #}
+   Section for section as MAYA's: the hero (mark, name, tagline, creed, version); what it is; the
+   problem it solves (the narrative, then the problem-and-fix pairs); what makes it different;
+   how it works (the diagram); what is built, by area; this release beside the honest limits; the
+   numbers measured; the competitive summary with its way to the full comparison; the design
+   principles; further reading; the technology; the author and the licence; this installation.
+
+   Where the repository already states a thing it is read from there (core/about.py): the status
+   line, what is built and not built in full (README), the newest release (docs/RELEASE_NOTES.md),
+   the legal wording (README "Legal", LICENSE) and the scored table (docs/COMPETITIVE_LANDSCAPE.md).
+   The measured numbers each carry where and on what they were taken. Nothing about the running
+   node beyond its version and state is shown here. #}
 {% from "_compete.html" import scored_table with context %}
 {% block title %}{{ t('about.title') }} — {{ app_name }}{% endblock %}
 {% block head %}<link href="/static/app/help.css?v={{ asset_version }}" rel="stylesheet">{% endblock %}
 {% block content %}
-<div class="about-hero">
-  <div class="accent"></div>
-  <p class="kicker mt-2 mb-1">{{ t('about.kicker') }}</p>
-  <h1>{{ app_name }} <span class="text-muted" lang="sa" style="font-weight:400">· प्रवाह</span></h1>
-  <p class="lede">{{ t('about.lede') }}</p>
+<section class="about-hero" aria-labelledby="h-about">
+  <img src="/static/img/pravaha-mark-white.svg" alt="">
+  <h1 id="h-about">{{ app_name }} <span lang="sa">· प्रवाह</span></h1>
+  <p class="about-tagline">{{ t('about.tagline') }}</p>
+  <p class="about-creed">{{ t('shell.slogan') }}</p>
+  <p class="lede mt-3">{{ t('about.lede') }}</p>
   {# data-volatile: the screenshots mask it, so a version bump is not a pixel change #}
-  {% if console_version %}<p class="mb-0"><span class="chip info" data-volatile>{{ t('about.version', v=console_version) }}</span></p>{% endif %}
-  <div class="d-flex flex-wrap gap-2 mt-3">
-    <a class="btn btn-primary btn-sm px-3" href="/help/topics/start-here">{{ t('about.nav.start') }}</a>
-    <a class="btn btn-outline-secondary btn-sm px-3" href="/help/topics/first-view">{{ t('about.nav.first_view') }}</a>
-    <a class="btn btn-outline-secondary btn-sm px-3" href="/help">{{ t('about.docs.open') }}</a>
-    <a class="btn btn-outline-secondary btn-sm px-3" href="/help/decisions">{{ t('about.nav.decisions') }}</a>
-    <a class="btn btn-outline-secondary btn-sm px-3" href="/tutorials">{{ t('about.nav.tutorials') }}</a>
-    <a class="btn btn-outline-secondary btn-sm px-3" href="/about/competitive">{{ t('about.nav.competitive') }}</a>
+  {% if console_version %}<span class="version-badge" data-volatile>{{ t('about.version', v=console_version) }}</span>{% endif %}
+  <div class="d-flex flex-wrap gap-2 mt-4 position-relative">
+    {% if signed_in %}<a class="btn btn-primary px-3" href="/overview"><i class="bi bi-house" aria-hidden="true"></i> {{ t('about.nav.home') }}</a>
+    {% else %}<a class="btn btn-primary px-3" href="/login"><i class="bi bi-box-arrow-in-right" aria-hidden="true"></i> {{ t('about.nav.sign_in') }}</a>{% endif %}
+    <a class="btn btn-outline-secondary px-3" href="/help"><i class="bi bi-book" aria-hidden="true"></i> {{ t('about.docs.open') }}</a>
+    <a class="btn btn-outline-secondary px-3" href="/help/topics/start-here"><i class="bi bi-flag" aria-hidden="true"></i> {{ t('about.nav.start') }}</a>
+    <a class="btn btn-outline-secondary px-3" href="/about/competitive"><i class="bi bi-bar-chart-steps" aria-hidden="true"></i> {{ t('about.nav.competitive') }}</a>
   </div>
-</div>
-
-<nav class="card mt-3" aria-label="{{ t('about.contents') }}"><div class="card-body py-2">
-  <ul class="chip-links mb-0">
-    {% for id, label in [('what', t('about.s.what')), ('problem', t('about.s.problem')),
-       ('different', t('about.s.different')), ('how', t('about.s.how')),
-       ('built', t('about.s.built')), ('release', t('about.s.release')), ('numbers', t('about.s.numbers')),
-       ('decisions', t('about.s.decisions')), ('principles', t('about.s.principles')),
-       ('landscape', t('about.s.landscape')), ('uses', t('about.s.uses')), ('stack', t('about.s.stack')),
-       ('name', t('about.s.name')), ('console', t('about.s.console')), ('install', t('about.s.install')),
-       ('author', t('about.s.author'))] %}
-    <li><a href="#{{ id }}">{{ label }}</a></li>
-    {% endfor %}
-  </ul>
-</div></nav>
+</section>
 
 {# ---------------------------------------------------------------- what it is #}
-<section class="mt-4" id="what" aria-labelledby="h-what">
-  <h2 id="h-what">{{ t('about.s.what') }}</h2>
-  {% if status_line %}<div class="alert alert-info small">{{ status_line|safe }}</div>{% endif %}
-  {% if topics['what-it-is'] %}<div class="card"><div class="card-body doc">{{ topics['what-it-is'].html|safe }}</div></div>{% endif %}
-</section>
-
-<section class="mt-4" id="problem" aria-labelledby="h-problem">
-  <h2 id="h-problem">{{ t('about.s.problem') }}</h2>
-  {% if topics['the-problem'] %}<div class="card"><div class="card-body doc">{{ topics['the-problem'].html|safe }}</div></div>{% endif %}
-  <div class="row g-3 mt-1">
-    {% for p in problems %}
-    <div class="col-md-6"><div class="stat problem-pair">
-      <p class="mb-2"><i class="bi bi-x-circle" aria-hidden="true"></i> {{ p.problem }}</p>
-      <p class="fix mb-0"><i class="bi bi-arrow-return-right" aria-hidden="true"></i> {{ p.fix }}
-        <a href="{{ p.href }}" class="small">{{ t('about.problem.more') }}</a></p>
-    </div></div>
-    {% endfor %}
+<section class="card mb-4" id="what" aria-labelledby="h-what">
+  <div class="card-header" id="h-what"><i class="bi bi-info-circle" aria-hidden="true"></i> {{ t('about.s.what') }}</div>
+  <div class="card-body">
+    <p class="lead">{{ t('about.what.lead') }}</p>
+    <p>{{ t('about.what.body') }}</p>
+    <p class="small-muted">{{ t('about.what.name') }}</p>
+    {% if status_line %}<div class="alert alert-info small mb-0">{{ status_line|safe }}</div>{% endif %}
   </div>
 </section>
 
-{# ---------------------------------------------------------------- what makes it different
-   One card per row where docs/COMPETITIVE_LANDSCAPE.md scores Pravaha Yes: its title and its
-   "Why it matters", word for word, and a link to the whole card on /about/competitive. The claim
-   and the comparison it is a claim against have one home. #}
-<section class="mt-4" id="different" aria-labelledby="h-different">
-  <h2 id="h-different">{{ t('about.s.different') }}</h2>
-  <p class="text-muted small">{{ t('about.different.lede') }}</p>
-  <div class="row g-3">
-    {% for c in landscape.shine %}
-    <div class="col-md-6 col-xl-4"><div class="stat about-feature">
-      <div class="fi"><i class="bi bi-{{ c.icon }}" aria-hidden="true"></i></div>
-      <h3>{{ c.title }}</h3>
-      <p class="small mb-1">{{ c.why|safe }}</p>
-      <a class="small" href="/about/competitive#{{ c.id }}">{{ t('about.different.how') }} &rarr;</a>
-    </div></div>
+{# ---------------------------------------------------------------- the problem #}
+<section class="card mb-4 about-problem" id="problem" aria-labelledby="h-problem">
+  <div class="card-header" id="h-problem"><i class="bi bi-bullseye" aria-hidden="true"></i> {{ t('about.s.problem') }}</div>
+  <div class="card-body">
+    {% for p in problem_lead %}<p>{{ p }}</p>{% endfor %}
+    <div class="row g-3 mt-1">
+      {% for p in problems %}
+      <div class="col-md-6"><p class="mb-1"><i class="bi bi-x-circle bad" aria-hidden="true"></i> {{ p.problem }}</p>
+        <p class="fix mb-0"><i class="bi bi-arrow-return-right" aria-hidden="true"></i> {{ p.fix }}
+          <a href="{{ p.href }}">{{ t('about.problem.more') }}</a></p></div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+{# ---------------------------------------------------------------- what makes it different #}
+<section id="different" aria-labelledby="h-different">
+  <h2 class="mb-3" id="h-different"><i class="bi bi-stars" aria-hidden="true"></i> {{ t('about.s.different') }}</h2>
+  <div class="row g-3 mb-4">
+    {% for f in different %}
+    <div class="col-md-6 col-xl-4"><div class="card about-feature"><div class="card-body">
+      <div class="fi"><i class="bi bi-{{ f.icon }}" aria-hidden="true"></i></div>
+      <h3>{{ f.title }}</h3><p>{{ f.text }}</p>
+      <a class="more" href="{{ f.href }}">{{ t('about.different.how') }} <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+    </div></div></div>
     {% endfor %}
   </div>
 </section>
 
 {# ---------------------------------------------------------------- how it works #}
-<section class="mt-4" id="how" aria-labelledby="h-how">
-  <h2 id="h-how">{{ t('about.s.how') }}</h2>
-  <div class="card"><div class="card-body">
+<section class="card mb-4" id="how" aria-labelledby="h-how">
+  <div class="card-header" id="h-how"><i class="bi bi-diagram-3" aria-hidden="true"></i> {{ t('about.s.how') }}</div>
+  <div class="card-body">
     <svg class="about-diagram" viewBox="0 0 980 380" role="img" aria-labelledby="dg-title dg-desc">
       <title id="dg-title">{{ t('about.diagram.title') }}</title>
       <desc id="dg-desc">{{ t('about.diagram.desc') }}</desc>
@@ -153,7 +145,7 @@
       <text class="edge-lbl" x="387" y="140" text-anchor="middle">{{ t('about.diagram.l.deltas') }}</text>
       <text class="edge-lbl" x="663" y="140" text-anchor="middle">{{ t('about.diagram.l.commit') }}</text>
     </svg>
-    <ol class="mt-3 mb-0 small" style="line-height:1.7;color:var(--slate)">
+    <ol class="cap-steps mt-3 mb-0 small">
       <li>{{ t('about.how.1') }}</li>
       <li>{{ t('about.how.2') }}</li>
       <li>{{ t('about.how.3') }}</li>
@@ -161,44 +153,58 @@
       <li>{{ t('about.how.5') }}</li>
     </ol>
     <p class="small mt-2 mb-0"><a href="/help/topics/zset-weights">{{ t('about.how.more_weights') }} &rarr;</a> ·
-      <a href="/help/architecture">{{ t('about.how.more_architecture') }} &rarr;</a></p>
-  </div></div>
+      <a href="/help/architecture">{{ t('about.how.more_architecture') }} &rarr;</a> ·
+      <a href="/help/concepts">{{ t('about.how.more_concepts') }} &rarr;</a></p>
+  </div>
 </section>
 
 {# ---------------------------------------------------------------- what is built #}
-<section class="mt-4" id="built" aria-labelledby="h-built">
-  <h2 id="h-built">{{ t('about.s.built') }}</h2>
-  <p class="text-muted small">{{ t('about.built.lede') }}</p>
-  <div class="row g-3">
-    {% for row in built %}
-    <div class="col-md-6 col-xl-4"><div class="stat">
-      <h3 class="h6 mb-1">{{ row.area }}</h3>
-      <div class="small doc">{{ row.html|safe }}</div>
-    </div></div>
-    {% endfor %}
+<section class="card mb-4" id="built" aria-labelledby="h-built">
+  <div class="card-header" id="h-built"><i class="bi bi-grid-3x3-gap" aria-hidden="true"></i> {{ t('about.s.built') }}</div>
+  <div class="card-body">
+    <div class="row g-4">
+      {% for icon, group, items in capabilities %}
+      <div class="col-md-6 col-xl-3"><div class="cap-group"><i class="bi bi-{{ icon }}" aria-hidden="true"></i> {{ group }}</div>
+        <ul class="cap-list">{% for i in items %}<li>{{ i }}</li>{% endfor %}</ul></div>
+      {% endfor %}
+    </div>
+    {% if built %}
+    <details class="mt-3"><summary class="small fw-semibold">{{ t('about.built.in_full') }}</summary>
+      <p class="small-muted mt-2">{{ t('about.built.lede') }}</p>
+      <dl class="row small mb-0">
+        {% for row in built %}<dt class="col-md-2">{{ row.area }}</dt><dd class="col-md-10 doc">{{ row.html|safe }}</dd>{% endfor %}
+      </dl>
+    </details>
+    {% endif %}
   </div>
-  <details class="card mt-3"><summary class="card-body py-2 fw-semibold">{{ t('about.built.not_built') }}</summary>
-    <div class="card-body pt-0 doc small">{{ not_built|safe }}</div></details>
 </section>
 
-{# ---------------------------------------------------------------- in this release
-   The newest entry of docs/RELEASE_NOTES.md, read on each request -- never typed here. #}
-<section class="mt-4" id="release" aria-labelledby="h-release">
-  <h2 id="h-release">{{ t('about.s.release') }}</h2>
-  <div class="card"><div class="card-body">
-    {% if release %}
-    <h3 class="h6 mb-2">{{ release.title }}</h3>
-    <div class="doc small">{{ release.html|safe }}</div>
-    {% endif %}
-    <p class="small text-muted mb-0 mt-2">{{ t('about.release.source') }}
-      <a href="/help/whats-new">{{ t('about.release.all') }} &rarr;</a></p>
-  </div></div>
-</section>
+{# ---------------------------------------------------------------- this release, honest limits #}
+<div class="row g-3 mb-4">
+  <div class="col-lg-7"><section class="card h-100" id="release" aria-labelledby="h-release">
+    <div class="card-header" id="h-release"><i class="bi bi-tag" aria-hidden="true"></i> {{ t('about.s.release') }}</div>
+    <div class="card-body">
+      {% if release %}
+      <div class="cap-group">{{ release.title }}</div>
+      <ul class="cap-list mb-3">{% for h in release.highlights[:8] %}<li>{{ h|safe }}</li>{% endfor %}</ul>
+      {% if release.highlights|length > 8 %}<p class="small mb-2">{{ t('about.release.more', n=release.highlights|length - 8) }}</p>{% endif %}
+      {% endif %}
+      <p class="small-muted mb-0">{{ t('about.release.source') }} <a href="/help/whats-new">{{ t('about.release.all') }} &rarr;</a></p>
+    </div></section></div>
+  <div class="col-lg-5"><section class="card h-100" id="limits" aria-labelledby="h-limits">
+    <div class="card-header" id="h-limits"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i> {{ t('about.s.limits') }}</div>
+    <div class="card-body">
+      <p class="small-muted">{{ t('about.limits.lede') }}</p>
+      <ul class="cap-list">{% for l in limits %}<li>{{ l }}</li>{% endfor %}</ul>
+      <details class="mt-2"><summary class="small fw-semibold">{{ t('about.built.not_built') }}</summary>
+        <div class="doc small mt-2">{{ not_built|safe }}</div></details>
+    </div></section></div>
+</div>
 
 {# ---------------------------------------------------------------- measured #}
-<section class="mt-4" id="numbers" aria-labelledby="h-numbers">
-  <h2 id="h-numbers">{{ t('about.s.numbers') }}</h2>
-  <p class="text-muted small" style="max-width:52rem">{{ t('about.numbers.lede') }}</p>
+<section id="numbers" aria-labelledby="h-numbers" class="mb-4">
+  <h2 class="mb-2" id="h-numbers"><i class="bi bi-speedometer2" aria-hidden="true"></i> {{ t('about.s.numbers') }}</h2>
+  <p class="small-muted" style="max-width:52rem">{{ t('about.numbers.lede') }}</p>
   <div class="row g-3">
     {% for m in measured %}
     <div class="col-md-6 col-xl-4"><div class="stat">
@@ -212,27 +218,38 @@
   </div>
 </section>
 
-{# ---------------------------------------------------------------- decisions #}
-<section class="mt-4" id="decisions" aria-labelledby="h-decisions">
-  <h2 id="h-decisions">{{ t('about.s.decisions') }}</h2>
-  <p class="text-muted small">{{ t('about.decisions.lede') }}</p>
-  <div class="row g-2">
-    {% for d in decisions %}
-    <div class="col-md-6">
-      <a class="help-card" href="/help/decisions/{{ d.stem }}">
-        <span class="t"><span class="mono">ADR-{{ d.number }}</span></span>
-        <span class="s">{{ d.summary }}</span>
-      </a>
+{# ---------------------------------------------------------------- competitive summary
+   MAYA's about-compete card: the pattern in two paragraphs, the scored table, where Pravaha shines
+   and where it is behind, and the way to the full comparison. Categories, not vendors. #}
+<section class="card mb-4 about-compete" id="landscape" aria-labelledby="h-landscape">
+  <div class="card-header" id="h-landscape"><i class="bi bi-bar-chart-steps" aria-hidden="true"></i> {{ t('about.s.landscape') }}</div>
+  <div class="card-body">
+    <p>{{ t('about.landscape.pattern') }}</p>
+    <p class="mb-3">{{ t('about.landscape.complement') }}</p>
+    {% if landscape.rows %}
+    {{ scored_table(landscape.columns, landscape.rows, '/about/competitive', 'about-compete') }}
+    <div class="row g-3 mt-2 compete-split">
+      <div class="col-md-6">
+        <div class="cap-group"><i class="bi bi-stars" aria-hidden="true"></i> {{ t('about.landscape.shines') }}</div>
+        <ul class="cap-list">{% for r in landscape.shine %}<li><a href="/about/competitive#{{ r.id }}">{{ r.capability }}</a></li>{% endfor %}</ul>
+      </div>
+      <div class="col-md-6">
+        <div class="cap-group"><i class="bi bi-signpost-split" aria-hidden="true"></i> {{ t('about.landscape.behind') }}</div>
+        <ul class="cap-list">{% for r in landscape.behind %}<li><a href="/about/competitive#{{ r.id }}">{{ r.capability }}</a>
+          <span class="cmp cmp-{{ r.scores[-1].chip }}">{{ r.pravaha }}</span></li>{% endfor %}</ul>
+      </div>
     </div>
-    {% endfor %}
+    <div class="small-muted doc">{{ landscape.disclaimer|safe }}</div>
+    {% endif %}
+    <a class="btn btn-sm btn-primary mt-1" href="/about/competitive"><i class="bi bi-arrow-right" aria-hidden="true"></i>
+      {{ t('about.landscape.full') }}</a>
   </div>
-  <p class="small mt-2"><a href="/help/decisions">{{ t('about.decisions.all') }} &rarr;</a></p>
 </section>
 
 {# ---------------------------------------------------------------- principles #}
-<section class="mt-4" id="principles" aria-labelledby="h-principles">
-  <h2 id="h-principles">{{ t('about.s.principles') }}</h2>
-  <div class="row">
+<section class="card mb-4" id="principles" aria-labelledby="h-principles">
+  <div class="card-header" id="h-principles"><i class="bi bi-compass" aria-hidden="true"></i> {{ t('about.s.principles') }}</div>
+  <div class="card-body"><div class="row">
     {% for p in principles %}
     <div class="col-md-6 col-xl-4"><div class="principle-card">
       <h3>{{ p.title }}</h3>
@@ -240,72 +257,60 @@
     </div></div>
     {% endfor %}
   </div>
+  <p class="small mb-0"><a href="/help/decisions">{{ t('about.decisions.all') }} &rarr;</a></p></div>
 </section>
 
-{# ---------------------------------------------------------------- competitive landscape
-   Condensed from docs/COMPETITIVE_LANDSCAPE.md: the scored table and where Pravaha loses.
-   Categories, not vendors; the full page names the products and the notes behind each score. #}
-<section class="mt-4" id="landscape" aria-labelledby="h-landscape">
-  <h2 id="h-landscape">{{ t('about.s.landscape') }}</h2>
-  <p class="text-muted small" style="max-width:52rem">{{ t('about.landscape.lede') }}</p>
-  {% if landscape.rows %}
-  <div class="card"><div class="card-body">
-    {{ scored_table(landscape.columns, landscape.rows, '/about/competitive', 'about-compete') }}
-    <div class="small mt-2 doc">{{ landscape.disclaimer|safe }}</div>
-    <a class="btn btn-primary btn-sm px-3 mt-1" href="/about/competitive"><i class="bi bi-bar-chart-steps" aria-hidden="true"></i>
-      {{ t('about.landscape.full') }}</a>
-  </div></div>
-  <div class="card mt-3"><div class="card-body">
-    <h3 class="h6">{{ t('about.landscape.loses') }}</h3>
-    <div class="doc small">{{ landscape.loses|safe }}</div>
-  </div></div>
-  {% endif %}
-</section>
-
-{# ---------------------------------------------------------------- use cases #}
-<section class="mt-4" id="uses" aria-labelledby="h-uses">
-  <h2 id="h-uses">{{ t('about.s.uses') }}</h2>
-  <p class="text-muted small">{{ t('about.uses.lede') }}</p>
-  <div class="row g-3">
-    {% for s in case_studies %}
-    <div class="col-md-6 col-xl-4">
-      <a class="help-card" href="/help/case-studies/{{ s.slug }}">
-        <span class="t"><i class="bi bi-journal-code" aria-hidden="true"></i>{{ s.title }}<span class="badge-help">{{ s.domain|upper }}</span></span>
-        <span class="s">{{ s.shows }}</span>
-      </a>
+{# ---------------------------------------------------------------- further reading #}
+<section class="card mb-4" id="reading" aria-labelledby="h-reading">
+  <div class="card-header" id="h-reading"><i class="bi bi-journal-richtext" aria-hidden="true"></i> {{ t('about.s.reading') }}</div>
+  <div class="card-body">
+    <div class="row g-3 about-read">
+      {% for r in readings %}
+      <div class="col-md-4">
+        {% if r.href %}<a href="{{ r.href }}"><i class="bi bi-{{ r.icon }}" aria-hidden="true"></i>
+          <span><strong>{{ r.title }}</strong><span>{{ r.what }}</span></span></a>
+        {% else %}<div class="about-read-static"><i class="bi bi-{{ r.icon }}" aria-hidden="true"></i>
+          <span><strong>{{ r.title }}</strong><span>{{ r.what }}</span>
+          <span class="d-block mt-1">{{ t('about.reading.in_repo') }} <code>{{ r.path }}</code></span></span></div>{% endif %}
+      </div>
+      {% endfor %}
     </div>
-    {% endfor %}
   </div>
 </section>
 
-{# ---------------------------------------------------------------- stack #}
-<section class="mt-4" id="stack" aria-labelledby="h-stack">
-  <h2 id="h-stack">{{ t('about.s.stack') }}</h2>
-  <div class="card"><div class="card-body">
-    <dl class="row mb-0 small">
-      {% for row in how_built %}
-      <dt class="col-md-2">{{ row.area }}</dt><dd class="col-md-10 doc">{{ row.html|safe }}</dd>
-      {% endfor %}
-    </dl>
-  </div></div>
+{# ---------------------------------------------------------------- technology #}
+<section class="card mb-4" id="stack" aria-labelledby="h-stack">
+  <div class="card-header" id="h-stack"><i class="bi bi-code-square" aria-hidden="true"></i> {{ t('about.s.stack') }}</div>
+  <div class="card-body">
+    {% for b in technology %}<span class="tech-badge">{{ b }}</span>{% endfor %}
+    <p class="small-muted mt-3 mb-0">{{ t('about.stack.note') }}</p>
+  </div>
 </section>
 
-{# ---------------------------------------------------------------- the name, the console #}
-<section class="mt-4" id="name" aria-labelledby="h-name">
-  <h2 id="h-name">{{ t('about.s.name') }}</h2>
-  {% if topics['the-name'] %}<div class="card"><div class="card-body doc">{{ topics['the-name'].html|safe }}</div></div>{% endif %}
-</section>
-<section class="mt-4" id="console" aria-labelledby="h-console">
-  <h2 id="h-console">{{ t('about.s.console') }}</h2>
-  {% if topics['this-console'] %}<div class="card"><div class="card-body doc">{{ topics['this-console'].html|safe }}</div></div>{% endif %}
-</section>
+{# ---------------------------------------------------------------- author, licence, installation #}
+<div class="row g-3 mb-4" id="author">
+  <div class="col-md-5"><section class="card h-100 about-author" aria-labelledby="h-author">
+    <div class="avatar"><i class="bi bi-person" aria-hidden="true"></i></div>
+    <h3 id="h-author">Ashutosh Sinha</h3>
+    <p class="small-muted">{{ t('about.author.role') }}</p>
+    <p class="mb-0"><a class="btn btn-outline-primary btn-sm" href="mailto:ajsinha@gmail.com"><i class="bi bi-envelope" aria-hidden="true"></i> ajsinha@gmail.com</a></p>
+  </section></div>
+  <div class="col-md-7"><section class="card h-100" aria-labelledby="h-licence">
+    <div class="card-header" id="h-licence"><i class="bi bi-file-earmark-text" aria-hidden="true"></i> {{ t('about.s.author') }}</div>
+    <div class="card-body small">
+      <div class="legal doc">{{ legal|safe }}</div>
+      {% if licence %}
+      <details class="mt-2"><summary class="small fw-semibold">{{ t('about.author.licence') }}</summary>
+        <pre tabindex="0" class="small mt-2" style="white-space:pre-wrap">{{ licence }}</pre></details>
+      {% endif %}
+    </div></section></div>
+</div>
 
-{# ---------------------------------------------------------------- this installation #}
-<section class="mt-4" id="install" aria-labelledby="h-install">
-  <h2 id="h-install">{{ t('about.s.install') }}</h2>
-  <div class="card"><div class="card-body">
+<section class="card mb-4" id="install" aria-labelledby="h-install">
+  <div class="card-header" id="h-install"><i class="bi bi-hdd-rack" aria-hidden="true"></i> {{ t('about.s.install') }}</div>
+  <div class="card-body">
     <dl class="row mb-0">
-      <dt class="col-sm-3">{{ t('about.install.console') }}</dt><dd class="col-sm-9 mono">{{ console_version }}</dd>
+      <dt class="col-sm-3">{{ t('about.install.console') }}</dt><dd class="col-sm-9 mono" data-volatile>{{ console_version }}</dd>
       <dt class="col-sm-3">{{ t('about.install.engine') }}</dt>
       <dd class="col-sm-9" id="engine-status">
         {% if engine_status.private %}
@@ -322,20 +327,6 @@
       <dt class="col-sm-3">{{ t('about.install.help') }}</dt>
       <dd class="col-sm-9">{{ t('about.install.help_count', n=topic_count) }}</dd>
     </dl>
-  </div></div>
-</section>
-
-{# ---------------------------------------------------------------- author, legal #}
-<section class="mt-4" id="author" aria-labelledby="h-author">
-  <h2 id="h-author">{{ t('about.s.author') }}</h2>
-  <div class="card"><div class="card-body">
-    <p class="mb-1"><strong>Ashutosh Sinha</strong> · <a href="mailto:ajsinha@gmail.com">ajsinha@gmail.com</a></p>
-    <p class="small text-muted">{{ t('about.author.role') }}</p>
-    <div class="legal doc">{{ legal|safe }}</div>
-    {% if licence %}
-    <details class="mt-2"><summary class="small fw-semibold">{{ t('about.author.licence') }}</summary>
-      <pre tabindex="0" class="small mt-2" style="white-space:pre-wrap">{{ licence }}</pre></details>
-    {% endif %}
-  </div></div>
+  </div>
 </section>
 {% endblock %}
