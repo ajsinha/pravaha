@@ -633,7 +633,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   in every theme.
 
 
-Register: **469 findings — 437 fixed, 18 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **469 findings — 437 fixed, 11 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ---
 
