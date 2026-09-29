@@ -67,7 +67,7 @@ class PartialRestoreRegistryTest {
     private static final String SQL =
             "SELECT user_id, SUM(amount) AS total FROM ticks GROUP BY user_id, TUMBLE(ts, INTERVAL '10' SECOND)";
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     @TempDir
     Path root;

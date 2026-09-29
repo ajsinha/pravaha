@@ -57,7 +57,7 @@ class QueryRegistryTest {
             .field("status", Types.string())
             .build();
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     private ViewCatalog views;
     private QueryRegistry registry;
@@ -119,7 +119,7 @@ class QueryRegistryTest {
                 return AccessDecision.allow();
             }
         };
-        Principal rob = new Principal("rob", "acme", Set.of("analyst"), Map.of());
+        Principal rob = new Principal("rob", "public", Set.of("analyst"), Map.of());
 
         try (QueryRegistry guarded = new QueryRegistry(new ViewCatalog(), perPrincipal, AuditSink.NONE, TXN)) {
             String sql = "SELECT user_id, amount, status FROM txn";
@@ -150,7 +150,7 @@ class QueryRegistryTest {
                 return AccessDecision.allow();
             }
         };
-        Principal rob = new Principal("rob", "acme", Set.of("analyst"), Map.of());
+        Principal rob = new Principal("rob", "public", Set.of("analyst"), Map.of());
 
         try (QueryRegistry shared = new QueryRegistry(new ViewCatalog(), sameForAll, AuditSink.NONE, TXN)) {
             String sql = "SELECT user_id, amount, status FROM txn";

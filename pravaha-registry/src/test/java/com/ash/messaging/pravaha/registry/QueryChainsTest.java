@@ -67,7 +67,7 @@ class QueryChainsTest {
             .eventTime("ts")
             .build();
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     private static final String CLEANED = "SELECT user_id, region, amount FROM txn WHERE amount > 0";
     private static final String BY_REGION =
@@ -367,7 +367,7 @@ class QueryChainsTest {
                 .hasMessageContaining("cleaned");
         assertThat(registry.find("theirs")).isEmpty();
 
-        Principal eve = new Principal("eve", "acme", Set.of("analyst"), Map.of());
+        Principal eve = new Principal("eve", "public", Set.of("analyst"), Map.of());
         assertThatThrownBy(() -> registry.register("eves", "SELECT user_id FROM cleaned", List.of(0), eve))
                 .isInstanceOfSatisfying(
                         PravahaException.class, e -> assertThat(e.errorCode()).isEqualTo(SecurityErrors.FORBIDDEN))

@@ -47,6 +47,7 @@ import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityErrors;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
+import com.ash.messaging.pravaha.security.ViewNames;
 import com.ash.messaging.pravaha.sql.SqlErrors;
 import com.ash.messaging.pravaha.sql.SqlPlanner;
 import com.ash.messaging.pravaha.sql.plan.BoundParameters;
@@ -201,21 +202,27 @@ public final class ViewQuery {
         // makes both refusals the same. Planning still refuses an unknown name afterwards -- but by
         // then the caller is authorized for that name, and telling someone entitled to a view that
         // it is not there discloses nothing.
-        java.util.Optional<String> named = plannerForParsing().referencedTable(sql);
-        AccessDecision authorized = named.isPresent() ? authorizeRead(principal, named.get(), sql) : null;
+        //
+        // ADR-060: planned against the caller's scope -- its own tenant's views under the names it
+        // writes -- and authorized under the engine name the name resolves to, which is syntax only.
+        ViewCatalog scope = catalog.scopedTo(principal);
+        java.util.Optional<String> named = plannerForParsing(scope).referencedTable(sql);
+        AccessDecision authorized =
+                named.isPresent() ? authorizeRead(principal, ViewNames.resolve(principal, named.get()), sql) : null;
 
-        RelNode rel = relFor(sql);
+        RelNode rel = relFor(scope, sql);
         PhysicalOperator plan = physicalOf(rel, BoundParameters.none());
         String source = sourceViewOf(plan);
+        String engine = ViewNames.resolve(principal, source);
 
         // Normally the parsed name and the planned source are the same string, and the decision
         // above stands. They differ only for a shape `referencedTable` declines to read -- a join or
         // a subquery, both refused on other grounds before they reach a view -- and then this is
         // exactly the old path: authorize whatever the plan actually reads.
         AccessDecision decision =
-                authorized != null && named.get().equals(source) ? authorized : authorizeRead(principal, source, sql);
+                authorized != null && named.get().equals(source) ? authorized : authorizeRead(principal, engine, sql);
 
-        ServedView view = catalog.find(source).orElseThrow(() -> unknownView(source));
+        ServedView view = scope.find(source).orElseThrow(() -> unknownView(source));
         refuseIfProducerDied(view);
         // SX-7. The ALLOW above is true -- the policy did allow -- but the read can still be refused
         // a line later when the row filter cannot be enforced on this view (PRV-7003). That left an
@@ -228,12 +235,12 @@ public final class ViewQuery {
                 plan = withRowFilter(plan, view, decision.rowFilter().get());
             }
             plan = authorizeProvenance(plan, view, principal, "query", sql);
-            narrowing = narrowed(rel, view, source, principal, sql);
+            narrowing = narrowed(rel, view, source, engine, principal, sql);
         } catch (PravahaException refused) {
             audit.record(AuditEvent.of(
                     principal,
                     "query",
-                    source,
+                    engine,
                     AccessDecision.deny("allowed by policy, then refused: " + refused.getMessage()),
                     sql));
             throw refused;
@@ -253,8 +260,9 @@ public final class ViewQuery {
      * Applied to the view's rows before the query's own plan sees them, so every operator of the query --
      * its WHERE, its GROUP BY -- works on what the reader is shown, never on a value masked from them.
      */
-    private RowNarrowing narrowed(RelNode rel, ServedView view, String source, Principal principal, String sql) {
-        com.ash.messaging.pravaha.security.Narrowing narrowing = policy.narrowing(principal, source);
+    private RowNarrowing narrowed(
+            RelNode rel, ServedView view, String source, String engine, Principal principal, String sql) {
+        com.ash.messaging.pravaha.security.Narrowing narrowing = policy.narrowing(principal, engine);
         if (narrowing.isNone()) {
             return RowNarrowing.NONE;
         }
@@ -262,7 +270,7 @@ public final class ViewQuery {
         com.ash.messaging.pravaha.sql.plan.MaskedColumnUse.refuse(
                 rel, java.util.Map.of(source, compiled.maskedColumns()), List.of());
         audit.record(AuditEvent.of(
-                principal, "query.narrowed", source, AccessDecision.allow(), String.join("; ", narrowing.because())));
+                principal, "query.narrowed", engine, AccessDecision.allow(), String.join("; ", narrowing.because())));
         return compiled;
     }
 
@@ -349,8 +357,8 @@ public final class ViewQuery {
      * run it hands them that list for free.
      */
     public StreamSchema schemaOf(String sql, Principal principal) {
-        PhysicalOperator plan = planFor(sql);
-        String source = sourceViewOf(plan);
+        PhysicalOperator plan = physicalOf(relFor(catalog.scopedTo(principal), sql), BoundParameters.none());
+        String source = ViewNames.resolve(principal, sourceViewOf(plan));
         AccessDecision decision = policy.mayRead(principal, source);
         audit.record(AuditEvent.of(principal, "schema", source, decision, sql));
         if (!decision.allowed()) {
@@ -390,27 +398,23 @@ public final class ViewQuery {
      * fine here for the same reason, and means a denied caller is refused as denied rather than
      * being told this node holds no views.
      */
-    private SqlPlanner plannerForParsing() {
-        return SqlPlanner.withStreams(catalog.schemas().values().toArray(new StreamSchema[0]));
+    private static SqlPlanner plannerForParsing(ViewCatalog scope) {
+        return SqlPlanner.withStreams(scope.schemas().values().toArray(new StreamSchema[0]));
     }
 
-    private PhysicalOperator planFor(String sql) {
-        return physicalOf(relFor(sql), BoundParameters.none());
-    }
-
-    private RelNode relFor(String sql) {
-        if (catalog.isEmpty()) {
+    private RelNode relFor(ViewCatalog scope, String sql) {
+        if (scope.isEmpty()) {
             throw new PravahaException(
                     ServingErrors.NO_SUCH_VIEW,
                     "no views are registered, so there is nothing to query. A view is created by "
                             + "registering a continuous query that serves one.");
         }
-        StreamSchema[] schemas = catalog.schemas().values().toArray(new StreamSchema[0]);
+        StreamSchema[] schemas = scope.schemas().values().toArray(new StreamSchema[0]);
         try {
             SqlPlanner planner = SqlPlanner.withStreams(schemas);
             return (numericAverages ? planner.withNumericAverages() : planner).plan(sql);
         } catch (PravahaException e) {
-            throw aNameThisServerDoesNotServe(sql, e);
+            throw aNameThisServerDoesNotServe(scope, sql, e);
         }
     }
 
@@ -435,17 +439,18 @@ public final class ViewQuery {
      * names a table this server does not currently serve -- so an unknown <em>column</em> of a real
      * view keeps its `PRV-2002`, which is the right code for it.
      */
-    private PravahaException aNameThisServerDoesNotServe(String sql, PravahaException failure) {
+    private static PravahaException aNameThisServerDoesNotServe(
+            ViewCatalog scope, String sql, PravahaException failure) {
         if (failure.errorCode().number() != SqlErrors.VALIDATION_FAILED.number()) {
             return failure;
         }
         java.util.Optional<String> named;
         try {
-            named = plannerForParsing().referencedTable(sql);
+            named = plannerForParsing(scope).referencedTable(sql);
         } catch (RuntimeException unparseable) {
             return failure;
         }
-        if (named.isEmpty() || catalog.find(named.get()).isPresent()) {
+        if (named.isEmpty() || scope.find(named.get()).isPresent()) {
             return failure;
         }
         return unknownView(named.get());
@@ -474,21 +479,23 @@ public final class ViewQuery {
      */
     public Prepared prepare(String sql, Principal principal) {
         Prepared cached;
+        // A plan is its caller's scope's (ADR-060): `FROM orders` is a different view in each tenant.
+        PlanKey key = new PlanKey(sql, catalog.generation(), scopeOf(principal));
         synchronized (plans) {
             // Read under the same lock as the write. A LinkedHashMap read while another thread is
             // structurally modifying it can spin rather than fail, and a server that hangs is worse
             // than one that is slow. Planning dwarfs this lock, so the contention does not matter.
-            cached = plans.get(new PlanKey(sql, catalog.generation()));
+            cached = plans.get(key);
         }
         if (cached != null) {
             // The cache holds plans, not permissions: authorization still runs below, on every call.
             return authorized(cached, sql, principal);
         }
-        RelNode rel = relFor(sql);
+        RelNode rel = relFor(catalog.scopedTo(principal), sql);
         ParameterMetadata parameters = ParameterMetadata.of(rel);
         // Built with placeholders left unbound only to learn the output shape. Nothing is executed,
-        // so nothing can reach a placeholder.
-        String source = sourceViewOf(physicalOf(rel, unresolvedFor(parameters)));
+        // so nothing can reach a placeholder. The view by its engine name, which is what executes.
+        String source = ViewNames.resolve(principal, sourceViewOf(physicalOf(rel, unresolvedFor(parameters))));
 
         AccessDecision decision = policy.mayRead(principal, source);
         audit.record(AuditEvent.of(principal, "prepare", source, decision, sql));
@@ -498,8 +505,14 @@ public final class ViewQuery {
         }
         StreamSchema resultSchema = physicalOf(rel, unresolvedFor(parameters)).outputSchema();
         Prepared prepared = new Prepared(sql, rel, parameters, resultSchema, source);
-        remember(new PlanKey(sql, catalog.generation()), prepared);
+        remember(key, prepared);
         return prepared;
+    }
+
+    /** Which scope a principal plans in: its tenant, and whether it sees every tenant's views as an admin. */
+    private static String scopeOf(Principal principal) {
+        return (principal.hasRole(com.ash.messaging.pravaha.security.Administration.ADMIN_ROLE) ? "admin:" : ":")
+                + principal.tenant();
     }
 
     /**
@@ -635,7 +648,7 @@ public final class ViewQuery {
         }
     }
 
-    private record PlanKey(String sql, long catalogGeneration) {}
+    private record PlanKey(String sql, long catalogGeneration, String scope) {}
 
     /**
      * Placeholder values used only to discover a statement's shape.
@@ -665,7 +678,10 @@ public final class ViewQuery {
      */
     public Result execute(Prepared prepared, BoundParameters parameters, Principal principal) {
         parameters.requireArity(prepared.parameters().count());
-        ServedView view = catalog.find(prepared.view())
+        // A prepared statement is its preparer's; another tenant's is a view this caller cannot name.
+        ServedView view = (ViewNames.visibleTo(principal, prepared.view())
+                        ? catalog.find(prepared.view())
+                        : java.util.Optional.<ServedView>empty())
                 .orElseThrow(() -> new PravahaException(
                         ServingErrors.NO_SUCH_VIEW, "'" + prepared.view() + "' is no longer registered"));
 
@@ -682,7 +698,8 @@ public final class ViewQuery {
             plan = withRowFilter(plan, view, decision.rowFilter().get());
         }
         plan = authorizeProvenance(plan, view, principal, "query", prepared.sql());
-        RowNarrowing narrowing = narrowed(prepared.rel(), view, sourceViewOf(plan), principal, prepared.sql());
+        RowNarrowing narrowing =
+                narrowed(prepared.rel(), view, sourceViewOf(plan), prepared.view(), principal, prepared.sql());
         try (ReadAdmission.Lease lease = admission.acquire(principal)) {
             return run(plan, view, narrowing);
         }
@@ -772,8 +789,11 @@ public final class ViewQuery {
             // The table name in this statement is scaffolding: the predicate that comes out of it
             // is ordinals and values, and carries no name at all. Using the schema's own name
             // makes the two halves agree by construction rather than by coincidence.
+            // A view outside the default tenant is named tenant.default.name (ADR-060), which a FROM
+            // clause would read as a path: the scaffolding uses its bare name.
+            StreamSchema scaffold = schema.renamedTo(ViewNames.localName(schema.name()));
             RelNode filterPlan =
-                    SqlPlanner.withStreams(schema).plan("SELECT * FROM " + schema.name() + " WHERE " + filterSql);
+                    SqlPlanner.withStreams(scaffold).plan("SELECT * FROM " + scaffold.name() + " WHERE " + filterSql);
             predicate = predicateOf(new PhysicalPlanBuilder().build(filterPlan));
         } catch (PravahaException e) {
             throw new PravahaException(

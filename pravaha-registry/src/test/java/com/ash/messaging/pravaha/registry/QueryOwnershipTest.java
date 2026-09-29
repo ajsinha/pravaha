@@ -88,12 +88,12 @@ class QueryOwnershipTest {
     void theOwnerMayDropWhatTheyRegistered() {
         try (QueryRegistry registry = registry(SecurityPolicy.PERMISSIVE)) {
             registry.register("totals", SQL, List.of(0), DANA);
-            assertThat(registry.owners().ownerOf("totals")).contains(DANA);
+            assertThat(registry.owners().ownerOf("acme.default.totals")).contains(DANA);
 
             drop(registry, DANA, "totals");
 
-            assertThat(registry.find("totals")).isEmpty();
-            assertThat(registry.owners().ownerOf("totals")).isEmpty();
+            assertThat(registry.find("acme.default.totals")).isEmpty();
+            assertThat(registry.owners().ownerOf("acme.default.totals")).isEmpty();
         }
     }
 
@@ -111,9 +111,9 @@ class QueryOwnershipTest {
                             e -> assertThat(((PravahaException) e).errorCode()).isEqualTo(SecurityErrors.FORBIDDEN))
                     .hasMessageContaining("its owner, a grant to administer it, or the admin role");
             assertThatThrownBy(() -> ContinuousQueryStatements.requireAdministrable(
-                            registry, AuditSink.NONE, ERIN, "totals", "pause"))
+                            registry, AuditSink.NONE, ERIN, "acme.default.totals", "pause"))
                     .isInstanceOf(PravahaException.class);
-            assertThat(registry.find("totals")).isPresent();
+            assertThat(registry.find("acme.default.totals")).isPresent();
         }
     }
 
@@ -123,7 +123,9 @@ class QueryOwnershipTest {
             registry.register("totals", SQL, List.of(0), DANA);
             Principal otherDana = new Principal("dana", "globex", Set.of("analyst"), Map.of());
 
-            assertThat(registry.owners().mayAdminister(otherDana, "totals").allowed())
+            assertThat(registry.owners()
+                            .mayAdminister(otherDana, "acme.default.totals")
+                            .allowed())
                     .isFalse();
         }
     }
@@ -133,11 +135,13 @@ class QueryOwnershipTest {
         try (QueryRegistry registry = registry(OPERATORS_ADMINISTER)) {
             registry.register("totals", SQL, List.of(0), DANA);
 
-            assertThat(registry.owners().mayAdminister(ERIN, "totals").reason())
+            assertThat(registry.owners()
+                            .mayAdminister(ERIN, "acme.default.totals")
+                            .reason())
                     .contains("only operators administer views they do not own");
             drop(registry, OPS, "totals");
 
-            assertThat(registry.find("totals")).isEmpty();
+            assertThat(registry.find("acme.default.totals")).isEmpty();
         }
     }
 
@@ -148,7 +152,7 @@ class QueryOwnershipTest {
 
             drop(registry, ROOT, "totals");
 
-            assertThat(registry.find("totals")).isEmpty();
+            assertThat(registry.find("acme.default.totals")).isEmpty();
         }
     }
 
@@ -170,7 +174,7 @@ class QueryOwnershipTest {
 
             drop(registry, ERIN, "totals");
 
-            assertThat(registry.find("totals")).isEmpty();
+            assertThat(registry.find("acme.default.totals")).isEmpty();
         }
     }
 
@@ -194,10 +198,10 @@ class QueryOwnershipTest {
             QueryRegistry.Recovery recovery = after.recover(id -> Optional.ofNullable(known.get(id)));
 
             assertThat(recovery.complete()).isTrue();
-            assertThat(after.owners().ownerOf("totals")).contains(DANA);
+            assertThat(after.owners().ownerOf("acme.default.totals")).contains(DANA);
             assertThatThrownBy(() -> drop(after, ERIN, "totals")).isInstanceOf(PravahaException.class);
             drop(after, DANA, "totals");
-            assertThat(after.find("totals")).isEmpty();
+            assertThat(after.find("acme.default.totals")).isEmpty();
         }
     }
 
@@ -206,13 +210,16 @@ class QueryOwnershipTest {
         try (QueryRegistry registry = registry(SecurityPolicy.PERMISSIVE)) {
             registry.register("danas", SQL, List.of(0), DANA);
             registry.register("erins", SQL, List.of(0), ERIN);
-            assertThat(registry.require("danas")).isSameAs(registry.require("erins"));
+            assertThat(registry.require("acme.default.danas")).isSameAs(registry.require("acme.default.erins"));
 
-            assertThat(registry.owners().mayAdminister(ERIN, "danas").allowed()).isFalse();
+            assertThat(registry.owners()
+                            .mayAdminister(ERIN, "acme.default.danas")
+                            .allowed())
+                    .isFalse();
             drop(registry, ERIN, "erins");
 
-            assertThat(registry.find("danas")).isPresent();
-            assertThat(registry.owners().ownerOf("danas")).contains(DANA);
+            assertThat(registry.find("acme.default.danas")).isPresent();
+            assertThat(registry.owners().ownerOf("acme.default.danas")).contains(DANA);
         }
     }
 }

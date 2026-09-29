@@ -26,6 +26,7 @@ import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityErrors;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
+import com.ash.messaging.pravaha.security.ViewNames;
 
 /**
  * What one principal may learn about the registered queries: which exist, and how much of each.
@@ -50,6 +51,11 @@ import com.ash.messaging.pravaha.security.SecurityPolicy;
  *       may know the view exists and may not have its totals: rows in, rows written to a sink, and a
  *       sink's failure text (which can quote a row) describe data beyond their entitlement.
  * </ul>
+ *
+ * <p><strong>In the caller's tenant (ADR-060).</strong> A name is looked up in the caller's tenant,
+ * and a listing holds the caller's tenant's names only -- every tenant's for an admin, the others' by
+ * catalogue name. Another tenant's name is not a name this principal is refused: it is one nothing
+ * holds, so it is neither listed nor audited as a refusal.
  */
 public final class QueryListing {
 
@@ -66,10 +72,13 @@ public final class QueryListing {
     /**
      * One registered name as a principal may see it.
      *
+     * @param name the name as this principal is shown it: bare in its own tenant, the catalogue name
+     *     outside it (ADR-060)
      * @param restricted the principal's access is conditional on a row filter somewhere on or behind
      *     the view, so its totals are not theirs to know
      * @param owner the id of the principal who registered it, or replaced it last: who may administer it
      *     without a grant. Empty only when the registry recorded nobody
+     * @param engineName what the registry, the policy and the catalogue key it by
      */
     public record Entry(
             String name,
@@ -78,7 +87,8 @@ public final class QueryListing {
             Optional<String> sink,
             Optional<PravahaException> sinkFailure,
             long sinkRowsWritten,
-            Optional<String> owner) {
+            Optional<String> owner,
+            String engineName) {
 
         /**
          * Rows in, or {@code -1} when withheld.
@@ -104,7 +114,7 @@ public final class QueryListing {
      */
     public List<Entry> list(Principal principal, String action) {
         List<Entry> visible = new ArrayList<>();
-        for (String name : registry.names()) {
+        for (String name : registry.names(principal)) {
             AccessDecision byName = policy.mayRead(principal, name);
             if (!byName.allowed()) {
                 audit.record(AuditEvent.of(principal, action, name, byName, ""));
@@ -129,9 +139,12 @@ public final class QueryListing {
      * the listing would hide it by provenance: those two answer identically, because telling them
      * apart would tell a principal denied {@code payroll} that a view reading it exists.
      *
-     * @throws PravahaException {@code PRV-7002} when the policy denies the name
+     * @param name the name as the caller wrote it, resolved in the caller's tenant
+     * @throws PravahaException {@code PRV-7002} when the policy denies the name, or a caller who is not
+     *     an admin names another tenant
      */
     public Optional<Entry> find(Principal principal, String name, String action) {
+        name = QueryRegistry.engineName(principal, name);
         AccessDecision byName = policy.mayRead(principal, name);
         if (!byName.allowed()) {
             audit.record(AuditEvent.of(principal, action, name, byName, ""));
@@ -158,26 +171,28 @@ public final class QueryListing {
     public List<String> sharedNames(Principal principal, Entry entry, String action) {
         List<String> shared = new ArrayList<>();
         for (String other : entry.query().names()) {
-            if (other.equals(entry.name())) {
+            if (other.equals(entry.engineName())) {
                 continue;
             }
             AccessDecision decision = policy.mayRead(principal, other);
-            audit.record(
-                    AuditEvent.of(principal, action, other, decision, "shares a computation with " + entry.name()));
+            audit.record(AuditEvent.of(
+                    principal, action, other, decision, "shares a computation with " + entry.engineName()));
             if (decision.allowed()) {
-                shared.add(other);
+                shared.add(ViewNames.shown(principal, other));
             }
         }
         return List.copyOf(shared.stream().sorted().toList());
     }
 
     /**
-     * Of {@code names}, the ones this caller may see, each decided exactly as {@link #find} decides
-     * it -- so the links between queries over queries (ADR-056) disclose no name the listing would
-     * not.
+     * Of {@code names} -- engine names -- the ones this caller may see, each decided exactly as {@link
+     * #find} decides it and shown as the listing shows it, so the links between queries over queries
+     * (ADR-056) disclose no name the listing would not.
      */
     public List<String> visible(Principal principal, List<String> names, String action) {
         return names.stream()
+                .filter(name -> ViewNames.visibleTo(principal, name))
+                .map(name -> ViewNames.shown(principal, name))
                 .filter(name -> find(principal, name, action).isPresent())
                 .sorted()
                 .toList();
@@ -185,7 +200,7 @@ public final class QueryListing {
 
     /** The queries whose answers {@code entry} follows, that this caller may see (ADR-056). */
     public List<String> readsFrom(Principal principal, Entry entry, String action) {
-        return visible(principal, registry.readsFrom(entry.name()), action);
+        return visible(principal, registry.readsFrom(entry.engineName()), action);
     }
 
     /**
@@ -194,8 +209,8 @@ public final class QueryListing {
      */
     public List<String> dependants(Principal principal, Entry entry, String action) {
         List<String> shown =
-                new java.util.ArrayList<>(visible(principal, registry.chains.dependantsOf(entry.name()), action));
-        shown.addAll(registry.alerting().followersOf(entry.name(), principal));
+                new java.util.ArrayList<>(visible(principal, registry.chains.dependantsOf(entry.engineName()), action));
+        shown.addAll(registry.alerting().followersOf(entry.engineName(), principal));
         return List.copyOf(shown);
     }
 
@@ -222,12 +237,13 @@ public final class QueryListing {
         }
         audit.record(AuditEvent.of(principal, action, name, byName, ""));
         return Optional.of(new Entry(
-                name,
+                ViewNames.shown(principal, name),
                 query,
                 restricted,
                 registry.sinkOf(name),
                 registry.sinkFailure(name),
                 registry.rowsWrittenToSink(name),
-                registry.owners().ownerOf(name).map(Principal::id)));
+                registry.owners().ownerOf(name).map(Principal::id),
+                name));
     }
 }

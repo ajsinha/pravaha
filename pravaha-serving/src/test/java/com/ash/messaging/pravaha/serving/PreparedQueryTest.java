@@ -44,7 +44,7 @@ class PreparedQueryTest {
             .field("total", Types.int64())
             .build();
 
-    private static final Principal ANALYST = new Principal("dana", "acme", Set.of("analyst"), Map.of("tier", "gold"));
+    private static final Principal ANALYST = new Principal("dana", "public", Set.of("analyst"), Map.of("tier", "gold"));
 
     private ViewCatalog catalog;
     private AuditSink.InMemory audit;

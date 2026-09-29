@@ -221,7 +221,8 @@ class ReadAdmissionTest {
 
         ReadAdmission admission = new ReadAdmission(1, 0, 1.0, Duration.ZERO);
         ViewQuery queries = new ViewQuery(
-                new ViewCatalog().register(view),
+                // acme's view, by its engine name (ADR-060): acme reads it as user_volume.
+                new ViewCatalog().registerAs("acme.default.user_volume", view),
                 com.ash.messaging.pravaha.security.SecurityPolicy.PERMISSIVE,
                 com.ash.messaging.pravaha.security.AuditSink.NONE,
                 admission,

@@ -24,15 +24,22 @@ final class QueryNames {
 
     private QueryNames() {}
 
-    /** Refuses a name that cannot be used, or is already somebody else's. */
-    static void require(String name, Set<String> taken) {
+    /**
+     * Refuses a name that cannot be used, or is already somebody else's in the same tenant.
+     *
+     * @param name the name as its registrant wrote it
+     * @param taken the engine names the registry holds
+     * @param engineName what {@code name} is in its registrant's tenant (ADR-060): only a name the
+     *     same tenant holds is taken, so the refusal says nothing about any other tenant's
+     */
+    static void require(String name, Set<String> taken, String engineName) {
         // The null check first. requireSayable was added above it once, so a null name threw a bare
         // NullPointerException out of name.matches() instead of the message two lines down.
         if (name == null || name.isBlank()) {
             throw new IllegalArgumentException("a registration needs a name");
         }
         requireSayable(name);
-        if (taken.contains(name)) {
+        if (taken.contains(engineName)) {
             throw new PravahaException(
                     RegistryErrors.NAME_IN_USE,
                     "'" + name + "' is already registered. Drop it first, register under another name, or "

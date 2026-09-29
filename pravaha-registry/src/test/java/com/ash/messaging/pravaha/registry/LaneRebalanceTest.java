@@ -45,7 +45,7 @@ class LaneRebalanceTest {
             .field("amount", Types.int64())
             .build();
 
-    private static final Principal ADMIN = new Principal("root", "acme", Set.of("admin"), Map.of());
+    private static final Principal ADMIN = new Principal("root", "public", Set.of("admin"), Map.of());
 
     @TempDir
     Path root;

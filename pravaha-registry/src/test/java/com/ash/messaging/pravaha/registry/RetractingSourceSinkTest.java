@@ -64,7 +64,7 @@ class RetractingSourceSinkTest {
             .field("ts", Types.int64())
             .build();
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     private static final String JOIN =
             "SELECT t.user_id, t.amount, p.tier FROM txn t JOIN profiles p ON t.user_id = p.user_id";

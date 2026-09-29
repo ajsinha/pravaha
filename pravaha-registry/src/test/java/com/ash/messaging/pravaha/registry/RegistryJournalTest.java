@@ -61,8 +61,8 @@ class RegistryJournalTest {
             .field("status", Types.string())
             .build();
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
-    private static final Principal ROB = new Principal("rob", "acme", Set.of("contractor"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
+    private static final Principal ROB = new Principal("rob", "public", Set.of("contractor"), Map.of());
 
     private static Optional<Principal> lookUp(String id) {
         return switch (id) {
@@ -264,7 +264,7 @@ class RegistryJournalTest {
                     "orphan",
                     "SELECT user_id, amount FROM txn",
                     List.of(0),
-                    new Principal("someone-who-left", "acme", Set.of("analyst"), Map.of()));
+                    new Principal("someone-who-left", "public", Set.of("analyst"), Map.of()));
         }
 
         try (QueryRegistry second = registry(journal, SecurityPolicy.PERMISSIVE)) {

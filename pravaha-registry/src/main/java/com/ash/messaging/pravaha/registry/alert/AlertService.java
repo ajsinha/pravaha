@@ -48,6 +48,7 @@ import com.ash.messaging.pravaha.security.AccessDecision;
 import com.ash.messaging.pravaha.security.AuditEvent;
 import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.Principal;
+import com.ash.messaging.pravaha.security.ViewNames;
 import com.ash.messaging.pravaha.serving.ViewQuery;
 import com.ash.messaging.pravaha.sql.AlertStatement;
 
@@ -509,7 +510,7 @@ public final class AlertService implements Alerting, AutoCloseable {
                     "an alert called '" + name + "' exists already"
                             + (statement.ifNotExists() ? "" : "; add IF NOT EXISTS if that is fine"));
         }
-        if (registry.find(name).isPresent()) {
+        if (registry.find(ViewNames.engineName(principal.tenant(), name)).isPresent()) {
             throw new PravahaException(
                     AlertErrors.ALERT_EXISTS,
                     "'" + name + "' is a continuous query's name, and "
@@ -703,7 +704,8 @@ public final class AlertService implements Alerting, AutoCloseable {
 
     /** The engine name of the view {@code written} names for {@code principal}, or {@code PRV-8042}. */
     private String resolveView(Principal principal, String written) {
-        String view = written;
+        // ADR-060: a bare name is a view of the alert's tenant, which is its creator's.
+        String view = ViewNames.engineName(principal.tenant(), written);
         if (written.contains(".")) {
             if (!(registry.policy() instanceof CatalogPolicy catalog)) {
                 throw AlertOptions.invalid("'" + written + "' names a namespace, and namespaces are the catalogue's "
@@ -719,9 +721,7 @@ public final class AlertService implements Alerting, AutoCloseable {
                 throw noView(written);
             }
         }
-        Optional<String> tenant = registry.tenantOf(view);
-        if (registry.find(view).isEmpty()
-                || (tenant.isPresent() && !tenant.get().equals(principal.tenant()))) {
+        if (registry.find(view).isEmpty() || !ViewNames.tenantOf(view).equals(principal.tenant())) {
             throw noView(written);
         }
         return view;

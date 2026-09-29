@@ -43,10 +43,11 @@ import com.ash.messaging.pravaha.security.Principal;
  * many view keys its computations may already hold when it asks for another one. A registration
  * over either is refused by name ({@code PRV-8020}, {@code PRV-8021}), audited, and counted.
  *
- * <p>Not scoped by a tenant, and said here so nobody reads it into the class: the name space (a
- * view name is unique on the node, whichever tenant holds it), the lanes (every tenant's queries
- * share the node's lane threads and shared lanes), the sources and sinks (the policy decides those)
- * and the reads (the policy decides those too). What a tenant changes about sharing is in {@link
+ * <p>The name space is scoped by a tenant (ADR-060): a name is unique within its tenant, and this
+ * ledger is keyed by engine name, so two tenants' {@code orders} are two entries. Not scoped by a
+ * tenant, and said here so nobody reads it into the class: the lanes (every tenant's queries share the
+ * node's lane threads and shared lanes), the sources and sinks (the policy decides those) and the
+ * reads (the policy decides those too). What a tenant changes about sharing is in {@link
  * QueryFingerprint}: identical SQL shares one computation within a tenant and not across tenants.
  *
  * <p>The ledger of which tenant holds which name is kept under the registry's monitor, which is
@@ -252,9 +253,9 @@ public final class TenantQuotas {
      * Refuses a replacement of {@code name} by a principal of another tenant (ADR-050), recording the
      * decision. A name nobody has assigned belongs to nobody yet and asks nothing.
      *
-     * <p>The refusal does not name the tenant that holds it (ADR-060): only the audit record does, for
-     * an operator. Under ownership only an admin gets this far, but under {@code legacy-read} a reader
-     * of another tenant does, and the holder's tenant is not theirs to learn.
+     * <p>Since names are resolved in the caller's tenant (ADR-060), only an admin naming another
+     * tenant's view by its catalogue name gets this far. The refusal still does not name the tenant that
+     * holds it; the audit record does, for an operator.
      */
     void requireSameTenant(AuditSink audit, Principal principal, String name, String sql) {
         String owner = tenantOfName.get(name);
@@ -271,27 +272,6 @@ public final class TenantQuotas {
                 AccessDecision.deny(reason + " It is held by tenant '" + owner + "'."),
                 sql));
         throw new PravahaException(RegistryErrors.TENANT_MISMATCH, reason);
-    }
-
-    /**
-     * Records a registration choosing a name another tenant holds (ADR-060). View names are still
-     * unique on the node, so the registration is refused with the same {@code PRV-8001}, in the same
-     * words, as a name taken in the caller's own tenant -- the refusal says nothing of whose it is. The
-     * audit trail does, so an operator can see one tenant probing another's names until names are per
-     * tenant.
-     */
-    void auditTakenName(AuditSink audit, Principal principal, String name, String sql) {
-        String holder = name == null ? null : tenantOfName.get(name);
-        if (holder == null || holder.equals(principal.tenant())) {
-            return;
-        }
-        audit.record(AuditEvent.of(
-                principal,
-                "register:name",
-                name,
-                AccessDecision.deny("'" + name + "' is held by tenant '" + holder + "'; view names are unique on the "
-                        + "node until ADR-060's per-tenant names are built"),
-                sql));
     }
 
     void assign(String name, String tenant) {

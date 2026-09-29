@@ -111,18 +111,21 @@ public final class ContinuousQueryStatements {
         return switch (statement) {
             case ContinuousStatement.Create create -> create(create, principal);
             case ContinuousStatement.Drop drop -> {
-                requireAdministrable(registry, audit, principal, drop.name(), "drop");
-                registry.drop(drop.name());
+                String name = QueryRegistry.engineName(principal, drop.name()); // ADR-060
+                requireAdministrable(registry, audit, principal, name, "drop");
+                registry.drop(name);
                 yield changed(drop.name(), "DROPPED");
             }
             case ContinuousStatement.Pause pause -> {
-                requireAdministrable(registry, audit, principal, pause.name(), "pause");
-                registry.pause(pause.name());
+                String name = QueryRegistry.engineName(principal, pause.name());
+                requireAdministrable(registry, audit, principal, name, "pause");
+                registry.pause(name);
                 yield changed(pause.name(), "PAUSED");
             }
             case ContinuousStatement.Resume resume -> {
-                requireAdministrable(registry, audit, principal, resume.name(), "resume");
-                registry.resume(resume.name());
+                String name = QueryRegistry.engineName(principal, resume.name());
+                requireAdministrable(registry, audit, principal, name, "resume");
+                registry.resume(name);
                 yield changed(resume.name(), "RUNNING");
             }
             case ContinuousStatement.Show show -> listing(principal);
@@ -149,9 +152,10 @@ public final class ContinuousQueryStatements {
         ContinuousStatement.Create statement = parsed.statement();
         List<Integer> keys = parsed.keys();
         Optional<Integer> index = parsed.index();
-        if (statement.orReplace() && registry.find(statement.name()).isPresent()) {
-            requireReplaceable(statement, index);
-            return replace(statement, keys, principal);
+        String engine = QueryRegistry.engineName(principal, statement.name()); // ADR-060: in the caller's tenant
+        if (statement.orReplace() && registry.find(engine).isPresent()) {
+            requireReplaceable(statement, engine, index);
+            return replace(statement, engine, keys, principal);
         }
         String sink = statement.sink().orElse(null);
         String name = statement.name();
@@ -191,23 +195,29 @@ public final class ContinuousQueryStatements {
         }
         ContinuousStatement.Create statement = parsed.statement();
         String name = statement.name();
+        String engine;
+        try {
+            engine = QueryRegistry.engineName(principal, name); // ADR-060: in the caller's tenant
+        } catch (PravahaException e) {
+            return List.of(e);
+        }
         List<PravahaException> refusals = new ArrayList<>();
-        boolean replacing = statement.orReplace() && registry.find(name).isPresent();
+        boolean replacing = statement.orReplace() && registry.find(engine).isPresent();
         String sink = replacing
-                ? registry.sinkOf(name).orElse(null)
+                ? registry.sinkOf(engine).orElse(null)
                 : statement.sink().orElse(null);
         if (replacing) {
-            refusedBy(refusals, () -> requireReplaceable(statement, parsed.index()));
+            refusedBy(refusals, () -> requireReplaceable(statement, engine, parsed.index()));
             refusedBy(refusals, () -> {
                 synchronized (registry) {
-                    registry.chains.refuseReplacement(name, statement.select(), principal);
+                    registry.chains.refuseReplacement(engine, statement.select(), principal);
                 }
             });
         } else {
-            refusedBy(refusals, () -> QueryNames.require(name, registry.names()));
+            refusedBy(refusals, () -> QueryNames.require(name, registry.names(), engine));
         }
         Retention retention =
-                replacing ? registry.find(name).orElseThrow().view().retention() : parsed.retention();
+                replacing ? registry.find(engine).orElseThrow().view().retention() : parsed.retention();
         refusedBy(
                 refusals,
                 () -> DraftFingerprint.of(
@@ -300,7 +310,7 @@ public final class ContinuousQueryStatements {
      * Refuses what a replacement may not change: its indexes, its sink or its retention. Asked of
      * {@code CREATE OR REPLACE} over a name that exists, by {@link #create} and {@link #validate}.
      */
-    private void requireReplaceable(ContinuousStatement.Create create, Optional<Integer> index) {
+    private void requireReplaceable(ContinuousStatement.Create create, String engine, Optional<Integer> index) {
         if (index.isPresent()) {
             throw new PravahaException(
                     com.ash.messaging.pravaha.sql.SqlErrors.CLAUSE_NOT_BUILT,
@@ -309,7 +319,7 @@ public final class ContinuousQueryStatements {
                             + "column name -- rather than changing them. Drop the INDEX clause; to index "
                             + "a different column, drop the query and register it again.");
         }
-        String existingSink = registry.sinkOf(create.name()).orElse(null);
+        String existingSink = registry.sinkOf(engine).orElse(null);
         create.sink().ifPresent(named -> {
             if (!named.equals(existingSink)) {
                 throw new PravahaException(
@@ -326,7 +336,7 @@ public final class ContinuousQueryStatements {
             throw new PravahaException(
                     com.ash.messaging.pravaha.backfill.BackfillErrors.SOURCE_UNSUPPORTED,
                     "'" + create.name() + "' keeps "
-                            + registry.find(create.name()).orElseThrow().view().retention()
+                            + registry.find(engine).orElseThrow().view().retention()
                             + ", and a replacement keeps what the name keeps: a retention that changed at a "
                             + "cutover would change what the view means at the same moment as the query, and "
                             + "nothing downstream could tell which had done what.");
@@ -346,14 +356,15 @@ public final class ContinuousQueryStatements {
      * <p>A sink is the name's, not the statement's. {@code WRITING TO} naming a different one is
      * refused rather than quietly moving the query's output somewhere else.
      */
-    private ViewQuery.Result replace(ContinuousStatement.Create create, List<Integer> keys, Principal principal) {
-        String existingSink = registry.sinkOf(create.name()).orElse(null);
+    private ViewQuery.Result replace(
+            ContinuousStatement.Create create, String engine, List<Integer> keys, Principal principal) {
+        String existingSink = registry.sinkOf(engine).orElse(null);
         ReplacementOptions options = ReplacementOptions.defaults();
         for (java.util.Map.Entry<String, String> option : create.options().entrySet()) {
             options = ReplacementOptions.with(options, option.getKey(), option.getValue());
         }
         QueryReplacement.Status status =
-                registry.replacements().replace(create.name(), create.select(), keys, principal, options);
+                registry.replacements().replace(engine, create.select(), keys, principal, options);
         return new ViewQuery.Result(CREATED, List.<Object[]>of(new Object[] {
             create.name(), status.state().name(), status.candidate(), existingSink
         }));
@@ -424,6 +435,7 @@ public final class ContinuousQueryStatements {
      * owner, a principal the policy grants it to, or an admin may administer it ({@link
      * QueryOwners#mayAdminister}).
      *
+     * @param view the engine name, resolved in the caller's tenant already (ADR-060)
      * @param verb the audit action and the word in the refusal: {@code drop}, {@code pause} or {@code
      *     resume}
      * @throws PravahaException {@code PRV-7002} when it is refused

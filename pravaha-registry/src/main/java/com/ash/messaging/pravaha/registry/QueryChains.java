@@ -32,6 +32,7 @@ import com.ash.messaging.pravaha.runtime.ingest.BackpressurePolicy;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 import com.ash.messaging.pravaha.runtime.plan.ScanOperator;
 import com.ash.messaging.pravaha.security.Principal;
+import com.ash.messaging.pravaha.security.ViewNames;
 import com.ash.messaging.pravaha.serving.Retention;
 import com.ash.messaging.pravaha.serving.ServedView;
 import com.ash.messaging.pravaha.sql.plan.BoundParameters;
@@ -50,6 +51,11 @@ import com.ash.messaging.pravaha.sql.plan.PreparedContinuousQuery;
  * registered view rather than a stream, and its dependants are the queries whose plans scan its
  * name. Nothing has to be kept in step with a drop, a restart or a shared computation, because
  * nothing is kept.
+ *
+ * <p><strong>Names (ADR-060).</strong> A plan scans a view by the bare name its SQL wrote, and an
+ * upstream is resolved in the downstream registrant's tenant: the scan {@code orders} of a query in
+ * tenant {@code acme} is the view {@code acme.default.orders}. Everything here that answers with a
+ * view answers with its engine name; a plan's scan names are what the planner saw.
  */
 final class QueryChains {
 
@@ -61,7 +67,7 @@ final class QueryChains {
 
     private final QueryRegistry registry;
 
-    /** One identity per view name for the life of the process, so identical SQL fingerprints alike. */
+    /** One identity per engine name for the life of the process, so identical SQL fingerprints alike. */
     private final Map<String, Integer> viewIds = new ConcurrentHashMap<>();
 
     QueryChains(QueryRegistry registry) {
@@ -112,14 +118,16 @@ final class QueryChains {
         streams.forEach(stream -> taken.add(stream.name()));
         lookups.forEach(lookup -> taken.add(lookup.name()));
         List<StreamSchema> views = new ArrayList<>();
-        for (String name : registry.names()) {
+        for (String engine : registry.names()) {
+            // ADR-060: the caller's tenant's views, each under the bare name its SQL would write.
+            if (!principal.tenant().equals(ViewNames.tenantOf(engine))) {
+                continue;
+            }
+            String name = ViewNames.localName(engine);
             if (taken.contains(name) || !mentions(sql, name)) {
                 continue;
             }
-            if (!principal.tenant().equals(registry.tenantOf(name).orElse(null))) {
-                continue;
-            }
-            registry.find(name).ifPresent(query -> views.add(inputSchema(name, query.view())));
+            registry.find(engine).ifPresent(query -> views.add(inputSchema(name, engine, query.view())));
         }
         if (views.isEmpty()) {
             return PreparedContinuousQuery.of(
@@ -153,59 +161,89 @@ final class QueryChains {
      * A view's columns as an input: its name, its fields, an identity of its own, and no event-time
      * column -- a view's rows carry the upstream's frontier, which is not a column of them (§6).
      */
-    private StreamSchema inputSchema(String name, ServedView view) {
+    private StreamSchema inputSchema(String name, String engine, ServedView view) {
         StreamSchema.Builder builder = StreamSchema.builder(name);
         view.schema().fields().forEach(field -> builder.field(field.name(), field.type()));
-        return builder.build().withStreamId(viewIds.computeIfAbsent(name, n -> StreamIdentities.nextViewId()));
+        return builder.build().withStreamId(viewIds.computeIfAbsent(engine, n -> StreamIdentities.nextViewId()));
     }
 
     // ------------------------------------------------------------------ what a plan reads
 
-    /** The registered views {@code plan} reads, in plan order: its scans that are not streams. */
-    List<String> upstreamsOf(PhysicalOperator plan) {
+    /**
+     * The engine name of a scan in a plan of {@code tenant}'s: a view the tenant holds under that bare
+     * name, or the scan itself -- a stream, a lookup, or nothing registered.
+     */
+    String engineNameOf(String source, String tenant) {
+        if (streamNames().contains(source)) {
+            return source;
+        }
+        String engine = ViewNames.engineName(tenant, source);
+        return registry.find(engine).isPresent() ? engine : source;
+    }
+
+    /** What {@code plan} scans, a view by its engine name: what the policy is asked about. */
+    List<String> sources(PhysicalOperator plan, String tenant) {
+        return PlanSources.of(plan).stream()
+                .map(source -> engineNameOf(source, tenant))
+                .toList();
+    }
+
+    /** The registered views a plan of {@code tenant}'s reads, by engine name, in plan order. */
+    List<String> upstreamsOf(PhysicalOperator plan, String tenant) {
         Set<String> streams = streamNames();
         List<String> upstreams = new ArrayList<>();
         for (String source : PlanSources.of(plan)) {
-            if (!streams.contains(source) && registry.find(source).isPresent()) {
-                upstreams.add(source);
+            String engine = ViewNames.engineName(tenant, source);
+            if (!streams.contains(source) && registry.find(engine).isPresent()) {
+                upstreams.add(engine);
             }
         }
         return upstreams;
     }
 
+    /** The upstreams of a registered computation, resolved in the tenant its names are in. */
+    private List<String> upstreamsOf(RegisteredQuery query) {
+        return upstreamsOf(query.plan(), ViewNames.tenantOf(query.name()));
+    }
+
     /**
      * What {@code plan} derives from: each name it scans and, for a view, everything that view
-     * derives from -- so authorization follows the data to the base streams (SX-11).
+     * derives from -- so authorization follows the data to the base streams (SX-11). Views by engine name.
      */
-    List<String> provenance(PhysicalOperator plan) {
-        Set<String> found = new LinkedHashSet<>(PlanSources.of(plan));
-        for (String upstream : upstreamsOf(plan)) {
+    List<String> provenance(PhysicalOperator plan, String tenant) {
+        Set<String> found = new LinkedHashSet<>(sources(plan, tenant));
+        for (String upstream : upstreamsOf(plan, tenant)) {
             registry.find(upstream).ifPresent(query -> found.addAll(query.view().derivedFrom()));
         }
         return List.copyOf(found);
     }
 
-    /** Each upstream's name and the fingerprint of the computation answering it, for a fingerprint. */
-    List<String> identities(PhysicalOperator plan) {
+    /**
+     * Each upstream's name and the fingerprint of the computation answering it, for a fingerprint. The
+     * name as the plan scans it: the tenant is in the fingerprint already, and a registration made
+     * before per-tenant names keeps the fingerprint its checkpoints were written under (ADR-060).
+     */
+    List<String> identities(PhysicalOperator plan, String tenant) {
         List<String> identities = new ArrayList<>();
-        for (String upstream : upstreamsOf(plan)) {
+        for (String upstream : upstreamsOf(plan, tenant)) {
             registry.find(upstream)
-                    .ifPresent(query ->
-                            identities.add(upstream + "=" + query.fingerprint().value()));
+                    .ifPresent(query -> identities.add(ViewNames.localName(upstream) + "="
+                            + query.fingerprint().value()));
         }
         return identities;
     }
 
     /** Whether rows from {@code stream} can be retractions: every view's can (HLP-3's question). */
-    boolean retracts(String stream) {
-        return !streamNames().contains(stream) && registry.find(stream).isPresent();
+    boolean retracts(String stream, String tenant) {
+        return !streamNames().contains(stream)
+                && registry.find(ViewNames.engineName(tenant, stream)).isPresent();
     }
 
     /** The queries whose plans read {@code name}, by every name each answers to, sorted. */
     List<String> dependantsOf(String name) {
         Set<String> dependants = new java.util.TreeSet<>();
         for (RegisteredQuery query : registry.queries()) {
-            if (query.state() != QueryState.DROPPED && upstreamsOf(query.plan()).contains(name)) {
+            if (query.state() != QueryState.DROPPED && upstreamsOf(query).contains(name)) {
                 dependants.addAll(query.names());
             }
         }
@@ -225,7 +263,7 @@ final class QueryChains {
 
     /** The views {@code name}'s computation reads, or empty when it reads only streams. */
     List<String> readsFrom(String name) {
-        return registry.find(name).map(query -> upstreamsOf(query.plan())).orElse(List.of());
+        return registry.find(name).map(this::upstreamsOf).orElse(List.of());
     }
 
     private int depthOf(String name, int guard) {
@@ -252,7 +290,7 @@ final class QueryChains {
      * retention of its own, a column type a row cannot carry, a chain too deep, and any replacement.
      */
     void requireChainable(String name, PhysicalOperator plan, Retention retention, String action) {
-        List<String> upstreams = upstreamsOf(plan);
+        List<String> upstreams = upstreamsOf(plan, ViewNames.tenantOf(name));
         if (upstreams.isEmpty()) {
             return;
         }
@@ -322,7 +360,7 @@ final class QueryChains {
             // The replacement's own path plans it again and refuses it there, for its SQL.
         }
         if (next != null) {
-            for (String upstream : upstreamsOf(next)) {
+            for (String upstream : upstreamsOf(next, principal.tenant())) {
                 List<String> loop = pathTo(upstream, name, 0);
                 if (loop != null) {
                     List<String> shown = new ArrayList<>();
@@ -382,12 +420,14 @@ final class QueryChains {
      * a restored view with none is refused rather than fed the whole answer again on top of it.
      */
     Optional<SourceFeed> open(String name, QueryExecution execution, PhysicalOperator plan, RegisteredQuery query) {
-        List<String> upstreams = upstreamsOf(plan);
+        List<String> upstreams = upstreamsOf(plan, ViewNames.tenantOf(name));
         if (upstreams.isEmpty()) {
             return Optional.empty();
         }
-        String upstream = upstreams.get(0);
-        RegisteredQuery followed = registry.find(upstream).orElseThrow(() -> QueryNames.noSuchQuery(upstream));
+        // The engine name to follow, and the bare name the plan scans it by (ADR-060).
+        String followedName = upstreams.get(0);
+        String upstream = ViewNames.localName(followedName);
+        RegisteredQuery followed = registry.find(followedName).orElseThrow(() -> QueryNames.noSuchQuery(followedName));
         byte[] image = query.restoredUpstreamInput();
         if (image == null && query.restored() && query.view().size() > 0) {
             throw unsupported("'" + name + "' was restored from a checkpoint that holds its view and not what it had "

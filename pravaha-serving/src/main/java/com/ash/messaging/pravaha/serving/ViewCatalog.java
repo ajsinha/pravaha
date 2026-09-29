@@ -21,6 +21,9 @@ import java.util.Optional;
 import java.util.Set;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
+import com.ash.messaging.pravaha.security.Administration;
+import com.ash.messaging.pravaha.security.Principal;
+import com.ash.messaging.pravaha.security.ViewNames;
 
 /**
  * The views a client may query, by name.
@@ -28,6 +31,10 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
  * <p>Small on purpose. It exists so that a request arriving over the wire can be answered without
  * the transport knowing anything about lanes, arenas or plans -- it asks for a view by the name the
  * user registered, and gets something with a schema and rows.
+ *
+ * <p>Keyed by engine name (ADR-060): a view of the default tenant by its name, any other tenant's by
+ * {@code tenant.default.name}. A caller never plans against this whole catalogue; it plans against
+ * {@link #scopedTo} its principal, which holds its own tenant's views under the names it writes.
  *
  * <p>Concurrent, because reads arrive on transport threads while registration happens on whichever
  * thread started the query. The map is copy-on-write in effect: registrations are rare and reads are
@@ -104,5 +111,44 @@ public final class ViewCatalog {
 
     public boolean isEmpty() {
         return views.isEmpty();
+    }
+
+    /**
+     * The views {@code principal} addresses, under the names it would write in a {@code FROM} clause
+     * (ADR-060): its own tenant's by their bare names and, for an admin, every view by its catalogue name
+     * ({@code tenant.default.name}) as well. A snapshot, at this catalogue's generation.
+     *
+     * <p>What a read plans against, so a name another tenant holds is, to the planner, a name nothing
+     * holds -- the same refusal, in the same words, as a name nobody holds.
+     */
+    public ViewCatalog scopedTo(Principal principal) {
+        ViewCatalog scoped = new ViewCatalog();
+        boolean admin = principal.hasRole(Administration.ADMIN_ROLE);
+        long at = generation.get();
+        views.forEach((engine, view) -> {
+            if (principal.tenant().equals(ViewNames.tenantOf(engine))) {
+                scoped.views.put(ViewNames.localName(engine), view);
+            }
+            if (admin) {
+                scoped.views.putIfAbsent(ViewNames.catalogueName(engine), view);
+            }
+        });
+        scoped.generation.set(at);
+        return scoped;
+    }
+
+    /**
+     * Every view {@code principal} may be shown, once each, under the name it is shown by: its own
+     * tenant's bare, and -- for an admin -- every other tenant's by catalogue name (ADR-060). What a
+     * listing enumerates, where {@link #scopedTo} would list an admin's own views twice.
+     */
+    public Map<String, ServedView> shownTo(Principal principal) {
+        Map<String, ServedView> shown = new java.util.TreeMap<>();
+        views.forEach((engine, view) -> {
+            if (ViewNames.visibleTo(principal, engine)) {
+                shown.put(ViewNames.shown(principal, engine), view);
+            }
+        });
+        return shown;
     }
 }

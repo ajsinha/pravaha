@@ -60,7 +60,7 @@ class QueryReplacementTest {
             .field("amount", Types.int64())
             .build();
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     /**
      * A running total over everything the stream has ever carried, in one row.
@@ -366,7 +366,7 @@ class QueryReplacementTest {
         };
         QueryRegistry registry = registry(log, readOnly);
         // Registered by somebody else: dana may read it, and the policy grants her nothing over it.
-        registry.register("orders", V1, List.of(0), new Principal("erin", "acme", Set.of("analyst"), Map.of()));
+        registry.register("orders", V1, List.of(0), new Principal("erin", "public", Set.of("analyst"), Map.of()));
 
         assertThatThrownBy(() ->
                         registry.replacements().replace("orders", V2, List.of(0), DANA, ReplacementOptions.defaults()))

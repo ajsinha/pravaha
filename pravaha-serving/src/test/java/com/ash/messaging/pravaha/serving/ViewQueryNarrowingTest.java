@@ -48,8 +48,8 @@ class ViewQueryNarrowingTest {
             .field("amount", Types.int64())
             .build();
 
-    private static final Principal ANA = new Principal("ana", "acme", Set.of(), Map.of("region", "EU"));
-    private static final Principal OPS = new Principal("ops", "acme", Set.of("payments_ops"), Map.of());
+    private static final Principal ANA = new Principal("ana", "public", Set.of(), Map.of("region", "EU"));
+    private static final Principal OPS = new Principal("ops", "public", Set.of("payments_ops"), Map.of());
 
     /** A policy that allows everyone and narrows ana: EU rows only, cards masked. */
     private static final SecurityPolicy POLICY = new SecurityPolicy() {

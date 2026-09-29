@@ -75,6 +75,11 @@ class TenancyTest {
         return registry;
     }
 
+    /** The engine name of acme's {@code name} (ADR-060): what the registry, audit and quotas key it by. */
+    private static String acme(String name) {
+        return "acme.default." + name;
+    }
+
     private static TenantQuotas maxQueries(long max) {
         return new TenantQuotas(TenantQuotas.Limits.of(max, null), Map.of());
     }
@@ -94,7 +99,7 @@ class TenancyTest {
         assertThat(globex.fingerprint()).isNotEqualTo(acme.fingerprint());
         assertThat(registry.size()).isEqualTo(2);
 
-        registry.pause("acme_totals");
+        registry.pause(acme("acme_totals"));
         assertThat(globex.state()).isNotEqualTo(QueryState.PAUSED);
     }
 
@@ -150,11 +155,11 @@ class TenancyTest {
                 .satisfies(e ->
                         assertThat(((PravahaException) e).errorCode()).isEqualTo(RegistryErrors.TENANT_QUERY_QUOTA))
                 .hasMessageContaining("tenant 'acme' already holds 2 of its 2 queries");
-        assertThat(registry.names()).containsExactly("a", "b");
+        assertThat(registry.names()).containsExactly(acme("a"), acme("b"));
 
         // The quota is the tenant's, not the node's.
         registry.register("g", BY_USER, List.of(0), OMAR);
-        assertThat(registry.names()).containsExactly("a", "b", "g");
+        assertThat(registry.names()).containsExactly(acme("a"), acme("b"), "globex.default.g");
 
         assertThat(registry.tenantQuotas().refusals("acme", TenantQuotas.Quota.QUERIES))
                 .isEqualTo(1);
@@ -177,18 +182,18 @@ class TenancyTest {
         assertThatThrownBy(() -> registry.register("a_again", BY_USER, List.of(0), DEV))
                 .satisfies(e ->
                         assertThat(((PravahaException) e).errorCode()).isEqualTo(RegistryErrors.TENANT_QUERY_QUOTA));
-        assertThat(registry.names()).containsExactly("a");
+        assertThat(registry.names()).containsExactly(acme("a"));
     }
 
     @Test
     void droppingANameGivesItsQueryBack() {
         QueryRegistry registry = registry(maxQueries(1));
         registry.register("a", BY_USER, List.of(0), DANA);
-        registry.drop("a");
+        registry.drop(acme("a"));
 
         registry.register("b", ROWS, List.of(0), DANA);
-        assertThat(registry.tenantOf("b")).contains("acme");
-        assertThat(registry.tenantOf("a")).isEmpty();
+        assertThat(registry.tenantOf(acme("b"))).contains("acme");
+        assertThat(registry.tenantOf(acme("a"))).isEmpty();
     }
 
     @Test
@@ -244,13 +249,13 @@ class TenancyTest {
         QueryRegistry registry = registry(new TenantQuotas(TenantQuotas.Limits.of(null, 3L), Map.of()))
                 .feedingFrom(log);
         registry.register("txn_rows", ROWS, List.of(0, 1), DANA);
-        await(() -> registry.find("txn_rows").orElseThrow().view().size() == 3);
+        await(() -> registry.find(acme("txn_rows")).orElseThrow().view().size() == 3);
 
         assertThatThrownBy(() -> registry.register("totals", BY_USER, List.of(0), DANA))
                 .satisfies(e ->
                         assertThat(((PravahaException) e).errorCode()).isEqualTo(RegistryErrors.TENANT_STATE_QUOTA))
                 .hasMessageContaining("already holds 3 view keys against its quota of 3");
-        assertThat(registry.names()).containsExactly("txn_rows");
+        assertThat(registry.names()).containsExactly(acme("txn_rows"));
         assertThat(registry.tenantQuotas().refusals("acme", TenantQuotas.Quota.STATE))
                 .isEqualTo(1);
 
@@ -277,20 +282,32 @@ class TenancyTest {
         QueryRegistry registry = registry(TenantQuotas.unbounded()).feedingFrom(log);
         registry.register("totals", BY_USER, List.of(0), DANA);
 
-        // Not dana's, so not omar's to replace: refused as administering someone else's view is.
+        // ADR-060: to omar, "totals" is his own tenant's name, which nothing holds.
         assertThatThrownBy(() -> registry.replacements()
-                        .replace("totals", ROWS, List.of(0, 1), OMAR, ReplacementOptions.defaults()))
+                        .replace(
+                                QueryRegistry.engineName(OMAR, "totals"),
+                                ROWS,
+                                List.of(0, 1),
+                                OMAR,
+                                ReplacementOptions.defaults()))
+                .satisfies(e -> assertThat(((PravahaException) e).errorCode()).isEqualTo(RegistryErrors.NO_SUCH_QUERY));
+        // Nor may he reach dana's by its catalogue name: only an admin may, whether or not it exists.
+        assertThatThrownBy(() -> QueryRegistry.engineName(OMAR, acme("totals")))
                 .satisfies(e -> assertThat(((PravahaException) e).errorCode()).isEqualTo(SecurityErrors.FORBIDDEN));
-        // An admin of another tenant may administer it, and is still refused a replacement across tenants.
+        // An admin of another tenant may address and administer it, and is still refused a replacement
+        // across tenants.
         Principal omarAdmin = new Principal(OMAR.id(), OMAR.tenant(), Set.of("admin"), Map.of());
         assertThatThrownBy(() -> registry.replacements()
-                        .replace("totals", ROWS, List.of(0, 1), omarAdmin, ReplacementOptions.defaults()))
+                        .replace(
+                                QueryRegistry.engineName(omarAdmin, acme("totals")),
+                                ROWS,
+                                List.of(0, 1),
+                                omarAdmin,
+                                ReplacementOptions.defaults()))
                 .satisfies(
                         e -> assertThat(((PravahaException) e).errorCode()).isEqualTo(RegistryErrors.TENANT_MISMATCH))
-                .hasMessageContaining("registered outside tenant 'globex'")
-                // ADR-060: the tenant that holds it is the audit trail's to say, not the refusal's.
-                .satisfies(e -> assertThat(e.getMessage()).doesNotContain("acme"));
-        assertThat(registry.replacements().of("totals")).isEmpty();
+                .hasMessageContaining("registered outside tenant 'globex'");
+        assertThat(registry.replacements().of(acme("totals"))).isEmpty();
         assertThat(audited).anySatisfy(event -> {
             assertThat(event.action()).isEqualTo("replace:tenant");
             assertThat(event.allowed()).isFalse();
@@ -298,31 +315,27 @@ class TenancyTest {
         });
     }
 
-    // ------------------------------------------------------------------ names (ADR-060, slice 1)
+    // ------------------------------------------------------------------ names (ADR-060)
 
     @Test
-    void aNameAnotherTenantHoldsIsRefusedInTheWordsOfOneTheCallersOwnTenantHolds() {
+    void aNameAnotherTenantHoldsIsFreeAndARefusalInTheCallersOwnTenantSaysNothingOfOthers() {
         QueryRegistry registry = registry(TenantQuotas.unbounded());
-        registry.register("totals", BY_USER, List.of(0), DANA);
+        RegisteredQuery danas = registry.register("totals", BY_USER, List.of(0), DANA);
 
-        PravahaException sameTenant = org.assertj.core.api.Assertions.catchThrowableOfType(
-                PravahaException.class, () -> registry.register("totals", ROWS, List.of(0, 1), DEV));
-        PravahaException otherTenant = org.assertj.core.api.Assertions.catchThrowableOfType(
-                PravahaException.class, () -> registry.register("totals", ROWS, List.of(0, 1), OMAR));
+        // Another tenant's name is, to the caller, a name nothing holds: registering it succeeds.
+        RegisteredQuery omars = registry.register("totals", BY_USER, List.of(0), OMAR);
+        assertThat(omars).isNotSameAs(danas);
+        assertThat(registry.names()).containsExactly(acme("totals"), "globex.default.totals");
 
-        assertThat(otherTenant.errorCode()).isEqualTo(RegistryErrors.NAME_IN_USE);
-        assertThat(otherTenant.getMessage())
-                .as("nothing in the refusal says the name is another tenant's, or whose")
-                .isEqualTo(sameTenant.getMessage())
-                .doesNotContain("acme");
+        // Within a tenant a name is still unique, and the refusal is the one it always was.
+        assertThatThrownBy(() -> registry.register("totals", ROWS, List.of(0, 1), DEV))
+                .satisfies(e -> assertThat(((PravahaException) e).errorCode()).isEqualTo(RegistryErrors.NAME_IN_USE))
+                .hasMessageStartingWith("PRV-8001  'totals' is already registered.")
+                .satisfies(
+                        e -> assertThat(e.getMessage()).doesNotContain("acme").doesNotContain("globex"));
         assertThat(audited)
-                .filteredOn(event -> event.action().equals("register:name"))
-                .singleElement()
-                .satisfies(event -> {
-                    assertThat(event.principal()).isEqualTo(OMAR);
-                    assertThat(event.allowed()).isFalse();
-                    assertThat(event.reason()).contains("held by tenant 'acme'");
-                });
+                .as("no registration is a probe of another tenant's names any more")
+                .noneMatch(event -> event.action().equals("register:name"));
     }
 
     @Test
@@ -338,9 +351,9 @@ class TenancyTest {
                 .journalTo(new RegistryJournal(journal))) {
             QueryRegistry.Recovery recovery = after.recover(id -> Optional.of(DANA));
 
-            assertThat(recovery.recovered()).containsExactly("first");
+            assertThat(recovery.recovered()).containsExactly(acme("first"));
             assertThat(recovery.refused()).singleElement().satisfies(refusal -> {
-                assertThat(refusal.query()).isEqualTo("later");
+                assertThat(refusal.query()).isEqualTo(acme("later"));
                 assertThat(refusal.code()).contains(RegistryErrors.TENANT_QUERY_QUOTA);
             });
         }

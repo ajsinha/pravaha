@@ -24,6 +24,7 @@ import com.ash.messaging.pravaha.api.ErrorCode;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityErrors;
+import com.ash.messaging.pravaha.security.ViewNames;
 import com.ash.messaging.pravaha.sql.plan.BoundParameters;
 
 /**
@@ -46,6 +47,7 @@ final class RegistryRecovery {
         List<String> recovered = new ArrayList<>();
         List<QueryRegistry.Recovery.Refusal> refused = new ArrayList<>();
         RegistryJournal.Replayed replayed = journal.replayAll();
+        java.util.Map<String, String> renamed = new java.util.HashMap<>();
         for (RegistryJournal.Entry entry : replayed.live()) {
             Optional<Principal> owner = principals.apply(entry.owner());
             if (owner.isEmpty()) {
@@ -61,17 +63,28 @@ final class RegistryRecovery {
                 List<Object> values = entry.parameters().stream()
                         .map(RegistryJournal::decodeParameter)
                         .toList();
+                // ADR-060: registered again as its owner, in the owner's tenant, from the directory the
+                // entry records -- or the one its journalled name implies, which is where a registration
+                // made before per-tenant names keeps its state. Nothing is moved.
+                String local = ViewNames.localName(entry.name());
+                String engine = ViewNames.engineName(owner.get().tenant(), local);
                 registry.registerWithoutJournalling(
-                        entry.name(),
+                        local,
                         entry.sql(),
                         entry.keyColumns(),
                         owner.get(),
                         entry.retention(),
                         values.isEmpty() ? BoundParameters.none() : BoundParameters.of(values),
                         entry.sink(),
-                        entry.checkpointDirectory(),
+                        entry.directory().orElse(QueryCheckpoints.directoryFor(entry.name())),
                         new Declaring(entry.indexed(), entry.dedicatedLane()));
-                recovered.add(entry.name());
+                if (!engine.equals(entry.name())) {
+                    // Keyed by its engine name from now on, so a drop of it -- or a registration of the
+                    // same bare name in the default tenant -- is journalled against the right entry.
+                    journal.recordRenamed(entry.name(), engine);
+                    renamed.put(entry.name(), engine);
+                }
+                recovered.add(engine);
             } catch (RuntimeException failure) {
                 // One bad entry must not stop the rest. A deployment recovering forty queries should
                 // not lose thirty-nine because the fortieth names a stream that has since been removed.
@@ -86,7 +99,10 @@ final class RegistryRecovery {
         // candidate is started beside the version serving the name, and there is no name to be
         // beside until the registrations above have been replayed (ADR-046).
         if (!replayed.pending().isEmpty()) {
-            refused.addAll(registry.replacements().recover(replayed.pending(), principals));
+            List<RegistryJournal.Pending> pending = replayed.pending().stream()
+                    .map(each -> renamed.containsKey(each.name()) ? each.renamedTo(renamed.get(each.name())) : each)
+                    .toList();
+            refused.addAll(registry.replacements().recover(pending, principals));
         }
         return new QueryRegistry.Recovery(recovered, refused);
     }

@@ -67,7 +67,7 @@ class SinkDeliveryTest {
             .field("amount", Types.int64())
             .build();
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     private static final SinkCapabilities UPSERT =
             new SinkCapabilities(EnumSet.of(EmitMode.UPSERT, EmitMode.RETRACT), false, true, 0);

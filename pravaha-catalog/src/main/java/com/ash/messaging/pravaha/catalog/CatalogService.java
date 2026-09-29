@@ -30,6 +30,7 @@ import com.ash.messaging.pravaha.security.AccessDecision;
 import com.ash.messaging.pravaha.security.AuditEvent;
 import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.Principal;
+import com.ash.messaging.pravaha.security.ViewNames;
 
 /**
  * Every question and change the catalogue answers, with its rules, written once -- so the SQL
@@ -200,7 +201,13 @@ public final class CatalogService {
     private Optional<CatalogObject> resolveCreated(ObjectKind kind, Principal caller, List<String> parts) {
         Optional<CatalogObject> found =
                 switch (parts.size()) {
-                    case 1 -> catalog.byEngineName(kind, parts.get(0));
+                    // A bare view name is the caller's tenant's (ADR-060); an alert's name is its engine name.
+                    case 1 ->
+                        catalog.byEngineName(
+                                kind,
+                                kind == ObjectKind.VIEW
+                                        ? ViewNames.engineName(caller.tenant(), parts.get(0))
+                                        : parts.get(0));
                     case 2 -> catalog.object(caller.tenant() + "." + parts.get(0) + "." + parts.get(1));
                     default -> catalog.object(String.join(".", parts));
                 };

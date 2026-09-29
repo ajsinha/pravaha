@@ -104,7 +104,9 @@ final class RegistrationAuthorization {
      * security predicates ADR-025 puts in the fingerprint -- so two registrants narrowed differently never
      * share a computation.
      *
-     * @return by input name, the narrowings that narrow something; empty when none does
+     * @param engineName the engine name the policy knows an input by (ADR-060): a view of another
+     *     tenant than the default is planned under its bare name and decided under its qualified one
+     * @return by input name as planned, the narrowings that narrow something; empty when none does
      */
     static java.util.Map<String, Narrowing> narrowings(
             SecurityPolicy policy,
@@ -113,10 +115,11 @@ final class RegistrationAuthorization {
             String action,
             String sql,
             java.util.Collection<String> direct,
+            java.util.function.UnaryOperator<String> engineName,
             List<String> rowFilters) {
         java.util.Map<String, Narrowing> narrowed = new java.util.TreeMap<>();
         for (String input : direct) {
-            Narrowing narrowing = policy.narrowing(principal, input);
+            Narrowing narrowing = policy.narrowing(principal, engineName.apply(input));
             if (narrowing.isNone()) {
                 continue;
             }
@@ -125,7 +128,7 @@ final class RegistrationAuthorization {
             audit.record(AuditEvent.of(
                     principal,
                     action + ":narrowed",
-                    input,
+                    engineName.apply(input),
                     AccessDecision.allow(),
                     String.join("; ", narrowing.because())));
         }
