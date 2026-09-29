@@ -107,9 +107,9 @@ class EngineApiAdapter:
     def __init__(self, engine: Any) -> None:
         self._engine = engine
 
-    def _call(self, name: str, *args: Any) -> Any:
+    def _call(self, name: str, *args: Any, **kwargs: Any) -> Any:
         try:
-            return getattr(self._engine, name)(*args)
+            return getattr(self._engine, name)(*args, **kwargs)
         except Exception as exc:
             translated = _api_error(exc)
             if translated is exc:
@@ -137,8 +137,14 @@ class EngineApiAdapter:
     def validate(self, sql: str) -> dict:
         return dict(self._call("validate", sql) or {})
 
-    def explain(self, sql: str, level: str = "physical", *, graph: bool = False) -> dict:
-        return dict(self._call("explain", sql, level) or {})
+    def explain(self, sql: str, level: str = "physical", *, graph: bool = False,
+                keys: Any = None, retention: str | None = None, sink: str | None = None,
+                name: str | None = None) -> dict:
+        # The registration's fields only when given: with them the engine answers the fingerprint
+        # a registration would get (EXPLAINFP-1), which the assistant's reuse offer compares.
+        asked = {k: v for k, v in (("keys", keys), ("retention", retention), ("sink", sink),
+                                   ("name", name)) if v}
+        return dict(self._call("explain", sql, level, **asked) or {})
 
 
 class _Rows:

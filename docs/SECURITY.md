@@ -566,6 +566,16 @@ outside the dev profile refuses to start while the default is still its password
 sign-in, refusal, lockout and key change is an audit event. Static tokens in `pravaha.security.tokens`
 still work beside all this, logged as deprecated.
 
+**A user's queries after a restart.** A registration is journalled under its owner's id, and at start
+the node replays it as that owner, asking the identity store first and the token table second
+(RECOVERYOWNER-1; it used to ask only the token table, so every query a store user had registered was
+refused `PRV-8007` at the next restart). The principal is the one the user signs in as today — their
+tenant and current roles — and the policy re-checks the registration against it, so a revoked
+entitlement still refuses the replay. **Disabling a user does not stop their queries**, before or
+after a restart: it ends their sessions and keys, and the queries keep running under the account,
+with a warning at each start naming the owner. Drop them, or give them another owner, to stop them.
+An owner neither the store nor the token table knows is refused `PRV-8007`.
+
 ## The console acts as the person signed in
 
 The console holds **no credential of its own**. A person signs in with their user name and password.

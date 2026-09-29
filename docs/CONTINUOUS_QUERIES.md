@@ -1831,6 +1831,8 @@ Rewrite the filter as a range comparison, or join against a table of values inst
 | `TUMBLE` windows | ✅ | |
 | `HOP` (sliding) windows | ✅ | |
 | `COUNT`, `SUM`, `MIN`, `MAX`, `AVG` | ✅ | Over integer columns. `SUM` of a `TINYINT`, `SMALLINT` or `INT` — a column, or an expression such as `CASE WHEN tier = 'silver' THEN 1 ELSE 0 END` — is a `BIGINT`; `MIN`, `MAX` and `AVG` keep their argument's type. Until HLP-1 a `SUM` of an `INT` planned an `INT` column the 64-bit accumulator could not write, and the first row stopped the query, as it did for `MIN`, `MAX` and `AVG` of one. `SUM`, `AVG`, `MIN` **and `MAX`** over a `FLOAT32`/`FLOAT64` column are all refused `PRV-2020`: every accumulator is a 64-bit integer, whatever the column's type, and before the refusal a float aggregate produced no rows under a success status. Only `COUNT` of a float column plans, because it never reads the value. The refusal suggests `SUM(CAST(price AS BIGINT))`, which works if the rounding is acceptable |
+| `SUM`, `MIN`, `MAX` over a `DECIMAL` column | ✅ | Exact, at the column's scale: the accumulators add a decimal's unscaled value, so `SUM` of `222.74`, `-205.18` and `0.05` is `17.61`. `SUM` of a `DECIMAL(p, s)` is a `DECIMAL(38, s)` — a total may outgrow the column it adds up — and `MIN` and `MAX` keep the argument's type. A value whose unscaled form has more than 18 digits cannot be held by a 64-bit accumulator and is refused `PRV-3020`, naming the column, rather than cut to part of the number. On a read, in a continuous query and in a window alike. Until DECSUM-1 every one of them failed "is DECIMAL, not INT64" with no code |
+| `AVG` over a `DECIMAL` column | ❌ | `PRV-2021`, naming the column. An average of decimals is a quotient, and SQL gives it the column's own scale, so answering would round most groups without saying so — the reason `/` over decimals is refused. Ask for `SUM(x)` and `COUNT(x)` and divide where the rounding is yours to choose |
 | `SUM` or `AVG` over a text column | ❌ | `PRV-2020`, naming the column — the same code the float-accumulator refusal carries, because it is the same kind of answer: the accumulator takes a number and this operand is not one. SQL would otherwise cast the column to `DECIMAL(38,19)` on your behalf, and the refusal you got was about decimal arithmetic in a ledger rather than about summing text (TY-16) |
 | Renaming a window column — `window_end AS hour_end` | ❌ | `PRV-2050`: the window columns must keep their names. Project `window_start` and `window_end` under their own names (or `window_end AS window_end`) and rename them downstream |
 | `COUNT(DISTINCT x)` | ✅ | Windowed. Over an unwindowed stream it is refused `PRV-2050`, like any other unbounded key space |
@@ -1988,8 +1990,9 @@ what windows use.
 `name:TYPE,name:TYPE`, and it used to be split on every comma before any type was parsed — so
 `amt:DECIMAL(10,2)` was cut at its own comma and failed as `unknown type 'DECIMAL(10'`, while the
 refusal went on listing `DECIMAL(p,s)` as supported. The split is paren-aware now. A decimal column
-is carried through scans, filters and projections, and `+ - *` over it are exact (§11); division, a
-`CASE` choosing between decimals, and aggregates over a decimal are not built and are refused.
+is carried through scans, filters and projections, `+ - *` over it are exact (§11), and so are
+`SUM`, `MIN` and `MAX` of it (§13); division, a `CASE` choosing between decimals, and `AVG` of a
+decimal are refused rather than rounded.
 
 **A schema string that will not parse is `PRV-1028`, and it names the stream and the column.** It
 was `PRV-5040`, the filesystem plugin's decode code, because that is where the parser lives — which
@@ -2074,6 +2077,7 @@ as a JUnit test that compiles and passes.
 | `PRV-8025` | A `CREATE OR REPLACE` whose new version would read, through other queries, its own answer — §3.1 |
 | `PRV-8026` | Something about a query over a query that cannot be made exact: replacing a member of a chain, reading a name being replaced, `RETAIN FOR` over a view, a restore without the consumed answer — §3.1 |
 | `PRV-8027` | A chain of queries over queries deeper than eight — §3.1 |
+| `PRV-8028` | A second, different query over a `postgres-cdc` or `mysql-cdc` binding another query is reading — the binding's slot (or replica `server.id`) has one consumer; bind the table again with its own (CDCREPL-2) |
 | `PRV-8040` | No alert by that name that you may see — §3.2 |
 | `PRV-8041` | `CREATE ALERT` of a name an alert, a query or a catalogue object already has — §10.2 |
 | `PRV-8042` | An alert whose view, condition, option or duration cannot be kept — §3.2, §10.2 |

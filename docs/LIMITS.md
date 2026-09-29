@@ -110,7 +110,9 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 - **Change data capture, beyond one PostgreSQL table's changes.** `postgres-cdc`
   ([ADR-041](adr/041-change-data-capture-without-debezium.md)) streams one table per binding
-  from PostgreSQL 14 or later, with a slot per registration. Rows already in the table are delivered
+  from PostgreSQL 14 or later, one slot per binding and one query per binding: a second, different
+  query over a binding is refused at registration (`PRV-8028`, CDCREPL-2) rather than left to fail on
+  the slot 15 seconds later; bind the table a second time, with a slot of its own, for a second query. Rows already in the table are delivered
   only with `snapshot.mode: initial` (it needs a primary key; `never`, changes only, is the default),
   and that snapshot is exact across a restart half-way through it. A `TRUNCATE` of the captured
   table stops it (`PRV-5116`) rather than being guessed into retractions, and only MySQL (`mysql-cdc`, below) has a change

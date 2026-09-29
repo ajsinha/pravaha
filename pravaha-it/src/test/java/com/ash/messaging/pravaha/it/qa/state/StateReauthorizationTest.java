@@ -189,7 +189,7 @@ class StateReauthorizationTest extends StateTestSupport {
 
     @Test
     void state081_theServersOwnerLookupGivesEveryRecordedIdARoleLessPrincipal(@TempDir Path dir) throws Exception {
-        // PravahaNode::principalNamed's exact shape (PravahaNode.java:491-495): any non-blank id
+        // RecoveryOwners's token-table shape (it was PravahaNode::principalNamed): any non-blank id
         // becomes a role-less principal in tenant "unknown". Reproduced directly rather than booting
         // a PravahaNode, since the shape under test is this one static mapping function against three
         // different policies.

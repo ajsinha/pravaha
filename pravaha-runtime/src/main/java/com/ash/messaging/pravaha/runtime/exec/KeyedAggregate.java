@@ -130,7 +130,7 @@ final class KeyedAggregate implements RowProcessor {
             }
             return new Group(operator.aggregates().size());
         });
-        group.accumulate(row, weight, operator.aggregates(), argumentTypes, ordinal -> read(row, ordinal));
+        group.accumulate(row, weight, operator.aggregates(), argumentTypes, inputSchema, ordinal -> read(row, ordinal));
     }
 
     /**
@@ -487,7 +487,9 @@ final class KeyedAggregate implements RowProcessor {
             }
             values.put("rows", Long.toString(group.rowCount));
             for (int i = 0; i < calls.size(); i++) {
-                values.put(calls.get(i).outputName(), Long.toString(group.valueOf(i, calls.get(i))));
+                values.put(
+                        calls.get(i).outputName(),
+                        AggregateSlots.text(group.valueOf(i, calls.get(i)), output, key.length + i));
             }
             into.accept(text.toString(), values);
         }
@@ -541,6 +543,7 @@ final class KeyedAggregate implements RowProcessor {
                 long weight,
                 List<AggregateOperator.AggregateCall> calls,
                 TypeName[] argumentTypes,
+                StreamSchema inputSchema,
                 java.util.function.IntFunction<Object> valueAt) {
             rowCount += weight;
             lastTimestamp = row.eventTimestampNanos();
@@ -573,7 +576,8 @@ final class KeyedAggregate implements RowProcessor {
                     }
                     case SUM, AVG -> {
                         if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
-                            sums[i] += AggregateSlots.read(row, call.argumentOrdinal(), argumentTypes[i]) * weight;
+                            sums[i] += AggregateSlots.read(row, call.argumentOrdinal(), argumentTypes[i], inputSchema)
+                                    * weight;
                             counts[i] += weight;
                         }
                     }
@@ -585,7 +589,8 @@ final class KeyedAggregate implements RowProcessor {
                                             + "extreme needs an ordered multiset per group");
                         }
                         if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
-                            long value = AggregateSlots.read(row, call.argumentOrdinal(), argumentTypes[i]);
+                            long value =
+                                    AggregateSlots.read(row, call.argumentOrdinal(), argumentTypes[i], inputSchema);
                             if (!seen[i]) {
                                 sums[i] = value;
                                 seen[i] = true;

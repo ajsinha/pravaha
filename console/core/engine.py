@@ -26,6 +26,7 @@ import logging
 import threading
 import urllib.parse
 from collections.abc import Iterator, Sequence
+from typing import Any
 
 from pravaha import connect
 from pravaha.client import QueryError
@@ -456,8 +457,12 @@ class Engine:
         """Valid, diagnostics (with the parser's own positions), output fields, elapsed."""
         return dict(self._rest(lambda c: c.validate(sql)) or {})
 
-    def explain(self, sql: str, level: str = "physical") -> dict:
-        """The plan as text, and as the engine's own graph of operators."""
+    def explain(self, sql: str, level: str = "physical", **registration: Any) -> dict:
+        """The plan as text, and as the engine's own graph of operators. With ``keys`` (and
+        ``retention``, ``sink``, ``name``) also the fingerprint a registration would get."""
+        if registration:
+            return dict(self._rest(lambda c: c.http_api.explain(
+                sql, level, graph=True, **registration)) or {})
         return dict(self._rest(lambda c: c.explain(sql, level, graph=True)) or {})
 
     def sinks(self) -> list[dict]:

@@ -26,7 +26,7 @@ all digits becomes an integer, and the first row containing a letter fails at 3 
 | `STRING` | `VARCHAR` | — | `COUNT` | UTF-8; `=` and `<>` only |
 | `BYTES` | `VARBINARY` | — | — | Carried over Flight; refused by the PostgreSQL gateway |
 | `DATE`, `TIME`, `TIMESTAMP` | same | intervals | `COUNT` | `TIMESTAMP` carries event time, in nanoseconds |
-| `DECIMAL(p,s)` | `DECIMAL` | exact `+ − ×`; `÷` refused | — | Declarable only programmatically |
+| `DECIMAL(p,s)` | `DECIMAL` | exact `+ − ×`, `SUM`, `MIN`, `MAX`; `÷` and `AVG` refused | — | Declarable only programmatically |
 
 Year-month intervals (`INTERVAL '1' MONTH`) are refused, because a month is not a fixed length of
 time; day-time intervals (`SECOND` to `WEEK`) work, and are what windows use.
@@ -266,7 +266,14 @@ SELECT txn_id, CAST(amount AS DECIMAL(12, 2)) / 100 AS amount_major FROM txn
 `pravaha.streams.*.schema` or `POST /api/v1/streams`. It used to be cut at its own comma and fail as
 `unknown type 'DECIMAL(10'`, because the `name:TYPE,name:TYPE` grammar was split on every comma
 before any type was read (TY-7). A declared decimal is carried through scans, filters and
-projections correctly; what is not built is arithmetic over it.
+projections correctly.
+
+**`SUM`, `MIN` and `MAX` of a decimal are exact** (DECSUM-1): `SUM` of a `DECIMAL(10, 2)` is a
+`DECIMAL(38, 2)`, so a total may outgrow the column it adds up; `MIN` and `MAX` keep the column's
+type. A value with more than 18 digits unscaled cannot be held by the 64-bit accumulators and is
+refused `PRV-3020`, naming the column. **`AVG` of a decimal is refused `PRV-2021`**: it is a
+quotient, SQL types it at the column's own scale, and answering would round most groups silently.
+Ask for `SUM` and `COUNT` and divide where the rounding is yours.
 
 A schema string that will not parse answers **`PRV-1028`**, a configuration code, and names both
 places: `stream 'd', column 'amt': unknown type 'DECIMAL'`. It used to answer `PRV-5040` — the

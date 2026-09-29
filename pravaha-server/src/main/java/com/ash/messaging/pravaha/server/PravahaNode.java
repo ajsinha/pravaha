@@ -43,7 +43,6 @@ import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.RegistryJournal;
 import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.AuditTrail;
-import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityErrors;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.security.TokenVerifier;
@@ -1196,7 +1195,8 @@ public class PravahaNode implements SmartLifecycle {
                 claimState(journalDirectory, "registry journal directory");
             }
             registry.journalTo(new RegistryJournal(path));
-            QueryRegistry.Recovery recovery = registry.recover(this::principalNamed);
+            // RECOVERYOWNER-1: the identity store's users first, then the token table.
+            QueryRegistry.Recovery recovery = registry.recover(new RecoveryOwners(security, this::identity));
             log.info(
                     "registry recovered {} of {} queries from {}",
                     recovery.recovered().size(),
@@ -1422,34 +1422,6 @@ public class PravahaNode implements SmartLifecycle {
 
     public Optional<ClusterCoordinator> coordinator() {
         return Optional.ofNullable(coordinator);
-    }
-
-    /**
-     * Resolves a journalled owner id back to a principal for recovery.
-     *
-     * <p>Deliberately minimal, and deliberately not a lookup that invents authority: it reconstructs
-     * the identity the registration was made under and lets the policy decide, rather than recovering
-     * everything as an administrator. A deployment with a real directory should replace this, which
-     * is why recovery takes the resolver as an argument rather than doing it itself.
-     */
-    private Optional<Principal> principalNamed(String id) {
-        if (id == null || id.isBlank()) {
-            return Optional.empty();
-        }
-        Optional<Principal> configured = security.principalFor(id);
-        if (configured.isPresent()) {
-            return configured;
-        }
-        if (security.authenticates()) {
-            // An owner this node cannot identify is one whose entitlements it cannot check, so the
-            // registration is refused and named in the recovery report rather than resurrected under
-            // an invented identity. Refusing is visible; inventing is not.
-            return Optional.empty();
-        }
-        // No identity source configured at all, so there is nothing to reconstruct from and nothing
-        // that could be checked against it either. The anonymous principal is honest about that,
-        // where a fabricated one with a made-up tenant was not.
-        return Optional.of(Principal.ANONYMOUS);
     }
 
     /** For a status endpoint: what this node is currently doing. */

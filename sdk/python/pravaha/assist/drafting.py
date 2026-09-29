@@ -28,14 +28,16 @@ PROPRIETARY AND CONFIDENTIAL. See the LICENSE file for the full terms.
   engine accepted, and goes through the ordinary :class:`pravaha.client.Client` call under the
   caller's own credentials. The model has no tool; nothing it says is executed.
 
-**What the engine exposes, and what is approximated.** The HTTP API gives no fingerprint for SQL
-that is not registered (``/explain`` answers ``level``, ``plan``, ``outputFields`` and, on request,
-``graph``; the fingerprint appears only on a registered query, ``GET /api/v1/queries`` and
-``/views/{name}``). So "the same computation as a running query" is decided by comparing the
-engine's own physical plan for the draft with its plan for each running query that reads the same
-inputs, whitespace-normalised, and the keys and retention -- the parts of a fingerprint the API
-shows. It is labelled ``match: "plan"``; only registration can confirm it (the fingerprint the
-engine answers then is exact). Guarantees are what ``GET /api/v1/sinks`` says of the chosen sink.
+**The same computation as a running query.** ``/explain`` answers, for an accepted draft's keys,
+retention and sink, the **fingerprint** a registration would get for the caller (EXPLAINFP-1) --
+the same short value ``GET /api/v1/queries`` lists for a registered query, computed by the
+registration's own code: plan, the caller's row filters, keys, retention and tenant (ADR-025). A
+running query with that fingerprint is the same computation, labelled ``match: "fingerprint"``. An
+engine older than that answers no fingerprint, and the assistant falls back to what the API shows:
+the engine's own physical plan for the draft against its plan for each running query that reads
+the same inputs, whitespace-normalised, and the keys and retention -- labelled ``match: "plan"``,
+evidence rather than identity; registration then confirms it. Guarantees are what ``GET
+/api/v1/sinks`` says of the chosen sink.
 """
 
 from __future__ import annotations
@@ -266,6 +268,9 @@ class Draft:
     inputs: "tuple[str, ...]"
     context: Mapping[str, Any]
     prompt: str
+    #: The fingerprint a registration would get, from the engine's ``/explain`` (EXPLAINFP-1);
+    #: ``None`` when not accepted, or from an engine that does not answer one.
+    fingerprint: Optional[str] = None
 
     @property
     def accepted(self) -> bool:
@@ -326,6 +331,7 @@ class Draft:
             "confidence": self.confidence,
             "verdict": self.verdict.to_dict(),
             "enginePlan": {"level": "physical", "plan": self.plan} if self.plan else None,
+            "fingerprint": self.fingerprint,
             "outputFields": [dict(f) for f in self.output_fields],
             "guarantees": dict(self.guarantees),
             "sameAs": [dict(s) for s in self.same_as],
@@ -452,10 +458,11 @@ class Drafter:
         return Verdict(True, "engine", diagnostics=()), fields
 
     def same_as(
-        self, proposal: _Proposal, plan: str, context: DraftContext
+        self, proposal: _Proposal, plan: str, context: DraftContext,
+        fingerprint: Optional[str] = None,
     ) -> "list[dict[str, Any]]":
-        """Running queries whose plan, keys and retention match the draft's (see the module's
-        note: the API gives no fingerprint for unregistered SQL)."""
+        """Running queries that are the draft's computation: by the engine's fingerprint when
+        it answered one, else by plan, keys and retention (see the module's note)."""
         from pravaha.rest import ApiError
 
         wanted = normalise_plan(plan)
@@ -463,6 +470,17 @@ class Drafter:
         retention, _ = normalise_retention(proposal.options.get("retention"))
         found = []
         for query in context.running:
+            theirs_fingerprint = query.get("fingerprint")
+            if fingerprint and theirs_fingerprint == fingerprint:
+                found.append({
+                    "name": query.get("name"), "fingerprint": theirs_fingerprint,
+                    "match": "fingerprint", "keysEqual": True, "retentionEqual": True,
+                    "sameComputation": True,
+                    "reuse": (f"read {query.get('name')} instead of registering a copy, or "
+                              f"register under your own name: the engine's fingerprints are "
+                              f"equal, so it will share one computation (ADR-025)"),
+                })
+                continue
             sql = select_of(str(query.get("sql") or ""))
             if not sql or relations(sql) != inputs:
                 continue
@@ -479,18 +497,27 @@ class Drafter:
             keys_equal = [k.lower() for k in keys] == [k.lower() for k in proposal.keys]
             theirs_retention = str(query.get("retention") or "forever")
             retention_equal = (retention or "forever").lower() == theirs_retention.lower()
+            # With the engine's fingerprint in hand, a plan match whose fingerprint differs is not
+            # the same computation whatever the keys say: the row filters or the tenant differ.
+            same = keys_equal and retention_equal and not fingerprint
+            if same:
+                reuse = (f"read {query.get('name')} instead of registering a copy, or register "
+                         f"under your own name: the engine will share one computation (ADR-025)")
+            elif keys_equal and retention_equal:
+                reuse = (f"{query.get('name')} has the same plan, keys and retention but another "
+                         f"fingerprint: registered by you it would be a separate computation "
+                         f"(your row filters or tenant differ)")
+            else:
+                reuse = (f"{query.get('name')} computes the same rows under a different "
+                         f"{'key' if not keys_equal else 'retention'}")
             found.append({
                 "name": query.get("name"),
-                "fingerprint": query.get("fingerprint"),
+                "fingerprint": theirs_fingerprint,
                 "match": "plan",
                 "keysEqual": keys_equal,
                 "retentionEqual": retention_equal,
-                "sameComputation": keys_equal and retention_equal,
-                "reuse": (f"read {query.get('name')} instead of registering a copy, or register "
-                          f"under your own name: the engine will share one computation "
-                          f"(ADR-025)") if keys_equal and retention_equal else
-                         (f"{query.get('name')} computes the same rows under a different "
-                          f"{'key' if not keys_equal else 'retention'}"),
+                "sameComputation": same,
+                "reuse": reuse,
             })
         return found
 
@@ -587,9 +614,11 @@ class Drafter:
                 record(verdict)
                 judged = last = (proposal, verdict, fields)
                 if verdict.accepted:
-                    plan = str(self.api.explain(proposal.sql, "physical").get("plan") or "")
+                    explained = self.explain(proposal, fields)
+                    plan = str(explained.get("plan") or "")
                     return self._present(description, "accepted", proposal, verdict, fields, plan,
-                                         context, turns, answer, prompt.id, started)
+                                         context, turns, answer, prompt.id, started,
+                                         fingerprint=explained.get("fingerprint"))
             if number > max_repairs:
                 break
             # The description and catalogue, the last answer, and what was wrong with it: each
@@ -617,6 +646,7 @@ class Drafter:
         answer: RoutedResponse,
         prompt: str,
         started: float,
+        fingerprint: Optional[str] = None,
     ) -> Draft:
         options = dict(proposal.options)
         if options.get("retention"):
@@ -638,7 +668,8 @@ class Drafter:
             plan=plan,
             output_fields=tuple(fields),
             guarantees=self.guarantees(proposal, context) if accepted else {},
-            same_as=tuple(self.same_as(proposal, plan or "", context)) if accepted else (),
+            same_as=tuple(self.same_as(proposal, plan or "", context, fingerprint))
+            if accepted else (),
             turns=tuple(turns),
             answered_by=answer.answered_by(),
             tokens=sum(t.tokens for t in turns),
@@ -646,7 +677,18 @@ class Drafter:
             inputs=relations(proposal.sql),
             context=context.summary(),
             prompt=prompt,
+            fingerprint=str(fingerprint) if accepted and fingerprint else None,
         )
+
+    def explain(self, proposal: _Proposal, fields: "list[dict[str, Any]]") -> dict[str, Any]:
+        """The engine's plan for an accepted draft, with the fingerprint a registration of it
+        would get: its keys as output ordinals, its retention and its sink (EXPLAINFP-1)."""
+        columns = [str(f.get("name")) for f in fields]
+        ordinals = [columns.index(found) for found in
+                    (_column(k, columns) for k in proposal.keys) if found is not None]
+        retention, _ = normalise_retention(proposal.options.get("retention"))
+        return self.api.explain(proposal.sql, "physical", keys=ordinals or None,
+                                retention=retention, sink=proposal.options.get("sink"))
 
 
 def register(draft: Draft, client: Any, *, confirmed: bool, name: Optional[str] = None

@@ -147,7 +147,12 @@ final class GlobalAggregate implements RowProcessor {
                 }
                 case SUM, AVG -> {
                     if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
-                        sums[i] += AggregateSlots.read(row, call.argumentOrdinal(), argumentTypes[i]) * weight;
+                        sums[i] += AggregateSlots.read(
+                                        row,
+                                        call.argumentOrdinal(),
+                                        argumentTypes[i],
+                                        operator.input().outputSchema())
+                                * weight;
                         counts[i] += weight;
                     }
                 }
@@ -163,7 +168,11 @@ final class GlobalAggregate implements RowProcessor {
                                         + "the aggregate lift. Use SUM or COUNT for now.");
                     }
                     if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
-                        long value = AggregateSlots.read(row, call.argumentOrdinal(), argumentTypes[i]);
+                        long value = AggregateSlots.read(
+                                row,
+                                call.argumentOrdinal(),
+                                argumentTypes[i],
+                                operator.input().outputSchema());
                         if (!seen[i]) {
                             sums[i] = value;
                             seen[i] = true;
@@ -544,7 +553,9 @@ final class GlobalAggregate implements RowProcessor {
         java.util.Map<String, String> values = new java.util.LinkedHashMap<>();
         values.put("rows", Long.toString(rowCount));
         for (int i = 0; i < calls.size(); i++) {
-            values.put(calls.get(i).outputName(), Long.toString(valueOf(i, calls.get(i))));
+            values.put(
+                    calls.get(i).outputName(),
+                    AggregateSlots.text(valueOf(i, calls.get(i)), operator.outputSchema(), i));
         }
         into.accept("", values);
     }

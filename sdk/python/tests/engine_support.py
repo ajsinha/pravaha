@@ -10,7 +10,10 @@ assistant does with the engine's answers, not how the engine plans:
 * ``validate`` refuses a relation it does not know (``PRV-2002``), a ``GROUP BY`` with no window
   over a stream (``PRV-2050``), and anything a test adds to ``refuse``; otherwise it answers the
   ``SELECT`` list's names as ``outputFields``;
-* ``explain`` answers a "plan" that is the statement's words, so equal SQL has equal plans.
+* ``explain`` answers a "plan" that is the statement's words, so equal SQL has equal plans; with
+  ``fingerprints`` on (an engine with EXPLAINFP-1) it also answers ``fingerprint`` for a request
+  with ``keys``: the fingerprint :meth:`FakeEngine.fingerprint_of` gives the plan, the keys and the
+  retention.
 """
 
 from __future__ import annotations
@@ -74,6 +77,8 @@ class FakeEngine:
         #: ``sql -> (code, message)`` refusals, checked before the built-in rules.
         self.refuse: dict[str, tuple[str, str]] = {}
         self.rule: Optional[Callable[[str], Optional[tuple[str, str]]]] = None
+        #: Whether ``/explain`` answers a fingerprint, as an engine with EXPLAINFP-1 does.
+        self.fingerprints = False
         self.requests: list[tuple[str, str, Any]] = []
         outer = self
 
@@ -147,6 +152,15 @@ class FakeEngine:
                   for i, n in enumerate(_output_names(sql))]
         return {"valid": True, "diagnostics": [], "outputFields": fields, "elapsedMicros": 10}
 
+    @staticmethod
+    def fingerprint_of(sql: str, keys: Any, retention: Optional[str] = None) -> str:
+        """The fake's fingerprint: the plan's words, the key ordinals and the retention, hashed and
+        cut to the engine's short form."""
+        import hashlib
+
+        text = " ".join(sql.split()) + f"|{list(keys or [])}|{retention or 'forever'}"
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+
     def answer(self, method: str, path: str, body: Any) -> "tuple[int, Any]":
         if method == "GET" and path == "/api/v1/me/permissions":
             if self.permissions_status != 200:
@@ -184,8 +198,14 @@ class FakeEngine:
             if not verdict["valid"]:
                 d = verdict["diagnostics"][0]
                 return 400, {"code": d["code"], "message": d["message"]}
-            return 200, {"level": "physical", "plan": "Plan\n  " + " ".join(sql.split()),
+            explained = {"level": "physical", "plan": "Plan\n  " + " ".join(sql.split()),
                          "outputFields": verdict["outputFields"]}
+            if self.fingerprints:
+                keys = body.get("keys")
+                explained["fingerprint"] = self.fingerprint_of(
+                    sql, keys, body.get("retention")) if keys else None
+                explained["fingerprintRefusal"] = None
+            return 200, explained
         return 404, {"code": "PRV-4404", "message": f"nothing at {method} {path}"}
 
 

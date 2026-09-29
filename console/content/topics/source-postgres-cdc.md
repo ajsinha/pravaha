@@ -39,7 +39,7 @@ slot, and this page says how.
 | Replayable offsets / ordered | yes / yes |
 | Emits deletes / before-image | **yes / yes** — the first shipped source to declare both |
 | Pushdown | none — the stream is the table's whole rows |
-| Shared between queries | **no** — one slot, one reader, per registration |
+| Shared between queries | **no** — a binding names one slot, and one query reads it; a second, different query over the binding is refused (PRV-8028) |
 | Initial snapshot | with `snapshot.mode: initial`: the rows already there, in key order, then the changes; exact across a restart half-way through. `never` (the default): changes from the slot's creation only |
 | Schema comes from | the table, or a declared `schema` checked against it |
 | Event time | the transaction's **commit time**, or an `event.time` timestamp column |
@@ -309,9 +309,19 @@ restart takes, and on `wal_status` leaving `reserved`.
 is protected, the slot is lost. Choose it as "how long a Pravaha outage may last" times "WAL written
 per hour".
 
-**One slot per registration.** A slot has one reader, and an exactly-once source is never shared, so
-two registrations reading the same stream need two bindings with two slots. A second reader of a slot
-already being read waits a few seconds and then fails.
+**One query per binding.** A binding names one slot, a slot streams to one connection at a time, and
+an exactly-once source is never shared. So a second, *different* query over the same binding is
+**refused at registration** with `PRV-8028`, naming the query that holds it (CDCREPL-2); it used to
+be accepted, wait for the slot for about fifteen seconds and fail `PRV-5117`. The same SQL registered
+under a second name is one computation and one reader, and is not refused. To ask two different
+questions of one table, either bind it twice — two stream names, each with a `slot` of its own — or
+register one query that keeps what both need and query its view.
+
+The engine does not derive a slot per query from the binding, on purpose. Every slot retains WAL on
+the database until it is confirmed, so slots made per query would multiply what the database keeps
+by the number of queries without anyone sizing the disk for it, and any slot outliving its query — a
+node lost before a drop, a drop while the database is unreachable — would retain WAL until the disk
+filled. A binding is where an operator names a slot and plans for it.
 
 ## The initial snapshot
 

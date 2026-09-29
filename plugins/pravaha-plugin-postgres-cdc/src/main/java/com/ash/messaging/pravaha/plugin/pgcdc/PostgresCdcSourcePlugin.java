@@ -74,8 +74,11 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  * table; {@code docs/OPERATIONS.md} says how to drop a slot nobody will read again.
  *
  * <p>One partition, one slot, one reader at a time: a replication slot has one consumer. Not shared
- * between queries ({@code EXACTLY_ONCE} and ordered sources never are), so each registration reading
- * this binding needs a slot of its own.
+ * between queries ({@code EXACTLY_ONCE} and ordered sources never are), and the slot is the
+ * binding's, not the query's: one query reads a binding. A second, different query over it is
+ * refused at registration ({@code PRV-8028}, through {@link #secondReaderRefusal}) rather than left
+ * to wait for the slot and fail {@code PRV-5117} (CDCREPL-2); a second question about the table is a
+ * second binding with a {@code slot} of its own.
  *
  * <p><strong>Rows already in the table</strong> are delivered first when {@code snapshot.mode} is
  * {@code initial}: read under a snapshot pinned to a point in the log, spliced into the stream at

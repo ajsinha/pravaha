@@ -29,6 +29,31 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   `pravaha policy ls|show|create-filter|create-mask|bind|unbind|drop`, policies on the console's object
   page and an Admin → Policies editor. Static tokens gain `claims`. New codes `PRV-7006`, `PRV-7007`,
   `PRV-7038` to `PRV-7040`. `SecurityPolicy` gains `narrowing`, defaulting to none.
+- **`SUM`, `MIN` and `MAX` of a `DECIMAL` column answer exactly (DECSUM-1).** Power BI's
+  `select sum("_"."avg_ticket") from "public"."rr" "_"` failed "field 0 ('a0') is DECIMAL, not INT64"
+  with no code: the aggregates read the 16-byte decimal slot as a `long` and wrote their answer as
+  one. They now accumulate the unscaled value and write it back at the column's scale — on a read, in
+  a continuous query and in a window — and `SUM` of a `DECIMAL(p, s)` is a `DECIMAL(38, s)`. A value
+  whose unscaled form has more than 18 digits is refused `PRV-3020`, naming the column, rather than
+  cut. **`AVG` of a decimal is refused `PRV-2021`**: a quotient at the column's scale would round. The
+  float refusal (`PRV-2020`) is unchanged; it is a documented rule, not this defect.
+- **A second, different query over a `postgres-cdc` or `mysql-cdc` binding is refused at
+  registration, `PRV-8028` (new, `REGISTRY_SOURCE_HELD`, HTTP 409), naming the query holding it
+  (CDCREPL-2).** A binding names one replication slot (or replica `server.id`), which has one consumer;
+  the second registration used to be accepted and fail `PRV-5117` about fifteen seconds later. Bind the
+  table again with a slot of its own for a second query. The engine does not create a slot per query:
+  every slot retains WAL, and one the engine lost track of would fill the database's disk.
+- **Queries owned by identity-store users survive a restart (RECOVERYOWNER-1).** Recovery resolved
+  owners through the static token table only, so on a node with `pravaha.identity.enabled` every query
+  a signed-in user had registered was refused `PRV-8007` at the next start. Owners are resolved through
+  the identity store first, then the token table, each with today's tenant and roles. A disabled user's
+  queries keep running, with a warning naming the owner at each start.
+- **`/api/v1/queries/explain` answers the fingerprint a registration would get (EXPLAINFP-1).** Given
+  `keys` (and optionally `retention`, `sink`, `name`) in the body, it answers `fingerprint` — computed
+  by the registration's own preparation for the caller: plan, row filters, keys, retention, tenant — or
+  `fingerprintRefusal` with the code registration would give. The Python SDK's `EngineApi.explain`
+  takes them; the assistant's reuse offer (`match: "fingerprint"`) and `pravaha assist eval` compare
+  the engine's fingerprints, falling back to plan text against an older engine.
 - **The assistant in the console, phase 3 (ADR-058): Admin · AI models, "Describe it", and
   Explain.** An administrator configures several providers and models at once in **Admin · AI
   models** and **switches between them while the console runs**: providers (configured, and every
@@ -289,7 +314,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   source delivers a delete or the old half of an update.
 
 
-Register: **452 findings — 386 fixed, 52 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **454 findings — 390 fixed, 50 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ---
 

@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **452 findings carrying a
-status — 386 FIXED, 52 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 52 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 45 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **454 findings carrying a
+status — 390 FIXED, 50 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 50 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 43 POST-GA and 7 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7159,8 +7159,7 @@ the lead.
 
 ### CDCREPL-2 (MEDIUM) — two different queries over one postgres-cdc binding contend for its one slot
 
-> **Status:** OPEN — a second registration of a *different* query over the same binding fails PRV-5117 after about 15 s: the binding names one slot, postgres-cdc keeps a reader per query (it is not shared), and nothing refuses this at registration. README and the plugin's javadoc say "a slot each", but the slot comes from the binding.
-> **Disposition:** POST-GA — refuse the second registration by name at registration, or derive a slot per query from the binding; then correct the docs.
+> **Status:** FIXED — reproduced against a real PostgreSQL (the second registration failed PRV-5117 after ~16 s). A second, different query over a single-consumer binding (a postgres-cdc slot, a mysql-cdc `server.id`) is refused at registration with PRV-8028, naming the query that holds it; the same SQL under a second name is one computation and is not refused. Refused rather than a slot per query, because every slot retains WAL and a slot that outlives its query fills the disk. `PostgresCdcSecondQueryTest`, `SharedSourceReaderTest`; seed-proven.
 
 ### TESTNAME-1 (LOW) — a jqwik property test never ran because of its name
 
@@ -7197,8 +7196,7 @@ the lead.
 
 ### DECSUM-1 (MEDIUM) — SUM over a DECIMAL view column fails with an internal error in a read
 
-> **Status:** OPEN — `select sum("_"."avg_ticket") from "public"."rr" "_"` fails "field 0 ('a0') is DECIMAL, not INT64 in schema rr_projected_aggregated", with no PRV code: neither an answer nor a named refusal. Found through Power BI's DirectQuery SQL.
-> **Disposition:** POST-GA — answer it (a DECIMAL sum), or refuse it by name.
+> **Status:** FIXED — `AggregateSlots` read a decimal's slot with `getLong` (its high half) and wrote into a DECIMAL column with `setLong`. SUM/MIN/MAX of a DECIMAL now accumulate its unscaled value and answer exactly at the column's scale (SUM is `DECIMAL(38,s)`), on reads, continuous and windowed aggregates; a value with no 64-bit unscaled form is PRV-3020, and AVG of a decimal is PRV-2021 (its quotient would round). `DecimalAggregateReadTest`, `PowerBiGatewayTest`, `AggregateSlotsDecimalTest`, `DecimalAggregateTest`; seed-proven.
 
 ### AVGINT-1 (LOW) — AVG of an integer column is an integer, where PostgreSQL clients expect numeric
 
@@ -7219,15 +7217,13 @@ the lead.
 
 ### RECOVERYOWNER-1 (MEDIUM) — journal recovery may refuse queries owned by identity-store users
 
-> **Status:** OPEN — not reproduced; found by reading. Recovery resolves a registration's owner through the token table only (`principalNamed`), so on a node whose users live in the identity store (ADR-052) a replayed query owned by such a user may be refused.
-> **Disposition:** POST-GA — a restart test on an identity-store node with a user-owned query; resolve owners through the identity store as well.
+> **Status:** FIXED — reproduced: an identity-store node with an empty token table refused a store user's query at restart (PRV-8007). Recovery now resolves owners through the identity store, then the token table (`RecoveryOwners`); a disabled user's queries keep running with a warning at each start; an owner neither knows is still PRV-8007. `RecoveryOwnerTest`; seed-proven.
 
 ## Found building ADR-058 phase 2, drafting (2026-09-28), 3 findings
 
 ### EXPLAINFP-1 (MEDIUM) — /explain gives no fingerprint for SQL that is not registered
 
-> **Status:** OPEN — `/api/v1/explain` answers `level`, `plan`, `outputFields` and optionally `graph`; a fingerprint exists only for a registered query. The assistant therefore compares drafts with running queries, and with the evaluation's references, by normalised plan text — evidence, not the computation's identity (ADR-025). `assist eval --run` registers both to compare exactly.
-> **Disposition:** POST-GA — return the fingerprint the registration would get (plan, row filters, keys, retention, tenant) from /explain.
+> **Status:** FIXED — `/api/v1/explain` with `keys` (and optional `retention`, `sink`, `name`) answers the `fingerprint` registration would compute for the caller — plan, row filters, keys, retention, tenant, through registration's own `prepare` — or the `fingerprintRefusal` it would give. The assistant's `same_as` and `assist eval` compare it, falling back to plan text against older engines. `ExplainFingerprintTest`, `test_assist_drafting`, `test_assist_eval`.
 
 ### VALIDATEREG-1 (LOW) — /validate plans only the SELECT, so registration-only refusals come late
 
@@ -7272,3 +7268,16 @@ the lead.
 
 > **Status:** OPEN — grants, namespaces (phase 1) and policies (phase 2) return 201 Created; the generated document and `api/openapi.lock.json` record 200, and the P-5 status check covers only `/api/v1/streams`.
 > **Disposition:** POST-GA — annotate the responses and widen the status check to every POST.
+
+## Found fixing DECSUM-1 (2026-09-28), 2 findings
+
+### SUMWRAP-1 (MEDIUM) — a SUM past 2^63 wraps silently
+
+> **Status:** OPEN — the SUM accumulators in `GlobalAggregate`, `KeyedAggregate` and `SlicedAggregateState` add without an overflow check, so a BIGINT or DECIMAL total past the 64-bit range wraps to a wrong answer with nothing to say so.
+> **Disposition:** POST-GA — `Math.addExact` (or a wider accumulator) and a named refusal when a total overflows.
+
+### WINDECKEY-1 (MEDIUM) — a windowed GROUP BY on a DECIMAL column may conflate keys
+
+> **Status:** OPEN — not reproduced; found by reading. `WindowedAggregate`'s `readKey` and key hash read a DECIMAL with `getLong` (the high half only), so a windowed `GROUP BY` on a decimal column, or `COUNT(DISTINCT decimal)`, would treat different values as one.
+> **Disposition:** POST-GA — read the whole unscaled value, or refuse a decimal window key by name until then.
+

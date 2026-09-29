@@ -553,6 +553,13 @@ dropped, invalidated, or the role's privileges revoked. For all three the recove
 stop the registration, delete its checkpoint directory, drop the slot, register again
 ([`OPERATIONS.md`](OPERATIONS.md), *Change data capture: the replication slot*).
 
+**A second query over a `postgres-cdc` or `mysql-cdc` stream is refused with `PRV-8028`.** The
+binding names one replication slot (or replica `server.id`), and another query — named in the
+message — is reading it; a slot streams to one connection at a time. Bind the table a second time
+under another stream name with a `slot` (or `server.id`) of its own and register the second query
+over that stream, or drop the query that holds the binding. Before CDCREPL-2 this registration was
+accepted and failed `PRV-5117` ("is active for PID") about fifteen seconds later.
+
 **The database's disk is filling and `pg_replication_slots` shows a `pravaha_` slot retaining it.**
 The slot is confirmed only at Pravaha checkpoints: check the node is running, that
 `pravaha.checkpoint.directory` is set, and that the source's `heartbeat.interval` is not `0` on a
@@ -1093,6 +1100,7 @@ client models the error rather than an empty object.
 | `PRV-8025` | REGISTRY_QUERY_CYCLE | registry (queries on queries) |
 | `PRV-8026` | REGISTRY_CHAIN_UNSUPPORTED | registry (queries on queries) |
 | `PRV-8027` | REGISTRY_CHAIN_TOO_DEEP | registry (queries on queries) |
+| `PRV-8028` | REGISTRY_SOURCE_HELD | registry (bindings) |
 | `PRV-8040` | ALERT_NO_SUCH_ALERT | registry (alerts) |
 | `PRV-8041` | ALERT_EXISTS | registry (alerts) |
 | `PRV-8042` | ALERT_DEFINITION_INVALID | registry (alerts) |

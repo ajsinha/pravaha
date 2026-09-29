@@ -288,7 +288,10 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
             // neither can tell a genuine zero from an absent value.
             boolean known = ordinal < 0 || !row.isNull(ordinal);
             present[i] = known;
-            scratch[i] = known && ordinal >= 0 ? AggregateSlots.read(row, ordinal, argumentTypes[i]) : 0;
+            scratch[i] = known && ordinal >= 0
+                    ? AggregateSlots.read(
+                            row, ordinal, argumentTypes[i], operator.input().outputSchema())
+                    : 0;
         }
         // The key's values travel with the accumulator: the result row has to contain them, and a
         // hash can say that a group counted seven without saying which group.
@@ -462,7 +465,12 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
                 }
                 long[] published = row.values();
                 for (int i = 0; i < published.length && i < calls.size(); i++) {
-                    values.put(calls.get(i).outputName(), Long.toString(published[i]));
+                    values.put(
+                            calls.get(i).outputName(),
+                            AggregateSlots.text(
+                                    published[i],
+                                    operator.outputSchema(),
+                                    operator.groupKeys().size() + i));
                 }
                 into.accept(windowEnd + "|" + keyText(keyValues), values);
             }

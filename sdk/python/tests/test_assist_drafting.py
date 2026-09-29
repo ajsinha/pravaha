@@ -369,6 +369,40 @@ def test_a_running_query_with_the_same_plan_is_offered_for_reuse(tmp_path, engin
     assert "share one computation" in same["reuse"]
 
 
+def test_the_engines_fingerprint_decides_the_same_computation(tmp_path, engine):
+    # EXPLAINFP-1: an engine that answers the fingerprint a registration would get.
+    engine.fingerprints = True
+    ours = FakeEngine.fingerprint_of(WINDOWED, [0, 1])
+    engine.queries = [
+        {"name": "per_minute", "sql": WINDOWED, "fingerprint": ours,
+         "keyColumns": [{"name": "window_end"}, {"name": "customer"}], "retention": "forever"},
+        # The same plan, keys and retention, and another fingerprint: another principal's row
+        # filters or tenant. Plan text would have called it the same computation.
+        {"name": "theirs", "sql": WINDOWED, "fingerprint": "0123456789ab",
+         "keyColumns": [{"name": "window_end"}, {"name": "customer"}], "retention": "forever"},
+    ]
+    engine.views = {name: {"name": name, "schema": [], "keyColumns": [], "retention": "forever"}
+                    for name in ("per_minute", "theirs")}
+    assistant, _ = assistant_for(tmp_path, engine, [answer()])
+    draft = assistant.draft("orders per customer per minute")
+    assert draft.fingerprint == ours and draft.to_dict()["fingerprint"] == ours
+    asked = [c for c in engine.calls("/api/v1/queries/explain") if c.get("keys")]
+    assert [c["keys"] for c in asked] == [[0, 1]]
+    by_name = {s["name"]: s for s in draft.same_as}
+    assert by_name["per_minute"]["match"] == "fingerprint"
+    assert by_name["per_minute"]["sameComputation"] is True
+    assert by_name["theirs"]["match"] == "plan" and by_name["theirs"]["sameComputation"] is False
+    assert "another fingerprint" in by_name["theirs"]["reuse"]
+
+
+def test_an_engine_without_fingerprints_leaves_the_draft_without_one(tmp_path, engine):
+    assistant, _ = assistant_for(tmp_path, engine, [answer(retention="24h")])
+    draft = assistant.draft("orders per customer per minute")
+    assert draft.status == "accepted" and draft.fingerprint is None
+    explained = engine.calls("/api/v1/queries/explain")[-1]
+    assert explained["keys"] == [0, 1] and explained["retention"] == "PT24H"
+
+
 # ---------------------------------------------------------------------------------- register
 
 

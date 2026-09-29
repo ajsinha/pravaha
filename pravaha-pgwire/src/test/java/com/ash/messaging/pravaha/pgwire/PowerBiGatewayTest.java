@@ -453,6 +453,34 @@ class PowerBiGatewayTest {
         }
     }
 
+    /**
+     * DECSUM-1: Power BI's card over a DECIMAL column. It failed "field 0 ('a0') is DECIMAL, not
+     * INT64" with no PRV code; a sum, a minimum and a maximum are exact now, and an average is refused
+     * by name because a quotient of decimals would be rounded.
+     */
+    @Test
+    void aDecimalSumIsAnsweredExactlyAndADecimalAverageIsRefusedByName() throws Exception {
+        start();
+        try (PgTestClient client = connected()) {
+            client.query("select sum(\"_\".\"avg_ticket\") as \"a0\"\nfrom \"public\".\"region_revenue\" \"_\"\n"
+                    + "limit 1000001");
+            List<PgTestClient.Message> reply = client.readUntilReady();
+            assertThat(names(reply)).containsExactly("a0");
+            assertThat(rows(reply)).containsExactly(List.of("17.61"));
+
+            client.query(
+                    "select min(\"_\".\"avg_ticket\"), max(\"_\".\"avg_ticket\") from \"public\".\"region_revenue\" \"_\"");
+            assertThat(rows(client.readUntilReady())).containsExactly(List.of("-205.18", "222.74"));
+
+            client.query("select avg(\"_\".\"avg_ticket\") from \"public\".\"region_revenue\" \"_\"");
+            reply = client.readUntilReady();
+            assertThat(PgTestClient.shape(reply)).isEqualTo("EZ");
+            assertThat(PgTestClient.errorFields(reply.get(0)).get('M'))
+                    .startsWith("PRV-2021")
+                    .contains("avg_ticket");
+        }
+    }
+
     @Test
     void anOrderByOrALimitInsideADerivedTableIsStillRefusedByThePlanner() throws Exception {
         start();

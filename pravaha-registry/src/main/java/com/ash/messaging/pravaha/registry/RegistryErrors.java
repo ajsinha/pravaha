@@ -196,5 +196,13 @@ public final class RegistryErrors {
     /** A chain of queries over queries deeper than {@code QueryChains.MAX_DEPTH} levels (ADR-056). */
     public static final ErrorCode CHAIN_TOO_DEEP = new ErrorCode(8027, "REGISTRY_CHAIN_TOO_DEEP");
 
+    /**
+     * A registration over a binding whose source has one consumer at a time -- a {@code
+     * postgres-cdc} replication slot, a {@code mysql-cdc} replica id -- while another query reads it
+     * (CDCREPL-2). The refusal names the query holding it; a second query over the same table needs a
+     * second binding with a slot of its own.
+     */
+    public static final ErrorCode SOURCE_HELD = new ErrorCode(8028, "REGISTRY_SOURCE_HELD");
+
     private RegistryErrors() {}
 }

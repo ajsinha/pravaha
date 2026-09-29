@@ -165,12 +165,37 @@ class EngineApi:
         ``POST /api/v1/queries/validate``."""
         return dict(self._rest.post("/api/v1/queries/validate", {"sql": sql}) or {})
 
-    def explain(self, sql: str, level: str = "physical", *, graph: bool = False) -> dict[str, Any]:
+    def explain(
+        self,
+        sql: str,
+        level: str = "physical",
+        *,
+        graph: bool = False,
+        keys: Optional[Sequence[int]] = None,
+        retention: Optional[str] = None,
+        sink: Optional[str] = None,
+        name: Optional[str] = None,
+    ) -> dict[str, Any]:
         """The plan, as ``plan`` text at ``level`` (``physical``, ``logical`` or ``codegen``),
         and with ``graph=True`` also as ``graph``: ``nodes`` and ``edges``.
-        ``POST /api/v1/queries/explain``."""
+
+        With ``keys`` (output-column ordinals, in order) the engine also answers ``fingerprint``:
+        the short fingerprint a registration of ``sql`` with those keys, that ``retention``
+        (ISO-8601 or ``forever``; omitted for the registration's default) and that ``sink`` would
+        get for this caller -- the value ``GET /api/v1/queries`` lists once it is registered -- or
+        ``fingerprintRefusal`` (``code``, ``message``) when a registration would be refused. An
+        engine older than EXPLAINFP-1 answers neither key. ``POST /api/v1/queries/explain``."""
         query = {"level": level, "format": "graph" if graph else "text"}
-        return dict(self._rest.post("/api/v1/queries/explain", {"sql": sql}, query) or {})
+        body: dict[str, Any] = {"sql": sql}
+        if keys:
+            body["keys"] = [int(k) for k in keys]
+        if retention:
+            body["retention"] = retention
+        if sink:
+            body["sink"] = sink
+        if name:
+            body["name"] = name
+        return dict(self._rest.post("/api/v1/queries/explain", body, query) or {})
 
     def describe_queries(self) -> "list[dict[str, Any]]":
         """Every registered query this principal may see, described in full: keys, retention,

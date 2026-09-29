@@ -1008,6 +1008,14 @@ nothing the running version has read. To change the query, drop it and register 
 under another name on a second binding with a `slot` of its own and drop the old one once it has
 caught up. `mysql-cdc` is refused the same way, for its replica `server.id`.
 
+**A second, different query over the same binding is refused too** (`PRV-8028`, at registration,
+naming the query that holds the binding — CDCREPL-2). It used to be accepted and fail `PRV-5117`
+about fifteen seconds later, when the slot stayed busy. For two queries over one table, bind the
+table twice, each binding with its own `slot` (or `server.id`), and size the database for two slots'
+retained WAL. The engine deliberately does not create a slot per query on its own: each slot retains
+WAL until confirmed, and a slot the engine made and lost track of — a node lost before the query was
+dropped — would fill the disk. Every slot on the database is one an operator named in a binding.
+
 **Dropping a slot nobody will read again.** A registration that is dropped for good, a node that is
 decommissioned, a test environment torn down: the slot does not go with them. Drop it on the
 database, after the reader has stopped (an active slot cannot be dropped):
@@ -1906,12 +1914,20 @@ who registered a query has since lost access, the query does not quietly come ba
 it and names it. Recovery reports both lists, and *the refused list is the one to read*: each entry
 is a view some client expects to find and will not.
 
+An owner is resolved the way a caller is identified: the identity store's users first
+(`pravaha.identity.enabled`, ADR-052), then the static token table — each as they are today, with
+their current tenant and roles (RECOVERYOWNER-1; the store used to be skipped, so a store user's
+queries were all refused at the next restart). A **disabled** user's queries come back and keep
+running, as they did before the restart, and the node logs a `WARN` naming the owner at every start:
+disabling an account ends its sessions and keys, not the queries it registered. Drop them to stop them.
+
 | You see | It means |
 |---|---|
 | `PRV-8005 ... this version does not understand` | A journal record from a newer version. Refused, not skipped — skipping would silently drop a registration |
 | `PRV-8006` on register | The journal could not be written. The registration is **refused**, because acknowledging one that will not survive a restart tells the client something untrue |
 | `refused: ... contract ended` | The owner lost the permission they registered under. Working as intended |
-| `refused: ... not a principal this deployment knows` | The owner no longer resolves. Recovering it as nobody would run a query under an authority it was never granted |
+| `refused: ... not a principal this deployment knows` | The owner no longer resolves — in neither the identity store nor the token table. Recovering it as nobody would run a query under an authority it was never granted |
+| `WARN recovering a query owned by '…', whose account is disabled` | The owner's account is disabled; the query was recovered and runs. Drop it if it should not |
 
 A crash mid-append leaves a truncated final record; replay keeps everything before it and ignores the
 tail. Compaction rewrites the journal with only what is live, via an atomic move.

@@ -252,6 +252,8 @@ HAVING COUNT(*) >= 3 AND SUM(amount) > 500
 | `GROUP BY key` without a window | **no**, PRV-2050 | yes |
 | `COUNT(DISTINCT x)` | windowed only | yes |
 | `SUM`/`AVG`/`MIN`/`MAX` over `FLOAT64` | no, PRV-2020 | no, PRV-2020 |
+| `SUM`/`MIN`/`MAX` over `DECIMAL` | yes, exact at the column's scale | yes |
+| `AVG` over `DECIMAL` | no, PRV-2021 (a quotient would be rounded) | no, PRV-2021 |
 | `SESSION` windows | no, PRV-2020 | — |
 
 A global aggregate is one group, so it is bounded:

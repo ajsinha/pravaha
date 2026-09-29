@@ -13,10 +13,12 @@ Each case is drafted through :meth:`Assistant.draft` against the engine the call
 the case's own worked example taken out of the prompt (it would be the answer). Then:
 
 * a **reference** case passes when the engine accepts the draft, it reads the same streams as the
-  reference, and it is the same computation -- by **plan** (the engine's physical plan for both,
-  normalised, and the same key; the API gives no fingerprint for unregistered SQL), or, in
-  ``run`` mode, by **fingerprint** (both registered, and the engine's fingerprints compared) or by
-  **answer** (both views read after ``settle_s`` and their rows compared as multisets);
+  reference, and it is the same computation -- by **fingerprint** (the fingerprint the engine's
+  ``/explain`` answers for each, unregistered, with its keys and retention: EXPLAINFP-1), else by
+  **plan** (the engine's physical plan for both, normalised, and the same key -- the fallback for
+  an engine that answers no fingerprint, and for a draft that differs from the reference only in
+  its retention), or, in ``run`` mode, by **fingerprint** of both registered or by **answer**
+  (both views read after ``settle_s`` and their rows compared as multisets);
 * a **negative** case passes when the draft is refused or asks a question -- an accepted draft is
   a model that answered a different question, and is scored as one.
 
@@ -229,6 +231,7 @@ class Evaluator:
         self.sleep = sleep
         self.progress = progress
         self._plans: dict[str, str] = {}
+        self._fingerprints: dict[str, Optional[str]] = {}
 
     # ------------------------------------------------------------------ one case
 
@@ -245,9 +248,27 @@ class Evaluator:
     def _reference_plan(self, case: GoldenCase) -> str:
         assert case.reference is not None and self.api is not None
         if case.id not in self._plans:
-            self._plans[case.id] = normalise_plan(
-                str(self.api.explain(str(case.reference["sql"]), "physical").get("plan") or ""))
+            sql = str(case.reference["sql"])
+            explained = self.api.explain(sql, "physical")
+            self._plans[case.id] = normalise_plan(str(explained.get("plan") or ""))
+            self._fingerprints[case.id] = None
+            if "fingerprint" in explained:
+                # An engine that answers fingerprints (EXPLAINFP-1): ask again with the reference's
+                # keys and retention, which are part of it.
+                columns = [str(f.get("name")) for f in explained.get("outputFields") or []]
+                keys = [str(k) for k in case.reference.get("keys") or []]
+                if keys and all(k in columns for k in keys):
+                    options = case.reference.get("options") or {}
+                    self._fingerprints[case.id] = self.api.explain(
+                        sql, "physical", keys=[columns.index(k) for k in keys],
+                        retention=options.get("retention")).get("fingerprint")
         return self._plans[case.id]
+
+    def _reference_fingerprint(self, case: GoldenCase) -> Optional[str]:
+        """What a registration of the reference would get, or ``None`` from an engine that does
+        not say."""
+        self._reference_plan(case)
+        return self._fingerprints.get(case.id)
 
     def _draft(self, case: GoldenCase) -> Draft:
         assert self.api is not None
@@ -288,6 +309,11 @@ class Evaluator:
                               reason=f"reads {', '.join(draft.inputs)}; the reference reads "
                                      f"{', '.join(sorted(wanted))}", **common)
         same_plan = normalise_plan(draft.plan) == self._reference_plan(case)
+        theirs = self._reference_fingerprint(case)
+        if draft.fingerprint and theirs and draft.fingerprint == theirs:
+            return CaseResult(passed=True, equal="fingerprint", inputs_match=True, keys_match=True,
+                              reason="the engine's fingerprints for the draft and the reference, "
+                                     "neither registered, are equal", **common)
         if same_plan and keys_match:
             return CaseResult(passed=True, equal="plan", inputs_match=True, keys_match=True,
                               reason="the engine's plan and the key equal the reference's",
