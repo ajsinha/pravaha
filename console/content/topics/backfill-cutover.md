@@ -60,7 +60,7 @@ The backfill is competing with production traffic for the same storage. The ceil
 second:
 
 ```bash
-pravaha backfill throttle hourly_spend --rate 2000
+pravaha throttle --name hourly_spend --rate 2000
 ```
 
 It may be **lowered while the backfill runs and never raised** above the ceiling the replacement was

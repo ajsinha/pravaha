@@ -379,7 +379,8 @@ def _declared_settings() -> set[str]:
         paths |= set(re.findall(r"\{@code (pravaha\.[a-z0-9.-]*[a-z0-9])", text))
         # A @ConfigurationProperties class binds each of its fields under its prefix, relaxed:
         # `auditReaders` is `pravaha.security.audit-readers`. A Map field's keys are the operator's.
-        prefix = re.search(r'@ConfigurationProperties\(prefix\s*=\s*"(pravaha[a-z0-9.-]*)"\)', text)
+        # `ignoreUnknownFields = false` may follow the prefix (identity, tenancy).
+        prefix = re.search(r'@ConfigurationProperties\(prefix\s*=\s*"(pravaha[a-z0-9.-]*)"[,)]', text)
         if prefix:
             for kind, field in re.findall(r"^    private (?:final )?([A-Za-z<>, ?.]+?) ([a-z][A-Za-z0-9]*)\s*[=;]",
                                           text, re.MULTILINE):
