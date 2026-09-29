@@ -112,6 +112,7 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
     private boolean ordered;
     private boolean replayable = true;
     private boolean deletes;
+    private boolean sole;
 
     static void reset() {
         STORE.clear();
@@ -153,6 +154,13 @@ public final class CountingScanPlugin implements StreamSourcePlugin {
         this.ordered = Boolean.parseBoolean(context.get("ordered", "false"));
         this.replayable = Boolean.parseBoolean(context.get("replayable", "true"));
         this.deletes = Boolean.parseBoolean(context.get("deletes", "false"));
+        this.sole = Boolean.parseBoolean(context.get("sole", "false"));
+    }
+
+    /** With {@code sole: true}, a single-consumer source, as a replication slot is (CDCREPL-2). */
+    @Override
+    public java.util.Optional<String> secondReaderRefusal() {
+        return sole ? java.util.Optional.of("has one consumer at a time") : java.util.Optional.empty();
     }
 
     @Override

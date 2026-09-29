@@ -35,6 +35,7 @@ A transaction arrives whole, and only once committed.
 | Schema comes from | the table's columns in `information_schema`; a declared `schema` is refused |
 | Event time | the transaction's **commit time**, or an `event.time` `DATETIME`/`TIMESTAMP` column |
 | TLS | not yet — plaintext only, and `tls.*` is refused |
+| Shared between queries | **no** — the binding reads as one replica `server.id`, and one query reads it; a second, different query over the binding is refused (PRV-8028). Bind the table again with a `server.id` of its own |
 
 ## Before the first registration: the server
 

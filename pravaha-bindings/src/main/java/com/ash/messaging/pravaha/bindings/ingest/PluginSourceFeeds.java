@@ -103,7 +103,18 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
     /** Bindings whose plugin has told us sharing is not safe for it. See {@code canShare}. */
     private final Map<SourceBinding, String> unshareable = new java.util.HashMap<>();
 
-    /** Guards {@link #groups} and {@link #unshareable}. */
+    /**
+     * Bindings whose source has one consumer at a time, and the query reading each (CDCREPL-2).
+     *
+     * <p>A PostgreSQL replication slot streams to one connection, and a MySQL replica id is one
+     * replica: a binding names exactly one of either, and such a source is never shared. A second,
+     * different query over the binding used to open a reader of its own on the same slot and fail
+     * {@code PRV-5117} fifteen seconds later, after the registration had been accepted. It is
+     * refused at registration now, naming the query that holds the binding.
+     */
+    private final Map<SourceBinding, String> soleReaders = new java.util.HashMap<>();
+
+    /** Guards {@link #groups}, {@link #unshareable} and {@link #soleReaders}. */
     private final Object sharing = new Object();
 
     public PluginSourceFeeds() {
@@ -350,7 +361,15 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
                     continue;
                 }
 
-                StreamSourcePlugin plugin = openPlugin(binding);
+                StreamSourcePlugin plugin = configure(binding);
+                // CDCREPL-2: before open, which for postgres-cdc touches the slot the holder reads.
+                try {
+                    resources.add(claimSoleReader(queryName, stream, binding, plugin));
+                } catch (RuntimeException e) {
+                    closeQuietly(List.of(plugin));
+                    throw e;
+                }
+                openConfigured(plugin, binding);
                 resources.add(plugin);
 
                 // Offer the source whatever of the WHERE clause it can evaluate itself. This was
@@ -664,6 +683,43 @@ public final class PluginSourceFeeds implements SourceFeedFactory {
         } finally {
             closeQuietly(List.of(plugin));
         }
+    }
+
+    /**
+     * Claims a single-consumer binding for {@code queryName}, or refuses because another query holds
+     * it (CDCREPL-2); the returned handle gives the claim back when the feed closes.
+     *
+     * <p>Refused rather than given a slot of its own derived from the binding. A slot retains WAL on
+     * the database until it is confirmed, so a slot per query would multiply what the database keeps
+     * by the number of queries, invisibly to whoever sized its disk, and every slot outliving its
+     * query -- a node that dies before a drop, a drop while the database is unreachable -- would
+     * retain WAL until the disk filled. A binding is where an operator declares a slot and sizes for
+     * it; a second query over the same table gets a second binding, with a slot the operator named.
+     */
+    private AutoCloseable claimSoleReader(
+            String queryName, String stream, SourceBinding binding, StreamSourcePlugin configured) {
+        java.util.Optional<String> oneReader = configured.secondReaderRefusal();
+        if (oneReader.isEmpty()) {
+            return () -> {};
+        }
+        synchronized (sharing) {
+            String holder = soleReaders.get(binding);
+            if (holder != null) {
+                throw new PravahaException(
+                        com.ash.messaging.pravaha.registry.RegistryErrors.SOURCE_HELD,
+                        "'" + queryName + "' cannot read stream '" + stream + "': query '" + holder + "' is already "
+                                + "reading it, and the '" + binding.plugin() + "' source bound to it "
+                                + oneReader.get() + ". A second, different query over the same table needs a "
+                                + "second binding -- the table bound again under another stream name, with a "
+                                + "slot (or server.id) of its own -- or a query over '" + holder + "''s view.");
+            }
+            soleReaders.put(binding, queryName);
+        }
+        return () -> {
+            synchronized (sharing) {
+                soleReaders.remove(binding, queryName);
+            }
+        };
     }
 
     /**

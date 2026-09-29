@@ -29,6 +29,7 @@ import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * SRC-3: different questions about one source are now one reader and one scan rate.
@@ -208,6 +209,42 @@ class SharedSourceReaderTest {
                     .as("a source declaring EXACTLY_ONCE must not be shared: the handover between a catch-up "
                             + "reader and a shared one re-delivers the overlap")
                     .isEqualTo(2);
+        }
+    }
+
+    /**
+     * CDCREPL-2, for any single-consumer source (postgres-cdc's slot, mysql-cdc's replica id): a
+     * second, different query over the binding is refused at registration, naming the holder, and the
+     * binding is free again once the holder is dropped.
+     */
+    @Test
+    void aSingleConsumerBindingIsRefusedToASecondQueryUntilTheFirstIsDropped() throws Exception {
+        CountingScanPlugin.append(1, 100);
+
+        ViewCatalog views = new ViewCatalog();
+        PluginSourceFeeds feeds = feeds(Map.of("guarantee", "EXACTLY_ONCE", "sole", "true"));
+        try (QueryRegistry registry = new QueryRegistry(views, CountingScanPlugin.SCHEMA).feedingFrom(feeds)) {
+            RegisteredQuery first = registry.register("asks_one", ASKS_ONE, List.of(0), DANA);
+            awaitRows(first, 1);
+
+            assertThatThrownBy(() -> registry.register("asks_another", ASKS_ANOTHER, List.of(0), DANA))
+                    .isInstanceOf(com.ash.messaging.pravaha.api.PravahaException.class)
+                    .hasMessageContaining("PRV-8028")
+                    .hasMessageContaining("'asks_another' cannot read stream 'shared'")
+                    .hasMessageContaining("query 'asks_one' is already reading it")
+                    .hasMessageContaining("has one consumer at a time");
+            assertThat(registry.names()).containsExactly("asks_one");
+            assertThat(CountingScanPlugin.CREATED.get())
+                    .as("refused before the second query's reader was created")
+                    .isEqualTo(1);
+
+            // A second name for the same computation opens no reader, so it is not refused.
+            registry.register("asks_one_too", ASKS_ONE, List.of(0), DANA);
+
+            registry.drop("asks_one");
+            registry.drop("asks_one_too");
+            RegisteredQuery second = registry.register("asks_another", ASKS_ANOTHER, List.of(0), DANA);
+            awaitRows(second, 1);
         }
     }
 

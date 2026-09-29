@@ -121,6 +121,10 @@ public interface StreamSourcePlugin extends PravahaPlugin {
      * neither, whatever its capabilities say about resuming one reader from its own checkpoint
      * (CDCREPL-1). Asked of a configured plugin, before {@code open}, so the refusal costs no
      * connection. Empty by default.
+     *
+     * <p>Present also means one consumer at all: the binding layer lets one query at a time read
+     * such a binding and refuses a second, different query at registration ({@code PRV-8028},
+     * CDCREPL-2), where it used to open a second reader that could only wait for the first.
      */
     default java.util.Optional<String> secondReaderRefusal() {
         return java.util.Optional.empty();

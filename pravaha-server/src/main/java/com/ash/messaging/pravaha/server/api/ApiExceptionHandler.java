@@ -96,6 +96,11 @@ public class ApiExceptionHandler {
                 || code.code().equals(com.ash.messaging.pravaha.registry.RegistryErrors.TENANT_STATE_QUOTA.code())) {
             return HttpStatus.CONFLICT;
         }
+        // CDCREPL-2: a single-consumer binding another query holds. The body is fine; the binding's
+        // holder says no, and the fix is a second binding or a drop, not a changed request.
+        if (code.code().equals(com.ash.messaging.pravaha.registry.RegistryErrors.SOURCE_HELD.code())) {
+            return HttpStatus.CONFLICT;
+        }
         if (code.code().equals(com.ash.messaging.pravaha.registry.RegistryErrors.TENANT_MISMATCH.code())) {
             return HttpStatus.FORBIDDEN;
         }
