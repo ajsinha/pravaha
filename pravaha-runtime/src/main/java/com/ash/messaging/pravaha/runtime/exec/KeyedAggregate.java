@@ -133,6 +133,35 @@ final class KeyedAggregate implements RowProcessor {
             return new Group(operator.aggregates().size());
         });
         group.accumulate(row, weight, operator.aggregates(), argumentTypes, inputSchema, ordinal -> read(row, ordinal));
+        noteUnsettled(group);
+    }
+
+    /**
+     * Groups a {@code SUM} of which carried past 64 bits in this batch (TRANSOVF-1), so that {@link
+     * #settle} looks at those and not at every group.
+     */
+    private final List<Group> unsettled = new ArrayList<>();
+
+    private void noteUnsettled(Group group) {
+        if (group.unsettled && !group.queued) {
+            group.queued = true;
+            unsettled.add(group);
+        }
+    }
+
+    /**
+     * Refuses a batch after which some group's total does not fit in 64 bits (TRANSOVF-1): at the
+     * end of every batch and before anything reads a total, so a total that left the range inside
+     * the batch and came back is accepted, and one that did not is PRV-3025 naming the aggregate.
+     */
+    void settle() {
+        if (unsettled.isEmpty()) {
+            return;
+        }
+        for (Group group : unsettled) {
+            group.settle(operator.aggregates(), inputSchema);
+        }
+        unsettled.clear();
     }
 
     /**
@@ -168,6 +197,7 @@ final class KeyedAggregate implements RowProcessor {
             return new Group(operator.aggregates().size());
         });
         group.accumulatePartial(partial, keyOrdinals.size(), weight, operator.aggregates());
+        noteUnsettled(group);
     }
 
     /**
@@ -197,6 +227,7 @@ final class KeyedAggregate implements RowProcessor {
 
     /** Emits one row per surviving group. Called when the input ends. */
     void emit() {
+        settle();
         if (continuous) {
             // On a lane the view already holds every published answer, so the end of the input is
             // one more change to it, never the whole answer again (CKPT-3's rule, for groups).
@@ -266,6 +297,7 @@ final class KeyedAggregate implements RowProcessor {
      * the state held is the groups present in the input, not every group that ever was.
      */
     void emitIncremental() {
+        settle();
         List<AggregateOperator.AggregateCall> calls = operator.aggregates();
         for (Key key : dirty) {
             Group group = groups.get(key);
@@ -321,6 +353,8 @@ final class KeyedAggregate implements RowProcessor {
      * rather than publishing every group next to the answer it already holds (CKPT-2's rule).
      */
     void writeTo(java.io.DataOutput out) throws java.io.IOException {
+        // Between batches there is no excess to carry (TRANSOVF-1); settling makes that a fact.
+        settle();
         int calls = operator.aggregates().size();
         out.writeInt(calls);
         out.writeInt(groups.size());
@@ -357,6 +391,7 @@ final class KeyedAggregate implements RowProcessor {
         groups.clear();
         published.clear();
         dirty.clear();
+        unsettled.clear();
         int groupCount = in.readInt();
         for (int g = 0; g < groupCount; g++) {
             Key key = readKeyValues(in);
@@ -547,6 +582,14 @@ final class KeyedAggregate implements RowProcessor {
     private static final class Group {
         private final long[] sums;
         private final long[] counts;
+
+        /** What each {@code SUM} carries past 64 bits inside a batch; see {@link AggregateTotals}. */
+        private final long[] excess;
+
+        /** Whether an excess may be nonzero, and whether {@link #unsettled} already lists this group. */
+        private boolean unsettled;
+
+        private boolean queued;
         private final boolean[] seen;
         private final List<Set<Object>> distincts = new ArrayList<>();
         private long rowCount;
@@ -556,6 +599,7 @@ final class KeyedAggregate implements RowProcessor {
         Group(int aggregates) {
             this.sums = new long[aggregates];
             this.counts = new long[aggregates];
+            this.excess = new long[aggregates];
             this.seen = new boolean[aggregates];
             for (int i = 0; i < aggregates; i++) {
                 distincts.add(null);
@@ -617,10 +661,13 @@ final class KeyedAggregate implements RowProcessor {
                 }
                 case SUM, AVG -> {
                     if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
-                        sums[i] = AggregateTotals.addWeighted(
-                                sums[i],
+                        AggregateTotals.addWeighted(
+                                sums,
+                                excess,
+                                i,
                                 AggregateSlots.read(row, call.argumentOrdinal(), argumentTypes[i], inputSchema),
                                 weight);
+                        unsettled |= excess[i] != 0;
                         counts[i] = AggregateTotals.add(counts[i], weight);
                     }
                 }
@@ -664,7 +711,10 @@ final class KeyedAggregate implements RowProcessor {
                 try {
                     switch (calls.get(i).kind()) {
                         case COUNT -> counts[i] = AggregateTotals.addWeighted(counts[i], partialValue, weight);
-                        case SUM -> sums[i] = AggregateTotals.addWeighted(sums[i], partialValue, weight);
+                        case SUM -> {
+                            AggregateTotals.addWeighted(sums, excess, i, partialValue, weight);
+                            unsettled |= excess[i] != 0;
+                        }
                         default ->
                             throw new IllegalStateException("accumulatePartial received a "
                                     + calls.get(i).kind()
@@ -675,6 +725,19 @@ final class KeyedAggregate implements RowProcessor {
                     throw AggregateTotals.overflow(calls.get(i).kind() + " of a pushed-down partial", overflow);
                 }
             }
+        }
+
+        /** Refuses a total this batch left outside the 64-bit range, naming its aggregate. */
+        void settle(List<AggregateOperator.AggregateCall> calls, StreamSchema inputSchema) {
+            queued = false;
+            for (int i = 0; i < excess.length; i++) {
+                try {
+                    AggregateTotals.settled(sums[i], excess[i]);
+                } catch (ArithmeticException overflow) {
+                    throw AggregateTotals.overflow(AggregateSlots.describe(calls.get(i), inputSchema), overflow);
+                }
+            }
+            unsettled = false;
         }
 
         long valueOf(int index, AggregateOperator.AggregateCall call) {

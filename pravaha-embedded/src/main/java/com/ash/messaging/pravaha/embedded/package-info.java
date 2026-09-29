@@ -20,5 +20,11 @@
  * no Spring, no cluster and no gateway, so a host application on any Spring version can embed it --
  * which is the property the competitive position in design 2.2 rests on. An enforcer rule fails the
  * build if Spring ever appears on this module's path.
+ *
+ * <p><strong>Event time over pushed rows</strong> is the host's to declare, with {@link
+ * com.ash.messaging.pravaha.embedded.PravahaEngine#advanceEventTime}; a bound source's advances on
+ * its own. A host that only pushes rows can opt a stream in to {@link
+ * com.ash.messaging.pravaha.embedded.PravahaEngine#trackEventTime}, off by default, and its event time
+ * then follows the greatest event time pushed, less an allowed lateness.
  */
 package com.ash.messaging.pravaha.embedded;

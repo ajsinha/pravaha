@@ -573,6 +573,12 @@ Three files hold what a customer would call their data, and all three are now cr
 Two more hold who may do what: the identity store (`pravaha.identity.store`, ADR-052) and, with the
 catalogue on, the **catalogue journal** — every namespace, owner, description, tag and grant.
 
+The directory is narrowed again before every write, so a data directory something has opened up (a
+`chmod -R`, a deploy script, a volume's umask) is back to `rwx------` by the next append or checkpoint.
+That is logged once per directory per process, at WARN, naming the directory and the permissions it
+had — `the data directory /var/lib/pravaha/state was rwxrwxr-x, … narrowed to rwx------` — so find
+what loosened it. A directory the engine has just created is narrowed from the umask silently.
+
 ### The catalogue (ADR-059)
 
 | Setting | Default | Means |

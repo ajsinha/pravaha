@@ -108,6 +108,30 @@ public interface PravahaEngine extends AutoCloseable {
      */
     PravahaEngine declareStream(String name, String schemaSpec, String eventTimeColumn);
 
+    /**
+     * Opts {@code stream} in to event time that follows what is pushed: after each {@link #push},
+     * the engine {@linkplain #advanceEventTime advances} the stream's event time to the greatest
+     * event time pushed so far, less {@code allowedLateness}. Off unless asked for, stream by stream.
+     *
+     * <p>Without it event time is the host's to declare, which is right when the host knows more
+     * than the rows do -- that a partition is idle, that a feed has caught up. With it a host that
+     * only pushes rows gets windows that close on their own: a row pushed more than {@code
+     * allowedLateness} behind the latest one is late (its window may have fired). Event time only
+     * moves forward -- a retraction, a row without an event time, or an older row does not move it
+     * back -- and {@link #advanceEventTime} still works beside it, for a host that knows better.
+     *
+     * <pre>{@code
+     * engine.declareStream("txn", "user_id:STRING,amount:INT64,ts:TIMESTAMP", "ts")
+     *       .trackEventTime("txn", Duration.ofSeconds(5));
+     * }</pre>
+     *
+     * @param allowedLateness how far behind the latest event time a row may still arrive; zero or more
+     * @throws IllegalStateException once the engine has started
+     * @throws com.ash.messaging.pravaha.api.PravahaException at {@link #start()}, if the stream is not
+     *     declared or has no event-time column of {@code TIMESTAMP} or {@code BIGINT} nanoseconds
+     */
+    PravahaEngine trackEventTime(String stream, java.time.Duration allowedLateness);
+
     /** Feeds {@code stream} from the source plugin that reports itself as {@code plugin}. */
     PravahaEngine bindSource(String stream, String plugin, Map<String, String> options);
 

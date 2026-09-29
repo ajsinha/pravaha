@@ -686,6 +686,7 @@ What the calls do:
 | `push(stream, rows...)` | Rows in column order (or a `Map` by name). The whole batch is checked first: one bad row delivers nothing (`PRV-8102`) |
 | `retract(stream, rows...)` | Rows at weight `-1`: a delete, or the old half of an update whose new half is a `push` — what a change-data-capture source delivers |
 | `advanceEventTime(stream, instant)` | Closes windows over pushed rows; a bound source's watermark advances on its own |
+| `trackEventTime(stream, allowedLateness)` | Opt-in, before `start()`, stream by stream: after each `push` the stream's event time moves to the greatest event time pushed so far less `allowedLateness`, so windows over pushed rows close without `advanceEventTime`. Forward only — an older row or a retraction never moves it back — and `advanceEventTime` still works beside it. The stream needs an event-time column (`TIMESTAMP`, or `BIGINT` nanoseconds), or `start()` is refused `PRV-8104`. Off by default: event time is the host's to declare |
 | `query(sql, params...)` / `query(Class, sql, params...)` | SQL over the views, as rows or as records |
 | `subscribe(query, consumer)` | Every commit of a view, retractions as weight `-1` |
 | `pause` / `resume` / `drop` / `queries()` / `registry()` | Lifecycle, and the registry underneath for everything else |

@@ -19,7 +19,13 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -94,6 +100,71 @@ class SensitiveFilesTest {
         // because a directory could not be opened would trade durability for availability.
         SensitiveFiles.syncDirectory(directory);
         SensitiveFiles.syncDirectory(directory.resolve("does-not-exist"));
+    }
+
+    @Test
+    void aLoosenedDirectoryIsTightenedAndReportedOnceWithWhatWasFound(@TempDir Path directory) throws IOException {
+        Path state = Files.createDirectories(directory.resolve("loosened"));
+        assumeTrue(posix(state), "POSIX permissions unsupported here");
+        Files.setPosixFilePermissions(state, java.nio.file.attribute.PosixFilePermissions.fromString("rwxrwxr-x"));
+        List<String> warnings = new ArrayList<>();
+        Handler handler = recording(warnings);
+        Logger logger = Logger.getLogger(SensitiveFiles.class.getName());
+        logger.addHandler(handler);
+        try {
+            SensitiveFiles.createOwnerOnly(state.resolve("journal.log"));
+            SensitiveFiles.createOwnerOnly(state.resolve("journal.log"));
+            Files.setPosixFilePermissions(state, java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"));
+            SensitiveFiles.createOwnerOnly(state.resolve("checkpoint.bin"));
+        } finally {
+            logger.removeHandler(handler);
+        }
+
+        // Healed every time, as before; reported once for the directory, naming it and what it was.
+        assertThat(Files.getPosixFilePermissions(state))
+                .containsExactlyInAnyOrder(
+                        PosixFilePermission.OWNER_READ,
+                        PosixFilePermission.OWNER_WRITE,
+                        PosixFilePermission.OWNER_EXECUTE);
+        assertThat(warnings)
+                .singleElement()
+                .asString()
+                .contains(state.toString())
+                .contains("rwxrwxr-x")
+                .contains("rwx------");
+    }
+
+    @Test
+    void aDirectoryItCreatesOrFindsAlreadyNarrowIsNotReported(@TempDir Path directory) throws IOException {
+        List<String> warnings = new ArrayList<>();
+        Handler handler = recording(warnings);
+        Logger logger = Logger.getLogger(SensitiveFiles.class.getName());
+        logger.addHandler(handler);
+        try {
+            // Created here from the umask: narrowing it is nobody's mistake.
+            SensitiveFiles.createOwnerOnly(directory.resolve("fresh").resolve("journal.log"));
+            SensitiveFiles.createOwnerOnly(directory.resolve("fresh").resolve("journal.log"));
+        } finally {
+            logger.removeHandler(handler);
+        }
+        assertThat(warnings).isEmpty();
+    }
+
+    private static Handler recording(List<String> into) {
+        return new Handler() {
+            @Override
+            public void publish(LogRecord record) {
+                if (record.getLevel().intValue() >= Level.WARNING.intValue()) {
+                    into.add(record.getMessage());
+                }
+            }
+
+            @Override
+            public void flush() {}
+
+            @Override
+            public void close() {}
+        };
     }
 
     private static boolean posix(Path path) {

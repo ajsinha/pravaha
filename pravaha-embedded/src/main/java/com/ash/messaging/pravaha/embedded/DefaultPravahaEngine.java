@@ -102,6 +102,13 @@ final class DefaultPravahaEngine implements PravahaEngine {
     private final Map<String, SinkBinding> declaredSinks = new LinkedHashMap<>();
     private final Map<String, String> declaredEventTimes = new LinkedHashMap<>();
     private final List<ContinuousQuery> declaredQueries = new ArrayList<>();
+    private final Map<String, Duration> declaredEventTimeTracking = new LinkedHashMap<>();
+
+    /**
+     * Per stream that {@link #trackEventTime} opted in: its allowed lateness, the greatest event time
+     * pushed and the event time last declared, in nanoseconds. Guarded by {@link #pushLock}.
+     */
+    private final Map<String, long[]> eventTimeTracking = new java.util.HashMap<>();
 
     // What start() built. Null before it and after stop().
     private volatile QueryRegistry registry;
@@ -160,6 +167,21 @@ final class DefaultPravahaEngine implements PravahaEngine {
     @Override
     public PravahaEngine declareStream(String name, String schemaSpec, String eventTimeColumn) {
         return declareStream(parse(name, schemaSpec, eventTimeColumn, null));
+    }
+
+    @Override
+    public synchronized PravahaEngine trackEventTime(String stream, Duration allowedLateness) {
+        Objects.requireNonNull(stream, "stream");
+        Objects.requireNonNull(allowedLateness, "allowedLateness");
+        requireDeclaring("track event time on '" + stream + "'");
+        if (allowedLateness.isNegative()) {
+            throw new PravahaException(
+                    EmbeddedErrors.MISCONFIGURED,
+                    "stream '" + stream + "' is given an allowed lateness of " + allowedLateness
+                            + "; lateness is how far behind the latest row one may still arrive, so zero or more");
+        }
+        declaredEventTimeTracking.put(key(stream), allowedLateness);
+        return this;
     }
 
     @Override
@@ -287,6 +309,7 @@ final class DefaultPravahaEngine implements PravahaEngine {
             byName.put(key(identified.name()), new RowEncoder(identified));
         }
         encoders = Map.copyOf(byName);
+        trackEventTimes(byName);
 
         // After the feeds and sinks, so a recovered query comes back fed and writing.
         configuration
@@ -394,6 +417,51 @@ final class DefaultPravahaEngine implements PravahaEngine {
             plugins.close();
         } finally {
             state.set(EngineState.STOPPED);
+        }
+    }
+
+    /** Checks each stream {@link #trackEventTime} opted in, and starts it with no event time seen. */
+    private void trackEventTimes(Map<String, RowEncoder> byName) {
+        synchronized (pushLock) {
+            eventTimeTracking.clear();
+            for (Map.Entry<String, Duration> each : declaredEventTimeTracking.entrySet()) {
+                RowEncoder encoder = byName.get(each.getKey());
+                if (encoder == null || !encoder.stampsEventTime()) {
+                    throw new PravahaException(
+                            EmbeddedErrors.MISCONFIGURED,
+                            "event time is tracked on stream '" + each.getKey() + "', which "
+                                    + (encoder == null
+                                            ? "is not declared"
+                                            : "has no event-time column of TIMESTAMP or BIGINT nanoseconds")
+                                    + "; declare it with one -- declareStream(name, spec, eventTimeColumn) -- "
+                                    + "or advance its event time yourself");
+                }
+                long lateness = each.getValue().toNanos();
+                eventTimeTracking.put(each.getKey(), new long[] {lateness, Long.MIN_VALUE, Long.MIN_VALUE});
+            }
+        }
+    }
+
+    /**
+     * After a push, moves a tracked stream's event time to the greatest event time pushed less its
+     * allowed lateness -- forward only, and only when that moved. Called under {@link #pushLock}.
+     */
+    private void followEventTime(RowEncoder encoder, List<Object[]> pushed) {
+        long[] tracking = eventTimeTracking.get(key(encoder.schema().name()));
+        if (tracking == null) {
+            return;
+        }
+        for (Object[] values : pushed) {
+            tracking[1] = Math.max(tracking[1], encoder.eventTimeOf(values));
+        }
+        if (tracking[1] == Long.MIN_VALUE) {
+            return;
+        }
+        // Saturating: a lateness wider than the time since the epoch holds event time at its floor.
+        long watermark = tracking[1] - tracking[0] > tracking[1] ? Long.MIN_VALUE : tracking[1] - tracking[0];
+        if (watermark > tracking[2]) {
+            tracking[2] = watermark;
+            advanceWatermark(encoder, watermark);
         }
     }
 
@@ -644,6 +712,9 @@ final class DefaultPravahaEngine implements PravahaEngine {
         synchronized (pushLock) {
             List<Target> targets = targetsFor(encoder.schema().name());
             if (targets.isEmpty() || validated.isEmpty()) {
+                if (weight > 0) {
+                    followEventTime(encoder, validated);
+                }
                 return targets.size();
             }
             // A pushed row's sequence is its position, and a view's frontier is the furthest position
@@ -665,6 +736,10 @@ final class DefaultPravahaEngine implements PravahaEngine {
             // Applied and published before returning, so the caller's next read sees what it pushed.
             for (Target target : targets) {
                 applyAndCommit(target.query(), stream);
+            }
+            // After the rows are applied, so they are placed in their windows before any closes.
+            if (weight > 0) {
+                followEventTime(encoder, validated);
             }
             return targets.size();
         }
@@ -757,10 +832,19 @@ final class DefaultPravahaEngine implements PravahaEngine {
         RowEncoder encoder = encoderFor(stream);
         long nanos = Math.addExact(Math.multiplyExact(watermark.getEpochSecond(), 1_000_000_000L), watermark.getNano());
         synchronized (pushLock) {
-            for (Target target : targetsFor(encoder.schema().name())) {
-                target.query().awaitApplied(pushTimeout);
-                target.query().advanceWatermark(nanos);
+            long[] tracking = eventTimeTracking.get(key(encoder.schema().name()));
+            if (tracking != null) {
+                tracking[2] = Math.max(tracking[2], nanos);
             }
+            advanceWatermark(encoder, nanos);
+        }
+    }
+
+    /** Declares event time {@code nanos} to every running query on the stream. Under {@link #pushLock}. */
+    private void advanceWatermark(RowEncoder encoder, long nanos) {
+        for (Target target : targetsFor(encoder.schema().name())) {
+            target.query().awaitApplied(pushTimeout);
+            target.query().advanceWatermark(nanos);
         }
     }
 

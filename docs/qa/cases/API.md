@@ -92,6 +92,23 @@ pravaha:
 
 so `GET /api/v1/streams` answers with exactly one stream of four fields.
 
+**Feeding rows.** A real `pravaha-server` has no wire path that pushes rows into a declared stream:
+there is no Flight `DoPut` ingestion (its only `DoPut` handlers are Flight SQL's statement update and
+prepared-statement parameters) and no REST row endpoint (API-F5). Where a case says rows are "fed" to
+`txn`, bind a source to it and append to its file:
+
+```yaml
+pravaha:
+  sources:
+    txn:
+      plugin: filesystem
+      options: { path: /tmp/h-srv/txn.csv, schema: "txn_id:INT64,user_id:STRING,amount:INT64,status:STRING", follow: true }
+```
+
+then `printf '10,u1,300,COMPLETED\n' >> /tmp/h-srv/txn.csv`, and wait for the commit before reading.
+An in-process fixture (`H-FL`/`H-FLR`/`H-FLA`) that calls `ServedView.applyValues` is not a wire
+operation and does not stand in for this.
+
 **`H-SRVA` — the same server, authenticating.** As `H-SRV` but
 
 ```yaml
@@ -338,7 +355,7 @@ and `pravaha --help` itself ×1 from API-002) — no command prints its own help
 1. `pravaha validate --sql "SELECT user_id FROM txn" --schema SCHEMA4 >a.txt 2>&1; echo $?`
 2. `pravaha validate --sql="SELECT user_id FROM txn" --schema=SCHEMA4 >b.txt 2>&1; echo $?`
 **Expected:** both exit `0`; both files' second line is
-`  output: [user_id STRING NOT NULL]`; the only permitted difference between `a.txt` and `b.txt` is
+`  output: [user_id VARCHAR NOT NULL]`; the only permitted difference between `a.txt` and `b.txt` is
 the microsecond figure on the first line (`valid  <n> us`).
 
 ## API-019 — a value containing `=` survives the `=` form
@@ -347,7 +364,7 @@ keeps everything after the first `=` as the value.
 **Falsifier:** SQL truncated at the second `=`, producing a parse error.
 **Setup:** `H-CLI`.
 **Steps:** `pravaha validate "--sql=SELECT user_id FROM txn WHERE status = 'COMPLETED'" --schema=SCHEMA4; echo $?`
-**Expected:** exit `0`; `valid` on stdout with `output: [user_id STRING NOT NULL]`.
+**Expected:** exit `0`; `valid` on stdout with `output: [user_id VARCHAR NOT NULL]`.
 
 ## API-020 — a bare flag becomes the string `true`
 **Intent:** the third `Args.parse` branch. `--level` with nothing after it is `level=true`, and
@@ -387,7 +404,7 @@ message, because that string reached the planner. The contrast with API-021 is t
 **Falsifier:** a refusal for the duplicate, or the first value winning.
 **Setup:** `H-CLI`.
 **Steps:** `pravaha validate --sql "SELECT nope FROM txn" --sql "SELECT user_id FROM txn" --schema SCHEMA4; echo $?`
-**Expected:** exit `0` with `output: [user_id STRING NOT NULL]`. Had the first value won, the exit
+**Expected:** exit `0` with `output: [user_id VARCHAR NOT NULL]`. Had the first value won, the exit
 would be 1 with `PRV-2002` naming `nope`.
 
 ## API-024 — an unknown option is accepted and ignored
@@ -437,7 +454,7 @@ projection's.
 **Steps:** `pravaha validate --sql FILTERSQL --schema SCHEMA4 >out.txt 2>err.txt; echo $?`
 **Expected:** exit `0`; `err.txt` empty; `out.txt` two lines —
 `valid  <n> us` where `<n>` is a positive integer, and
-`  output: [user_id STRING NOT NULL, amount INT64 NOT NULL]`. The two output fields are exactly the
+`  output: [user_id VARCHAR NOT NULL, amount INT64 NOT NULL]`. The two output fields are exactly the
 two in the `SELECT` list, in that order; `status` and `txn_id` do not appear even though the filter
 names `status`.
 
@@ -480,7 +497,7 @@ and fails under another. Six-line coverage of a flag that is otherwise invisible
 **Steps:**
 1. `pravaha validate --sql "SELECT user_id FROM payments" --schema SCHEMA4 --stream payments; echo $?`
 2. `pravaha validate --sql "SELECT user_id FROM txn" --schema SCHEMA4 --stream payments; echo $?`
-**Expected:** (1) exit `0`, `output: [user_id STRING NOT NULL]`. (2) exit `1`, `PRV-2002` whose
+**Expected:** (1) exit `0`, `output: [user_id VARCHAR NOT NULL]`. (2) exit `1`, `PRV-2002` whose
 message ends `. Known streams: [payments]` — the disclosure list confirms the rename took effect.
 
 ## API-033 — a malformed schema spec exits 1, not 2
@@ -658,14 +675,17 @@ an operator's most common mistake and it should have one.
 here would be the worst outcome — a silent empty answer — and is the falsifier.
 
 ## API-049 — `--out` under a directory that does not exist
-**Intent:** the sink is configured and opened **before** the pipeline runs, so an unwritable
-destination should be discovered before six rows of work, not after.
-**Falsifier:** exit 0; or the work being done and the failure arriving only at `sink.write`.
-**Setup:** `H-CLI`; `/tmp/nodir` guaranteed absent.
+**Intent:** a missing parent is not an unwritable destination: the sink creates the directories it
+needs, as a writer should (API-F4, BY DESIGN). The destination failures that do refuse are
+permission (API-050) and the wrong kind of thing (API-051).
+**Falsifier:** exit 1 for the missing parent; or exit 0 with the directory or file not created, or
+with fewer than the three rows `FILTERSQL` keeps.
+**Setup:** `H-CLI`; `rm -rf /tmp/nodir`, so it is guaranteed absent.
 **Steps:** `pravaha run --sql FILTERSQL --schema SCHEMA4 --in IN --out /tmp/nodir/out.csv --out-schema OUTSCHEMA >out.txt 2>err.txt; echo $?`
-**Expected:** exit `1`; `err.txt` names `/tmp/nodir/out.csv`; `out.txt` has no `ok` line. Record
-whether the failure is reported at open or at write — if the timings on a successful run show
-`execute` work happening first, the sink is validated too late.
+**Expected:** exit `0`; `out.txt` is `ok  6 in, 3 out`; `/tmp/nodir` now exists and
+`/tmp/nodir/out.csv` holds `alice,500` / `dave,150` / `frank,1200`; `err.txt` empty.
+**Vacuity:** the `rm -rf` is what makes it the missing-parent case rather than a rerun into a
+directory an earlier run left behind.
 
 ## API-050 — `--out` into a directory the user cannot write
 **Intent:** permission, as distinct from absence.
@@ -1051,7 +1071,7 @@ with an output schema that does not match the full statement.
 typical `ARG_MAX` of 2 MiB for the whole environment.
 **Steps:** for each `N`: `pravaha validate --sql "$BIG" --schema SCHEMA4 >out.txt 2>err.txt; echo $?`
 Then repeat the largest through `--sql-file` on `pravaha register`, which has no argument limit.
-**Expected:** for each `N`, exactly one of: exit `0` with `output: [user_id STRING NOT NULL]`; or
+**Expected:** for each `N`, exactly one of: exit `0` with `output: [user_id VARCHAR NOT NULL]`; or
 exit `1` with a PRV code from the planner; or the shell itself failing with
 `Argument list too long` before `pravaha` runs (exit `126`/`127`, and no Pravaha output at all). A
 fourth outcome — exit 0 after the SQL was truncated — is the falsifier. Record where the planner's
@@ -1119,7 +1139,7 @@ length, or ordinals out of order.
 **Steps:** `curl -s localhost:18080/api/v1/streams | jq .`
 **Expected:** `200`; an array of length `1`; `[0].name == "txn"`, `[0].version == 1`,
 `[0].fieldCount == 4`, `[0].fields | length == 4`; the fields in ordinal order `0,1,2,3` with
-`type` values `"INT64 NOT NULL"`, `"STRING NOT NULL"`, `"INT64 NOT NULL"`, `"STRING NOT NULL"` and
+`type` values `"INT64 NOT NULL"`, `"VARCHAR NOT NULL"`, `"INT64 NOT NULL"`, `"VARCHAR NOT NULL"` and
 `nullable` `false` for all four. Record the `nullable` values — Flight reports the same schema with
 every field nullable (API-150), and the two surfaces disagree.
 
@@ -1159,7 +1179,7 @@ curl -s localhost:18080/api/v1/queries/validate -H 'Content-Type: application/js
   -d '{"sql":"SELECT user_id, amount FROM txn WHERE amount > 100"}' | jq .
 ```
 **Expected:** `200`; `valid == true`; `diagnostics == []`; `outputFields` of length `2` —
-`{name:"user_id", type:"STRING NOT NULL", nullable:false, ordinal:0}` and
+`{name:"user_id", type:"VARCHAR NOT NULL", nullable:false, ordinal:0}` and
 `{name:"amount", type:"INT64 NOT NULL", nullable:false, ordinal:1}`; `elapsedMicros` a number.
 
 ## API-082 — an invalid query is also 200, with `valid: false`
@@ -1511,7 +1531,7 @@ not.
 `{"sql":"SELECT a, b FROM race_N"}` to `/api/v1/queries/validate`, and immediately afterwards
 `GET /api/v1/streams`.
 **Expected:** each validate returns either `valid == true` with `outputFields` of exactly
-`[a INT64 NOT NULL, b STRING NOT NULL]`, or `valid == false` with `PRV-2002` and a
+`[a INT64 NOT NULL, b VARCHAR NOT NULL]`, or `valid == false` with `PRV-2002` and a
 `Known streams:` list that does **not** contain `race_N`. Never a third outcome. Every `race_N`
 appears exactly once in the final listing: `200` streams created from `200` attempts.
 

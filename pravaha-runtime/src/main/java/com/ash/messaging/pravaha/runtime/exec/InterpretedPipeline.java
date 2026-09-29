@@ -256,6 +256,12 @@ public final class InterpretedPipeline implements AutoCloseable {
      */
     public void endOfBatch() {
         if (!abandoned) {
+            // First, before the unit is whole and before compaction moves any state: a SUM is
+            // netted over the batch in 128 bits, and a total the batch leaves outside 64 bits is
+            // refused here (TRANSOVF-1), so the batch's output never becomes an answer.
+            globals.forEach(GlobalAggregate::settle);
+            keyed.forEach(KeyedAggregate::settle);
+            windowed.forEach(aggregate -> aggregate.state().settle());
             output.endOfBatch();
             compactSpilledState();
             // Per batch, not per row. The operators count into lane-confined longs and this is the

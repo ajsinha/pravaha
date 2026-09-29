@@ -50,8 +50,10 @@ pravaha:
 ```
 
 on `grpc://localhost:19090`. A query `q` is registered as
-`SELECT user_id, amount, product_type FROM txn` with key columns `[0]`, and rows are pushed with
-`DoPut` unless a case says otherwise.
+`SELECT user_id, amount, product_type FROM txn` with key columns `[0]`. Rows reach `txn` through a
+bound source -- `pravaha.sources.txn` with the `filesystem` plugin and `follow: true`, appended to --
+unless a case says otherwise: a real node has no Flight `DoPut` (or REST) path that pushes rows into
+a declared stream (API-F5; `docs/qa/cases/API.md`'s `H-SRV` has the binding).
 
 **`H-AUTH`** — `H-OPEN` with
 

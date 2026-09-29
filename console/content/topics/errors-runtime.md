@@ -116,7 +116,9 @@ of a `BIGINT` column, or of a `DECIMAL` column's unscaled value, so `92233720368
 is refused, naming the aggregate (`SUM(amount)`), rather than wrapped round to a wrong number that
 looks like a right one. Every addition is checked: a row, a retraction (which subtracts), a
 pushed-down partial, and a window's total when its slices are combined — each slice can fit and their
-sum not. A continuous query moves to `FAILED`; a read is refused. Aggregate a smaller quantity (scale
+sum not. A batch is netted in 128 bits first, so a `SUM` that passes the range inside one batch and
+comes back (`+MAX`, then `-MAX`) is answered; only a total the batch ends outside the range is refused.
+A continuous query moves to `FAILED`; a read is refused. Aggregate a smaller quantity (scale
 the column down, `SUM(amount / 1000)`), group by a key that splits the total, or filter out the rows
 that carry it.
 

@@ -44,6 +44,7 @@ import com.ash.messaging.pravaha.runtime.exec.GeneratedChains;
 import com.ash.messaging.pravaha.runtime.exec.InterpretedPipeline;
 import com.ash.messaging.pravaha.runtime.exec.RowOutput;
 import com.ash.messaging.pravaha.runtime.exec.StageGenerator;
+import com.ash.messaging.pravaha.runtime.plan.AggregateOperator;
 import com.ash.messaging.pravaha.runtime.plan.FilterOperator;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 import com.ash.messaging.pravaha.runtime.plan.Predicate;
@@ -198,6 +199,67 @@ class GeneratedPipelineEquivalenceTest {
         GeneratedChains.install(null);
         assertThat(compile(generable, true).executionPaths())
                 .containsExactly("interpreted: no code generator is installed in this process");
+    }
+
+    @Test
+    void aSumNettedOverABatchIsTheSameGeneratedAsInterpreted() {
+        // TRANSOVF-1 under a generated filter and projection: the aggregate nets a batch in 128 bits
+        // whichever path fed it, answers a total that passed 2^63 and came back, and refuses a net
+        // total outside 64 bits with the same PRV-3025.
+        StreamSchema schema = StreamSchema.builder("s")
+                .field("amount", Types.int64())
+                .field("keep", Types.bool())
+                .build();
+        PhysicalOperator chain = new AggregateOperator(
+                new ProjectOperator(
+                        new FilterOperator(ScanOperator.of("s", schema), new Predicate.CompareBoolean(1, "keep", true)),
+                        StreamSchema.builder("p").field("amount", Types.int64()).build(),
+                        List.of(0)),
+                StreamSchema.builder("o").field("total", Types.int64()).build(),
+                List.of(),
+                List.of(new AggregateOperator.AggregateCall(AggregateOperator.AggregateCall.Kind.SUM, 0, "total")));
+        long max = Long.MAX_VALUE;
+        long[][] nets = {{max, 1, max, 1, -max, 1, -max, 1, 5, 1, max, 0}, {max, 1, 7, 0, 1, 1}};
+
+        List<String> generatedAnswer = aggregateRun(chain, schema, nets[0], new FilterProjectStageGenerator());
+        assertThat(generatedAnswer).isEqualTo(aggregateRun(chain, schema, nets[0], null));
+        assertThat(generatedAnswer).singleElement().asString().endsWith("[l5]");
+
+        List<String> refused = aggregateRun(chain, schema, nets[1], new FilterProjectStageGenerator());
+        assertThat(refused).isEqualTo(aggregateRun(chain, schema, nets[1], null));
+        assertThat(refused).singleElement().asString().contains("PRV-3025").contains("SUM(amount)");
+
+        GeneratedChains.install(new FilterProjectStageGenerator());
+        assertThat(compile(chain, true).executionPaths()).anyMatch(p -> p.startsWith("generated:"));
+    }
+
+    /** Runs {@code chain} over (amount, keep) pairs as one batch, then ends the input. */
+    private static List<String> aggregateRun(
+            PhysicalOperator chain, StreamSchema schema, long[] pairs, StageGenerator generator) {
+        GeneratedChains.install(generator);
+        List<String> answer = new ArrayList<>();
+        RowLayout layout = RowLayout.of(schema);
+        BinaryRowWriter writer = new BinaryRowWriter(layout);
+        BinaryRowView view = new BinaryRowView(layout);
+        try (InterpretedPipeline pipeline = InterpretedPipeline.compile(
+                        chain, () -> new Recorder(chain.outputSchema(), answer), Map.of(), false, true);
+                MemoryRegion region = MemoryAccess.best().allocate(1 << 16)) {
+            try {
+                for (int i = 0; i < pairs.length; i += 2) {
+                    writer.begin(region, 0);
+                    writer.setLong(0, pairs[i]).setBoolean(1, pairs[i + 1] == 1);
+                    writer.weight(1).eventTimestampNanos(i).sequence(i).commit();
+                    pipeline.accept("s", view.wrap(region, 0));
+                }
+                pipeline.endOfBatch();
+                pipeline.finish();
+            } catch (RuntimeException e) {
+                answer.add("FAILED " + e.getClass().getName() + ": " + e.getMessage());
+            }
+        } finally {
+            GeneratedChains.install(null);
+        }
+        return answer;
     }
 
     @Property(tries = 200)
