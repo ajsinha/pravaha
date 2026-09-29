@@ -24,6 +24,7 @@ import com.ash.messaging.pravaha.common.arena.RowArena;
 import com.ash.messaging.pravaha.common.row.BinaryRowView;
 import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
 import com.ash.messaging.pravaha.common.row.RowLayout;
+import com.ash.messaging.pravaha.runtime.AggregateTotals;
 import com.ash.messaging.pravaha.runtime.RuntimeErrors;
 import com.ash.messaging.pravaha.runtime.plan.AggregateOperator;
 
@@ -122,65 +123,77 @@ final class GlobalAggregate implements RowProcessor {
         List<AggregateOperator.AggregateCall> calls = operator.aggregates();
         for (int i = 0; i < calls.size(); i++) {
             AggregateOperator.AggregateCall call = calls.get(i);
-            switch (call.kind()) {
-                case COUNT -> {
-                    // COUNT(*) counts rows; COUNT(col) counts rows where col is not null. This
-                    // branch counted rows either way, so COUNT(n) silently reported COUNT(*) --
-                    // five where four values existed, and no way to tell from the answer. The SUM
-                    // and MIN/MAX branches beside it had the check all along.
-                    if (call.argumentOrdinal() < 0 || !row.isNull(call.argumentOrdinal())) {
-                        counts[i] += weight;
-                    }
+            try {
+                accumulate(row, weight, i, call);
+            } catch (ArithmeticException overflow) {
+                throw AggregateTotals.overflow(
+                        AggregateSlots.describe(call, operator.input().outputSchema()), overflow);
+            }
+        }
+    }
+
+    /** Folds one row into call {@code i}'s accumulators; every sum and count is checked (SUMWRAP-1). */
+    private void accumulate(RowView row, long weight, int i, AggregateOperator.AggregateCall call) {
+        switch (call.kind()) {
+            case COUNT -> {
+                // COUNT(*) counts rows; COUNT(col) counts rows where col is not null. This
+                // branch counted rows either way, so COUNT(n) silently reported COUNT(*) --
+                // five where four values existed, and no way to tell from the answer. The SUM
+                // and MIN/MAX branches beside it had the check all along.
+                if (call.argumentOrdinal() < 0 || !row.isNull(call.argumentOrdinal())) {
+                    counts[i] = AggregateTotals.add(counts[i], weight);
                 }
-                case COUNT_DISTINCT -> {
-                    // Bounded by the scan, exactly as KeyedAggregate's is. The refusal this used to
-                    // throw belongs at planning time, where it can tell a continuous registration
-                    // from a finite read; thrown here it also refused the bounded read, so a
-                    // construct CONTINUOUS_QUERIES.md marks supported could not be run on the only surface
-                    // that was supposed to support it.
-                    if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
-                        if (distincts[i] == null) {
-                            distincts[i] = new java.util.HashSet<>();
-                        }
-                        distincts[i].add(read(row, call.argumentOrdinal()));
+            }
+            case COUNT_DISTINCT -> {
+                // Bounded by the scan, exactly as KeyedAggregate's is. The refusal this used to
+                // throw belongs at planning time, where it can tell a continuous registration
+                // from a finite read; thrown here it also refused the bounded read, so a
+                // construct CONTINUOUS_QUERIES.md marks supported could not be run on the only surface
+                // that was supposed to support it.
+                if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
+                    if (distincts[i] == null) {
+                        distincts[i] = new java.util.HashSet<>();
                     }
+                    distincts[i].add(read(row, call.argumentOrdinal()));
                 }
-                case SUM, AVG -> {
-                    if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
-                        sums[i] += AggregateSlots.read(
-                                        row,
-                                        call.argumentOrdinal(),
-                                        argumentTypes[i],
-                                        operator.input().outputSchema())
-                                * weight;
-                        counts[i] += weight;
-                    }
+            }
+            case SUM, AVG -> {
+                if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
+                    sums[i] = AggregateTotals.addWeighted(
+                            sums[i],
+                            AggregateSlots.read(
+                                    row,
+                                    call.argumentOrdinal(),
+                                    argumentTypes[i],
+                                    operator.input().outputSchema()),
+                            weight);
+                    counts[i] = AggregateTotals.add(counts[i], weight);
                 }
-                case MIN, MAX -> {
-                    if (weight < 0) {
-                        // MIN and MAX are not invertible: knowing the current extreme does not tell
-                        // you the previous one once it is retracted. Doing this correctly needs an
-                        // ordered multiset per group, which lands with the aggregate lift in Wave 4.
-                        throw new PravahaException(
-                                RuntimeErrors.UNSUPPORTED_AGGREGATE,
-                                call.kind() + " cannot yet handle a retraction: restoring the previous "
-                                        + "extreme needs an ordered multiset per group, which arrives with "
-                                        + "the aggregate lift. Use SUM or COUNT for now.");
-                    }
-                    if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
-                        long value = AggregateSlots.read(
-                                row,
-                                call.argumentOrdinal(),
-                                argumentTypes[i],
-                                operator.input().outputSchema());
-                        if (!seen[i]) {
-                            sums[i] = value;
-                            seen[i] = true;
-                        } else if (call.kind() == AggregateOperator.AggregateCall.Kind.MIN) {
-                            sums[i] = Math.min(sums[i], value);
-                        } else {
-                            sums[i] = Math.max(sums[i], value);
-                        }
+            }
+            case MIN, MAX -> {
+                if (weight < 0) {
+                    // MIN and MAX are not invertible: knowing the current extreme does not tell
+                    // you the previous one once it is retracted. Doing this correctly needs an
+                    // ordered multiset per group, which lands with the aggregate lift in Wave 4.
+                    throw new PravahaException(
+                            RuntimeErrors.UNSUPPORTED_AGGREGATE,
+                            call.kind() + " cannot yet handle a retraction: restoring the previous "
+                                    + "extreme needs an ordered multiset per group, which arrives with "
+                                    + "the aggregate lift. Use SUM or COUNT for now.");
+                }
+                if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
+                    long value = AggregateSlots.read(
+                            row,
+                            call.argumentOrdinal(),
+                            argumentTypes[i],
+                            operator.input().outputSchema());
+                    if (!seen[i]) {
+                        sums[i] = value;
+                        seen[i] = true;
+                    } else if (call.kind() == AggregateOperator.AggregateCall.Kind.MIN) {
+                        sums[i] = Math.min(sums[i], value);
+                    } else {
+                        sums[i] = Math.max(sums[i], value);
                     }
                 }
             }
@@ -228,13 +241,19 @@ final class GlobalAggregate implements RowProcessor {
         for (int i = 0; i < calls.size(); i++) {
             AggregateOperator.AggregateCall call = calls.get(i);
             long partialValue = partial.getLong(i);
-            switch (call.kind()) {
-                case COUNT -> counts[i] += weight * partialValue;
-                case SUM -> sums[i] += weight * partialValue;
-                default ->
-                    throw new IllegalStateException("processPartial received a " + call.kind()
-                            + " call; SourcePushdown never offers partial-aggregate pushdown for anything but "
-                            + "COUNT and SUM, so this aggregate should never have been given a partial for it");
+            try {
+                switch (call.kind()) {
+                    case COUNT -> counts[i] = AggregateTotals.addWeighted(counts[i], partialValue, weight);
+                    case SUM -> sums[i] = AggregateTotals.addWeighted(sums[i], partialValue, weight);
+                    default ->
+                        throw new IllegalStateException("processPartial received a " + call.kind()
+                                + " call; SourcePushdown never offers partial-aggregate pushdown for anything "
+                                + "but COUNT and SUM, so this aggregate should never have been given a partial "
+                                + "for it");
+                }
+            } catch (ArithmeticException overflow) {
+                throw AggregateTotals.overflow(
+                        AggregateSlots.describe(call, operator.input().outputSchema()), overflow);
             }
         }
     }

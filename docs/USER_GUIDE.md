@@ -222,6 +222,18 @@ for row in batch:
     total += row.weight * row["amount"]
 ```
 
+**Over a keyed view that upserts, the changelog is not the answer** (KEYEDWT-1). A subscription hands
+you what the query applied. For a view keeping the latest row per key over a stream that only
+inserts, a second row under a key arrives as `+1` with **no `-1` for the row it replaced** — the view
+holds both and shows the newer — so summing weights counts that key twice while a reader sees it
+once. To hold exactly what a reader sees, follow the answer: register a continuous query over the
+view (`CREATE CONTINUOUS QUERY latest_copy KEYED BY (order_id) AS SELECT order_id, status FROM
+latest`) and subscribe to it. A query over a query is fed its upstream's answer changing — the rows
+that left at `-1`, the rows that entered at `+1`, per commit — so its weights sum to the view exactly
+([CONCEPTS §4](CONCEPTS.md#4-changes-carry-weights-and-a-correction-is-a-retraction-plus-an-insert)).
+Embedded, `SubscriptionOptions.DEFAULT.followingTheAnswer()` hands a subscription those changes
+directly.
+
 The weight is not one of the view's columns: `row.columns()` lists what the query selected, and a
 positional read gets the column it always got.
 

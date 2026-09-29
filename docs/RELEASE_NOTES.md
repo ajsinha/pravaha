@@ -12,6 +12,41 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **A total past 2^63 stops by name instead of wrapping (SUMWRAP-1).** Every `SUM`, `COUNT` and
+  `AVG` accumulator — unwindowed, grouped, windowed (per slice and when a window's slices are
+  combined), a pushed-down partial, and the read path — adds with checked arithmetic, and a
+  retraction is checked the same way. A `BIGINT` total, or a `DECIMAL` total's unscaled value, that
+  leaves the 64-bit range is refused with the new **`PRV-3025` RUNTIME_AGGREGATE_OVERFLOW**, naming
+  the aggregate (`SUM(amount)`): a continuous query moves to `FAILED` and its view refuses reads, as
+  for every runtime refusal, and a read is refused. It used to publish `-9223372036854775808`.
+- **A windowed `GROUP BY` on a `DECIMAL` column, and `COUNT(DISTINCT)` of one, keep values apart
+  (WINDECKEY-1).** The key was read as the high half of the 128-bit value — zero for every value of
+  eighteen digits or fewer — so the `GROUP BY` failed with an uncoded "is DECIMAL, not INT64" and
+  `COUNT(DISTINCT price)` counted `1.50` and `2.75` as one. Both now use the whole unscaled value,
+  through the off-heap state and checkpoints (a new key tag; a checkpoint without decimal keys is
+  unchanged). The unwindowed and grouped aggregates still refuse a decimal key or distinct value by
+  name (`PRV-3020`), as before.
+- **A restore that fails half-way leaves nothing behind (RESTOREPART-1).** A checkpoint is restored
+  lane by lane, operator by operator, then the view; when a later part was refused, the earlier parts
+  stayed restored while the query started from the beginning of its sources — counting every row
+  before the checkpoint twice in the parts that came back. The restore is now all or nothing: each
+  part's state is taken first and put back on a refusal, a refusal on a lane no longer kills the lane,
+  a join's restore replaces its rows rather than adding to them, and the registry's own half (the
+  sinks a checkpoint recorded) undoes the execution's if it fails. Starting from the sources is still
+  what a refused checkpoint means — the documented "reprocessing, never a double count" — and it is
+  no longer silent: the node logs a `WARN` naming the query, the checkpoint and the cause, and the
+  query counts it as a checkpoint failure (`pravaha_query_checkpoint_failures_total`, the console's
+  "Checkpoints are failing"). If the undo itself cannot complete, the registration is refused, and a
+  recovery lists it among the refused, rather than running from state that is neither.
+- **Summing a keyed view's subscription weights, corrected (KEYEDWT-1).** CONCEPTS §4 told a
+  consumer keeping its own copy to sum a subscription's weights; for a view that keeps the latest row
+  per key, an upsert arrives as `+1` with no `-1` for the row it replaced, so the copy counted the key
+  twice. The advice now says so and gives the exact way: subscribe to a continuous query registered
+  over the view, which is fed the view's answer changing (rows leaving at `-1`, entering at `+1`) and
+  whose weights sum to the view. In the embedded engine, `SubscriptionOptions.followingTheAnswer()`
+  hands a subscription the answer's changes directly (and a snapshot of the rows the view shows). The
+  plain subscription is unchanged: its weights passing through verbatim is a documented contract.
+
 - **About and the competitive landscape follow MAYA's.** `/about` takes MAYA's About section for
   section: the hero (mark, name, tagline, creed, version), what it is, the problem (asking again
   against a maintained answer, with problem-and-fix pairs), twelve cards of what makes it different

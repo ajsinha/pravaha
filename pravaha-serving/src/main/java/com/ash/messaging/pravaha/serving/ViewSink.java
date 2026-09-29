@@ -107,6 +107,12 @@ public final class ViewSink {
      */
     private final List<Handoff> joiners = new CopyOnWriteArrayList<>();
 
+    /**
+     * Listeners handed how the view's answer changed at each commit, rather than what was applied
+     * (KEYEDWT-1): a subscription that asked to follow the answer. See {@link #onAnswer}. Mutated under {@link #publishLock}.
+     */
+    private final List<ViewChangeListener> answerListeners = new CopyOnWriteArrayList<>();
+
     public ViewSink(ServedView view, StreamSchema schema) {
         this.view = view;
         this.schema = schema;
@@ -181,6 +187,8 @@ public final class ViewSink {
         long started = System.nanoTime();
         boolean changed = view.pendingChanges() > 0;
         boolean applied = false;
+        List<ViewChange> answerBatch = List.of();
+        List<ViewChangeListener> answerAudience = List.of();
         try {
             synchronized (publishLock) {
                 if (atApplied) {
@@ -209,6 +217,15 @@ public final class ViewSink {
                     // can fall between the two (SUB-1). Taken even when view.commit threw: it
                     // applies before it refuses, so the committed state is still the one to start
                     // from.
+                    // The answer's change, which the view computed inside its own commit: to every
+                    // answer listener attached now. No STRM-11 audience to fix earlier, because the
+                    // change is between two committed answers and none of it is staged per batch --
+                    // a listener attached since the last commit started from that commit's answer.
+                    // Before the joiners are promoted: their snapshot already holds this commit.
+                    if (!answerListeners.isEmpty()) {
+                        answerAudience = List.copyOf(answerListeners);
+                        answerBatch = asChanges(view.takeAnswer());
+                    }
                     promoted = promoteJoiners();
                 }
             }
@@ -217,6 +234,7 @@ public final class ViewSink {
             // rather than the lane's next batch; to the audience the commit began with, not to
             // whoever is attached now (STRM-11).
             deliver(batch, audience, committedFrontier);
+            deliver(answerBatch, answerAudience, committedFrontier);
             for (Handoff handoff : promoted) {
                 handoff.handOver();
             }
@@ -297,6 +315,92 @@ public final class ViewSink {
                         "a view change listener threw and was skipped for this commit; the listener "
                                 + "is responsible for its own failure and this is only the backstop",
                         escaped);
+            }
+        }
+    }
+
+    /** A commit's answer change as weighted rows: what left at {@code -1}, then what entered at {@code +1}. */
+    private static List<ViewChange> asChanges(AnswerChanges.Netted netted) {
+        if (netted == null) {
+            return List.of();
+        }
+        List<ViewChange> changes =
+                new ArrayList<>(netted.leaving().size() + netted.entering().size());
+        for (Object[] row : netted.leaving()) {
+            changes.add(new ViewChange(row, -1L));
+        }
+        for (Object[] row : netted.entering()) {
+            changes.add(new ViewChange(row, 1L));
+        }
+        return changes;
+    }
+
+    /**
+     * Registers a listener for how the view's <em>answer</em> changes, from the next commit on
+     * (KEYEDWT-1).
+     *
+     * <p>{@link #onCommit} hands a listener what the lanes applied, and for a keyed view that is not
+     * the answer: an upsert that replaces a key's row arrives as a {@code +1} for the new row with no
+     * {@code -1} for the old one (the view keeps both rows and shows the newer, VIEWW-1), and a row
+     * retention evicts arrives as nothing at all. A subscriber summing weights -- which CONCEPTS §4
+     * told it to do -- then holds two rows where the view shows one, and one it has evicted. Here
+     * each commit is handed as the rows that left the answer at {@code -1} and the rows that entered
+     * it at {@code +1}, computed by the view in its own commit, so the weights a subscriber sums are
+     * exactly the rows a reader of the view sees.
+     *
+     * <p>Opt-in ({@code SubscriptionOptions.followingTheAnswer()}): the changelog stays what a plain
+     * subscription and every sink are handed, because its weights passing through verbatim is a
+     * documented contract (STRM-008 to STRM-012) that the answer does not keep.
+     *
+     * @return a handle that removes the listener
+     */
+    public AutoCloseable onAnswer(ViewChangeListener listener) {
+        synchronized (publishLock) {
+            view.answerWanted(true);
+            answerListeners.add(listener);
+        }
+        return () -> removeAnswerListener(listener);
+    }
+
+    /**
+     * {@link #onAnswer}, starting from the committed answer: each row a reader sees, once, at {@code
+     * +1}, and then every commit after it as its answer change (KEYEDWT-1, SUB-1).
+     *
+     * <p>Attached exactly as {@link #onCommitFromSnapshot} attaches: with no commit in flight the
+     * snapshot is the committed answer now; with one in flight it waits for that commit to end and
+     * starts from the answer it published, so the rows in flight are in the snapshot. The snapshot
+     * plus the changes is the view, at every commit after it.
+     */
+    public AutoCloseable onAnswerFromSnapshot(ViewChangeListener listener) {
+        Handoff handoff = new Handoff(listener, true);
+        boolean now;
+        synchronized (publishLock) {
+            view.answerWanted(true);
+            now = batchAudience == null && view.pendingChanges() == 0;
+            if (now) {
+                handoff.capture(view.committedAnswer(), view.committedFrontier());
+                answerListeners.add(handoff);
+            } else {
+                joiners.add(handoff);
+            }
+        }
+        if (now) {
+            handoff.handOver();
+        }
+        return () -> {
+            handoff.close();
+            synchronized (publishLock) {
+                joiners.remove(handoff);
+            }
+            removeAnswerListener(handoff);
+        };
+    }
+
+    private void removeAnswerListener(ViewChangeListener listener) {
+        synchronized (publishLock) {
+            answerListeners.remove(listener);
+            if (answerListeners.isEmpty()) {
+                view.answerWanted(false);
             }
         }
     }
@@ -385,23 +489,32 @@ public final class ViewSink {
         }
         List<Handoff> promoted = List.copyOf(joiners);
         joiners.clear();
-        List<ViewChange> rows = view.committedRows();
         long at = view.committedFrontier();
+        List<ViewChange> rows = null;
+        List<ViewChange> answer = null;
         for (Handoff handoff : promoted) {
-            handoff.capture(rows, at);
-            listeners.add(handoff);
+            if (handoff.answer) {
+                answer = answer == null ? view.committedAnswer() : answer;
+                handoff.capture(answer, at);
+                view.answerWanted(true);
+                answerListeners.add(handoff);
+            } else {
+                rows = rows == null ? view.committedRows() : rows;
+                handoff.capture(rows, at);
+                listeners.add(handoff);
+            }
         }
         return promoted;
     }
 
     /** How many listeners are attached, counting those still waiting for their snapshot. */
     public int listenerCount() {
-        return listeners.size() + joiners.size();
+        return listeners.size() + joiners.size() + answerListeners.size();
     }
 
     /** Whether anybody is listening, which is worth knowing before doing work for them. */
     public boolean hasListeners() {
-        return !listeners.isEmpty() || !joiners.isEmpty();
+        return !listeners.isEmpty() || !joiners.isEmpty() || !answerListeners.isEmpty();
     }
 
     public long rowsApplied() {
@@ -428,8 +541,16 @@ public final class ViewSink {
         private long snapshotFrontier;
         private boolean closed;
 
+        /** Whether it follows the answer (KEYEDWT-1) rather than the changelog. */
+        private final boolean answer;
+
         Handoff(ViewChangeListener target) {
+            this(target, false);
+        }
+
+        Handoff(ViewChangeListener target, boolean answer) {
             this.target = target;
+            this.answer = answer;
         }
 
         synchronized void capture(List<ViewChange> rows, long frontier) {

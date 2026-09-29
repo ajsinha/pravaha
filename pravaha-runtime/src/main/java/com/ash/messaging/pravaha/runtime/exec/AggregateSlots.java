@@ -47,6 +47,13 @@ final class AggregateSlots {
         return types;
     }
 
+    /** An aggregate call as a refusal names it: {@code SUM(amount)}, {@code COUNT(*)}. */
+    static String describe(
+            com.ash.messaging.pravaha.runtime.plan.AggregateOperator.AggregateCall call, StreamSchema input) {
+        int ordinal = call.argumentOrdinal();
+        return call.kind() + "(" + (ordinal < 0 ? "*" : input.field(ordinal).name()) + ")";
+    }
+
     /**
      * The column as a {@code long}, sign-extended from whatever width it is stored at.
      *

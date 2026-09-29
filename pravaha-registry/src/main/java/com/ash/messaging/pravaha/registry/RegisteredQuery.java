@@ -423,6 +423,12 @@ public final class RegisteredQuery implements AutoCloseable {
      * <p>Changes arrive per commit, never per row, so a subscriber never sees a half-applied window.
      * They carry weights: {@code -1} withdraws a row, which is how a late-data correction reaches a
      * consumer rather than as a special message type it has to recognise.
+     *
+     * <p>By default they are the changelog: what the query applied, weights verbatim. With {@link
+     * SubscriptionOptions#followingTheAnswer()} they are the view's <em>answer</em> changing
+     * (KEYEDWT-1): per commit, each row that left what a reader sees at {@code -1} and each that
+     * entered it at {@code +1} -- so an upsert that replaces a key's row arrives as the old row
+     * withdrawn and the new one added, and weights summed are exactly the view.
      */
     public Subscription subscribe(
             SubscriptionOptions options,
@@ -482,13 +488,17 @@ public final class RegisteredQuery implements AutoCloseable {
             throw new PravahaException(
                     RegistryErrors.ILLEGAL_TRANSITION, "cannot subscribe to '" + anyName() + "': it is " + state());
         }
+        SubscriptionOptions chosen = options == null ? SubscriptionOptions.DEFAULT : options;
+        boolean answer = chosen.changes() == SubscriptionOptions.Changes.ANSWER;
         return new Subscription(
                 underName == null ? anyName() : underName,
                 view.keyOrdinals(),
-                options == null ? SubscriptionOptions.DEFAULT : options,
+                chosen,
                 filter,
                 consumer,
-                subscription -> track(subscription, sink.onCommit(subscription::onCommit)));
+                subscription -> track(
+                        subscription,
+                        answer ? sink.onAnswer(subscription::onCommit) : sink.onCommit(subscription::onCommit)));
     }
 
     /**
@@ -587,14 +597,16 @@ public final class RegisteredQuery implements AutoCloseable {
             throw new PravahaException(
                     RegistryErrors.ILLEGAL_TRANSITION, "cannot subscribe to '" + anyName() + "': it is " + state);
         }
+        SubscriptionOptions chosen = options == null ? SubscriptionOptions.DEFAULT : options;
+        boolean answer = chosen.changes() == SubscriptionOptions.Changes.ANSWER;
         Subscription subscription = new Subscription(
                 anyName(),
                 view.keyOrdinals(),
-                options == null ? SubscriptionOptions.DEFAULT : options,
+                chosen,
                 filter,
                 listener,
                 attached -> track(
-                        attached, sink.onCommitFromSnapshot(new com.ash.messaging.pravaha.serving.ViewChangeListener() {
+                        attached, snapshotThen(answer, new com.ash.messaging.pravaha.serving.ViewChangeListener() {
                             @Override
                             public void onSnapshot(
                                     java.util.List<com.ash.messaging.pravaha.serving.ViewChange> rows, long at) {
@@ -614,6 +626,11 @@ public final class RegisteredQuery implements AutoCloseable {
             commitView();
         }
         return subscription;
+    }
+
+    /** Attaches {@code listener} from a snapshot: of the answer (KEYEDWT-1), or of the view's Z-set. */
+    private AutoCloseable snapshotThen(boolean answer, com.ash.messaging.pravaha.serving.ViewChangeListener listener) {
+        return answer ? sink.onAnswerFromSnapshot(listener) : sink.onCommitFromSnapshot(listener);
     }
 
     /** {@link #subscribeFromSnapshot(SubscriptionOptions, SubscriptionFilter, SubscriptionListener)}, unfiltered. */
@@ -790,17 +807,22 @@ public final class RegisteredQuery implements AutoCloseable {
      * claim it -- the first as this computation starts, any other when its name is registered again.
      */
     void restoredFrom(com.ash.messaging.pravaha.state.checkpoint.Checkpoint checkpoint) {
-        lastCut = Math.max(lastCut, checkpoint.id());
-        restored = true;
-        restoredUpstreamInput = checkpoint.operatorState().get(QueryChains.INPUT_STATE);
         byte[] contents = checkpoint.operatorState().get(QueryExecution.SERVED_VIEW_STATE);
+        // Every sink decoded before anything is recorded (RESTOREPART-1): one that cannot be read
+        // throws with this query still recording no restore, so the caller can start it from its
+        // sources rather than with half the sinks claiming a checkpoint the query does not hold.
+        java.util.Map<String, SinkDelivery.Restored> sinks = new java.util.HashMap<>();
         checkpoint.operatorState().forEach((key, bytes) -> {
             if (key.startsWith(SinkDelivery.STATE_PREFIX)) {
-                restoredSinks.put(
+                sinks.put(
                         key.substring(SinkDelivery.STATE_PREFIX.length()),
                         SinkDelivery.Restored.decode(checkpoint.id(), bytes, contents));
             }
         });
+        lastCut = Math.max(lastCut, checkpoint.id());
+        restored = true;
+        restoredUpstreamInput = checkpoint.operatorState().get(QueryChains.INPUT_STATE);
+        restoredSinks.putAll(sinks);
     }
 
     /** Whether this computation's state came back from a checkpoint. */

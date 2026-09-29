@@ -45,6 +45,9 @@ final class TaggedValues {
     static final byte BOOLEAN = 3;
     static final byte LONG = 4;
 
+    /** A {@link DecimalBits}: both halves of the unscaled value (WINDECKEY-1). */
+    static final byte DECIMAL = 5;
+
     private TaggedValues() {}
 
     static void writeTagged(DataOutput out, Object value) throws IOException {
@@ -59,6 +62,10 @@ final class TaggedValues {
         } else if (value instanceof Boolean flag) {
             out.writeByte(BOOLEAN);
             out.writeBoolean(flag);
+        } else if (value instanceof DecimalBits decimal) {
+            out.writeByte(DECIMAL);
+            out.writeLong(decimal.high());
+            out.writeLong(decimal.low());
         } else {
             out.writeByte(LONG);
             out.writeLong(((Number) value).longValue());
@@ -73,6 +80,7 @@ final class TaggedValues {
             case DOUBLE -> in.readDouble();
             case BOOLEAN -> in.readBoolean();
             case LONG -> in.readLong();
+            case DECIMAL -> new DecimalBits(in.readLong(), in.readLong());
             default -> throw new IOException("unknown key-value tag " + tag + " in the checkpoint");
         };
     }
@@ -146,6 +154,8 @@ final class TaggedValues {
                 length += Integer.BYTES + Character.BYTES * string.length();
             } else if (value instanceof Boolean) {
                 length += 1;
+            } else if (value instanceof DecimalBits) {
+                length += 2 * Long.BYTES;
             } else {
                 length += Long.BYTES;
             }
@@ -191,6 +201,11 @@ final class TaggedValues {
             } else if (value instanceof Boolean flag) {
                 region.putByte(at++, BOOLEAN);
                 region.putByte(at++, (byte) (flag ? 1 : 0));
+            } else if (value instanceof DecimalBits decimal) {
+                region.putByte(at++, DECIMAL);
+                region.putLong(at, decimal.high());
+                region.putLong(at + Long.BYTES, decimal.low());
+                at += 2 * Long.BYTES;
             } else {
                 region.putByte(at++, LONG);
                 region.putLong(at, ((Number) value).longValue());
@@ -231,6 +246,10 @@ final class TaggedValues {
                     values[v] = region.getLong(at);
                     at += Long.BYTES;
                 }
+                case DECIMAL -> {
+                    values[v] = new DecimalBits(region.getLong(at), region.getLong(at + Long.BYTES));
+                    at += 2 * Long.BYTES;
+                }
                 default -> throw new IllegalStateException("unknown group-key tag " + tag + " in off-heap state");
             }
         }
@@ -260,6 +279,15 @@ final class TaggedValues {
         if (value instanceof Boolean flag) {
             return new byte[] {BOOLEAN, (byte) (flag ? 1 : 0)};
         }
+        if (value instanceof DecimalBits decimal) {
+            byte[] bytes = new byte[1 + 2 * Long.BYTES];
+            bytes[0] = DECIMAL;
+            for (int i = 0; i < 8; i++) {
+                bytes[1 + i] = (byte) (decimal.high() >>> (8 * i));
+                bytes[9 + i] = (byte) (decimal.low() >>> (8 * i));
+            }
+            return bytes;
+        }
         long bits = value instanceof Double || value instanceof Float
                 ? Double.doubleToLongBits(((Number) value).doubleValue())
                 : ((Number) value).longValue();
@@ -277,6 +305,15 @@ final class TaggedValues {
             case NULL -> null;
             case STRING -> new String(bytes, 1, bytes.length - 1, java.nio.charset.StandardCharsets.UTF_8);
             case BOOLEAN -> bytes[1] != 0;
+            case DECIMAL -> {
+                long high = 0;
+                long low = 0;
+                for (int i = 0; i < 8; i++) {
+                    high |= (bytes[1 + i] & 0xFFL) << (8 * i);
+                    low |= (bytes[9 + i] & 0xFFL) << (8 * i);
+                }
+                yield new DecimalBits(high, low);
+            }
             case DOUBLE, LONG -> {
                 long bits = 0;
                 for (int i = 0; i < 8; i++) {

@@ -135,14 +135,33 @@ followed by a `+1` for the new one — the same arithmetic as everything else, r
 message type every consumer has to recognise. That is the Z-set idea from the design doc, and it is
 why an aggregate can be maintained incrementally without a separate "retract" code path to get wrong.
 
-If you consume a subscription and only want current values, ignore negative weights and overwrite by
-key. If you maintain your own aggregate, **apply the weights** or your total drifts from the view's
-the first time a window is corrected.
+If you maintain your own aggregate from a subscription, **apply the weights** or your total drifts
+from the view's the first time a window is corrected.
+
+**A subscription hands you the changelog, and for a keyed view that upserts the changelog is not the
+answer** (KEYEDWT-1). The changelog is what the query applied to its view, weights verbatim. For a
+window correction that is the answer changing — `-1` old, `+1` new. For a view that keeps the latest
+row per key over a stream that only inserts, a second row under a key arrives as `+1` for the new row
+and **nothing for the one it replaced**: the view holds both and shows the newer (below). Summing the
+changelog's weights then gives the view's Z-set — two rows under that key — while a reader sees one;
+and a row that retention evicts leaves the view with no change delivered at all. To hold exactly
+what a reader sees:
+
+- **Follow the answer.** Register a continuous query over the view — `CREATE CONTINUOUS QUERY
+  latest_copy KEYED BY (id) AS SELECT id, status FROM latest` — and subscribe to that. A query over a query is
+  fed the upstream's answer as it changes, the rows that left it (`-1`) and the rows that entered it
+  (`+1`) per commit, evictions included (§1, [ADR-056](adr/056-queries-on-queries.md)), so its
+  changelog is exactly the upstream's answer and weights summed over it are the view. In the embedded
+  engine, `SubscriptionOptions.followingTheAnswer()` hands a subscription those changes directly.
+- **Or subscribe from a snapshot and upsert by key**, where a key's row is only ever replaced: load
+  the snapshot keeping each key's last row, then overwrite the key on each `+1`. This stays exact only
+  while nothing withdraws a key's shown row — a `-1` for it brings an older row back, which a copy
+  kept by key cannot know — and while retention is forever.
 
 A row is present exactly while its weights **sum positive**, so a net weight of zero means the row is
 not there. A *change* of weight zero is therefore not a change at all, and a subscription never
-delivers one: it would move nothing in the view, and a consumer following the advice above would
-overwrite by key from a change that changed nothing (STRM-1). `ViewChange.isRetraction()` and
+delivers one: it would move nothing in the view, and a consumer overwriting by key would overwrite
+from a change that changed nothing (STRM-1). `ViewChange.isRetraction()` and
 `isInsertion()` are both false for one built by hand — insertion is `weight > 0`, not
 `!isRetraction()`.
 
@@ -153,7 +172,9 @@ is still present. A retraction takes weight from the row it names, so withdrawin
 showing and withdrawing `B` brings `A` back; it never leaves the key showing the row just withdrawn
 (VIEWW-1). The key is present while its rows' weights sum positive, as above. A subscription's
 snapshot carries every row of such a key with its own weight, the shown one last, so a copy kept as a
-Z-set matches the view and one that overwrites by key ends on the row the view shows. A key holding
+Z-set matches the view's Z-set — every row it holds — and one that overwrites by key ends on the row
+the view shows. Neither is what a reader sees once the key changes again; following the answer, above,
+is. A key holding
 one row at a time — nearly every key of a `GROUP BY` or a keyed projection — pays nothing for this.
 
 ## 5. Sharing is by fingerprint, not by name or text

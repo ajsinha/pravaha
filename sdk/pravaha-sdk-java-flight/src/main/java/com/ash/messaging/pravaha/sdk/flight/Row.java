@@ -171,6 +171,11 @@ public final class Row {
      * retraction is what cancels the value it is correcting. A consumer that only wants the current
      * state can overwrite by key and skip negatives.
      *
+     * <p>The weights are the view's changelog. For a keyed view that upserts -- a second row under a
+     * key replacing the first -- the replaced row gets no {@code -1} (KEYEDWT-1), so summed they
+     * count that key twice. Subscribe to a query registered over the view to receive its answer's
+     * changes instead; those sum to exactly what a reader sees.
+     *
      * <p>An ordinary query answer has no weights: every row in it is a row that is present, so this
      * reports {@code 1} there rather than failing. Only a subscription carries real ones.
      */

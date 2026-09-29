@@ -137,7 +137,8 @@ class StateRestoreTest extends StateTestSupport {
                 .filter(l -> l.contains("/src/main/"))
                 .toList();
         // This one is unchanged from the case's expectation: the declaration, and its one caller
-        // inside QueryExecution.restore -- which is itself now reachable, but the grep for
+        // -- CheckpointRestore.putBack since RESTOREPART-1, which QueryExecution.restore drives both
+        // to restore and to undo a restore that failed half-way -- which is itself now reachable, but the grep for
         // restoreState alone does not show that; STATE-050's own conclusion ("the write half is
         // wired, the read half is not") is what this whole case disproves, not this specific grep.
         assertThat(restoreStateCalls).hasSize(2);
@@ -510,11 +511,12 @@ class StateRestoreTest extends StateTestSupport {
                     .hasMessageContaining(
                             "restoring part of it would resume with some operators holding history and others "
                                     + "empty");
-            // The control task's exception marks the lane failed (Lane.runControlTasks), so a
-            // further call on this execution -- advanceWatermark, checkHealth -- would itself throw
-            // "lane 0 stopped after a failure" rather than confirming anything new; the case's own
-            // point (B's windows remain empty) is checkable from what was already emitted, which is
-            // nothing, without touching the now-dead lane again.
+            // The refusal used to escape the lane's control task and fail the lane. Since
+            // RESTOREPART-1 it is caught there and the restore undone, so the lane is alive and holds
+            // nothing -- a replay from the sources starts from empty operators. PartialRestoreTest
+            // feeds such an execution and checks the answer.
+            b.execution.checkHealth();
+            assertThat(b.execution.holdsPartlyRestoredState()).isFalse();
             assertThat(b.emitted).isEmpty();
         }
     }
