@@ -434,6 +434,14 @@ be refused, so no state is faked in the page.
 | Route transition (warm) | ≤ 200 ms | 25–45 ms |
 | Main-thread blocking while loading | not in §23.15; held at ≤ 200 ms (workbench ≤ 600) | 0 ms everywhere but the workbench (≈ 50–90 ms, one long task) |
 
+Each page is measured in a fresh browser context holding only a signed-in session's cookie, so the
+page measured is the first its context has loaded (PERFH-1: sign-in's scripts were being counted
+against the first page, 280–510 kB; `landing` now measures 48 kB, as its neighbours do). Sizes are
+held always; a missed *time* budget skips, naming the load, when the one-minute load average is above
+0.5 per core (CON-8: a Maven gate beside it made `/_components` 2.2 s), and `PRAVAHA_PERF_STRICT=1`
+fails regardless. Re-taken 2026-09-29 at load 0.4 on 24 cores: initial JS 43–77 kB gz, interactive
+89–362 ms (workbench 0.86–1.1 s), transitions 32–34 ms.
+
 Two things the budget found and this commit fixed: ECharts was fetched before the load event on the
 operations and live screens (411 kB gzipped of initial JavaScript, over budget on its own), and the
 console sent everything uncompressed (122 kB of script per page where 43 kB would do). The full

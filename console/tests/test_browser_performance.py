@@ -24,11 +24,28 @@ need a device lab and a soak run.
 
 The numbers for each page are written to ``tests/visual/failures/performance.json`` when a
 budget fails, and printed with ``-s`` always.
+
+**Each page is measured in a fresh browser context (PERFH-1).** Signing in once and then walking
+every page through one tab charged the first page with what sign-in's page was still fetching when
+the measurement began: 280-510 kB of "initial JavaScript" on ``landing`` in a full run, ``about``
+alone. Now the sign-in happens once, in a context of its own, and each measured page opens in a new
+context holding only that session's cookie, so the page measured is the first document its context
+has ever loaded.
+
+**On a loaded machine the time budgets are not measured (CON-8).** Sizes are the page's and are
+held always. Times are the machine's as much as the page's: ``/_components`` measured 2,182 ms
+against 2,000 while a Maven gate ran beside it, with nothing on the page changed. Chosen over a
+baseline taken in the same run because no page here is a stable enough yardstick for another --
+a loaded machine slows a Monaco page and a static one by different factors. So when the one-minute
+load average per core is above ``LOADED_PER_CORE`` and a time budget is missed, the test skips,
+naming the load and the figure, rather than failing; a time budget met under load still passes,
+because a page that is fast on a busy machine is fast. ``PRAVAHA_PERF_STRICT=1`` fails regardless.
 """
 from __future__ import annotations
 
 import gzip
 import json
+import os
 import pathlib
 
 import pytest
@@ -51,6 +68,25 @@ ROUTE_TRANSITION_BUDGET_MS = 200
 #: it loads. The workbench is the exception the design names -- Monaco is the editor.
 TOTAL_BLOCKING_BUDGET_MS = 200
 TOTAL_BLOCKING_BUDGET_MS_WORKBENCH = 600
+#: CON-8: above this one-minute load average per core, a missed time budget skips rather than
+#: fails. 0.5 leaves half the machine idle; a Maven gate on this 24-core machine runs at 13-60.
+LOADED_PER_CORE = 0.5
+
+
+def machine_load() -> float | None:
+    """The one-minute load average per core, or None where the platform does not report it."""
+    try:
+        return os.getloadavg()[0] / (os.cpu_count() or 1)
+    except (AttributeError, OSError):
+        return None
+
+
+def time_budgets_missed_under_load(missed: list[str]) -> None:
+    """Skips, naming the load, when time budgets were missed on a loaded machine (CON-8)."""
+    load = machine_load()
+    if missed and load is not None and load > LOADED_PER_CORE and os.environ.get("PRAVAHA_PERF_STRICT") != "1":
+        pytest.skip(f"not measurable here: load {load:.2f} per core > {LOADED_PER_CORE} while "
+                    f"{'; '.join(missed)} (sizes were held; PRAVAHA_PERF_STRICT=1 fails instead)")
 
 LONG_TASKS = """
 window.__longTasks = [];
@@ -117,10 +153,24 @@ def measure(page: Page, console: Console, path: str, ready: str) -> dict:
 
 
 @pytest.fixture(scope="module")
-def cold(chrome: Browser, console: Console):
+def session_cookies(chrome: Browser, console: Console) -> list[dict]:
+    """Signed in once, in a context of its own; what the measured contexts are given (PERFH-1)."""
+    page = chrome.new_page()
+    try:
+        sign_in(page, console)
+        cookies = page.send("Network.getCookies")["cookies"]
+    finally:
+        page.close()
+    keep = ("name", "value", "domain", "path", "secure", "httpOnly", "sameSite")
+    return [{k: c[k] for k in keep if k in c} for c in cookies]
+
+
+@pytest.fixture
+def cold(chrome: Browser, session_cookies: list[dict]):
+    """A fresh browser context, signed in by cookie alone, cache off: nothing loaded before."""
     page = chrome.new_page()
     page.before_every_document(LONG_TASKS)
-    sign_in(page, console)
+    page.send("Network.setCookies", {"cookies": session_cookies})
     page.send("Network.setCacheDisabled", {"cacheDisabled": True})
     yield page
     page.close()
@@ -136,19 +186,21 @@ def test_every_page_is_within_the_budget(cold, console, name, path, ready):
     print(f"\n{name:16} ready {numbers['ready_ms']:5} ms  initial JS {numbers['initial_js_gzip'] / 1024:6.1f} kB gz "
           f"({numbers['initial_js'] / 1024:6.1f} sent)  lazy JS {numbers['lazy_js_gzip'] / 1024:7.1f} kB gz  "
           f"blocking {numbers['blocking_ms']:4} ms in {numbers['long_tasks']} long tasks")
-    problems = []
+    sizes, times = [], []
     if numbers["initial_js_gzip"] > INITIAL_JS_GZIP_BUDGET:
-        problems.append(f"initial JavaScript {numbers['initial_js_gzip'] / 1024:.0f} kB gzipped > 250 kB")
+        sizes.append(f"initial JavaScript {numbers['initial_js_gzip'] / 1024:.0f} kB gzipped > 250 kB")
     if numbers["ready_ms"] > TTI_BUDGET_MS:
-        problems.append(f"interactive after {numbers['ready_ms']} ms > {TTI_BUDGET_MS} ms")
+        times.append(f"interactive after {numbers['ready_ms']} ms > {TTI_BUDGET_MS} ms")
     budget = TOTAL_BLOCKING_BUDGET_MS_WORKBENCH if name.startswith("workbench") else TOTAL_BLOCKING_BUDGET_MS
     if numbers["blocking_ms"] > budget:
-        problems.append(f"main thread blocked {numbers['blocking_ms']} ms > {budget} ms")
-    if problems:
+        times.append(f"main thread blocked {numbers['blocking_ms']} ms > {budget} ms")
+    if sizes or times:
         out = pathlib.Path(__file__).resolve().parent / "visual" / "failures"
         out.mkdir(parents=True, exist_ok=True)
         (out / "performance.json").write_text(json.dumps(RESULTS, indent=2), encoding="utf-8")
-    assert not problems, f"{path}: " + "; ".join(problems) + f"\n{numbers}"
+    assert not sizes, f"{path}: " + "; ".join(sizes + times) + f"\n{numbers}"
+    time_budgets_missed_under_load(times)
+    assert not times, f"{path}: " + "; ".join(times) + f"\n{numbers}"
 
 
 def test_monaco_and_echarts_are_not_shipped_to_pages_that_do_not_use_them(cold, console):
@@ -167,10 +219,10 @@ def test_monaco_and_echarts_are_not_shipped_to_pages_that_do_not_use_them(cold, 
     ("/queries", "/queries/big_txn", "true"),
     ("/catalog", "/plugins", "true"),
 ])
-def test_a_route_transition_is_within_200_ms(chrome, console, start, to, ready):
+def test_a_route_transition_is_within_200_ms(chrome, console, session_cookies, start, to, ready):
     page = chrome.new_page()
     try:
-        sign_in(page, console)
+        page.send("Network.setCookies", {"cookies": session_cookies})
         page.goto(console.url(start))
         page.settle(quiet_ms=200)
         page.goto(console.url(to))  # warm the cache, as a person's second visit would be
@@ -185,6 +237,22 @@ def test_a_route_transition_is_within_200_ms(chrome, console, start, to, ready):
             times.append(float(page.eval("performance.now()")))
         elapsed = min(times)
         print(f"\n{start} -> {to}: {elapsed:.0f} ms (of {', '.join(f'{t:.0f}' for t in times)})")
+        if elapsed > ROUTE_TRANSITION_BUDGET_MS:
+            time_budgets_missed_under_load([f"{start} -> {to} took {elapsed:.0f} ms at best"])
         assert elapsed <= ROUTE_TRANSITION_BUDGET_MS, f"{start} -> {to} took {elapsed:.0f} ms at best"
     finally:
         page.close()
+
+
+def test_a_missed_time_budget_skips_only_on_a_loaded_machine(monkeypatch):
+    """CON-8's rule, without a browser: loaded and missed skips; idle, strict or met does not."""
+    monkeypatch.delenv("PRAVAHA_PERF_STRICT", raising=False)
+    monkeypatch.setattr(os, "getloadavg", lambda: (LOADED_PER_CORE * 2 * (os.cpu_count() or 1), 0, 0))
+    with pytest.raises(pytest.skip.Exception, match="not measurable here: load"):
+        time_budgets_missed_under_load(["interactive after 2182 ms > 2000 ms"])
+    time_budgets_missed_under_load([])  # met under load: measured, and passes
+    monkeypatch.setenv("PRAVAHA_PERF_STRICT", "1")
+    time_budgets_missed_under_load(["interactive after 2182 ms > 2000 ms"])  # returns; the caller fails
+    monkeypatch.delenv("PRAVAHA_PERF_STRICT")
+    monkeypatch.setattr(os, "getloadavg", lambda: (0.0, 0, 0))
+    time_budgets_missed_under_load(["interactive after 2182 ms > 2000 ms"])  # idle: the caller fails
