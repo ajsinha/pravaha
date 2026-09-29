@@ -266,6 +266,10 @@ public final class FilterVacuity {
      * either is null; text by equality; decimals exactly; floating point as IEEE 754; the rest as integers.
      */
     private Formula compared(Predicate.CompareExpressions compare, boolean faceValue) {
+        Formula againstConstant = decimalColumnAgainstConstant(compare, faceValue);
+        if (againstConstant != null) {
+            return againstConstant;
+        }
         Expression left = compare.left();
         Expression right = compare.right();
         Predicate.Op op = compare.op();
@@ -295,6 +299,112 @@ public final class FilterVacuity {
             value = ordered(List.of("compare", left, right), op);
         }
         return and(List.of(guard, value));
+    }
+
+    /**
+     * A DECIMAL column compared with a constant through an expression comparison, as the same
+     * whole-number comparison {@link Predicate.CompareDecimal} makes, so that it shares its variables
+     * and its regions (DECSCALE-1); null when the comparison is not that, and it is judged as before.
+     *
+     * <p>The planner writes {@code p >= 5} over a {@code DECIMAL(10, 2)} as the column rescaled to a
+     * wider type against the literal, which evaluates to exactly the column's value -- when the
+     * rescale cannot fail. So the column's own value {@code u / 10^s} ({@code u} its unscaled whole
+     * number) is compared with the constant {@code c}: {@code u op c * 10^s}. When {@code c * 10^s}
+     * is a whole number that is the comparison; when it is not, no {@code u} equals it, and {@code u
+     * < x} and {@code u <= x} are both {@code u < ceil(x)} -- {@code p >= 4.995} at scale 2 is {@code
+     * p >= 5.00}. Anything else -- a rescale that could throw (narrowing, or fewer integer digits than
+     * the column holds), a side that is not a constant, a boundary past 128 bits -- falls back.
+     *
+     * <p>"Cannot fail" is judged against the column's declared precision. A stored value wider than
+     * that makes the rescale throw at run time, and the row goes to the dead-letter queue rather than
+     * through the filter -- so it is not a row the filter keeps or drops by value, and no verdict here
+     * admits it.
+     */
+    private Formula decimalColumnAgainstConstant(Predicate.CompareExpressions compare, boolean faceValue) {
+        Predicate.Op op = compare.op();
+        Expression columnSide = compare.left();
+        java.math.BigDecimal constant = constantDecimal(compare.right());
+        if (constant == null) {
+            columnSide = compare.right();
+            constant = constantDecimal(compare.left());
+            op = mirrored(op);
+        }
+        Expression.DecimalColumn column = exactDecimalColumn(columnSide);
+        if (constant == null || column == null) {
+            return null;
+        }
+        java.math.BigDecimal scaled = constant.movePointRight(column.scale());
+        boolean whole = scaled.signum() == 0 || scaled.stripTrailingZeros().scale() <= 0;
+        BigInteger boundary = whole
+                ? scaled.toBigIntegerExact()
+                : scaled.setScale(0, java.math.RoundingMode.CEILING).toBigIntegerExact();
+        if (boundary.bitLength() > 127) {
+            return null;
+        }
+        List<Object> key =
+                List.of("decimal", column.ordinal(), boundary.shiftRight(64).longValue(), boundary.longValue());
+        Formula value;
+        if (whole) {
+            value = ordered(key, op);
+        } else {
+            value = switch (op) {
+                case EQ -> FALSE;
+                case NE -> TRUE;
+                case LT, LE -> ordered(key, Predicate.Op.LT);
+                case GT, GE -> ordered(key, Predicate.Op.GE);
+            };
+        }
+        return and(List.of(columnPresent(column.ordinal(), faceValue), value));
+    }
+
+    /**
+     * The value of {@code expression} when it reads no row, is not null and is a decimal or an
+     * integer; otherwise null.
+     */
+    private static java.math.BigDecimal constantDecimal(Expression expression) {
+        if (expression.type() != TypeName.DECIMAL
+                && (expression.type() == TypeName.STRING || expression.isFloatingPoint())) {
+            return null;
+        }
+        try {
+            return expression.isNull(NO_ROW) ? null : Expression.decimalOf(expression, NO_ROW);
+        } catch (RuntimeException readsTheRowOrFails) {
+            return null;
+        }
+    }
+
+    /**
+     * The DECIMAL column whose exact value {@code expression} is: the column itself, or the column
+     * rescaled to a type that holds every value it can -- no fewer fraction digits, no fewer integer
+     * digits -- which is the only rescale that can neither round nor throw. Null for anything else.
+     */
+    private Expression.DecimalColumn exactDecimalColumn(Expression expression) {
+        if (expression instanceof Expression.DecimalColumn column) {
+            return column;
+        }
+        if (expression instanceof Expression.DecimalRescale rescale
+                && rescale.source() instanceof Expression.DecimalColumn column
+                && column.ordinal() >= 0
+                && column.ordinal() < schema.fieldCount()
+                && schema.field(column.ordinal()).type()
+                        instanceof com.ash.messaging.pravaha.api.data.DecimalType declared
+                && declared.scale() == column.scale()
+                && rescale.scale() >= column.scale()
+                && rescale.precision() - rescale.scale() >= declared.precision() - declared.scale()) {
+            return column;
+        }
+        return null;
+    }
+
+    /** {@code c op x} as {@code x op' c}. */
+    private static Predicate.Op mirrored(Predicate.Op op) {
+        return switch (op) {
+            case LT -> Predicate.Op.GT;
+            case LE -> Predicate.Op.GE;
+            case GT -> Predicate.Op.LT;
+            case GE -> Predicate.Op.LE;
+            case EQ, NE -> op;
+        };
     }
 
     /** A total order's comparison: {@code op} and its negation are one variable and its complement. */

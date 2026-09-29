@@ -277,6 +277,131 @@ class FilterVacuityTest {
                 .isEqualTo(FilterVacuity.Verdict.RESTRICTS);
     }
 
+    /** DECIMAL(10, 2): {@code p} NOT NULL, {@code q} nullable. */
+    private static final StreamSchema DEC = StreamSchema.builder("amounts")
+            .field("p", Types.decimal(10, 2))
+            .field("q", Types.decimal(10, 2).withNullable(true))
+            .build();
+
+    @Test
+    void aDecimalColumnAgainstAConstantAtAnotherScaleIsJudgedOnTheColumnsOwnValues() {
+        // DECSCALE-1: `p >= 5` plans as the column rescaled against the literal; judged exactly.
+        verdict(DEC, "p <= 4.99 OR p >= 5", FilterVacuity.Verdict.ALWAYS_TRUE);
+        verdict(DEC, "p < 5 OR p >= 5.000", FilterVacuity.Verdict.ALWAYS_TRUE);
+        verdict(DEC, "5 <= p OR 4.99 >= p", FilterVacuity.Verdict.ALWAYS_TRUE);
+        // 4.995 lies between two values of scale 2: p >= 4.995 is p >= 5.00, p <= 4.995 is p <= 4.99.
+        verdict(DEC, "p >= 4.995 OR p <= 4.99", FilterVacuity.Verdict.ALWAYS_TRUE);
+        verdict(DEC, "p > 4.995 OR p < 4.995", FilterVacuity.Verdict.ALWAYS_TRUE);
+        verdict(DEC, "p <> 4.995", FilterVacuity.Verdict.ALWAYS_TRUE);
+        verdict(DEC, "p = 4.995", FilterVacuity.Verdict.ALWAYS_FALSE);
+        verdict(DEC, "p > 4.99 AND p < 5", FilterVacuity.Verdict.ALWAYS_FALSE);
+        verdict(DEC, "q <= 4.99 OR q >= 5", FilterVacuity.Verdict.NULLS_ONLY);
+        // Restrictions stay restrictions.
+        verdict(DEC, "p <= 4.98 OR p >= 5", FilterVacuity.Verdict.RESTRICTS);
+        verdict(DEC, "p >= 4.991 OR p <= 4.98", FilterVacuity.Verdict.RESTRICTS);
+        verdict(DEC, "p >= 5", FilterVacuity.Verdict.RESTRICTS);
+        verdict(DEC, "p = 5", FilterVacuity.Verdict.RESTRICTS);
+    }
+
+    /**
+     * DECSCALE-1's property: random filters over two DECIMAL(10, 2) columns compared with constants at
+     * scales 0 to 3, evaluated over every row whose values are each constant's neighbours at scale 2
+     * (floor and ceiling, and one either side) and the column's extremes. A verdict that does not hold
+     * of one of those rows would be a boundary rounded the wrong way.
+     */
+    @Test
+    void aDecimalVerdictAtMixedScalesHoldsOfEveryRow() {
+        String[] constants = {"4.98", "4.99", "4.995", "5", "5.00", "5.001", "0", "-0.005", "-3", "12.3"};
+        java.util.TreeSet<Long> unscaled = new java.util.TreeSet<>();
+        long max = 9_999_999_999L;
+        unscaled.add(max);
+        unscaled.add(-max);
+        for (String constant : constants) {
+            java.math.BigDecimal x = new java.math.BigDecimal(constant).movePointRight(2);
+            long floor = x.setScale(0, java.math.RoundingMode.FLOOR).longValueExact();
+            for (long u = floor - 1; u <= floor + 2; u++) {
+                unscaled.add(u);
+            }
+        }
+        List<Long> qValues = new ArrayList<>(unscaled);
+        qValues.add(null);
+        String[] ops = {"<", "<=", ">", ">=", "=", "<>"};
+        Random random = new Random(20260930L);
+        int planned = 0;
+        int decided = 0;
+        for (int round = 0; round < 1500; round++) {
+            String sql = decimalPredicate(random, 2, constants, ops);
+            Predicate predicate;
+            try {
+                predicate = predicateOf(DEC, sql);
+            } catch (PravahaException unsupported) {
+                continue;
+            }
+            planned++;
+            FilterVacuity.Verdict verdict = FilterVacuity.of(predicate, DEC);
+            boolean keepsAll = true;
+            boolean keepsNone = true;
+            boolean keepsAllPresent = true;
+            for (long p : unscaled) {
+                for (Long q : qValues) {
+                    boolean kept = predicate == null || predicate.test(decimalView(p, q));
+                    keepsAll &= kept;
+                    keepsNone &= !kept;
+                    if (q != null) {
+                        keepsAllPresent &= kept;
+                    }
+                }
+            }
+            switch (verdict) {
+                case ALWAYS_TRUE -> assertThat(keepsAll).as(sql).isTrue();
+                case ALWAYS_FALSE -> assertThat(keepsNone).as(sql).isTrue();
+                case NULLS_ONLY -> assertThat(keepsAllPresent).as(sql).isTrue();
+                case RESTRICTS -> {
+                    // sound, not complete
+                }
+            }
+            if (verdict != FilterVacuity.Verdict.RESTRICTS) {
+                decided++;
+            }
+        }
+        assertThat(planned).isGreaterThan(1000);
+        assertThat(decided).as("the property must see verdicts to test them").isGreaterThan(50);
+    }
+
+    private static String decimalPredicate(Random random, int depth, String[] constants, String[] ops) {
+        if (depth == 0 || random.nextInt(3) == 0) {
+            String column = random.nextBoolean() ? "p" : "q";
+            String constant = constants[random.nextInt(constants.length)];
+            String op = ops[random.nextInt(ops.length)];
+            return random.nextInt(4) == 0 ? constant + " " + op + " " + column : column + " " + op + " " + constant;
+        }
+        return switch (random.nextInt(3)) {
+            case 0 -> "NOT (" + decimalPredicate(random, depth - 1, constants, ops) + ")";
+            case 1 ->
+                "(" + decimalPredicate(random, depth - 1, constants, ops) + " AND "
+                        + decimalPredicate(random, depth - 1, constants, ops) + ")";
+            default ->
+                "(" + decimalPredicate(random, depth - 1, constants, ops) + " OR "
+                        + decimalPredicate(random, depth - 1, constants, ops) + " OR "
+                        + decimalPredicate(random, depth - 1, constants, ops) + ")";
+        };
+    }
+
+    /** A row of {@link #DEC}: {@code p} and {@code q} as unscaled values at scale 2. */
+    private static RowView decimalView(long p, Long q) {
+        Long[] row = {p, q};
+        return (RowView) Proxy.newProxyInstance(
+                FilterVacuityTest.class.getClassLoader(), new Class<?>[] {RowView.class}, (proxy, method, args) -> {
+                    int at = (Integer) args[0];
+                    return switch (method.getName()) {
+                        case "isNull" -> row[at] == null;
+                        case "getDecimalHigh" -> row[at] < 0 ? -1L : 0L;
+                        case "getDecimalLow" -> row[at];
+                        default -> throw new UnsupportedOperationException(method.getName());
+                    };
+                });
+    }
+
     /**
      * The interval check's property: over random filters of comparisons of two integer columns (one
      * nullable) with constants near each other and at the ends of the range, every verdict holds of
