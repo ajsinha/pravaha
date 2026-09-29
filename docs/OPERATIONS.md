@@ -1812,7 +1812,9 @@ does not publish; the console's test does the same for `pravaha_console_*`.
 **Alert rules.** `deploy/observability/prometheus/pravaha-rules.yaml`: the ten query rules, plus
 notification delivery failing, notifications owed growing, the alert journal failing, catalogue
 denials spiking and the assistant failing on every model. The help topic *Metrics and alerts* shows
-the same text and a test keeps the two identical. Check with `promtool check rules`. The Helm chart's
+the same text and a test keeps the two identical. Every rule's one routing label is `severity`,
+`critical` (act now) or `warning` (working hours); route on it in Alertmanager. Check with
+`promtool check rules`. The Helm chart's
 `prometheusRule.enabled` installs them as a `PrometheusRule`, off by default like `serviceMonitor`.
 
 **Logs.** `pravaha.logging.format: json` switches the console appender to Spring Boot's structured

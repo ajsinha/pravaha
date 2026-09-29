@@ -287,6 +287,21 @@ def test_the_rules_parse_and_name_every_documented_alert():
             assert rule["expr"] and rule["labels"]["severity"] and rule["annotations"]["summary"], rule["alert"]
 
 
+def test_every_rule_routes_on_one_severity_vocabulary():
+    # RULESEV-1: the dead-letter rules said warning/critical and the rest page/warn, so an
+    # Alertmanager route keyed on one vocabulary silently missed the other half of the rules.
+    yaml = pytest.importorskip("yaml")
+    document = yaml.safe_load((OBSERVABILITY / "prometheus" / "pravaha-rules.yaml").read_text(encoding="utf-8"))
+    for group in document["groups"]:
+        for rule in group["rules"]:
+            assert set(rule["labels"]) == {"severity"}, rule["alert"]
+            assert rule["labels"]["severity"] in {"critical", "warning"}, rule["alert"]
+    # The help's other snippets of rules (state-spill's, say) speak the same words.
+    for topic in (CONSOLE_ROOT / "content" / "topics").glob("*.md"):
+        for label in re.findall(r"severity:\s*([A-Za-z]+)", topic.read_text(encoding="utf-8")):
+            assert label in {"critical", "warning"}, f"{topic.name}: severity: {label}"
+
+
 def test_promtool_accepts_the_rules_where_it_is_installed():
     promtool = shutil.which("promtool")
     if promtool is None:

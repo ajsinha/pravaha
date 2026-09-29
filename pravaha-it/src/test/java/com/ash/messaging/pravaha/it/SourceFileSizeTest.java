@@ -75,6 +75,47 @@ class SourceFileSizeTest {
                 .isEmpty();
     }
 
+    /**
+     * CONSOLESIZE-1: the same ceiling for the Python -- the console and the SDK -- which nothing held
+     * until {@code console/core/services.py} passed it. The console's and the SDK's own pytest suites
+     * check it too ({@code test_file_sizes.py}); this is where the gate sees it.
+     */
+    @Test
+    void noPythonSourceFileExceedsTheLineLimit() throws IOException {
+        List<String> violations = new ArrayList<>();
+        for (Path file : pythonSources()) {
+            long lines = countLines(file);
+            if (lines > MAX_LINES) {
+                violations.add(repoRoot().relativize(file) + " (" + lines + " lines)");
+            }
+        }
+        assertThat(violations)
+                .as(
+                        "Python source files must stay under %d lines (project rule). Split the "
+                                + "responsibilities rather than raising the limit.",
+                        MAX_LINES)
+                .isEmpty();
+        assertThat(pythonSources())
+                .as("the Python rule scans the console and the SDK")
+                .anyMatch(p -> p.endsWith(Path.of("console", "core", "services.py")))
+                .anyMatch(p -> p.endsWith(Path.of("sdk", "python", "pravaha", "client.py")));
+    }
+
+    private static List<Path> pythonSources() {
+        List<String> skipped = List.of("/.venv/", "/venv/", "/site-packages/", "/node_modules/", "/build/", "/dist/");
+        try (Stream<Path> walk = Files.walk(repoRoot())) {
+            return walk.filter(Files::isRegularFile)
+                    .filter(p -> p.toString().endsWith(".py"))
+                    .filter(p -> !p.startsWith(nestedCheckouts()))
+                    .filter(p -> skipped.stream()
+                            .noneMatch(seg -> p.toString().replace('\\', '/').contains(seg)))
+                    .sorted(Comparator.comparing(Path::toString))
+                    .toList();
+        } catch (IOException e) {
+            throw new IllegalStateException("cannot walk " + repoRoot(), e);
+        }
+    }
+
     @Test
     void theRuleActuallyScansSomething() {
         // A path-matching bug would make this suite silently vacuous, which is worse than no rule

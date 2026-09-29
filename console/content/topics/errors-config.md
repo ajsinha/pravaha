@@ -339,7 +339,10 @@ precisely. It used to surface as a raw `NullPointerException` text dressed in a 
 
 A query-string parameter the endpoint could not read — today on `GET /api/v1/audit`: a `since` or
 `until` that is not an ISO-8601 instant (`2026-09-19T08:00:00Z`), a `decision` that is neither
-`allow` nor `deny`, a `cursor` that is not a previous page's `nextCursor`. Refused with a `400`
+`allow` nor `deny`, a `cursor` that is not a previous page's `nextCursor`. And on any endpoint that
+pages, an `?offset=` or `?limit=` present and empty or not a number (an empty `?limit=` is most often a
+shell variable that did not expand; leave the parameter out for its default), and an empty `?level=`
+or `?format=` on `/explain`. Refused with a `400`
 naming the parameter rather than the filter being dropped: an audit search that ignored a malformed
 `since` would answer a different question and look right.
 

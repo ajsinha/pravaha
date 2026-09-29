@@ -99,8 +99,8 @@ def test_every_code_a_page_names_is_one_the_engine_declares_and_the_browser_list
     listed = {entry["code"] for entry in every_code(REPO_ROOT / "docs")}
     assert len(declared) > 150 and len(listed) > 150
     # A code the engine writes as a bare string rather than through an ErrorCode: true to name,
-    # because it is what a client receives, even though no ErrorCode declares it (PRV-0400, the
-    # HTTP API's answer to a malformed parameter).
+    # because it is what a client receives. There are none today -- the HTTP API's PRV-0400 for a
+    # malformed parameter is PRV-1051 now (PRV0400-1) -- and the next one should be declared.
     emitted = {c for s in _java_sources() for c in re.findall(r'"(PRV-\d{4})"', s.read_text(encoding="utf-8"))}
     checked = 0
     unknown = []

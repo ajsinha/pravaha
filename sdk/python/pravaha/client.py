@@ -25,11 +25,9 @@ bare ImportError from three frames down.
 
 from __future__ import annotations
 
-import base64
 import dataclasses
 import re
 import time
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Iterator, List, Optional, Sequence
 
 from pravaha import tracecontext
@@ -37,8 +35,48 @@ from pravaha.api import EngineApi
 from pravaha.debug import DebugCommands
 from pravaha.endpoint import Endpoint
 from pravaha.errors import PravahaError, configure_docs_base_from_environment, require_well_formed
+from pravaha._wire import (
+    _ACTION_ABANDON,
+    _ACTION_BACKFILL,
+    _ACTION_CUTOVER,
+    _ACTION_DLQ_LIST,
+    _ACTION_DLQ_REPLAY,
+    _ACTION_DLQ_SHOW,
+    _ACTION_DROP,
+    _ACTION_FINISH,
+    _ACTION_LIST,
+    _ACTION_PAUSE,
+    _ACTION_REGISTER,
+    _ACTION_REPLACE,
+    _ACTION_REPLACEMENT,
+    _ACTION_RESUME,
+    _ACTION_ROLLBACK,
+    _WIRE_MAGIC,
+    _WIRE_VERSION,
+    _bind,
+    _close_prepared_request,
+    _create_prepared_request,
+    _parse_doput_result,
+    _parse_prepared_result,
+    _prepared_command,
+    _read_schema,
+    _statement_command,
+)
+from pravaha._wire import _subscribe_ticket as _subscribe_ticket
+from pravaha._wire import _wire_encode as _wire_encode
 from pravaha.options import ClientOptions
 from pravaha.rest import ApiError, RestClient
+# The control protocol's answers as values (CONSOLESIZE-1 moved them); re-exported, because
+# ``from pravaha.client import Replacement`` is how callers and the docs name them.
+from pravaha.records import LIST_FIELDS as LIST_FIELDS
+from pravaha.records import DeadLetter as DeadLetter
+from pravaha.records import DeadLetterPage as DeadLetterPage
+from pravaha.records import DeadLetterReplay as DeadLetterReplay
+from pravaha.records import FeedStop as FeedStop
+from pravaha.records import RegisteredQuery as RegisteredQuery
+from pravaha.records import Replacement as Replacement
+from pravaha.records import SinkFailure as SinkFailure
+from pravaha.records import _at, _dead_letter_of, _int, _listed, _ordinals, _replacement
 from pravaha.tls import TlsOptions
 
 if TYPE_CHECKING:  # pyarrow is imported where it is used; this is for the annotations only.
@@ -1181,65 +1219,11 @@ def connect(
         raise ValueError("give http_url in options or as an argument, not both")
     return Client(options)
 
-
-def _statement_command(sql: str) -> bytes:
-    """The Flight SQL ``CommandStatementQuery`` for a piece of SQL.
-
-    Hand-encoded rather than pulled from a generated protobuf module, because the
-    message is two fields and the alternative is making every user of this SDK install
-    a protobuf runtime and a generated package to send them. The encoding is
-    ``Any{type_url, value}`` wrapping ``CommandStatementQuery{query}``, and it is
-    covered by a test against a real server rather than trusted.
-    """
-    query = _proto_field(1, sql.encode("utf-8"))
-    type_url = _proto_field(1, b"type.googleapis.com/arrow.flight.protocol.sql.CommandStatementQuery")
-    return type_url + _proto_field(2, query)
-
-
-# Pravaha's own control protocol. Flight SQL has no vocabulary for "register a continuous
-# query" or "subscribe to one", so both travel as Flight actions and a Flight ticket -- the
-# extension points the protocol provides. The framing is a magic number, a version and a list
-# of length-prefixed UTF-8 strings, which is four lines to write in either language and keeps
-# this SDK free of a protobuf runtime.
-_WIRE_MAGIC = 0x50525648
-_WIRE_VERSION = 1
-
-_ACTION_REGISTER = "pravaha.register"
-_ACTION_DROP = "pravaha.drop"
-_ACTION_LIST = "pravaha.list"
-_ACTION_PAUSE = "pravaha.pause"
-_ACTION_RESUME = "pravaha.resume"
-
 #: Backoff between attempts to reopen a ``reconnect=True`` subscription, in seconds.
 _RECONNECT_FIRST_DELAY = 0.25
 _RECONNECT_MAX_DELAY = 10.0
 #: Indirected so a test can wait without waiting.
 _sleep = time.sleep
-_ACTION_REPLACE = "pravaha.replace"
-_ACTION_REPLACEMENT = "pravaha.replacement"
-_ACTION_CUTOVER = "pravaha.cutover"
-_ACTION_ROLLBACK = "pravaha.rollback"
-_ACTION_ABANDON = "pravaha.abandon"
-_ACTION_FINISH = "pravaha.finish"
-_ACTION_BACKFILL = "pravaha.backfill"
-
-_ACTION_DLQ_LIST = "pravaha.dlq.list"
-_ACTION_DLQ_SHOW = "pravaha.dlq.show"
-_ACTION_DLQ_REPLAY = "pravaha.dlq.replay"
-
-
-
-def _wire_encode(fields: Sequence[str]) -> bytes:
-    out = bytearray()
-    out += _WIRE_MAGIC.to_bytes(4, "big")
-    out.append(_WIRE_VERSION)
-    out += len(fields).to_bytes(4, "big")
-    for index, field in enumerate(fields):
-        require_well_formed(field, f"field {index} of this request")
-        encoded = (field or "").encode("utf-8")
-        out += len(encoded).to_bytes(4, "big")
-        out += encoded
-    return bytes(out)
 
 
 def _wire_decode(payload: bytes) -> "list[str]":
@@ -1262,405 +1246,12 @@ def _wire_decode(payload: bytes) -> "list[str]":
     return fields
 
 
-def _subscribe_ticket(
-    view: str,
-    filter_pairs: Sequence[str],
-    *,
-    snapshot: bool = False,
-    preference: Optional[str] = None,
-) -> bytes:
-    # A verb of its own for the snapshot form, so an older server refuses it as a ticket it
-    # does not know rather than reading a flag as a filter column.
-    verb = "subscribe.snapshot" if snapshot else "subscribe"
-    fields = [verb, view, *filter_pairs]
-    if preference is not None:
-        # Last, and that is what makes it safe to add (STRM-16). Filter pairs are alternating
-        # column and value, so their count is even; one more field makes it odd, which both
-        # ends can tell without a version bump and with no chance of a filter column being
-        # read as a policy.
-        fields.append(preference)
-    return _wire_encode(fields)
-
-
-def _at(row: Sequence[str], index: int) -> str:
-    return row[index] if index < len(row) else ""
-
-
-# The fields one pravaha.list row carries, in order: ControlWire.LIST_FIELDS on the server, which
-# ControlWireListFieldsTest holds this tuple to (WIRE-1). Positional and append-only.
-LIST_FIELDS = (
-    "name",
-    "state",
-    "sql",
-    "fingerprint",
-    "rows_in",
-    "key_ordinals",
-    "sink",
-    "retention",
-    "feed_state",
-    "feed_code",
-    "feed_message",
-    "feed_where",
-    "feed_at",
-    "sink_state",
-    "sink_code",
-    "sink_message",
-)
-
-
-def _listed(row: Sequence[str], name: str) -> str:
-    """A pravaha.list row's field by its name; empty when an older server did not send it."""
-    return _at(row, LIST_FIELDS.index(name))
-
-
-def _ordinals(text: str) -> "tuple[int, ...]":
-    try:
-        return tuple(int(part) for part in text.split(",") if part.strip())
-    except ValueError:
-        # Not a field this client understands; an empty key reads as "unknown", not wrong.
-        return ()
-
-
-def _int(text: str) -> int:
-    """A numeric field, or zero from a server that did not send one."""
-    try:
-        return int(text) if text else 0
-    except ValueError:
-        return 0
-
-
-def _dead_letter_of(row: Sequence[str]) -> "DeadLetter":
-    """One entry from the wire, with its record decoded from Base64."""
-    try:
-        raw = base64.b64decode(_at(row, 8), validate=True)
-    except Exception:
-        raw = b""
-    return DeadLetter(
-        id=_at(row, 0),
-        sequence=_int(_at(row, 1)),
-        stream=_at(row, 2),
-        offset=_at(row, 3),
-        code=_at(row, 4),
-        reason=_at(row, 5),
-        at=_at(row, 6),
-        size=_int(_at(row, 7)),
-        raw=raw,
-        withheld=_at(row, 9),
-        replay=_at(row, 10) or "NEW",
-        replayed_at=_at(row, 11),
-    )
-
-
-def _number(text: str) -> int:
-    try:
-        return int(text)
-    except ValueError:
-        return 0
-
-
-def _replacement(row: Sequence[str]) -> "Replacement":
-    """Reads a status from the wire's positional fields, which are append-only."""
-    return Replacement(
-        name=_at(row, 0),
-        state=_at(row, 1),
-        sql=_at(row, 2),
-        candidate=_at(row, 3) or None,
-        replacing=_at(row, 4) or None,
-        sink=_at(row, 5) or None,
-        options=_at(row, 6),
-        owner=_at(row, 7) or None,
-        started_at=_at(row, 8) or None,
-        cut_over_at=_at(row, 9) or None,
-        rollback_until=_at(row, 10) or None,
-        rollback_available=_at(row, 11) == "true",
-        history_rows=_number(_at(row, 12)),
-        live_rows=_number(_at(row, 13)),
-        rows_per_second=_number(_at(row, 14)),
-        partitions=_number(_at(row, 15)),
-        partitions_live=_number(_at(row, 16)),
-        history_complete=_at(row, 17) == "true",
-        rate_limit=_number(_at(row, 18)),
-        paused=_at(row, 19) == "true",
-        lag_nanos=_number(_at(row, 20)),
-        failure_code=_at(row, 21) or None,
-        failure=_at(row, 22) or None,
-    )
-
-
 def _one_replacement(rows: "Sequence[Sequence[str]]", name: str) -> "Replacement":
     if not rows:
         raise QueryError(
             f"the server accepted the request but said nothing about the replacement of {name!r}"
         )
     return _replacement(rows[0])
-
-
-@dataclass(frozen=True)
-class Replacement:
-    """A blue/green replacement as the server reports it (ADR-046).
-
-    One answer rather than three calls: a screen that has to ask separately for the state,
-    the progress and the rollback window shows three moments instead of one.
-    """
-
-    name: str
-    #: ``BACKFILLING``, ``CAUGHT_UP``, ``CUT_OVER``, ``ROLLED_BACK``, ``ABANDONED``,
-    #: ``FAILED`` or ``FINISHED``.
-    state: str
-    sql: str
-    #: The fingerprint of the computation being prepared.
-    candidate: Optional[str] = None
-    #: The fingerprint of the one serving the name.
-    replacing: Optional[str] = None
-    sink: Optional[str] = None
-    options: str = ""
-    owner: Optional[str] = None
-    started_at: Optional[str] = None
-    cut_over_at: Optional[str] = None
-    rollback_until: Optional[str] = None
-    rollback_available: bool = False
-    history_rows: int = 0
-    live_rows: int = 0
-    rows_per_second: int = 0
-    partitions: int = 0
-    partitions_live: int = 0
-    history_complete: bool = False
-    rate_limit: int = 0
-    paused: bool = False
-    lag_nanos: int = 0
-    failure_code: Optional[str] = None
-    failure: Optional[str] = None
-
-    @property
-    def active(self) -> bool:
-        """Still doing something: backfilling, caught up, or cut over and retaining."""
-        return self.state in ("BACKFILLING", "CAUGHT_UP", "CUT_OVER")
-
-    def __str__(self) -> str:
-        return f"{self.name} [{self.state}, {self.history_rows} history rows]"
-
-
-@dataclass(frozen=True)
-class FeedStop:
-    """Why a registered query's source stopped (FEED-1).
-
-    A source that fails mid-read is not retried: the query stays ``RUNNING`` and its view
-    answers at the frontier it reached. ``code`` is ``PRV-5092`` or the source's own;
-    ``message`` is what it said, or a note that the server withheld it from a row-filtered
-    caller; ``where`` is ``stream#partition``; ``at`` is when, ISO-8601.
-    """
-
-    code: str
-    message: str = ""
-    where: str = ""
-    at: str = ""
-
-
-@dataclass(frozen=True)
-class SinkFailure:
-    """Why a registered query's sink was detached (SINK-3, ``PRV-8009``).
-
-    A sink that refuses a batch is detached rather than written past: the query stays
-    ``RUNNING``, its view stays right, and nothing more is written. ``code`` is ``PRV-8009``;
-    ``message`` is what happened, with every configured sink option struck out of it, or a note
-    that the server withheld it from a row-filtered caller.
-    """
-
-    code: str
-    message: str = ""
-
-
-@dataclass(frozen=True)
-class RegisteredQuery:
-    """What a server says about one registered continuous query."""
-
-    name: str
-    state: str
-    sql: str
-    fingerprint: str
-    #: ``-1`` when the server withholds the count: your access to the view is row-filtered.
-    rows_in: int
-    #: The view's key as output ordinals; empty from a server that predates the field.
-    key_columns: "tuple[int, ...]" = ()
-    #: The sink binding its changes are also written to, or ``None``.
-    sink: Optional[str] = None
-    #: How much event time the view keeps (ISO-8601, or ``"forever"``); ``None`` if unknown.
-    retention: Optional[str] = None
-    #: Whether rows still reach it: ``RUNNING``, ``PAUSED``, ``STOPPED`` (a source failed and is
-    #: not retried) or ``NONE`` (nothing bound); ``None`` from a server that predates it.
-    feed: Optional[str] = None
-    #: Why the first stopped source stopped, or ``None`` while every source reads.
-    feed_stop: Optional[FeedStop] = None
-    #: Whether the sink is still writing: ``ATTACHED``, ``DETACHED`` or ``NONE`` (writes
-    #: nowhere); ``None`` from a server that predates the field.
-    sink_state: Optional[str] = None
-    #: Why the sink was detached, or ``None`` while it writes.
-    sink_failure: Optional[SinkFailure] = None
-
-    @property
-    def is_running(self) -> bool:
-        return self.state == "RUNNING"
-
-    @property
-    def is_source_stopped(self) -> bool:
-        """``RUNNING`` and not moving: a source stopped mid-read. :attr:`feed_stop` says why."""
-        return self.feed == "STOPPED"
-
-    @property
-    def is_sink_detached(self) -> bool:
-        """The sink refused a batch and was detached (``PRV-8009``).
-
-        The query is still ``RUNNING`` and its view is still right; nothing more reaches the
-        sink. :attr:`sink_failure` says what happened.
-        """
-        return self.sink_state == "DETACHED"
-
-    def __str__(self) -> str:
-        return f"{self.name} [{self.state}, {self.fingerprint}, {self.rows_in} rows]"
-
-
-def _create_prepared_request(sql: str) -> bytes:
-    """``ActionCreatePreparedStatementRequest{query}``, packed as ``Any``."""
-    body = _proto_field(1, sql.encode("utf-8"))
-    type_url = _proto_field(
-        1, b"type.googleapis.com/arrow.flight.protocol.sql.ActionCreatePreparedStatementRequest"
-    )
-    return type_url + _proto_field(2, body)
-
-
-def _close_prepared_request(handle: bytes) -> bytes:
-    """``ActionClosePreparedStatementRequest{prepared_statement_handle}``, packed as ``Any``."""
-    body = _proto_field(1, handle)
-    type_url = _proto_field(
-        1, b"type.googleapis.com/arrow.flight.protocol.sql.ActionClosePreparedStatementRequest"
-    )
-    return type_url + _proto_field(2, body)
-
-
-def _prepared_command(handle: bytes) -> bytes:
-    """``CommandPreparedStatementQuery{prepared_statement_handle}``, packed as ``Any``."""
-    body = _proto_field(1, handle)
-    type_url = _proto_field(
-        1, b"type.googleapis.com/arrow.flight.protocol.sql.CommandPreparedStatementQuery"
-    )
-    return type_url + _proto_field(2, body)
-
-
-def _parse_prepared_result(body: bytes) -> tuple[bytes, bytes, bytes]:
-    """Reads ``Any{ActionCreatePreparedStatementResult}``: handle, dataset and parameter schemas."""
-    fields = _proto_fields(_proto_fields(body).get(2, b""))
-    return fields.get(1, b""), fields.get(2, b""), fields.get(3, b"")
-
-
-def _parse_doput_result(body: bytes) -> bytes:
-    """Reads ``DoPutPreparedStatementResult{prepared_statement_handle}``.
-
-    Not wrapped in ``Any``: this one travels as application metadata on the put
-    acknowledgement rather than as an action result, which is a difference in the spec
-    and not an inconsistency here.
-    """
-    return _proto_fields(body).get(1, b"")
-
-
-def _proto_fields(payload: bytes) -> dict[int, bytes]:
-    """Every length-delimited field in a message, by field number.
-
-    Enough of a protobuf reader for the four messages this SDK exchanges, and no more.
-    Non-length-delimited wire types are skipped rather than decoded, because none of
-    the fields we read use them -- and guessing at the ones we do not read is how a
-    hand-rolled parser starts drifting from the spec.
-    """
-    fields: dict[int, bytes] = {}
-    index = 0
-    while index < len(payload):
-        tag, index = _read_varint(payload, index)
-        number, wire_type = tag >> 3, tag & 0x7
-        if wire_type == 2:
-            length, index = _read_varint(payload, index)
-            fields[number] = payload[index : index + length]
-            index += length
-        elif wire_type == 0:
-            _, index = _read_varint(payload, index)
-        elif wire_type == 5:
-            index += 4
-        elif wire_type == 1:
-            index += 8
-        else:
-            break
-    return fields
-
-
-def _read_varint(payload: bytes, index: int) -> tuple[int, int]:
-    value = 0
-    shift = 0
-    while index < len(payload):
-        byte = payload[index]
-        index += 1
-        value |= (byte & 0x7F) << shift
-        if not byte & 0x80:
-            return value, index
-        shift += 7
-    return value, index
-
-
-def _read_schema(serialized: bytes) -> "pyarrow.Schema":
-    """The parameter schema, as the server serialised it.
-
-    Flight SQL sends it as an IPC *message*, and pyarrow reads schemas from IPC
-    *streams*, so a stream continuation and end-of-stream marker are added around it.
-    A schema message alone is a valid stream prefix; this is framing, not translation.
-    """
-    import pyarrow as pa
-
-    if not serialized:
-        return pa.schema([])
-    try:
-        return pa.ipc.read_schema(pa.py_buffer(serialized))
-    except Exception:
-        stream = b"\xff\xff\xff\xff" + len(serialized).to_bytes(4, "little") + serialized
-        return pa.ipc.open_stream(pa.py_buffer(stream + b"\xff\xff\xff\xff\x00\x00\x00\x00")).schema
-
-
-def _bind(schema: "pyarrow.Schema", parameters: Sequence[object]) -> "pyarrow.RecordBatch":
-    """One row of values, in the types the server asked for.
-
-    The schema comes from the server, so nothing here guesses a type -- which is the
-    part a driver usually gets wrong. A value of the wrong type fails here, naming the
-    placeholder; the same value reaching the server fails with a message about a query
-    the caller did not write.
-    """
-    import pyarrow as pa
-
-    if len(parameters) != len(schema):
-        raise ValueError(
-            f"this statement has {len(schema)} placeholder"
-            f"{'' if len(schema) == 1 else 's'} and {len(parameters)} "
-            f"value{' was' if len(parameters) == 1 else 's were'} given"
-        )
-    columns = []
-    for index, (field, value) in enumerate(zip(schema, parameters)):
-        try:
-            columns.append(pa.array([value], type=field.type))
-        except (pa.ArrowInvalid, pa.ArrowTypeError, TypeError) as exc:
-            raise ValueError(
-                f"?{index + 1} needs {field.type}, but {value!r} was given"
-            ) from exc
-    return pa.RecordBatch.from_arrays(columns, schema=schema)
-
-
-def _proto_field(number: int, payload: bytes) -> bytes:
-    """One length-delimited protobuf field: tag, length, bytes."""
-    return _varint((number << 3) | 2) + _varint(len(payload)) + payload
-
-
-def _varint(value: int) -> bytes:
-    out = bytearray()
-    while True:
-        byte = value & 0x7F
-        value >>= 7
-        out.append(byte | (0x80 if value else 0))
-        if not value:
-            return bytes(out)
 
 
 def _failure(exc: Exception) -> PravahaError:
@@ -1681,102 +1272,3 @@ def _failure(exc: Exception) -> PravahaError:
 def _message_of(exc: Exception) -> str:
     text = str(exc)
     return text if text else exc.__class__.__name__
-
-
-@dataclass(frozen=True)
-class DeadLetter:
-    """One record a query's feed could not decode (B5).
-
-    :attr:`raw` may be empty with :attr:`withheld` saying why, and that is not the same as an
-    empty record: a dead letter's bytes are a row of the source, a record that failed to decode
-    has no row for a row filter to be applied to, and a caller entitled to a slice of the view
-    is therefore shown everything about the record except the record. Check
-    :attr:`is_withheld` rather than drawing an empty cell.
-    """
-
-    #: What addresses this entry: the correlation id, the same string the node's log lines carry.
-    id: str
-    #: Its position in the file, oldest first. It shifts when retention evicts, which is why
-    #: :attr:`id` and not this is the handle.
-    sequence: int
-    #: Which of the query's streams it arrived on, or ``""`` for an entry that predates the field.
-    stream: str
-    #: Where it came from in the source's own terms: ``line 812``, ``orders/3@1041``.
-    offset: str
-    #: The ``PRV-`` code of the decode failure, or ``""`` when the source named none.
-    code: str
-    #: The decoder's own sentence, or ``""`` when it is withheld.
-    reason: str
-    #: When it was rejected, ISO-8601, or ``""`` for an entry written before that was recorded.
-    at: str
-    #: How many bytes the record is. Disclosed even when the record is not: a length is not a row.
-    size: int
-    #: The record itself, or empty when withheld.
-    raw: bytes
-    #: Why the record is absent, or ``""`` when it is not.
-    withheld: str
-    #: ``NEW``, ``REPLAYED`` or ``FAILED_AGAIN``.
-    replay: str = "NEW"
-    #: When it was replayed, ISO-8601, or ``""``.
-    replayed_at: str = ""
-
-    @property
-    def is_withheld(self) -> bool:
-        """True when the server would not give this caller the record itself."""
-        return bool(self.withheld)
-
-    def __str__(self) -> str:
-        code = f" {self.code}" if self.code else ""
-        return f"{self.id} at {self.offset}{code}"
-
-
-@dataclass(frozen=True)
-class DeadLetterPage:
-    """A page of one query's dead letters, newest first, with the queue's totals.
-
-    The totals come with the page rather than from a second call, because the first thing
-    anyone does with a page of failures is ask how many there are -- and a second call answers
-    from a different moment.
-    """
-
-    query: str
-    entries: "tuple[DeadLetter, ...]"
-    offset: int
-    total: int
-    bytes: int
-    #: Entries retention has removed and are gone. Never omitted: a depth without it cannot be
-    #: read, since a queue steady at two thousand is either one bad afternoon or a bound
-    #: throwing two thousand a minute away.
-    evicted: int
-    evicted_bytes: int
-    replayed: int
-    failed_again: int
-    #: The bound in force, as words.
-    retention: str
-    #: Whether the server has a dead-letter directory at all. ``False`` means a record it cannot
-    #: decode stops the source rather than being kept -- a different state from an empty queue.
-    configured: bool = True
-
-    @property
-    def has_more(self) -> bool:
-        """Whether there are older entries past this page."""
-        return self.offset + len(self.entries) < self.total
-
-
-@dataclass(frozen=True)
-class DeadLetterReplay:
-    """What replaying one dead letter did."""
-
-    id: str
-    #: ``REPLAYED`` -- the record decoded and is a row of the view now, applied at the frontier
-    #: the query has reached -- or ``FAILED_AGAIN``.
-    outcome: str
-    #: The server's sentence, which says what that means for this query.
-    detail: str = ""
-    #: When it failed again, the entry it went back on the queue as. That is the id to replay
-    #: next; replaying :attr:`id` again would decode the same bytes with the same decoder.
-    new_id: str = ""
-
-    @property
-    def succeeded(self) -> bool:
-        return self.outcome == "REPLAYED"

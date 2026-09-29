@@ -239,11 +239,54 @@ def _free_port() -> int:
         return int(probe.getsockname()[1])
 
 
+#: ABOUTBASE-1: the fixed text the visual tests photograph instead of the repository's prose.
+VISUAL_FIXTURE = CONSOLE_ROOT / "tests" / "visual" / "fixture" / "tree"
+#: What the console quotes from the repository, copied beside the fixture: the documents topics
+#: include, the README and licence About reads, the papers it serves.
+_QUOTED = ["README.md", "LICENSE", "docs", "sdk/python/README.md"]
+#: Directories the fixture replaces whole, so a study or tutorial added to the repository does not
+#: appear on a photographed index. Every other fixture file replaces the one at its path.
+REPLACED = ["console/content/tutorials", "examples/case-studies"]
+
+
+def visual_content() -> tuple[pathlib.Path, pathlib.Path]:
+    """A content root and a repository root for a console whose pages are photographed.
+
+    A copy of the real content with ``VISUAL_FIXTURE`` laid over it: the release notes, the
+    case studies, the tutorials and the "Getting started" topic are fixed text, so a prose edit
+    to any of them does not invalidate a baseline; everything else -- the other topics, whose
+    cards every screen shows, the guides, the codes -- is the repository's own. The copy lives in
+    a temporary directory, never in the tree.
+    """
+    import shutil
+
+    repository = pathlib.Path(tempfile.mkdtemp(prefix="pravaha-visual-content-")) / "repository"
+    shutil.copytree(CONSOLE_ROOT / "content", repository / "console" / "content")
+    for quoted in _QUOTED:
+        source = CONSOLE_ROOT.parent / quoted
+        if source.is_dir():
+            shutil.copytree(source, repository / quoted)
+        elif source.is_file():
+            (repository / quoted).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, repository / quoted)
+    for replaced in REPLACED:
+        shutil.rmtree(repository / replaced, ignore_errors=True)
+    for source in sorted(p for p in VISUAL_FIXTURE.rglob("*") if p.is_file()):
+        target = repository / source.relative_to(VISUAL_FIXTURE)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+    return repository / "console" / "content", repository
+
+
 class Console:
-    """One console application on a loopback port, stopped by ``close``."""
+    """One console application on a loopback port, stopped by ``close``.
+
+    ``fixed_content`` runs it over :func:`visual_content` rather than the repository's text: the
+    visual tests do, every other browser test reads the real content.
+    """
 
     def __init__(self, engine: BrowserEngine, *, default_role: str = "operator",
-                 assist: dict | None = None) -> None:
+                 assist: dict | None = None, fixed_content: bool = False) -> None:
         import uvicorn
 
         self.engine = engine
@@ -261,7 +304,17 @@ class Console:
         config.set("assist.usage", str(assist_dir / "usage.json"))
         config.set("assist.log", str(assist_dir / "log.jsonl"))
         config.set("assist.watch_seconds", "3600")
-        self.app = create_app(config, engine=engine)
+        content_root, repository = visual_content() if fixed_content else ("", "")
+        self._fixture = pathlib.Path(repository).parent if fixed_content else None
+        config.set("content.root", str(content_root))
+        config.set("content.repository", str(repository))
+        try:
+            self.app = create_app(config, engine=engine)
+        finally:
+            # The configurator is a process-wide singleton and create_app has read these: put them
+            # back, so no console built after this one -- in any test -- reads the fixture.
+            config.set("content.root", "")
+            config.set("content.repository", "")
         self.port = _free_port()
         self.base = f"http://127.0.0.1:{self.port}"
         self._server = uvicorn.Server(uvicorn.Config(
@@ -282,6 +335,10 @@ class Console:
         self.engine.closed.set()
         self._server.should_exit = True
         self._thread.join(timeout=10)
+        if self._fixture is not None:
+            import shutil
+
+            shutil.rmtree(self._fixture, ignore_errors=True)
 
 
 def sign_in(page: Page, console: Console, role: str | None = None, next_path: str = "/home",

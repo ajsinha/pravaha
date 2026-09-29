@@ -1008,7 +1008,7 @@ Over HTTP the same verbs are `POST /api/v1/queries/{name}/debug`,
 `debug_fork` / `debugFork` and the rest. A state page's entries are `{"key": …, "values": {…}}`,
 the entry's key beside its columns rather than among them, so a column that happens to be named
 `key` cannot hide it. `?offset=` and `?limit=` take the defaults 0 and 50 when left out; present and
-empty, or present and not a number, they are refused `PRV-0400`, and the same holds for a query's
+empty, or present and not a number, they are refused `PRV-1051` (API_INVALID_PARAMETER), and the same holds for a query's
 dead-letter page. The console's debugger screen is
 `/queries/{name}/debug`, reached from the query's own page: the same session, forked, stepped
 and exported through a browser.

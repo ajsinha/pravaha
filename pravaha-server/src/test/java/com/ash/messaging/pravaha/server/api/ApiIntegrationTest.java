@@ -306,7 +306,7 @@ class ApiIntegrationTest {
                         .content(json.writeValueAsString(
                                 new QueryController.ValidateRequest("SELECT user_id FROM txn"))))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("PRV-0400"));
+                .andExpect(jsonPath("$.code").value("PRV-1051"));
 
         mvc.perform(post("/api/v1/queries/explain?format=")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -334,10 +334,10 @@ class ApiIntegrationTest {
         for (String query : new String[] {"?limit=", "?offset=", "?limit=ten"}) {
             mvc.perform(get("/api/v1/queries/nothing_here/dead-letters" + query))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.code").value("PRV-0400"));
+                    .andExpect(jsonPath("$.code").value("PRV-1051"));
             mvc.perform(get("/api/v1/debug/sessions/no-such-session/state/window%230" + query))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.code").value("PRV-0400"));
+                    .andExpect(jsonPath("$.code").value("PRV-1051"));
         }
         // The control: absent still takes the default, so the lookup runs and answers for itself.
         mvc.perform(get("/api/v1/debug/sessions/no-such-session/state/window%230"))
@@ -457,7 +457,7 @@ class ApiIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("PRV-0400"))
+                .andExpect(jsonPath("$.code").value("PRV-1051"))
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("an empty value")))
                 // The message names every level the endpoint takes, codegen included: it named two
                 // of the three, so a caller who mistyped `codegen` was told it was not a level.
@@ -467,7 +467,7 @@ class ApiIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("PRV-0400"))
+                .andExpect(jsonPath("$.code").value("PRV-1051"))
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("format must be")));
 
         // The control, and the reason this is not simply "reject the empty string everywhere":

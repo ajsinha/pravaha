@@ -24,7 +24,11 @@ version the comparison is skipped with that reason rather than failed, and
 diffs, which is the review the design asks for.
 
 Documents included verbatim from the repository (``DOCUMENT_PAGES``) are not photographed;
-their pixels change with the prose.
+their pixels change with the prose. The pages that quote the repository's prose and are
+photographed -- the release notes on About, the case studies, the tutorials index, the "Getting
+started" topic -- are rendered over fixed text instead (``tests/visual/fixture``, laid over a copy
+of the content by ``browser_harness.visual_content``), so a prose edit does not invalidate their
+baselines (ABOUTBASE-1). Every other test reads the real content.
 """
 from __future__ import annotations
 
@@ -91,7 +95,7 @@ def console():
     """A console of this module's own, over an untouched fake engine. The session's shared one
     has had queries registered and changes committed by the journeys by the time this runs,
     and a baseline must not depend on which tests ran first."""
-    server = Console(BrowserEngine())
+    server = Console(BrowserEngine(), fixed_content=True)
     try:
         yield server
     finally:

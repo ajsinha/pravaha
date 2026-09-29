@@ -115,6 +115,14 @@ assist:
   # How often the console looks for a change another process stored.
   watch_seconds: 1
 
+# Where the help, the tutorials and About read their text. Empty: the content/ directory shipped
+# with the console, and the repository (or installation) it sits in for README, docs/ and
+# examples/case-studies/. Nothing needs to set these; the visual tests do, to photograph pages over
+# fixed text (ABOUTBASE-1).
+content:
+  root: ""
+  repository: ""
+
 logging:
   level: "${LOG_LEVEL:INFO}"
   # text: a pattern for a person reading a terminal. json: one JSON object per line -- @timestamp,
