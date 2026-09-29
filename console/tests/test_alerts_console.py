@@ -34,7 +34,8 @@ def admin(engine):
 
 def test_the_list_shows_each_alert_with_its_firing_chip_and_a_nav_entry(admin):
     page = admin.get("/alerts").text
-    assert 'aria-current="page">Operations' in page
+    # Alerts is an item in the Operate panel of the mega menu (not a top-level entry), current here.
+    assert 'href="/alerts" aria-current="page"' in page
     assert 'data-alert="low_stock_alert"' in page
     assert 'data-chip="firing"' in page and "1 firing" in page
     assert "warehouse = &#39;LDN&#39;" in page or "warehouse = 'LDN'" in page

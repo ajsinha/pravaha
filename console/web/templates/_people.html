@@ -2,11 +2,15 @@
     action, and a secret the engine issued once. -#}
 
 {# What the last action did, once. `flashes` is [[level, message], ...], popped by the route. #}
+{# Drawn as MAYA draws its flashes: dismissible, inside one polite live region. #}
 {% macro flashes(items) -%}
+<div class="pv-flashes" aria-live="polite">
 {% for level, message in items or [] %}
-<div class="alert alert-{{ level if level in ('success', 'warning', 'danger', 'info') else 'info' }} py-2 small"
-     role="{{ 'alert' if level == 'danger' else 'status' }}" data-flash="{{ level }}">{{ message }}</div>
+<div class="alert alert-{{ level if level in ('success', 'warning', 'danger', 'info') else 'info' }} alert-dismissible fade show py-2"
+     role="{{ 'alert' if level == 'danger' else 'status' }}" data-flash="{{ level }}">{{ message }}
+  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="{{ t('people.dismiss') }}"></button></div>
 {% endfor %}
+</div>
 {%- endmacro %}
 
 {# A secret shown once: a new or rotated key, or a password-reset token. The engine keeps only

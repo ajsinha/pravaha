@@ -109,6 +109,54 @@ def test_signing_out_comes_back_to_the_landing_page(page):
         assert page.exceptions == [], page.exceptions
 
 
+def test_signing_out_from_the_user_menu_leaves_the_public_bar(page):
+    """The owner's rule: once signed out, the bar is MAYA's public one -- the brand, Help, About
+    and Sign in -- and never the app's menu, whose every entry would bounce to the sign-in form.
+    Driven the way a person does it: open a screen, open the user menu, press Sign out."""
+    with own_console() as own:
+        sign_in(page, own)
+        page.goto(own.url("/catalog"))
+        settled(page)
+        assert page.exists(".pv-nav .mega-panel")
+        page.click("#account-menu")
+        page.wait_for("document.querySelector('.pv-user-menu.show')")
+        page.wait_for_navigation(lambda: page.click('#sign-out-form button[type="submit"]'))
+        settled(page)
+        assert page.url().rstrip("/").endswith(own.url("").rstrip("/")), page.url()
+        assert page.exists("#hero-title")                              # the landing page
+        assert page.exists('.pv-nav a[href="/login"]')                 # the public bar's Sign in
+        assert page.exists('.pv-nav a[href="/help"]') and page.exists('.pv-nav a[href="/about"]')
+        assert not page.exists(".mega-panel") and not page.exists("#account-menu")
+        nav = page.text(".pv-nav")
+        for app_only in ("Catalog", "Workbench", "Operate", "Admin"):
+            assert app_only not in nav, app_only
+        assert page.exceptions == [], page.exceptions
+
+
+def test_the_mega_menu_works_by_keyboard_and_at_phone_width(page, console):
+    """MAYA's mega menu: a panel opens from its entry and its items are links; at phone width the
+    same menu sits behind one button, and nothing on the page is wider than the screen."""
+    sign_in(page, console)
+    page.goto(console.url("/catalog"))
+    settled(page)
+    page.focus(".pv-nav .mega:nth-child(3) > .dropdown-toggle")
+    page.press("Enter")
+    page.wait_for("document.querySelector('.pv-nav .mega:nth-child(3) .mega-panel.show')")
+    assert page.exists('.mega-panel.show a[href="/alerts"]')
+    page.press("Escape")
+    page.wait_for("!document.querySelector('.mega-panel.show')")
+    page.viewport(390, 844)
+    page.goto(console.url("/operations"))
+    settled(page)
+    assert page.eval("document.documentElement.scrollWidth <= window.innerWidth + 1")
+    page.click(".pv-nav .navbar-toggler")
+    page.wait_for("document.querySelector('#pravaha-nav.show')")
+    page.click(".pv-nav .mega:nth-child(1) > .dropdown-toggle")
+    page.wait_for("document.querySelector('.mega-panel.show')")
+    assert page.eval("document.documentElement.scrollWidth <= window.innerWidth + 1")
+    assert page.exceptions == [], page.exceptions
+
+
 # ============================================================ 1. first run -> a running query
 
 def test_first_run_onboarding_reaches_a_live_view_that_changes(page):
@@ -288,9 +336,11 @@ def test_tab_order_follows_the_page_and_every_stop_shows_focus(page, console):
         page.press("Tab")
         stops.append(page.active())
     labels = [s["text"] or s["label"] for s in stops]
-    # Brand, then the six sections in the order the bar shows them, then the chrome's controls.
-    nav = [label for label in labels if label in {"Workbench", "Catalog", "Views", "Operations", "Queries", "Help"}]
-    assert nav == ["Workbench", "Catalog", "Views", "Operations", "Queries", "Help"], labels
+    # Brand, then the five mega-menu entries in the order the bar shows them (MAYA's groups),
+    # then the search, alerts, the theme menu and the user menu.
+    nav = [label.strip() for label in labels if label and label.strip() in {"Catalog", "Workbench", "Operate", "Admin", "Help"}]
+    assert nav == ["Catalog", "Workbench", "Operate", "Admin", "Help"], labels
+    assert any("palette" in (label or "").lower() or "Search" in (label or "") for label in labels), labels
     for stop in stops:
         assert stop["visible"], stop
         assert stop["outline"] or stop["shadow"], f"no visible focus indicator on {stop}"

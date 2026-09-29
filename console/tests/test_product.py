@@ -1036,7 +1036,7 @@ def test_the_plugins_screen_names_the_call_that_failed_with_the_engine_down(engi
 # ============================================================ admin: access and the audit trail
 
 def test_admin_is_in_the_navigation_the_palette_and_is_the_admin_personas_landing(engine, signed_in):
-    assert 'href="/admin"' in signed_in.get("/catalog").text
+    assert 'href="/admin/access"' in signed_in.get("/catalog").text
     hrefs = {i.get("href") for i in signed_in.get("/api/v1/palette").json()["items"]}
     assert {"/admin/access", "/admin/audit"} <= hrefs
     assert signed_in.get("/admin", follow_redirects=False).headers["location"] == "/admin/access"
@@ -2139,8 +2139,10 @@ def test_the_slogan_is_on_every_page_in_italics(signed_in, path):
     page = signed_in.get(path).text
     assert Messages()("shell.slogan") == "Ask once. Answer always."
     assert "Ask once. Answer always." in page, path
-    assert 'class="slogan"' in page, path
-    assert "footer .slogan{font-family:var(--serif);font-style:italic;" in page, path
+    assert 'class="pv-foot-slogan slogan"' in page, path
+    assert "/static/css/theme.css" in page and '<footer class="pv-foot">' in page, path
+    theme = (CONSOLE_ROOT / "web" / "static" / "css" / "theme.css").read_text(encoding="utf-8")
+    assert ".pv-foot-slogan { font-style: italic;" in theme
 
 
 def test_the_slogan_is_on_a_page_nobody_has_signed_in_for(anonymous):

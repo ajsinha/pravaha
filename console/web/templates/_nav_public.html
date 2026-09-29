@@ -1,0 +1,18 @@
+{# The top bar for the public pages -- the landing page, the help, About -- when nobody is signed
+   in, in MAYA's form: the brand, Help and About, the theme menu and Sign in. #}
+<nav class="navbar navbar-expand pv-nav fixed-top" aria-label="{{ t('shell.primary_nav') }}">
+  <div class="container-fluid">
+    <a class="navbar-brand pv-brand" href="/"><img src="/static/img/pravaha-mark-white.svg" alt="" width="34" height="34">
+      <span><span class="name">{{ app_name }}</span><small>{{ t('shell.tagline') }}</small>
+        <small class="creed">{{ t('shell.slogan') }}</small></span></a>
+    {% set path = request.url.path %}
+    <ul class="navbar-nav me-auto">
+      <li class="nav-item"><a class="nav-link{{ ' active' if path.startswith('/help') or path.startswith('/tutorials') else '' }}" href="/help"
+        {% if path == '/help' %}aria-current="page"{% endif %}><i class="bi bi-book" aria-hidden="true"></i><span class="d-none d-sm-inline"> {{ t('nav.help') }}</span><span class="visually-hidden d-sm-none">{{ t('nav.help') }}</span></a></li>
+      <li class="nav-item"><a class="nav-link{{ ' active' if path.startswith('/about') else '' }}" href="/about"
+        {% if path == '/about' %}aria-current="page"{% endif %}><i class="bi bi-info-circle" aria-hidden="true"></i><span class="d-none d-sm-inline"> {{ t('nav.about') }}</span><span class="visually-hidden d-sm-none">{{ t('nav.about') }}</span></a></li>
+    </ul>
+    <div class="d-flex align-items-center gap-2">{% include "_theme_menu.html" %}
+      <a class="btn btn-light btn-sm fw-bold pv-signin" href="/login" title="{{ t('shell.sign_in_title') }}"><i class="bi bi-box-arrow-in-right" aria-hidden="true"></i> {{ t('shell.sign_in') }}</a></div>
+  </div>
+</nav>

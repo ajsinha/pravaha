@@ -93,13 +93,43 @@ needs it to load and tell them what is wrong.
 
 | `/_components` | whoever changes the look | The component gallery, only where `ui.component_gallery` is set, and behind the sign-in: status chips, verdicts, stat tiles, buttons and a refused one, alerts, a table that follows the density, and the eight states of §23.12, each drawn by the `states.js` function the screens call. Review it in each theme (`t`) and density (`d`). It stands in for Storybook — see the §23.20 table |
 
-**Admin** is in the navigation bar; its screens share a tab strip (Access, Audit trail, Plugins).
+## Design: the console follows MAYA
 
-**Density.** `d`, or the toolbar button beside the theme, switches between comfortable and
-compact (design §23.4), kept per viewer in `localStorage` like the theme and applied before the
-first paint. Like a theme it is one block of tokens in `base.html` — row height, cell padding,
-cell text, card padding, gutters, section spacing — not a zoom: text stays at reading size and
-no control shrinks below a 24px target.
+The console follows the design language of **MAYA**, its sibling product, file for file: the same
+tokens and themes (`web/static/css/tokens.css`), the same Bootstrap theme (`web/static/css/theme.css`),
+the same fixed top bar with mega-menu panels (`web/templates/_nav.html`), the same public bar for
+somebody signed out (`_nav_public.html`), the same theme menu (`_theme_menu.html`), the same banners
+under the bar, flashes, footer line and sign-in page. Each was started from MAYA's file with only
+names (`--maya-*` → `--pv-*`, `maya-*` → `pv-*`), routes and content changed.
+
+- **Themes**: MAYA's four — **Crimson** (stored as `light`), **Dark**, **Blue** and **Green** — chosen
+  from the palette button's menu, each with a swatch, stored in `localStorage` (`pravaha.theme`), and
+  applied as `data-theme` with `data-bs-theme` beside it. With no choice stored the console follows
+  the system's light or dark. The older terminal theme is gone.
+- **The bar**: the white mark and three lines — *Pravaha*, what it is (*Continuous SQL where your data
+  already lives*), and the creed *Ask once. Answer always.* — then five mega-menu entries: **Catalog**
+  (streams, registered queries, sinks, views), **Workbench** (design; change safely: compare
+  versions, replace a running query), **Operate** (operations, overview, alerts; queries, lanes),
+  **Admin** (administrators only: people and access, integration, operations, evidence) and **Help**.
+  The menu is data at the top of `_nav.html`; every screen is in it or listed in
+  `core/navigation.EXCLUDED` with the reason, and `tests/test_navigation.py` fails otherwise. On the
+  right: the search (it opens the command palette), alerts, the theme menu and the user menu (account,
+  password, the landing persona, compact rows, sign out). Below 992px the menu collapses behind one
+  button, as MAYA's does.
+- **Banners** under the bar: the bootstrap `admin` still on its published password, the engine not
+  answering, and where this is (the engine, `app.environment` when set, the console's version).
+- **Footer**: `<slogan> Pravaha <version> · Help · About · © <years> <holder>. All rights reserved.`
+
+Where the console departs from a MAYA value it is for accessibility or a recorded product rule, and
+`tokens.css` says so beside the value: text tokens one step darker where MAYA's are below 4.5:1 (light
+slate; the blue accent as a link), the dark accent one step lighter so the stale state keeps its
+contrast, and `bad` kept apart from the accent (≥ 25 ΔE) so an error never reads as the brand.
+
+**Density.** `d`, or *Compact rows* in the user menu, switches between comfortable and compact
+(design §23.4), kept per viewer in `localStorage` like the theme and applied before the first paint.
+Like a theme it is one block of tokens in `theme.css` — row height, cell padding, cell text, card
+padding, gutters, section spacing — not a zoom: text stays at reading size and no control shrinks
+below a 24px target.
 
 **Ctrl-K / ⌘K** opens a command palette on every page: jump to any query, view, stream or page,
 pause or resume a query (only the actions its state allows are offered), open a query in the
@@ -223,8 +253,8 @@ console that multiplied load by open tabs would contradict it.
 (`--series-1..8`, a colour-blind-checked categorical order stepped separately for dark). Charts,
 the editor's syntax colours and the plan graph read the tokens at draw time and redraw when the
 theme changes. The accent is Harvard crimson (`#A51C30`, lightened to `#E47F92` on the dark
-ground where the crimson itself is 2.2:1 and fails as text), the bar is a crimson-deep → crimson
-→ indigo gradient whose three stops are tokens so white can be checked against each, and `--bad`
+ground where the crimson itself is 2.2:1 and fails as text), the bar is MAYA's crimson-deep → crimson
+→ indigo gradient whose three stops are tokens so white can be checked against each, and `--pv-bad`
 is an orange-shifted red 34 ΔE away from the accent — a brand red and an error red beside each
 other is a page where nothing is wrong and everything looks it. `test_contrast.py` holds both the
 ratios and that distance.
@@ -329,8 +359,8 @@ DevTools protocol by `tests/cdp.py`, about 350 lines of standard-library Python.
 | §23.20 item | Status | Proven by |
 |---|---|---|
 | Every screen implements the eight states of §23.12 | **audited screen by screen** (the table below): every data-bearing component on every product screen, each state either implemented from the shared `states.js` functions or marked not applicable with its reason, each implemented one driven in a real browser and audited by axe. The eight components themselves are also on the component gallery, photographed in both themes and densities | `test_browser_states.py`, `test_browser_accessibility.py`, `test_browser_visual.py` |
-| Light and dark designed and visually regression-tested; both densities | **met, for the pages photographed**: 32 pages — among them the help index, a topic, a connector topic, help search, the guides browser, About, the backfill and cutover screen, the component gallery and the workbench's Compare panel (both whole page) — and four states a screen is in rather than pages — the audit trail's *not permitted*, the catalog when the engine did not answer (§23.12's error state, retry and correlation id included), a backfill in flight and a replacement that has cut over with its rollback window open — × 2 themes × 2 viewports (1280×800, 390×844) × 2 densities (comfortable, compact), **288 baselines**. Documents included verbatim are not photographed | `test_browser_visual.py`, `tests/visual/baselines/` |
-| Zero axe violations; WCAG 2.2 AA by manual audit | **zero axe violations** (WCAG 2.0/2.1/2.2 A and AA plus landmark and heading rules) on 36 pages × 2 themes and again in compact density (the help index, a topic, a connector topic, search, the code and guide browsers, About, the backfill and cutover screen, the component gallery and the workbench compared with a registered query among them), and 15 interaction states (open palette, workbench refusal / plan / register / library / result, a plan carrying its per-operator numbers and one operator's detail, the Compare panel never compared / engine unreachable / compared / unified with every operator / out of date / not permitted / partly compared, live view with changes, the audit trail not permitted, controls the policy refuses, drop dialog, a backfill in flight, the cutover confirmation, a replacement that has cut over, each onboarding step), and **53 states of design 23.12 driven screen by screen** (the table below) — which found three empty and error states skipping a heading level. Every token pair is checked for contrast in all three themes, and again as the stale state draws it. **The manual audit has not been done**, and axe finds perhaps a third to a half of what one would — the invisible *Try again* below is one it did not | `test_browser_accessibility.py`, `test_browser_states.py`, `test_contrast.py` |
+| Light and dark designed and visually regression-tested; both densities | **met, for the pages photographed**: 48 screens — among them the help index, a topic, a connector topic, help search, the guides browser, About, the backfill and cutover screen, the component gallery and the workbench's Compare panel (both whole page) — and four states a screen is in rather than pages — the audit trail's *not permitted*, the catalog when the engine did not answer (§23.12's error state, retry and correlation id included), a backfill in flight and a replacement that has cut over with its rollback window open — × MAYA's 4 themes (Crimson, Dark, Blue, Green) × 2 viewports (1280×800, 390×844) × 2 densities (comfortable, compact), **768 baselines**. Documents included verbatim are not photographed | `test_browser_visual.py`, `tests/visual/baselines/` |
+| Zero axe violations; WCAG 2.2 AA by manual audit | **zero axe violations** (WCAG 2.0/2.1/2.2 A and AA plus landmark and heading rules) on every page × 4 themes and again in compact density (the help index, a topic, a connector topic, search, the code and guide browsers, About, the backfill and cutover screen, the component gallery and the workbench compared with a registered query among them), and 15 interaction states (open palette, workbench refusal / plan / register / library / result, a plan carrying its per-operator numbers and one operator's detail, the Compare panel never compared / engine unreachable / compared / unified with every operator / out of date / not permitted / partly compared, live view with changes, the audit trail not permitted, controls the policy refuses, drop dialog, a backfill in flight, the cutover confirmation, a replacement that has cut over, each onboarding step), and **53 states of design 23.12 driven screen by screen** (the table below) — which found three empty and error states skipping a heading level. Every token pair is checked for contrast in all four themes, and again as the stale state draws it. **The manual audit has not been done**, and axe finds perhaps a third to a half of what one would — the invisible *Try again* below is one it did not | `test_browser_accessibility.py`, `test_browser_states.py`, `test_contrast.py` |
 | Every workflow completable by keyboard alone | **partly proven**: skip link, tab order and a visible focus ring on every stop, the palette (open, filter, act, Escape returns focus), a point query from sign-in to answer with keys only, the admin persona from sign-in through the audit trail (palette, cursor paging, the filter form) with keys only, the drop dialog (Escape returns focus), the draft tabs (arrows, Home, End, Delete), the Compare panel's unified toggle, the help from a word to its full reference (filter, search, open a topic, follow a related one by keyboard, open the guide at its section). Not proven for every workflow: plan-graph node inspection, the register form, onboarding, the backfill and cutover screen | `test_browser_journeys.py` |
 | Every view deep-linkable; every filter in the URL | implemented (catalog tabs, the queries filter, a view's key and value, workbench `?query=` `?sql=` `?template=` `?panel=`); exercised by the journeys and product tests, **not audited as a whole** | `test_product.py`, `test_browser_journeys.py` |
 | Every destructive action confirmed, audited and reversible where possible | drop, cutover and rollback are each confirmed by the typed name, and a cutover is **reversible for the retention window the replacement was started with** — which the screen shows as a time and says has closed when it has. The engine now serves its audit trail (Admin · Audit), and the product and journey tests read it through the console; **that a drop made from the console appears in it is not asserted end to end** — the real-engine tests reach a Flight-only test server with no HTTP surface | `test_console.py`, `test_product.py` |

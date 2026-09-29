@@ -1,26 +1,23 @@
 /*
- * Pravaha console — light, dark, terminal, blue, green, or whatever the machine says.
+ * Pravaha console — the theme menu, the density, and the mega menu's hover.
  *
  * Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
  * Proprietary and confidential. See LICENSE at the repository root.
  *
- * Six states rather than two. "System" is the default and is a POSITION, not
- * the absence of a choice: somebody whose machine switches at dusk should not
- * have to correct this console twice a day, and a two-way toggle cannot express
- * that.
+ * Ask once. Answer always.
  *
- * The stylesheet does the work. `data-theme` on <html> selects a block of custom
- * properties and every colour on every screen resolves through one of them, so
- * this file sets one attribute and stores one string.
+ * MAYA's mechanism, as MAYA's app.js has it: four themes -- Crimson (stored as "light"), Dark,
+ * Blue and Green -- chosen from the theme menu, stored in localStorage, and applied as
+ * `data-theme` on <html> with `data-bs-theme` beside it, so Bootstrap's own components know
+ * that only Dark is dark. Somebody who has never chosen gets the crimson theme, or the dark one
+ * when their system is dark: tokens.css answers `prefers-color-scheme` wherever no theme is set.
  *
- * Applied in <head>, before the first paint — see the inline snippet in
- * base.html. Waiting for DOMContentLoaded would show a white page to somebody
- * who chose dark, which is the flash this whole indirection exists to avoid.
+ * The one addition is the inline snippet in base.html's <head>, which applies a stored choice
+ * before the first paint. MAYA's CSP forbids inline script and it lives with the flash; the
+ * console has no such policy, and somebody who chose dark should never see a white page first.
  *
- * DENSITY works the same way and is separate from the browser's zoom, because
- * zoom scales the LAYOUT — a table at 150% is a table nobody can see a row of —
- * where this scales only the row height, so an operator watching forty queries
- * gets forty rows without everything else shrinking.
+ * DENSITY works the same way and is separate from the browser's zoom, because zoom scales the
+ * LAYOUT, where this scales only the rows, the cells and the space between sections.
  */
 (function () {
   "use strict";
@@ -31,35 +28,48 @@
   }
 
   var KEY = "pravaha.theme";
-  /* The single source of truth for which themes exist. `system` is not a
-     palette — it is the absence of a choice, so it removes the attribute and
-     lets the media query decide between light and dark.
-
-     `terminal`, `blue` and `green` are named palettes and therefore always
-     explicit: the machine has no opinion about whether you want an amber screen,
-     or the console in blue. Blue and green are light palettes -- the light
-     theme's structure in other colours -- so they come after the light and dark
-     pair rather than between them. */
-  var CHOICES = {light: 1, dark: 1, terminal: 1, blue: 1, green: 1, system: 1};
-  var ORDER = ["system", "light", "dark", "terminal", "blue", "green"];
+  /* The single source of truth for which themes exist, in the theme menu's order. */
+  var THEMES = ["light", "dark", "blue", "green"];
   var DENSITY_KEY = "pravaha.density";
   var DENSITIES = ["comfortable", "compact"];
 
   function stored() {
     try {
       var value = window.localStorage.getItem(KEY);
-      return CHOICES[value] ? value : "system";
-    } catch (e) { return "system"; }
+      return THEMES.indexOf(value) >= 0 ? value : null;
+    } catch (e) { return null; }
   }
 
-  function apply(choice) {
-    if (choice === "system") {
-      document.documentElement.removeAttribute("data-theme");
-    } else {
-      document.documentElement.setAttribute("data-theme", choice);
-    }
-    try { window.localStorage.setItem(KEY, choice); } catch (e) {}
-    announce(choice === "system" ? t("theme.system") : t("theme.chosen", {choice: choice}));
+  /* The theme on screen: the stored one, else what the system asks for. */
+  function current() {
+    var chosen = document.documentElement.getAttribute("data-theme");
+    if (THEMES.indexOf(chosen) >= 0) return chosen;
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+
+  function mark(theme) {
+    document.querySelectorAll("[data-theme-choice]").forEach(function (b) {
+      b.setAttribute("aria-checked", b.getAttribute("data-theme-choice") === theme ? "true" : "false");
+    });
+  }
+
+  function applyTheme(theme) {
+    if (THEMES.indexOf(theme) < 0) return;
+    var root = document.documentElement;
+    root.setAttribute("data-theme", theme);
+    root.setAttribute("data-bs-theme", theme === "dark" ? "dark" : "light");
+    mark(theme);
+  }
+
+  function apply(theme) {
+    applyTheme(theme);
+    try { window.localStorage.setItem(KEY, theme); } catch (e) { /* storage blocked */ }
+    var label = document.querySelector('[data-theme-choice="' + theme + '"]');
+    announce(t("theme.chosen", {choice: label ? label.textContent.trim() : theme}));
+  }
+
+  function density() {
+    return document.documentElement.getAttribute("data-density") || "comfortable";
   }
 
   function applyDensity(choice) {
@@ -69,54 +79,76 @@
       document.documentElement.setAttribute("data-density", choice);
     }
     try { window.localStorage.setItem(DENSITY_KEY, choice); } catch (e) {}
+    markDensity();
     announce(t("theme.density", {choice: choice}));
   }
 
-  /* Spoken to a screen reader without stealing focus. A control that changes
-     the whole page and says nothing leaves somebody who cannot see it guessing
-     whether the button did anything. */
-  function announce(message) {
-    var region = document.getElementById("live-region");
-    if (!region) {
-      region = document.createElement("div");
-      region.id = "live-region";
-      region.className = "visually-hidden";
-      region.setAttribute("aria-live", "polite");
-      document.body.appendChild(region);
-    }
-    region.textContent = message;
+  function markDensity() {
+    var button = document.getElementById("density-toggle");
+    if (button) button.setAttribute("aria-checked", density() === "compact" ? "true" : "false");
   }
 
-  function cycle(list, current) {
-    return list[(list.indexOf(current) + 1) % list.length];
+  /* Spoken to a screen reader without stealing focus. A control that changes the whole page and
+     says nothing leaves somebody who cannot see it guessing whether it did anything. */
+  function announce(message) {
+    var region = document.getElementById("live-region");
+    if (region) region.textContent = message;
+  }
+
+  function cycle(list, value) {
+    return list[(list.indexOf(value) + 1) % list.length];
   }
 
   document.addEventListener("DOMContentLoaded", function () {
-    var theme = document.getElementById("theme-toggle");
-    if (theme) {
-      theme.addEventListener("click", function () { apply(cycle(ORDER, stored())); });
-    }
-    var density = document.getElementById("density-toggle");
-    if (density) {
-      density.addEventListener("click", function () {
-        var current = document.documentElement.getAttribute("data-density") || "comfortable";
-        applyDensity(cycle(DENSITIES, current));
+    mark(current());
+    markDensity();
+    document.querySelectorAll("[data-theme-choice]").forEach(function (b) {
+      b.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        apply(b.getAttribute("data-theme-choice"));
+      });
+    });
+    var toggle = document.getElementById("density-toggle");
+    if (toggle) {
+      toggle.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        applyDensity(cycle(DENSITIES, density()));
       });
     }
 
+    /* The mega menu: on a wide screen a panel opens on hover as well as on click and keyboard. */
+    var wide = window.matchMedia("(min-width: 992px)");
+    document.querySelectorAll(".pv-nav .mega").forEach(function (li) {
+      var trigger = li.querySelector('[data-bs-toggle="dropdown"]');
+      var timer = null;
+      if (!trigger || !window.bootstrap) return;
+      var dd = window.bootstrap.Dropdown.getOrCreateInstance(trigger);
+      li.addEventListener("mouseenter", function () {
+        if (!wide.matches) return;
+        clearTimeout(timer);
+        document.querySelectorAll(".pv-nav .mega .dropdown-toggle.show").forEach(function (other) {
+          if (other !== trigger) window.bootstrap.Dropdown.getOrCreateInstance(other).hide();
+        });
+        timer = setTimeout(function () { dd.show(); }, 90);
+      });
+      li.addEventListener("mouseleave", function () {
+        if (!wide.matches) return;
+        clearTimeout(timer);
+        timer = setTimeout(function () { dd.hide(); }, 180);
+      });
+    });
+
     document.addEventListener("keydown", function (event) {
-      if (/^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return;
+      if (/^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName) || event.target.isContentEditable) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (event.key === "t") { apply(cycle(ORDER, stored())); }
-      else if (event.key === "d") {
-        applyDensity(cycle(DENSITIES,
-          document.documentElement.getAttribute("data-density") || "comfortable"));
-      } else if (event.key === "/") {
-        var search = document.querySelector('input[type="search"]');
+      if (event.key === "t") { apply(cycle(THEMES, current())); }
+      else if (event.key === "d") { applyDensity(cycle(DENSITIES, density())); }
+      else if (event.key === "/") {
+        var search = document.querySelector('main input[type="search"]');
         if (search) { event.preventDefault(); search.focus(); }
       } else if (event.key === "?") { window.location.href = "/help"; }
     });
   });
 
-  window.PravahaTheme = {apply: apply, stored: stored, announce: announce};
+  window.PravahaTheme = {apply: apply, stored: stored, current: current, announce: announce};
 }());

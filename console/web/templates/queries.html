@@ -10,6 +10,11 @@
 <div class="rule"></div>
 <p class="text-muted">{{ t('queries.lede') }}
   <span class="freshness ms-2" id="freshness"></span></p>
+{# Reached from Workbench · Replace a running query: a replacement starts from the query's own page. #}
+{% if request.query_params.get('replace') %}
+<div class="alert alert-info py-2" role="status" id="replace-hint"><i class="bi bi-arrow-left-right" aria-hidden="true"></i>
+  {{ t('queries.replace_hint') }}</div>
+{% endif %}
 
 {# A real form, so filtering works with scripting off. The module intercepts it
    and filters without a reload when it is on. #}

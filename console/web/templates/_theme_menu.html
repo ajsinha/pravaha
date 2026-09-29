@@ -1,0 +1,16 @@
+{# The theme menu, as MAYA's: four colour schemes over one design. Each item carries a swatch of
+   its own accent so the choice can be made by eye, and its name so it can be made without one.
+   The swatches are the one colour a template states rather than a token reads: a swatch shows a
+   theme that is not the one on screen, so no token of the current theme can draw it. #}
+<div class="dropdown">
+  <button class="tool dropdown-toggle" type="button" id="theme-toggle" data-bs-toggle="dropdown"
+          aria-expanded="false" aria-label="{{ t('shell.theme') }}" title="{{ t('shell.theme_title') }}">
+    <i class="bi bi-palette" aria-hidden="true"></i></button>
+  <ul class="dropdown-menu dropdown-menu-end theme-menu" role="menu" aria-label="{{ t('shell.theme') }}">
+    {% for key, label, swatch in [('light', t('shell.themes.crimson'), '#A51C30'), ('dark', t('shell.themes.dark'), '#1F1F23'),
+                                  ('blue', t('shell.themes.blue'), '#0079C1'), ('green', t('shell.themes.green'), '#006039')] %}
+    <li role="none"><button class="dropdown-item" type="button" role="menuitemradio" aria-checked="false"
+                data-theme-choice="{{ key }}"><span class="theme-swatch" style="background: {{ swatch }}" aria-hidden="true"></span>{{ label }}</button></li>
+    {% endfor %}
+  </ul>
+</div>

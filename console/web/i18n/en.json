@@ -16,15 +16,35 @@
     "sign_in_title": "Sign in to act",
     "sign_out": "Sign out",
     "sign_out_title": "End this session",
-    "theme": "Change theme",
-    "theme_title": "Theme (t)",
+    "theme": "Choose a colour theme",
+    "theme_title": "Colour theme (t)",
     "density": "Change density",
-    "density_title": "Density (d)",
-    "footer_engine": "engine at",
+    "density_title": "Compact rows (d)",
     "admin": "Admin",
     "signed_in_as": "Signed in as {user}",
     "account": "Your account, keys and sessions",
-    "people": "Users, keys and sessions"
+    "people": "Users, keys and sessions",
+    "tagline": "Continuous SQL where your data already lives",
+    "rights": "All rights reserved.",
+    "search": "Search…",
+    "alerts": "Alerts",
+    "change_password": "Change password",
+    "compact_rows": "Compact rows",
+    "themes": {
+      "crimson": "Crimson",
+      "dark": "Dark",
+      "blue": "Blue",
+      "green": "Green"
+    },
+    "banner": {
+      "default_password_before": "The bootstrap",
+      "default_password_middle": "account still uses the engine's published default password",
+      "default_password_link": "Change it now.",
+      "engine": "Engine",
+      "environment": "Environment",
+      "console": "Console",
+      "label": "This deployment"
+    }
   },
   "nav": {
     "workbench": "Workbench",
@@ -40,7 +60,8 @@
     "help": "Help",
     "help_gloss": "the documentation that ships with the engine",
     "admin": "Admin",
-    "admin_gloss": "people, keys, sessions, what the policy allows, and the audit trail"
+    "admin_gloss": "people, keys, sessions, what the policy allows, and the audit trail",
+    "about": "About"
   },
   "plugins": {
     "title": "Plugins",
@@ -1316,7 +1337,8 @@
       "register": "Register one"
     },
     "source_stopped": "source stopped",
-    "source_stopped_title": "A source failed mid-read and is not retried; the view answers at the frontier it reached"
+    "source_stopped_title": "A source failed mid-read and is not retried; the view answers at the frontier it reached",
+    "replace_hint": "To replace a running query, open it and choose Replace: the new version backfills beside the old one, and you cut over when it has caught up."
   },
   "query": {
     "all": "All queries",
@@ -1603,6 +1625,7 @@
       "sample": "CREATE CONTINUOUS QUERY user_volume\n  KEYED BY (user_id) AS\nSELECT user_id, SUM(amount) AS total_volume\nFROM   txn_stream\nWHERE  status = 'COMPLETED'\nGROUP  BY user_id;\n\n-- then, from any Flight SQL or PostgreSQL client:\nSELECT total_volume FROM user_volume WHERE user_id = 'u42';"
     },
     "stats": {
+      "label": "Pravaha in numbers",
       "weights": "±1",
       "weights_label": "a weight on every change, in and out",
       "shared": "1",
@@ -2877,7 +2900,8 @@
       "user": "User"
     },
     "this_session": "this browser",
-    "utc": "{at} UTC"
+    "utc": "{at} UTC",
+    "dismiss": "Dismiss"
   },
   "reset": {
     "title": "Set a new password",
@@ -3077,6 +3101,97 @@
       "snooze_for": "For",
       "ack": "Acknowledge",
       "ack_all": "Acknowledge every firing key"
+    }
+  },
+  "menu": {
+    "catalog": "Catalog",
+    "workbench": "Workbench",
+    "operate": "Operate",
+    "admin": "Admin",
+    "help": "Help",
+    "col": {
+      "browse": "Browse",
+      "design": "Design",
+      "change": "Change safely",
+      "watch": "Watch",
+      "run": "Run",
+      "people": "People & access",
+      "integration": "Integration",
+      "operations": "Operations",
+      "evidence": "Evidence",
+      "learn": "Learn",
+      "reference": "Reference",
+      "about": "The product"
+    },
+    "item": {
+      "streams": "Streams",
+      "registered": "Registered queries",
+      "sinks": "Sinks",
+      "views": "Views",
+      "workbench": "Workbench",
+      "describe": "Describe it",
+      "compare": "Compare versions",
+      "replace": "Replace a running query",
+      "operations": "Operations",
+      "overview": "Overview",
+      "alerts": "Alerts",
+      "queries": "Queries",
+      "lanes": "Lanes",
+      "users": "Users",
+      "keys": "API keys",
+      "sessions": "Sessions",
+      "tenants": "Tenants",
+      "grants": "Grants",
+      "policies": "Row filters & masks",
+      "plugins": "Plugins",
+      "ai_models": "AI models",
+      "audit": "Audit trail",
+      "access": "Access",
+      "concepts": "Concepts & topics",
+      "guides": "Guides",
+      "tutorials": "Tutorials",
+      "case_studies": "Case studies",
+      "start": "Get started",
+      "cli": "Command line",
+      "codes": "Error codes",
+      "search": "Search the help",
+      "about": "About Pravaha",
+      "competitive": "Competitive landscape"
+    },
+    "desc": {
+      "streams": "Every stream, its schema, and what reads from it",
+      "registered": "The continuous queries registered on the engine",
+      "sinks": "Where maintained answers are written",
+      "views": "Point lookups, live changes and client code",
+      "workbench": "Write, validate, explain and register SQL",
+      "describe": "Say what you want in words; get a draft to review",
+      "compare": "Two versions side by side: SQL, plans and what changes",
+      "replace": "Blue/green: backfill beside the old version, then cut over",
+      "operations": "Is everything healthy, and if not, where?",
+      "overview": "What is registered, and how much of it is shared",
+      "alerts": "Rules over the engine's metrics, and what fired",
+      "queries": "What is registered, what it costs, its dead letters",
+      "lanes": "Shared computation lanes and their tenants",
+      "users": "Accounts, roles and passwords",
+      "keys": "Every API key the engine has issued",
+      "sessions": "Who is signed in, and ending a session",
+      "tenants": "Tenants and their quotas",
+      "grants": "Object access, conditions and expiry",
+      "policies": "Row filters and column masks beside the grants",
+      "plugins": "Sources, sinks and notifiers the engine has loaded",
+      "ai_models": "The assistant's providers, models and budgets",
+      "audit": "Every decision the policy made, and why",
+      "access": "What the policy allows, and to whom",
+      "concepts": "Views, weights, windows, and why",
+      "guides": "The long-form guides that ship with the engine",
+      "tutorials": "Step by step, from a first view to production",
+      "case_studies": "Real problems, end to end",
+      "start": "Your first maintained view in five steps",
+      "cli": "Every pravaha command and its options",
+      "codes": "Every PRV code: what it means, what to do",
+      "search": "Find any topic, guide or code",
+      "about": "What it is, the name, version and licence",
+      "competitive": "How Pravaha compares, scored"
     }
   }
 }

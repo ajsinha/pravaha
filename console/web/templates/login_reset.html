@@ -1,41 +1,46 @@
 {% extends "base.html" %}
+{#- ADR-052: POST auth/reset/redeem. The token is one an administrator issued (single use, 60
+    minutes); the engine checks it and the password, and ends every session of the person.
+    Drawn as the sign-in page is: on the gradient, one card. -#}
+{% set bare_page = True %}
 {% block title %}{{ t('reset.title') }} — {{ app_name }}{% endblock %}
 {% block content %}
-{#- ADR-052: POST auth/reset/redeem. The token is one an administrator issued (single use, 60
-    minutes); the engine checks it and the password, and ends every session of the person. -#}
-<div class="row justify-content-center">
-  <div class="col-md-8 col-lg-6">
-    <div class="accent"></div>
-    <p class="kicker mt-2 mb-1">{{ t('login.kicker') }}</p>
-    <h1>{{ t('reset.heading') }}</h1>
-    <div class="rule"></div>
-    <p class="small text-muted">{{ t('reset.lede') }}</p>
-
-    {% if error %}
-    <div class="alert alert-danger py-2" role="alert" id="reset-error">{{ error }}</div>
-    {% endif %}
-
-    <form method="post" action="/login/reset" class="card" id="reset-form"><div class="card-body">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <div class="mb-3">
-        <label class="form-label small text-muted mb-1" for="reset-token">{{ t('reset.token') }}</label>
-        <input class="form-control mono" type="text" id="reset-token" name="token" value="{{ reset_token }}"
-               autocomplete="off" spellcheck="false" required>
-      </div>
-      <div class="mb-3">
-        <label class="form-label small text-muted mb-1" for="reset-new">{{ t('account.password.new') }}</label>
-        <input class="form-control" type="password" id="reset-new" name="new_password"
-               autocomplete="new-password" required aria-describedby="reset-rules">
-        <div class="form-text small" id="reset-rules">{{ t('account.password.rules') }}</div>
-      </div>
-      <div class="mb-3">
-        <label class="form-label small text-muted mb-1" for="reset-confirm">{{ t('account.password.confirm') }}</label>
-        <input class="form-control" type="password" id="reset-confirm" name="confirm_password"
-               autocomplete="new-password" required>
-      </div>
-      <button class="btn btn-primary w-100" type="submit">{{ t('reset.submit') }}</button>
-    </div></form>
-    <p class="mt-3"><a class="small" href="/login">{{ t('reset.back') }}</a></p>
+<div class="row justify-content-center mt-4 mt-md-5">
+  <div class="col-sm-10 col-md-8 col-lg-6 col-xl-5">
+    <div class="text-center mb-4 pv-hero">
+      <img src="/static/img/pravaha-mark-white.svg" alt="" class="login-mark" width="64" height="64">
+      <div class="login-name">{{ app_name }}</div>
+      <div class="small">{{ t('shell.tagline') }}</div>
+    </div>
+    <div class="card"><div class="card-body p-4">
+      <h1 class="h3 mb-2">{{ t('reset.heading') }}</h1>
+      <p class="small-muted">{{ t('reset.lede') }}</p>
+      {% if error %}
+      <div class="alert alert-danger py-2" role="alert" id="reset-error">{{ error }}</div>
+      {% endif %}
+      <form method="post" action="/login/reset" id="reset-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="mb-2">
+          <label class="form-label" for="reset-token">{{ t('reset.token') }}</label>
+          <input class="form-control mono" type="text" id="reset-token" name="token" value="{{ reset_token }}"
+                 autocomplete="off" spellcheck="false" required>
+        </div>
+        <div class="mb-2">
+          <label class="form-label" for="reset-new">{{ t('account.password.new') }}</label>
+          <input class="form-control" type="password" id="reset-new" name="new_password"
+                 autocomplete="new-password" required aria-describedby="reset-rules">
+          <div class="form-text small-muted" id="reset-rules">{{ t('account.password.rules') }}</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="reset-confirm">{{ t('account.password.confirm') }}</label>
+          <input class="form-control" type="password" id="reset-confirm" name="confirm_password"
+                 autocomplete="new-password" required>
+        </div>
+        <button class="btn btn-primary w-100" type="submit">{{ t('reset.submit') }}</button>
+      </form>
+    </div></div>
+    <p class="small text-center mt-3 on-gradient"><a class="fw-semibold" href="/login">{{ t('reset.back') }}</a>
+      · <a class="fw-semibold" href="/help">{{ t('nav.help') }}</a> · <a class="fw-semibold" href="/about">{{ t('nav.about') }}</a></p>
   </div>
 </div>
 {% endblock %}

@@ -1,5 +1,14 @@
 <!DOCTYPE html>
-<html lang="en">
+{#- Pravaha console -- the shell every page extends.
+    Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+    Proprietary and confidential. See LICENSE at the repository root.
+
+    The console follows the design language of MAYA, its sibling product: MAYA's tokens and four
+    themes (static/css/tokens.css), its Bootstrap theme (static/css/theme.css), its fixed top bar
+    with mega-menu panels (_nav.html; _nav_public.html when nobody is signed in), its banners
+    under the bar, and its one closing line. A page that sets `bare_page` -- the sign-in forms --
+    stands on the gradient with no bar, as MAYA's sign-in page does. -#}
+<html lang="en" data-bs-theme="light">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,586 +16,67 @@
 <meta name="csrf-token" content="{{ csrf_token }}">
 <title>{% block title %}{{ app_name }}{% endblock %}</title>
 <link rel="icon" href="/static/img/pravaha-mark.svg">
-<!-- Vendored locally: no CDN, so the console renders in an air-gapped deployment.
-     A streaming engine is deployed inside networks that do not reach the internet
-     far more often than not, and an operator console that needs jsdelivr to draw a
-     table is a console that is blank in exactly those places. -->
+<!-- Vendored locally: no CDN, so the console renders in an air-gapped deployment. The same
+     Bootstrap 5.3.8 and Bootstrap Icons build MAYA vendors. -->
 <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
 <link href="/static/vendor/bootstrap-icons/bootstrap-icons.css" rel="stylesheet">
 <script>
-/* Inline and first: `data-theme` has to be on <html> before the stylesheet
-   paints, or somebody who chose dark sees a white flash on every navigation.
-   The full picker is /static/js/theme.js; this is only the part that cannot
-   wait for it. */
+/* Inline and first: the theme has to be on <html> before the stylesheet paints, or somebody
+   who chose dark sees a white flash on every navigation. MAYA applies it from app.js, after the
+   paint, because its CSP forbids inline script; this is the part that cannot wait. The menu
+   itself is /static/js/theme.js. */
 (function(){try{var t=localStorage.getItem("pravaha.theme");
-if(t==="light"||t==="dark"||t==="terminal"||t==="blue"||t==="green"){document.documentElement.setAttribute("data-theme",t);}
+if(["light","dark","blue","green"].indexOf(t)>=0){var r=document.documentElement;r.setAttribute("data-theme",t);r.setAttribute("data-bs-theme",t==="dark"?"dark":"light");}
+else if(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches){document.documentElement.setAttribute("data-bs-theme","dark");}
 var d=localStorage.getItem("pravaha.density");
 if(d&&d!=="comfortable"){document.documentElement.setAttribute("data-density",d);}
 }catch(e){}}());
 </script>
-<link href="/static/vendor/fonts/fonts.css" rel="stylesheet">
+<link href="/static/css/tokens.css?v={{ asset_version }}" rel="stylesheet">
+<link href="/static/css/theme.css?v={{ asset_version }}" rel="stylesheet">
 <link href="/static/app/product.css?v={{ asset_version }}" rel="stylesheet">
-<style>
-/* ------------------------------------------------------------------ tokens
-   Every colour on every screen resolves through one of these, so a theme is a
-   redefinition of this block and nothing else. Hardcoded hex is the thing that
-   stops a theme from existing: the same grey written three ways, each one
-   invisible to a switch.
-
-   `--surface` and `--raised` are separated on purpose. A card on a page needs
-   to sit ON something; in light that is white on a cool off-white, in dark it
-   is a lighter panel on a darker ground, and one "background" cannot be both. */
-:root{
-  /* The ACCENT: Harvard crimson, #A51C30, and the two steps either side of it.
-     It carries text on white at 7.5:1, which is what lets it be a link colour
-     as well as a fill -- a brand colour taken straight from a palette is
-     usually around 3.4 and fails as body text, which is the standard trap. */
-  --flow:#A51C30; --flow-d:#8A1626; --flow-l:#C4384B;
-  --on-bar:#fff; --on-bar-dim:rgba(255,255,255,.82);
-  --on-flow:#fff; --on-flow-dim:rgba(255,255,255,.86);
-
-  /* ground and text. A warm off-white ground rather than a cool one: a cool
-     grey under a crimson accent reads as two products stuck together. */
-  --canvas:#F7F5F2; --surface:#fff; --raised:#fff; --stripe:#F1EEE9;
-  --ink:#1A1A1A; --slate:#4A5058; --muted:#61666E;
-  --rule:#E3DED7; --edge:#6B7480; --hairline:#EDE9E3;
-
-  /* semantic -- deliberately NOT the accent. Crimson means "this product";
-     these mean "running / watch this / wrong", and one colour cannot carry both
-     jobs without the reader learning nothing from either.
-
-     `--bad` is the one a crimson accent forces to move. A brand red and an
-     error red side by side is a page where nothing is wrong and everything
-     looks it, so the error is a bright, orange-shifted red -- #CC2200, 34 dE
-     from the accent in CIELAB -- rather than the wine the accent is. A test
-     holds that distance, because the temptation when picking a red is always
-     to reach for the brand's. */
-  --on-accent:#fff;
-  --ok:#1B6B3A; --ok-soft:#E6F2EA;
-  --warn:#8A5A12; --warn-soft:#F8F0E2;
-  --bad:#CC2200; --bad-soft:#FBE9E4;
-  --info:#293352; --info-soft:#E9ECF3;
-
-  /* The RETRACTION: the colour a -1 wears where the product draws its weights (the landing
-     page's figure). Not a status -- a retraction is a correction, not a failure -- so it is the
-     palette's second hue, the indigo the bar ends on, and a test holds it apart from both the
-     accent and `--bad`. */
-  --retract:#293352;
-
-  /* depth. Two levels and no more: a page where everything floats has no
-     hierarchy, it just has shadows. */
-  --lift:0 1px 2px rgba(26,26,26,.06), 0 1px 3px rgba(26,26,26,.04);
-  --lift-2:0 2px 6px rgba(26,26,26,.08), 0 4px 14px rgba(26,26,26,.06);
-
-  /* The navigation gradient: crimson-deep, crimson, indigo, with white on all
-     three. Its stops are tokens of their own so the contrast test can check
-     white against each -- text on a gradient is the one place axe cannot
-     resolve a background, so it is checked there or nowhere. */
-  --bar-from:#6E1120; --bar-via:#A51C30; --bar-to:#293352;
-  --bar:linear-gradient(100deg, var(--bar-from) 0%, var(--bar-via) 48%, var(--bar-to) 100%);
-  --tint:linear-gradient(180deg, rgba(165,28,48,.045) 0%, rgba(165,28,48,0) 100%);
-  --focus-glow:rgba(165,28,48,.18);
-
-  --sans:"Source Sans 3",-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-  --serif:"Source Serif 4",Georgia,"Times New Roman",serif;
-  --code:"Source Code Pro",Consolas,"SF Mono",Menlo,monospace;
-
-  /* DENSITY tokens, comfortable values (design 23.4). Compact redefines them below, and only
-     them: density is one block of tokens, as a theme is, never a zoom. */
-  --row-h:38px; --cell-y:.5rem; --cell-y-sm:.25rem; --cell-fs:.86rem;
-  --card-pad:1rem; --card-cap-y:.5rem; --gutter:1rem; --section-gap:1.6rem; --state-pad:2.2rem;
-
-  /* DATA colour, never UI chrome (design 23.4): a validated categorical order, assigned to a
-     series by identity and never cycled. The dark themes carry their own steps of it. */
-  --series-1:#2a78d6; --series-2:#eb6834; --series-3:#1baf7a; --series-4:#eda100;
-  --series-5:#e87ba4; --series-6:#008300; --series-7:#4a3aa7; --series-8:#e34948;
-}
-
-/* Dark. Not an inversion -- an inverted crimson is a green nobody chose, and
-   pure white on pure black shimmers. #A51C30 is 2.2:1 on this ground and fails
-   as text, so the accent lightens; it lightens one step further than the
-   palette's own dark crimson (#DE6B81), because design 23.12's stale state
-   greys the page out and every pair has to hold 4.5:1 after that too -- at
-   #DE6B81 the accent on a raised card greys to 4.10. #DE6B81 becomes the hover
-   step instead. The ground keeps a trace of the warm hue, so the two themes
-   read as one product. */
-:root[data-theme="dark"]{
-  --flow:#E47F92; --flow-d:#DE6B81; --flow-l:#EC9EAC;
-  --on-bar:#F6EDEF; --on-bar-dim:rgba(246,237,239,.74);
-  --on-flow:#151517; --on-flow-dim:rgba(21,21,23,.78);
-
-  --canvas:#151517; --surface:#1F1F23; --raised:#26262C; --stripe:#232329;
-  --ink:#ECECEF; --slate:#AEB6C0; --muted:#9AA2AC;
-  --rule:#34343A; --edge:#767C86; --hairline:#26262B;
-
-  --on-accent:#151517;
-  --ok:#7FD39B; --ok-soft:#14241A;
-  --warn:#E8C26A; --warn-soft:#291F12;
-  --bad:#FF8B63; --bad-soft:#2E1A12;
-  --info:#A9B6D6; --info-soft:#1A1E2A;
-  --retract:#A9B6D6;
-
-  --lift:0 1px 2px rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.35);
-  --lift-2:0 2px 8px rgba(0,0,0,.55), 0 6px 18px rgba(0,0,0,.4);
-
-  --bar-from:#2E0810; --bar-via:#6E1120; --bar-to:#1B2138;
-  --bar:linear-gradient(100deg, var(--bar-from) 0%, var(--bar-via) 48%, var(--bar-to) 100%);
-  --tint:linear-gradient(180deg, rgba(228,127,146,.06) 0%, rgba(228,127,146,0) 100%);
-  --focus-glow:rgba(228,127,146,.24);
-  --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70; --series-4:#c98500;
-  --series-5:#d55181; --series-6:#008300; --series-7:#9085e9; --series-8:#e66767;
-}
-
-/* ── TERMINAL ──────────────────────────────────────────────────────────────
-   Near-black ground, amber text, cyan for anything that is data rather than
-   prose. A named palette, not a hue swap: every token the other themes declare
-   is redeclared, because a theme that inherits half of them is the "light
-   island" bug -- the missing half falls back to `:root` and a black page
-   renders white chips on it.
-
-   It is the one theme where the ACCENT carries text on the bar rather than
-   white doing so, because a black bar with white text is not the thing being
-   imitated. `--on-flow` inverts to near-black, since amber is a light fill and
-   white on amber is 1.9:1 -- unreadable, and the sort of thing that only shows
-   up when somebody looks at a filled chip. */
-:root[data-theme="terminal"]{
-  --flow:#FFA92B; --flow-d:#D68A1E; --flow-l:#FFC56B;
-  --on-bar:#FFBC49; --on-bar-dim:rgba(255,188,73,.74);
-  --on-flow:#120C04; --on-flow-dim:rgba(18,12,4,.80);
-
-  --canvas:#080A0A; --surface:#121311; --raised:#191A16; --stripe:#151610;
-  --ink:#FFBC49; --slate:#D6A857; --muted:#A89165;
-  --rule:#2F2E20; --edge:#786A46; --hairline:#201F18;
-
-  --on-accent:#120C04;
-  --ok:#4FD08A; --ok-soft:#0F241A;
-  --warn:#FFC24D; --warn-soft:#2A2110;
-  --bad:#FF6B6B; --bad-soft:#2A1414;
-  --info:#3FD0FF; --info-soft:#0D2029;
-  --retract:#3FD0FF;
-
-  --lift:0 1px 2px rgba(0,0,0,.7), 0 1px 3px rgba(0,0,0,.5);
-  --lift-2:0 2px 8px rgba(0,0,0,.75), 0 6px 18px rgba(0,0,0,.6);
-
-  /* Its own bar stops as well as its own bar: a theme that declared only the
-     gradient would inherit the crimson stops and have its amber text checked
-     against them. */
-  --bar-from:#151610; --bar-via:#0F100C; --bar-to:#080A0A;
-  --bar:linear-gradient(180deg, var(--bar-from) 0%, var(--bar-via) 60%, var(--bar-to) 100%);
-  --tint:linear-gradient(180deg, rgba(255,169,43,.055) 0%, rgba(255,169,43,0) 100%);
-  --focus-glow:rgba(255,169,43,.22);
-  --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70; --series-4:#c98500;
-  --series-5:#d55181; --series-6:#008300; --series-7:#9085e9; --series-8:#e66767;
-}
-
-/* ── BLUE ──────────────────────────────────────────────────────────────────
-   The light theme's structure in the blue of the author's SAJHA server: accent #0079C1,
-   #00A3E0 beside it, navy #003168 for hover and depth, a cool #F0F5FA canvas, white cards,
-   #E2E8F0 rules, #1E293B and #475569 for text. Only the values change. The bar is the same
-   three-stop gradient at the same angle -- navy, blue, a deeper navy, where crimson runs
-   crimson-deep, crimson, indigo -- and a named palette, like terminal, so it redeclares
-   every token rather than inheriting half of them from `:root`.
-
-   #0079C1 is on the bar, where white sits on it at 4.66:1. As the TEXT accent it is 4.25 on
-   this canvas and 4.06 on a card header, so `--flow` is one step deeper in the same hue,
-   #006BAC, which holds 4.8 on every ground it may sit on. The same move the dark crimson
-   makes, in the other direction. #00A3E0 is `--flow-l`, the glow, which carries no text.
-
-   The retraction wears SAJHA's violet (#6F42C1), not a second blue: a −1 that is a darker
-   step of the +1 is a figure nobody can read at a glance. */
-:root[data-theme="blue"]{
-  --flow:#006BAC; --flow-d:#003168; --flow-l:#00A3E0;
-  --on-bar:#fff; --on-bar-dim:rgba(255,255,255,.82);
-  --on-flow:#fff; --on-flow-dim:rgba(255,255,255,.86);
-
-  --canvas:#F0F5FA; --surface:#fff; --raised:#fff; --stripe:#E9F0F7;
-  --ink:#1E293B; --slate:#475569; --muted:#536578;
-  --rule:#E2E8F0; --edge:#64748B; --hairline:#E8EEF5;
-
-  --on-accent:#fff;
-  --ok:#1B6B3A; --ok-soft:#E6F2EA;
-  --warn:#8A5A12; --warn-soft:#F8F0E2;
-  --bad:#CC2200; --bad-soft:#FBE9E4;
-  --info:#293352; --info-soft:#E9ECF3;
-  --retract:#6F42C1;
-
-  --lift:0 1px 2px rgba(0,49,104,.06), 0 1px 3px rgba(0,49,104,.04);
-  --lift-2:0 2px 6px rgba(0,49,104,.08), 0 4px 14px rgba(0,49,104,.06);
-
-  --bar-from:#003168; --bar-via:#0079C1; --bar-to:#001F45;
-  --bar:linear-gradient(100deg, var(--bar-from) 0%, var(--bar-via) 48%, var(--bar-to) 100%);
-  --tint:linear-gradient(180deg, rgba(0,121,193,.045) 0%, rgba(0,121,193,0) 100%);
-  --focus-glow:rgba(0,121,193,.18);
-  --series-1:#2a78d6; --series-2:#eb6834; --series-3:#1baf7a; --series-4:#eda100;
-  --series-5:#e87ba4; --series-6:#008300; --series-7:#4a3aa7; --series-8:#e34948;
-}
-
-/* ── GREEN ─────────────────────────────────────────────────────────────────
-   Rolex's green and gold, from the brand's published values -- green #006039 (Pantone
-   3425 C) and gold #A37E2C -- not measured off a page. Gold is the second hue, where crimson
-   has indigo: the bar runs deep green, green, gold, at the same angle as every other bar. The
-   fonts and the structure are the console's own; the canvas is a warm off-white, because a
-   cool grey under a green and gold reads as two products.
-
-   #006039 carries text at 7:1 on this canvas and is the accent as published. #A37E2C does
-   not: white on it is 3.76:1 and it is 3.42:1 as text on the canvas, so the gold on the bar's
-   last stop, and the retraction's colour, is #8A6A1F: the nearest step of the same hue
-   that holds 4.5 both ways.
-
-   Two status colours move, and a test is why. The crimson `--ok` (#1B6B3A) is 10 ΔE from this
-   accent: "running" and "this product" would be one colour. It becomes a yellow-shifted green,
-   #3D6B00, 31 ΔE away. And the crimson `--warn` (#8A5A12) is 10 ΔE from the gold, so "watch
-   this" would read as the brand; it becomes a burnt orange, #9A4A00, 26 from the gold and 34
-   from `--bad`. */
-:root[data-theme="green"]{
-  --flow:#006039; --flow-d:#004A2C; --flow-l:#2E8B5F;
-  --on-bar:#fff; --on-bar-dim:rgba(255,255,255,.82);
-  --on-flow:#fff; --on-flow-dim:rgba(255,255,255,.86);
-
-  --canvas:#F5F4EE; --surface:#fff; --raised:#fff; --stripe:#EFEDE4;
-  --ink:#1A1C1A; --slate:#474F4A; --muted:#5E6660;
-  --rule:#E2DFD4; --edge:#6B736D; --hairline:#ECEAE1;
-
-  --on-accent:#fff;
-  --ok:#3D6B00; --ok-soft:#EEF3E2;
-  --warn:#9A4A00; --warn-soft:#F8F0E2;
-  --bad:#CC2200; --bad-soft:#FBE9E4;
-  --info:#293352; --info-soft:#E9ECF3;
-  --retract:#8A6A1F;
-
-  --lift:0 1px 2px rgba(0,61,36,.06), 0 1px 3px rgba(0,61,36,.04);
-  --lift-2:0 2px 6px rgba(0,61,36,.08), 0 4px 14px rgba(0,61,36,.06);
-
-  --bar-from:#003D24; --bar-via:#006039; --bar-to:#8A6A1F;
-  --bar:linear-gradient(100deg, var(--bar-from) 0%, var(--bar-via) 48%, var(--bar-to) 100%);
-  --tint:linear-gradient(180deg, rgba(0,96,57,.045) 0%, rgba(0,96,57,0) 100%);
-  --focus-glow:rgba(0,96,57,.18);
-  --series-1:#2a78d6; --series-2:#eb6834; --series-3:#1baf7a; --series-4:#eda100;
-  --series-5:#e87ba4; --series-6:#008300; --series-7:#4a3aa7; --series-8:#e34948;
-}
-
-/* And for anybody who has never touched the picker: follow the machine. The
-   toggle writes `data-theme`, which wins over this in both directions. */
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]):not([data-theme="terminal"]):not([data-theme="blue"]):not([data-theme="green"]){
-    --flow:#E47F92; --flow-d:#DE6B81; --flow-l:#EC9EAC;
-    --on-bar:#F6EDEF; --on-bar-dim:rgba(246,237,239,.74);
-    --on-flow:#151517; --on-flow-dim:rgba(21,21,23,.78);
-    --canvas:#151517; --surface:#1F1F23; --raised:#26262C; --stripe:#232329;
-    --ink:#ECECEF; --slate:#AEB6C0; --muted:#9AA2AC;
-    --rule:#34343A; --edge:#767C86; --hairline:#26262B;
-    --on-accent:#151517;
-    --ok:#7FD39B; --ok-soft:#14241A;
-    --warn:#E8C26A; --warn-soft:#291F12;
-    --bad:#FF8B63; --bad-soft:#2E1A12;
-    --info:#A9B6D6; --info-soft:#1A1E2A;
-    --retract:#A9B6D6;
-    --lift:0 1px 2px rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.35);
-    --lift-2:0 2px 8px rgba(0,0,0,.55), 0 6px 18px rgba(0,0,0,.4);
-    --bar-from:#2E0810; --bar-via:#6E1120; --bar-to:#1B2138;
-    --bar:linear-gradient(100deg, var(--bar-from) 0%, var(--bar-via) 48%, var(--bar-to) 100%);
-    --tint:linear-gradient(180deg, rgba(228,127,146,.06) 0%, rgba(228,127,146,0) 100%);
-    --focus-glow:rgba(228,127,146,.24);
-    --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70; --series-4:#c98500;
-    --series-5:#d55181; --series-6:#008300; --series-7:#9085e9; --series-8:#e66767;
-  }
-}
-
-/* Density. An operator watching forty queries wants forty rows on a screen; a
-   demonstration wants room to read. Both designed, rather than one being a
-   browser zoom of the other -- zoom scales the layout, this scales the rows,
-   the cells, the cards and the space between sections. Text stays at a size
-   that reads, and no control shrinks: a compact screen still has targets of
-   at least 24px (WCAG 2.2, 2.5.8), which the axe audit in compact holds. */
-:root[data-density="compact"]{
-  --row-h:28px; --cell-y:.2rem; --cell-y-sm:.12rem; --cell-fs:.82rem;
-  --card-pad:.6rem; --card-cap-y:.3rem; --gutter:.6rem; --section-gap:1.05rem; --state-pad:1.2rem;
-}
-
-/* ---------------------------------------------------------------- bootstrap
-   Bootstrap's own variables repointed at the tokens, so a theme switch moves
-   the framework's components too. Without this the cards and tables stay light
-   on a dark page, which is the half-themed look that reads as broken. */
-:root{
-  --bs-body-bg:var(--canvas); --bs-body-color:var(--ink);
-  --bs-border-color:var(--rule); --bs-secondary-color:var(--muted);
-  --bs-emphasis-color:var(--ink); --bs-link-color:var(--flow);
-  --bs-link-hover-color:var(--flow-d); --bs-code-color:var(--flow-d);
-  --bs-font-sans-serif:var(--sans); --bs-body-font-family:var(--sans);
-  --bs-navbar-color:var(--on-bar-dim); --bs-navbar-hover-color:var(--on-bar);
-  --bs-navbar-active-color:var(--on-bar); --bs-navbar-brand-color:var(--on-bar);
-}
-
-body{background:var(--canvas);color:var(--ink);font-family:var(--sans);}
-/* Links wear the accent token, not Bootstrap's #0d6efd: that blue is 4.3:1 on the light
-   canvas and 3.5:1 on a dark card, so every plain link on every page failed WCAG 1.4.3. */
-a{color:var(--flow);}
-a:hover{color:var(--flow-d);}
-/* Alerts follow the theme too. Bootstrap's are keyed to data-bs-theme, which this console
-   does not set, so a dark page carried pastel alerts with accent links on them. */
-.alert{--bs-alert-color:var(--ink);--bs-alert-link-color:var(--flow);}
-.alert-danger{--bs-alert-bg:var(--bad-soft);--bs-alert-border-color:var(--bad);}
-.alert-warning{--bs-alert-bg:var(--warn-soft);--bs-alert-border-color:var(--warn);}
-.alert-info{--bs-alert-bg:var(--info-soft);--bs-alert-border-color:var(--info);}
-.alert-success{--bs-alert-bg:var(--ok-soft);--bs-alert-border-color:var(--ok);}
-/* A link inside an alert wears the accent -- unless it is a button, whose own colour pair
-   (white on --flow) is the one the contrast test holds: the accent on the accent is invisible,
-   which is what the error state's Try again looked like before this. */
-.alert a:not(.btn){color:var(--flow);}
-/* Bootstrap's danger red is 3.5:1 on a dark card; the theme's --bad holds 4.5 in every theme. */
-.text-danger{color:var(--bad)!important;}
-.btn-outline-danger{--bs-btn-color:var(--bad);--bs-btn-border-color:var(--bad);
-  --bs-btn-hover-bg:var(--bad);--bs-btn-hover-border-color:var(--bad);--bs-btn-hover-color:var(--canvas);
-  --bs-btn-active-bg:var(--bad);--bs-btn-active-color:var(--canvas);}
-h1,h2,h3,.serif{font-family:var(--serif);letter-spacing:-.01em;}
-h1{font-size:1.5rem;font-weight:600;}
-h2{font-size:1.05rem;font-weight:600;margin:var(--section-gap) 0 .6rem;}
-.mono,code,pre{font-family:var(--code);font-size:.82rem;}
-
-.navbar{background:var(--bar)!important;box-shadow:var(--lift);}
-.navbar-brand{font-family:var(--serif);letter-spacing:.04em;font-weight:600;}
-.navbar .slogan{color:var(--on-bar-dim);font-style:italic;font-size:.82rem;}
-.navbar a,.navbar .navbar-brand{color:var(--on-bar);}
-.navbar .nav-link{color:var(--on-bar)!important;font-size:.88rem;}
-.navbar .nav-link:hover,.navbar .nav-link:focus{color:var(--on-bar-dim)!important;}
-.navbar .nav-link.active{color:var(--on-bar)!important;font-weight:600;
-  box-shadow:inset 0 -2px 0 var(--on-bar);}
-.navbar .btn-outline-light{color:var(--on-bar);border-color:var(--on-bar-dim);}
-.navbar .btn-outline-light:hover{background:var(--on-bar);color:var(--flow-d);}
-
-.card{background:var(--raised);border:1px solid var(--rule);box-shadow:var(--lift);
-  border-radius:6px;}
-.card-header{background:var(--stripe);border-bottom:1px solid var(--rule);
-  font-weight:600;font-size:.9rem;}
-
-/* The thin accent rule above a page title, and the hairline under it. Cheap,
-   and it is most of what makes a page look composed rather than assembled. */
-.accent{height:3px;width:44px;background:var(--flow);border-radius:2px;}
-.rule{height:1px;background:var(--hairline);margin:.6rem 0 1rem;}
-.kicker{font-family:var(--serif);font-size:.74rem;letter-spacing:.13em;
-  text-transform:uppercase;color:var(--muted);}
-.section-label{font-family:var(--serif);font-size:.8rem;letter-spacing:.1em;
-  text-transform:uppercase;color:var(--muted);margin:1.4rem 0 .5rem;}
-
-table{--bs-table-bg:transparent;--bs-table-color:var(--ink);}
-thead th{font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;
-  color:var(--muted);font-weight:600;border-bottom:1px solid var(--rule)!important;
-  white-space:nowrap;}
-tbody td{height:var(--row-h);vertical-align:middle;border-color:var(--hairline)!important;
-  font-size:var(--cell-fs);}
-.table:not(.table-sm)>:not(caption)>*>*{padding-top:var(--cell-y);padding-bottom:var(--cell-y);}
-.table-sm>:not(caption)>*>*{padding-top:var(--cell-y-sm);padding-bottom:var(--cell-y-sm);}
-.card{--bs-card-spacer-y:var(--card-pad);--bs-card-spacer-x:var(--card-pad);
-  --bs-card-cap-padding-y:var(--card-cap-y);}
-.row.g-3{--bs-gutter-x:var(--gutter);--bs-gutter-y:var(--gutter);}
-tbody tr:hover{background:var(--stripe);}
-td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
-
-.chip{display:inline-flex;align-items:center;gap:.28rem;padding:.05rem .45rem;
-  border-radius:10px;font-size:.7rem;font-weight:600;border:1px solid transparent;}
-.chip .dot{width:6px;height:6px;border-radius:50%;background:currentColor;}
-.chip.ok{background:var(--ok-soft);color:var(--ok);}
-.chip.warn{background:var(--warn-soft);color:var(--warn);}
-.chip.bad{background:var(--bad-soft);color:var(--bad);}
-.chip.info{background:var(--info-soft);color:var(--info);}
-.chip.mute{background:var(--stripe);color:var(--muted);border-color:var(--rule);}
-
-.stat .label{font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);}
-.stat .value{font-size:1.6rem;font-weight:650;font-variant-numeric:tabular-nums;
-  font-family:var(--serif);}
-.stat .note{font-size:.74rem;color:var(--muted);}
-
-pre{background:var(--stripe);border:1px solid var(--rule);border-radius:4px;
-  padding:.6rem .7rem;margin:0;overflow-x:auto;color:var(--ink);}
-.form-control,.form-select{background:var(--surface);color:var(--ink);
-  border-color:var(--edge);}
-.form-control:focus,.form-select:focus{border-color:var(--flow);
-  box-shadow:0 0 0 .2rem var(--focus-glow);}
-.btn-primary{background:var(--flow);border-color:var(--flow);color:var(--on-accent);}
-.btn-primary:hover{background:var(--flow-d);border-color:var(--flow-d);color:var(--on-accent);}
-.btn-outline-secondary{color:var(--slate);border-color:var(--edge);}
-
-/* A live tail. Monospace, striped, and it grows downward -- reading a stream
-   that grows upward means the newest row is where your eye is not. */
-.tail{font-family:var(--code);font-size:.76rem;background:var(--stripe);
-  border:1px solid var(--rule);border-radius:4px;height:330px;overflow-y:auto;padding:.3rem;}
-.tail div{padding:1px .3rem;}
-.tail div:nth-child(odd){background:rgba(127,127,127,.05);}
-.tail div.new{animation:flash .6s;}
-@keyframes flash{from{background:var(--info-soft);}}
-
-/* The eight states (design 23.12). A skeleton the shape of the answer, never a
-   spinner on a blank page. */
-.skeleton{background:linear-gradient(90deg,var(--stripe) 25%,var(--hairline) 50%,var(--stripe) 75%);
-  background-size:200% 100%;animation:shimmer 1.4s infinite;border-radius:3px;height:11px;}
-@keyframes shimmer{to{background-position:-200% 0;}}
-.freshness{font-size:.74rem;color:var(--muted);display:inline-flex;align-items:center;gap:.3rem;}
-.freshness .dot{width:6px;height:6px;border-radius:50%;background:var(--ok);}
-.freshness[data-state="refreshing"] .dot{background:var(--warn);}
-.freshness[data-state="stale"] .dot{background:var(--bad);}
-/* Stale data loses its colour, is fenced off, and says how old it is (the banner and the
-   freshness dot). It is never shown as if it were live. It used to dim to 55% opacity, which
-   took every word in it below 4.5:1 -- found when the component gallery put a stale table in
-   front of axe. A grayscale keeps each pair's luminance, so the contrast holds in every theme
-   (test_contrast checks it), while the chips' greens and reds, which say "live", go grey. */
-.stale{filter:grayscale(1);outline:1px dashed var(--edge);outline-offset:3px;border-radius:2px;}
-.state{padding:var(--state-pad) 1rem;text-align:center;color:var(--muted);}
-/* An empty state's title is an h2 wherever it sits, so the outline never skips a level
-   (h1 -> h3 was the commonest axe finding before this); it only looks like a small one. */
-.state h2,.state h3{font-size:.98rem;color:var(--ink);margin-bottom:.4rem;font-family:var(--serif);}
-.state p{max-width:46ch;margin:0 auto .9rem;font-size:.86rem;}
-
-@media (prefers-reduced-motion: reduce){
-  .skeleton,.tail div.new{animation:none;}
-  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;
-    transition-duration:.01ms!important;scroll-behavior:auto!important;}
-}
-
-.skip-link{position:absolute;left:-9999px;top:.4rem;background:var(--flow);
-  color:var(--on-accent);padding:.4rem .8rem;border-radius:4px;z-index:1080;}
-.skip-link:focus{left:.4rem;}
-/* Scrollable code and tables are focusable (tabindex=0) so a keyboard can scroll them;
-   their ring is the same as a link's. */
-pre:focus-visible,[tabindex]:focus-visible,.form-select:focus-visible,.form-check-input:focus-visible,
-a:focus-visible,button:focus-visible,.form-control:focus-visible,
-.navbar a:focus-visible{outline:2px solid var(--flow);outline-offset:2px;}
-.navbar a:focus-visible{outline-color:var(--on-bar);}
-
-footer{border-top:1px solid var(--hairline);margin-top:2.4rem;padding:1.2rem 0;
-  color:var(--muted);font-size:.78rem;}
-footer .principle{font-family:var(--serif);font-style:italic;}
-/* The product's slogan. Italic, and in the accent rather than the footer's muted grey,
-   because it is the one line in the footer that is the product's own voice. */
-footer .slogan{font-family:var(--serif);font-style:italic;color:var(--flow);}
-</style>
 {% block head %}{% endblock %}
 </head>
-<body>
-<a class="skip-link" href="#main">{{ t('shell.skip') }}</a>
-<!-- The one announcer, present from the first byte. It used to be created lazily by theme.js, so
-     every screen's async updates -- a filter applied, a query paused, a failed run -- were silent to
-     a screen reader unless somebody had happened to toggle the theme first. -->
+{% set bare = bare_page is defined and bare_page and not signed_in %}
+<body class="{{ 'pv-public' if bare else 'pv-app' }}">
+<a class="visually-hidden-focusable pv-skip" href="#main">{{ t('shell.skip') }}</a>
+<!-- The one announcer, present from the first byte: every screen's async updates -- a filter
+     applied, a query paused, a theme chosen -- are spoken through it. -->
 <div id="live-region" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
-<nav class="navbar navbar-expand-lg navbar-dark mb-4" aria-label="{{ t('shell.primary_nav') }}">
-  <div class="container">
-    <a class="navbar-brand d-flex align-items-center gap-2" href="{{ '/home' if signed_in else '/' }}">
-      <img src="/static/img/pravaha-mark.svg" alt="" width="24" height="24">{{ app_name }}
-    </a>
-    <span class="slogan d-none d-xl-inline">{{ slogan }}</span>
-    <button class="navbar-toggler ms-auto" type="button" data-bs-toggle="collapse"
-            data-bs-target="#pravaha-nav" aria-controls="pravaha-nav"
-            aria-expanded="false" aria-label="{{ t('shell.menu') }}">
-      <span class="navbar-toggler-icon"></span>
-    </button>
-    <div class="collapse navbar-collapse" id="pravaha-nav">
-      <ul class="navbar-nav ms-auto align-items-lg-center">
-        {# Four sections and no more. Eleven links across a bar means the reader
-           has to read all eleven to find one. #}
-        {# Named `nav_sections`, not `sections`. A `{% set %}` here is in scope for
-           every block a child fills in, so calling it `sections` shadowed the help
-           index's own `sections` and the page failed with "too many values to
-           unpack" -- a 3-tuple nav entry being read as a 2-tuple section. The
-           brand-key collision check in Routes.page cannot see this one, because a
-           template-local set is not a context key. #}
-        {# Six now, one per job rather than one per feature: author, discover, consume,
-           operate, manage, learn. The persona landings (design 23.2) are the first four. #}
-        {% set nav_sections = [
-          ("/workbench", t("nav.workbench"), t("nav.workbench_gloss")),
-          ("/catalog", t("nav.catalog"), t("nav.catalog_gloss")),
-          ("/views", t("nav.views"), t("nav.views_gloss")),
-          ("/operations", t("nav.operations"), t("nav.operations_gloss")),
-          ("/queries", t("nav.queries"), t("nav.queries_gloss")),
-          ("/admin", t("nav.admin"), t("nav.admin_gloss")),
-          ("/help", t("nav.help"), t("nav.help_gloss"))
-        ] %}
-        {% for path, label, gloss in nav_sections %}
-        <li class="nav-item">
-          <a class="nav-link{{ ' active' if path == current else '' }}"
-             href="{{ path }}" title="{{ gloss }}"
-             {% if path == current %}aria-current="page"{% endif %}>{{ label }}</a>
-        </li>
-        {% endfor %}
-        <li class="nav-item ms-lg-3 d-flex align-items-center gap-2">
-          <button type="button" class="btn btn-sm btn-outline-light palette-trigger" id="palette-trigger"
-                  title="{{ t('shell.palette_title') }}" aria-label="{{ t('shell.palette_open') }}" hidden>
-            <i class="bi bi-search" aria-hidden="true"></i><kbd class="ms-1">Ctrl K</kbd></button>
-          {# The engine's reachability on every page, not only the one that
-             failed: an operator who navigates away must not lose the single
-             fact that explains why the next screen is empty. #}
-          {# Reachability is safe to show anyone -- it is what reaching this port establishes
-             anyway. The address it reached, and the reason it did not, are the deployment's
-             and wait for a session. #}
-          {% if engine_up %}
-            <span class="chip ok"{% if signed_in %} title="{{ engine_url }}"{% endif %}><span class="dot"></span>{{ t('shell.engine_up') }}</span>
-          {% else %}
-            <span class="chip bad"{% if signed_in %} title="{{ engine_error }}"{% endif %}><span class="dot"></span>{{ t('shell.engine_down') }}</span>
-          {% endif %}
-          {% if signed_in %}
-            <div class="dropdown">
-              <button class="btn btn-sm btn-outline-light dropdown-toggle" type="button" id="account-menu"
-                      data-bs-toggle="dropdown" aria-expanded="false" title="{{ t('shell.account_title') }}">
-                <i class="bi bi-person-circle" aria-hidden="true"></i> {{ t(roles[role].label) }}</button>
-              <div class="dropdown-menu dropdown-menu-end p-2" aria-labelledby="account-menu" style="min-width:17rem">
-                {# Who is signed in: the engine's name for them (ADR-052). The button keeps the
-                   landing persona, which is what the menu below changes. #}
-                <div class="small px-2 pb-1" id="account-who">{{ t('shell.signed_in_as', user=username) }}</div>
-                <a class="dropdown-item small" href="/account">{{ t('shell.account') }}</a>
-                {% if is_admin %}
-                <a class="dropdown-item small" href="/admin/users">{{ t('shell.people') }}</a>
-                {% endif %}
-                <div class="dropdown-divider"></div>
-                <div class="small text-muted px-2 pb-1">{{ t('shell.land_on') }}</div>
-                {# Real forms: the role switch works with scripting off, like every control. #}
-                {% for key, meta in roles.items() %}
-                <form method="post" action="/preferences/role" class="m-0">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                  <input type="hidden" name="role" value="{{ key }}">
-                  <input type="hidden" name="next" value="/home">
-                  <button class="dropdown-item small{{ ' active' if key == role else '' }}" type="submit"
-                          {% if key == role %}aria-current="true"{% endif %}>
-                    <strong>{{ t(meta.label) }}</strong> <span class="text-muted">— {{ t(meta.blurb)|lower }}</span></button>
-                </form>
-                {% endfor %}
-                <div class="dropdown-divider"></div>
-                <a class="dropdown-item small" href="/start">{{ t('shell.get_started') }}</a>
-                <a class="dropdown-item small" href="/plugins">{{ t('shell.plugins') }}</a>
-                {# A form, not a link: signing out changes state, so it carries the CSRF token
-                   like every other change, and a page elsewhere cannot sign anybody out. #}
-                <form method="post" action="/logout" class="m-0" id="sign-out-form">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                  <button class="dropdown-item small" type="submit" title="{{ t('shell.sign_out_title') }}">{{ t('shell.sign_out') }}</button>
-                </form>
-              </div>
-            </div>
-          {% else %}
-            <a class="btn btn-sm btn-outline-light" href="/login" title="{{ t('shell.sign_in_title') }}">{{ t('shell.sign_in') }}</a>
-          {% endif %}
-          <button type="button" class="btn btn-sm btn-outline-light" id="theme-toggle"
-                  title="{{ t('shell.theme_title') }}" aria-label="{{ t('shell.theme') }}"><i class="bi bi-circle-half" aria-hidden="true"></i></button>
-          <button type="button" class="btn btn-sm btn-outline-light" id="density-toggle"
-                  title="{{ t('shell.density_title') }}" aria-label="{{ t('shell.density') }}"><i class="bi bi-list" aria-hidden="true"></i></button>
-        </li>
-      </ul>
-    </div>
-  </div>
-</nav>
-<main class="{% block main_class %}container{% endblock %}" id="main" tabindex="-1">{% block content %}{% endblock %}</main>
-<!-- The slogan, on every page. In the footer rather than beside the wordmark because the bar
-     has to fit a hamburger and a brand at 390px and something there would be hidden at the
-     width most likely to be somebody's phone -- and "every page" has to mean every width
-     too. The footer is in this file, so the help, the sign-in page and the error pages carry
-     it without any of them knowing about it. -->
-<footer><div class="container d-flex flex-wrap gap-3 justify-content-between">
-  <span class="slogan">{{ t('shell.slogan') }}</span>
-  <span class="principle">{{ principle }}</span>
-  {# The engine's address is the deployment's, not the product's: it named a host and a port
-     to anybody who could reach this port, on the landing page, the documentation and the
-     sign-in form. The version of the console is the product's own fact and stays. #}
-  <span>{{ app_name }} {{ version }}{% if signed_in %} — {{ t('shell.footer_engine') }}
-    <span class="mono">{{ engine_url }}</span>{% endif %}</span>
-</div></footer>
+{% if signed_in %}{% include "_nav.html" %}{% elif not bare %}{% include "_nav_public.html" %}{% endif %}
+<div class="pv-shell">
+  {# The banners, as MAYA's: what is wrong with this deployment, then where this is. The engine's
+     reachability is on every page, not only the one that failed: an operator who navigates away
+     must not lose the single fact that explains why the next screen is empty. Its address and
+     the reason it is not answering wait for a session. #}
+  {% if signed_in or not engine_up %}<aside class="pv-banners" aria-label="{{ t('shell.banner.label') }}">{% endif %}
+  {% if signed_in and default_admin_password %}
+  <div class="pv-banner warn" role="alert" id="banner-default-password"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+    {{ t('shell.banner.default_password_before') }} <strong>{{ username }}</strong> {{ t('shell.banner.default_password_middle') }}
+    <code>pravaha-dev-admin</code>. <a href="/account/password">{{ t('shell.banner.default_password_link') }}</a></div>
+  {% endif %}
+  {% if not engine_up %}
+  <div class="pv-banner warn" role="status" id="banner-engine"><i class="bi bi-plug" aria-hidden="true"></i>
+    <span class="pv-state"><span class="dot" aria-hidden="true"></span><strong>{{ t('shell.engine_down') }}</strong></span>
+    {% if signed_in %} · <code>{{ engine_url }}</code>{% if engine_error %} · {{ engine_error }}{% endif %}{% endif %}</div>
+  {% elif signed_in %}
+  <div class="pv-banner info" id="banner-info"><span class="pv-state"><span class="dot" aria-hidden="true"></span>{{ t('shell.engine_up') }}</span>
+    · {{ t('shell.banner.engine') }} <code>{{ engine_url }}</code>
+    {% if environment %} · {{ t('shell.banner.environment') }} <strong>{{ environment }}</strong>{% endif %}
+    · {{ t('shell.banner.console') }} <strong>{{ version }}</strong></div>
+  {% endif %}
+  {% if signed_in or not engine_up %}</aside>{% endif %}
+  <main class="pv-content{% block main_class %}{% endblock %}" id="main" tabindex="-1">{% block content %}{% endblock %}</main>
+  {# The slogan closes every page, as MAYA's closes every one of its own: it is what the product
+     claims about itself, and a claim belongs where the work is, not only on the way in. #}
+  <footer class="pv-foot">
+    <p class="mb-0"><span class="pv-foot-slogan slogan">{{ t('shell.slogan') }}</span>
+      {{ app_name }} {{ version }} · <a href="/help">{{ t('nav.help') }}</a> · <a href="/about">{{ t('nav.about') }}</a>{% if copyright %}
+      · {{ copyright }}{% endif %}</p>
+  </footer>
+</div>
 <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
-<script src="/static/js/theme.js"></script>
+<script src="/static/js/theme.js?v={{ asset_version }}"></script>
 <script src="/static/js/api.js"></script>
 <script src="/static/js/states.js"></script>
 {# The islands are ES modules with no bundler: this map is the whole "build". Every entry

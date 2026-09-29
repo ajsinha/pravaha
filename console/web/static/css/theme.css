@@ -1,0 +1,497 @@
+/*
+ * Pravaha console — the theme: Bootstrap 5 re-pointed at the tokens (tokens.css) through CSS
+ * custom properties, and the shell and components drawn in MAYA's design language: a fixed
+ * top navigation on the accent gradient with mega-menu panels, banners under it, cards with
+ * depth, outlined status pills, and one closing line. No Sass, no build step.
+ * Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+ * Proprietary and confidential. See LICENSE at the repository root.
+ *
+ * Colour comes only from tokens.css: there is no hex value in this file, and a test holds it.
+ * The accent is a signal -- primary action, active location, focus, brand headings.
+ */
+
+/* ------------------------------------------------------------------ the console's own names
+   The product stylesheets (product.css, help.css) and the islands' scripts were written against
+   short names -- --flow, --muted, --rule. Each is an alias of one MAYA role, declared once here,
+   so a theme is still the redefinition of tokens.css and nothing else. */
+:root, :root[data-theme] {
+  --flow: var(--pv-crimson); --flow-d: var(--pv-crimson-strong); --flow-l: var(--pv-crimson-light);
+  --on-bar: var(--pv-on-nav); --on-bar-dim: color-mix(in srgb, var(--pv-on-nav) 82%, transparent);
+  --on-flow: var(--pv-on-crimson); --on-flow-dim: color-mix(in srgb, var(--pv-on-crimson) 86%, transparent);
+  --on-accent: var(--pv-on-crimson);
+  --canvas: var(--pv-canvas); --surface: var(--pv-surface); --raised: var(--pv-surface);
+  --stripe: var(--pv-wash); --ink: var(--pv-ink); --slate: var(--pv-slate); --muted: var(--pv-slate);
+  --rule: var(--pv-border); --edge: var(--pv-edge); --hairline: var(--pv-border);
+  --ok: var(--pv-ok); --ok-soft: var(--pv-ok-soft); --warn: var(--pv-warn); --warn-soft: var(--pv-warn-soft);
+  --bad: var(--pv-bad); --bad-soft: var(--pv-bad-soft); --info: var(--pv-info); --info-soft: var(--pv-info-soft);
+  --retract: var(--pv-retract);
+  --bar-from: var(--pv-nav-from); --bar-via: var(--pv-nav-via); --bar-to: var(--pv-nav-to);
+  --bar: linear-gradient(100deg, var(--pv-nav-from) 0%, var(--pv-nav-via) 48%, var(--pv-nav-to) 100%);
+  --tint: linear-gradient(180deg, color-mix(in srgb, var(--pv-crimson) 5%, transparent) 0%, transparent 100%);
+  --focus-glow: color-mix(in srgb, var(--pv-crimson) 18%, transparent);
+  --lift: 0 1px 2px rgba(0,0,0,.05), 0 8px 24px -14px color-mix(in srgb, var(--pv-nav-to) 45%, transparent);
+  --lift-2: 0 2px 6px rgba(0,0,0,.08), 0 16px 32px -16px color-mix(in srgb, var(--pv-nav-to) 55%, transparent);
+  --series-1: var(--pv-series-1); --series-2: var(--pv-series-2); --series-3: var(--pv-series-3);
+  --series-4: var(--pv-series-4); --series-5: var(--pv-series-5); --series-6: var(--pv-series-6);
+  --series-7: var(--pv-series-7); --series-8: var(--pv-series-8);
+
+  /* MAYA's type: the system face for everything, a monospace for code and data. */
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --serif: var(--sans);
+  --code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --mono: var(--code);
+
+  /* DENSITY (design 23.4), comfortable values. Compact redefines them below, and only them:
+     density is one block of tokens, as a theme is, never a zoom. */
+  --row-h: 38px; --cell-y: .45rem; --cell-y-sm: .25rem; --cell-fs: 13px;
+  --card-pad: 1rem; --card-cap-y: .55rem; --gutter: 1rem; --section-gap: 1.6rem; --state-pad: 2.2rem;
+
+  /* Bootstrap, re-pointed */
+  --bs-body-font-size: 14px;
+  --bs-body-color: var(--pv-ink);
+  --bs-body-bg: var(--pv-canvas);
+  --bs-emphasis-color: var(--pv-ink);
+  --bs-secondary-color: var(--pv-slate);
+  --bs-tertiary-bg: var(--pv-crimson-tint);
+  --bs-border-color: var(--pv-border);
+  --bs-primary: var(--pv-crimson);
+  --bs-link-color: var(--pv-crimson);
+  --bs-link-hover-color: var(--pv-crimson-strong);
+  --bs-code-color: var(--pv-crimson-strong);
+  --bs-focus-ring-color: color-mix(in srgb, var(--pv-crimson) 40%, transparent);
+  --bs-card-bg: var(--pv-surface);
+  --bs-font-sans-serif: var(--sans);
+  --bs-body-font-family: var(--sans);
+  --bs-dropdown-bg: var(--pv-surface);
+  --bs-dropdown-color: var(--pv-ink);
+  --bs-dropdown-link-color: var(--pv-ink);
+  --bs-dropdown-link-hover-bg: var(--pv-crimson-tint);
+  --bs-dropdown-link-hover-color: var(--pv-ink);
+  --bs-dropdown-link-active-bg: var(--pv-crimson-tint);
+  --bs-dropdown-link-active-color: var(--pv-crimson);
+}
+:root[data-density="compact"] {
+  --row-h: 28px; --cell-y: .2rem; --cell-y-sm: .12rem; --cell-fs: 12.5px;
+  --card-pad: .6rem; --card-cap-y: .3rem; --gutter: .6rem; --section-gap: 1.05rem; --state-pad: 1.2rem;
+}
+
+html { font-size: 14px; }
+body { background: var(--pv-canvas); color: var(--pv-ink); line-height: 1.55; font-family: var(--sans); }
+a { color: var(--pv-crimson); }
+a:hover { color: var(--pv-crimson-strong); }
+:focus-visible { outline: 2px solid var(--pv-crimson) !important; outline-offset: 2px; }
+code, pre, kbd, .mono { font-family: var(--code); font-size: 12.5px; }
+pre { background: var(--pv-surface); border: 1px solid var(--pv-border); border-radius: 6px; padding: .6rem .8rem;
+  color: var(--pv-ink); overflow: auto; margin: 0; }
+.text-muted, .text-body-secondary { color: var(--pv-slate) !important; }
+.text-danger { color: var(--pv-bad) !important; }
+.small-muted { color: var(--pv-slate); font-size: 12px; }
+.lead-slate, .lede { color: var(--pv-slate); }
+
+/* ------------------------------------------------------------------ buttons: one primary per surface */
+.btn { border-radius: 9px; font-weight: 600; }
+.btn-primary { --bs-btn-bg: var(--pv-crimson); --bs-btn-border-color: var(--pv-crimson);
+  --bs-btn-hover-bg: var(--pv-crimson-strong); --bs-btn-hover-border-color: var(--pv-crimson-strong);
+  --bs-btn-active-bg: var(--pv-crimson-strong); --bs-btn-active-border-color: var(--pv-crimson-strong);
+  --bs-btn-color: var(--pv-on-crimson); --bs-btn-hover-color: var(--pv-on-crimson); --bs-btn-active-color: var(--pv-on-crimson);
+  --bs-btn-disabled-bg: var(--pv-slate); --bs-btn-disabled-border-color: var(--pv-slate); --bs-btn-disabled-color: var(--pv-surface);
+  background-image: linear-gradient(135deg, var(--pv-crimson), var(--pv-crimson-strong));
+  box-shadow: 0 6px 14px -8px var(--pv-crimson); transition: transform .12s, box-shadow .12s; }
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 20px -10px var(--pv-crimson); }
+.btn-outline-primary { --bs-btn-color: var(--pv-crimson); --bs-btn-border-color: var(--pv-crimson);
+  --bs-btn-hover-bg: var(--pv-crimson); --bs-btn-hover-border-color: var(--pv-crimson);
+  --bs-btn-hover-color: var(--pv-on-crimson); --bs-btn-active-bg: var(--pv-crimson-strong);
+  --bs-btn-active-color: var(--pv-on-crimson); }
+.btn-outline-secondary { --bs-btn-color: var(--pv-ink); --bs-btn-border-color: var(--pv-edge);
+  --bs-btn-hover-bg: var(--pv-crimson-tint); --bs-btn-hover-color: var(--pv-ink);
+  --bs-btn-hover-border-color: var(--pv-slate); --bs-btn-active-bg: var(--pv-crimson-tint);
+  --bs-btn-active-color: var(--pv-ink); --bs-btn-disabled-color: var(--pv-slate); }
+.btn-outline-danger { --bs-btn-color: var(--pv-bad); --bs-btn-border-color: var(--pv-bad);
+  --bs-btn-hover-bg: var(--pv-bad); --bs-btn-hover-border-color: var(--pv-bad); --bs-btn-hover-color: var(--pv-canvas);
+  --bs-btn-active-bg: var(--pv-bad); --bs-btn-active-color: var(--pv-canvas); }
+.btn-link { --bs-btn-color: var(--pv-crimson); --bs-btn-hover-color: var(--pv-crimson-strong); }
+.btn-close { filter: none; }
+:root[data-theme="dark"] .btn-close { filter: invert(1) grayscale(100%) brightness(200%); }
+
+/* ------------------------------------------------------------------ the chrome
+   A fixed top navigation with mega-menu panels (no left rail), as MAYA has it. */
+.pv-app { padding-top: 64px; }
+.pv-skip { position: absolute; top: 4px; left: 8px; z-index: 2000; background: var(--pv-surface); padding: .3rem .6rem;
+  border-radius: 6px; color: var(--pv-crimson); }
+.pv-nav { min-height: 64px; padding: 0 1rem; background: var(--bar);
+  box-shadow: 0 6px 24px -8px color-mix(in srgb, var(--pv-nav-to) 55%, transparent); }
+.pv-nav::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--pv-glow), transparent); opacity: .55; }
+.pv-brand { display: flex; align-items: center; gap: .6rem; color: var(--pv-on-nav) !important; margin-right: 1.4rem; }
+.pv-brand img { height: 34px; width: 34px; filter: drop-shadow(0 2px 6px rgba(0,0,0,.35)); }
+.pv-brand .name { font-weight: 800; letter-spacing: .16em; font-size: 1.15rem; display: block; line-height: 1.1; }
+.pv-brand small { display: block; font-size: 10.5px; opacity: .85; letter-spacing: .02em; line-height: 1.25; }
+/* The slogan, third line of the brand: white, italic and a shade smaller than the tagline
+   above it, so the three lines read as a hierarchy rather than as three equal labels. */
+.pv-brand .creed { font-style: italic; font-size: 9.5px; opacity: 1; letter-spacing: .015em; color: var(--pv-on-nav); line-height: 1.3; }
+.pv-nav .navbar-toggler { color: var(--pv-on-nav); border-color: rgba(255,255,255,.4); font-size: 1.4rem; }
+.pv-nav .nav-link { color: var(--pv-on-nav) !important; font-weight: 600; padding: 1.3rem .85rem !important;
+  position: relative; opacity: .92; transition: opacity .15s, background .15s; }
+.pv-nav .nav-link:hover, .pv-nav .nav-link.show { opacity: 1; background: rgba(255,255,255,.10); }
+.pv-nav .nav-link.active { opacity: 1; }
+.pv-nav .nav-link.active::before, .pv-nav .nav-link.show::before { content: ""; position: absolute; left: .85rem; right: .85rem; bottom: 0;
+  height: 3px; border-radius: 3px 3px 0 0; background: var(--pv-on-nav); }
+.pv-nav .nav-link i { margin-right: .3rem; opacity: .9; }
+.pv-nav .dropdown-toggle::after { display: none; }
+.pv-nav a:focus-visible, .pv-nav button:focus-visible { outline-color: var(--pv-on-nav) !important; }
+
+.mega-panel { border: 0; border-radius: 0 0 16px 16px; padding: 1.1rem 1.2rem 1.2rem; margin-top: 0 !important;
+  background: var(--pv-surface);
+  box-shadow: 0 24px 48px -16px rgba(0,0,0,.35), 0 2px 6px rgba(0,0,0,.08);
+  border-top: 3px solid transparent;
+  border-image: linear-gradient(90deg, var(--pv-nav-via), var(--pv-nav-to)) 1; }
+.mega-panel.show { display: grid; gap: 1.2rem; animation: mega-in .14s ease-out; }
+.mega-panel.cols-1.show { grid-template-columns: minmax(300px, 340px); }
+.mega-panel.cols-2.show { grid-template-columns: repeat(2, minmax(280px, 320px)); }
+.mega-panel.cols-3.show { grid-template-columns: repeat(3, minmax(260px, 300px)); }
+.mega-panel.cols-4.show { grid-template-columns: repeat(4, minmax(230px, 270px)); }
+@keyframes mega-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.mega-title { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .09em; color: var(--pv-slate);
+  padding: 0 .55rem .45rem; margin-bottom: .35rem; border-bottom: 1px solid var(--pv-border); }
+.mega-item { display: flex; gap: .7rem; align-items: flex-start; padding: .55rem; border-radius: 10px; color: var(--pv-ink); text-decoration: none; }
+.mega-item:hover, .mega-item:focus-visible { background: var(--pv-crimson-tint); color: var(--pv-ink); }
+.mega-item.active { background: var(--pv-crimson-tint); }
+.mega-item.active .mega-label { color: var(--pv-crimson); }
+.mega-icon { flex: 0 0 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; font-size: 1.05rem;
+  color: var(--pv-on-nav); background: linear-gradient(135deg, var(--pv-nav-via), var(--pv-nav-to));
+  box-shadow: 0 4px 10px -4px color-mix(in srgb, var(--pv-nav-via) 60%, transparent); }
+.mega-label { display: block; font-weight: 650; line-height: 1.25; }
+.mega-desc { display: block; font-size: 12px; color: var(--pv-slate); line-height: 1.35; }
+
+/* The search field, in MAYA's place and shape. In the console it opens the command palette,
+   which searches every screen, stream, view and query; with scripting off it is a link to the
+   help's own search. */
+.pv-search { position: relative; margin: 0 .8rem; flex: 0 1 260px; display: flex; align-items: center; gap: .5rem;
+  border: 1px solid rgba(255,255,255,.28); border-radius: 999px; padding: .4rem .9rem;
+  background: rgba(255,255,255,.12); color: var(--pv-on-nav); text-decoration: none; font-weight: 400;
+  transition: background .15s, border-color .15s; white-space: nowrap; }
+.pv-search:hover, .pv-search:focus-visible { background: rgba(255,255,255,.2); border-color: rgba(255,255,255,.65); color: var(--pv-on-nav); }
+.pv-search .ph { flex: 1; text-align: left; opacity: .85; }
+.pv-search kbd { background: transparent; color: var(--pv-on-nav); border: 1px solid rgba(255,255,255,.45); border-radius: 4px;
+  padding: 0 .3rem; font-size: 10.5px; }
+.pv-tools { display: flex; align-items: center; gap: .35rem; }
+.pv-tools .tool, .pv-nav .tool { position: relative; display: inline-flex; align-items: center; gap: .45rem; border: 0; background: transparent;
+  color: var(--pv-on-nav); padding: .45rem .55rem; border-radius: 10px; text-decoration: none; font-weight: 600; }
+.pv-tools .tool:hover, .pv-nav .tool:hover, .pv-nav .tool:focus-visible { background: rgba(255,255,255,.14); color: var(--pv-on-nav); }
+.pv-nav .tool.dropdown-toggle::after { display: none; }
+.pv-tools .dot { position: absolute; top: 1px; right: 0; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 999px;
+  font-size: 10.5px; line-height: 17px; text-align: center; background: var(--pv-on-nav); color: var(--pv-nav-from); font-weight: 800; }
+.pv-tools .avatar { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 800;
+  background: var(--pv-on-nav); color: var(--pv-nav-from); box-shadow: 0 0 0 2px rgba(255,255,255,.35); }
+.pv-user-menu { border: 0; border-radius: 12px; box-shadow: 0 18px 40px -12px rgba(0,0,0,.35); min-width: 270px; }
+.pv-user-menu .dropdown-item { display: flex; gap: .55rem; align-items: center; white-space: normal; }
+.pv-user-menu .dropdown-item.active { background: var(--pv-crimson-tint); color: var(--pv-crimson); }
+.pv-user-menu .dropdown-header { color: var(--pv-slate); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .09em; }
+.pv-user-menu .persona span { color: var(--pv-slate); }
+
+/* The theme menu. The check mark is the aria state, drawn, so what a screen reader is told
+   and what the eye sees cannot disagree. */
+.theme-menu { border: 0; border-radius: 12px; box-shadow: 0 18px 40px -12px rgba(0,0,0,.35); }
+.theme-menu .dropdown-item { display: flex; align-items: center; gap: .55rem; font-size: 13.5px; }
+.theme-swatch { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(0,0,0,.18); flex: none; }
+.theme-menu [aria-checked="true"]::after { content: "\2713"; margin-left: auto; color: var(--pv-crimson); font-weight: 700; }
+
+@media (max-width: 991.98px) {
+  .pv-nav .nav-link { padding: .7rem .6rem !important; }
+  .pv-nav .navbar-collapse { max-height: calc(100vh - 64px); overflow-y: auto; padding-bottom: .8rem; }
+  .mega-panel.show { display: block; border-radius: 12px; margin-bottom: .5rem !important; }
+  .mega-col + .mega-col { margin-top: .8rem; }
+  .pv-search { margin: .5rem 0; }
+  .pv-tools { flex-wrap: wrap; }
+}
+@media (min-width: 992px) {
+  .pv-nav .mega { position: static; }
+  .pv-nav .mega-panel { position: absolute; left: 0; right: 0; top: 100%; justify-content: center; }
+}
+/* The brand's two small lines wait for room: at phone width the bar holds the mark, the name
+   and the menu button, and nothing is clipped. */
+@media (max-width: 420px) { .pv-brand small { display: none; } }
+
+/* ------------------------------------------------------------------ the shell */
+.pv-shell { min-height: 100vh; display: flex; flex-direction: column; }
+.pv-content { padding: 1.4rem 1.8rem 3rem; max-width: 1560px; width: 100%; margin: 0 auto; flex: 1 0 auto; }
+.pv-content.container { max-width: 1320px; }
+
+.pv-banner { padding: .3rem 1.8rem; font-size: 12.5px; }
+.pv-banner i { margin-right: .3rem; }
+.pv-banner.warn { background: linear-gradient(90deg, var(--pv-crimson-tint), var(--pv-surface)); color: var(--pv-ink); border-bottom: 1px solid var(--pv-border); }
+.pv-banner.info { background: var(--pv-surface); color: var(--pv-slate); border-bottom: 1px solid var(--pv-border); }
+.pv-banner strong { color: var(--pv-ink); }
+.pv-banner code { color: var(--pv-ink); font-size: 12px; }
+.pv-banner .pv-state { display: inline-flex; align-items: center; gap: .3rem; }
+.pv-banner .pv-state .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pv-ok); display: inline-block; }
+.pv-banner.warn .pv-state .dot { background: var(--pv-bad); }
+
+/* The page's closing line. The slogan is set in italics wherever it appears, and the rest of the
+   line is quiet enough that it never competes with the content above it. */
+.pv-foot { max-width: 1560px; width: 100%; margin: 0 auto; padding: .85rem 1.8rem 1.6rem; text-align: center;
+  border-top: 1px solid var(--pv-border); color: var(--pv-slate); font-size: 12px; }
+.pv-foot-slogan { font-style: italic; color: var(--pv-heading); font-size: 13px; margin-right: .35rem; }
+.pv-foot a { color: var(--pv-slate); }
+.pv-foot a:hover { color: var(--pv-crimson); }
+
+/* The public pages with no bar -- the sign-in forms -- stand on the gradient itself. */
+.pv-public { min-height: 100vh;
+  background: radial-gradient(900px 500px at 85% -10%, color-mix(in srgb, var(--pv-glow) 35%, transparent), transparent 60%),
+              linear-gradient(135deg, var(--pv-nav-from), var(--pv-nav-via) 45%, var(--pv-nav-to)); }
+.pv-public .card { border-radius: 18px; box-shadow: 0 30px 60px -20px rgba(0,0,0,.55); }
+.pv-public .pv-hero, .pv-public .on-gradient, .pv-public .on-gradient a { color: var(--pv-on-nav); }
+.pv-public .login-mark { height: 64px; width: 64px; filter: drop-shadow(0 6px 14px rgba(0,0,0,.4)); }
+.pv-public .login-name { font-size: 2.1rem; font-weight: 800; letter-spacing: .12em; color: var(--pv-on-nav); margin-top: .4rem; }
+.pv-public .pv-foot { border-top-color: rgba(255,255,255,.25); color: var(--pv-on-nav); }
+.pv-public .pv-foot a, .pv-public .pv-foot-slogan { color: var(--pv-on-nav); }
+.pv-public .pv-banner.warn { background: var(--pv-surface); }
+
+/* Polish: depth, gradients and rhythm. */
+body.pv-app { background:
+  radial-gradient(900px 380px at 100% 0, color-mix(in srgb, var(--pv-glow) 55%, transparent), transparent 70%),
+  radial-gradient(700px 320px at 0 0, color-mix(in srgb, var(--pv-indigo) 10%, transparent), transparent 70%),
+  var(--pv-canvas); background-attachment: fixed; }
+
+/* ------------------------------------------------------------------ type */
+h1, h2, h3, .serif { font-family: var(--sans); }
+h1, .h1 { font-size: 1.7rem; font-weight: 750; letter-spacing: -.01em; color: var(--pv-heading);
+  background: linear-gradient(90deg, var(--pv-heading), var(--pv-crimson) 55%, var(--pv-indigo));
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; width: fit-content; max-width: 100%; }
+h1 small, h1 span, h1 a, h1 code { -webkit-text-fill-color: var(--pv-slate); color: var(--pv-slate); }
+h2, .h2 { font-size: 1.2rem; font-weight: 650; margin: var(--section-gap) 0 .6rem; }
+h3, .h3 { font-size: 1.02rem; font-weight: 650; }
+
+/* The page head: MAYA's heading, an eyebrow above it and a hairline under it. */
+.accent { display: none; }
+.kicker, .section-label { font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--pv-crimson); }
+.section-label { margin: 1.4rem 0 .5rem; }
+.rule { height: 1px; background: var(--pv-border); margin: .6rem 0 1rem; }
+
+/* ------------------------------------------------------------------ cards, forms, tabs, alerts */
+.card { background: var(--pv-surface); border: 1px solid color-mix(in srgb, var(--pv-border) 70%, transparent); border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px -14px color-mix(in srgb, var(--pv-nav-to) 45%, transparent);
+  --bs-card-spacer-y: var(--card-pad); --bs-card-spacer-x: var(--card-pad); --bs-card-cap-padding-y: var(--card-cap-y);
+  --bs-card-border-radius: 14px; --bs-card-inner-border-radius: 13px; color: var(--pv-ink); }
+.card-header { background: linear-gradient(90deg, var(--pv-crimson-tint), transparent); border-bottom: 1px solid var(--pv-border);
+  font-weight: 650; border-radius: 14px 14px 0 0 !important; color: var(--pv-ink); }
+.card-footer { background: transparent; border-top: 1px solid var(--pv-border); }
+.row.g-3 { --bs-gutter-x: var(--gutter); --bs-gutter-y: var(--gutter); }
+.form-control, .form-select { background-color: var(--pv-surface); color: var(--pv-ink); border-color: var(--pv-edge);
+  font-size: 13.5px; border-radius: 9px; }
+.form-control::placeholder { color: var(--pv-slate); opacity: 1; }
+.form-control:focus, .form-select:focus { background-color: var(--pv-surface); color: var(--pv-ink); border-color: var(--pv-crimson);
+  box-shadow: 0 0 0 3px var(--focus-glow); }
+.form-label { font-weight: 600; font-size: 12.5px; color: var(--pv-ink); margin-bottom: .2rem; }
+.form-check-input { border-color: var(--pv-edge); background-color: var(--pv-surface); }
+.form-check-input:checked { background-color: var(--pv-crimson); border-color: var(--pv-crimson); }
+.nav-tabs { border-bottom: 1px solid var(--pv-border); gap: .15rem; }
+.nav-tabs .nav-link { color: var(--pv-ink); border: 0; border-radius: 9px 9px 0 0; font-weight: 600; }
+.nav-tabs .nav-link.active { color: var(--pv-crimson); border: 0; box-shadow: inset 0 -3px 0 var(--pv-crimson); background: var(--pv-surface); }
+.alert { border-radius: 12px; border-width: 0 0 0 4px; --bs-alert-color: var(--pv-ink); --bs-alert-link-color: var(--pv-crimson); }
+.alert-danger { --bs-alert-bg: var(--pv-bad-soft); --bs-alert-border-color: var(--pv-bad); }
+.alert-warning { --bs-alert-bg: var(--pv-warn-soft); --bs-alert-border-color: var(--pv-warn); }
+.alert-info { --bs-alert-bg: var(--pv-info-soft); --bs-alert-border-color: var(--pv-info); }
+.alert-success { --bs-alert-bg: var(--pv-ok-soft); --bs-alert-border-color: var(--pv-ok); }
+/* A link inside an alert wears the accent -- unless it is a button, whose own colour pair is the
+   one the contrast test holds: the accent on the accent is invisible. */
+.alert a:not(.btn) { color: var(--pv-crimson); }
+.dropdown-menu { --bs-dropdown-border-color: var(--pv-border); }
+.dropdown-divider { border-color: var(--pv-border); }
+.badge.text-bg-secondary { background: var(--pv-wash) !important; color: var(--pv-ink) !important; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: .2rem 1rem; }
+.kv dt { color: var(--pv-slate); font-weight: 500; }
+.kv dd { margin: 0; word-break: break-all; }
+kbd { background: var(--pv-wash); color: var(--pv-slate); border: 1px solid var(--pv-border); border-bottom-width: 2px;
+  border-radius: 4px; padding: 0 .3rem; font-size: .7rem; box-shadow: none; }
+mark { background: var(--pv-highlight); color: var(--pv-ink); padding: 0; }
+
+/* ------------------------------------------------------------------ tables: MAYA's universal table */
+table { --bs-table-bg: transparent; --bs-table-color: var(--pv-ink); --bs-table-hover-bg: var(--pv-crimson-tint);
+  --bs-table-hover-color: var(--pv-ink); --bs-table-striped-bg: var(--pv-wash); --bs-table-striped-color: var(--pv-ink); }
+.table { color: var(--pv-ink); }
+.table > thead th, table thead th { background: linear-gradient(180deg, var(--pv-surface), var(--pv-crimson-tint));
+  border-bottom: 2px solid var(--pv-crimson) !important; font-weight: 650; font-size: 12px; color: var(--pv-ink);
+  white-space: nowrap; text-transform: none; letter-spacing: 0; }
+tbody td { height: var(--row-h); vertical-align: middle; border-color: var(--pv-border) !important; font-size: var(--cell-fs); }
+.table:not(.table-sm) > :not(caption) > * > * { padding-top: var(--cell-y); padding-bottom: var(--cell-y); }
+.table-sm > :not(caption) > * > * { padding-top: var(--cell-y-sm); padding-bottom: var(--cell-y-sm); }
+tbody tr:hover { background: var(--pv-crimson-tint); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.card > .table-responsive, .card > .table, .card .table:last-child { margin-bottom: 0; }
+
+/* ------------------------------------------------------------------ status: glyph + word, never colour alone */
+.chip, .pill { display: inline-flex; align-items: center; gap: .28rem; padding: .05rem .5rem; border-radius: 999px;
+  font-size: 12px; font-weight: 600; border: 1px solid var(--pv-border); background: var(--pv-surface); color: var(--pv-ink);
+  white-space: nowrap; line-height: 1.5; }
+/* a pill keeps its own height in a stretching flex row: a tall pill is an oval, not a pill */
+.chip, .pill { align-self: center; }
+.chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.chip.ok, .pill.ok { border-color: var(--pv-ok); color: var(--pv-ok); }
+.chip.warn, .pill.warn { border-color: var(--pv-warn); color: var(--pv-warn); }
+.chip.bad, .pill.bad { border-color: var(--pv-bad); color: var(--pv-bad); }
+.chip.info, .pill.info { border-color: var(--pv-info); color: var(--pv-info); }
+.chip.mute { color: var(--pv-slate); }
+.pill.brand { border-color: var(--pv-crimson); color: var(--pv-crimson); }
+
+/* Stat tiles */
+.stat .label { font-size: 12px; color: var(--pv-slate); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+.stat .value { font-size: 1.7rem; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--pv-ink); }
+.stat .note { font-size: 12px; color: var(--pv-slate); }
+
+/* ------------------------------------------------------------------ the eight states (design 23.12)
+   A skeleton the shape of the answer, never a spinner on a blank page. */
+.tail { font-family: var(--code); font-size: 12px; background: var(--pv-wash); border: 1px solid var(--pv-border);
+  border-radius: 8px; height: 330px; overflow-y: auto; padding: .3rem; }
+.tail div { padding: 1px .3rem; }
+.tail div:nth-child(odd) { background: rgba(127,127,127,.05); }
+.tail div.new { animation: flash .6s; }
+@keyframes flash { from { background: var(--pv-info-soft); } }
+.skeleton { background: linear-gradient(90deg, var(--pv-wash) 25%, var(--pv-border) 50%, var(--pv-wash) 75%);
+  background-size: 200% 100%; animation: shimmer 1.4s infinite; border-radius: 3px; height: 11px; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+.freshness { font-size: 12px; color: var(--pv-slate); display: inline-flex; align-items: center; gap: .3rem; }
+.freshness .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--pv-ok); }
+.freshness[data-state="refreshing"] .dot { background: var(--pv-warn); }
+.freshness[data-state="stale"] .dot { background: var(--pv-bad); }
+/* Stale data loses its colour, is fenced off, and says how old it is. A grayscale keeps each
+   pair's luminance, so the contrast holds in every theme (test_contrast checks it). */
+.stale { filter: grayscale(1); outline: 1px dashed var(--pv-edge); outline-offset: 3px; border-radius: 2px; }
+.state { padding: var(--state-pad) 1rem; text-align: center; color: var(--pv-slate); }
+/* An empty state's title is an h2 wherever it sits, so the outline never skips a level; it only
+   looks like a small one. */
+.state h2, .state h3 { font-size: 1rem; color: var(--pv-ink); margin: 0 0 .4rem; }
+.state p { max-width: 46ch; margin: 0 auto .9rem; font-size: 13px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton, .tail div.new, .mega-panel.show { animation: none; }
+  .btn-primary:hover { transform: none; }
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+
+/* Scrollable code and tables are focusable (tabindex=0) so a keyboard can scroll them. */
+pre:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--pv-crimson); outline-offset: 2px; }
+#main:focus { outline: none; }
+
+/* Targets stay 24px apart (WCAG 2.2, 2.5.8) at MAYA's 14px type: stacked link lists and radio
+   rows, which the larger type used to space for free. */
+.toc a { padding: .3rem 0 !important; }
+.wb-side li a[data-template] { display: inline-block; padding: .2rem 0; }
+.form-check { min-height: 1.8rem; }
+.btn.p-0 { min-height: 24px; }
+
+/* ------------------------------------------------------------------ smaller pieces of the shell */
+.pv-content { --pv-pad-x: 1.8rem; padding-left: var(--pv-pad-x); padding-right: var(--pv-pad-x); }
+@media (max-width: 575.98px) { .pv-content { --pv-pad-x: .9rem; } }
+.pv-content-wide { max-width: none; }
+.pv-signin { color: var(--pv-nav-from) !important; }
+.pv-flashes:empty { display: none; }
+.page-head h1 { margin: 0; }
+
+/* ------------------------------------------------------------------ the landing page
+   MAYA's second-edition landing (lp2-*), coloured only through the tokens, so the same markup is
+   the crimson, dark, blue and green page. The one departure: the headline's gradient phrase runs
+   from the accent to the retraction colour -- the +1 and the −1 of the figure under it -- rather
+   than along the bar's stops, because the bar's middle stop is too dark to read on the dark
+   theme's canvas, and both of these hold 4.5:1 on every ground (test_contrast). */
+.rail { position: sticky; top: 64px; z-index: 20; background: var(--pv-surface); border-bottom: 1px solid var(--pv-border);
+  margin: -1.4rem calc(-1 * var(--pv-pad-x)) 0; padding: .45rem var(--pv-pad-x);
+  box-shadow: 0 6px 18px -14px color-mix(in srgb, var(--pv-nav-to) 50%, transparent); }
+.rail .inner { display: flex; flex-wrap: wrap; gap: .35rem 1.1rem; align-items: center; max-width: 1320px; margin: 0 auto; }
+.rail .ver { font-family: var(--code); font-size: 11px; letter-spacing: .08em; color: var(--pv-slate); }
+.rail a:not(.btn) { font-size: 12.5px; font-weight: 600; color: var(--pv-slate); text-decoration: none; }
+.rail a:not(.btn):hover { color: var(--pv-crimson); }
+.rail .sep { flex: 1 1 auto; }
+/* At phone width the rail is one line that scrolls sideways, not three that bury the hero. */
+@media (max-width: 767.98px) {
+  .rail .inner { flex-wrap: nowrap; overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
+  .rail .sep { flex: 0 0 .2rem; }
+}
+
+.lp2-hero { position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; text-align: center;
+  margin: 0 calc(-1 * var(--pv-pad-x)); padding: 3.4rem var(--pv-pad-x) 2rem;
+  background: radial-gradient(900px 420px at 50% 30%, var(--pv-glow), transparent 72%); }
+.lp2-hero-inner { position: relative; z-index: 1; max-width: 900px; width: 100%; }
+.lp2-badge { display: inline-flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: .5rem; padding: .38rem 1rem;
+  border-radius: 999px; margin-bottom: 1.6rem; font-size: 12.5px; color: var(--pv-slate); border: 1px solid var(--pv-border);
+  background: var(--pv-surface); }
+.lp2-badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pv-ok); }
+.lp2-badge .dot.down { background: var(--pv-bad); }
+.lp2-title { font-size: clamp(2.1rem, 5.2vw, 3.7rem); font-weight: 800; line-height: 1.08; letter-spacing: -.02em;
+  margin: 0 auto 1.3rem; text-wrap: balance; width: auto;
+  background: none; -webkit-text-fill-color: currentColor; color: var(--pv-ink); }
+.lp2-title .lp2-gradient { background: linear-gradient(100deg, var(--pv-crimson) 10%, var(--pv-retract) 95%);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: var(--pv-crimson); }
+.lp2-sub { max-width: 690px; margin: 0 auto 2rem; font-size: 1.07rem; line-height: 1.65; color: var(--pv-slate); }
+.lp2-actions { display: flex; flex-wrap: wrap; gap: .8rem; justify-content: center; }
+.lp2-btn { display: inline-flex; align-items: center; gap: .5rem; padding: .78rem 1.7rem; border-radius: 999px; font-weight: 700;
+  font-size: .98rem; text-decoration: none; transition: transform .2s ease, box-shadow .2s ease; }
+.lp2-btn:hover { transform: translateY(-2px); }
+.lp2-btn-primary { color: var(--pv-on-nav); background: linear-gradient(135deg, var(--pv-nav-via), var(--pv-nav-to));
+  box-shadow: 0 6px 22px color-mix(in srgb, var(--pv-nav-via) 38%, transparent); }
+.lp2-btn-primary:hover { color: var(--pv-on-nav); }
+.lp2-btn-outline { color: var(--pv-ink); border: 1.5px solid var(--pv-edge); background: var(--pv-surface); }
+.lp2-btn-outline:hover { color: var(--pv-crimson); border-color: var(--pv-crimson); }
+.lp2-fig { position: relative; max-width: 860px; margin: 2rem auto 0; }
+.flow svg { display: block; width: 100%; height: auto; max-width: 100%; }
+.net-legend { display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; justify-content: center; font-size: 12.5px; color: var(--pv-slate); padding: 0 1rem; }
+.net-legend .w { display: inline-flex; align-items: center; justify-content: center; min-width: 1.9rem; height: 1.25rem; border-radius: 999px;
+  font-family: var(--code); font-weight: 700; font-size: 11px; color: var(--pv-on-crimson); margin-right: .35rem; }
+.net-legend .w.plus { background: var(--pv-crimson); }
+.net-legend .w.minus { background: var(--pv-retract); }
+.fig-caption { display: block; text-align: center; margin-top: .5rem; font-family: var(--code); font-size: 10.5px; letter-spacing: .16em; color: var(--pv-slate); }
+.lp2-fig-wide { margin: 1.5rem 0 1rem; padding: 1.2rem 1rem .6rem; border: 1px solid var(--pv-border); border-radius: 12px; background: var(--pv-surface); overflow: hidden; }
+
+.lp2-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; padding: 2rem 0; margin: 1rem 0; text-align: center;
+  border-top: 1px solid var(--pv-border); border-bottom: 1px solid var(--pv-border); }
+.lp2-stats div { display: flex; flex-direction: column; gap: .2rem; }
+.lp2-num { font-size: 2.4rem; font-weight: 800; letter-spacing: -.03em; line-height: 1; font-variant-numeric: tabular-nums; color: var(--pv-crimson); }
+.lp2-num .minus { color: var(--pv-retract); }
+.lp2-label { font-size: 12.5px; color: var(--pv-slate); max-width: 16rem; margin: 0 auto; }
+
+.lp2-section { padding: 2.6rem 0 .6rem; }
+.lp2-eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: var(--pv-crimson); margin-bottom: .6rem; }
+.lp2-h2 { font-size: clamp(1.5rem, 3vw, 2.2rem); font-weight: 800; letter-spacing: -.015em; color: var(--pv-heading); margin: 0 0 .8rem; text-wrap: balance; }
+.lp2-desc { max-width: 640px; color: var(--pv-slate); line-height: 1.65; margin-bottom: 1.6rem; }
+.lp2-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.1rem; }
+.lp2-card { background: var(--pv-surface); border: 1px solid var(--pv-border); border-radius: 14px; padding: 1.4rem 1.3rem;
+  transition: transform .25s ease, border-color .25s ease, box-shadow .25s ease; }
+.lp2-card:hover { transform: translateY(-4px); border-color: var(--pv-crimson);
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--pv-nav-via) 14%, transparent); }
+.lp2-card > i { display: inline-grid; place-items: center; width: 42px; height: 42px; border-radius: 10px; font-size: 1.2rem;
+  color: var(--pv-crimson); background: var(--pv-crimson-tint); margin-bottom: .9rem; }
+.lp2-card .n { color: var(--pv-crimson); font-weight: 800; font-size: 12px; letter-spacing: .09em; margin-bottom: .4rem; }
+.lp2-card .proto { display: inline-block; font-family: var(--code); font-size: 11.5px; color: var(--pv-crimson); background: var(--pv-crimson-tint);
+  border-radius: 6px; padding: .2rem .55rem; margin-bottom: .7rem; }
+.lp2-card h3 { font-size: 1.02rem; font-weight: 700; color: var(--pv-heading); margin-bottom: .45rem; }
+.lp2-card p { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--pv-slate); }
+
+.lp2-ways-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.6rem 2.2rem; align-items: start; }
+@media (max-width: 991.98px) { .lp2-ways-grid { grid-template-columns: 1fr; } }
+.lp2-ways-list { display: grid; gap: .8rem; }
+.lp2-way { display: flex; gap: .9rem; align-items: flex-start; padding: .9rem 1rem; border-radius: 12px; text-decoration: none;
+  background: var(--pv-surface); border: 1px solid var(--pv-border); color: var(--pv-ink); }
+.lp2-way:hover { border-color: var(--pv-crimson); color: var(--pv-ink); }
+.lp2-way i { font-size: 1.3rem; color: var(--pv-crimson); line-height: 1.2; }
+.lp2-way strong { display: block; color: var(--pv-heading); }
+.lp2-way span span { font-size: 13px; color: var(--pv-slate); }
+/* The code window takes the deepest colour of the theme's own gradient, so it is dark in all four
+   and still belongs to the page it sits on; its text is the bar's own white. */
+.lp2-code { border-radius: 14px; overflow: hidden; background: var(--pv-nav-to); min-width: 0;
+  box-shadow: 0 14px 40px color-mix(in srgb, var(--pv-nav-to) 35%, transparent); }
+.lp2-code-bar { display: flex; align-items: center; gap: .4rem; padding: .6rem .9rem; background: color-mix(in srgb, var(--pv-nav-to) 80%, black); }
+.lp2-code-bar span { width: 10px; height: 10px; border-radius: 50%; background: color-mix(in srgb, var(--pv-on-nav) 30%, transparent); }
+.lp2-code-bar em { margin-left: .6rem; font-style: normal; font-size: 12px; color: var(--pv-on-nav); }
+.lp2-code pre { margin: 0; padding: 1.1rem 1.2rem; font-size: 12.5px; line-height: 1.7; background: transparent; border: 0; border-radius: 0;
+  color: var(--pv-on-nav); white-space: pre; overflow-x: auto; }
+
+.lp2-cta { margin: 2.8rem calc(-1 * var(--pv-pad-x)) 0; padding: 3.2rem var(--pv-pad-x); text-align: center; color: var(--pv-on-nav);
+  background: linear-gradient(120deg, var(--pv-nav-from), var(--pv-nav-via) 55%, var(--pv-nav-to)); }
+.lp2-cta h2 { font-size: clamp(1.6rem, 3.4vw, 2.4rem); font-weight: 800; font-style: italic; margin: 0 0 .6rem; color: var(--pv-on-nav); }
+.lp2-cta p { margin: 0 auto 1.6rem; max-width: 38rem; color: var(--pv-on-nav); }
+.lp2-btn-light { background: var(--pv-on-nav); color: var(--pv-nav-from); }
+.lp2-btn-light:hover { color: var(--pv-nav-from); }
+.lp2-btn-ghost { color: var(--pv-on-nav); border: 1.5px solid color-mix(in srgb, var(--pv-on-nav) 55%, transparent); }
+.lp2-btn-ghost:hover { color: var(--pv-on-nav); border-color: var(--pv-on-nav); }
+@media (prefers-reduced-motion: reduce) { .lp2-btn, .lp2-card { transition: none; } .lp2-card:hover, .lp2-btn:hover { transform: none; } }
