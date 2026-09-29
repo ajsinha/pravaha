@@ -312,6 +312,28 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   slide, and hundreds of thousands of empty windows for an hourly one. It now has nothing to fire.
 - **`PravahaEngine.retract(stream, rows...)`** pushes rows at weight −1, as a change-data-capture
   source delivers a delete or the old half of an update.
+- **Observability, built out.** *Metrics* for the newest features, all with bounded labels (never a
+  user, key, row or statement): alerts (`pravaha_alert_keys_firing`, `_transitions_total` by alert
+  and kind, `_notifications_total` by channel and outcome, `_notification_retries_total`,
+  `_delivery_seconds`, `_notifications_owed`, `_journal_write_failures_total`), the catalogue
+  (`pravaha_catalog_access_decisions_total` by privilege and outcome, `_decision_cache_lookups_total`,
+  `_changes_total` by kind, `_subscriptions_ended_total` by reason) and Flight
+  (`pravaha_flight_calls_seconds` by operation). The console serves the assistant's at `/metrics`
+  (`metrics.enabled`, off; `metrics.token`): requests, tokens, failures, fallbacks and a latency
+  histogram per model and profile, and today's ledger tokens. *Dashboards*: four Grafana dashboards
+  under `deploy/observability/grafana/`. *Rules*: `deploy/observability/prometheus/pravaha-rules.yaml`
+  -- the help topic's ten plus delivery failing, notifications owed growing, the alert journal failing,
+  catalogue denials spiking and the assistant failing on every model -- and a Helm `PrometheusRule`
+  (`prometheusRule.enabled`, off). *Logs*: `pravaha.logging.format: json` (Spring Boot's structured
+  logging) with `correlationId`, `query`, `traceId` and `spanId` from the logging context; every HTTP
+  response answers `X-Correlation-Id`; the console has `logging.format: json`. *Traces*:
+  `pravaha.tracing.enabled` (off) -- Micrometer Tracing over OpenTelemetry, OTLP/HTTP to
+  `pravaha.tracing.endpoint` or the standard `OTEL_EXPORTER_OTLP_*` variables -- with spans per REST
+  request, Flight call, registration, replacement, checkpoint and alert notification; a caller's
+  `traceparent` is continued, and the Python SDK sends one (`pravaha.tracecontext`). New server
+  dependencies, from Spring Boot's BOM: `micrometer-tracing-bridge-otel`, `opentelemetry-exporter-otlp`
+  over the JDK's HTTP client (`opentelemetry-exporter-sender-jdk`; OkHttp and Kotlin excluded). New
+  help topic *Observability*.
 
 
 Register: **454 findings — 390 fixed, 50 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.

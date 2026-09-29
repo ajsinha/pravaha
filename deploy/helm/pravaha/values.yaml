@@ -256,3 +256,14 @@ serviceMonitor:
   interval: 30s
   # Labels the operator's serviceMonitorSelector looks for.
   labels: {}
+
+prometheusRule:
+  # A Prometheus Operator PrometheusRule carrying deploy/observability/prometheus/pravaha-rules.yaml:
+  # the ten node rules of the "Metrics and alerts" help topic, plus notification delivery failing,
+  # notifications owed growing, the alert journal failing, catalogue denials spiking and the
+  # console's assistant failing on every model. Off, like serviceMonitor, because the CRD may not be
+  # installed. The rules are the file's, byte for byte (files/pravaha-rules.yaml, which a test keeps
+  # identical): change a threshold in that file, not here.
+  enabled: false
+  # Labels the operator's ruleSelector looks for (often release: <your Prometheus release>).
+  labels: {}

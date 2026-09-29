@@ -16,7 +16,14 @@ docker/     the engine node's container image
 helm/       the Kubernetes chart
   pravaha/            one node, as a StatefulSet. Values documented one line each in values.yaml
   pravaha/ci/         scenario values: everything on, the standby, and a node with nothing
-  test.sh             helm lint + template + 18 assertions, six of them refusals. Needs helm
+  pravaha/files/      pravaha-rules.yaml, a copy of observability/'s, for prometheusRule.enabled
+  test.sh             helm lint + template + assertions, six of them refusals. Needs helm
+
+observability/  watching a node: import, load, point at the node
+  grafana/            four dashboards -- node overview, query drill-down, alerts and catalogue,
+                      the assistant. Each has a datasource variable; the node ones $node and $query
+  prometheus/         pravaha-rules.yaml: the ten query rules and the alert, catalogue and assistant
+                      ones. Identical to the "Metrics and alerts" help topic's (a test says so)
 
 release/    versioning, and as much of a release as this repository can run
   version.sh          print the reactor's version. One reader, so three cannot disagree
@@ -39,3 +46,9 @@ deploy/ci/test.sh && deploy/release/test.sh && deploy/helm/test.sh \
 
 The last two need a Docker daemon; `deploy/helm/test.sh` needs `helm`, and says so rather than
 skipping if it is absent.
+
+The chart's `serviceMonitor.enabled` and `prometheusRule.enabled` (both off: the Prometheus
+Operator's CRDs may not be installed) scrape the node and install the rules. Structured logs
+(`pravaha.logging.format: json`) and OpenTelemetry traces (`pravaha.tracing.*`) are set in the node's
+configuration -- `config.pravaha` in the chart's values. The console's help topic *Observability* has
+the scrape config, the Loki and collector snippets, and what each span is.

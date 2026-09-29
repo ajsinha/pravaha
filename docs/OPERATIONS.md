@@ -1569,6 +1569,31 @@ And per node, for lane sharing (`pravaha.lane.multiplex.*`) and the spill tier:
 | `pravaha_state_spill_bytes_mapped` | Overflow slab mapped on the node, across every query — what `pravaha.state.spill.max-bytes` counts. Alert well before it reaches the quota: at the quota the next query to need a slab stops with `PRV-4005` |
 | `pravaha_debug_sessions_open` | Debug sessions open on this node, against `pravaha.debug.sessions.max`. Each holds a whole second copy of a query's lanes, arena and operator state, so a forgotten one is a query running twice. Published as zero when nobody is debugging, which is what makes an alert on it possible |
 
+And per node, for the newest features -- alerts (ADR-057), the catalogue (ADR-059) and the Flight
+endpoint. Their labels are bounded by configuration or a fixed set: an alert's name, a channel's name,
+a privilege, an outcome, a kind, a Flight operation. A user, a key, a row or a statement is never a
+label.
+
+| Metric | Question it answers |
+|---|---|
+| `pravaha_alert_keys_firing{alert=}` | Keys of each alert firing now |
+| `pravaha_alert_transitions_total{alert=, kind=}` | Keys that fired or cleared since the node started |
+| `pravaha_alert_notifications_total{channel=, outcome=}` | Notification attempts each channel accepted (`delivered`) or refused (`failed`). **Alert on the failed share** |
+| `pravaha_alert_notification_retries_total{channel=}` | Attempts that retried a notification the channel refused before |
+| `pravaha_alert_delivery_seconds_count{channel=}`, `..._sum` | Sends and their total time; the mean is exact |
+| `pravaha_alert_notifications_owed` | Keys whose news no channel has accepted yet. Growing means nobody is being told |
+| `pravaha_alert_journal_write_failures_total` | Alert journal writes that failed; a decision is journalled first, so nothing fired or cleared |
+| `pravaha_catalog_access_decisions_total{privilege=, outcome=}` | Decisions at the enforcement points, `allow` or `deny`. A listing's per-object checks are not counted |
+| `pravaha_catalog_decision_cache_lookups_total{result=}` | Decisions answered from the cache (`hit`) or worked out (`miss`) |
+| `pravaha_catalog_changes_total{kind=}` | Grants, revokes, policy creates, drops, binds and unbinds, owner changes and moves made on this node |
+| `pravaha_catalog_subscriptions_ended_total{reason=}` | Subscriptions ended because the caller stopped being entitled: `credential_revoked`, `access_withdrawn`, `narrowing_changed` |
+| `pravaha_flight_calls_seconds_count{operation=, error=}`, `..._sum` | Flight calls by operation (`query`, `query.plan`, `subscribe`, `register`, ...) and their time |
+
+The console publishes the assistant's own at its `/metrics` when `metrics.enabled` is set:
+`pravaha_console_assist_requests_total`, `..._tokens_total`, `..._failures_total`,
+`..._fallbacks_total`, `..._latency_seconds` and `..._ledger_tokens_today`, per model and profile.
+The console's help topic *Every metric* has all of them.
+
 `state_held` and `state_ceiling` are counted in the units the ceiling is expressed in —
 accumulators for a windowed aggregate, rows for a join — **not in bytes**. They are what
 `PRV-4001 STATE_TOO_LARGE` compares, so a query at `state_fraction` 0.9 is the one worth acting on
@@ -1772,6 +1797,42 @@ opens a new feed, which resumes from the last checkpoint if the query checkpoint
 records sometimes cannot be decoded, set `pravaha.dlq.directory` and the bad records go there while
 the rest keep flowing — and can then be read and replayed (*Running with a dead-letter queue*,
 above).
+
+## Observability
+
+What ships for watching a node beyond the scrape above, each off or plain until turned on. The
+console's help topic *Observability* has the configuration snippets for each.
+
+**Dashboards.** `deploy/observability/grafana/` holds four Grafana dashboards: node overview,
+query drill-down, alerts and catalogue, and the console's assistant. Each has a `datasource`
+variable; the node ones have `$node` and `$query`. `ObservabilityContractTest` starts a node with
+every surface on, scrapes it, and fails the build if a dashboard or rule names a metric the node
+does not publish; the console's test does the same for `pravaha_console_*`.
+
+**Alert rules.** `deploy/observability/prometheus/pravaha-rules.yaml`: the ten query rules, plus
+notification delivery failing, notifications owed growing, the alert journal failing, catalogue
+denials spiking and the assistant failing on every model. The help topic *Metrics and alerts* shows
+the same text and a test keeps the two identical. Check with `promtool check rules`. The Helm chart's
+`prometheusRule.enabled` installs them as a `PrometheusRule`, off by default like `serviceMonitor`.
+
+**Logs.** `pravaha.logging.format: json` switches the console appender to Spring Boot's structured
+logging (Logstash shape): one JSON object per line with `@timestamp`, `level`, `logger_name`,
+`thread_name`, `message`, and the logging context -- `correlationId` on every HTTP request and Flight
+call (the caller's `X-Correlation-Id` if plain, else a new one, answered in the same header), `query`
+while one query is concerned, `traceId` and `spanId` while a span is open. `text` is the default;
+anything else refuses the start. `logging.structured.format.console: ecs` gives Elastic Common Schema
+instead. The console has `logging.format: json` too.
+
+**Traces.** `pravaha.tracing.enabled` (off) turns on Micrometer Tracing over OpenTelemetry, exported
+with OTLP/HTTP to `pravaha.tracing.endpoint` (else `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, else
+`OTEL_EXPORTER_OTLP_ENDPOINT` + `/v1/traces`), sampled at `pravaha.tracing.sampling-probability`.
+Off means the tracing auto-configuration is excluded: no tracer, no span, no trace id. On, there is a
+span per REST request, per Flight call (`pravaha.flight.<operation>`), per registration and
+replacement (`pravaha.query.register`, `pravaha.query.replace`), per checkpoint (`pravaha.checkpoint`)
+and per alert notification (`pravaha.alert.notify`). A client's W3C `traceparent` is continued; the
+Python SDK sends the current OpenTelemetry context when that package is installed, and the console
+passes on one its request arrived with. The engine's spans go through a facade in `pravaha-common`
+(`EngineSpans`), so the embedded engine has no tracing library and no Spring on its classpath.
 
 ## Replacing a running query: the operator's side
 

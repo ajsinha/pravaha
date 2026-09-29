@@ -4,12 +4,12 @@ slug: metrics-index
 category: reference
 order: 30
 icon: graph-up
-summary: "Every Prometheus metric the engine publishes at /actuator/prometheus — name, type, labels, what it answers and what to alert on — and what is deliberately not published because the engine does not measure it."
+summary: "Every Prometheus metric a node publishes at /actuator/prometheus and the console at /metrics — name, type, labels, what it answers, what to alert on — and what is deliberately not published because nothing measures it."
 badge: INDEX
 audience: Operators
-keywords: [prometheus, metrics, actuator, gauge, counter, alert, grafana, state fraction, watermark lag, checkpoint, commit latency, spill, lane, subscribers, rows in]
+keywords: [prometheus, metrics, actuator, gauge, counter, alert, grafana, alerts, catalogue, flight, assistant, console metrics, state fraction, watermark lag, checkpoint, commit latency, spill, lane, subscribers, rows in]
 guide: operations#watching-a-running-node
-related: [metrics-alerts, state-spill, checkpoints-recovery, lane-sharing, settings-index]
+related: [metrics-alerts, observability, state-spill, checkpoints-recovery, lane-sharing, settings-index]
 ---
 
 A Pravaha server publishes its metrics in the Prometheus text format at
@@ -116,39 +116,62 @@ not timed. This console's Operations screen shows the mean and labels it as a me
 | `pravaha_lane_shared_bytes` | gauge | Off-heap the shared lanes hold — inboxes and arenas — counted once however many queries they carry. Zero with sharing off | growing with lanes built, not with queries |
 | `pravaha_state_spill_bytes_mapped` | gauge | Overflow slab mapped on the node across every query — what `pravaha.state.spill.max-bytes` counts | well before the quota: at it, the next query to need a slab stops (PRV-4005) |
 | `pravaha_debug_sessions_open` | gauge | [Debug sessions](/help/topics/time-travel-debugger) open on this node, against `pravaha.debug.sessions.max`. Each holds a whole second copy of a query's lanes, arena and state. Zero when nobody is debugging | above zero for longer than an investigation takes: a forgotten session is a query running twice |
+| `pravaha_flight_calls_seconds_count{operation, error}` | counter | Flight calls, by operation: `query` (a Flight SQL read), `query.plan`, `subscribe`, `register`, `replace`, `drop`, `sql.action`, `list.actions`, the `dlq.*` and `debug.*` actions, and `action.unknown` for a name the engine does not know -- never whatever a client wrote. `error` is the exception's class, or `none` | a rising `error!="none"` share |
+| `pravaha_flight_calls_seconds_sum{operation, error}`, `_max` | counter, gauge | How long those calls took. A subscription is one call for as long as it is open, so its time is its lifetime | — |
+| `pravaha_flight_calls_active_seconds_count{operation}`, `_sum`, `_max` | gauge | Flight calls in progress now, and how long they have been open: open subscriptions, among others | — |
 
 Spring Boot also publishes its standard JVM, process and HTTP metrics (`jvm_*`, `process_*`,
 `http_server_requests_*`) on the same endpoint.
 
-## A starting set of alerts
+## Per node: alerts (ADR-057)
 
-```text
-groups:
-- name: pravaha
-  rules:
-  - alert: PravahaQueryStopped
-    expr: pravaha_query_running == 0
-    for: 1m
-  - alert: PravahaStateNearCeiling
-    expr: pravaha_query_state_fraction > 0.9
-    for: 5m
-  - alert: PravahaCheckpointStale
-    expr: time() - pravaha_query_checkpoint_last_success_timestamp_seconds > 300
-    for: 5m
-  - alert: PravahaWatermarkBehind
-    expr: pravaha_query_watermark_lag_seconds > 600
-    for: 10m
-  - alert: PravahaQueryBackpressured
-    expr: pravaha_query_backpressure_blocked_fraction > 0.2
-    for: 5m
-  - alert: PravahaSpillNearQuota
-    expr: pravaha_state_spill_bytes_mapped > 0.8 * 21474836480
-    for: 5m
-```
+Published while `pravaha.alerts.enabled` (the default) holds. An alert's meters appear when it is
+created and go when it is dropped; a channel's when it is bound.
 
-The thresholds are examples: 300 s is five checkpoint intervals at the default `1m`; 600 s of lag and
-a 20 GB spill quota stand in for your own numbers. The console's Operations screen raises the
-watermark-lag finding at its own `ui.lag_warn_seconds` (300 s by default).
+| Metric | Type | What it answers | Alert when |
+|---|---|---|---|
+| `pravaha_alert_keys_firing{alert}` | gauge | Keys of the alert firing now | — (it is the alert's own business to page) |
+| `pravaha_alert_transitions_total{alert, kind}` | counter | Keys that fired (`kind="fired"`) or cleared (`"cleared"`) since the node started. Journalled decisions, so a restart does not count them again | a flapping alert: fired and cleared far more than its `fire_after` suggests |
+| `pravaha_alert_notifications_total{channel, outcome}` | counter | Notification attempts a channel accepted (`outcome="delivered"`) or refused (`"failed"`), each attempt counted | the failed share over half for ten minutes (`PravahaNotificationDeliveryFailing`) |
+| `pravaha_alert_notification_retries_total{channel}` | counter | Attempts that retried a notification the channel had refused before, every `pravaha.alerts.redeliver-after` | — |
+| `pravaha_alert_delivery_seconds_count{channel}`, `_sum` | counter | Sends timed and their total time: the mean delivery time is exact | the mean approaching the webhook's timeout |
+| `pravaha_alert_notifications_owed` | gauge | Keys whose news -- fired or cleared -- no channel has accepted yet | above zero and growing (`PravahaAlertNotificationsOwedGrowing`) |
+| `pravaha_alert_journal_write_failures_total` | counter | Alert journal writes that failed. A decision is journalled before anything is sent, so a failed write is a decision not made | any (`PravahaAlertJournalFailing`) |
+
+## Per node: the catalogue (ADR-059)
+
+Published while `pravaha.catalog.enabled` holds.
+
+| Metric | Type | What it answers | Alert when |
+|---|---|---|---|
+| `pravaha_catalog_access_decisions_total{privilege, outcome}` | counter | Access decisions at the enforcement points -- `SELECT`, `SUBSCRIBE`, `BUILD_ON`, `CREATE`, `WRITE`, `MODIFY`, `MANAGE`, `USE` -- `allow` or `deny`. A listing filtered to what the caller may see is not counted: its refusals are not refusals of anything asked | denials five times their hourly rate (`PravahaCatalogDenialsSpike`) |
+| `pravaha_catalog_decision_cache_lookups_total{result}` | counter | Decisions answered from the cache (`hit`) or worked out afresh (`miss`). Every catalogue change empties the cache, so a burst of misses follows a `GRANT` | a hit ratio that stays low: the catalogue is changing constantly |
+| `pravaha_catalog_changes_total{kind}` | counter | Changes made on this node since it started: `grant`, `revoke`, `policy_create`, `policy_drop`, `policy_bind`, `policy_unbind`, `owner`, `move`, `object` (an object recorded, commented, tagged or forgotten) and `import`. Replaying the journal at start counts nothing | — |
+| `pravaha_catalog_subscriptions_ended_total{reason}` | counter | Live subscriptions the engine ended because the caller stopped being entitled: `credential_revoked`, `access_withdrawn` (a grant or policy no longer allows it), `narrowing_changed` (a row filter or mask changed, so the stream's meaning would have) | — (the audit trail names who) |
+
+## The console: the assistant (at the console's `/metrics`)
+
+Published by the console, not the node, at `http://<console>:17070/metrics` -- only with
+`metrics.enabled` in the console's configuration, and behind `metrics.token` when one is set.
+Counted at the one model router the console holds, so every surface's requests are in it.
+
+| Metric | Type | What it answers | Alert when |
+|---|---|---|---|
+| `pravaha_console_info{version}` | gauge | Always 1; the console's version | — |
+| `pravaha_console_assist_requests_total{model, profile, outcome}` | counter | Requests, by the model that answered -- or failed last -- and `outcome`: `ok`, `model_error` (every model in the chain failed), `budget` (a person's daily budget refused it), `config`, `error`. `model="none"` when no model was reached | no `ok` and some `model_error` for fifteen minutes (`PravahaAssistantAllModelsFailing`) |
+| `pravaha_console_assist_tokens_total{model, profile, direction}` | counter | Tokens the model reported, `input` and `output` | a spend rate you did not plan for |
+| `pravaha_console_assist_failures_total{model, profile, kind}` | counter | A model's failures by kind -- `model_unavailable`, `model_rate_limited`, `model_refused`, `model_output_error` -- including those a fallback absorbed | one model's failures rising while requests still succeed: its fallback is carrying it |
+| `pravaha_console_assist_fallbacks_total{model, profile}` | counter | Times a request moved past this model to the next in the chain | — |
+| `pravaha_console_assist_latency_seconds_bucket{model, profile, le}`, `_sum`, `_count` | histogram | Seconds per request, fallbacks included. A histogram, so `histogram_quantile` gives real percentiles | p95 past the provider's timeout |
+| `pravaha_console_assist_ledger_tokens_today{model}` | gauge | Today's tokens in the usage ledger, every person together (the per-person view is Admin · AI models) | — |
+
+No person's name is a label on any of these: who asked what is in the console's assist log.
+
+## Alert rules
+
+The shipped rules are `deploy/observability/prometheus/pravaha-rules.yaml`, shown and explained in
+[Metrics and alerts](/help/topics/metrics-alerts#alert-rules); the Helm chart can install them as a
+`PrometheusRule`. They are kept in one place on purpose: two lists of thresholds drift.
 
 ## Not published, and why
 
@@ -158,11 +181,13 @@ watermark-lag finding at its own `ui.lag_warn_seconds` (300 s by default).
 | Commit-latency percentiles | Not measured — see above |
 | Per-plugin throughput and errors | There are no `pravaha_plugin_*` meters; plugin health is on `GET /api/v1/plugins` |
 | Read admission refusals | Counted on the `ReadAdmission` object (`rejectedCount()`, `queueTimedOutCount()`, `tenantRejectedCount()`) and not yet exported |
+| An alert's keys, a principal, a policy's expression, a statement | Never labels: each would make every value a time series. They are on the alert's page and the audit trail |
 
 Saying so beats implying a dashboard exists.
 
 ## Where next
 
 - [Metrics and alerts](/help/topics/metrics-alerts) — reading these during an incident
+- [Observability](/help/topics/observability) — scraping, dashboards, rules, logs and traces
 - [Every setting](/help/topics/settings-index)
 - [Operations: watching a running node (long form)](/help/operations#watching-a-running-node)
