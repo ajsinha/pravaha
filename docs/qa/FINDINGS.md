@@ -5,8 +5,8 @@ they were written; the file has since grown by sixteen more rounds and two waves
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
 only part that is kept current. Counting the register as it stands: **469 findings carrying a
-status — 434 FIXED, 21 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 21 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 11 POST-GA and 10 are not defects at all** — see the triage below. Counted by the same pattern
+status — 437 FIXED, 18 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 18 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 8 POST-GA and 10 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7157,8 +7157,7 @@ the lead.
 
 ### OPENAPILOCK-1 (LOW) — the OpenAPI lock does not record DTO field names
 
-> **Status:** OPEN — `ApiDtos` says every field appears in `api/openapi.lock.json`, but adding `readsFrom` and `dependants` to the query detail left the lock unchanged and `OpenApiContractTest` passed; a renamed or removed field would pass too.
-> **Disposition:** POST-GA — record each schema's properties in the lock and compare them.
+> **Status:** FIXED — the lock records each operation's request and response body shapes and every body field, flattened with its type and required flag (69 schemas); `OpenApiContractTest` names a removed, renamed or retyped field, a newly required request field or a removed operation as a break, and fails on any other difference until the lock is regenerated and reviewed. `OpenApiLockTest`.
 
 ### RESTOREPART-1 (MEDIUM) — a failed restore may leave part of the state behind while it "starts from nothing"
 
@@ -7321,11 +7320,9 @@ the lead.
 
 ### SERVERSKEW-1 (LOW) — the server's upper-bound skip hides four dependency skews
 
-> **Status:** OPEN — narrowing `pravaha-server`'s `requireUpperBoundDeps` skip to the Netty artifacts exposed four non-Netty skews it had been hiding: jackson-dataformat-yaml, commons-lang3, HdrHistogram and jspecify. The skip stays, with the four named in the pom.
-> **Disposition:** POST-GA — align each (dependency management) and narrow the skip to what is left.
+> **Status:** FIXED — jackson-dataformat-yaml 2.22.1, commons-lang3 3.20.0, HdrHistogram 2.2.2 and jspecify 1.0.1 are pinned in the server's dependency management (the highest the tree asks for); `requireUpperBoundDeps` now runs in the server, excluding only the four Netty artifacts, as in the Flight modules. Server verify and the node-starting integration tests pass.
 
 ### CODEGENPROP-1 (LOW) — `pravaha.codegen.enabled` in YAML binds nothing
 
-> **Status:** OPEN — the switch is read only as a JVM system property (`-Dpravaha.codegen.enabled=false`); the key in `deploy/qa/server.application.yaml` looks like configuration and changes nothing.
-> **Disposition:** POST-GA — bind it through the server's configuration (and name it in the settings index), or remove the YAML key and document the system property.
+> **Status:** FIXED — `pravaha.codegen.enabled` is bound from configuration (default true); a `-D` on the JVM still wins, in Spring's usual order, and a node built without Spring reads the `-D`. Named in `application.yaml` and the settings index. `CodegenConfigurationTest` starts a node with the key in YAML: `false` runs queries interpreted, the default runs them generated.
 
