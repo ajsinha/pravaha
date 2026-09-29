@@ -72,7 +72,7 @@ final class ProfileBGateIT {
     private static final int PASSES = Integer.getInteger("pravaha.gate.p3.passes", 5);
     private static final int WARMUPS = Integer.getInteger("pravaha.gate.p3.warmups", 2);
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     private static final Duration DRAIN = Duration.ofMinutes(5);
 

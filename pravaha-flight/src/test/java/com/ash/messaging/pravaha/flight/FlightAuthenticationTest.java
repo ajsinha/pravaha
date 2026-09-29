@@ -86,8 +86,8 @@ class FlightAuthenticationTest {
         audit = new AuditSink.InMemory();
 
         StaticTokenVerifier verifier = StaticTokenVerifier.of(
-                        ANALYST_TOKEN, new Principal("dana", "acme", Set.of("analyst"), Map.of("tier", "gold")))
-                .and(INTERN_TOKEN, new Principal("sam", "acme", Set.of("intern"), Map.of()));
+                        ANALYST_TOKEN, new Principal("dana", "public", Set.of("analyst"), Map.of("tier", "gold")))
+                .and(INTERN_TOKEN, new Principal("sam", "public", Set.of("intern"), Map.of()));
 
         SecurityPolicy policy = (principal, viewName) -> {
             if (principal.hasRole("analyst")) {

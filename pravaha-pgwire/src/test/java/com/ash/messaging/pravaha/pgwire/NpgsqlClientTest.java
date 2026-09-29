@@ -67,7 +67,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 class NpgsqlClientTest {
 
     private static final String TOKEN = "pbi-token";
-    private static final Principal ANALYST = new Principal("ann", "acme", Set.of("analyst"), Map.of());
+    private static final Principal ANALYST = new Principal("ann", "public", Set.of("analyst"), Map.of());
 
     private static Path dotnet;
     private static Path probe;

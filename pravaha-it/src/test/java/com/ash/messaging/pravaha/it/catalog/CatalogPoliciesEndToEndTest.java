@@ -251,7 +251,7 @@ class CatalogPoliciesEndToEndTest {
 
     private void pay() {
         RegisteredQuery payments =
-                node.registry().orElseThrow().find("payments").orElseThrow();
+                node.registry().orElseThrow().find("acme.default.payments").orElseThrow();
         push(payments, "p1", "EU", "4111-1111", 10);
         push(payments, "p2", "US", "4222-2222", 20);
         push(payments, "p3", "EU", "4333-3333", 30);

@@ -90,6 +90,15 @@ public final class ViewNames {
     }
 
     /**
+     * A name in a view's lineage -- a stream, or a view it reads -- as {@code principal} is shown it: a
+     * view of another tenant than the default as {@link #shown}, and a bare name as it is. A view reads
+     * only its own tenant's views (ADR-056), so a bare name there is a stream or a default-tenant view.
+     */
+    public static String shownSource(Principal principal, String name) {
+        return qualifierAt(name) < 0 ? name : shown(principal, name);
+    }
+
+    /**
      * The engine name {@code typed} means to {@code principal}.
      *
      * <p>A bare name is the caller's own tenant's. A catalogue name, {@code tenant.default.name}, is that

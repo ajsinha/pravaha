@@ -72,7 +72,7 @@ class FeedStatusSurfacesTest {
 
     private static final String SCHEMA_SPEC = "id:INT64,user_id:STRING,amount:INT64";
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     private PravahaNode node;
     private SimpleMeterRegistry meters;
@@ -229,7 +229,7 @@ class FeedStatusSurfacesTest {
                                 "true",
                                 "password",
                                 password)));
-        Principal sliced = new Principal("bob", "acme", Set.of("sliced"), Map.of());
+        Principal sliced = new Principal("bob", "public", Set.of("sliced"), Map.of());
         SecurityPolicy policy = new SecurityPolicy() {
             @Override
             public AccessDecision mayRead(Principal principal, String view) {

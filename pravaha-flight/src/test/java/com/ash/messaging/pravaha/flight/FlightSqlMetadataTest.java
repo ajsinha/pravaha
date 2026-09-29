@@ -330,7 +330,7 @@ class FlightSqlMetadataTest {
             PravahaFlightServer restricted = new PravahaFlightServer(
                             new ViewCatalog().register(open).register(closed), own)
                     .authenticatedBy(StaticTokenVerifier.of(
-                            "analyst-token", new Principal("dana", "acme", Set.of("analyst"), Map.of())))
+                            "analyst-token", new Principal("dana", "public", Set.of("analyst"), Map.of())))
                     .authorizedBy(policy, AuditSink.NONE)
                     .start("localhost", 0);
             FlightCallHeaders headers = new FlightCallHeaders();

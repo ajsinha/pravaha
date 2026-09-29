@@ -125,7 +125,7 @@ class FlightObservationTest {
                 "user_volume",
                 "SELECT user_id, total FROM user_volume",
                 List.of(0),
-                new Principal("dana", "acme", Set.of("analyst"), Map.of()));
+                new Principal("dana", "public", Set.of("analyst"), Map.of()));
         client = FlightClient.builder(allocator, Location.forGrpcInsecure("localhost", server.port()))
                 .build();
     }

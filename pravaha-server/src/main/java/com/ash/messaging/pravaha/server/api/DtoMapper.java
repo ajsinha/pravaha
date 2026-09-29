@@ -156,11 +156,13 @@ public class DtoMapper {
      * <p>Static, because it maps one immutable answer onto another and needs nothing of the node:
      * the engine already decided everything in it.
      */
+    /** A replacement as {@code caller} is shown it: its query by the name the caller would write (ADR-060). */
     public static ApiDtos.ReplacementStatus replacement(
-            com.ash.messaging.pravaha.registry.QueryReplacement.Status status) {
+            com.ash.messaging.pravaha.registry.QueryReplacement.Status status,
+            com.ash.messaging.pravaha.security.Principal caller) {
         com.ash.messaging.pravaha.backfill.BackfillJob.Progress progress = status.progress();
         return new ApiDtos.ReplacementStatus(
-                status.name(),
+                com.ash.messaging.pravaha.security.ViewNames.shown(caller, status.name()),
                 status.state().name(),
                 status.sql(),
                 status.candidate(),

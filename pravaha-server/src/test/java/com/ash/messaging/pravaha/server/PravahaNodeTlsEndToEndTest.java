@@ -105,7 +105,7 @@ class PravahaNodeTlsEndToEndTest {
                                 "SELECT user_id, amount FROM txn",
                                 java.util.List.of(0),
                                 new com.ash.messaging.pravaha.security.Principal(
-                                        "dana", "acme", java.util.Set.of("analyst"), java.util.Map.of()));
+                                        "dana", "public", java.util.Set.of("analyst"), java.util.Map.of()));
 
                 try (BufferAllocator allocator = new RootAllocator(Long.MAX_VALUE);
                         FlightSqlClient client = new FlightSqlClient(org.apache.arrow.flight.FlightClient.builder(

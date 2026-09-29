@@ -64,7 +64,7 @@ final class NodeScaleTest {
             .eventTime("ts")
             .build();
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     /**
      * How many queries to register.

@@ -38,6 +38,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
+import com.ash.messaging.pravaha.security.ViewNames;
 import com.ash.messaging.pravaha.serving.ServedView;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 
@@ -142,7 +143,7 @@ final class FlightSqlMetadata {
                     if (command.hasTableNameFilterPattern() && !matches(command.getTableNameFilterPattern(), name)) {
                         continue;
                     }
-                    ServedView view = catalog.find(name).orElse(null);
+                    ServedView view = catalog.find(engineName(principal, name)).orElse(null);
                     if (view == null) {
                         continue;
                     }
@@ -189,9 +190,10 @@ final class FlightSqlMetadata {
                 VectorSchemaRoot.create(FlightSqlProducer.Schemas.GET_PRIMARY_KEYS_SCHEMA, allocator)) {
             listener.start(root);
             int index = 0;
-            ServedView view = scopedAway || !mayRead(principal, table)
+            String engine = engineName(principal, table);
+            ServedView view = scopedAway || engine == null || !mayRead(principal, engine)
                     ? null
-                    : catalog.find(table).orElse(null);
+                    : catalog.find(engine).orElse(null);
             if (view != null) {
                 StreamSchema schema = view.schema();
                 for (int ordinal : view.keyOrdinals()) {
@@ -435,10 +437,27 @@ final class FlightSqlMetadata {
      * chosen their names.
      */
     private List<String> visible(Principal principal) {
-        List<String> names = new ArrayList<>(catalog.names());
-        names.removeIf(name -> !mayRead(principal, name) || !mayReadEverythingBehind(principal, name));
+        // ADR-060: the caller's tenant's views under their own names -- every tenant's, by catalogue name,
+        // for an admin -- and nothing of any other tenant's.
+        List<String> names = new ArrayList<>();
+        for (String engine : catalog.names()) {
+            if (ViewNames.visibleTo(principal, engine)
+                    && mayRead(principal, engine)
+                    && mayReadEverythingBehind(principal, engine)) {
+                names.add(ViewNames.shown(principal, engine));
+            }
+        }
         java.util.Collections.sort(names);
         return names;
+    }
+
+    /** The engine name {@code table} means to {@code principal}, or null for one it may not name. */
+    private static String engineName(Principal principal, String table) {
+        try {
+            return ViewNames.resolve(principal, table);
+        } catch (com.ash.messaging.pravaha.api.PravahaException outsideTheTenant) {
+            return null;
+        }
     }
 
     private boolean mayRead(Principal principal, String name) {

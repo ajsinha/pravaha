@@ -76,7 +76,7 @@ final class SubscriptionIngestCostTest {
             .field("amount", Types.int64())
             .build();
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     /** Keys per run. Enough that the per-row work dominates the cost of standing a query up. */
     private static final int ROWS = 100_000;

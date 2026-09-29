@@ -49,7 +49,7 @@ import com.ash.messaging.pravaha.testkit.CapturingRowWriter;
  */
 abstract class StateTestSupport {
 
-    static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     /** H-PRJ's stream: {@code user_id STRING, amount INT64}, no event-time column. */
     static final StreamSchema TXN = StreamSchema.builder("txn")

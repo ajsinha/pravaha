@@ -84,7 +84,7 @@ public class ReplacementController {
         List<ApiDtos.ReplacementStatus> visible = new ArrayList<>();
         for (QueryReplacement.Status status : registry().replacements().all()) {
             if (authorizer.mayAdminister(http, status.name())) {
-                visible.add(DtoMapper.replacement(status));
+                visible.add(DtoMapper.replacement(status, principal(http)));
             }
         }
         return visible;
@@ -93,16 +93,20 @@ public class ReplacementController {
     @GetMapping("/queries/{name}/replacement")
     @Operation(summary = "How the replacement of one query is getting on")
     public ApiDtos.ReplacementStatus get(@PathVariable String name, HttpServletRequest http) {
-        authorizer.requireAdminister(http, name);
-        return DtoMapper.replacement(registry().replacements().of(name).orElseThrow(() -> noReplacement(name)));
+        String engine = engine(http, name);
+        authorizer.requireAdminister(http, engine);
+        return DtoMapper.replacement(
+                registry().replacements().of(engine).orElseThrow(() -> noReplacement(name)), principal(http));
     }
 
     /** Design section 16.2's {@code /api/v1/queries/{id}/backfill}: the progress of one backfill. */
     @GetMapping("/queries/{name}/backfill")
     @Operation(summary = "A backfill's progress: rows read, rate, partitions on the live stream, lag")
     public ApiDtos.BackfillProgress backfill(@PathVariable String name, HttpServletRequest http) {
-        authorizer.requireAdminister(http, name);
-        return DtoMapper.replacement(registry().replacements().of(name).orElseThrow(() -> noReplacement(name)))
+        String engine = engine(http, name);
+        authorizer.requireAdminister(http, engine);
+        return DtoMapper.replacement(
+                        registry().replacements().of(engine).orElseThrow(() -> noReplacement(name)), principal(http))
                 .backfill();
     }
 
@@ -129,52 +133,62 @@ public class ReplacementController {
             options = ReplacementOptions.with(options, "rollback.retention", request.rollbackRetention());
         }
         List<Integer> keys =
-                request.keyColumns() == null || request.keyColumns().isEmpty() ? keyOf(name) : request.keyColumns();
+                request.keyColumns() == null || request.keyColumns().isEmpty()
+                        ? keyOf(http, name)
+                        : request.keyColumns();
         return DtoMapper.replacement(
-                registry().replacements().replace(name, request.sql(), keys, principal(http), options));
+                registry().replacements().replace(engine(http, name), request.sql(), keys, principal(http), options),
+                principal(http));
     }
 
     @PostMapping("/queries/{name}/replacement/cutover")
     @Operation(summary = "Move the name to the new version, at a position both have consumed exactly")
     public ApiDtos.ReplacementStatus cutOver(@PathVariable String name, HttpServletRequest http) {
-        return DtoMapper.replacement(registry().replacements().cutOver(name, principal(http)));
+        return DtoMapper.replacement(
+                registry().replacements().cutOver(engine(http, name), principal(http)), principal(http));
     }
 
     @PostMapping("/queries/{name}/replacement/rollback")
     @Operation(summary = "Put the replaced version back, while it is still retained")
     public ApiDtos.ReplacementStatus rollBack(@PathVariable String name, HttpServletRequest http) {
-        return DtoMapper.replacement(registry().replacements().rollBack(name, principal(http)));
+        return DtoMapper.replacement(
+                registry().replacements().rollBack(engine(http, name), principal(http)), principal(http));
     }
 
     @PostMapping("/queries/{name}/replacement/finish")
     @Operation(summary = "Confirm a cutover: release the replaced version and end the rollback window")
     public ApiDtos.ReplacementStatus finish(@PathVariable String name, HttpServletRequest http) {
-        return DtoMapper.replacement(registry().replacements().finish(name, principal(http)));
+        return DtoMapper.replacement(
+                registry().replacements().finish(engine(http, name), principal(http)), principal(http));
     }
 
     @DeleteMapping("/queries/{name}/replacement")
     @Operation(summary = "End a replacement that has not cut over, releasing the candidate")
     public ApiDtos.ReplacementStatus abandon(@PathVariable String name, HttpServletRequest http) {
-        return DtoMapper.replacement(registry().replacements().abandon(name, principal(http)));
+        return DtoMapper.replacement(
+                registry().replacements().abandon(engine(http, name), principal(http)), principal(http));
     }
 
     @PostMapping("/queries/{name}/backfill/throttle")
     @Operation(summary = "Set how fast the backfill reads history, up to the ceiling it was started with")
     public ApiDtos.ReplacementStatus throttle(
             @PathVariable String name, @RequestParam("rate") long rate, HttpServletRequest http) {
-        return DtoMapper.replacement(registry().replacements().throttle(name, rate, principal(http)));
+        return DtoMapper.replacement(
+                registry().replacements().throttle(engine(http, name), rate, principal(http)), principal(http));
     }
 
     @PostMapping("/queries/{name}/backfill/pause")
     @Operation(summary = "Stop the backfill reading, without giving up what it has read")
     public ApiDtos.ReplacementStatus pause(@PathVariable String name, HttpServletRequest http) {
-        return DtoMapper.replacement(registry().replacements().pause(name, principal(http)));
+        return DtoMapper.replacement(
+                registry().replacements().pause(engine(http, name), principal(http)), principal(http));
     }
 
     @PostMapping("/queries/{name}/backfill/resume")
     @Operation(summary = "Start the backfill reading again")
     public ApiDtos.ReplacementStatus resume(@PathVariable String name, HttpServletRequest http) {
-        return DtoMapper.replacement(registry().replacements().resume(name, principal(http)));
+        return DtoMapper.replacement(
+                registry().replacements().resume(engine(http, name), principal(http)), principal(http));
     }
 
     /**
@@ -183,8 +197,13 @@ public class ReplacementController {
      * <p>Almost every replacement keeps the key: it is the same view, answering a new question. A
      * request that means to change it says so.
      */
-    private List<Integer> keyOf(String name) {
-        return registry().require(name).view().keyOrdinals();
+    private List<Integer> keyOf(HttpServletRequest http, String name) {
+        return registry().require(principal(http), name).view().keyOrdinals();
+    }
+
+    /** The engine name {@code name} means to this caller: in its own tenant (ADR-060). */
+    private String engine(HttpServletRequest http, String name) {
+        return QueryRegistry.engineName(principal(http), name);
     }
 
     private QueryRegistry registry() {

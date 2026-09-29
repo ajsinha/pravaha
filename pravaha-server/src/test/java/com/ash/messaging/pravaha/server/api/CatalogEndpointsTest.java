@@ -138,10 +138,17 @@ class CatalogEndpointsTest {
                         assertThat(line.via()).containsExactly("grant SELECT on acme.sales.revenue to ROLE analyst"));
 
         // The engine enforces what the catalogue says.
-        assertThat(node.securityPolicy().maySubscribe(ANA, "revenue").allowed()).isTrue();
+        assertThat(node.securityPolicy()
+                        .maySubscribe(ANA, "acme.default.revenue")
+                        .allowed())
+                .isTrue();
         rest.revoke(as(OPS), "sales.revenue", List.of("SUBSCRIBE"), "ROLE", "analyst");
-        assertThat(node.securityPolicy().maySubscribe(ANA, "revenue").allowed()).isFalse();
-        assertThat(node.securityPolicy().mayRead(ANA, "revenue").allowed()).isTrue();
+        assertThat(node.securityPolicy()
+                        .maySubscribe(ANA, "acme.default.revenue")
+                        .allowed())
+                .isFalse();
+        assertThat(node.securityPolicy().mayRead(ANA, "acme.default.revenue").allowed())
+                .isTrue();
 
         assertThat(rest.grants(as(ANA), null, "ROLE", "analyst").items()).hasSize(2);
     }

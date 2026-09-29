@@ -76,7 +76,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Timeout(3600)
 final class NexmarkCoverageIT {
 
-    private static final Principal DANA = new Principal("dana", "acme", Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", Set.of("analyst"), Map.of());
 
     private static final int PEOPLE = 2_000;
     private static final int AUCTIONS = 4_000;

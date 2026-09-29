@@ -50,7 +50,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Timeout(120)
 class SharedSourceReaderTest {
 
-    private static final Principal DANA = new Principal("dana", "acme", java.util.Set.of("analyst"), Map.of());
+    private static final Principal DANA = new Principal("dana", "public", java.util.Set.of("analyst"), Map.of());
 
     /** Two questions about one set. Different SQL, so a different plan and a different fingerprint. */
     private static final String ASKS_ONE = "SELECT user_id, amount FROM shared WHERE amount > 0";

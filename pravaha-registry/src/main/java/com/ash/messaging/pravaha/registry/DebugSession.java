@@ -397,7 +397,7 @@ public final class DebugSession implements AutoCloseable {
         return FixtureWriter.write(
                 FixtureExport.classNameFrom(name),
                 id,
-                queryName,
+                com.ash.messaging.pravaha.security.ViewNames.localName(queryName), // registered anew by the test
                 sql,
                 keyColumns,
                 checkpointId,
@@ -462,7 +462,26 @@ public final class DebugSession implements AutoCloseable {
             int viewSize,
             OptionalLong watermarkNanos,
             boolean sinksDisabled,
-            List<String> streams) {}
+            List<String> streams) {
+
+        /** This status with its query named as {@code principal} is shown it (ADR-060). */
+        public Status shownTo(com.ash.messaging.pravaha.security.Principal principal) {
+            return new Status(
+                    id,
+                    com.ash.messaging.pravaha.security.ViewNames.shown(principal, query),
+                    sql,
+                    checkpointId,
+                    owner,
+                    startedAt,
+                    lastUsedAt,
+                    steps,
+                    rowsConsumed,
+                    viewSize,
+                    watermarkNanos,
+                    sinksDisabled,
+                    streams);
+        }
+    }
 
     public synchronized Status status() {
         return new Status(

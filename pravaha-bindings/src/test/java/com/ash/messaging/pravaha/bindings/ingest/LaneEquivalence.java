@@ -54,7 +54,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 final class LaneEquivalence implements AutoCloseable {
 
-    static final Principal DANA = new Principal("dana", "acme", java.util.Set.of("analyst"), Map.of());
+    static final Principal DANA = new Principal("dana", "public", java.util.Set.of("analyst"), Map.of());
 
     /** A query the script may register, and what its answer is over a list of records. */
     record Query(String name, String sql, boolean projection, Predicate<long[]> where) {

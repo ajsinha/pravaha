@@ -64,9 +64,9 @@ class PlanOperatorMetricsTest {
             .field("amount", Types.int64())
             .build();
 
-    private static final Principal ROOT = new Principal("root", "acme", Set.of("analyst"), Map.of());
-    private static final Principal ANALYST = new Principal("ann", "acme", Set.of("analyst"), Map.of());
-    private static final Principal SLICED = new Principal("bob", "acme", Set.of("sliced"), Map.of());
+    private static final Principal ROOT = new Principal("root", "public", Set.of("analyst"), Map.of());
+    private static final Principal ANALYST = new Principal("ann", "public", Set.of("analyst"), Map.of());
+    private static final Principal SLICED = new Principal("bob", "public", Set.of("sliced"), Map.of());
 
     private static final SecurityPolicy POLICY = new SecurityPolicy() {
         @Override

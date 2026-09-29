@@ -103,9 +103,11 @@ public final class DebugSessions implements AutoCloseable {
     /**
      * Forks a debug session from a query's checkpoint.
      *
+     * @param typed the query's name as the caller wrote it, resolved in the caller's tenant (ADR-060)
      * @param checkpointId the checkpoint to fork from, or null for the newest retained one
      */
-    public DebugSession.Status fork(String name, Long checkpointId, Principal principal) {
+    public DebugSession.Status fork(String typed, Long checkpointId, Principal principal) {
+        String name = QueryRegistry.engineName(principal, typed);
         expireStale();
         ContinuousQueryStatements.requireAdministrable(registry, audit, principal, name, "debug");
         RegisteredQuery query = registry.require(name);
@@ -164,7 +166,7 @@ public final class DebugSessions implements AutoCloseable {
                 System.Logger.Level.INFO,
                 "debug session " + id + " forked from checkpoint " + checkpoint.id() + " of '" + name + "' by "
                         + principal.id() + "; sinks disabled, nothing reads its view");
-        return session.status();
+        return session.status().shownTo(principal);
     }
 
     /**
@@ -225,8 +227,9 @@ public final class DebugSessions implements AutoCloseable {
                         + ". A debug session can only fork from a checkpoint that is still on disk."));
     }
 
-    /** Which checkpoints of {@code name} a session could be forked from, newest first. */
-    public List<Long> checkpointsOf(String name, Principal principal) {
+    /** Which checkpoints of {@code typed}, in the caller's tenant, a session could be forked from, newest first. */
+    public List<Long> checkpointsOf(String typed, Principal principal) {
+        String name = QueryRegistry.engineName(principal, typed);
         ContinuousQueryStatements.requireAdministrable(registry, audit, principal, name, "debug-checkpoints");
         RegisteredQuery query = registry.require(name);
         return query.checkpointDirectory()
@@ -263,7 +266,7 @@ public final class DebugSessions implements AutoCloseable {
             return Optional.empty();
         }
         ContinuousQueryStatements.requireAdministrable(registry, audit, principal, session.queryName(), "debug-status");
-        return Optional.of(session.status());
+        return Optional.of(session.status().shownTo(principal));
     }
 
     /** Every session this principal may administer. Filtered, not refused: a listing is how you find one. */
@@ -272,7 +275,7 @@ public final class DebugSessions implements AutoCloseable {
         List<DebugSession.Status> visible = new ArrayList<>();
         for (DebugSession session : byId.values()) {
             if (registry.owners().mayAdminister(principal, session.queryName()).allowed()) {
-                visible.add(session.status());
+                visible.add(session.status().shownTo(principal));
             }
         }
         return List.copyOf(visible);

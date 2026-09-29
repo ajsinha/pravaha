@@ -70,8 +70,8 @@ class JavaSdkAuthenticationTest {
 
         server = new PravahaFlightServer(new ViewCatalog().register(view))
                 .authenticatedBy(StaticTokenVerifier.of(
-                                ANALYST_TOKEN, new Principal("dana", "acme", Set.of("analyst"), Map.of("tier", "gold")))
-                        .and(INTERN_TOKEN, new Principal("sam", "acme", Set.of("intern"), Map.of())))
+                                ANALYST_TOKEN, new Principal("dana", "public", Set.of("analyst"), Map.of("tier", "gold")))
+                        .and(INTERN_TOKEN, new Principal("sam", "public", Set.of("intern"), Map.of())))
                 .authorizedBy(
                         (principal, viewName) -> principal.hasRole("analyst")
                                 ? AccessDecision.allowWithRowFilter(

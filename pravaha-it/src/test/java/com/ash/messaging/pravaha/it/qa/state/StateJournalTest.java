@@ -259,7 +259,7 @@ class StateJournalTest extends StateTestSupport {
         try (QueryRegistry second = new QueryRegistry(views2, TXN).journalTo(new RegistryJournal(journalFile))) {
             QueryRegistry.Recovery r =
                     second.recover(id -> Optional.of(new com.ash.messaging.pravaha.security.Principal(
-                            id, "acme", java.util.Set.of("analyst"), java.util.Map.of())));
+                            id, "public", java.util.Set.of("analyst"), java.util.Map.of())));
             assertThat(r.recovered()).containsExactlyInAnyOrder("a", "b");
             assertThat(second.names()).containsExactly("a", "b");
             boolean afterShared = second.size() == 1;
