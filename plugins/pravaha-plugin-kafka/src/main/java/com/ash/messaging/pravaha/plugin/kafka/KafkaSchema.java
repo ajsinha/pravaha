@@ -29,25 +29,61 @@ import com.ash.messaging.pravaha.api.data.Types;
 /**
  * A binding's {@code schema} option, the sink's and the source's alike: {@code name:TYPE,...}, the
  * same spelling every other connector reads, with {@code ?} after a type for a nullable column.
+ *
+ * <p>{@code TIME(p)} and {@code TIMESTAMP(p)} declare how many fractional-second digits a column's
+ * values carry, 0 to 9 (9, nanoseconds, when not declared). {@code kafka-sink} writes an Avro time
+ * of millisecond or microsecond precision only for a column declared at most that fine, and floors
+ * each value to the declared precision ({@link #precisions}, KSF-4).
  */
 final class KafkaSchema {
 
     private static final Pattern DECIMAL = Pattern.compile("^DECIMAL\\((\\d+),\\s*(\\d+)\\)$");
+    private static final Pattern TEMPORAL = Pattern.compile("^(TIME|TIMESTAMP)\\((\\d)\\)$");
+
+    /** The fractional-second digits of a TIME or TIMESTAMP whose declaration does not say. */
+    static final int NANOS = 9;
 
     private KafkaSchema() {}
 
     static StreamSchema parse(String streamName, String spec) {
         StreamSchema.Builder builder = StreamSchema.builder(streamName);
         for (String column : splitColumns(spec)) {
-            String[] parts = column.strip().split(":", 2);
-            if (parts.length != 2 || parts[0].isBlank()) {
-                throw new ConfigurationException(
-                        KafkaErrors.BAD_CONFIGURATION,
-                        "schema entry '" + column.strip() + "' is not 'name:TYPE'. Example: id:INT64,name:STRING");
-            }
-            builder.field(parts[0].strip(), typeFor(parts[1].strip()));
+            builder.field(nameAndType(column)[0].strip(), typeFor(nameAndType(column)[1].strip()));
         }
         return builder.build();
+    }
+
+    /**
+     * Each column's declared fractional-second digits: {@code p} for {@code TIME(p)} or {@code
+     * TIMESTAMP(p)}, {@value #NANOS} for an undeclared {@code TIME} or {@code TIMESTAMP}, and -1 for
+     * any other type. In column order, as {@link #parse} builds them.
+     */
+    static int[] precisions(String spec) {
+        List<String> columns = splitColumns(spec);
+        int[] precisions = new int[columns.size()];
+        for (int i = 0; i < precisions.length; i++) {
+            String type = bare(nameAndType(columns.get(i))[1]);
+            Matcher temporal = TEMPORAL.matcher(type);
+            precisions[i] = temporal.matches()
+                    ? Integer.parseInt(temporal.group(2))
+                    : type.equals("TIME") || type.equals("TIMESTAMP") ? NANOS : -1;
+        }
+        return precisions;
+    }
+
+    private static String[] nameAndType(String column) {
+        String[] parts = column.strip().split(":", 2);
+        if (parts.length != 2 || parts[0].isBlank()) {
+            throw new ConfigurationException(
+                    KafkaErrors.BAD_CONFIGURATION,
+                    "schema entry '" + column.strip() + "' is not 'name:TYPE'. Example: id:INT64,name:STRING");
+        }
+        return parts;
+    }
+
+    private static String bare(String type) {
+        String upper = type.strip().toUpperCase(Locale.ROOT);
+        return upper.endsWith("?") ? upper.substring(0, upper.length() - 1).strip() : upper;
     }
 
     /** Splits on commas outside parentheses, so {@code DECIMAL(10,2)} stays one entry. */
@@ -105,9 +141,15 @@ final class KafkaSchema {
         if (decimal.matches()) {
             return Types.decimal(Integer.parseInt(decimal.group(1)), Integer.parseInt(decimal.group(2)));
         }
+        Matcher temporal = TEMPORAL.matcher(upper);
+        if (temporal.matches()) {
+            int digits = Integer.parseInt(temporal.group(2));
+            return temporal.group(1).equals("TIME") ? Types.time() : Types.timestamp(digits);
+        }
         throw new ConfigurationException(
                 KafkaErrors.BAD_CONFIGURATION,
                 "unknown type '" + original + "'. Supported: BOOLEAN, INT8, INT16, INT32, INT64, FLOAT32, "
-                        + "FLOAT64, STRING, BYTES, DATE, TIME, TIMESTAMP, DECIMAL(p,s). Suffix with ? for nullable.");
+                        + "FLOAT64, STRING, BYTES, DATE, TIME, TIMESTAMP, TIME(p) and TIMESTAMP(p) with p from 0 to "
+                        + "9, DECIMAL(p,s). Suffix with ? for nullable.");
     }
 }

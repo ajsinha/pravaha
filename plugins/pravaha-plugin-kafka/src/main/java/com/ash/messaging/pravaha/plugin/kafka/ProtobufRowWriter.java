@@ -36,8 +36,10 @@ import com.ash.messaging.pravaha.plugin.kafka.KafkaValueDecoder.Unmappable;
 
 /**
  * {@code kafka-sink} with {@code format: protobuf}: a row as one message of {@code schema.descriptor}
- * named by {@code schema.message}, built with {@link DynamicMessage} and written bare (no registry
- * prefix).
+ * named by {@code schema.message}, built with {@link DynamicMessage}; written bare, or -- with a
+ * {@code schema.id} checked against the registry -- behind the Confluent framing: the byte 0, the
+ * four-byte id, then the message's index path in the registered file as zig-zag varints, a lone
+ * {@code 0} for the file's first message (KSF-2, {@link #framed}).
  *
  * <p><strong>The mapping is made once, by name, and refuses what it cannot write exactly</strong>
  * ({@link Unmappable}, {@code PRV-5108} at configuration): every column must be a field of the
@@ -63,11 +65,36 @@ final class ProtobufRowWriter implements KafkaRecords.ValueEncoder {
     private final StreamSchema schema;
     private final Descriptor message;
     private final FieldDescriptor[] fields;
+    /** The Confluent framing written before each message, or empty for a bare one. */
+    private final byte[] prefix;
 
-    private ProtobufRowWriter(StreamSchema schema, Descriptor message, FieldDescriptor[] fields) {
+    private ProtobufRowWriter(StreamSchema schema, Descriptor message, FieldDescriptor[] fields, byte[] prefix) {
         this.schema = schema;
         this.message = message;
         this.fields = fields;
+        this.prefix = prefix;
+    }
+
+    /**
+     * This writer with the Confluent framing in front of every message: magic byte, {@code schemaId},
+     * and {@code indexes}, the message's path in the registered schema's file.
+     */
+    ProtobufRowWriter framed(int schemaId, java.util.List<Integer> indexes) {
+        AvroBinaryWriter out = new AvroBinaryWriter();
+        out.write(SchemaRegistry.MAGIC);
+        out.write(schemaId >>> 24);
+        out.write(schemaId >>> 16);
+        out.write(schemaId >>> 8);
+        out.write(schemaId);
+        if (indexes.equals(java.util.List.of(0))) {
+            out.writeLong(0);
+        } else {
+            out.writeLong(indexes.size());
+            for (int index : indexes) {
+                out.writeLong(index);
+            }
+        }
+        return new ProtobufRowWriter(schema, message, fields, out.toByteArray());
     }
 
     /** The mapping from {@code schema}'s columns to {@code message}'s fields, or {@link Unmappable}. */
@@ -111,7 +138,7 @@ final class ProtobufRowWriter implements KafkaRecords.ValueEncoder {
                         + " has no column to fill it");
             }
         }
-        return new ProtobufRowWriter(schema, message, fields);
+        return new ProtobufRowWriter(schema, message, fields, new byte[0]);
     }
 
     private static FieldDescriptor fieldFor(Descriptor message, String column) {
@@ -171,7 +198,13 @@ final class ProtobufRowWriter implements KafkaRecords.ValueEncoder {
                 builder.setField(fields[ordinal], value(fields[ordinal], ordinal, values[ordinal]));
             }
         }
-        return builder.build().toByteArray();
+        byte[] body = builder.build().toByteArray();
+        if (prefix.length == 0) {
+            return body;
+        }
+        byte[] framed = java.util.Arrays.copyOf(prefix, prefix.length + body.length);
+        System.arraycopy(body, 0, framed, prefix.length, body.length);
+        return framed;
     }
 
     private Object value(FieldDescriptor field, int ordinal, Object value) {

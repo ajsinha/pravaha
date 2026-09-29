@@ -84,6 +84,10 @@ final class SchemaRegistry implements AutoCloseable {
     private static final int ATTEMPTS = 3;
 
     private final String instanceName;
+    /** "source" or "sink", as a refusal names the binding; and what an unreachable registry costs it. */
+    private final String role;
+
+    private final String consequence;
     private final String base;
     private final HttpClient http;
     private final String authorization;
@@ -100,7 +104,29 @@ final class SchemaRegistry implements AutoCloseable {
     private final AtomicInteger requests = new AtomicInteger();
 
     SchemaRegistry(String instanceName, String base, SSLContext tls, String authorization, Duration timeout) {
+        this(
+                instanceName,
+                "source",
+                "Records carrying a schema id cannot be decoded without it, so the reader stops rather than setting "
+                        + "good records aside as dead letters.",
+                base,
+                tls,
+                authorization,
+                timeout);
+    }
+
+    /** For {@code kafka-sink}, which asks the registry only at configuration, to check its schema ids. */
+    SchemaRegistry(
+            String instanceName,
+            String role,
+            String consequence,
+            String base,
+            SSLContext tls,
+            String authorization,
+            Duration timeout) {
         this.instanceName = instanceName;
+        this.role = role;
+        this.consequence = consequence;
         this.base = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
         this.authorization = authorization;
         this.timeout = timeout;
@@ -294,15 +320,14 @@ final class SchemaRegistry implements AutoCloseable {
                 };
         return new PravahaException(
                 KafkaErrors.REGISTRY_UNAVAILABLE,
-                "source '" + instanceName + "': the schema registry at " + uri + " " + detail);
+                role + " '" + instanceName + "': the schema registry at " + uri + " " + detail);
     }
 
     private PravahaException unreachable(URI uri, String detail, Throwable cause) {
         return new PravahaException(
                 KafkaErrors.REGISTRY_UNAVAILABLE,
-                "source '" + instanceName + "': the schema registry at " + uri + " could not be read after " + ATTEMPTS
-                        + " attempts: " + detail + ". Records carrying a schema id cannot be decoded without it, so "
-                        + "the reader stops rather than setting good records aside as dead letters.",
+                role + " '" + instanceName + "': the schema registry at " + uri + " could not be read after " + ATTEMPTS
+                        + " attempts: " + detail + ". " + consequence,
                 cause);
     }
 
