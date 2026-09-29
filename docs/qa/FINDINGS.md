@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **456 findings carrying a
-status — 393 FIXED, 49 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 49 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 40 POST-GA and 9 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **458 findings carrying a
+status — 393 FIXED, 51 OPEN, 7 BY DESIGN, 7 SUPERSEDED.** Of the 51 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 41 POST-GA and 10 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7290,3 +7290,15 @@ the lead.
 > **Status:** OPEN — by design the analysis is sound but incomplete: `a < 5 OR a > 2` or `a + 1 > a` are not recognised as always true, so such a filter is accepted as restricting. It never refuses a filter that genuinely restricts.
 > **Disposition:** NOTE — range reasoning over constants could close the common cases; accepted as a documented limit meanwhile.
 
+
+## Found building observability (2026-09-28), 2 findings
+
+### RULESEV-1 (LOW) — the shipped alert rules use two severity vocabularies
+
+> **Status:** OPEN — the dead-letter rules (copied verbatim from the help topic) label `severity: warning/critical`, the other eight `page/warn`, so an Alertmanager route keyed on one vocabulary silently misses the other rules.
+> **Disposition:** POST-GA — pick one vocabulary for every rule in `pravaha-rules.yaml` and the help topic, which a test keeps identical.
+
+### NOSECRETSSKIP-1 (LOW) — the no-secrets check skips every path under `.claude/`
+
+> **Status:** OPEN — `NoSecretsInConfigurationTest` excludes paths containing `/.claude/`, so run from an agent's worktree it checks nothing; from the main checkout it checks everything, which is where the gate runs it.
+> **Disposition:** NOTE — exclude only other worktrees below the repository root, not the root the test runs in.
