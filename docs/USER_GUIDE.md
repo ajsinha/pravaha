@@ -432,10 +432,16 @@ DROP   CONTINUOUS QUERY card_velocity;
 Each is authorized exactly as the calls below are — a principal who may not drop through one may not
 drop through the other — and `SHOW` lists only what `pravaha queries` would show the same principal.
 
+**Who may pause, resume, replace or drop a query** is its owner — whoever registered it, or replaced
+it last — a principal granted `MODIFY` or `MANAGE` on it, or a holder of the `admin` role. Being able
+to read it is not enough: anyone else is refused `PRV-7002`. `pravaha describe` shows the owner.
+`pravaha.security.administer: legacy-read` restores the old rule (anyone who may read it unfiltered)
+for one release; see [Security](SECURITY.md#drop-pause-resume-and-replace-are-authorized-by-ownership-not-by-reading).
+
 ```bash
 pravaha queries                       # name, state, fingerprint, rows in, sink; a stopped source
                                       # and a detached sink are marked and explained beneath
-pravaha queries --verbose             # ...and each query's feed
+pravaha queries --verbose             # ...and each query's feed and owner
 pravaha pause  --name card_velocity   # keeps answering, stops advancing
 pravaha resume --name card_velocity
 pravaha drop   --name card_velocity --yes

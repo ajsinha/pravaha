@@ -37,7 +37,7 @@ A `SecurityPolicy` answers five questions. Each answer is *allow*, *allow with a
 |---|---|---|
 | `mayRead(principal, view)` | every read, every subscribe, `getFlightInfo` and schema lookups, every listing entry — and, at registration, **every stream the query reads** | (must be implemented) |
 | `mayRegisterQuery(principal)` | `register`, `CREATE CONTINUOUS QUERY` | anonymous callers refused; any verified principal allowed |
-| `mayAdminister(principal, view)` | `drop`, `pause`, `resume` (and their SQL statements); redeclaring a stream over HTTP | allowed exactly when `mayRead` allows **without** a row filter |
+| `mayAdminister(principal, view)` | `drop`, `pause`, `resume`, `replace` (and their SQL statements) on a view **somebody else owns**; redeclaring a stream over HTTP | for a view: nobody — its owner and the `admin` role may, and a policy grants others by implementing this. For a stream: allowed exactly when `mayRead` allows **without** a row filter |
 | `mayWriteTo(principal, sink)` | a registration or a replacement that names a sink — `--sink`, `WITH (sink = ...)`, `WRITING TO` | allowed. A row filter is refused with PRV-7005 rather than ignored |
 | `mayReadAudit(principal)` | `GET /api/v1/audit` | **denied** — a permission of its own, never derived from reading |
 
@@ -65,10 +65,12 @@ rows anyway.
 
 ### Administering is not reading a slice
 
-`mayAdminister` defaults to "you may administer what you may read in full". A principal who may read
-only a row-filtered slice of a view is **refused** drop, pause and resume, because dropping or
-pausing a view affects every other reader. A deployment that separates operators from readers more
-strictly should override `mayAdminister` in its own policy.
+A view is administered by **its owner** (whoever registered it, or replaced it last), a principal the
+policy grants it to, or the `admin` role — not by everyone who may read it, even in full, because
+dropping or pausing a view affects every other reader. `mayAdminister` is the grant: the catalogue
+answers it with `MODIFY` or `MANAGE` on the view, and a policy of your own answers it by implementing
+it. `pravaha.security.administer: legacy-read` restores the old rule — anyone who may read the view
+without a row filter — for one release.
 
 ## The policies that ship
 

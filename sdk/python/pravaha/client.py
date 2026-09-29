@@ -662,6 +662,8 @@ class Client(DebugCommands):
                     sink_state=_listed(row, "sink_state") or None,
                     sink_failure=(SinkFailure(code=sink_code, message=_listed(row, "sink_message"))
                                   if sink_code else None),
+                    # 16 is the owner (who may administer it without a grant); empty from an older server.
+                    owner=_listed(row, "owner") or None,
                 )
             )
         return out

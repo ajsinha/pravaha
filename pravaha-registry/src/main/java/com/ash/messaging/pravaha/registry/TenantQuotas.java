@@ -251,17 +251,47 @@ public final class TenantQuotas {
     /**
      * Refuses a replacement of {@code name} by a principal of another tenant (ADR-050), recording the
      * decision. A name nobody has assigned belongs to nobody yet and asks nothing.
+     *
+     * <p>The refusal does not name the tenant that holds it (ADR-060): only the audit record does, for
+     * an operator. Under ownership only an admin gets this far, but under {@code legacy-read} a reader
+     * of another tenant does, and the holder's tenant is not theirs to learn.
      */
     void requireSameTenant(AuditSink audit, Principal principal, String name, String sql) {
         String owner = tenantOfName.get(name);
         if (owner == null || owner.equals(principal.tenant())) {
             return;
         }
-        String reason = "'" + name + "' belongs to tenant '" + owner + "', and " + principal.id() + " is in tenant '"
-                + principal.tenant() + "'. A new version would be charged to one tenant and read by the "
-                + "other, so a name is replaced only from within the tenant that registered it.";
-        audit.record(AuditEvent.of(principal, "replace:tenant", name, AccessDecision.deny(reason), sql));
+        String reason = "'" + name + "' was registered outside tenant '" + principal.tenant() + "'. A new version "
+                + "would be charged to one tenant and read by another, so a name is replaced only from within the "
+                + "tenant that registered it.";
+        audit.record(AuditEvent.of(
+                principal,
+                "replace:tenant",
+                name,
+                AccessDecision.deny(reason + " It is held by tenant '" + owner + "'."),
+                sql));
         throw new PravahaException(RegistryErrors.TENANT_MISMATCH, reason);
+    }
+
+    /**
+     * Records a registration choosing a name another tenant holds (ADR-060). View names are still
+     * unique on the node, so the registration is refused with the same {@code PRV-8001}, in the same
+     * words, as a name taken in the caller's own tenant -- the refusal says nothing of whose it is. The
+     * audit trail does, so an operator can see one tenant probing another's names until names are per
+     * tenant.
+     */
+    void auditTakenName(AuditSink audit, Principal principal, String name, String sql) {
+        String holder = name == null ? null : tenantOfName.get(name);
+        if (holder == null || holder.equals(principal.tenant())) {
+            return;
+        }
+        audit.record(AuditEvent.of(
+                principal,
+                "register:name",
+                name,
+                AccessDecision.deny("'" + name + "' is held by tenant '" + holder + "'; view names are unique on the "
+                        + "node until ADR-060's per-tenant names are built"),
+                sql));
     }
 
     void assign(String name, String tenant) {

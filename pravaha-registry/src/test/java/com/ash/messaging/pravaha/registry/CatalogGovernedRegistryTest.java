@@ -128,6 +128,19 @@ class CatalogGovernedRegistryTest {
     }
 
     @Test
+    void aPrincipalGrantedManageOnAViewAdministersItWithoutOwningIt() {
+        registry.register("theirs", CLEANED, List.of(0), OPS);
+        sql(OPS, "GRANT SELECT ON VIEW theirs TO ROLE analyst");
+        // Reading it, unfiltered, is not a claim on it.
+        assertThatThrownBy(() -> sql(ANA, "PAUSE CONTINUOUS QUERY theirs")).hasMessageContaining("PRV-7002");
+
+        sql(OPS, "GRANT MANAGE ON VIEW theirs TO ROLE analyst");
+        sql(ANA, "PAUSE CONTINUOUS QUERY theirs");
+        sql(ANA, "DROP CONTINUOUS QUERY theirs");
+        assertThat(registry.find("theirs")).isEmpty();
+    }
+
+    @Test
     void theCatalogueStatementsAnswerAsResultSets() {
         registry.register("cleaned", CLEANED, List.of(0), OPS);
         ViewQuery.Result granted = sql(OPS, "GRANT SELECT, SUBSCRIBE ON VIEW cleaned TO ROLE analyst");

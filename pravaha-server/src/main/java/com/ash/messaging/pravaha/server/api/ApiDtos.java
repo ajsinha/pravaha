@@ -368,6 +368,8 @@ public final class ApiDtos {
      *     there are any ({@code PRV-8024})
      * @param accessPaths how the reads of this query's view found their rows, counted since it
      *     started (IDXVIS-1)
+     * @param owner the id of the principal who registered it, or replaced it last: who may drop, pause
+     *     or replace it without a grant ({@code pravaha.security.administer}); null when none is recorded
      */
     public record QueryDetail(
             String name,
@@ -389,7 +391,8 @@ public final class ApiDtos {
             Integer sharedLane,
             List<String> readsFrom,
             List<String> dependants,
-            AccessPaths accessPaths) {}
+            AccessPaths accessPaths,
+            String owner) {}
 
     /**
      * How the reads of one view found their rows (IDXVIS-1): every read of a view -- Flight SQL,

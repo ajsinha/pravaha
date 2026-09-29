@@ -1353,6 +1353,8 @@
     "fingerprint": "fingerprint {id}",
     "keyed_by": "Keyed by",
     "retention": "Retention",
+    "owner": "Owner",
+    "owner_title": "Who registered it, or replaced it last. The owner, a principal granted MODIFY or MANAGE on it, or an admin may pause, replace or drop it; reading it does not.",
     "reads": "Reads",
     "reads_from": "Follows",
     "dependants": "Followed by",

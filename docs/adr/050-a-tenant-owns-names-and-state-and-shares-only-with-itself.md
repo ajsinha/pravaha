@@ -5,7 +5,7 @@ Proprietary and confidential; see `../../LICENSE`.
 
 | | |
 |---|---|
-| Status | Accepted; built — `TenantQuotas` and `QueryFingerprint` in `pravaha-registry`, `pravaha.tenancy.*`, `GET /api/v1/tenants` and `pravaha.tenant.*` in `pravaha-server`. The console's tenants screen (`/admin/tenants`) and the register screen's quota refusals are built |
+| Status | Accepted; built — `TenantQuotas` and `QueryFingerprint` in `pravaha-registry`, `pravaha.tenancy.*`, `GET /api/v1/tenants` and `pravaha.tenant.*` in `pravaha-server`. The console's tenants screen (`/admin/tenants`) and the register screen's quota refusals are built. §1's "Names" bullet is **superseded by [ADR-060](060-view-names-are-unique-per-tenant.md)** |
 | Date | 2026-09-26 |
 | Deciders | Ashutosh Sinha |
 | Relates to | ADR-025 (registration), ADR-031 (row filters), ADR-039 item 7, ADR-045 (cluster mode, on hold), ADR-046 (replacement) |
@@ -41,11 +41,17 @@ A tenant **does not scope** the following. Each is a deliberate choice:
   every read path — Flight SQL, pgwire, the REST view read, `ViewQuery` — resolving a name through
   the caller's tenant. That is a namespace feature with its own ADR. One consequence follows and
   was already true: `PRV-8001` tells a principal in one tenant that a name is taken in another.
+  *Superseded by [ADR-060](060-view-names-are-unique-per-tenant.md), which makes names unique per
+  tenant; its first slice is built (the refusal no longer names the holder, and the probe is
+  audited), the per-tenant key is not.*
 - **Reads, sources and sinks.** The policy decides these (`mayRead`, `mayWriteTo`,
   `mayAdminister`), as before. A policy that should confine reads to a tenant says so in
   `mayRead`. The engine does not assume a tenant boundary that the policy did not draw.
 - **Administration.** `drop`, `pause` and `resume` are still decided by `mayAdminister`, so an
   operator in an `ops` tenant can still drop a query. Replacement is the exception, in §3.
+  *Amended: a registered view is now administered by its owner, a principal the policy grants it
+  to, or an admin (`pravaha.security.administer`, `docs/SECURITY.md`), so an operator in another
+  tenant needs a grant or the admin role.*
 - **Lanes and CPU.** Every tenant's queries run on the node's lane threads, and shared lanes are
   shared across tenants. A query's CPU is bounded only by how many queries its tenant may hold.
   Per-tenant CPU scheduling is not built.

@@ -446,7 +446,8 @@ public class QueryController {
                 query.sharedLane().orElse(null),
                 listing.readsFrom(principal, entry, action),
                 listing.dependants(principal, entry, action),
-                accessPaths(view));
+                accessPaths(view),
+                entry.owner().orElse(null));
     }
 
     /** How this view's reads found their rows (IDXVIS-1), read from the view's own counters. */

@@ -98,7 +98,8 @@ public final class ControlWire {
             "feed_at",
             "sink_state",
             "sink_code",
-            "sink_message");
+            "sink_message",
+            "owner");
 
     /** Where a named field sits in a {@link #LIST} row; refused for a name {@link #LIST_FIELDS} does not have. */
     public static int listField(String name) {

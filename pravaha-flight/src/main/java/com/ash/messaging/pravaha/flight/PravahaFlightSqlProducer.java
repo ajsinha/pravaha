@@ -622,8 +622,8 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                         // trailing, so a client that reads five fields reads exactly what it always
                         // did. Key ordinals comma-separated as REGISTER takes them, the sink's binding
                         // name or empty, and the retention as ISO-8601 or "forever". 8-12 are the
-                        // feed (FEED-1) and 13-15 the sink's own state (SINK-3), trailing for the
-                        // same reason; see feedFields and sinkFields.
+                        // feed (FEED-1), 13-15 the sink's own state (SINK-3) and 16 the owner's id,
+                        // trailing for the same reason; see feedFields and sinkFields.
                         List<String> row = new java.util.ArrayList<>(List.of(
                                 entry.name(),
                                 query.state().name(),
@@ -635,6 +635,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                                 query.view().retention().toString()));
                         row.addAll(feedFields(entry));
                         row.addAll(sinkFields(entry));
+                        row.add(entry.owner().orElse(""));
                         if (row.size() != ControlWire.LIST_FIELDS.size()) {
                             // WIRE-1: a row whose width disagrees with the named fields would be
                             // read by every client at the wrong positions, silently.
@@ -705,7 +706,9 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                     if (fields.isEmpty() || fields.get(0).isBlank()) {
                         for (QueryReplacement.Status status :
                                 required.replacements().all()) {
-                            if (policy.mayAdminister(principal, status.name()).allowed()) {
+                            if (required.owners()
+                                    .mayAdminister(principal, status.name())
+                                    .allowed()) {
                                 listener.onNext(new Result(ControlWire.encode(replacement(status))));
                             }
                         }
@@ -899,7 +902,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
 
     /** The one authorization rule for drop, pause and resume, shared with their SQL spellings. */
     private void requireAdministrable(Principal principal, String view, String verb) {
-        ContinuousQueryStatements.requireAdministrable(policy, audit, principal, view, verb);
+        ContinuousQueryStatements.requireAdministrable(requireRegistry(), audit, principal, view, verb);
     }
 
     @Override

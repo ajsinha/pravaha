@@ -138,7 +138,7 @@ public final class QueryReplacements implements AutoCloseable {
             Principal principal,
             ReplacementOptions options,
             String resuming) {
-        ContinuousQueryStatements.requireAdministrable(policy, audit, principal, name, "replace");
+        ContinuousQueryStatements.requireAdministrable(registry, audit, principal, name, "replace");
         RegisteredQuery serving = registry.require(name);
         // ADR-056: a loop through other queries first, then anything a chain makes inexact.
         registry.chains.refuseReplacement(name, sql, principal);
@@ -210,13 +210,14 @@ public final class QueryReplacements implements AutoCloseable {
                     keyColumns,
                     sink,
                     options,
-                    principal.id(),
+                    principal,
+                    registry.owners().ownerOf(name).orElse(null),
                     startedAt,
                     directory,
                     job,
                     serving,
                     candidate,
-                    registry.journalledEntry(name).orElse(null));
+                    journalledEntry(name).orElse(null));
         } catch (RuntimeException e) {
             registry.releaseShadow(candidate);
             throw e;
@@ -397,6 +398,7 @@ public final class QueryReplacements implements AutoCloseable {
             // 6. The swap itself: one name, moved between two computations, while neither is
             //    reading. A reader resolves the name to one view or the other and never to both.
             registry.moveName(name, from, to);
+            registry.owners().transferred(name, replacement.replacedBy());
             from.replacedBy(to.fingerprint().shortForm());
             if (moved != null) {
                 moved.attachTo(to, true);
@@ -519,6 +521,7 @@ public final class QueryReplacements implements AutoCloseable {
                     "the replacement of '" + name + "' was rolled back, so the name answers the previous query "
                             + "again. Subscribe again to follow it."));
             registry.moveName(name, from, to);
+            registry.owners().transferred(name, replacement.previousOwner());
             to.replacedBy(null);
             from.replacedBy(to.fingerprint().shortForm());
             if (moved != null) {
@@ -805,6 +808,17 @@ public final class QueryReplacements implements AutoCloseable {
         return refused;
     }
 
+    /** The registration the journal holds for {@code name}, for a rollback to put back. */
+    private Optional<RegistryJournal.Entry> journalledEntry(String name) {
+        RegistryJournal journal = registry.journal();
+        if (journal == null) {
+            return Optional.empty();
+        }
+        return journal.replay().stream()
+                .filter(entry -> entry.name().equals(name))
+                .findFirst();
+    }
+
     private void endedInTheJournal(String name) {
         RegistryJournal journal = registry.journal();
         if (journal != null) {
@@ -813,7 +827,7 @@ public final class QueryReplacements implements AutoCloseable {
     }
 
     private QueryReplacement administrable(String name, Principal principal, String verb) {
-        ContinuousQueryStatements.requireAdministrable(policy, audit, principal, name, verb);
+        ContinuousQueryStatements.requireAdministrable(registry, audit, principal, name, verb);
         QueryReplacement replacement = byName.get(name);
         if (replacement == null) {
             throw new PravahaException(

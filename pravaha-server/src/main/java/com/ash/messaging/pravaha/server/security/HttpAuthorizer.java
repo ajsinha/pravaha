@@ -45,10 +45,41 @@ public class HttpAuthorizer {
 
     private final SecurityPolicy policy;
     private final AuditSink audit;
+    private final java.util.function.Supplier<java.util.Optional<com.ash.messaging.pravaha.registry.QueryRegistry>>
+            registry;
 
+    /** Without a registry: administering is the policy's answer alone, as for a node that serves none. */
     public HttpAuthorizer(SecurityPolicy policy, AuditSink audit) {
+        this(policy, audit, java.util.Optional::empty);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public HttpAuthorizer(SecurityPolicy policy, AuditSink audit, com.ash.messaging.pravaha.server.PravahaNode node) {
+        this(policy, audit, node::registry);
+    }
+
+    /**
+     * @param registry the node's registry once it has one: who owns a view is recorded there, so
+     *     whether a caller may administer it is asked there ({@code QueryOwners})
+     */
+    public HttpAuthorizer(
+            SecurityPolicy policy,
+            AuditSink audit,
+            java.util.function.Supplier<java.util.Optional<com.ash.messaging.pravaha.registry.QueryRegistry>>
+                    registry) {
         this.policy = policy;
         this.audit = audit;
+        this.registry = registry;
+    }
+
+    /**
+     * Whether {@code principal} may administer {@code name}: the view's owner, a principal the policy
+     * grants it to, or an admin -- or, for a name no view holds (a stream), the policy's own answer.
+     */
+    public AccessDecision administerDecision(Principal principal, String name) {
+        return registry.get()
+                .map(found -> found.owners().mayAdminister(principal, name))
+                .orElseGet(() -> policy.mayAdminister(principal, name));
     }
 
     /** Who is calling, or anonymous when this node does not authenticate. */
@@ -69,7 +100,7 @@ public class HttpAuthorizer {
      * administer is not shown to them, and its absence is the same answer as there being none.
      */
     public boolean mayAdminister(HttpServletRequest request, String name) {
-        return policy.mayAdminister(principalOf(request), name).allowed();
+        return administerDecision(principalOf(request), name).allowed();
     }
 
     /**
@@ -107,7 +138,7 @@ public class HttpAuthorizer {
     /** Refuses unless this caller may change what the node serves. */
     public void requireAdminister(HttpServletRequest request, String what) {
         Principal principal = principalOf(request);
-        AccessDecision decision = policy.mayAdminister(principal, what);
+        AccessDecision decision = administerDecision(principal, what);
         audit.record(
                 com.ash.messaging.pravaha.security.AuditEvent.of(principal, "http.administer", what, decision, ""));
         if (!decision.allowed()) {

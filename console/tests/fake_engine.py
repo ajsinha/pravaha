@@ -558,7 +558,7 @@ class FakeEngine:
                                   "failure": {"code": "PRV-8009", "message": "sink 'audit_out' failed and has been detached",
                                               "helpUrl": ""}, "rowsWritten": 7} if q.sink else None),
                         "rowsIn": q.rows_in, "countsWithheld": False, "registeredAt": "2026-09-19T00:00:00Z",
-                        "failure": None, "reads": ["txn"], "feed": self._feed_detail(q)}
+                        "failure": None, "reads": ["txn"], "feed": self._feed_detail(q), "owner": "ops"}
         raise EngineHttpError(404, f"no registered query named '{name}' that you may see", "PRV-8002")
 
     def _feed_detail(self, q: QueryRow) -> dict:

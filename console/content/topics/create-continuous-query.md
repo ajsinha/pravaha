@@ -524,8 +524,8 @@ SHOW CONTINUOUS QUERY
 
 Authorization is the registration's, whatever the spelling. A `CREATE` is authorized as
 `pravaha register` is — may this principal register, and may it read every stream the query reads --
-and `DROP`, `PAUSE` and `RESUME` as the lifecycle actions are, by the policy's `mayAdminister`,
-audited under the same verbs. The query's own name must be one a `FROM` clause can hold; the registry
+and `DROP`, `PAUSE` and `RESUME` as the lifecycle actions are — the view's owner, a principal the
+policy grants it to, or an admin — audited under the same verbs. The query's own name must be one a `FROM` clause can hold; the registry
 refuses a reserved word as a name with PRV-8008.
 
 ## Where they run, and where they do not

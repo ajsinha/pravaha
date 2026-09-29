@@ -135,7 +135,10 @@ class CatalogPolicyTest {
         catalog.importPolicy("authenticated", CatalogPolicy.importedGrants("authenticated", "import", CLOCK.instant()));
         policy.registered(ANA, "v");
         assertThat(policy.mayRead(BOB, "v").allowed()).isTrue();
-        assertThat(policy.mayAdminister(BOB, "v").allowed()).isTrue();
+        // Ownership (the default): reading is not administering, so the import no longer grants MODIFY
+        // to every verified caller; the owner holds it by owning the view.
+        assertThat(policy.mayAdminister(BOB, "v").allowed()).isFalse();
+        assertThat(policy.mayAdminister(ANA, "v").allowed()).isTrue();
         assertThat(policy.mayRead(Principal.ANONYMOUS, "v").allowed()).isFalse();
         assertThat(policy.mayRegisterQuery(Principal.ANONYMOUS).allowed()).isFalse();
         assertThat(policy.mayReadAudit(BOB).allowed()).isFalse();
@@ -144,5 +147,18 @@ class CatalogPolicyTest {
         catalog.importPolicy("permissive", CatalogPolicy.importedGrants("permissive", "import", CLOCK.instant()));
         assertThat(catalog.importedPolicy()).contains("authenticated");
         assertThat(catalog.grantsToEveryone()).isFalse();
+    }
+
+    @Test
+    void importingAuthenticatedUnderLegacyReadStillGrantsModifyToEveryVerifiedCaller() {
+        catalog.importPolicy(
+                "authenticated",
+                CatalogPolicy.importedGrants(
+                        "authenticated",
+                        "import",
+                        CLOCK.instant(),
+                        com.ash.messaging.pravaha.security.Administration.Rule.LEGACY_READ));
+        policy.registered(ANA, "v");
+        assertThat(policy.mayAdminister(BOB, "v").allowed()).isTrue();
     }
 }

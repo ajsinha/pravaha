@@ -705,7 +705,8 @@ or the decoder's sentence, which quotes the value it choked on. The refusal is s
 rather than left as an empty field, so nobody reads "withheld" as "empty".
 
 **Who may replay.** A replay puts a row into a view other people read, so it is authorized as `DROP`,
-`PAUSE` and `RESUME` are — `mayAdminister`, which already refuses a row-filtered principal by name.
+`PAUSE` and `RESUME` are — the view's owner, a principal granted it, or an admin; a reader, filtered or
+not, does not qualify.
 Reading a dead letter and replaying it are two different rights, and a deployment that separates
 operators from readers gets to separate them here. Every decision is audited: `dlq.list`,
 `dlq.show`, `dlq.count`, `dlq.replay`.

@@ -436,6 +436,8 @@ public final class PravahaFlightClient implements AutoCloseable {
             // message it was detached with. Empty from a server that predates them.
             String sinkState = listed(row, "sink_state");
             String sinkCode = listed(row, "sink_code");
+            // 16 is the owner: who may administer it without a grant. Empty from an older server.
+            String owner = listed(row, "owner");
             queries.add(new RegisteredQueryInfo(
                     listed(row, "name"),
                     listed(row, "state"),
@@ -456,7 +458,8 @@ public final class PravahaFlightClient implements AutoCloseable {
                     sinkState.isEmpty() ? null : sinkState,
                     sinkCode.isEmpty()
                             ? null
-                            : new RegisteredQueryInfo.SinkFailure(sinkCode, listed(row, "sink_message"))));
+                            : new RegisteredQueryInfo.SinkFailure(sinkCode, listed(row, "sink_message")),
+                    owner.isEmpty() ? null : owner));
         }
         return queries;
     }

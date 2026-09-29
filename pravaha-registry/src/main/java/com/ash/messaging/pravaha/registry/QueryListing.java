@@ -68,6 +68,8 @@ public final class QueryListing {
      *
      * @param restricted the principal's access is conditional on a row filter somewhere on or behind
      *     the view, so its totals are not theirs to know
+     * @param owner the id of the principal who registered it, or replaced it last: who may administer it
+     *     without a grant. Empty only when the registry recorded nobody
      */
     public record Entry(
             String name,
@@ -75,7 +77,8 @@ public final class QueryListing {
             boolean restricted,
             Optional<String> sink,
             Optional<PravahaException> sinkFailure,
-            long sinkRowsWritten) {
+            long sinkRowsWritten,
+            Optional<String> owner) {
 
         /**
          * Rows in, or {@code -1} when withheld.
@@ -224,6 +227,7 @@ public final class QueryListing {
                 restricted,
                 registry.sinkOf(name),
                 registry.sinkFailure(name),
-                registry.rowsWrittenToSink(name)));
+                registry.rowsWrittenToSink(name),
+                registry.owners().ownerOf(name).map(Principal::id)));
     }
 }

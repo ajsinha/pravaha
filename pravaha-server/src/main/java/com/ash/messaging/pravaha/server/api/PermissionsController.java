@@ -107,9 +107,9 @@ public class PermissionsController {
                 List.copyOf(streams));
     }
 
-    private static AdminDtos.ObjectPermission permission(String name, SecurityPolicy policy, Principal principal) {
+    private AdminDtos.ObjectPermission permission(String name, SecurityPolicy policy, Principal principal) {
         AccessDecision read = policy.mayRead(principal, name);
-        AccessDecision administer = policy.mayAdminister(principal, name);
+        AccessDecision administer = authorizer.administerDecision(principal, name);
         if (read.rowFilter().isPresent() && !administer.allowed()) {
             // The default refusal quotes the row filter, which is not repeated on this surface.
             administer = AccessDecision.deny("a row-filtered read is not a claim on the whole view");

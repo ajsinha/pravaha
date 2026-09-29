@@ -165,8 +165,8 @@ Both SDKs have the same four (`dead_letters`, `dead_letter`, `replay_dead_letter
     is said in the answer rather than left as an empty field.
 
     Replaying is a separate right. It puts a row into a view other people read, so it is authorized
-    like `DROP`, `PAUSE` and `RESUME` — `mayAdminister`, which already refuses a row-filtered
-    principal by name.
+    like `DROP`, `PAUSE` and `RESUME` — the view's owner, a principal granted it, or an admin; a
+    reader, filtered or not, does not qualify.
 
 ## Putting one back
 

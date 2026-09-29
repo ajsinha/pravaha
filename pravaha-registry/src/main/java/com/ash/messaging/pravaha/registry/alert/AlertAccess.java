@@ -37,9 +37,10 @@ import com.ash.messaging.pravaha.security.SecurityPolicy;
  * receivers the view's rows -- and {@code WRITE} on every channel it names.
  *
  * <p><strong>Under any other policy</strong> there are no grants on an alert to consult, so its view's
- * stand in: seeing it needs {@code mayRead} on the view, changing it needs being its creator or {@code
- * mayAdminister} on the view, and a channel is asked as a sink would be ({@code mayWriteTo}). Either
- * way an alert is never visible outside its tenant (ADR-050).
+ * stand in: seeing it needs {@code mayRead} on the view, changing it needs being its creator or being
+ * able to administer the view (its owner, a grant or an admin: {@code QueryOwners.mayAdminister}),
+ * and a channel is asked as a sink would be ({@code mayWriteTo}). Either way an alert is never
+ * visible outside its tenant (ADR-050).
  *
  * <p>An alert the caller may not see is answered exactly as one that does not exist ({@code PRV-8040});
  * one they may see and not change is refused by name ({@code PRV-7002}). Every decision is audited.
@@ -48,10 +49,16 @@ final class AlertAccess {
 
     private final SecurityPolicy policy;
     private final AuditSink audit;
+    private final java.util.function.BiFunction<Principal, String, AccessDecision> administer;
 
-    AlertAccess(SecurityPolicy policy, AuditSink audit) {
+    /** @param administer who may administer a view, which only the registry can say: it knows the owner */
+    AlertAccess(
+            SecurityPolicy policy,
+            AuditSink audit,
+            java.util.function.BiFunction<Principal, String, AccessDecision> administer) {
         this.policy = policy == null ? SecurityPolicy.PERMISSIVE : policy;
         this.audit = audit == null ? AuditSink.NONE : audit;
+        this.administer = administer == null ? this.policy::mayAdminister : administer;
     }
 
     SecurityPolicy policy() {
@@ -168,7 +175,7 @@ final class AlertAccess {
         if (principal.id().equals(alert.owner())) {
             return AccessDecision.allow();
         }
-        return policy.mayAdminister(principal, alert.view());
+        return administer.apply(principal, alert.view());
     }
 
     private void require(Principal principal, String action, String target, AccessDecision decision, String what) {

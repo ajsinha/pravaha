@@ -149,12 +149,13 @@ def queries(ctx: Context) -> int:
             "rows_in": "-" if q.rows_in < 0 else q.rows_in,
             "sink": _sink_text(q),
             "feed": q.feed or "-",
+            "owner": q.owner or "-",
         }
         for q in listed
     ]
     columns: list[Any] = ["name", "state", "fingerprint", ("rows_in", "ROWS IN"), "sink"]
     if verbose:
-        columns.append("feed")
+        columns.extend(["feed", "owner"])
     ctx.out.table(rows, columns)
     if any(q.rows_in < 0 for q in listed):
         ctx.out.note(
