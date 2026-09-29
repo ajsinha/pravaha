@@ -14,11 +14,13 @@ PROPRIETARY AND CONFIDENTIAL. See the LICENSE file for the full terms.
   ``sql``, ``keys``, ``options`` (retention, index, sink, lane), ``explanation``,
   ``assumptions``, ``questions``, ``confidence``. When it has **questions**, they are returned
   and the engine is not asked anything.
-* The **judge** is the engine: ``POST /api/v1/queries/validate``, then ``/explain``. Before a
-  draft is called accepted the assistant also checks what the engine only checks at
-  registration and the API cannot be asked -- that the key and the index name columns the
-  ``SELECT`` produces, that the sink is one the caller may see, that the retention is a duration
-  the engine reads -- and says, on the verdict, that it and not the engine made that check.
+* The **judge** is the engine: ``POST /api/v1/queries/validate`` of the ``SELECT``, then of the
+  whole ``CREATE CONTINUOUS QUERY`` statement -- which answers every refusal registration would
+  give, key and index columns, sink, name and retention included (VALIDATEREG-1) -- then
+  ``/explain``. Against an engine older than that, which cannot read the statement, the assistant
+  checks those itself -- that the key and the index name columns the ``SELECT`` produces, that
+  the sink is one the caller may see, that the retention is a duration the engine reads -- and
+  says, on the verdict, that it and not the engine made that check.
 * A **refusal** goes back to the model with the ``PRV`` code, the engine's sentence and the
   dialect card's sections about the code, for up to three repair turns. A repair must keep the
   question: **it must read the same inputs as the first draft**; one that does not is refused
@@ -299,21 +301,7 @@ class Draft:
     def statement(self, name: Optional[str] = None) -> str:
         """The draft as one ``CREATE CONTINUOUS QUERY`` statement (docs/CONTINUOUS_QUERIES.md
         §10.1): what a person would paste into ``pravaha query`` or the workbench."""
-        lines = [f"CREATE CONTINUOUS QUERY {_quote(name or self.name)}",
-                 f"  KEYED BY ({', '.join(_quote(k) for k in self.keys)})"]
-        if self.options.get("index"):
-            lines.append(f"  INDEX ({_quote(str(self.options['index']))})")
-        if self.options.get("sink"):
-            lines.append(f"  WRITING TO {_quote(str(self.options['sink']))}")
-        retention = self.options.get("retention")
-        if retention:
-            lines.append("  RETAIN FOREVER" if str(retention).lower() == "forever"
-                         else f"  RETAIN FOR {retention}")
-        if self.options.get("lane"):
-            lines.append(f"  WITH (lane = '{self.options['lane']}')")
-        lines.append("AS")
-        lines.append(self.sql.strip().rstrip(";"))
-        return "\n".join(lines)
+        return create_statement(name or self.name, self.keys, self.options, self.sql)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -344,6 +332,28 @@ class Draft:
             "context": dict(self.context),
             "prompt": self.prompt,
         }
+
+
+def create_statement(
+    name: str, keys: Sequence[str], options: Mapping[str, Optional[str]], sql: str
+) -> str:
+    """A draft as one ``CREATE CONTINUOUS QUERY`` statement: what is shown to a person, and what
+    the engine's ``/validate`` judges whole (VALIDATEREG-1)."""
+    lines = [f"CREATE CONTINUOUS QUERY {_quote(name)}",
+             f"  KEYED BY ({', '.join(_quote(k) for k in keys)})"]
+    if options.get("index"):
+        lines.append(f"  INDEX ({_quote(str(options['index']))})")
+    if options.get("sink"):
+        lines.append(f"  WRITING TO {_quote(str(options['sink']))}")
+    retention = options.get("retention")
+    if retention:
+        lines.append("  RETAIN FOREVER" if str(retention).lower() == "forever"
+                     else f"  RETAIN FOR {retention}")
+    if options.get("lane"):
+        lines.append(f"  WITH (lane = '{options['lane']}')")
+    lines.append("AS")
+    lines.append(sql.strip().rstrip(";"))
+    return "\n".join(lines)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -386,6 +396,11 @@ def _usage_tokens(answer: RoutedResponse) -> int:
 # ---------------------------------------------------------------------------------- the task
 
 
+def _normalised_retention_ok(retention: Optional[str]) -> bool:
+    """Whether a retention can be written into the statement: none, or one the assistant reads."""
+    return normalise_retention(retention)[1] is None
+
+
 class Drafter:
     """One description through context, draft, judge and repair. :meth:`Assistant.draft` is
     the way in; this holds the steps so each can be read, and tested, on its own."""
@@ -424,6 +439,23 @@ class Drafter:
 
         def refused(code: Optional[str], message: str) -> "tuple[Verdict, list[dict[str, Any]]]":
             return Verdict(False, "assistant", code, message), fields
+
+        # The whole statement, judged by the engine as registration would judge it: key and index
+        # columns, the sink, the name, the retention (VALIDATEREG-1). An engine older than that
+        # cannot read the statement and answers with no output columns; the assistant then makes
+        # those checks itself, below, and says it made them.
+        if proposal.keys and _normalised_retention_ok(proposal.options.get("retention")):
+            whole = self.api.validate(create_statement(
+                proposal.name, proposal.keys, proposal.options, proposal.sql))
+            if whole.get("valid") or whole.get("outputFields"):
+                if whole.get("valid"):
+                    return Verdict(True, "engine", diagnostics=()), fields
+                diagnostics = tuple(dict(d) for d in whole.get("diagnostics") or []
+                                    if isinstance(d, Mapping))
+                first = diagnostics[0] if diagnostics else {}
+                return Verdict(False, "engine", str(first.get("code") or "") or None,
+                               str(first.get("message") or "the engine refused it without a message"),
+                               first.get("helpUrl"), diagnostics), fields
 
         if not proposal.keys:
             return refused("PRV-2071", "the draft names no key: a view needs one -- the output "

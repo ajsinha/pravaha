@@ -197,6 +197,12 @@ public class QueryController {
         requireSql(request);
         requireReadable(http, request.sql());
         long start = System.nanoTime();
+        // A whole CREATE CONTINUOUS QUERY: every refusal registering it would give (VALIDATEREG-1).
+        java.util.Optional<ApiDtos.ValidationResult> registration =
+                RegistrationValidation.of(request.sql(), registry, authorizer, http, mapper, start);
+        if (registration.isPresent()) {
+            return registration.get();
+        }
         try {
             PhysicalOperator plan = planFor(request.sql());
             return ApiDtos.ValidationResult.ok(

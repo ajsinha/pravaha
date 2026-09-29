@@ -133,7 +133,97 @@ public final class ContinuousQueryStatements {
         };
     }
 
+    /**
+     * A {@code CREATE CONTINUOUS QUERY} read as registration reads it: the WITH list folded in, the
+     * key, range and index resolved against the columns the view would have (VALIDATEREG-1).
+     */
+    private record Parsed(
+            ContinuousStatement.Create statement,
+            Retention retention,
+            boolean dedicatedLane,
+            List<Integer> keys,
+            Optional<Integer> index) {}
+
     private ViewQuery.Result create(ContinuousStatement.Create create, Principal principal) {
+        Parsed parsed = parse(create, principal);
+        ContinuousStatement.Create statement = parsed.statement();
+        List<Integer> keys = parsed.keys();
+        Optional<Integer> index = parsed.index();
+        if (statement.orReplace() && registry.find(statement.name()).isPresent()) {
+            requireReplaceable(statement, index);
+            return replace(statement, keys, principal);
+        }
+        String sink = statement.sink().orElse(null);
+        String name = statement.name();
+        String select = statement.select();
+        Retention kept = parsed.retention();
+        RegisteredQuery query = registry.declaring(
+                new Declaring(index.map(List::of).orElse(List.<Integer>of()), parsed.dedicatedLane()),
+                () -> register(registry, name, select, keys, principal, sink, kept));
+        return new ViewQuery.Result(CREATED, List.<Object[]>of(new Object[] {
+            statement.name(),
+            query.state().name(),
+            query.fingerprint().shortForm(),
+            statement.sink().orElse(null)
+        }));
+    }
+
+    /**
+     * Every refusal registering {@code create} would give, without registering it (VALIDATEREG-1):
+     * empty when it would be accepted.
+     *
+     * <p>The statement's own clauses first -- its WITH list, its key, {@code RANGE} and {@code INDEX}
+     * against the columns the view would have -- and, when those are readable, each independent
+     * question registration asks after them: whether the name is free (or, for {@code CREATE OR
+     * REPLACE} of a name that exists, whether a replacement may keep its sink, retention and indexes
+     * and follow its readers), and registration's own preparation -- the sink's shape, key and
+     * changelog, the policy's answers for the sources and the sink, the chain rules. Nothing is
+     * started, no sink is opened and no name is taken; the policy's answers are audited as {@code
+     * explain}. A tenant's quota is not judged: it is the node's state at the moment of registering,
+     * not the statement's.
+     */
+    public List<PravahaException> validate(ContinuousStatement.Create create, Principal principal) {
+        Parsed parsed;
+        try {
+            parsed = parse(create, principal);
+        } catch (PravahaException e) {
+            return List.of(e);
+        }
+        ContinuousStatement.Create statement = parsed.statement();
+        String name = statement.name();
+        List<PravahaException> refusals = new ArrayList<>();
+        boolean replacing = statement.orReplace() && registry.find(name).isPresent();
+        String sink = replacing
+                ? registry.sinkOf(name).orElse(null)
+                : statement.sink().orElse(null);
+        if (replacing) {
+            refusedBy(refusals, () -> requireReplaceable(statement, parsed.index()));
+            refusedBy(refusals, () -> {
+                synchronized (registry) {
+                    registry.chains.refuseReplacement(name, statement.select(), principal);
+                }
+            });
+        } else {
+            refusedBy(refusals, () -> QueryNames.require(name, registry.names()));
+        }
+        Retention retention =
+                replacing ? registry.find(name).orElseThrow().view().retention() : parsed.retention();
+        refusedBy(
+                refusals,
+                () -> DraftFingerprint.of(
+                        registry, name, statement.select(), parsed.keys(), principal, retention, sink));
+        return List.copyOf(refusals);
+    }
+
+    private static void refusedBy(List<PravahaException> refusals, Runnable check) {
+        try {
+            check.run();
+        } catch (PravahaException e) {
+            refusals.add(e);
+        }
+    }
+
+    private Parsed parse(ContinuousStatement.Create create, Principal principal) {
         ContinuousStatement.Create statement = create;
         Retention retention = statement
                 .retain()
@@ -203,46 +293,22 @@ public final class ContinuousQueryStatements {
         // INDEX (column): the same, for an equality index over a column outside the key (PRV-2074,
         // ADR-055). Kept on the view before the registration is acknowledged, and journalled with it.
         Optional<Integer> index = statement.indexOrdinal(output);
-        if (statement.orReplace() && registry.find(statement.name()).isPresent()) {
-            if (index.isPresent()) {
-                throw new PravahaException(
-                        com.ash.messaging.pravaha.sql.SqlErrors.CLAUSE_NOT_BUILT,
-                        "'" + statement.name() + "' already exists, and a replacement keeps the equality "
-                                + "indexes its view keeps -- carried to the new version at the cutover, by "
-                                + "column name -- rather than changing them. Drop the INDEX clause; to index "
-                                + "a different column, drop the query and register it again.");
-            }
-            return replace(statement, keys, principal);
-        }
-        String sink = statement.sink().orElse(null);
-        String name = statement.name();
-        String select = statement.select();
-        Retention kept = retention;
-        RegisteredQuery query = registry.declaring(
-                new Declaring(index.map(List::of).orElse(List.<Integer>of()), dedicatedLane),
-                () -> register(registry, name, select, keys, principal, sink, kept));
-        return new ViewQuery.Result(CREATED, List.<Object[]>of(new Object[] {
-            statement.name(),
-            query.state().name(),
-            query.fingerprint().shortForm(),
-            statement.sink().orElse(null)
-        }));
+        return new Parsed(statement, retention, dedicatedLane, keys, index);
     }
 
     /**
-     * {@code CREATE OR REPLACE} over a name that already exists: a blue/green replacement (ADR-046).
-     *
-     * <p>It does not take the name from its readers and hand it to something that has not caught
-     * up. The new version is registered beside the running one and backfilled, and the statement
-     * answers with the state it is in -- {@code BACKFILLING} -- and the fingerprint of the
-     * computation being prepared. The cutover is a separate act, by design: it is the moment the
-     * answer changes, and {@code cutover = 'auto'} is how a caller says it does not want to be
-     * asked.
-     *
-     * <p>A sink is the name's, not the statement's. {@code WRITING TO} naming a different one is
-     * refused rather than quietly moving the query's output somewhere else.
+     * Refuses what a replacement may not change: its indexes, its sink or its retention. Asked of
+     * {@code CREATE OR REPLACE} over a name that exists, by {@link #create} and {@link #validate}.
      */
-    private ViewQuery.Result replace(ContinuousStatement.Create create, List<Integer> keys, Principal principal) {
+    private void requireReplaceable(ContinuousStatement.Create create, Optional<Integer> index) {
+        if (index.isPresent()) {
+            throw new PravahaException(
+                    com.ash.messaging.pravaha.sql.SqlErrors.CLAUSE_NOT_BUILT,
+                    "'" + create.name() + "' already exists, and a replacement keeps the equality "
+                            + "indexes its view keeps -- carried to the new version at the cutover, by "
+                            + "column name -- rather than changing them. Drop the INDEX clause; to index "
+                            + "a different column, drop the query and register it again.");
+        }
         String existingSink = registry.sinkOf(create.name()).orElse(null);
         create.sink().ifPresent(named -> {
             if (!named.equals(existingSink)) {
@@ -265,6 +331,23 @@ public final class ContinuousQueryStatements {
                             + "cutover would change what the view means at the same moment as the query, and "
                             + "nothing downstream could tell which had done what.");
         });
+    }
+
+    /**
+     * {@code CREATE OR REPLACE} over a name that already exists: a blue/green replacement (ADR-046).
+     *
+     * <p>It does not take the name from its readers and hand it to something that has not caught
+     * up. The new version is registered beside the running one and backfilled, and the statement
+     * answers with the state it is in -- {@code BACKFILLING} -- and the fingerprint of the
+     * computation being prepared. The cutover is a separate act, by design: it is the moment the
+     * answer changes, and {@code cutover = 'auto'} is how a caller says it does not want to be
+     * asked.
+     *
+     * <p>A sink is the name's, not the statement's. {@code WRITING TO} naming a different one is
+     * refused rather than quietly moving the query's output somewhere else.
+     */
+    private ViewQuery.Result replace(ContinuousStatement.Create create, List<Integer> keys, Principal principal) {
+        String existingSink = registry.sinkOf(create.name()).orElse(null);
         ReplacementOptions options = ReplacementOptions.defaults();
         for (java.util.Map.Entry<String, String> option : create.options().entrySet()) {
             options = ReplacementOptions.with(options, option.getKey(), option.getValue());

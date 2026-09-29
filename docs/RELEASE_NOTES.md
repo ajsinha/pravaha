@@ -12,6 +12,15 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **`/validate` judges a whole `CREATE CONTINUOUS QUERY` statement (VALIDATEREG-1).** It planned only
+  a `SELECT`, so a key or index naming a column the view would not have (`PRV-2071`, `PRV-2074`), a
+  sink the caller may not see or whose shape, key or changelog does not fit, a taken name or an
+  unknown `WITH` option passed it and was refused only on register. Given the statement, it runs
+  registration's own reading and preparation without registering -- nothing is started, no sink is
+  opened, no name is taken -- and answers every refusal as a diagnostic, with the view's columns as
+  `outputFields`. The Python SDK's `validate`, `pravaha validate` and the assistant's drafting use it;
+  the assistant falls back to its own checks against an older engine. A plain `SELECT` is validated
+  as before. `ValidateRegistrationTest`, `test_assist_drafting`.
 - **Which access path a view's reads took is visible (IDXVIS-1).** The view counted reads by the
   whole key, by a `RANGE` run, by an `INDEX (column)` probe and by scan, and nothing a user could
   reach read the counts. `GET /api/v1/queries/{name}` now carries `accessPaths` (`point`, `range`,

@@ -281,11 +281,13 @@ named — in the prompt ("left out for size; ask if you need one") and on the re
 `assumptions` ("I took `amount` to be in cents"), `questions` and `confidence`. **If the model has
 questions, they are printed and the engine is asked nothing**: answer them in a new description.
 
-**3. The engine is the judge.** The `SELECT` goes to `POST /api/v1/queries/validate`, and when it is
-valid to `/explain` for the physical plan. Before a draft is called accepted the assistant also makes
-the checks the engine only makes at registration and the API cannot be asked — that the key and the
-index name columns the engine says the `SELECT` produces (the engine's `PRV-2071` and `PRV-2074`),
-that the sink is one you may see, that the retention is a duration the engine reads — and labels them
+**3. The engine is the judge.** The `SELECT` goes to `POST /api/v1/queries/validate`; when it is
+valid, so does the whole `CREATE CONTINUOUS QUERY` statement, which the engine judges as registration
+would — key and index columns (`PRV-2071`, `PRV-2074`), the sink and whether you may write to it, the
+name, the options and retention — without registering it (VALIDATEREG-1); then `/explain` for the
+physical plan. An engine older than that cannot read the statement, and the assistant then makes those
+checks itself — that the key and the index name columns the engine says the `SELECT` produces, that
+the sink is one you may see, that the retention is a duration the engine reads — and labels them
 `by: "assistant"`, never as the engine's words.
 
 **4. Repair: at most three turns, and never a looser question.** A refusal goes back to the model with

@@ -464,7 +464,11 @@ Types: `INT8` `INT16` `INT32` `INT64` `FLOAT32` `FLOAT64`/`DOUBLE` `DECIMAL(p,s)
 ### `validate(sql) -> dict` — HTTP `POST /api/v1/queries/validate`
 
 Plans a query without running it. **An invalid query is an answer, not an exception.** Use it to
-check SQL before registering, or to power an editor.
+check SQL before registering, or to power an editor. Given a whole `CREATE CONTINUOUS QUERY`
+statement it answers **every refusal registering it would give** — the key and index columns, the
+sink (its shape, key and changelog, and whether you may write to it), the name, the `WITH` options
+and retention — as `diagnostics`, without registering anything; `outputFields` are the view's
+columns (VALIDATEREG-1). A tenant's quota is not judged: it is the node's state when you register.
 
 ```python
 client.validate("SELECT txn_id, user_id, amount FROM txn WHERE amount > 1000")

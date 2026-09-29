@@ -79,6 +79,10 @@ class FakeEngine:
         self.rule: Optional[Callable[[str], Optional[tuple[str, str]]]] = None
         #: Whether ``/explain`` answers a fingerprint, as an engine with EXPLAINFP-1 does.
         self.fingerprints = False
+        #: Whether ``/validate`` reads a whole CREATE CONTINUOUS QUERY statement, as an engine with
+        #: VALIDATEREG-1 does; an older one cannot parse it. ``statement_rule`` is its refusal.
+        self.reads_statements = False
+        self.statement_rule: Optional[Callable[[str], Optional[tuple[str, str]]]] = None
         self.requests: list[tuple[str, str, Any]] = []
         outer = self
 
@@ -132,6 +136,8 @@ class FakeEngine:
         return {s["name"].lower() for s in self.streams} | {q["name"].lower() for q in self.queries}
 
     def validate(self, sql: str) -> dict[str, Any]:
+        if re.match(r"\s*CREATE\s+(OR\s+REPLACE\s+)?CONTINUOUS\s+QUERY\b", sql, re.I):
+            return self._validate_statement(sql)
         refusal = self.refuse.get(sql) or (self.rule(sql) if self.rule else None)
         if refusal is None:
             from pravaha.assist.drafting import relations
@@ -150,6 +156,23 @@ class FakeEngine:
                 "outputFields": [], "elapsedMicros": 10}
         fields = [{"name": n, "type": "STRING", "nullable": False, "ordinal": i}
                   for i, n in enumerate(_output_names(sql))]
+        return {"valid": True, "diagnostics": [], "outputFields": fields, "elapsedMicros": 10}
+
+    def _validate_statement(self, sql: str) -> dict[str, Any]:
+        if not self.reads_statements:
+            return {"valid": False, "diagnostics": [
+                {"code": "PRV-2001", "message": "Encountered \"CONTINUOUS\" at line 1, column 8.",
+                 "helpUrl": "https://docs.example/PRV-2001"}], "outputFields": [], "elapsedMicros": 10}
+        from pravaha.assist.drafting import select_of
+
+        fields = [{"name": n, "type": "STRING", "nullable": False, "ordinal": i}
+                  for i, n in enumerate(_output_names(select_of(sql)))]
+        refusal = self.statement_rule(sql) if self.statement_rule else None
+        if refusal:
+            return {"valid": False, "diagnostics": [
+                {"code": refusal[0], "message": refusal[1],
+                 "helpUrl": f"https://docs.example/{refusal[0]}"}],
+                "outputFields": fields, "elapsedMicros": 10}
         return {"valid": True, "diagnostics": [], "outputFields": fields, "elapsedMicros": 10}
 
     @staticmethod
