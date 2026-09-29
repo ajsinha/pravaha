@@ -4,12 +4,12 @@ slug: metrics-alerts
 category: operating
 order: 70
 icon: graph-up-arrow
-summary: "Every metric a node publishes at /actuator/prometheus, what each answers, the alert rules worth having, the health probes, and how the console's operations verdict is decided."
+summary: "Every metric a node publishes at /actuator/prometheus -- queries, lanes, alerts, the catalogue, Flight -- and the console's assistant metrics, what each answers, the shipped alert rules, the health probes, and the console's operations verdict."
 badge: PROMETHEUS
 audience: Operators
-keywords: [prometheus, actuator, grafana, alerting, state_fraction, watermark lag, checkpoint age, commit latency, health, readiness, liveness, verdict, findings]
+keywords: [prometheus, actuator, grafana, alerting, promtool, rules, alert metrics, catalogue metrics, flight calls, assistant metrics, state_fraction, watermark lag, checkpoint age, commit latency, health, readiness, liveness, verdict, findings]
 guide: operations#watching-a-running-node
-related: [metrics-index, state-spill, checkpoints-recovery, lane-sharing, console-tour]
+related: [metrics-index, observability, state-spill, checkpoints-recovery, lane-sharing, console-tour]
 ---
 
 A node publishes its metrics in Prometheus text format at **`http://<node>:18080/actuator/prometheus`**.
@@ -58,6 +58,46 @@ it did not measure would be invented.
 | `pravaha_lane_shared_bytes` | Off-heap the shared lanes hold between them, counted once |
 | `pravaha_state_spill_bytes_mapped` | Overflow mapped across every query — what `pravaha.state.spill.max-bytes` counts |
 | `pravaha_debug_sessions_open` | [Debug sessions](/help/topics/time-travel-debugger) open on this node. Each is a second copy of a query's state |
+| `pravaha_flight_calls_seconds_count`, `_sum`, `_max` `{operation, error}` | Flight calls by operation -- `query`, `query.plan`, `subscribe`, `register`, `replace` and the other actions -- and how long they took. A subscription is one call for as long as it is open |
+
+## Alerts ([ADR-057](/help/topics/alerts))
+
+| Metric | Answers |
+|---|---|
+| `pravaha_alert_keys_firing{alert}` | Keys of each alert firing now |
+| `pravaha_alert_transitions_total{alert, kind}` | Keys that fired (`kind="fired"`) or cleared (`"cleared"`) since the node started |
+| `pravaha_alert_notifications_total{channel, outcome}` | Notification attempts a channel accepted (`delivered`) or refused (`failed`). **Alert on the failed share** |
+| `pravaha_alert_notification_retries_total{channel}` | Attempts that retried a notification the channel had refused before |
+| `pravaha_alert_notifications_owed` | Decided and not yet accepted by any channel. Growing means nobody is being told |
+| `pravaha_alert_delivery_seconds_count`, `_sum` `{channel}` | How long each channel took to answer; the mean is exact, as for commits |
+| `pravaha_alert_journal_write_failures_total` | Alert journal writes that failed. A decision is not made until it is journalled, so nothing fires or clears meanwhile |
+
+## The catalogue ([ADR-059](/help/topics/catalog-and-grants))
+
+| Metric | Answers |
+|---|---|
+| `pravaha_catalog_access_decisions_total{privilege, outcome}` | Decisions at the enforcement points -- read, subscribe, build on, register, write, administer -- by privilege and `allow` or `deny`. A listing's per-object checks are not counted: a `SHOW` is not an attack |
+| `pravaha_catalog_decision_cache_lookups_total{result}` | Decisions answered from the cache (`hit`) or worked out (`miss`). The cache empties at every catalogue change |
+| `pravaha_catalog_changes_total{kind}` | Grants, revokes, policy creates, drops, binds and unbinds, owner changes and moves made on this node since it started |
+| `pravaha_catalog_subscriptions_ended_total{reason}` | Subscriptions the engine ended because the caller was no longer entitled: `credential_revoked`, `access_withdrawn`, `narrowing_changed` |
+
+Labels are bounded by configuration or by a fixed set: an alert's and a channel's name, a privilege, an
+outcome, a kind. **No user, key, row or statement is ever a label** -- they are on the audit trail.
+
+## The console's assistant
+
+The console publishes its own, at **`http://<console>:17070/metrics`** -- only with `metrics.enabled`
+in the console's configuration, and behind `metrics.token` when one is set. See
+[Observability](/help/topics/observability).
+
+| Metric | Answers |
+|---|---|
+| `pravaha_console_assist_requests_total{model, profile, outcome}` | Requests, by the model that answered (or failed last) and `ok`, `model_error`, `budget`, `config` or `error` |
+| `pravaha_console_assist_tokens_total{model, profile, direction}` | Tokens used, `input` and `output` |
+| `pravaha_console_assist_failures_total{model, profile, kind}` | A model's failures by kind, including the ones a fallback absorbed |
+| `pravaha_console_assist_fallbacks_total{model, profile}` | Times a request moved past that model to the next in its chain |
+| `pravaha_console_assist_latency_seconds_bucket`, `_sum`, `_count` `{model, profile}` | Seconds per request, fallbacks included -- a histogram, so percentiles are real |
+| `pravaha_console_assist_ledger_tokens_today{model}` | Today's tokens in the usage ledger, every person together |
 
 Plus the JVM and process meters Spring Boot publishes (`jvm_memory_used_bytes`,
 `process_cpu_usage`, ...). Meters are removed when a query is dropped, so a dashboard of dropped
@@ -90,9 +130,17 @@ The **mean** commit latency over a window is exact:
 rate(pravaha_query_commit_latency_seconds_sum[5m]) / rate(pravaha_query_commit_latency_seconds_count[5m])
 ```
 
+## Dashboards
+
+Four Grafana dashboards ship in `deploy/observability/grafana/`: node overview, query drill-down,
+alerts and catalogue, and the assistant. Import them and pick the Prometheus data source; every panel
+reads a metric on this page, and a test fails the build if one does not exist.
+
 ## Alert rules
 
-Load as a Prometheus rule file. Thresholds are starting points, each with the reason.
+These are the shipped rules, `deploy/observability/prometheus/pravaha-rules.yaml` -- the same text, and
+a test fails if the two differ. Load the file as a Prometheus rule file, or turn on the Helm chart's
+`prometheusRule`. Thresholds are starting points, each with the reason.
 
 ```yaml
 groups:
@@ -152,32 +200,81 @@ groups:
         annotations:
           summary: "Spilled state is at {{ $value | humanize1024 }}B of a 20 GB quota"
           description: "At the quota the next query to need a slab stops with PRV-4005. Replace 20e9 with your pravaha.state.spill.max-bytes."
+
+      - alert: PravahaDeadLettersArriving
+        expr: increase(pravaha_query_dead_letters[15m]) > 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.query }} is rejecting records it cannot decode"
+          description: "Its view is missing them. `pravaha dlq list --name {{ $labels.query }}`, or the query's Dead letters screen."
+
+      - alert: PravahaRejectingTooMuch
+        expr: pravaha_query_dead_letters_degraded == 1
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.query }} is past its dead-letter rate threshold"
+          description: "A schema change nobody announced, not a bad partner file. The view is answering, and incompletely."
+
+      - alert: PravahaDeadLettersLost
+        expr: increase(pravaha_query_dead_letters_write_failures_total[15m]) > 0
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.query }} could not write a rejected record to its dead-letter file"
+          description: "Those records are gone and nothing else records them. Check the disk and the permissions on pravaha.dlq.directory (PRV-4090)."
+
+  - name: pravaha-alerts-catalog
+    rules:
+      - alert: PravahaNotificationDeliveryFailing
+        expr: sum by (channel) (rate(pravaha_alert_notifications_total{outcome="failed"}[15m])) / sum by (channel) (rate(pravaha_alert_notifications_total[15m])) > 0.5
+        for: 10m
+        labels: {severity: page}
+        annotations:
+          summary: "The notifier channel {{ $labels.channel }} is refusing most of what it is sent"
+          description: "Alerts are deciding and nobody is being told. The alert's page shows the channel's answer; each notification is retried every pravaha.alerts.redeliver-after under the same idempotency key."
+
+      - alert: PravahaAlertNotificationsOwedGrowing
+        expr: pravaha_alert_notifications_owed > 0 and deriv(pravaha_alert_notifications_owed[30m]) > 0
+        for: 15m
+        labels: {severity: warn}
+        annotations:
+          summary: "{{ $value }} alert notifications are owed and the backlog is growing"
+          description: "Keys have fired or cleared and no channel has accepted the news. Check PravahaNotificationDeliveryFailing and the channel's endpoint."
+
+      - alert: PravahaAlertJournalFailing
+        expr: increase(pravaha_alert_journal_write_failures_total[15m]) > 0
+        labels: {severity: page}
+        annotations:
+          summary: "The alert journal cannot be written"
+          description: "An alert decides nothing it cannot make durable first, so nothing fires or clears until the disk under pravaha.alerts.journal is fixed."
+
+      - alert: PravahaCatalogDenialsSpike
+        expr: sum(rate(pravaha_catalog_access_decisions_total{outcome="deny"}[5m])) > 0.2 and sum(rate(pravaha_catalog_access_decisions_total{outcome="deny"}[5m])) > 5 * sum(rate(pravaha_catalog_access_decisions_total{outcome="deny"}[1h] offset 5m))
+        for: 10m
+        labels: {severity: warn}
+        annotations:
+          summary: "The catalogue is refusing {{ $value | humanize }} requests a second, five times its usual rate"
+          description: "A revoked grant with clients retrying, a policy change that took more than intended, or someone probing. GET /api/v1/audit names who was refused what."
+
+  - name: pravaha-console
+    rules:
+      - alert: PravahaAssistantAllModelsFailing
+        expr: sum(increase(pravaha_console_assist_requests_total{outcome="ok"}[15m])) == 0 and sum(increase(pravaha_console_assist_requests_total{outcome="model_error"}[15m])) > 0
+        for: 5m
+        labels: {severity: warn}
+        annotations:
+          summary: "Every assistant request in the last 15 minutes failed on its models"
+          description: "No model in any profile's chain is answering. Admin · AI models tests each one; a key, a quota or the provider's outage."
 ```
 
-```yaml
-- alert: PravahaDeadLettersArriving
-  expr: increase(pravaha_query_dead_letters[15m]) > 0
-  for: 5m
-  labels: {severity: warning}
-  annotations:
-    summary: "{{ $labels.query }} is rejecting records it cannot decode"
-    description: "Its view is missing them. `pravaha dlq list --name {{ $labels.query }}`, or the query's Dead letters screen."
-
-- alert: PravahaRejectingTooMuch
-  expr: pravaha_query_dead_letters_degraded == 1
-  for: 2m
-  labels: {severity: critical}
-  annotations:
-    summary: "{{ $labels.query }} is past its dead-letter rate threshold"
-    description: "A schema change nobody announced, not a bad partner file. The view is answering, and incompletely."
-
-- alert: PravahaDeadLettersLost
-  expr: increase(pravaha_query_dead_letters_write_failures_total[15m]) > 0
-  labels: {severity: critical}
-  annotations:
-    summary: "{{ $labels.query }} could not write a rejected record to its dead-letter file"
-    description: "Those records are gone and nothing else records them. Check the disk and the permissions on pravaha.dlq.directory (PRV-4090)."
-```
+The first ten watch the queries. Of the rest: **delivery failing** is the share of refused attempts per
+channel, so one flaky send is not a page and a channel refusing everything is; **owed growing** is the
+backlog nobody has been told about, which a down channel makes climb; **journal failing** means the
+alerts have stopped deciding at all; **denials spike** compares the last five minutes with the hour
+before, so a steady trickle of refusals (a misconfigured client) does not fire it and a revoked grant
+with a fleet retrying does; **all models failing** is the console's assistant with every chain
+exhausted -- a key, a quota or a provider outage.
 
 Alert on the **rate**, not on the queue being non-empty: every real feed produces some rejects, and
 an alert that fires on the first one is an alert that gets muted in week two. And on
@@ -185,7 +282,7 @@ an alert that fires on the first one is an alert that gets muted in week two. An
 nobody at three in the morning, and one that gained a hundred in fifteen minutes does. See
 [Dead letters](/help/topics/dead-letters).
 
-Two more worth having, depending on the deployment:
+Three more worth having, depending on the deployment:
 
 - **`pravaha_query_rows_in` flat** (`rate(...[15m]) == 0`) on a query fed by a source that should
   never be quiet. A source that *failed* is `pravaha_query_feed_stopped` above; this catches one
@@ -253,6 +350,7 @@ critical in itself. Each finding names the query and says what to do.
 ## Where next
 
 - [Every metric, indexed](/help/topics/metrics-index)
+- [Observability: scraping, dashboards, rules, logs and traces](/help/topics/observability)
 - [State and spill](/help/topics/state-spill)
 - [Checkpoints and recovery](/help/topics/checkpoints-recovery)
 - [The console, screen by screen](/help/topics/console-tour)

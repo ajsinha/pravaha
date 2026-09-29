@@ -117,3 +117,18 @@ assist:
 
 logging:
   level: "${LOG_LEVEL:INFO}"
+  # text: a pattern for a person reading a terminal. json: one JSON object per line -- @timestamp,
+  # level, logger, thread, message, the request's correlationId, and traceId/spanId when
+  # OpenTelemetry is installed and tracing -- for Loki or Elasticsearch. Anything else refuses the start.
+  format: "${CONSOLE_LOG_FORMAT:text}"
+
+# The assistant's metrics for Prometheus at /metrics: requests, tokens, failures, fallbacks and
+# latency per model and profile, and today's tokens from the usage ledger. OFF by default: it names
+# the models configured and how much each is used. Gated by configuration rather than a sign-in,
+# because the caller is a scraper with no session. With a token set, a scrape must send it as a
+# bearer (Prometheus: authorization: {credentials: ...}); without one, anyone who can reach the
+# console can read it, which the console says at startup. Keep the token in application.local.yaml
+# or the environment, never in this file.
+metrics:
+  enabled: "${CONSOLE_METRICS_ENABLED:false}"
+  token: "${CONSOLE_METRICS_TOKEN:}"

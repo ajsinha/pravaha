@@ -560,7 +560,10 @@ def test_a_request_with_no_correlation_id_still_logs_cleanly(client, caplog):
     response = client.post("/api/v1/query", json={"sql": "SELECT * FROM nowhere"})
 
     assert response.status_code >= 400
-    assert any("[-]" in record.message for record in caplog.records)
+    # With no id sent, the console gives the request one (core.observability.RequestContext): the
+    # log line carries it, and so does the response, so the two can still be matched.
+    given = response.headers["x-correlation-id"]
+    assert any(f"[{given}]" in record.message for record in caplog.records)
 
 
 def test_one_engine_subscription_serves_every_browser(engine_url):

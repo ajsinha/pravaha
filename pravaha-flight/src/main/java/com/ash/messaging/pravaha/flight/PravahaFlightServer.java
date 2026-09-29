@@ -230,6 +230,19 @@ public final class PravahaFlightServer implements AutoCloseable {
         return this;
     }
 
+    /**
+     * Reports every call, and every subscription the engine ends for entitlement, to {@code observation}:
+     * the server's spans and meters. {@link FlightObservation#NONE} -- the default -- observes nothing and
+     * adds nothing to a call.
+     */
+    public PravahaFlightServer observedBy(FlightObservation observation) {
+        requireNotStarted("an observation");
+        this.observation = observation == null ? FlightObservation.NONE : observation;
+        return this;
+    }
+
+    private FlightObservation observation = FlightObservation.NONE;
+
     public PravahaFlightServer hosting(com.ash.messaging.pravaha.registry.QueryRegistry registry) {
         requireNotStarted("a registry");
         this.registry = java.util.Objects.requireNonNull(registry, "registry");
@@ -295,9 +308,18 @@ public final class PravahaFlightServer implements AutoCloseable {
         PravahaFlightSqlProducer producer = new PravahaFlightSqlProducer(
                         catalog, allocator, requested, policy, audit, admission, readDeadline)
                 .withRegistry(registry)
-                .withDeadLetters(deadLetters);
+                .withDeadLetters(deadLetters)
+                .observedBy(observation);
         try {
-            FlightServer.Builder builder = FlightServer.builder(allocator, requested, producer);
+            FlightServer.Builder builder = FlightServer.builder(
+                    allocator,
+                    requested,
+                    observation == FlightObservation.NONE
+                            ? producer
+                            : new ObservedFlightProducer(producer, observation));
+            if (observation != FlightObservation.NONE) {
+                builder.middleware(ObservedFlightProducer.KEY, new ObservedFlightProducer.HeadersFactory());
+            }
             if (verifier != null) {
                 builder.middleware(PrincipalMiddleware.KEY, new PrincipalMiddleware.Factory(verifier));
             }

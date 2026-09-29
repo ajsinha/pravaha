@@ -158,9 +158,11 @@ public final class CatalogPolicy implements SecurityPolicy {
         String target = target(principal, view);
         CatalogAccess.Verdict modify = access.check(principal, Privilege.MODIFY, target);
         if (modify.allowed()) {
+            access.statistics().decided(Privilege.MODIFY, true);
             return AccessDecision.allow();
         }
         CatalogAccess.Verdict manage = access.check(principal, Privilege.MANAGE, target);
+        access.statistics().decided(Privilege.MODIFY, manage.allowed());
         return manage.allowed()
                 ? AccessDecision.allow()
                 : AccessDecision.deny(principal.id() + " may not administer '" + view + "': " + modify.via());
@@ -285,6 +287,7 @@ public final class CatalogPolicy implements SecurityPolicy {
 
     private AccessDecision decide(Principal principal, Privilege privilege, String target, String what) {
         CatalogAccess.Verdict verdict = access.check(principal, privilege, target);
+        access.statistics().decided(privilege, verdict.allowed());
         return verdict.allowed()
                 ? AccessDecision.allow()
                 : AccessDecision.deny(principal.id() + " may not " + what + ": " + verdict.via());

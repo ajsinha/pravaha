@@ -74,11 +74,13 @@ public class PravahaMetrics implements AutoCloseable {
     private final List<Meter.Id> laneMeters = new ArrayList<>();
     private final ScheduledExecutorService scheduler;
     private final com.ash.messaging.pravaha.server.tenancy.TenancyMeters tenancy;
+    private final com.ash.messaging.pravaha.server.observe.FeatureMeters features;
 
     public PravahaMetrics(MeterRegistry meters, PravahaNode node) {
         this.meters = meters;
         this.node = node;
         this.tenancy = new com.ash.messaging.pravaha.server.tenancy.TenancyMeters(meters, node::registry);
+        this.features = new com.ash.messaging.pravaha.server.observe.FeatureMeters(meters, node::alerts);
         this.scheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
             Thread thread = new Thread(runnable, "pravaha-metrics");
             thread.setDaemon(true);
@@ -100,6 +102,8 @@ public class PravahaMetrics implements AutoCloseable {
         }
         publishLaneSharing(registry);
         tenancy.sync(registry);
+        // Alerts (ADR-057) and the catalogue (ADR-059): their meters follow the alerts that exist.
+        features.sync(registry);
         Set<String> live = registry.names();
         // Before the per-query loop below, so a lane whose only query was just registered has a
         // representative by the time its gauge is next read.

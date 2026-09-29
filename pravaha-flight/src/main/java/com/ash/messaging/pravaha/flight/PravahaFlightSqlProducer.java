@@ -523,6 +523,14 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
         return this;
     }
 
+    /** Tells {@code observed} of each subscription ended for entitlement (the node's meters). */
+    PravahaFlightSqlProducer observedBy(FlightObservation observed) {
+        this.observation = observed == null ? FlightObservation.NONE : observed;
+        return this;
+    }
+
+    private FlightObservation observation = FlightObservation.NONE;
+
     /** Gives this producer the node's dead-letter files, enabling the three {@code pravaha.dlq.*} actions. */
     PravahaFlightSqlProducer withDeadLetters(com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore store) {
         this.deadLetters = store == null ? com.ash.messaging.pravaha.runtime.dlq.DeadLetterStore.NONE : store;
@@ -1080,6 +1088,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                                         viewName,
                                         decision,
                                         "the credential this subscription opened with is no longer accepted"));
+                                observation.subscriptionEnded(FlightObservation.CREDENTIAL_REVOKED);
                                 listener.error(FlightErrors.failureOf(
                                                 CallStatus.UNAUTHENTICATED,
                                                 SecurityErrors.UNAUTHENTICATED,
@@ -1095,6 +1104,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                                 // were filtered and masked by the old policy. The client subscribes again.
                                 audit.record(
                                         AuditEvent.of(principal, "subscribe.narrowing-changed", viewName, now, ""));
+                                observation.subscriptionEnded(FlightObservation.NARROWING_CHANGED);
                                 listener.error(FlightErrors.failureOf(new PravahaException(
                                                 SecurityErrors.NARROWING_CHANGED,
                                                 "the row filters or masks that apply to " + principal.id() + " on '"
@@ -1105,6 +1115,7 @@ public final class PravahaFlightSqlProducer extends BasicFlightSqlProducer imple
                             }
                             if (!now.allowed()) {
                                 audit.record(AuditEvent.of(principal, "subscribe.withdrawn", viewName, now, ""));
+                                observation.subscriptionEnded(FlightObservation.ACCESS_WITHDRAWN);
                                 listener.error(FlightErrors.failureOf(
                                                 CallStatus.UNAUTHORIZED,
                                                 SecurityErrors.FORBIDDEN,

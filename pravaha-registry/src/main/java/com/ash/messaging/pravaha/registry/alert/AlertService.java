@@ -33,12 +33,14 @@ import java.util.concurrent.TimeUnit;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
+import com.ash.messaging.pravaha.api.plugin.Notification;
 import com.ash.messaging.pravaha.api.plugin.NotifierPlugin;
 import com.ash.messaging.pravaha.catalog.CatalogNames;
 import com.ash.messaging.pravaha.catalog.CatalogObject;
 import com.ash.messaging.pravaha.catalog.CatalogPolicy;
 import com.ash.messaging.pravaha.catalog.ObjectKind;
 import com.ash.messaging.pravaha.catalog.Privilege;
+import com.ash.messaging.pravaha.common.observe.EngineSpans;
 import com.ash.messaging.pravaha.registry.Alerting;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.registry.RegisteredQuery;
@@ -112,6 +114,9 @@ public final class AlertService implements Alerting, AutoCloseable {
     private final Settings settings;
     private final AlertJournal journal;
     private final Object journalLock = new Object();
+
+    /** What the alerts have done, for the node's meters. */
+    private final AlertStatistics statistics = new AlertStatistics();
 
     /** By name; read without the monitor by the evaluating and delivering threads. */
     private final Map<String, Alert> alerts = new ConcurrentHashMap<>();
@@ -314,7 +319,7 @@ public final class AlertService implements Alerting, AutoCloseable {
             boolean ok = true;
             List<String> details = new ArrayList<>();
             for (String channel : dispatch.channels()) {
-                NotifierPlugin.Delivery result = notifiers.send(channel, dispatch.notification());
+                NotifierPlugin.Delivery result = sendTraced(channel, dispatch);
                 ok &= result.delivered();
                 details.add(channel + ": " + notifiers.redact(result.detail()));
             }
@@ -327,7 +332,63 @@ public final class AlertService implements Alerting, AutoCloseable {
         }
     }
 
+    /**
+     * One channel's send, timed and counted, inside a span when the node traces. The span names the
+     * alert, the channel and the kind; never the key or the row, which are the view's data.
+     */
+    private NotifierPlugin.Delivery sendTraced(String channel, Alert.Dispatch dispatch) {
+        Notification n = dispatch.notification();
+        try (EngineSpans.Span span = EngineSpans.start(
+                "pravaha.alert.notify",
+                "pravaha.alert",
+                n.alert(),
+                "pravaha.alert.channel",
+                channel,
+                "pravaha.alert.kind",
+                n.kind())) {
+            long started = System.nanoTime();
+            NotifierPlugin.Delivery result;
+            try {
+                result = notifiers.send(channel, n);
+            } catch (RuntimeException e) {
+                statistics.sent(channel, false, dispatch.retry(), System.nanoTime() - started);
+                span.failed(e);
+                throw e;
+            }
+            statistics.sent(channel, result.delivered(), dispatch.retry(), System.nanoTime() - started);
+            span.attribute("pravaha.alert.delivered", Boolean.toString(result.delivered()));
+            return result;
+        }
+    }
+
     // ------------------------------------------------------------------ what alerts call back
+
+    void transition(String alert, String kind) {
+        statistics.transition(alert, kind);
+    }
+
+    /** What the alerts have done since this node started: transitions, deliveries, journal failures. */
+    public AlertStatistics statistics() {
+        return statistics;
+    }
+
+    /** Keys firing now, per alert, by name. */
+    public Map<String, Integer> firingByAlert() {
+        Map<String, Integer> firing = new java.util.TreeMap<>();
+        for (Alert alert : alerts.values()) {
+            firing.put(alert.definition().name(), alert.firingCount());
+        }
+        return firing;
+    }
+
+    /** Notifications owed now -- decided and not yet accepted by a channel -- across every alert. */
+    public int owed() {
+        int owed = 0;
+        for (Alert alert : alerts.values()) {
+            owed += alert.owedCount();
+        }
+        return owed;
+    }
 
     Instant now() {
         return clock.instant();
@@ -346,7 +407,12 @@ public final class AlertService implements Alerting, AutoCloseable {
             return;
         }
         synchronized (journalLock) {
-            journal.append(records);
+            try {
+                journal.append(records);
+            } catch (RuntimeException e) {
+                statistics.journalFailed();
+                throw e;
+            }
         }
     }
 
@@ -521,6 +587,7 @@ public final class AlertService implements Alerting, AutoCloseable {
         access.require(principal, alert.definition(), Privilege.MANAGE, "drop");
         journal(List.of(List.of("D", alert.definition().id())));
         alerts.remove(name);
+        statistics.forget(name);
         alert.unfollow();
         if (registry.policy() instanceof CatalogPolicy catalog) {
             catalog.alertDropped(name);

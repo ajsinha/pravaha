@@ -83,6 +83,12 @@ class OrphanedClassTest {
             // only when AuditSinkSharingTest became the first test to construct one -- which is the
             // check working, not a false positive: until then nothing referenced it from either side.
             Map.entry("PravahaServerApplication", "Spring @SpringBootApplication, main() entry point"),
+            // Observability (deploy/observability): a servlet filter and the bean that hands the
+            // engine's spans to the tracer, both found by component scanning; ObservabilityEnvironment
+            // is named in pravaha-server's META-INF/spring.factories as an EnvironmentPostProcessor.
+            Map.entry("CorrelationFilter", "Spring @Component servlet filter"),
+            Map.entry("EngineTracing", "Spring @Component"),
+            Map.entry("ObservabilityEnvironment", "Spring Boot spring.factories EnvironmentPostProcessor"),
             Map.entry("QueryController", "Spring @RestController"),
             Map.entry("StreamController", "Spring @RestController"),
             Map.entry("SinkController", "Spring @RestController"),

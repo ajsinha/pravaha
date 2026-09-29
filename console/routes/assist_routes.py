@@ -29,9 +29,15 @@ import logging
 from typing import Any
 
 from fastapi import Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+)
 
 from core.assist import AssistFailure, AssistService
+from core.observability import authorized
 from core.services import ServiceError
 from routes.auth_routes import (
     current_user,
@@ -96,6 +102,36 @@ class AssistRoutes(Routes):
         self.service = service
         self._register_admin()
         self._register_tasks()
+        self._register_metrics()
+
+    # ================================================================== /metrics
+
+    def _register_metrics(self) -> None:
+        """``/metrics``: the assistant's requests, tokens, failures, fallbacks and latency for
+        Prometheus -- only with ``metrics.enabled``, and behind ``metrics.token`` when one is set.
+
+        Configuration-gated rather than behind the admin sign-in, because the caller is a scraper
+        with no session and no password; off by default, because it names the models configured and
+        how much each is used. A token is a bearer Prometheus sends (``authorization: credentials``);
+        without one the endpoint answers anyone who can reach the console, which is said at startup.
+        """
+        config = self.ctx["config"]
+        if not config.get_bool("metrics.enabled", False):
+            return
+        token = str(config.get("metrics.token", "") or "")
+        if not token:
+            logger.warning("/metrics is on (metrics.enabled) with no metrics.token: anyone who can reach "
+                           "this console can read which models are configured and how much each is used")
+        service = self.service
+        version = str(config.get("app.version", "") or "")
+
+        @self.app.get("/metrics", include_in_schema=False)
+        def metrics(request: Request):
+            if not authorized(request.headers.get("authorization"), token):
+                return PlainTextResponse("a bearer token is required (metrics.token)\n", status_code=401,
+                                         headers={"WWW-Authenticate": "Bearer"})
+            return PlainTextResponse(service.prometheus(version),
+                                     media_type="text/plain; version=0.0.4; charset=utf-8")
 
     # ================================================================== Admin · AI models
 

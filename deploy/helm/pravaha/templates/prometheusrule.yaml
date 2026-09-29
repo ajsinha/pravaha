@@ -1,0 +1,25 @@
+{{/*
+Project Pravaha -- Ask once. Answer always.
+Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+Proprietary and confidential; see the LICENSE file in the root of this repository.
+
+Off by default, as the ServiceMonitor is: monitoring.coreos.com is a CRD that may not be installed.
+
+The rules are files/pravaha-rules.yaml read with .Files.Get and NOT rendered through tpl: they carry
+Prometheus's own $labels templates, which Helm would otherwise try to evaluate. That file is a copy
+of deploy/observability/prometheus/pravaha-rules.yaml, and the console's observability test fails if
+the two differ, or if either differs from the rules in the "Metrics and alerts" help topic.
+*/}}
+{{- if .Values.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "pravaha.fullname" . }}
+  labels:
+    {{- include "pravaha.labels" . | nindent 4 }}
+    {{- with .Values.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+{{ .Files.Get "files/pravaha-rules.yaml" | indent 2 }}
+{{- end }}

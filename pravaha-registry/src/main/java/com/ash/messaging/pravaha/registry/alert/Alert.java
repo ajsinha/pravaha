@@ -121,7 +121,13 @@ final class Alert implements AnswerListener {
     private String deliveryError;
 
     /** A notification decided under this monitor and sent outside it. */
-    record Dispatch(Alert alert, KeyState state, Notification notification, List<String> channels, int reminder) {}
+    record Dispatch(
+            Alert alert,
+            KeyState state,
+            Notification notification,
+            List<String> channels,
+            int reminder,
+            boolean retry) {}
 
     Alert(AlertService service, AlertDefinition definition, boolean recovered) {
         this.service = service;
@@ -275,6 +281,7 @@ final class Alert implements AnswerListener {
                             now.toString(),
                             encodeRow(state.row)));
                     service.audit("alert.fire", definition, describe(state.key));
+                    service.transition(definition.name(), AlertStatistics.FIRED);
                 } else if (state.firing
                         && !state.in
                         && state.outSince != null
@@ -284,6 +291,7 @@ final class Alert implements AnswerListener {
                     state.outSince = null;
                     decided.add(List.of("C", definition.id(), encodeKey(state.key), now.toString()));
                     service.audit("alert.clear", definition, describe(state.key));
+                    service.transition(definition.name(), AlertStatistics.CLEARED);
                 }
             }
             // Journalled and forced before anything is sent: the state is exactly once.
@@ -426,7 +434,7 @@ final class Alert implements AnswerListener {
                 state.firingSince,
                 kind.equals("CLEARED") ? state.clearedAt : now,
                 1);
-        return new Dispatch(this, state, notification, definition.channels(), reminder);
+        return new Dispatch(this, state, notification, definition.channels(), reminder, state.lastError != null);
     }
 
     /** What the channels answered: recorded, journalled when delivered, and retried later when not. */
@@ -715,6 +723,28 @@ final class Alert implements AnswerListener {
             case "PENDING" -> 2;
             default -> 3;
         };
+    }
+
+    /** How many keys are firing now, for the {@code pravaha_alert_keys_firing} gauge. */
+    synchronized int firingCount() {
+        int firing = 0;
+        for (KeyState s : keys.values()) {
+            if (s.firing) {
+                firing++;
+            }
+        }
+        return firing;
+    }
+
+    /** How many keys are owed a notification the channels have not yet accepted. */
+    synchronized int owedCount() {
+        int owed = 0;
+        for (KeyState s : keys.values()) {
+            if ((s.firing && !s.notified.equals("FIRED")) || (!s.firing && s.notified.equals("FIRED"))) {
+                owed++;
+            }
+        }
+        return owed;
     }
 
     /** One {@code SHOW ALERTS}-style line per key firing now, for an operator's glance. */

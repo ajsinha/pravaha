@@ -105,6 +105,11 @@ ok "startup and liveness on the liveness probe, readiness on its own"
 hasnt "$d" 'name: PRAVAHA_JAVA_OPTS' "the chart sets PRAVAHA_JAVA_OPTS with javaOpts unset, blanking the image's -XX:MaxRAMPercentage"
 ok "javaOpts unset leaves the image's own JVM defaults alone"
 
+# The Prometheus Operator's kinds are opt-in: a cluster without the CRDs must install the defaults.
+hasnt "$d" 'kind: PrometheusRule' "a PrometheusRule rendered by default; a cluster without the operator's CRDs would refuse the install"
+hasnt "$d" 'kind: ServiceMonitor' "a ServiceMonitor rendered by default; a cluster without the operator's CRDs would refuse the install"
+ok "no ServiceMonitor and no PrometheusRule unless asked for"
+
 # ------------------------------------------------------------------ the full scenario
 
 f="$(render pravaha --values "$chart/ci/full-values.yaml")"
@@ -120,12 +125,16 @@ has "$f" 'kind: PodDisruptionBudget'       "no PodDisruptionBudget"
 has "$f" 'maxUnavailable: 1'               "the PDB is not maxUnavailable: 1"
 has "$f" 'kind: ServiceMonitor'            "no ServiceMonitor"
 has "$f" '/actuator/prometheus'            "the ServiceMonitor does not scrape the Prometheus endpoint"
+has "$f" 'kind: PrometheusRule'            "no PrometheusRule with prometheusRule.enabled"
+has "$f" 'alert: PravahaQueryNotRunning'   "the PrometheusRule does not carry the node rules"
+has "$f" 'alert: PravahaNotificationDeliveryFailing' "the PrometheusRule does not carry the alert and catalogue rules"
+has "$f" '{{ $labels.query }}'             "Helm evaluated Prometheus's own templates in the rules instead of passing them through"
 has "$f" 'pravaha/pravaha-server:1.2.3'    "image.tag was ignored"
 has "$f" 'MaxRAMPercentage=60'             "javaOpts was ignored"
 has "$f" 'PRAVAHA_LANE_MULTIPLEX_ENABLED'  "extraEnv was ignored"
 has "$f" 'name: regcred'                   "the image pull secret was ignored"
 has "$f" 'event-time: event_time'          "a stream declared in config.pravaha did not reach the ConfigMap"
-ok "full scenario: secrets referenced, TLS paths wired, spill and DLQ on, PDB, ServiceMonitor"
+ok "full scenario: secrets referenced, TLS paths wired, spill and DLQ on, PDB, ServiceMonitor, PrometheusRule"
 
 # The secret's config location must come AFTER /opt/pravaha/conf, or the ConfigMap would win over it.
 loc="$(grep -A1 'SPRING_CONFIG_ADDITIONAL_LOCATION' <<<"$f" | grep 'value:' | head -1)"

@@ -32,6 +32,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Iterator, List, Optional, Sequence
 
+from pravaha import tracecontext
 from pravaha.api import EngineApi
 from pravaha.debug import DebugCommands
 from pravaha.endpoint import Endpoint
@@ -421,12 +422,8 @@ class Client(DebugCommands):
         # Held rather than sent once at connect time because Flight has no session: each
         # call is authenticated on its own, which is what lets a server behind a load
         # balancer answer without the balancer pinning a client to a node.
-        self._call_options = (
-            _flight.FlightCallOptions(
-                headers=[(b"authorization", f"Bearer {options.token}".encode())]
-            )
-            if options.token
-            else _flight.FlightCallOptions()
+        self._auth_headers: list[tuple[bytes, bytes]] = (
+            [(b"authorization", f"Bearer {options.token}".encode())] if options.token else []
         )
         self._api: Optional[EngineApi] = None
         kwargs = _flight_client_tls_kwargs(options.tls) if options.endpoint.tls else {}
@@ -438,6 +435,15 @@ class Client(DebugCommands):
     @property
     def uri(self) -> str:
         return self._uri
+
+    @property
+    def _call_options(self) -> Any:
+        """The options each Flight call is made with: the bearer token, and the caller's W3C trace
+        context when there is one (:mod:`pravaha.tracecontext`), so a node that traces continues the
+        caller's trace. Built per call because the trace is the caller's current one."""
+        traced = [(k.encode(), v.encode()) for k, v in tracecontext.headers().items()]
+        headers = self._auth_headers + traced
+        return _flight.FlightCallOptions(headers=headers) if headers else _flight.FlightCallOptions()
 
     def query(self, sql: str, parameters: Optional[Sequence[object]] = None) -> QueryResult:
         """Runs one query and returns its rows.
