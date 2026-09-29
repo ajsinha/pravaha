@@ -61,8 +61,13 @@ public final class SensitiveFiles {
         try {
             Path parent = file.getParent();
             if (parent != null) {
+                boolean existed = Files.isDirectory(parent);
                 Files.createDirectories(parent);
-                narrow(parent, OWNER_ONLY_DIRECTORY);
+                java.util.Set<java.nio.file.attribute.PosixFilePermission> loosened =
+                        narrow(parent, OWNER_ONLY_DIRECTORY);
+                if (existed && loosened != null) {
+                    reportTightened(parent, loosened);
+                }
             }
             if (!Files.exists(file)) {
                 Files.createFile(file);
@@ -91,9 +96,9 @@ public final class SensitiveFiles {
      * survives -- while leaving a deliberate restriction alone. A caller wanting to widen has to say
      * so somewhere that reads like widening.
      */
-    private static void narrow(Path target, String mode) {
+    private static java.util.Set<java.nio.file.attribute.PosixFilePermission> narrow(Path target, String mode) {
         if (!target.getFileSystem().supportedFileAttributeViews().contains("posix")) {
-            return;
+            return null;
         }
         try {
             java.util.Set<java.nio.file.attribute.PosixFilePermission> ceiling = PosixFilePermissions.fromString(mode);
@@ -103,14 +108,44 @@ public final class SensitiveFiles {
             narrowed.addAll(current);
             narrowed.retainAll(ceiling);
             if (narrowed.equals(current)) {
-                return; // already at or inside the ceiling
+                return null; // already at or inside the ceiling
             }
             Files.setPosixFilePermissions(target, narrowed);
+            return current;
         } catch (IOException | UnsupportedOperationException cannot) {
             LOG.log(
                     System.Logger.Level.WARNING,
                     "could not set " + mode + " on " + target + " (" + cannot
                             + "). It holds data rather than configuration, so check its mode by hand.");
+            return null;
+        }
+    }
+
+    /** Directories whose loosened permissions this process has already reported, so each warns once. */
+    private static final java.util.Set<Path> REPORTED = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /**
+     * Says that an existing data directory had been opened up and was put back to owner-only.
+     *
+     * <p>The narrowing itself is by design: every append and every checkpoint
+     * re-applies it, so a loosened directory is healed within one write. What it should not be is
+     * silent. Somebody -- a deploy script, a {@code chmod -R}, a volume mounted with a wide umask --
+     * opened a directory that holds the journal, checkpoints or dead letters, and an operator
+     * who does not hear about it will do it again, or find out the other way. Once per directory per
+     * process: a script that loosens it on every deploy is reported on every start, not on every write.
+     * A directory this call has just created is narrowed from the umask, which is nobody's mistake,
+     * and is not reported.
+     */
+    private static void reportTightened(
+            Path directory, java.util.Set<java.nio.file.attribute.PosixFilePermission> found) {
+        if (REPORTED.add(directory.toAbsolutePath().normalize())) {
+            LOG.log(
+                    System.Logger.Level.WARNING,
+                    "the data directory " + directory + " was " + PosixFilePermissions.toString(found)
+                            + ", readable or writable beyond its owner; narrowed to " + OWNER_ONLY_DIRECTORY
+                            + ". It holds data rather than configuration -- find what loosened it (a chmod, a "
+                            + "deploy script, a volume's umask), or it will be narrowed again on the next write "
+                            + "after every restart.");
         }
     }
 
