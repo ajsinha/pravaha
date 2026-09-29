@@ -34,10 +34,22 @@ final class AnswerChanges {
 
     private AnswerChanges() {}
 
-    /** Nets {@code left} against {@code entered} and hands what remains to every listener. */
-    static void handOver(List<AnswerListener> listeners, List<Object[]> left, List<Object[]> entered, long frontier) {
+    /**
+     * One commit's netted change: the rows that left the answer and the rows that entered it.
+     *
+     * <p>Also what a plain subscription is handed since KEYEDWT-1, as {@code -1} and {@code +1}
+     * changes, so a subscriber summing weights holds exactly the view.
+     */
+    record Netted(List<Object[]> leaving, List<Object[]> entering) {}
+
+    /**
+     * Nets {@code left} against {@code entered} and hands what remains to every listener.
+     *
+     * @return what was handed over, or null when the commit changed nothing in the answer
+     */
+    static Netted handOver(List<AnswerListener> listeners, List<Object[]> left, List<Object[]> entered, long frontier) {
         if (left == null || (left.isEmpty() && entered.isEmpty())) {
-            return;
+            return null;
         }
         Map<Row, Integer> net = new LinkedHashMap<>();
         for (Object[] row : left) {
@@ -54,13 +66,14 @@ final class AnswerChanges {
             }
         });
         if (leaving.isEmpty() && entering.isEmpty()) {
-            return;
+            return null;
         }
         List<Object[]> leftView = Collections.unmodifiableList(leaving);
         List<Object[]> enteredView = Collections.unmodifiableList(entering);
         for (AnswerListener listener : listeners) {
             listener.onAnswer(leftView, enteredView, frontier);
         }
+        return new Netted(leftView, enteredView);
     }
 
     /** A row compared by its values, arrays included. */

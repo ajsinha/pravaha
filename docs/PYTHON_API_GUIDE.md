@@ -207,6 +207,20 @@ for batch in client.subscribe("big_payments", snapshot=True, overflow="FAIL"):
     live = [dict(k) for k, n in copy.items() if n > 0]
 ```
 
+That copy is the view's Z-set: every row it holds, with its weight. For a **keyed view that
+upserts** — the latest row per key over a stream that only inserts — the view holds a key's old row
+beside its new one and shows the newer, and a subscription carries the new row's `+1` with no `-1`
+for the old (KEYEDWT-1), so `live` above lists both where a reader sees one. To hold exactly what a
+reader sees, subscribe to a continuous query registered **over** the view: it is fed the view's
+answer as it changes, the row that left at `-1` and the row that entered at `+1`, so its weights sum
+to the view:
+
+```python
+client.register("latest_copy", "SELECT order_id, status FROM latest", key_columns=[0])
+for batch in client.subscribe("latest_copy", snapshot=True, overflow="FAIL"):
+    ...   # apply weights exactly as above
+```
+
 Subscribing and then reading the view separately **can lose the commit in flight between the two**,
 silently; `snapshot=True` exists to close that gap. Ask for `overflow="FAIL"` when you keep a copy:
 the server's default under pressure is to *conflate* (keep the latest value per key), which drops

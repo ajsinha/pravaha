@@ -105,7 +105,7 @@ Two correct ways to consume that:
 | You keep | Do this |
 |---|---|
 | **Current values by key** (a cache, a dashboard tile) | Overwrite by key on `+1`; delete by key on `-1` when no `+1` for the key follows in the same commit — or simply skip `-1` rows, since the `+1` replaces them |
-| **A running total of your own** | Add `weight × value` for every row. The `-1` is what cancels the value being corrected; counting rows double-counts it |
+| **A running total of your own** | Add `weight × value` for every row. The `-1` is what cancels the value being corrected; counting rows double-counts it. Over a keyed view that upserts, subscribe to the answer instead — below |
 
 Python, keeping a total across every merchant:
 
@@ -139,6 +139,29 @@ try (PravahaFlightClient client = PravahaFlightClient.connect("grpc://localhost:
     subscription.run();   // blocks this thread until closed
 }
 ```
+
+### A keyed view that upserts: the changelog is not the answer
+
+A subscription hands you the **changelog** — what the query applied to its view, weights verbatim.
+For a correction that is also how the answer changed. For a view that keeps the **latest row per
+key** over a stream that only inserts, it is not: a second row under a key arrives as `+1` for the
+new row and **nothing for the row it replaced**, because the view holds both and shows the newer. A
+consumer summing weights then holds two rows where a reader sees one, and a row retention evicts
+leaves the view with nothing delivered (KEYEDWT-1). To hold exactly what a reader sees, **follow the
+answer**: register a continuous query over the view and subscribe to that one.
+
+```text
+CREATE CONTINUOUS QUERY latest_status_copy KEYED BY (order_id)
+AS SELECT order_id, status FROM latest_status;
+```
+
+A query over a query is fed its upstream's answer as it changes — per commit, the rows that left it
+at `-1` and the rows that entered it at `+1`, evictions included — so its changelog is the upstream's
+answer and weights summed over it are exactly the view
+([queries on queries](/help/topics/create-continuous-query#queries-on-queries)). In the embedded engine,
+`SubscriptionOptions.DEFAULT.followingTheAnswer()` hands a subscription those changes directly.
+Overwriting by key from a plain subscription is exact only while nothing withdraws a key's newest row
+(a `-1` for it brings an older row back) and retention is forever.
 
 The weight is **not one of the view's columns**: `row.columns()` lists what the query selected, and a
 positional read gets the column it always got. `row.isRetraction()` (Java) and `row.is_retraction`

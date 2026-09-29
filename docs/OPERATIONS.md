@@ -2226,6 +2226,16 @@ unwindowed aggregate is refused, and that query resumes from the start of its so
 checkpoint written after the upgrade is readable by it. Plan an upgrade across such a change for a
 time when replaying the sources is affordable, or accept the warm-up.
 
+"Never a double count" holds however far a restore got before it was refused (RESTOREPART-1). A
+checkpoint comes back in parts — each lane's operators, then the view, then what it recorded for
+sinks — and each part's state is taken before any is put back, so a refusal half-way puts every part
+back to empty before the query starts from its sources. It used to leave the earlier parts restored
+beside a replay that counted their rows again. A refused restore is logged at `WARN` with the query,
+the checkpoint and the cause, and counted as a checkpoint failure
+(`pravaha_query_checkpoint_failures_total`). If the parts cannot be put back — a lane that does not
+answer within the restore's thirty seconds — the registration is refused with `PRV-3010` and a
+recovery lists it among the refused.
+
 ## What is not solved
 
 Listed because you will meet them, not to be thorough:

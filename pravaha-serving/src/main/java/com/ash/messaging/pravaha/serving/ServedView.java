@@ -361,7 +361,7 @@ public final class ServedView {
         // ADR-056: what a following query is handed is how the ANSWER changed -- the row held
         // under each touched key before and after -- not what was applied, which for a key upserted
         // without a retraction is a second row the view never shows.
-        if (!answerListeners.isEmpty()) {
+        if (!answerListeners.isEmpty() || answerWanted) {
             leaving = new ArrayList<>();
             entering = new ArrayList<>();
         }
@@ -881,18 +881,6 @@ public final class ServedView {
      */
     private static final int SNAPSHOT_VERSION = 2;
 
-    private static final byte NULL = 0;
-    private static final byte STRING = 1;
-    private static final byte DOUBLE = 2;
-    private static final byte BOOLEAN = 3;
-    private static final byte LONG = 4;
-    private static final byte BYTES = 5;
-    private static final byte INT = 6;
-    private static final byte SHORT = 7;
-    private static final byte BYTE = 8;
-    private static final byte FLOAT = 9;
-    private static final byte DECIMAL = 10;
-
     /**
      * This view's committed contents, for a checkpoint.
      *
@@ -920,7 +908,8 @@ public final class ServedView {
                 Object[] values = row.values();
                 out.writeInt(values.length);
                 for (int column = 0; column < values.length; column++) {
-                    writeValue(out, values[column], column);
+                    ViewValues.write(
+                            out, values[column], name, schema.field(column).name());
                 }
                 out.writeLong(row.weight());
                 out.writeLong(writtenAt.getOrDefault(keyOf(values), committedFrontier));
@@ -994,7 +983,7 @@ public final class ServedView {
             for (int i = 0; i < count; i++) {
                 Object[] values = new Object[in.readInt()];
                 for (int v = 0; v < values.length; v++) {
-                    values[v] = readValue(in);
+                    values[v] = ViewValues.read(in);
                 }
                 rows.add(new SnapshotRow(values, in.readLong(), in.readLong()));
             }
@@ -1094,7 +1083,11 @@ public final class ServedView {
             writtenAt.put(key, row.writtenAt());
         }
         committedFrontier = contents.frontier();
-        appliedFrontier = Math.max(appliedFrontier, contents.frontier());
+        // Replaced with the rest, not merged: the overlay was cleared above, so nothing is applied
+        // beyond what was committed. Kept as a maximum, a restore undone (RESTOREPART-1) -- the
+        // checkpoint's view put back to the empty one taken before it -- left the view reporting
+        // staleness from a frontier it no longer held anything at.
+        appliedFrontier = contents.frontier();
         // The equality indexes are declared, not built on demand, so they are rebuilt here and now
         // from the restored rows: a read by the indexed column straight after a restore must find
         // them, and the index is never allowed to be a step behind the view it indexes.
@@ -1153,106 +1146,40 @@ public final class ServedView {
         List<Object[]> entered = entering;
         leaving = null;
         entering = null;
-        AnswerChanges.handOver(answerListeners, left, entered, frontier);
+        lastAnswer = AnswerChanges.handOver(answerListeners, left, entered, frontier);
     }
 
     /**
-     * One value, as its own class.
-     *
-     * <p>Refuses a class it has no tag for rather than writing something near it. Every class a view
-     * is given -- by {@link #apply}, by a {@link ViewSink} writer, by the value readers on the way in
-     * -- has one; a class without one is a new way in that this format has to learn about first.
+     * Whether each commit keeps its netted answer change for {@link #takeAnswer}: set by a {@link
+     * ViewSink} while a subscriber follows the answer rather than the changelog (KEYEDWT-1).
      */
-    private void writeValue(java.io.DataOutputStream out, Object value, int column) throws java.io.IOException {
-        switch (value) {
-            case null -> out.writeByte(NULL);
-            case String text -> {
-                // Length-prefixed bytes, not writeUTF, which refuses anything over 65,535 encoded bytes.
-                byte[] encoded = text.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-                out.writeByte(STRING);
-                out.writeInt(encoded.length);
-                out.write(encoded);
-            }
-            case Long number -> {
-                out.writeByte(LONG);
-                out.writeLong(number);
-            }
-            case Integer number -> {
-                out.writeByte(INT);
-                out.writeInt(number);
-            }
-            case Short number -> {
-                out.writeByte(SHORT);
-                out.writeShort(number);
-            }
-            case Byte number -> {
-                out.writeByte(BYTE);
-                out.writeByte(number);
-            }
-            case Double number -> {
-                out.writeByte(DOUBLE);
-                out.writeLong(Double.doubleToRawLongBits(number));
-            }
-            case Float number -> {
-                out.writeByte(FLOAT);
-                out.writeInt(Float.floatToRawIntBits(number));
-            }
-            case java.math.BigDecimal number -> {
-                // Unscaled value and scale: the number exactly, and its scale with it, so 1.50 comes
-                // back 1.50 and equal to the 1.50 the engine writes next.
-                byte[] unscaled = number.unscaledValue().toByteArray();
-                out.writeByte(DECIMAL);
-                out.writeInt(number.scale());
-                out.writeInt(unscaled.length);
-                out.write(unscaled);
-            }
-            case Boolean flag -> {
-                out.writeByte(BOOLEAN);
-                out.writeBoolean(flag);
-            }
-            case byte[] raw -> {
-                out.writeByte(BYTES);
-                out.writeInt(raw.length);
-                out.write(raw);
-            }
-            default ->
-                throw new IllegalStateException(
-                        "view '" + name + "' holds a " + value.getClass().getName()
-                                + " in column '" + schema.field(column).name() + "', which a view snapshot has no "
-                                + "encoding for. Writing it as something near it is what made a restored view "
-                                + "disagree with the live one, so the checkpoint is refused instead.");
-        }
+    private volatile boolean answerWanted;
+
+    /** The last commit's netted answer change, until taken; null when it changed nothing. */
+    private AnswerChanges.Netted lastAnswer;
+
+    void answerWanted(boolean wanted) {
+        answerWanted = wanted;
     }
 
-    private static Object readValue(java.io.DataInputStream in) throws java.io.IOException {
-        byte tag = in.readByte();
-        return switch (tag) {
-            case NULL -> null;
-            case STRING -> new String(readBytes(in), java.nio.charset.StandardCharsets.UTF_8);
-            case LONG -> in.readLong();
-            case INT -> in.readInt();
-            case SHORT -> in.readShort();
-            case BYTE -> in.readByte();
-            case DOUBLE -> Double.longBitsToDouble(in.readLong());
-            case FLOAT -> Float.intBitsToFloat(in.readInt());
-            case DECIMAL -> {
-                int scale = in.readInt();
-                yield new java.math.BigDecimal(new java.math.BigInteger(readBytes(in)), scale);
-            }
-            case BOOLEAN -> in.readBoolean();
-            case BYTES -> readBytes(in);
-            default -> throw new java.io.IOException("unknown value tag " + tag + " in a view snapshot");
-        };
+    /** Takes the answer change the last commit kept, under the monitor that commit held. */
+    synchronized AnswerChanges.Netted takeAnswer() {
+        AnswerChanges.Netted taken = lastAnswer;
+        lastAnswer = null;
+        return taken;
     }
 
-    private static byte[] readBytes(java.io.DataInputStream in) throws java.io.IOException {
-        int length = in.readInt();
-        if (length < 0) {
-            throw new java.io.IOException("a negative length, " + length);
+    /**
+     * The committed answer as changes that build it from nothing: each row a reader sees, once,
+     * at weight {@code +1} -- where {@link #committedRows} is the Z-set, several rows of one key
+     * with their own weights. What a subscriber following the answer starts from (KEYEDWT-1).
+     */
+    synchronized List<ViewChange> committedAnswer() {
+        List<ViewChange> rows = new ArrayList<>(visible.size());
+        for (Object[] values : visible.values()) {
+            rows.add(new ViewChange(values, 1L));
         }
-        byte[] bytes = new byte[length];
-        in.readFully(bytes);
-        return bytes;
+        return rows;
     }
 
     public String name() {

@@ -290,7 +290,15 @@ final class JoinSide implements AutoCloseable {
      * released and reused.
      */
     long evictOlderThan(long horizon, java.util.function.Consumer<RowView> unmatched) {
-        if (horizon == Long.MIN_VALUE || buckets.size() == 0) {
+        if (horizon == Long.MIN_VALUE) {
+            return 0;
+        }
+        return evict(horizon, unmatched, false);
+    }
+
+    /** Evicts every row with an event time before {@code horizon}, or every row at all. */
+    private long evict(long horizon, java.util.function.Consumer<RowView> unmatched, boolean everything) {
+        if (buckets.size() == 0) {
             return 0;
         }
         long removed = 0;
@@ -307,7 +315,7 @@ final class JoinSide implements AutoCloseable {
             long entry = head;
             while (entry != ArenaHandle.NULL) {
                 long next = nextOf(entry);
-                if (eventTimeOf(entry) < horizon) {
+                if (everything || eventTimeOf(entry) < horizon) {
                     long weight = weightOf(entry);
                     if (unmatched != null && weight > 0 && !matchedOf(entry)) {
                         unmatched.accept(cursor.wrap(store.regionOf(entry), store.offsetOf(entry) + OFFSET_ROW));
@@ -497,6 +505,10 @@ final class JoinSide implements AutoCloseable {
      * implementation of the bucket layout, and the two drift.
      */
     void readFrom(java.io.DataInputStream in) throws java.io.IOException {
+        // Replaces what this side holds, as every operator's restore does (RESTOREPART-1). It used
+        // to add to it, which was harmless while a restore only ever landed on an empty side -- and
+        // meant a failed restore could not be undone by restoring the side's earlier snapshot.
+        evict(Long.MAX_VALUE, null, true);
         int count = in.readInt();
         byte[] bytes = new byte[0];
         for (int i = 0; i < count; i++) {

@@ -211,6 +211,17 @@ not know. Restore both to the same paths under the same `pravaha.node.id`.
     guessed at. That query then resumes from the start of its sources — reprocessing, never a double
     count. See [Upgrades](/help/topics/upgrades).
 
+!!! note "A checkpoint that cannot be restored is restored not at all"
+    A checkpoint comes back in parts — each lane's operators, then the view, then what it recorded
+    for sinks — and any part can refuse. The parts already back are put back to empty before the
+    query starts from its sources, so a refusal half-way never leaves some operators holding history
+    beside a replay that counts it again (RESTOREPART-1). It is said, not only done: the log has a
+    `WARN` naming the query, the checkpoint and the cause, and the query counts it as a checkpoint
+    failure, so `pravaha_query_checkpoint_failures_total` rises and the operations screen flags it.
+    In the one case the parts cannot be put back — a lane that does not answer — the registration is
+    refused (PRV-3010) and a recovery lists it among the refused, rather than running from state
+    that is neither the checkpoint's nor empty.
+
 !!! warning "Pitfall: a long interval on a transactional sink"
     `jdbc-sink` applies what was staged once the checkpoint that recorded it is durable, so the table
     trails the view by up to one interval. `interval: 10m` is a ten-minute-stale table.

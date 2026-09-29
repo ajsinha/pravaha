@@ -21,6 +21,7 @@ import java.util.List;
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.common.arena.ArenaHandle;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
+import com.ash.messaging.pravaha.runtime.AggregateTotals;
 import com.ash.messaging.pravaha.runtime.RuntimeErrors;
 import com.ash.messaging.pravaha.runtime.state.VariableKeyStateMap;
 
@@ -266,7 +267,7 @@ public final class SlicedAggregateState implements AutoCloseable {
                     // This counted rows either way, so a windowed COUNT(col) contradicted the SUM
                     // beside it in its own output row.
                     if (present[i]) {
-                        offHeap.setValue(handle, i, offHeap.value(handle, i) + weight);
+                        offHeap.setValue(handle, i, checkedAdd(i, offHeap.value(handle, i), 1, weight));
                     }
                 }
                 case COUNT_DISTINCT -> {
@@ -289,8 +290,8 @@ public final class SlicedAggregateState implements AutoCloseable {
                     // right either way -- but nonNull is what AVG divides by and what MIN and MAX
                     // seed from, and it has to mean non-null values for all of them.
                     if (present[i]) {
-                        offHeap.setValue(handle, i, offHeap.value(handle, i) + values[i] * weight);
-                        offHeap.setNonNull(handle, i, offHeap.nonNull(handle, i) + weight);
+                        offHeap.setValue(handle, i, checkedAdd(i, offHeap.value(handle, i), values[i], weight));
+                        offHeap.setNonNull(handle, i, checkedAdd(i, offHeap.nonNull(handle, i), 1, weight));
                     }
                 }
                 case MIN, MAX -> {
@@ -317,6 +318,30 @@ public final class SlicedAggregateState implements AutoCloseable {
                 }
             }
         }
+    }
+
+    /**
+     * {@code total + value * weight}, refused by name past the 64-bit range (SUMWRAP-1): a total that
+     * wrapped would be served as the window's answer with nothing to say it was wrong.
+     */
+    private long checkedAdd(int column, long total, long value, long weight) {
+        try {
+            return AggregateTotals.addWeighted(total, value, weight);
+        } catch (ArithmeticException overflow) {
+            String name = names != null && column < names.length
+                    ? names[column]
+                    : kinds[column] + " (aggregate " + column + ")";
+            throw AggregateTotals.overflow(name, overflow);
+        }
+    }
+
+    /** How a refusal names each aggregate column, {@code SUM(amount)}; null names them by position. */
+    private String[] names;
+
+    /** Names the aggregate columns for a refusal, in {@code kinds} order. */
+    public SlicedAggregateState describedAs(String[] aggregateNames) {
+        this.names = aggregateNames == null ? null : aggregateNames.clone();
+        return this;
     }
 
     private PravahaException ceilingExceeded(long keyHigh, long keyLow, long sliceStart, int currentSize) {
@@ -477,10 +502,11 @@ public final class SlicedAggregateState implements AutoCloseable {
             long value = offHeap.value(handle, i);
             long nonNull = offHeap.nonNull(handle, i);
             switch (kinds[i]) {
-                case COUNT -> target.values[i] += value;
+                case COUNT -> target.values[i] = checkedAdd(i, target.values[i], value, 1);
                 case SUM, AVG -> {
-                    target.values[i] += value;
-                    target.nonNull[i] += nonNull;
+                    // A window's total is its slices' totals added: each can fit and their sum not.
+                    target.values[i] = checkedAdd(i, target.values[i], value, 1);
+                    target.nonNull[i] = checkedAdd(i, target.nonNull[i], nonNull, 1);
                 }
                 case COUNT_DISTINCT -> {
                     // Not added: distinct counts do not add across slices, and WindowDistinctCounts

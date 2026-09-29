@@ -4,10 +4,10 @@ slug: errors-runtime
 category: errors
 order: 40
 icon: cpu
-summary: "PRV-3001 to PRV-3102: a query that planned and could not keep running — memory too small, a lane that died, an aggregate or join the runtime will not do, a bad event time, a 65th column, codegen."
+summary: "PRV-3001 to PRV-3102: a query that planned and could not keep running — memory too small, a lane that died, an aggregate or join the runtime will not do, a total past 64 bits, a bad event time, a 65th column, codegen."
 badge: PRV-3XXX
 audience: Operators
-keywords: [arena, slab, inbox, cell, lane, backpressure, window span, epoch, 64 columns, codegen, generated code, lane failed, min max retraction]
+keywords: [arena, slab, inbox, cell, lane, backpressure, window span, epoch, 64 columns, codegen, generated code, lane failed, min max retraction, overflow, sum overflow, PRV-3025]
 guide: troubleshooting#it-ran-out-of-memory-the-disk-filled
 related: [lanes, errors-state, event-time-watermarks, query-lifecycle, errors-overview]
 listed_on: errors-overview
@@ -31,6 +31,7 @@ console shows the code that stopped it.
 | PRV-3021 | RUNTIME_UNSUPPORTED_JOIN | A join key of a type that cannot be compared exactly |
 | PRV-3022 | RUNTIME_WINDOW_SPAN_IMPLAUSIBLE | One row's event time is far from the rest |
 | PRV-3024 | RUNTIME_RETRACTED_UNHELD_ROW | A top-N was asked to retract a row it does not hold |
+| PRV-3025 | RUNTIME_AGGREGATE_OVERFLOW | A `SUM`, `COUNT` or `AVG` total left the 64-bit range |
 | PRV-3030 | ROW_FIELD_LIMIT_EXCEEDED | A row with more than 64 columns |
 | PRV-3100 | CODEGEN_COMPILATION_FAILED | Generated code did not compile |
 | PRV-3101 | CODEGEN_UNSUPPORTED_OPERATOR | A stage the generator does not emit; the interpreter runs it |
@@ -107,6 +108,17 @@ retraction of a row it never received means the stream upstream sent a `-1` with
 which is a fault upstream and not something the top-N can repair — so it stops by name rather than
 emitting an answer it cannot vouch for. Look at the source feeding the query: a source that emits
 deletes must emit each row's insert first.
+
+### PRV-3025 — a total left the 64-bit range
+
+`SUM`, `COUNT` and `AVG` accumulate in 64 bits, and a total past `9223372036854775807` either way —
+of a `BIGINT` column, or of a `DECIMAL` column's unscaled value, so `92233720368547758.07` at scale 2 —
+is refused, naming the aggregate (`SUM(amount)`), rather than wrapped round to a wrong number that
+looks like a right one. Every addition is checked: a row, a retraction (which subtracts), a
+pushed-down partial, and a window's total when its slices are combined — each slice can fit and their
+sum not. A continuous query moves to `FAILED`; a read is refused. Aggregate a smaller quantity (scale
+the column down, `SUM(amount / 1000)`), group by a key that splits the total, or filter out the rows
+that carry it.
 
 ### PRV-3020 — unsupported aggregate
 

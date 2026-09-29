@@ -68,23 +68,51 @@ final class QueryCheckpoints {
             return Map.of();
         }
         FileCheckpointStore store = new FileCheckpointStore(root.resolve(directory));
+        Optional<Checkpoint> latest = Optional.empty();
         try {
-            Optional<Checkpoint> latest = store.latest();
+            latest = store.latest();
             if (latest.isEmpty()) {
                 return Map.of();
             }
-            execution.restore(latest.get(), Duration.ofSeconds(30));
-            // What it recorded about sinks, for each registration to claim as it attaches: the
-            // handles to commit, and the view each sink holds once they are.
-            query.restoredFrom(latest.get());
+            execution.restore(latest.get(), RESTORE_TIMEOUT);
+            try {
+                // What it recorded about sinks, for each registration to claim as it attaches: the
+                // handles to commit, and the view each sink holds once they are.
+                query.restoredFrom(latest.get());
+            } catch (RuntimeException sinksRefused) {
+                // The execution's half came back and this half did not: put the execution's back too,
+                // or the replay below would count every row before the checkpoint twice.
+                execution.forgetRestoredState(RESTORE_TIMEOUT);
+                throw sinksRefused;
+            }
             return latest.get().offsets();
         } catch (RuntimeException e) {
+            if (execution.holdsPartlyRestoredState()) {
+                // RESTOREPART-1. Part of the checkpoint came back and could not be put back. Starting
+                // from the sources now would count again every row those parts already hold, so the
+                // registration is refused instead: a recovery reports it by name among the refused,
+                // rather than serving an answer that is wrong with nothing to say so.
+                throw e;
+            }
             // A query that starts from nothing is worse than one that starts from an older
             // checkpoint and better than one that does not start. Reprocessing is visible in the
             // numbers; a refusal to register is visible immediately; silent corruption is neither.
+            // Starting from nothing is sound only because the restore above is all or nothing: a
+            // refusal half-way through leaves every part as empty as it was (RESTOREPART-1). And it
+            // is said, not only done: the log names the query and the cause, and the query carries
+            // it as a checkpoint failure, which the console and the metrics already surface.
+            String what = "checkpoint " + latest.map(c -> Long.toString(c.id())).orElse("?")
+                    + " of query '" + query.anyName() + "' could not be restored, so the query starts from the "
+                    + "beginning of its sources (reprocessing, never a double count): " + e.getMessage();
+            LOG.log(System.Logger.Level.WARNING, what);
+            query.recordCheckpointFailure(what);
             return Map.of();
         }
     }
+
+    private static final Duration RESTORE_TIMEOUT = Duration.ofSeconds(30);
+
+    private static final System.Logger LOG = System.getLogger(QueryCheckpoints.class.getName());
 
     /** Starts checkpointing {@code query} into its directory, and records both on it. */
     void start(String directory, QueryExecution execution, RegisteredQuery query) {

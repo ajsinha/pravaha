@@ -1381,6 +1381,12 @@ public final class QueryExecution implements AutoCloseable {
      * the checkpoint's offsets -- restoring state without rewinding the sources double-counts every
      * record between the checkpoint and the failure, which is the exact failure the checkpoint
      * exists to prevent.
+     *
+     * <p>All or nothing (RESTOREPART-1). A restore that fails half-way -- lane 0 restored and lane
+     * 1's state corrupt, a pipeline's windows read and its join refused, the view refused after
+     * every lane -- is undone before this throws: every part is put back to what it held before, so
+     * the caller's replay from the sources starts from nothing rather than beside state that came
+     * back for some operators and not others. See {@link CheckpointRestore}.
      */
     public void restore(com.ash.messaging.pravaha.state.checkpoint.Checkpoint checkpoint, Duration timeout) {
         byte[] viewState = checkpoint.operatorState().get(SERVED_VIEW_STATE);
@@ -1388,35 +1394,35 @@ public final class QueryExecution implements AutoCloseable {
             // Before any lane: see checkingViewWith.
             viewCheck.accept(viewState);
         }
-        for (int index = 0; index < pipelines.size(); index++) {
-            InterpretedPipeline pipeline = pipelines.get(index);
-            byte[] state = checkpoint.operatorState().get("lane-" + index);
-            if (state == null) {
-                if (pipeline.isStateful()) {
-                    // A stateful operator with nothing to restore is not a no-op. Skipping it
-                    // resumes with empty accumulators beside restored source offsets, so every row
-                    // before the checkpoint is gone and the query reports RUNNING over the gap.
-                    throw new PravahaException(
-                            RuntimeErrors.LANE_FAILED,
-                            "the checkpoint holds no state for lane " + index + ", and this plan's lane " + index
-                                    + " is stateful. Restoring the offsets without the accumulators would resume "
-                                    + "past every row the checkpoint covered and answer from an empty operator.");
-                }
-                continue;
-            }
-            Lane lane = lanes.lane(index);
-            long ticket = lane.submitControlTask(() -> pipeline.restoreState(state));
-            if (!lane.awaitControlTask(ticket, timeout)) {
-                throw new IllegalStateException("lane " + index + " did not restore its state within " + timeout);
-            }
-            lane.checkHealth();
+        restoring = new CheckpointRestore(pipelines, lanes, viewRestore == null ? null : viewSnapshot, viewRestore);
+        restoring.apply(checkpoint, SERVED_VIEW_STATE, timeout);
+    }
+
+    /** The last restore attempted, which is what {@link #forgetRestoredState} undoes; null for none. */
+    private CheckpointRestore restoring;
+
+    /**
+     * Puts every lane's state, and the view, back to what they held before the last {@link #restore}
+     * -- nothing, for an execution that has not been fed -- so the query can start from its sources.
+     *
+     * <p>For a caller whose own half of a restore failed after this one's succeeded; {@link #restore}
+     * undoes its own failures before it throws.
+     *
+     * @throws PravahaException {@code PRV-3010} when a part cannot be put back; {@link
+     *     #holdsPartlyRestoredState()} is then true, and the query must not start from its sources
+     */
+    public void forgetRestoredState(Duration timeout) {
+        if (restoring != null) {
+            restoring.undo(timeout);
         }
-        byte[] view = checkpoint.operatorState().get(SERVED_VIEW_STATE);
-        if (view != null && viewRestore != null) {
-            // After the lanes, so a view restored beside operator state is restored beside state
-            // that is already back -- not beside state still arriving on another thread.
-            viewRestore.accept(view);
-        }
+    }
+
+    /**
+     * Whether a restore was attempted and could not be undone, so this execution holds state that is
+     * neither the checkpoint's nor nothing, and replaying the sources into it would double-count.
+     */
+    public boolean holdsPartlyRestoredState() {
+        return restoring != null && restoring.leftStateBehind();
     }
 
     /** Records too late to correct any window, across every lane. */

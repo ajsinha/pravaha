@@ -41,10 +41,18 @@ package com.ash.messaging.pravaha.registry;
  * {@code Subscription.awaitQuiet} is how a caller that stepped the engine by hand waits for it,
  * and {@code Subscription.pending} is how anything else asks how far behind a subscriber is.
  *
+ * <p><strong>{@code changes} says what a change is</strong> (KEYEDWT-1). {@link Changes#CHANGELOG},
+ * the default, is what the query applied to its view: weights exactly as they arrived, a pair that
+ * cancels inside one commit delivered as the pair, an upsert as a {@code +1} for the new row alone.
+ * {@link Changes#ANSWER} is how the view's answer moved: per commit, each row a reader stopped seeing
+ * at {@code -1} and each it started seeing at {@code +1} -- so weights summed are exactly the view,
+ * through upserts and retention alike.
+ *
  * @param bufferRows how many changes may wait for this subscriber
  * @param overflow what to do when that is exceeded
+ * @param changes what the subscriber is handed: the changelog, or the answer's changes
  */
-public record SubscriptionOptions(int bufferRows, Overflow overflow) {
+public record SubscriptionOptions(int bufferRows, Overflow overflow, Changes changes) {
 
     /** A sensible default: ten thousand rows, conflated by key. */
     public static final SubscriptionOptions DEFAULT = new SubscriptionOptions(10_000, Overflow.CONFLATE);
@@ -54,6 +62,17 @@ public record SubscriptionOptions(int bufferRows, Overflow overflow) {
             throw new IllegalArgumentException("bufferRows must be at least 1, got " + bufferRows);
         }
         overflow = overflow == null ? Overflow.CONFLATE : overflow;
+        changes = changes == null ? Changes.CHANGELOG : changes;
+    }
+
+    /** The changelog, as every subscription had before {@link Changes} existed. */
+    public SubscriptionOptions(int bufferRows, Overflow overflow) {
+        this(bufferRows, overflow, Changes.CHANGELOG);
+    }
+
+    /** These options, handing the subscriber the answer's changes rather than the changelog. */
+    public SubscriptionOptions followingTheAnswer() {
+        return new SubscriptionOptions(bufferRows, overflow, Changes.ANSWER);
     }
 
     public static SubscriptionOptions of(int bufferRows, Overflow overflow) {
@@ -61,6 +80,29 @@ public record SubscriptionOptions(int bufferRows, Overflow overflow) {
     }
 
     /** What happens to a subscriber that falls behind. */
+    /**
+     * What a subscription's changes are (KEYEDWT-1).
+     *
+     * <p>They differ only where a view's answer is not its changelog: a keyed view that holds more
+     * than one row under a key and shows the newest (VIEWW-1) -- an upsert with no retraction -- a
+     * row retention evicts, and a change whose weight is not the one a reader can see.
+     */
+    public enum Changes {
+
+        /**
+         * What the query applied, weights verbatim. A copy kept as a Z-set matches the view's own
+         * Z-set -- every row it holds, with its weight -- which for a key upserted without a
+         * retraction is two rows where a reader sees one.
+         */
+        CHANGELOG,
+
+        /**
+         * How the answer a reader sees moved, per commit: rows leaving at {@code -1}, rows entering
+         * at {@code +1}, a snapshot of the rows shown. Weights summed are exactly the view.
+         */
+        ANSWER
+    }
+
     public enum Overflow {
 
         /**

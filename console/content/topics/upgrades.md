@@ -54,7 +54,9 @@ loses nothing silently, but will not start those queries**; restore the backup t
 Formats inside a checkpoint carry a version, and a different one is refused with PRV-4002. The
 refusal is per query, and its consequence is bounded: **that query resumes from the start of its
 sources** — reprocessing, visible in the numbers while it catches up, **never a double count** in its
-answers. A sink that is not transactional is written the replayed rows again.
+answers. A sink that is not transactional is written the replayed rows again. The refusal is logged
+at `WARN` and counted as a checkpoint failure, so a query that came back empty says so; a
+checkpoint refused half-way through is put back to empty first (RESTOREPART-1).
 
 The format changes so far, as examples of what to look for:
 

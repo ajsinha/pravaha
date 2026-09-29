@@ -32,6 +32,7 @@ import com.ash.messaging.pravaha.common.arena.RowArena;
 import com.ash.messaging.pravaha.common.row.BinaryRowView;
 import com.ash.messaging.pravaha.common.row.BinaryRowWriter;
 import com.ash.messaging.pravaha.common.row.RowLayout;
+import com.ash.messaging.pravaha.runtime.AggregateTotals;
 import com.ash.messaging.pravaha.runtime.RuntimeErrors;
 import com.ash.messaging.pravaha.runtime.plan.AggregateOperator;
 
@@ -551,54 +552,71 @@ final class KeyedAggregate implements RowProcessor {
 
             for (int i = 0; i < calls.size(); i++) {
                 AggregateOperator.AggregateCall call = calls.get(i);
-                switch (call.kind()) {
-                    case COUNT -> {
-                        // The third of three operators to get this guard. COUNT(*) counts rows;
-                        // COUNT(col) counts non-null values. Counting rows either way makes a
-                        // result row contradict itself -- COUNT 3, SUM 300, AVG 150.
-                        if (call.argumentOrdinal() < 0 || !row.isNull(call.argumentOrdinal())) {
-                            counts[i] += weight;
-                        }
+                try {
+                    accumulateCall(row, weight, i, call, argumentTypes, inputSchema, valueAt);
+                } catch (ArithmeticException overflow) {
+                    throw AggregateTotals.overflow(AggregateSlots.describe(call, inputSchema), overflow);
+                }
+            }
+        }
+
+        /** Folds one row into call {@code i}; every sum and count is checked (SUMWRAP-1). */
+        private void accumulateCall(
+                RowView row,
+                long weight,
+                int i,
+                AggregateOperator.AggregateCall call,
+                TypeName[] argumentTypes,
+                StreamSchema inputSchema,
+                java.util.function.IntFunction<Object> valueAt) {
+            switch (call.kind()) {
+                case COUNT -> {
+                    // The third of three operators to get this guard. COUNT(*) counts rows;
+                    // COUNT(col) counts non-null values. Counting rows either way makes a
+                    // result row contradict itself -- COUNT 3, SUM 300, AVG 150.
+                    if (call.argumentOrdinal() < 0 || !row.isNull(call.argumentOrdinal())) {
+                        counts[i] = AggregateTotals.add(counts[i], weight);
                     }
-                    case COUNT_DISTINCT -> {
-                        // Bounded by the scan, exactly like the group map itself. GlobalAggregate
-                        // refuses this because a stream never ends; a read does.
-                        if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
-                            if (distincts.get(i) == null) {
-                                distincts.set(i, new HashSet<>());
-                            }
-                            // Read by the column's declared type, not as text. getString over an
-                            // INT64 column read the slot's bits as a (offset, length) pair and died
-                            // with a raw NegativeArraySizeException: -1 -- no code, no column named,
-                            // on the read path CONTINUOUS_QUERIES.md marks supported.
-                            distincts.get(i).add(valueAt.apply(call.argumentOrdinal()));
+                }
+                case COUNT_DISTINCT -> {
+                    // Bounded by the scan, exactly like the group map itself. GlobalAggregate
+                    // refuses this because a stream never ends; a read does.
+                    if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
+                        if (distincts.get(i) == null) {
+                            distincts.set(i, new HashSet<>());
                         }
+                        // Read by the column's declared type, not as text. getString over an
+                        // INT64 column read the slot's bits as a (offset, length) pair and died
+                        // with a raw NegativeArraySizeException: -1 -- no code, no column named,
+                        // on the read path CONTINUOUS_QUERIES.md marks supported.
+                        distincts.get(i).add(valueAt.apply(call.argumentOrdinal()));
                     }
-                    case SUM, AVG -> {
-                        if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
-                            sums[i] += AggregateSlots.read(row, call.argumentOrdinal(), argumentTypes[i], inputSchema)
-                                    * weight;
-                            counts[i] += weight;
-                        }
+                }
+                case SUM, AVG -> {
+                    if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
+                        sums[i] = AggregateTotals.addWeighted(
+                                sums[i],
+                                AggregateSlots.read(row, call.argumentOrdinal(), argumentTypes[i], inputSchema),
+                                weight);
+                        counts[i] = AggregateTotals.add(counts[i], weight);
                     }
-                    case MIN, MAX -> {
-                        if (weight < 0) {
-                            throw new PravahaException(
-                                    RuntimeErrors.UNSUPPORTED_AGGREGATE,
-                                    call.kind() + " cannot yet handle a retraction: restoring the previous "
-                                            + "extreme needs an ordered multiset per group");
-                        }
-                        if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
-                            long value =
-                                    AggregateSlots.read(row, call.argumentOrdinal(), argumentTypes[i], inputSchema);
-                            if (!seen[i]) {
-                                sums[i] = value;
-                                seen[i] = true;
-                            } else if (call.kind() == AggregateOperator.AggregateCall.Kind.MIN) {
-                                sums[i] = Math.min(sums[i], value);
-                            } else {
-                                sums[i] = Math.max(sums[i], value);
-                            }
+                }
+                case MIN, MAX -> {
+                    if (weight < 0) {
+                        throw new PravahaException(
+                                RuntimeErrors.UNSUPPORTED_AGGREGATE,
+                                call.kind() + " cannot yet handle a retraction: restoring the previous "
+                                        + "extreme needs an ordered multiset per group");
+                    }
+                    if (call.argumentOrdinal() >= 0 && !row.isNull(call.argumentOrdinal())) {
+                        long value = AggregateSlots.read(row, call.argumentOrdinal(), argumentTypes[i], inputSchema);
+                        if (!seen[i]) {
+                            sums[i] = value;
+                            seen[i] = true;
+                        } else if (call.kind() == AggregateOperator.AggregateCall.Kind.MIN) {
+                            sums[i] = Math.min(sums[i], value);
+                        } else {
+                            sums[i] = Math.max(sums[i], value);
                         }
                     }
                 }
@@ -620,14 +638,18 @@ final class KeyedAggregate implements RowProcessor {
             lastSequence = partial.sequence();
             for (int i = 0; i < calls.size(); i++) {
                 long partialValue = partial.getLong(keyColumns + i);
-                switch (calls.get(i).kind()) {
-                    case COUNT -> counts[i] += weight * partialValue;
-                    case SUM -> sums[i] += weight * partialValue;
-                    default ->
-                        throw new IllegalStateException(
-                                "accumulatePartial received a " + calls.get(i).kind()
-                                        + " call; SourcePushdown never offers partial-aggregate pushdown for anything but "
-                                        + "COUNT and SUM");
+                try {
+                    switch (calls.get(i).kind()) {
+                        case COUNT -> counts[i] = AggregateTotals.addWeighted(counts[i], partialValue, weight);
+                        case SUM -> sums[i] = AggregateTotals.addWeighted(sums[i], partialValue, weight);
+                        default ->
+                            throw new IllegalStateException("accumulatePartial received a "
+                                    + calls.get(i).kind()
+                                    + " call; SourcePushdown never offers partial-aggregate pushdown for anything "
+                                    + "but COUNT and SUM");
+                    }
+                } catch (ArithmeticException overflow) {
+                    throw AggregateTotals.overflow(calls.get(i).kind() + " of a pushed-down partial", overflow);
                 }
             }
         }

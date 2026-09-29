@@ -47,6 +47,14 @@ public final class RuntimeErrors {
      */
     public static final ErrorCode RETRACTED_UNHELD_ROW = new ErrorCode(3024, "RUNTIME_RETRACTED_UNHELD_ROW");
 
+    /**
+     * A {@code SUM}, {@code COUNT} or {@code AVG} total left the 64-bit range it accumulates in.
+     *
+     * <p>SUMWRAP-1. The total used to wrap round silently and be served as the answer; see {@link
+     * AggregateTotals}.
+     */
+    public static final ErrorCode AGGREGATE_OVERFLOW = new ErrorCode(3025, "RUNTIME_AGGREGATE_OVERFLOW");
+
     // 3023 is retired, not free. It was RUNTIME_COUNT_DISTINCT_CANNOT_SPILL: an aggregate containing
     // COUNT(DISTINCT) kept its distinct sets on the heap and was refused when the overflow tier was
     // configured. ADR-044 moved those sets into RowStore, so they spill like every other state and

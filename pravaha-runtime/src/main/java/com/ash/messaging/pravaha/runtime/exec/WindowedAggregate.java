@@ -215,7 +215,11 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
                 case MAX -> SlicedAggregateState.Kind.MAX;
             };
         }
-        this.state = new SlicedAggregateState(windows, kinds, operator.maxSlices(), overflowAccess, maxOverflowSlabs);
+        this.state = new SlicedAggregateState(windows, kinds, operator.maxSlices(), overflowAccess, maxOverflowSlabs)
+                .describedAs(operator.aggregates().stream()
+                        .map(call ->
+                                AggregateSlots.describe(call, operator.input().outputSchema()))
+                        .toArray(String[]::new));
         this.scratch = new long[kinds.length];
         this.present = new boolean[kinds.length];
         boolean anyDistinct = false;
@@ -674,6 +678,9 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
                     case INT8 -> row.getByte(ordinal);
                     case INT16 -> row.getShort(ordinal);
                     case INT32, DATE -> row.getInt(ordinal);
+                    // Both halves (WINDECKEY-1): the high half alone is zero for every value of
+                    // eighteen digits or fewer, so every such key hashed alike.
+                    case DECIMAL -> mix(row.getDecimalHigh(ordinal) ^ 0x6A09E667F3BCC909L) ^ row.getDecimalLow(ordinal);
                     default -> row.getLong(ordinal);
                 };
             }
@@ -692,6 +699,12 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
             case INT32, DATE -> row.getInt(ordinal);
             case FLOAT32 -> row.getFloat(ordinal);
             case FLOAT64 -> row.getDouble(ordinal);
+            // The whole unscaled value (WINDECKEY-1). getLong is the high half of the slot, which is
+            // zero for every value of eighteen digits or fewer: 1.50 and 2.75 were one group, and
+            // COUNT(DISTINCT) counted them as one value.
+            case DECIMAL ->
+                new com.ash.messaging.pravaha.runtime.window.DecimalBits(
+                        row.getDecimalHigh(ordinal), row.getDecimalLow(ordinal));
             default -> row.getLong(ordinal);
         };
     }
@@ -715,6 +728,12 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
             } else if (value instanceof Boolean flag) {
                 out.writeByte(3);
                 out.writeBoolean(flag);
+            } else if (value instanceof com.ash.messaging.pravaha.runtime.window.DecimalBits decimal) {
+                // WINDECKEY-1: both halves. A new tag, so a checkpoint without decimal keys is
+                // byte-for-byte what it was.
+                out.writeByte(5);
+                out.writeLong(decimal.high());
+                out.writeLong(decimal.low());
             } else {
                 out.writeByte(4);
                 out.writeLong(((Number) value).longValue());
@@ -736,6 +755,7 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
                 case 2 -> in.readDouble();
                 case 3 -> in.readBoolean();
                 case 4 -> in.readLong();
+                case 5 -> new com.ash.messaging.pravaha.runtime.window.DecimalBits(in.readLong(), in.readLong());
                 default -> throw new java.io.IOException("unknown key tag " + tag + " in a window checkpoint");
             };
         }
@@ -755,6 +775,11 @@ final class WindowedAggregate implements RowProcessor, AutoCloseable {
             case INT32, DATE -> writer.setInt(column, ((Number) value).intValue());
             case FLOAT32 -> writer.setFloat(column, ((Number) value).floatValue());
             case FLOAT64 -> writer.setDouble(column, ((Number) value).doubleValue());
+            case DECIMAL -> {
+                com.ash.messaging.pravaha.runtime.window.DecimalBits decimal =
+                        (com.ash.messaging.pravaha.runtime.window.DecimalBits) value;
+                writer.setDecimal(column, decimal.high(), decimal.low());
+            }
             default -> writer.setLong(column, ((Number) value).longValue());
         }
     }

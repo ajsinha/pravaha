@@ -28,7 +28,9 @@ import java.util.Arrays;
  *
  * <p>Consumers that only want the current value can ignore negative weights and overwrite by key.
  * Consumers that are maintaining their own aggregate must apply the weight, or their total will
- * drift from the view's the first time a window is corrected.
+ * drift from the view's the first time a window is corrected. Over a keyed view that upserts, the
+ * changelog carries a replaced row no {@code -1} (KEYEDWT-1); a consumer that must sum to exactly
+ * what a reader sees follows the answer instead ({@link ViewSink#onAnswer}, a query over the view).
  *
  * <p><strong>A weight of zero is not a change</strong> (STRM-1). {@code docs/CONCEPTS.md} §4 states
  * the Z-set rule the view implements: a row is present exactly while its weights sum positive, so

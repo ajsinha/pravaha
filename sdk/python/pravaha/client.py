@@ -210,6 +210,11 @@ class Row:
         consumer that only wants the current state can overwrite by key and skip
         negatives.
 
+        The weights are the view's changelog, and for a keyed view that upserts -- a second
+        row under a key replacing the first -- the replaced row gets no ``-1`` (KEYEDWT-1):
+        summed, they count that key twice. Subscribe to a query registered over the view to
+        receive its answer's changes instead; those sum to exactly what a reader sees.
+
         An ordinary query answer has no weights: every row in it is a row that is
         present, so this is ``1`` there. Only a subscription carries real ones.
         """
@@ -864,7 +869,11 @@ class Client(DebugCommands):
         ``snapshot=True`` the first batch has ``batch.snapshot`` set and holds every row of
         the view at a commit, each with its multiplicity as its weight -- sent even when
         there are none -- and every batch after it is a commit after that one, so adding
-        weights gives the view with nothing missed and nothing counted twice. A subscriber
+        weights gives the view's Z-set with nothing missed and nothing counted twice. For a
+        keyed view that upserts (the latest row per key over a stream that only inserts) that
+        is not what a reader sees: a replaced row arrives with no ``-1`` (KEYEDWT-1), so
+        subscribe instead to a query registered over the view, which is fed the view's answer
+        changing and whose weights sum to exactly the rows a reader sees. A subscriber
         that falls too far behind has its stream ended with ``PRV-6105`` rather than skipped
         past a commit; subscribe again to start from a fresh snapshot. A server older than
         this SDK refuses ``snapshot=True`` with ``PRV-6102``.
