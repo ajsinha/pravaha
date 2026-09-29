@@ -23,6 +23,9 @@ def test_put_patch_and_delete_reach_their_endpoints_and_a_204_is_none(engine):
     assert api.set_roles("a b", ["reader"]) == {"username": "a b"}
     assert (last()["method"], last()["path"], last()["body"]) == (
         "PUT", "/api/v1/users/a%20b/roles", {"roles": ["reader"]})
+    answer("PUT", "/api/v1/users/bob/attributes", {"attributes": {"region": "EU"}})
+    assert api.set_attributes("bob", {"region": "EU"}) == {"attributes": {"region": "EU"}}
+    assert last()["body"] == {"attributes": {"region": "EU"}}
     answer("PATCH", "/api/v1/users/bob", {})
     api.update_user("bob", status="disabled")
     assert last()["body"] == {"status": "disabled"}

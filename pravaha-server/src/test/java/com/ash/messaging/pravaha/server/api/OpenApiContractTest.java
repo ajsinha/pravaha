@@ -29,9 +29,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.http.ResponseEntity;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.method.HandlerMethod;
+import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -71,6 +79,10 @@ class OpenApiContractTest {
 
     @Autowired
     private MockMvc mvc;
+
+    @Autowired
+    @Qualifier("requestMappingHandlerMapping")
+    private RequestMappingHandlerMapping handlers;
 
     private final ObjectMapper json = new ObjectMapper();
 
@@ -142,6 +154,79 @@ class OpenApiContractTest {
                                 + "because api/openapi.lock.json and every generated client are built from it",
                         actual)
                 .contains(String.valueOf(actual));
+    }
+
+    /**
+     * Every operation documents the success status its handler answers with -- P-5 widened (CAT201-1).
+     *
+     * <p>The check above covered one write, and the catalogue's writes (grants, namespaces, policies,
+     * bindings) then shipped answering 201 while the document and the lock said 200, as did every handler
+     * answering 204. The cause is one rule of springdoc's: a handler returning {@code ResponseEntity} is
+     * documented as 200 whatever status it builds, because the status is decided at run time. So this
+     * derives, for every handler, the status it declares -- {@code @ResponseStatus}, or for a
+     * {@code ResponseEntity} the {@code @ApiResponse} it must carry -- and compares it with the
+     * document. A {@code ResponseEntity} handler without one is named: nothing else can say what it
+     * answers. That the declaration is what the handler really returns is checked by calling it, in
+     * {@link WriteStatusContractTest} and {@code IdentityHttpTest}.
+     */
+    @Test
+    void everyOperationDocumentsTheStatusItsHandlerAnswers_CAT201() throws Exception {
+        JsonNode paths = json.readTree(mvc.perform(get("/api/v1/openapi.json"))
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString())
+                .path("paths");
+        List<String> wrong = new ArrayList<>();
+        int checked = 0;
+        for (Map.Entry<RequestMappingInfo, HandlerMethod> each :
+                handlers.getHandlerMethods().entrySet()) {
+            HandlerMethod handler = each.getValue();
+            if (!handler.getBeanType().getPackageName().startsWith("com.ash.messaging.pravaha")) {
+                continue;
+            }
+            String declared = declaredStatus(handler);
+            for (String pattern : each.getKey().getPatternValues()) {
+                for (RequestMethod verb : each.getKey().getMethodsCondition().getMethods()) {
+                    JsonNode responses = paths.path(pattern)
+                            .path(verb.name().toLowerCase(java.util.Locale.ROOT))
+                            .path("responses");
+                    if (responses.isMissingNode()) {
+                        continue; // hidden from the document, as /error is
+                    }
+                    checked++;
+                    List<String> success = names(responses).stream()
+                            .filter(code -> code.startsWith("2"))
+                            .toList();
+                    if (!success.equals(List.of(declared))) {
+                        wrong.add(verb + " " + pattern + " answers " + declared + " and documents " + success);
+                    }
+                }
+            }
+        }
+        assertThat(checked).as("operations compared").isGreaterThan(50);
+        assertThat(wrong)
+                .as("each must document the status it answers; a ResponseEntity handler states it with "
+                        + "@ApiResponse(responseCode = ...), since springdoc documents 200 whatever it builds")
+                .isEmpty();
+    }
+
+    /** The success status {@code handler} declares, or why it declares none. */
+    static String declaredStatus(HandlerMethod handler) {
+        ResponseStatus fixed = AnnotatedElementUtils.findMergedAnnotation(handler.getMethod(), ResponseStatus.class);
+        if (fixed != null) {
+            return String.valueOf(fixed.code().value());
+        }
+        if (ResponseEntity.class.isAssignableFrom(handler.getMethod().getReturnType())) {
+            List<String> success = java.util.Arrays.stream(handler.getMethod()
+                            .getAnnotationsByType(io.swagger.v3.oas.annotations.responses.ApiResponse.class))
+                    .map(io.swagger.v3.oas.annotations.responses.ApiResponse::responseCode)
+                    .filter(code -> code.startsWith("2"))
+                    .toList();
+            return success.size() == 1
+                    ? success.get(0)
+                    : "an undeclared status (a ResponseEntity with no @ApiResponse)";
+        }
+        return "200";
     }
 
     @Test
@@ -245,7 +330,7 @@ class OpenApiContractTest {
         }
     }
 
-    private static List<String> names(JsonNode node) {
+    static List<String> names(JsonNode node) {
         List<String> out = new ArrayList<>();
         node.fieldNames().forEachRemaining(out::add);
         java.util.Collections.sort(out);

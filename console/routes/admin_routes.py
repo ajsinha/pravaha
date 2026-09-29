@@ -27,7 +27,7 @@ from urllib.parse import urlencode
 from fastapi import Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from core.accounts import roles_from
+from core.accounts import attributes_from, roles_from
 from core.admin import AUDIT_FILTERS
 from core.services import ServiceError
 from routes.auth_routes import (
@@ -224,6 +224,21 @@ class AdminRoutes(Routes):
             logger.info("'%s' set the roles of '%s' to %s", current_user(request), username, chosen)
             return outcome(request, lambda: accounts.set_roles(username, chosen), "admin.users.roles_set",
                            "/admin/users", user=username)[1]
+
+        @self.app.post("/admin/users/{username}/attributes", tags=["ui"])
+        def set_attributes(request: Request, username: str, attributes: str = Form("")):
+            if (refusal := login_required(request)) is not None:
+                return refusal
+            try:
+                chosen = attributes_from(attributes)
+            except ServiceError as exc:
+                flash(request, self.t("admin.people.failed", detail=str(exc)), "danger")
+                return RedirectResponse("/admin/users", status_code=303)
+            # Names only in the log: a value is a fact about a person.
+            logger.info("'%s' set the attributes of '%s' to %s", current_user(request), username,
+                        sorted(chosen))
+            return outcome(request, lambda: accounts.set_attributes(username, chosen),
+                           "admin.users.attributes_set", "/admin/users", user=username)[1]
 
         @self.app.post("/admin/users/{username}/status", tags=["ui"])
         def set_status(request: Request, username: str, status: str = Form("")):

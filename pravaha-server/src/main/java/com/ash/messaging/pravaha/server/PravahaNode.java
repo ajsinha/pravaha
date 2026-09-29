@@ -1436,7 +1436,10 @@ public class PravahaNode implements SmartLifecycle {
         if (id == null || id.isBlank()) {
             return Optional.empty();
         }
-        Optional<Principal> configured = security.principalFor(id);
+        // STORECLAIMS-1: the identity store first, as NodeCatalog resolves a user -- its users were never
+        // asked here, so a registration by one was refused at every restart -- then the token table.
+        Optional<Principal> configured =
+                identity().flatMap(users -> users.principalOfUser(id)).or(() -> security.principalFor(id));
         if (configured.isPresent()) {
             return configured;
         }

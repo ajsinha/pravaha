@@ -108,6 +108,9 @@ class AccountService:
     def set_roles(self, username: str, roles: list[str]) -> dict:
         return self._call(self._engine.set_roles, username, roles)
 
+    def set_attributes(self, username: str, attributes: dict[str, str]) -> dict:
+        return self._call(self._engine.set_attributes, username, attributes)
+
     def reset_password(self, username: str) -> dict:
         return self._call(self._engine.reset_password, username)
 
@@ -124,6 +127,22 @@ def roles_from(text: str | list | None) -> list[str]:
         if role and role not in seen:
             seen.append(role)
     return seen
+
+
+def attributes_from(text: str | None) -> dict[str, str]:
+    """Attributes as a person types them -- "region=EU, desk=rates" -- in order. A piece without
+    a name and an '=' is refused here, so the typo is named before a round trip; what a name or a
+    value may be is the engine's to say."""
+    found: dict[str, str] = {}
+    for piece in str(text or "").replace("\n", ",").split(","):
+        piece = piece.strip()
+        if not piece:
+            continue
+        name, sep, value = piece.partition("=")
+        if not sep or not name.strip():
+            raise ServiceError(f"'{piece}' is not name=value", status=400)
+        found[name.strip()] = value.strip()
+    return found
 
 
 def expiry_days(text: str | int | None) -> int:
@@ -149,6 +168,7 @@ def user_record(raw: dict) -> dict:
         "email": _text(raw.get("email")),
         "tenant": _text(raw.get("tenant")),
         "roles": [str(r) for r in (raw.get("roles") or [])],
+        "attributes": {str(k): str(v) for k, v in sorted((raw.get("attributes") or {}).items())},
         "status": _text(raw.get("status") or "active"),
         "mustChangePassword": bool(raw.get("mustChangePassword")),
         "lockedUntil": _text(raw.get("lockedUntil")),

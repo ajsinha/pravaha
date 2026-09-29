@@ -22,7 +22,8 @@
   <caption class="visually-hidden">{{ t('admin.users.caption') }}</caption>
   <thead><tr>
     <th scope="col">{{ t('admin.users.col.user') }}</th><th scope="col">{{ t('admin.users.col.tenant') }}</th>
-    <th scope="col">{{ t('admin.users.col.roles') }}</th><th scope="col">{{ t('admin.users.col.status') }}</th>
+    <th scope="col">{{ t('admin.users.col.roles') }}</th><th scope="col">{{ t('admin.users.col.attributes') }}</th>
+    <th scope="col">{{ t('admin.users.col.status') }}</th>
     <th scope="col">{{ t('admin.users.col.last_login') }}</th><th scope="col">{{ t('people.col.actions') }}</th>
   </tr></thead>
   <tbody>{% for u in users %}<tr data-user="{{ u.username }}">
@@ -33,6 +34,12 @@
       <label class="visually-hidden" for="roles-{{ loop.index }}">{{ t('admin.users.roles_for', user=u.username) }}</label>
       <input class="form-control form-control-sm mono" id="roles-{{ loop.index }}" name="roles" value="{{ u.roles|join(', ') }}" autocomplete="off">
       <button class="btn btn-sm btn-outline-secondary" type="submit" aria-label="{{ t('admin.users.set_roles_label', user=u.username) }}">{{ t('admin.users.set_roles') }}</button>
+    </form></td>
+    <td><form method="post" action="/admin/users/{{ u.username }}/attributes" class="d-flex gap-1 m-0">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label class="visually-hidden" for="attributes-{{ loop.index }}">{{ t('admin.users.attributes_for', user=u.username) }}</label>
+      <input class="form-control form-control-sm mono" id="attributes-{{ loop.index }}" name="attributes" value="{% for k, v in u.attributes.items() %}{{ k }}={{ v }}{{ ', ' if not loop.last }}{% endfor %}" autocomplete="off" aria-describedby="attributes-note">
+      <button class="btn btn-sm btn-outline-secondary" type="submit" aria-label="{{ t('admin.users.set_attributes_label', user=u.username) }}">{{ t('admin.users.set_attributes') }}</button>
     </form></td>
     <td><span class="chip {{ 'ok' if u.status == 'active' else 'bad' }}">{{ u.status }}</span>
       {% if u.mustChangePassword %} <span class="chip warn">{{ t('admin.users.must_change') }}</span>{% endif %}
@@ -52,6 +59,7 @@
     </div></td>
   </tr>{% endfor %}</tbody>
 </table></div></div>
+<p class="form-text small" id="attributes-note">{{ t('admin.users.attributes_note') }}</p>
 
 <form method="post" action="/admin/users" class="card" id="user-create-form" aria-labelledby="user-create-title"><div class="card-body">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

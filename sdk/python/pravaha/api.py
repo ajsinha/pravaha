@@ -28,7 +28,7 @@ Standard library only, as :mod:`pravaha.rest` is.
 from __future__ import annotations
 
 import urllib.parse
-from typing import Any, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence
 
 from pravaha.rest import ApiError, RestClient
 from pravaha.tls import TlsOptions
@@ -385,6 +385,19 @@ class EngineApi:
         """Replaces a user's roles (administrator). ``PUT /api/v1/users/{username}/roles``."""
         return dict(
             self._rest.put("/api/v1/users/" + _segment(username) + "/roles", {"roles": list(roles)})
+            or {}
+        )
+
+    def set_attributes(self, username: str, attributes: Mapping[str, str]) -> dict[str, Any]:
+        """Replaces a user's attributes (administrator): facts about them, such as
+        ``{"region": "EU"}``, that every session and API key of theirs presents as claims for a
+        policy's ``session_attribute('region')`` to read. What is left out is removed.
+        ``PUT /api/v1/users/{username}/attributes``."""
+        return dict(
+            self._rest.put(
+                "/api/v1/users/" + _segment(username) + "/attributes",
+                {"attributes": dict(attributes)},
+            )
             or {}
         )
 

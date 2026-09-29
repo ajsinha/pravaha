@@ -625,6 +625,7 @@ pravaha password --reset-token <token> [--new <p>]
 pravaha user [list]
 pravaha user create <name> --roles a,b [--password <p>] [--tenant T] [--email E] [--display-name D] [--service]
 pravaha user disable <name> [--yes] | enable <name> | roles <name> --roles a,b | reset <name>
+pravaha user attrs <name> [KEY=VALUE ...] [--unset KEY ...]
 pravaha key [list] [--all] | create <name> [--roles a,b] [--days N] [--for <user>] | rotate <keyId> | revoke <keyId> [--yes] | report
 pravaha session [list] [--all] | end <id>
 ```
@@ -647,6 +648,14 @@ roles       admin,reader
 via         session
 token from  file
 ```
+
+`user attrs` shows a user's attributes, or sets and removes some: `pravaha user attrs ann
+region=EU desk=rates --unset team`. Attributes are facts about a person that every session and API
+key of theirs carries as claims, which is what a policy's `session_attribute('region')` reads (see
+[Row filters and masks](/help/topics/row-filters-and-masks)). The engine replaces the whole set, so
+the command reads it, changes it and sends it back; a value may contain `=` (only the first one
+splits), and `via`, `session`, `key` and `mustChangePassword` are the engine's own claims and are
+refused (`PRV-7020`).
 
 `user reset` prints a single-use reset token, once; its holder sets a password with
 `pravaha password --reset-token <token> --new <password>`. `key create` and `key rotate` print the key

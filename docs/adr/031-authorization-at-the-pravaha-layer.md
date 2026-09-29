@@ -76,6 +76,30 @@ Automatically forking state per principal was considered and rejected as a defau
 per-user filter would silently multiply the engine's state by the number of users, and the operator
 would learn this from a memory alarm. Registration-time filtering stays available and explicit.
 
+### A filter must restrict something (amended 2026-09-28, TAUTOFILTER-1)
+
+A filter that is present but restricts nothing is a false record of enforcement: the audit says
+"allowed with a row filter" and every row is served. The first form of this rule refused only a
+filter the planner folded away (SX-15: `TRUE`), and the planner folds almost nothing else, so
+`region = region` and `1 = 1 OR region = 'x'` were served as restrictions. The rule is now decided
+over the compiled predicate, the one that runs, by `FilterVacuity`:
+
+- **Vacuous** -- true for every row the object can carry, a `NOT NULL` column read as never null --
+  is refused with `PRV-7003`.
+- **Nulls only** -- true for every row whose compared columns are present, while stating no null test
+  of its own. `region = region` on a nullable column is UNKNOWN, so dropped, exactly where `region` is
+  NULL: it does restrict, but only as a side effect of three-valued logic, and whoever reads it believes
+  it restricts by value. Refused with `PRV-7003` too. The line is drawn at what the filter *states*: a
+  filter written `region IS NOT NULL` restricts by its own words and is accepted.
+- **Empty** -- false for every row. Not a leak; it fails closed. Enforced when bound to a principal,
+  because there it can be that principal's right answer; refused only where it is the same for
+  everybody (ADR-059 §4, a session-free policy at binding), because then it is a deny by another name.
+
+The analysis is sound and deliberately incomplete: it refuses what it shows to restrict nothing and
+assumes the rest restricts, because refusing a genuine filter stops a reader entitled to rows, and a
+filter too large to decide within a fixed budget is assumed to restrict. Floating point follows IEEE
+754 (`d = d` is false for NaN, so it restricts).
+
 ## Where the filter goes
 
 Into the **plan**, immediately above the scan and below any aggregate -- never concatenated into the

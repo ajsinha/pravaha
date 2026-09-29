@@ -412,6 +412,32 @@ def test_an_administrator_sets_roles_and_disables_and_enables(admin, engine):
     assert sign_in(_app(engine), "ann", "Ann-password-12").status_code == 303
 
 
+def test_an_administrator_sees_and_sets_attributes_the_claims_a_person_carries(admin, engine):
+    # STORECLAIMS-1: shown in the users table, replaced whole, refused by the engine's words.
+    _person(engine)
+    page = admin.post("/admin/users/ann/attributes", data={"attributes": "region=EU, desk = rates"}).text
+    assert "The attributes of ann are set." in page
+    assert engine.identity.users["ann"].attributes == {"region": "EU", "desk": "rates"}
+    assert 'value="desk=rates, region=EU"' in admin.get("/admin/users").text
+    admin.post("/admin/users/ann/attributes", data={"attributes": "region=US"})
+    assert engine.identity.users["ann"].attributes == {"region": "US"}
+    page = admin.post("/admin/users/ann/attributes", data={"attributes": "via=sso"}).text
+    assert "PRV-7020" in page and engine.identity.users["ann"].attributes == {"region": "US"}
+    calls = len(engine.identity.calls)
+    page = admin.post("/admin/users/ann/attributes", data={"attributes": "region"}).text
+    assert "is not name=value" in page and len(engine.identity.calls) == calls
+
+
+def test_setting_attributes_needs_the_forms_csrf_token(engine):
+    _person(engine)
+    client = _app(engine)
+    sign_in(client, keep_token=False)
+    refused = client.post("/admin/users/ann/attributes", data={"attributes": "region=EU"},
+                          follow_redirects=False)
+    assert refused.status_code == 403 and "form token" in refused.text
+    assert engine.identity.users["ann"].attributes == {}
+
+
 def test_a_reset_token_is_shown_once_and_sets_a_new_password(admin, engine):
     _person(engine)
     issued = admin.post("/admin/users/ann/password-reset", follow_redirects=False)

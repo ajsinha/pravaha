@@ -305,6 +305,9 @@ class FakeEngine:
     def set_roles(self, username, roles):
         return self._as_identity(lambda t: self.identity.set_roles(t, username, roles))
 
+    def set_attributes(self, username, attributes):
+        return self._as_identity(lambda t: self.identity.set_attributes(t, username, attributes))
+
     def reset_password(self, username):
         return self._as_identity(lambda t: self.identity.reset(t, username))
 

@@ -180,14 +180,40 @@ otherwise multiply engine state by the number of users and you would learn that 
 
 **A filter that plans to no `FilterOperator` at all is refused too, the same way (`PRV-7003`).**
 `withRowFilter` plans the filter predicate and looks for the `FilterOperator` to inject above the
-scan. When Calcite's optimizer folds the predicate to a constant — `TRUE`, `1 = 1`, a column compared
-to itself — there is none, and the read used to proceed **completely unrestricted**, recorded in the
-audit as "allowed with a row filter" (SX-15; confirmed live: a principal entitled to two of four rows,
-his filter set to `TRUE`, received all four). It now fails closed: the read is refused with a
-message saying the filter left no predicate in the plan, and that a principal who may read the whole
+scan. When the planner folds the predicate away — `TRUE`; this section used to say `1 = 1` and a
+column compared to itself as well, which the planner does not fold (TAUTOFILTER-1, below) — there is
+none, and the read used to proceed **completely unrestricted**, recorded in the audit as "allowed with
+a row filter" (SX-15; confirmed live: a principal entitled to two of four rows, his filter set to
+`TRUE`, received all four). It now fails closed: the read is refused with a message saying the filter
+is true for every row, and that a principal who may read the whole
 view should be given an unrestricted `allow()` rather than a filter that restricts nothing
 (`ViewQueryAuthorizationTest`). A policy author whose filter is built from a claim that can be empty
 or absent for some tenant therefore sees refusals for that tenant, not silent over-service.
+
+**A filter that restricts nothing is refused even when it survives planning (TAUTOFILTER-1).** The
+check above caught only what the planner folded away, and it folds `TRUE` and almost nothing else:
+`region = region`, `1 = 1 OR region = 'x'`, `x IS NULL OR x IS NOT NULL`, `NOT (a <> a)`, `a >= a` and
+`lower(r) = lower(r)` reached the plan as predicates and were enforced as though they restricted
+something. `FilterVacuity` now judges the compiled predicate — the one that runs, with three-valued
+logic already settled — by turning it into a propositional formula (constants folded, an expression
+compared with itself given its value, a `NOT NULL` column read as never null, a comparison and its
+complement one variable) and deciding it exactly. The rules:
+
+| The filter | Verdict | What happens |
+|---|---|---|
+| true for every row the object can carry — `1 = 1 OR …`, `x IS NULL OR x IS NOT NULL`, `k = k` on a `NOT NULL` column | vacuous | refused wherever it is applied (`PRV-7003`); at `ALTER … SET POLICY` for a policy that reads nothing about the session (`PRV-7038`) |
+| drops only rows where a compared column is NULL — `region = region`, `b OR NOT b`, `r = 'x' OR r <> 'x'` on a nullable column | vacuous (nulls only) | refused the same way. Such a filter *does* drop rows — `region = region` is UNKNOWN for a NULL region — but only as a side effect of three-valued logic, and an administrator reading it believes it restricts by value. A filter that says `region IS NOT NULL` in so many words is a restriction and is accepted |
+| false for every row — `a <> a`, `x = 'y' AND 1 = 0` | empty | refused when a session-free policy is bound (it keeps no row for anybody: a deny, which `REVOKE` says plainly); **enforced** when bound to a reader, where it can be the right answer for that reader (`is_member('eu') AND region = 'EU'` for a non-member) and fails closed |
+| anything else | restricts | applied |
+
+The analysis is **sound, not complete**: it never calls a filter vacuous that keeps some rows and not
+others by their values (a property test evaluates thousands of random predicates over every row of a
+small domain, NULLs and a NaN included), but it does not find every tautology (`a < 5 OR a > 2`), and a
+filter too large to decide within its budget is assumed to restrict. Floating point is taken as IEEE
+754: `d = d` is false for NaN, so over a `DOUBLE` it restricts and is accepted. A catalogue policy that
+reads the session (`session_attribute`, `current_user()`, `is_member`) is judged when it is bound to a
+reader, at each read — under the stand-in values `CREATE`'s check plans it with, its verdict describes
+nobody. The rule is written down in ADR-031 and ADR-059.
 
 ## Metadata is data
 
@@ -401,8 +427,8 @@ SHOW POLICIES ON VIEW payments;
 | Who is narrowed | Every reader of the object except holders of an `EXCEPT ROLE` — not its owner, not `admin` |
 | Several filters | AND together |
 | Masks | One per column per reader; two are refused (`PRV-7040`). A mask keeps its column's type and reads only that column |
-| Expressions | Columns, literals, operators, `CASE`, `CAST`, a fixed list of pure functions, `session_attribute('claim')`, `current_user()`, `is_member('role')`. Subqueries, non-deterministic and unlisted functions are refused (`PRV-7038`); a filter true for every row is refused (`PRV-7003`) |
-| Claims | Bound as SQL literals with their quotes doubled; a claim the reader lacks is refused (`PRV-7039`). Static tokens carry claims under `pravaha.security.tokens.<t>.claims` |
+| Expressions | Columns, literals, operators, `CASE`, `CAST`, a fixed list of pure functions, `session_attribute('claim')`, `current_user()`, `is_member('role')`. Subqueries, non-deterministic and unlisted functions are refused (`PRV-7038`); a filter that restricts nothing — true for every row, or dropping only rows with a NULL in a compared column — is refused (`PRV-7003`), and one false for every row is refused when it reads nothing about the session (TAUTOFILTER-1) |
+| Claims | Bound as SQL literals with their quotes doubled; a claim the reader lacks is refused (`PRV-7039`). Static tokens carry claims under `pravaha.security.tokens.<t>.claims`; users in the identity store carry their **attributes** as claims (below) |
 | Tag bindings | Reach objects of the policy's own tenant only; a direct binding reaches every reader of the object |
 | A masked column compared | Refused at plan time with `PRV-7006`: filter operand, group, join, sort or ranking key, aggregate argument, a view's key column, a subscription's tap filter, an alert's `WHERE` |
 | A changed policy | Ends open subscriptions of the readers it affects with `PRV-7007`; an alert follows again under the new policy |
@@ -558,6 +584,21 @@ of secrets:
 
 Sign-in and administration are REST calls under `/api/v1/auth`, `/users`, `/keys` and `/sessions`, and
 the same from a shell: `pravaha login`, `pravaha user`, `pravaha key`, `pravaha session` and `pravaha password`.
+
+**Attributes are a user's claims (STORECLAIMS-1).** An administrator records facts about a user —
+`region=EU` — with `PUT /api/v1/users/{name}/attributes` (the whole set, like roles), `pravaha user
+attrs ann region=EU [--unset K]` or the **Attributes** column of Admin · Users. They are journalled with
+the user, audited as `user.attributes_changed` (names only, never values), and presented as claims by
+every credential of the user's, read from the store at each request, so a change applies at the
+user's next call: a session, an API key — which carries exactly its holder's attributes and none of its
+own, so it can neither choose another value (which would widen what a filter reading it keeps) nor
+drop one (which would only turn the holder's rows into a `PRV-7039` refusal) — and the principal a
+registration is restored as after a restart, or an alert runs as. A policy reading
+`session_attribute('region')` therefore applies to store users as it does to static tokens. The
+names `via`, `session`, `key` and `mustChangePassword` are the engine's own claims and are refused;
+at most 32 attributes, each value 1 to 256 characters with no control characters (`PRV-7020`).
+Restoring a registration now asks the identity store for its owner before the token table; before,
+a registration by a store user was refused at every restart.
 The codes are `PRV-7010` to `PRV-7021` ([`TROUBLESHOOTING.md`](TROUBLESHOOTING.md)). Forcing a change
 of password at first sign-in is configuration (`pravaha.identity.password.force-change`), off unless
 set. So is single sign-on, which is used only when a provider is configured. `admin` is created on

@@ -39,8 +39,14 @@ import com.ash.messaging.pravaha.sql.plan.NarrowingPlan;
  *
  * <p>The expression is planned as {@link PolicyExpression#probe()} spells it -- every claim {@code '0'},
  * every membership FALSE -- over the object's own columns: a filter naming a column the object does not
- * carry, a filter true for every row, a mask whose column is missing or whose value changes its type,
- * are each refused with {@code PRV-7038} here rather than at every read afterwards.
+ * carry, a mask whose column is missing or whose value changes its type, are each refused with
+ * {@code PRV-7038} here rather than at every read afterwards.
+ *
+ * <p>Whether a filter restricts anything (TAUTOFILTER-1) is decided here only for a filter that reads
+ * nothing about the session: it is the same filter for everybody, so one true for every row, one that
+ * drops only rows with a NULL in a compared column, and one false for every row are refused. A filter that
+ * reads the session is judged when it is bound to a principal, at each read -- under the probe's
+ * stand-in values its verdict describes no real reader ({@link NarrowingPlan.Judgement#SESSION_POLICY}).
  */
 final class PolicyCheck {
 
@@ -67,7 +73,12 @@ final class PolicyCheck {
             narrowing = new Narrowing(Optional.of(probe), Map.of(), List.of());
         }
         try {
-            NarrowingPlan.compile(schema, narrowing);
+            NarrowingPlan.compile(
+                    schema,
+                    narrowing,
+                    policy.parsed().readsSession()
+                            ? NarrowingPlan.Judgement.SESSION_POLICY
+                            : NarrowingPlan.Judgement.SESSION_FREE_POLICY);
         } catch (PravahaException e) {
             if (e.errorCode().number() == CatalogErrors.POLICY_INVALID.number()) {
                 throw e;

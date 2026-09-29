@@ -188,6 +188,8 @@ def user(ctx: Context) -> int:
         roles = csv(ctx.require("roles"))
         answer = api.set_roles(name, roles)
         text = f"{name} now has {','.join(roles)}"
+    elif verb == "attrs":
+        answer, text = _attributes(ctx, name)
     else:  # reset
         answer = api.issue_password_reset(name)
         text = (
@@ -200,6 +202,39 @@ def user(ctx: Context) -> int:
     else:
         out.line(text)
     return EXIT_OK
+
+
+def _attributes(ctx: Context, name: str) -> "tuple[dict[str, Any], str]":
+    """``user attrs``: the user's attributes, with ``KEY=VALUE`` pairs set and ``--unset`` ones
+    removed. The engine replaces the whole set, so this reads it first and sends it back changed;
+    with nothing to change it only shows it (STORECLAIMS-1)."""
+    pairs = list(ctx.arg("pairs") or [])
+    unset = list(ctx.arg("unset") or [])
+    listed = [u for u in ctx.api.users() if u.get("username") == name]
+    if not listed:
+        raise UsageError(f"no user named {name!r}")
+    current = dict(listed[0].get("attributes") or {})
+    if not pairs and not unset:
+        answer = listed[0]
+    else:
+        wanted = dict(current)
+        for pair in pairs:
+            key, sep, value = str(pair).partition("=")
+            if not sep or not key:
+                raise UsageError(f"{pair!r} is not KEY=VALUE; to remove an attribute use --unset KEY")
+            wanted[key] = value
+        for key in unset:
+            if key not in wanted:
+                raise UsageError(f"{name} has no attribute {key!r} to unset")
+            wanted.pop(key)
+        answer = ctx.api.set_attributes(name, wanted)
+    shown = dict(answer.get("attributes") or {})
+    text = (
+        f"{name}: " + ", ".join(f"{k}={v}" for k, v in sorted(shown.items()))
+        if shown
+        else f"{name} has no attributes"
+    )
+    return answer, text
 
 
 # ---------------------------------------------------------------------------------- API keys

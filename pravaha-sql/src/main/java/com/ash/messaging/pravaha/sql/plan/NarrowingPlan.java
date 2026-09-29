@@ -54,10 +54,11 @@ import com.ash.messaging.pravaha.sql.SqlPlanner;
  * produces another type is refused ({@code PRV-7038}) rather than cast: {@code 'XXXX'} is not a mask for
  * a {@code BIGINT}.
  *
- * <p>The soundness rules of ADR-031 hold unchanged: a filter naming a column the object does not carry,
- * or one the planner folds to true for every row, is {@code PRV-7003}. A mask on a column the object does
- * not carry masks nothing and is left out -- a tag-bound mask names a column, and a tagged object without
- * it has nothing of it to hide.
+ * <p>The soundness rules of ADR-031 hold unchanged: a filter naming a column the object does not carry
+ * is {@code PRV-7003}, and so is one that restricts nothing -- true for every row, or dropping only the
+ * rows where a compared value is NULL -- as {@link FilterVacuity} decides it over the compiled predicate
+ * (TAUTOFILTER-1). A mask on a column the object does not carry masks nothing and is left out -- a
+ * tag-bound mask names a column, and a tagged object without it has nothing of it to hide.
  */
 public final class NarrowingPlan {
 
@@ -83,6 +84,36 @@ public final class NarrowingPlan {
      *     {@code PRV-7038} for a mask that names another column or changes the column's type
      */
     public static NarrowingPlan compile(StreamSchema schema, Narrowing narrowing) {
+        return compile(schema, narrowing, Judgement.BOUND);
+    }
+
+    /**
+     * How much of {@link FilterVacuity}'s verdict a caller acts on. A filter bound to a principal is
+     * judged as it will run; a catalogue policy being created is judged only as far as its text allows.
+     */
+    public enum Judgement {
+        /** Bound to a principal: a filter that restricts nothing is refused; one that keeps no row is enforced. */
+        BOUND,
+        /**
+         * A policy that reads nothing about the session, being created: it is the same filter for everybody,
+         * so one that keeps no row is refused as well -- it keeps none for anybody, and a deny says so.
+         */
+        SESSION_FREE_POLICY,
+        /**
+         * A policy that reads the session, being created and planned as {@code probe()} binds it (claims
+         * {@code '0'}, memberships FALSE). Only whether it plans is decided: its vacuity under the probe says
+         * nothing about any real principal ({@code NOT is_member('x') OR region = 'EU'} is TRUE under the
+         * probe and a real filter for members of x), so it is judged when bound, at every read.
+         */
+        SESSION_POLICY
+    }
+
+    /**
+     * {@code narrowing} compiled against {@code schema}, its filter judged as {@code judgement} says.
+     *
+     * @throws PravahaException as {@link #compile(StreamSchema, Narrowing)}
+     */
+    public static NarrowingPlan compile(StreamSchema schema, Narrowing narrowing, Judgement judgement) {
         if (narrowing == null || narrowing.isNone()) {
             return NONE;
         }
@@ -93,7 +124,7 @@ public final class NarrowingPlan {
             narrowing.maskOf(column).ifPresent(mask -> masks.put(at, mask));
         }
         Predicate predicate =
-                narrowing.rowFilter().map(f -> filterOf(schema, f)).orElse(null);
+                narrowing.rowFilter().map(f -> filterOf(schema, f, judgement)).orElse(null);
         if (masks.isEmpty()) {
             return predicate == null ? NONE : new NarrowingPlan(predicate, null, Set.of(), narrowing);
         }
@@ -146,7 +177,7 @@ public final class NarrowingPlan {
 
     // ------------------------------------------------------------------------------ compiling
 
-    private static Predicate filterOf(StreamSchema schema, String filter) {
+    private static Predicate filterOf(StreamSchema schema, String filter, Judgement judgement) {
         PhysicalOperator plan;
         try {
             plan = new PhysicalPlanBuilder()
@@ -164,14 +195,26 @@ public final class NarrowingPlan {
                     e);
         }
         Predicate found = predicateOf(plan);
-        if (found == null) {
-            // ADR-031's always-true refusal, reused: the planner folded the filter away, so nothing would
-            // restrict the read while the audit said a filter applied.
+        if (judgement == Judgement.SESSION_POLICY) {
+            return found;
+        }
+        // TAUTOFILTER-1. This used to refuse only a filter the planner folded away -- TRUE, and little
+        // else -- so region = region and 1 = 1 OR region = 'x' were enforced as though they restricted
+        // something. FilterVacuity judges the predicate that will run.
+        String subject = "the row filter on " + schema.name() + " (" + filter + ")";
+        FilterVacuity.Verdict verdict = FilterVacuity.requireRestricts(
+                found,
+                schema,
+                subject,
+                "if the reader may see every row, exempt them with EXCEPT ROLE rather than write a filter that "
+                        + "restricts nothing");
+        if (verdict == FilterVacuity.Verdict.ALWAYS_FALSE && judgement == Judgement.SESSION_FREE_POLICY) {
             throw new PravahaException(
                     SecurityErrors.FILTER_NOT_ENFORCEABLE,
-                    "the row filter on " + schema.name() + " (" + filter + ") left no predicate in the plan: it is "
-                            + "true for every row, so it restricts nothing. Refused rather than served as though it "
-                            + "restricted something; exempt the reader with EXCEPT ROLE instead");
+                    subject + " is false for every row: it reads nothing about the reader, so it keeps no row for "
+                            + "anybody, and a policy that hides everything is a deny wearing a filter's name. "
+                            + "Refused as almost certainly a mistake (TAUTOFILTER-1); to deny reading, REVOKE the "
+                            + "grant");
         }
         return found;
     }

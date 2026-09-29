@@ -154,6 +154,7 @@ HTTP (`--http`):
 | `login --user U [--password P \| --password-stdin] [--save]`, `logout`, `whoami` | `POST /api/v1/auth/login`, `/auth/logout`, `GET /auth/me` |
 | `password [--current] [--new]`, `password --reset-token T [--new]` | `POST /api/v1/auth/password`, `/auth/reset/redeem` |
 | `user [list]`, `user create N --roles a,b [...]`, `user disable N [--yes]`, `enable N`, `roles N --roles`, `reset N` | `/api/v1/users...` |
+| `user attrs N [KEY=VALUE ...] [--unset KEY ...]` | `GET /api/v1/users`, then `PUT /api/v1/users/{name}/attributes` with the whole set |
 | `key [list] [--all]`, `key create N [--roles] [--days] [--for U]`, `rotate K`, `revoke K [--yes]`, `report` | `/api/v1/keys...` |
 | `session [list] [--all]`, `session end I` | `/api/v1/sessions...` |
 | `catalog ls [--namespace] [--kind]`, `catalog search T`, `catalog namespaces`, `catalog show O` | `GET /api/v1/catalog/objects[?q=]`, `/catalog/namespaces`, `/catalog/objects/{name}` |

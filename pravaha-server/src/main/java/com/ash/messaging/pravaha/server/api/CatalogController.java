@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Set;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
@@ -251,6 +252,7 @@ public class CatalogController {
 
     @PostMapping("/namespaces")
     @Operation(summary = "Create a namespace", description = "Needs CREATE on the tenant; the caller owns it")
+    @ApiResponse(responseCode = "201", description = "The namespace was created")
     public ResponseEntity<CatalogObjectDto> createNamespace(HttpServletRequest http, @RequestBody NewNamespace body) {
         Principal caller = authorizer.principalOf(http);
         String name = body == null || body.name() == null ? "" : body.name().strip();
@@ -289,6 +291,7 @@ public class CatalogController {
 
     @PostMapping("/grants")
     @Operation(summary = "Grant privileges on an object to a role or user", description = "Needs MANAGE on the object")
+    @ApiResponse(responseCode = "201", description = "The privileges were granted")
     public ResponseEntity<GrantPage> grant(HttpServletRequest http, @RequestBody GrantRequest body) {
         Principal caller = authorizer.principalOf(http);
         CatalogService service = service();
@@ -301,6 +304,7 @@ public class CatalogController {
 
     @DeleteMapping("/grants")
     @Operation(summary = "Revoke privileges on an object from a role or user", description = "Needs MANAGE")
+    @ApiResponse(responseCode = "204", description = "The privileges were revoked")
     public ResponseEntity<Void> revoke(
             HttpServletRequest http,
             @RequestParam String object,

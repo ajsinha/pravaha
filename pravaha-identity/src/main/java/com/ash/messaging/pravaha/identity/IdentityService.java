@@ -157,7 +157,8 @@ public final class IdentityService {
                 null,
                 null,
                 null,
-                now));
+                now,
+                Map.of()));
         record(
                 system(),
                 "bootstrap.admin_created",
@@ -351,7 +352,9 @@ public final class IdentityService {
             throw new PravahaException(IdentityErrors.SESSION_EXPIRED, "this account is no longer active");
         }
         lastSeen.put(id, now);
-        Map<String, String> claims = new HashMap<>();
+        // The user's attributes first, then what the engine itself says of the credential: a reserved
+        // name is refused when an attribute is set, so neither can overwrite the other.
+        Map<String, String> claims = new HashMap<>(user.attributes());
         claims.put("via", "session");
         claims.put("session", id);
         if (user.mustChangePassword()) {
@@ -409,7 +412,13 @@ public final class IdentityService {
         // A key narrows its holder and never widens: if the holder has since lost a role, so has the key.
         Set<String> roles = new LinkedHashSet<>(key.roles());
         roles.retainAll(holder.roles());
-        return new Principal(holder.username(), tenantOf(holder), roles, Map.of("via", "key", "key", keyId));
+        // STORECLAIMS-1. A key presents its holder's attributes as they are now, exactly: it carries none
+        // of its own, so it can neither choose another value (which would widen what a filter reading it
+        // keeps) nor drop one (which would only turn the holder's rows into a PRV-7039 refusal).
+        Map<String, String> claims = new HashMap<>(holder.attributes());
+        claims.put("via", "key");
+        claims.put("key", keyId);
+        return new Principal(holder.username(), tenantOf(holder), roles, claims);
     }
 
     private static String tenantOf(Identities.User user) {
@@ -497,7 +506,8 @@ public final class IdentityService {
             Instant passwordChangedAt,
             Instant lockedUntil,
             Instant lastLoginAt,
-            Instant createdAt) {}
+            Instant createdAt,
+            Map<String, String> attributes) {}
 
     private static UserView view(Identities.User u) {
         return new UserView(
@@ -512,7 +522,8 @@ public final class IdentityService {
                 u.passwordChangedAt(),
                 u.lockedUntil(),
                 u.lastLoginAt(),
-                u.createdAt());
+                u.createdAt(),
+                u.attributes());
     }
 
     public synchronized List<UserView> users(Principal admin) {
@@ -521,14 +532,16 @@ public final class IdentityService {
     }
 
     /**
-     * The principal {@code username} signs in as -- their tenant and roles, no claims -- for a question
-     * about what they may do (ADR-059's {@code SHOW EFFECTIVE ACCESS}). Empty for no such user.
+     * The principal {@code username} signs in as -- their tenant, roles and attributes as claims -- for a
+     * question about what they may do (ADR-059's {@code SHOW EFFECTIVE ACCESS}) and for acting on their
+     * behalf when they are not the caller: a registration restored at restart, an alert. Empty for no such
+     * user.
      */
     public synchronized Optional<Principal> principalOfUser(String username) {
         Identities.User user = username == null ? null : store.users.get(username);
         return user == null
                 ? Optional.empty()
-                : Optional.of(new Principal(user.username(), tenantOf(user), user.roles(), Map.of()));
+                : Optional.of(new Principal(user.username(), tenantOf(user), user.roles(), user.attributes()));
     }
 
     public synchronized UserView me(Principal who) {
@@ -571,7 +584,8 @@ public final class IdentityService {
                 null,
                 null,
                 null,
-                now);
+                now,
+                Map.of());
         if (password != null) {
             Optional<String> refusal = policy.refusal(username, password, List.of());
             if (refusal.isPresent()) {
@@ -615,6 +629,69 @@ public final class IdentityService {
         store.putUser(user.withRoles(roles));
         record(admin, "user.roles_changed", username, true, user.roles() + " -> " + roles, null);
         return view(store.users.get(username));
+    }
+
+    /** Names the engine gives a credential's own claims; an attribute may not take one. */
+    static final Set<String> RESERVED_ATTRIBUTES = Set.of("via", "session", "key", "mustChangePassword");
+
+    /** The most attributes one user carries. */
+    static final int MAX_ATTRIBUTES = 32;
+
+    /** The longest attribute value. */
+    static final int MAX_ATTRIBUTE_VALUE = 256;
+
+    /**
+     * Replaces a user's attributes (STORECLAIMS-1): facts about them -- {@code region=EU} -- that every
+     * credential of theirs presents as claims, for policies to read with {@code session_attribute}. Takes
+     * effect at the user's next request: sessions and keys read the store at each one.
+     */
+    public synchronized UserView setAttributes(Principal admin, String username, Map<String, String> attributes) {
+        requireAdmin(admin);
+        Identities.User user = requireUser(username);
+        Map<String, String> wanted = attributes == null ? Map.of() : attributes;
+        if (wanted.size() > MAX_ATTRIBUTES) {
+            throw new PravahaException(
+                    IdentityErrors.INVALID_REQUEST,
+                    "a user carries at most " + MAX_ATTRIBUTES + " attributes; " + wanted.size() + " were given");
+        }
+        wanted.forEach(IdentityService::requireAttribute);
+        Set<String> set = new java.util.TreeSet<>();
+        wanted.forEach((name, value) -> {
+            if (!value.equals(user.attributes().get(name))) {
+                set.add(name);
+            }
+        });
+        Set<String> removed = new java.util.TreeSet<>(user.attributes().keySet());
+        removed.removeAll(wanted.keySet());
+        store.putUser(user.withAttributes(wanted));
+        // Names only: a value is a fact about a person, and the audit trail does not need it to say what
+        // changed.
+        record(admin, "user.attributes_changed", username, true, "set " + set + ", removed " + removed, null);
+        return view(store.users.get(username));
+    }
+
+    private static void requireAttribute(String name, String value) {
+        if (name == null || !name.matches("[A-Za-z][A-Za-z0-9_.-]{0,63}")) {
+            throw new PravahaException(
+                    IdentityErrors.INVALID_REQUEST,
+                    "an attribute name is 1 to 64 letters, digits, '.', '_' and '-', starting with a letter; '" + name
+                            + "' is not");
+        }
+        if (RESERVED_ATTRIBUTES.contains(name)) {
+            throw new PravahaException(
+                    IdentityErrors.INVALID_REQUEST,
+                    "'" + name + "' is a claim the engine sets on every credential it resolves "
+                            + new java.util.TreeSet<>(RESERVED_ATTRIBUTES) + ", so it cannot be an attribute");
+        }
+        if (value == null
+                || value.isEmpty()
+                || value.length() > MAX_ATTRIBUTE_VALUE
+                || value.chars().anyMatch(Character::isISOControl)) {
+            throw new PravahaException(
+                    IdentityErrors.INVALID_REQUEST,
+                    "the attribute '" + name + "' needs a value of 1 to " + MAX_ATTRIBUTE_VALUE
+                            + " characters with no control characters; to remove it, leave it out");
+        }
     }
 
     /** An administrator sets a password directly; with forced change configured, it must be changed. */

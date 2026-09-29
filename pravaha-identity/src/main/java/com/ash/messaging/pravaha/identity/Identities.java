@@ -17,6 +17,7 @@ package com.ash.messaging.pravaha.identity;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -27,7 +28,13 @@ public final class Identities {
 
     private Identities() {}
 
-    /** A person or a service account. Disabled, never deleted: the audit trail names owners by id. */
+    /**
+     * A person or a service account. Disabled, never deleted: the audit trail names owners by id.
+     *
+     * <p>{@code attributes} are facts an administrator records about the user -- {@code region=EU} -- and
+     * every credential of theirs presents them as the principal's claims, which is what a policy's
+     * {@code session_attribute('region')} reads (STORECLAIMS-1).
+     */
     public record User(
             String username,
             String displayName,
@@ -44,11 +51,15 @@ public final class Identities {
             Instant firstFailedAt,
             Instant lockedUntil,
             Instant lastLoginAt,
-            Instant createdAt) {
+            Instant createdAt,
+            Map<String, String> attributes) {
 
         public User {
             roles = Set.copyOf(roles);
             previousHashes = List.copyOf(previousHashes);
+            attributes = attributes == null
+                    ? Map.of()
+                    : java.util.Collections.unmodifiableMap(new java.util.TreeMap<>(attributes));
         }
 
         public boolean active() {
@@ -72,7 +83,8 @@ public final class Identities {
                     null,
                     null,
                     lastLoginAt,
-                    createdAt);
+                    createdAt,
+                    attributes);
         }
 
         User withFailures(int failed, Instant first, Instant locked) {
@@ -92,7 +104,8 @@ public final class Identities {
                     first,
                     locked,
                     lastLoginAt,
-                    createdAt);
+                    createdAt,
+                    attributes);
         }
 
         User withLogin(Instant at, String rehashed, boolean mustChange) {
@@ -112,7 +125,8 @@ public final class Identities {
                     null,
                     null,
                     at,
-                    createdAt);
+                    createdAt,
+                    attributes);
         }
 
         User withProfile(String display, String mail, String tenantName, String newStatus) {
@@ -132,7 +146,8 @@ public final class Identities {
                     firstFailedAt,
                     lockedUntil,
                     lastLoginAt,
-                    createdAt);
+                    createdAt,
+                    attributes);
         }
 
         User withRoles(Set<String> newRoles) {
@@ -152,7 +167,33 @@ public final class Identities {
                     firstFailedAt,
                     lockedUntil,
                     lastLoginAt,
-                    createdAt);
+                    createdAt,
+                    attributes);
+        }
+
+        /**
+         * With {@code newAttributes} as the user's attributes, which every credential of theirs presents as
+         * claims (STORECLAIMS-1).
+         */
+        User withAttributes(Map<String, String> newAttributes) {
+            return new User(
+                    username,
+                    displayName,
+                    email,
+                    tenant,
+                    roles,
+                    status,
+                    service,
+                    passwordHash,
+                    previousHashes,
+                    mustChangePassword,
+                    passwordChangedAt,
+                    failedAttempts,
+                    firstFailedAt,
+                    lockedUntil,
+                    lastLoginAt,
+                    createdAt,
+                    newAttributes);
         }
     }
 

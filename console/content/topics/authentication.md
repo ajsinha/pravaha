@@ -223,6 +223,14 @@ the account for 30 (`PRV-7011`), and the refusal is the same whether the usernam
 was wrong (`PRV-7010`). Your own API keys -- for a program that calls the engine as you, with no more
 than your roles -- are made, rotated and revoked on the console's **Account** page, and shown once.
 
+An administrator keeps the accounts under **Admin · Users**: adds a person, sets their roles,
+disables and enables them, issues a password reset, and sets their **attributes** -- facts such as
+`region=EU` that every session and API key of theirs carries as claims, for a row filter's
+`session_attribute('region')` to read ([Row filters and masks](/help/topics/row-filters-and-masks)).
+Attributes are replaced as a whole set; `via`, `session`, `key` and `mustChangePassword` are the
+engine's own claims and are refused (`PRV-7020`). The same from a shell: `pravaha user attrs ann
+region=EU`.
+
 ## Bringing your own identity provider
 
 `TokenVerifier` takes the credential and returns a `Principal`, or throws PRV-7001. An
