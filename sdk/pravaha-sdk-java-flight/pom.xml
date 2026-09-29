@@ -49,17 +49,12 @@
       configuration validation (readable files, both halves present) and never started a server,
       so the gap had no way to be seen.
 
-      The version is 4.2.9.Final, not the 4.1.130.Final most of grpc-netty's own transitive Netty
-      artifacts resolve to; requireUpperBoundDeps is what caught the difference. Arrow's own
-      flight-core already pulls netty-handler:4.2.9.Final, so the tree already spans two Netty
-      lines before this dependency is added; this one has to match the higher of the two or the
-      enforcer refuses the build, and matching the higher is the correct choice regardless: a
-      dependency compiled against the newer API must not find the older class on the classpath.
+      Its version comes from the parent's netty-bom, the Netty pravaha-server ships, like every other
+      netty artifact in this module (PKG-4); see the enforcer configuration below.
     -->
     <dependency>
       <groupId>io.netty</groupId>
       <artifactId>netty-transport-native-unix-common</artifactId>
-      <version>4.2.9.Final</version>
       <scope>runtime</scope>
     </dependency>
     <dependency>
@@ -102,6 +97,36 @@
         <configuration>
           <argLine>@{jacoco.surefire.argLine} -Xss4m --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED</argLine>
         </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>enforce-build-environment</id>
+            <configuration>
+              <rules>
+                <!--
+                  Netty, and only Netty, is exempt from requireUpperBoundDeps here (PKG-4). The
+                  parent's netty-bom holds every netty artifact at the version pravaha-server ships
+                  (Spring Boot's, 4.1.x), so this module's tests run on the Netty the node runs on;
+                  Arrow 19's flight-core and arrow-memory-netty ask for 4.2.9, which the rule would
+                  otherwise refuse. Every other artifact is still checked. The rule matches
+                  groupId:artifactId exactly; these four are the ones Arrow asks for above the pin
+                  (2026-09-29), and a new one refuses the build until it is looked at.
+                -->
+                <requireUpperBoundDeps>
+                  <excludes combine.children="append">
+                    <exclude>io.netty:netty-buffer</exclude>
+                    <exclude>io.netty:netty-common</exclude>
+                    <exclude>io.netty:netty-handler</exclude>
+                    <exclude>io.netty:netty-transport</exclude>
+                  </excludes>
+                </requireUpperBoundDeps>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>

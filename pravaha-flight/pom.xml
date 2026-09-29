@@ -53,12 +53,10 @@
          through PravahaFlightServer.encryptedWith could ever complete; only starting a real TLS
          server and connecting a real client (FlightServerTlsEndToEndTest) surfaced it, the same
          way it surfaced in sdk-java-flight, whose pom.xml carries the identical fix at the
-         identical version, pinned to flight-core's own transitive netty-handler version to
-         satisfy requireUpperBoundDeps. -->
+         identical version: the parent's netty-bom, which is the Netty pravaha-server ships (PKG-4). -->
     <dependency>
       <groupId>io.netty</groupId>
       <artifactId>netty-transport-native-unix-common</artifactId>
-      <version>4.2.9.Final</version>
       <scope>runtime</scope>
     </dependency>
   </dependencies>
@@ -77,6 +75,36 @@
           -->
           <argLine>@{jacoco.surefire.argLine} -Xss4m --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED</argLine>
         </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>enforce-build-environment</id>
+            <configuration>
+              <rules>
+                <!--
+                  Netty, and only Netty, is exempt from requireUpperBoundDeps here (PKG-4). The
+                  parent's netty-bom holds every netty artifact at the version pravaha-server ships
+                  (Spring Boot's, 4.1.x), so this module's tests run on the Netty the node runs on;
+                  Arrow 19's flight-core and arrow-memory-netty ask for 4.2.9, which the rule would
+                  otherwise refuse. Every other artifact is still checked. The rule matches
+                  groupId:artifactId exactly; these four are the ones Arrow asks for above the pin
+                  (2026-09-29), and a new one refuses the build until it is looked at.
+                -->
+                <requireUpperBoundDeps>
+                  <excludes combine.children="append">
+                    <exclude>io.netty:netty-buffer</exclude>
+                    <exclude>io.netty:netty-common</exclude>
+                    <exclude>io.netty:netty-handler</exclude>
+                    <exclude>io.netty:netty-transport</exclude>
+                  </excludes>
+                </requireUpperBoundDeps>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>

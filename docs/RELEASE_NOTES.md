@@ -602,6 +602,19 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   dependencies, from Spring Boot's BOM: `micrometer-tracing-bridge-otel`, `opentelemetry-exporter-otlp`
   over the JDK's HTTP client (`opentelemetry-exporter-sender-jdk`; OkHttp and Kotlin excluded). New
   help topic *Observability*.
+- **The Flight modules test on the Netty that ships (PKG-4).** The parent imports `netty-bom`
+  4.1.135.Final (the version Spring Boot 3.5.16's BOM gives `pravaha-server`) ahead of `arrow-bom`,
+  so `pravaha-flight` and `pravaha-sdk-java-flight` resolve the same Netty as the node instead of a
+  mix of 4.1.130 and 4.2.9. Those two modules exempt exactly `netty-buffer`, `netty-common`,
+  `netty-handler` and `netty-transport` (which Arrow 19 asks for at 4.2.9) from `requireUpperBoundDeps`;
+  every other artifact and rule is still enforced. What `pravaha-server` ships is unchanged.
+  **An application that depends on `pravaha-sdk-java-flight` now receives Netty 4.1.135 from it,
+  not 4.2.9.**
+- **Chart colours kept clear of the accent (CON-10).** A data series less than 25 ΔE from its theme's
+  accent is moved just past it: light `--pv-series-8` `#e34948` → `#f1353e`, dark `--pv-series-5`
+  `#d55181` → `#d44487` and `--pv-series-8` `#e66767` → `#f25d61`, blue `--pv-series-1` `#2a78d6` →
+  `#2176e4`. The contrast test now holds accent against every series, and series against each other,
+  in every theme.
 
 
 Register: **467 findings — 431 fixed, 22 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
