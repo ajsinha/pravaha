@@ -124,12 +124,16 @@ public final class ViewNames {
         throw new PravahaException(
                 SecurityErrors.FORBIDDEN,
                 principal.id() + " may not address '" + name + "': a qualified name reaches outside the caller's "
-                        + "tenant, which only an admin may do. Name a view of your own tenant without a qualifier.");
+                        + "tenant, which only an admin may do. Name one of your own tenant's without a qualifier.");
     }
 
     /**
      * Where {@code .default.} separates a qualified name's tenant from its name, or {@code -1} when
-     * {@code name} is not {@code tenant.default.identifier}.
+     * {@code name} is not {@code tenant.default.name}.
+     *
+     * <p>The name is any catalogue name part -- no dot, colon, quote or whitespace -- so an alert's name,
+     * which may hold a hyphen, is addressed the way a view's is. A view name is an identifier, so a
+     * qualified name whose last part is not one simply names no view.
      */
     private static int qualifierAt(String name) {
         if (name == null) {
@@ -140,10 +144,16 @@ public final class ViewNames {
             return -1;
         }
         int at = dot - NAMESPACE.length() - 1;
-        return at > 0 && isIdentifier(name.substring(dot + 1)) ? at : -1;
+        return at > 0 && isNamePart(name.substring(dot + 1)) ? at : -1;
     }
 
-    private static boolean isIdentifier(String part) {
-        return part.matches("[\\p{L}_][\\p{L}\\p{N}_]*");
+    private static boolean isNamePart(String part) {
+        return !part.isEmpty()
+                && part.chars()
+                        .noneMatch(c -> c == ':'
+                                || c == '"'
+                                || c == '\''
+                                || Character.isWhitespace(c)
+                                || Character.isISOControl(c));
     }
 }

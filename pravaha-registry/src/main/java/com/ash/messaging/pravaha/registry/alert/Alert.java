@@ -282,7 +282,7 @@ final class Alert implements AnswerListener {
                             now.toString(),
                             encodeRow(state.row)));
                     service.audit("alert.fire", definition, describe(state.key));
-                    service.transition(definition.name(), AlertStatistics.FIRED);
+                    service.transition(definition.engineName(), AlertStatistics.FIRED);
                 } else if (state.firing
                         && !state.in
                         && state.outSince != null
@@ -292,7 +292,7 @@ final class Alert implements AnswerListener {
                     state.outSince = null;
                     decided.add(List.of("C", definition.id(), encodeKey(state.key), now.toString()));
                     service.audit("alert.clear", definition, describe(state.key));
-                    service.transition(definition.name(), AlertStatistics.CLEARED);
+                    service.transition(definition.engineName(), AlertStatistics.CLEARED);
                 }
             }
             // Journalled and forced before anything is sent: the state is exactly once.

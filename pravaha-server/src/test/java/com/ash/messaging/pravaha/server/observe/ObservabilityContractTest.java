@@ -223,7 +223,7 @@ class ObservabilityContractTest {
     @Test
     void theNewFeaturesMetersAreOnTheScrape() {
         assertThat(scrape)
-                .contains("pravaha_alert_keys_firing{", "alert=\"big_spender\"")
+                .contains("pravaha_alert_keys_firing{", "alert=\"acme.default.big_spender\"")
                 .contains("pravaha_alert_transitions_total{", "kind=\"fired\"")
                 .contains("pravaha_alert_notifications_total{", "channel=\"ops-log\"", "outcome=\"failed\"")
                 .contains("pravaha_alert_notification_retries_total{")

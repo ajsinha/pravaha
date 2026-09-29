@@ -27,7 +27,8 @@ CREATE ALERT low_stock_alert ON low_stock
   WITH (severity = 'warning', dedupe = '10m', include = (on_hand, reorder_point));
 ```
 
-- **The alert's name** shares the namespace of queries (PRV-8041) and may not be `channels`, which
+- **The alert's name** is unique within your tenant and shares its namespace with your tenant's
+  queries (PRV-8041); another tenant may have an alert of the same name. It may not be `channels`, which
   is the path of the channel list (`/api/v1/alerts/channels`): PRV-8042 (ALERTPATH-1).
 - **`ON`** names a registered query's view (under the catalogue, `namespace.view` too). The view's
   page, and `dependants` in `GET /api/v1/queries/{name}`, list the alert as `ALERT <name>`

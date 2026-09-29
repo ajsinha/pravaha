@@ -54,7 +54,33 @@ public final class AlertStatus {
             String problem,
             Instant createdAt,
             Instant updatedAt,
-            String updatedBy) {}
+            String updatedBy) {
+
+        /** This summary under another name: an alert as a caller is shown it (ADR-060). */
+        public Summary named(String shown) {
+            return new Summary(
+                    shown,
+                    view,
+                    tenant,
+                    owner,
+                    state,
+                    following,
+                    condition,
+                    channels,
+                    severity,
+                    options,
+                    snoozedUntil,
+                    firing,
+                    pending,
+                    keys,
+                    lastNotificationAt,
+                    deliveryError,
+                    problem,
+                    createdAt,
+                    updatedAt,
+                    updatedBy);
+        }
+    }
 
     /**
      * One key's state.

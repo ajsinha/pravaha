@@ -182,13 +182,27 @@ tenant; `AlertTenantNamesTest`; `CatalogJournalTest`'s re-keying; `DeadLetterRen
 `FlightTenantNamesTest`, `PgTenantNamesTest` and `TenantViewNamesHttpTest` on the wire. `TenancyTest`
 now proves the name is free in another tenant and the refusal within a tenant says nothing of others.
 
-### Left open
+### Closed after the first build
 
-- **Alert names** are still unique on the node (ADR-057), so `CREATE ALERT` of a name another tenant
-  holds is refused with `PRV-8041`: the same class of oracle, for alerts rather than views. Scoping
-  them is the same change over `AlertService`'s map and is not part of this ADR.
-- **pgwire oids** are minted from one node-wide counter, as before; an oid seen by one tenant
-  describes nothing to another, but the numbering says how many relations were described before.
+Two residuals were left open by the first build and are closed:
+
+- **Alert names are unique per tenant**, by the same rule as views. An alert is keyed by its engine
+  name -- its name in the default tenant, `tenant.default.name` in any other -- and a name is resolved
+  in the caller's tenant on every verb (`ALTER`, `DROP`, `PAUSE`, `RESUME`, `SNOOZE`, `ACK`, the
+  detail and the listing, over SQL and `/api/v1/alerts`). Another tenant's alert name is free, so
+  `PRV-8041` says only that the caller's own tenant holds it; an admin reaches another tenant's alert
+  by `tenant.default.name`, and anyone else is refused `PRV-7002` in the same words whether it exists or
+  not. The alert journal already recorded a definition's name and tenant, so every alert written
+  before -- in the default tenant or another -- loads unchanged, under its tenant. The catalogue records
+  an alert by its engine name and re-keys one recorded under its bare name, as it does a view, and the
+  alert meters (`pravaha.alert.*`) label an alert by its engine name. A qualified name's last part is
+  now any catalogue name part rather than an identifier, so an alert named with a hyphen is addressed
+  the same way. Proven by `AlertTenantNamesTest`.
+- **pgwire oids are derived from the name, not counted.** An oid was the next value of one node-wide
+  counter, so the number a caller was handed said how many relations had been described before -- by
+  any tenant. It is now a SHA-256 hash of the view's engine name into the user range (16384 up), the
+  same in every process, with the next free oid taken when two names hash alike; stable for the life of
+  the server as before. Proven by `PgOidRegistryTest` and `PgTenantNamesTest`.
 
 ## Consequences
 

@@ -835,7 +835,7 @@ An alert follows a view's answer and notifies when a key's row enters it and whe
 | Code | What happened | What to do |
 |---|---|---|
 | `PRV-8040` | No alert by that name that you may see — the same answer for one that does not exist and one you hold no `SELECT` on | `SHOW ALERTS` or `pravaha alerts ls` lists what you may see |
-| `PRV-8041` | `CREATE ALERT` of a name an alert already has, or a continuous query has, or (under the catalogue) another object has in your `default` namespace | Choose another name, or add `IF NOT EXISTS` |
+| `PRV-8041` | `CREATE ALERT` of a name an alert of your tenant already has, or a continuous query of your tenant has, or (under the catalogue) another object has in your `default` namespace. Another tenant's names are free to you (ADR-060) | Choose another name, or add `IF NOT EXISTS` |
 | `PRV-8042` | The view is not registered or not yours to see; a `WHERE` or `include` column is not the view's; a literal of the wrong type; an unknown option; a severity that is not `info`, `warning` or `critical`; a duration that is not one | Correct the statement; the message names the part. A condition richer than `column op literal AND ...` belongs in a query over the view |
 | `PRV-8043` | `NOTIFY` names a channel the node does not bind | Bind it under `pravaha.notifiers.<name>` (OPERATIONS, "Alerts and notifier channels"); `pravaha alerts channels` lists them |
 | `PRV-8044` | `alerts.journal` cannot be read or appended to. A decision is not acted on unless it is journalled | Check the file (beside the registry journal, or `pravaha.alerts.journal`), its permissions and the disk |

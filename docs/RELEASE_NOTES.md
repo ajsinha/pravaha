@@ -53,8 +53,13 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   - A default-tenant view registered under a bare name another tenant's recovered view still holds
     checkpoints in `<name>-1`, journalled as a `C` record; `C` records now carry bound values, which
     an older build ignores.
-  - Alert names are still unique on the node (ADR-057): `CREATE ALERT` of a name another tenant holds
-    is refused `PRV-8041`.
+  - Alert names are unique per tenant as well, resolved in the caller's tenant on every alert verb;
+    an admin reaches another tenant's alert as `tenant.default.name`. `PRV-8041` now means your own
+    tenant holds the name. Alert journals load unchanged. The `pravaha.alert.*` meters label an alert
+    of a non-default tenant `tenant.default.name`, as the query meters do.
+  - pgwire's `pg_class` oids are a hash of the view's engine name rather than the next value of a
+    node-wide counter, so they no longer say how many relations other callers described; an oid a
+    client cached from before this release is not the view's oid now.
 - **A window whose state has spilled fires at memory speed again (SPILL-4).** Firing a window and
   discarding dead slices walked every accumulator in the index's hash order, a random read each;
   they now walk the store slab by slab (`RowStore.forEachLive`). Under a 384 MiB cap, 1.18 M

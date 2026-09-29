@@ -167,7 +167,7 @@ final class AlertAccess {
             return AccessDecision.deny("the alert belongs to another tenant");
         }
         if (policy instanceof CatalogPolicy catalog) {
-            return catalog.mayOnAlert(principal, privilege, alert.name());
+            return catalog.mayOnAlert(principal, privilege, alert.engineName());
         }
         if (privilege == Privilege.SELECT) {
             return policy.mayRead(principal, alert.view());

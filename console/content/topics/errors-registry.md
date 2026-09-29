@@ -463,8 +463,10 @@ no `SELECT` on, so it confirms nothing. `SHOW ALERTS` and `pravaha alerts ls` li
 
 ### PRV-8041 — the name is taken
 
-An alert of that name exists (add `IF NOT EXISTS` if that is fine), or a continuous query is called
-that, or — under the catalogue — another object has that name in your `default` namespace.
+An alert of that name exists in your tenant (add `IF NOT EXISTS` if that is fine), or a continuous
+query of your tenant is called that, or — under the catalogue — another object has that name in your
+`default` namespace. Alert names are unique within a tenant (ADR-060): another tenant's alert of the
+same name is free to you, and nothing here says it exists.
 
 ### PRV-8042 — a definition that cannot be kept
 
