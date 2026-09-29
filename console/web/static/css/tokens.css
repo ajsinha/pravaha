@@ -18,6 +18,13 @@
  *     `bad` stays the orange-shifted red the console has always used.
  * Below MAYA's set are the tokens only Pravaha needs: soft grounds for the status chips, a neutral
  * wash, a form-control edge that holds 3:1, the retraction colour, and the data series.
+ *
+ * The data series are one validated categorical order, except where a theme's accent sits on one
+ * of them: a chart line next to an accent control must not read as the same colour (CON-10), so
+ * every series is at least 25 ΔE from its theme's accent. That moves the light theme's
+ * `series-8` (#e34948, 20.5 from the crimson), the dark theme's `series-5` and `series-8`
+ * (#d55181 and #e66767, 19.9 each from #E47F92) and the blue theme's `series-1` (#2a78d6, 18.4
+ * from #006BAC), each by the least that clears it. Green needs no change.
  */
 :root {
   --pv-crimson: #A51C30;
@@ -53,7 +60,7 @@
   --pv-info-soft: #E9ECF3;
   --pv-retract: #293352;
   --pv-series-1: #2a78d6; --pv-series-2: #eb6834; --pv-series-3: #1baf7a; --pv-series-4: #eda100;
-  --pv-series-5: #e87ba4; --pv-series-6: #008300; --pv-series-7: #4a3aa7; --pv-series-8: #e34948;
+  --pv-series-5: #e87ba4; --pv-series-6: #008300; --pv-series-7: #4a3aa7; --pv-series-8: #f1353e;
   color-scheme: light;
 }
 
@@ -90,7 +97,7 @@
     --pv-info-soft: #1A1E2A;
     --pv-retract: #A9B6D6;
     --pv-series-1: #3987e5; --pv-series-2: #d95926; --pv-series-3: #199e70; --pv-series-4: #c98500;
-    --pv-series-5: #d55181; --pv-series-6: #008300; --pv-series-7: #9085e9; --pv-series-8: #e66767;
+    --pv-series-5: #d44487; --pv-series-6: #008300; --pv-series-7: #9085e9; --pv-series-8: #f25d61;
     color-scheme: dark;
   }
 }
@@ -129,7 +136,7 @@
   --pv-info-soft: #1A1E2A;
   --pv-retract: #A9B6D6;
   --pv-series-1: #3987e5; --pv-series-2: #d95926; --pv-series-3: #199e70; --pv-series-4: #c98500;
-  --pv-series-5: #d55181; --pv-series-6: #008300; --pv-series-7: #9085e9; --pv-series-8: #e66767;
+  --pv-series-5: #d44487; --pv-series-6: #008300; --pv-series-7: #9085e9; --pv-series-8: #f25d61;
   color-scheme: dark;
 }
 
@@ -172,7 +179,7 @@
   --pv-info: #293352;
   --pv-info-soft: #E9ECF3;
   --pv-retract: #6F42C1;
-  --pv-series-1: #2a78d6; --pv-series-2: #eb6834; --pv-series-3: #1baf7a; --pv-series-4: #eda100;
+  --pv-series-1: #2176e4; --pv-series-2: #eb6834; --pv-series-3: #1baf7a; --pv-series-4: #eda100;
   --pv-series-5: #e87ba4; --pv-series-6: #008300; --pv-series-7: #4a3aa7; --pv-series-8: #e34948;
   color-scheme: light;
 }
