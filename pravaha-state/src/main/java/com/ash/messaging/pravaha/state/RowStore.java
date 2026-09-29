@@ -358,6 +358,34 @@ public final class RowStore implements AutoCloseable {
         bytesFree += blockBytes(sizeClass);
     }
 
+    /**
+     * Visits every live block's handle in the order the blocks lie in memory: slab by slab, and
+     * within a slab by offset (SPILL-4).
+     *
+     * <p>The order an index's slot table gives -- hash order -- lands each visit at a random address
+     * in the store, and once the store has spilled past the page cache every one of those is a fault
+     * that reads far more than the block. This order reads each slab front to back, once. {@code
+     * visitor} must not allocate or release in this store while it runs.
+     */
+    public void forEachLive(java.util.function.LongConsumer visitor) {
+        checkOpen();
+        for (int slab = 0; slab < slabs.size(); slab++) {
+            MemoryRegion region = slabs.get(slab);
+            if (region == null) {
+                continue;
+            }
+            int end = carvedBytes[slab];
+            int offset = 0;
+            while (offset < end) {
+                int bytes = blockBytes(region.getInt(offset + OFFSET_CLASS));
+                if (region.getInt(offset + OFFSET_STATE) == STATE_LIVE) {
+                    visitor.accept(ArenaHandle.of(slab, offset));
+                }
+                offset += bytes;
+            }
+        }
+    }
+
     /** The slab a handle points into. */
     public MemoryRegion regionOf(long handle) {
         return slabs.get(ArenaHandle.slab(handle));

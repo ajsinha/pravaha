@@ -170,7 +170,8 @@ final class DistinctValueCounts implements AutoCloseable {
      * @param sliceStarts the window's slices, ascending
      */
     void countWindow(long[] sliceStarts, WindowDistinctCounts into) {
-        map.forEach(handle -> {
+        // In store order (SPILL-4), for the reason SlicedAggregateState.fire walks that way.
+        map.forEachInStoreOrder(handle -> {
             int position = SlicedAggregateState.indexOf(sliceStarts, sliceStartOf(handle));
             if (position < 0) {
                 return;

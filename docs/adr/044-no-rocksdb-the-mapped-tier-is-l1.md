@@ -392,6 +392,28 @@ of a mapped index larger than the cap, and every fault reads far more than the p
 heap is no longer the limit; firing a window whose state is on disk is disk-bound, like every other
 random access past the page cache below.
 
+*Since SPILL-4:* the random reads were the walk itself. `fire` visited every accumulator through
+the index's slot table -- hash order -- to read its slice and decide whether it was in the window, so
+each visit was a random address in the store; a tumbling window has one slice, so there were no
+per-group lookups into other slices at all, and the whole cost was that order. `RowStore.forEachLive`
+walks the store slab by slab and block by block, and `fire`, `COUNT(DISTINCT)`'s window count and
+the watermark's discard use it. Re-measured with `tools/spill-beyond-ram.sh`'s harness at a size that
+runs in minutes -- 384 MiB cap, 64 MiB heap, 1x, 1,181,536 accumulators, 295,384 groups fired, load
+1.0-1.3 before and 6.2-6.9 after:
+
+| Fire, capped at 384 MiB | Before | After |
+|---|---|---|
+| Time | 87.3 s | 0.6 s |
+| Groups a second | 3,385 | 454,563 |
+| Major faults | 452,758 | 2,517 |
+| Read from the device | 25.3 GB | 154 MB |
+| Uncapped, groups a second | 693,585 | 1,115,408 |
+
+A window with more than one slice still looks each group up in its other slices through the index,
+and those lookups are random; ordering them by slab too would mean splitting the index's probe into
+its slot and its entry halves, which was not needed for the case measured. The checkpoint writer
+still walks in hash order; it reads the state once per checkpoint, not per advance.
+
 **Where it degrades, and why.**
 
 - **The cliff is the index leaving the page cache, not the rows.** Inserting is sequential — fresh

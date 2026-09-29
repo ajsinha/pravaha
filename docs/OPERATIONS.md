@@ -146,7 +146,11 @@ count on the disk. Firing a window no longer needs heap in proportion to it (SPI
 streams each group out as it is combined, so a window of 1.6 M accumulators fired with a 32 MiB heap
 (it threw `OutOfMemoryError` at 160 MiB before). What it does need, once the state is on disk, is the
 disk: under a 512 MiB cap that window fired at about 900 groups/s, against about 650,000 with the
-files in the page cache.
+files in the page cache. That was the walk, not the disk (SPILL-4): `fire` and the watermark's
+discard read every accumulator in the index's hash order, a random address each; they now read the
+store slab by slab. Measured the same way at a smaller size (384 MiB cap, 1.18 M accumulators, 295,384
+groups): the capped fire went from 87.3 s at 3,385 groups/s, 452,758 major faults and 25.3 GB read to
+0.6 s at 454,563 groups/s, 2,517 faults and 154 MB read.
 
 With it, join and windowed-aggregate state that outgrows memory is written to mapped files and the
 query keeps running, slower, instead of dying with `PRV-4001`. It is off by default, and stays so
