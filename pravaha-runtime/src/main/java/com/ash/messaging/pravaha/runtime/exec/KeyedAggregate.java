@@ -224,6 +224,11 @@ final class KeyedAggregate implements RowProcessor {
                 writeKey(i, key[i]);
             }
             for (int i = 0; i < calls.size(); i++) {
+                if (AggregateSlots.exactAverage(calls.get(i).kind(), outputTypes[key.length + i])) {
+                    AggregateSlots.writeAverage(
+                            writer, key.length + i, group.sums[i], group.counts[i], operator.outputSchema());
+                    continue;
+                }
                 AggregateSlots.write(
                         writer, key.length + i, group.valueOf(i, calls.get(i)), outputTypes[key.length + i]);
             }

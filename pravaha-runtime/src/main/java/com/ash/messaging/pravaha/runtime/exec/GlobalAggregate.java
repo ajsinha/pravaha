@@ -403,6 +403,10 @@ final class GlobalAggregate implements RowProcessor {
 
         List<AggregateOperator.AggregateCall> calls = operator.aggregates();
         for (int i = 0; i < calls.size(); i++) {
+            if (AggregateSlots.exactAverage(calls.get(i).kind(), outputTypes[i])) {
+                AggregateSlots.writeAverage(writer, i, sums[i], counts[i], operator.outputSchema());
+                continue;
+            }
             long value =
                     switch (calls.get(i).kind()) {
                         case COUNT -> counts[i];

@@ -141,6 +141,20 @@ public final class ViewQuery {
         this.deadlineNanos = deadline == null ? 0L : Math.max(0L, deadline.toNanos());
     }
 
+    /** Whether {@code AVG} of an integer answers an exact {@code DECIMAL(38, 16)} (AVGINT-1). */
+    private boolean numericAverages;
+
+    /**
+     * This reader, answering {@code AVG} of an integer as an exact {@code DECIMAL(38, 16)} -- rounded
+     * half away from zero at the sixteenth place, as PostgreSQL's {@code avg} of an integer is -- rather
+     * than a truncated integer. What the PostgreSQL gateway reads with (AVGINT-1); Flight SQL, the
+     * HTTP API and the SDKs keep the integer average.
+     */
+    public ViewQuery withNumericAverages() {
+        this.numericAverages = true;
+        return this;
+    }
+
     /** A result: the shape of the rows, and the rows. */
     public record Result(StreamSchema schema, List<Object[]> rows) {
 
@@ -393,7 +407,8 @@ public final class ViewQuery {
         }
         StreamSchema[] schemas = catalog.schemas().values().toArray(new StreamSchema[0]);
         try {
-            return SqlPlanner.withStreams(schemas).plan(sql);
+            SqlPlanner planner = SqlPlanner.withStreams(schemas);
+            return (numericAverages ? planner.withNumericAverages() : planner).plan(sql);
         } catch (PravahaException e) {
             throw aNameThisServerDoesNotServe(sql, e);
         }

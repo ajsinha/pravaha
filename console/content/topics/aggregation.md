@@ -25,7 +25,7 @@ change carrying a weight so a retraction subtracts exactly what an insertion add
 | `COUNT(col)` | yes | yes | yes | Skips NULLs |
 | `COUNT(DISTINCT col)` | yes | yes | yes | Windowed on a stream; anywhere on a view. Does not count NULL |
 | `SUM(col)` | yes | **refused**, PRV-2020 | no | Accumulates in 64-bit integers. **The result is a `BIGINT`** (`INT64`) over a `TINYINT`, `SMALLINT` or `INT` column too — a running sum outgrows 32 bits |
-| `AVG(col)` | yes | **refused**, PRV-2020 | no | The exact sum over the count, as the column's integer type |
+| `AVG(col)` | yes | **refused**, PRV-2020 | no | The exact sum over the count, as the column's integer type — except through the PostgreSQL gateway, which answers a `numeric` at sixteen places, as PostgreSQL does (AVGINT-1) |
 | `MIN(col)`, `MAX(col)` | yes | **refused**, PRV-2020 | — | The column's own type: `MIN` of an `INT` is an `INT` |
 | Over an expression — `SUM(qty * price_cents)` | yes | | | |
 

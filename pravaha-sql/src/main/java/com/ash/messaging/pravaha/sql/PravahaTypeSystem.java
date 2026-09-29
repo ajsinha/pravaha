@@ -45,9 +45,37 @@ import com.ash.messaging.pravaha.api.data.TimestampType;
  */
 public final class PravahaTypeSystem extends RelDataTypeSystemImpl {
 
-    public static final RelDataTypeSystem INSTANCE = new PravahaTypeSystem();
+    public static final RelDataTypeSystem INSTANCE = new PravahaTypeSystem(false);
 
-    private PravahaTypeSystem() {}
+    /**
+     * {@link #INSTANCE}, except that {@code AVG} of an integer is a {@code DECIMAL(38, 16)} (AVGINT-1):
+     * what the PostgreSQL gateway plans with, because a PostgreSQL client -- Power BI -- expects {@code
+     * avg(integer)} to be {@code numeric}, not a truncated integer.
+     */
+    public static final RelDataTypeSystem NUMERIC_AVERAGES = new PravahaTypeSystem(true);
+
+    /** The scale of an integer average under {@link #NUMERIC_AVERAGES}: PostgreSQL's sixteen digits. */
+    public static final int AVERAGE_SCALE = 16;
+
+    private final boolean numericAverages;
+
+    private PravahaTypeSystem(boolean numericAverages) {
+        this.numericAverages = numericAverages;
+    }
+
+    @Override
+    public RelDataType deriveAvgAggType(RelDataTypeFactory typeFactory, RelDataType argumentType) {
+        if (numericAverages
+                && switch (argumentType.getSqlTypeName()) {
+                    case TINYINT, SMALLINT, INTEGER, BIGINT -> true;
+                    default -> false;
+                }) {
+            return typeFactory.createTypeWithNullability(
+                    typeFactory.createSqlType(SqlTypeName.DECIMAL, DecimalType.MAX_PRECISION, AVERAGE_SCALE),
+                    argumentType.isNullable());
+        }
+        return super.deriveAvgAggType(typeFactory, argumentType);
+    }
 
     @Override
     public int getMaxNumericPrecision() {

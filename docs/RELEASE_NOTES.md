@@ -12,6 +12,14 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **The PostgreSQL gateway answers `AVG` of an integer as a `numeric` (AVGINT-1).** Power BI and
+  every PostgreSQL client expect `avg(integer)` to be `numeric`; the engine's `AVG` keeps its
+  argument's integer type and truncates, so a report's averages over integer columns were
+  truncated. The gateway now plans reads with `AVG` of an integer typed `DECIMAL(38, 16)` -- the
+  exact sum over the count, rounded half away from zero at the sixteenth place, as PostgreSQL's
+  numeric division does -- sent as `numeric`, and `NULL` over no rows. Decided for the gateway only:
+  Flight SQL, the HTTP API, the SDKs and continuous queries keep the integer average, as documented,
+  since changing it would change every existing view's column type. `PowerBiGatewayTest`.
 - **A `DECIMAL` column compared with a decimal literal runs on the generated path (CG-1).** `ratio >
   0.5` compiled to a comparison of two expressions, which the code generator refuses, so the whole
   filter-and-project chain ran interpreted. A decimal column against a literal it can hold exactly at

@@ -155,10 +155,13 @@ every statement it can write):
 | A column of type `BYTES` or `TIME` | refused, PRV-6200; leave the column out of the model |
 | More than 1,000,000 rows | refused, PRV-4024. Power BI stops at a million too |
 
-Two answers differ from what a PostgreSQL server would return, both by the engine's documented
-rules: **`AVG` of an integer column is an integer** (it keeps its argument's type), where PostgreSQL
-returns a `numeric`; and a timestamp read the way Npgsql reads it (binary) carries **microseconds** —
-sub-microsecond digits are truncated, which PostgreSQL itself never has.
+**`AVG` of an integer column is a `numeric`**, as PostgreSQL answers it: the exact average, rounded
+half away from zero at the sixteenth decimal place, typed `numeric` (AVGINT-1). The gateway asks for
+it; Flight SQL, the HTTP API and the SDKs keep the engine's integer average (it keeps its argument's
+type and truncates), so the same `SELECT AVG(revenue)` answers `933046.6666666666666667` here and
+`933046` there. One answer still differs from what a PostgreSQL server would return: a timestamp
+read the way Npgsql reads it (binary) carries **microseconds** — sub-microsecond digits are
+truncated, which PostgreSQL itself never has.
 
 ## What Power BI asks when it connects
 

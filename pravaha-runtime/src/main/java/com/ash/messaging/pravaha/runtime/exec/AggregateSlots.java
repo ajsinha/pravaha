@@ -21,6 +21,7 @@ import com.ash.messaging.pravaha.api.data.RowWriter;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.TypeName;
 import com.ash.messaging.pravaha.runtime.RuntimeErrors;
+import com.ash.messaging.pravaha.runtime.plan.AggregateOperator;
 
 /**
  * How an aggregate reads its argument into, and writes its result out of, a {@code long}.
@@ -109,6 +110,32 @@ final class AggregateSlots {
             case DECIMAL -> writer.setDecimal(ordinal, value >> 63, value);
             default -> writer.setLong(ordinal, value);
         }
+    }
+
+    /**
+     * {@code AVG} of integers into a {@code DECIMAL} answer column (AVGINT-1): the exact quotient at the
+     * column's scale, rounded half away from zero -- PostgreSQL's {@code numeric} division -- or NULL
+     * for no rows, as SQL's {@code AVG} of nothing is.
+     */
+    static void writeAverage(RowWriter writer, int ordinal, long sum, long count, StreamSchema output) {
+        if (count == 0) {
+            writer.setNull(ordinal);
+            return;
+        }
+        int scale = ((com.ash.messaging.pravaha.api.data.DecimalType)
+                        output.field(ordinal).type())
+                .scale();
+        java.math.BigDecimal average = java.math.BigDecimal.valueOf(sum)
+                .divide(java.math.BigDecimal.valueOf(count), scale, java.math.RoundingMode.HALF_UP);
+        writer.setDecimal(
+                ordinal,
+                com.ash.messaging.pravaha.common.row.Decimals.high(average, scale),
+                com.ash.messaging.pravaha.common.row.Decimals.low(average, scale));
+    }
+
+    /** Whether call {@code kind}'s answer is an exact average written by {@link #writeAverage}. */
+    static boolean exactAverage(AggregateOperator.AggregateCall.Kind kind, TypeName answer) {
+        return kind == AggregateOperator.AggregateCall.Kind.AVG && answer == TypeName.DECIMAL;
     }
 
     /**
