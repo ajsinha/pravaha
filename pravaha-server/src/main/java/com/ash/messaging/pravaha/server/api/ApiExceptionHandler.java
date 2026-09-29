@@ -48,10 +48,20 @@ public class ApiExceptionHandler {
                         e.errorCode().code(), e.getMessage(), e.helpUrl(), Instant.now(), request.getRequestURI()));
     }
 
+    /**
+     * A request the endpoint could not read: a parameter empty, not a number, not one of the values
+     * it takes. {@link ApiErrors#INVALID_PARAMETER}, {@code PRV-1051}, with its help page.
+     *
+     * <p>PRV0400-1. This answered {@code PRV-0400}, a bare string no {@link ErrorCode} declared, with
+     * no help URL: the one code a client could receive that the code table, TROUBLESHOOTING and the
+     * console's code browser did not know. The status is still 400.
+     */
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiDtos.ApiError> handleBadRequest(IllegalArgumentException e, HttpServletRequest request) {
+        ErrorCode code = ApiErrors.INVALID_PARAMETER;
         return ResponseEntity.badRequest()
-                .body(new ApiDtos.ApiError("PRV-0400", e.getMessage(), "", Instant.now(), request.getRequestURI()));
+                .body(new ApiDtos.ApiError(
+                        code.code(), e.getMessage(), code.helpUrl(), Instant.now(), request.getRequestURI()));
     }
 
     /**

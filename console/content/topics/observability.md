@@ -119,7 +119,7 @@ groups:
       - alert: PravahaQueryNotRunning
         expr: pravaha_query_running == 0
         for: 1m
-        labels: {severity: page}
+        labels: {severity: critical}
         annotations:
           summary: "{{ $labels.query }} is registered and not running"
           description: "A failed query refuses reads rather than serving a stale view. Open it in the console to see the PRV code."
@@ -127,7 +127,7 @@ groups:
       - alert: PravahaSourceStopped
         expr: pravaha_query_feed_stopped == 1
         for: 1m
-        labels: {severity: page}
+        labels: {severity: critical}
         annotations:
           summary: "{{ $labels.query }} is RUNNING and a source of it has stopped"
           description: "The view answers at the frontier it reached and will not move again until the source is fixed and the query re-registered. The query's page names the code."
@@ -135,7 +135,7 @@ groups:
       - alert: PravahaQueryStateNearCeiling
         expr: pravaha_query_state_fraction > 0.9
         for: 5m
-        labels: {severity: page}
+        labels: {severity: critical}
         annotations:
           summary: "{{ $labels.query }} is at {{ $value | humanizePercentage }} of its state ceiling"
           description: "At 1.0 it stops with PRV-4001 unless pravaha.state.spill is configured."
@@ -143,7 +143,7 @@ groups:
       - alert: PravahaWatermarkBehind
         expr: pravaha_query_watermark_lag_seconds > 300
         for: 10m
-        labels: {severity: warn}
+        labels: {severity: warning}
         annotations:
           summary: "{{ $labels.query }} is {{ $value | humanizeDuration }} behind in event time"
           description: "Late data, a stopped source, or an idle partition holding the watermark. State grows while it lags."
@@ -151,14 +151,14 @@ groups:
       - alert: PravahaCheckpointStale
         expr: time() - pravaha_query_checkpoint_last_success_timestamp_seconds > 900
         for: 5m
-        labels: {severity: warn}
+        labels: {severity: warning}
         annotations:
           summary: "{{ $labels.query }} last checkpointed {{ $value | humanizeDuration }} ago"
           description: "A restart now would replay everything since."
 
       - alert: PravahaCheckpointFailing
         expr: increase(pravaha_query_checkpoint_failures_total[15m]) > 0
-        labels: {severity: warn}
+        labels: {severity: warning}
         annotations:
           summary: "{{ $labels.query }} is failing to checkpoint"
           description: "Check the node log and the checkpoint directory's disk."
@@ -166,7 +166,7 @@ groups:
       - alert: PravahaSpillNearQuota
         expr: pravaha_state_spill_bytes_mapped > 0.8 * 20e9
         for: 10m
-        labels: {severity: warn}
+        labels: {severity: warning}
         annotations:
           summary: "Spilled state is at {{ $value | humanize1024 }}B of a 20 GB quota"
           description: "At the quota the next query to need a slab stops with PRV-4005. Replace 20e9 with your pravaha.state.spill.max-bytes."
@@ -199,7 +199,7 @@ groups:
       - alert: PravahaNotificationDeliveryFailing
         expr: sum by (channel) (rate(pravaha_alert_notifications_total{outcome="failed"}[15m])) / sum by (channel) (rate(pravaha_alert_notifications_total[15m])) > 0.5
         for: 10m
-        labels: {severity: page}
+        labels: {severity: critical}
         annotations:
           summary: "The notifier channel {{ $labels.channel }} is refusing most of what it is sent"
           description: "Alerts are deciding and nobody is being told. The alert's page shows the channel's answer; each notification is retried every pravaha.alerts.redeliver-after under the same idempotency key."
@@ -207,14 +207,14 @@ groups:
       - alert: PravahaAlertNotificationsOwedGrowing
         expr: pravaha_alert_notifications_owed > 0 and deriv(pravaha_alert_notifications_owed[30m]) > 0
         for: 15m
-        labels: {severity: warn}
+        labels: {severity: warning}
         annotations:
           summary: "{{ $value }} alert notifications are owed and the backlog is growing"
           description: "Keys have fired or cleared and no channel has accepted the news. Check PravahaNotificationDeliveryFailing and the channel's endpoint."
 
       - alert: PravahaAlertJournalFailing
         expr: increase(pravaha_alert_journal_write_failures_total[15m]) > 0
-        labels: {severity: page}
+        labels: {severity: critical}
         annotations:
           summary: "The alert journal cannot be written"
           description: "An alert decides nothing it cannot make durable first, so nothing fires or clears until the disk under pravaha.alerts.journal is fixed."
@@ -222,7 +222,7 @@ groups:
       - alert: PravahaCatalogDenialsSpike
         expr: sum(rate(pravaha_catalog_access_decisions_total{outcome="deny"}[5m])) > 0.2 and sum(rate(pravaha_catalog_access_decisions_total{outcome="deny"}[5m])) > 5 * sum(rate(pravaha_catalog_access_decisions_total{outcome="deny"}[1h] offset 5m))
         for: 10m
-        labels: {severity: warn}
+        labels: {severity: warning}
         annotations:
           summary: "The catalogue is refusing {{ $value | humanize }} requests a second, five times its usual rate"
           description: "A revoked grant with clients retrying, a policy change that took more than intended, or someone probing. GET /api/v1/audit names who was refused what."
@@ -232,7 +232,7 @@ groups:
       - alert: PravahaAssistantAllModelsFailing
         expr: sum(increase(pravaha_console_assist_requests_total{outcome="ok"}[15m])) == 0 and sum(increase(pravaha_console_assist_requests_total{outcome="model_error"}[15m])) > 0
         for: 5m
-        labels: {severity: warn}
+        labels: {severity: warning}
         annotations:
           summary: "Every assistant request in the last 15 minutes failed on its models"
           description: "No model in any profile's chain is answering. Admin · AI models tests each one; a key, a quota or the provider's outage."
@@ -245,6 +245,21 @@ alerts have stopped deciding at all; **denials spike** compares the last five mi
 before, so a steady trickle of refusals (a misconfigured client) does not fire it and a revoked grant
 with a fleet retrying does; **all models failing** is the console's assistant with every chain
 exhausted -- a key, a quota or a provider outage.
+
+**Routing.** Every rule carries exactly one label, `severity`, and it is one of two values:
+`critical` -- someone should act now (a query stopped or about to; alerts or notifications not
+getting out) -- or `warning`, to look at during working hours. Route on it in Alertmanager:
+
+```text
+route:
+  receiver: tickets
+  routes:
+    - matchers: [severity="critical"]
+      receiver: pager
+```
+
+These are the words Pravaha's own `CREATE ALERT` uses for its severities (with `info`), and the
+ones shared Alertmanager configurations already route on; a test holds every shipped rule to them.
 
 Alert on the **rate**, not on the queue being non-empty: every real feed produces some rejects, and
 an alert that fires on the first one is an alert that gets muted in week two. And on

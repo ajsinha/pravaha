@@ -65,7 +65,7 @@ groups:
       - alert: PravahaQueryStateNearCeiling
         expr: pravaha_query_state_fraction > 0.9
         for: 5m
-        labels: {severity: page}
+        labels: {severity: critical}
         annotations:
           summary: "{{ $labels.query }} holds {{ $value | humanizePercentage }} of its state ceiling"
           runbook: "Without the spill tier, PRV-4001 at 100% stops the query and its lane."

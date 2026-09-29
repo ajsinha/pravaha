@@ -19,6 +19,7 @@ answers PRV-7030, which every screen here shows as its own state.
 from __future__ import annotations
 
 import logging
+from typing import Any
 from urllib.parse import urlencode
 
 from fastapi import Request
@@ -61,7 +62,7 @@ class CatalogRoutes(Routes):
         services = self.ctx["services"]
         governance = GovernanceService(services.engine)
         self.ctx["governance"] = governance
-        helpers = {"owner_text": owner_text, "tag_pairs": tag_pairs}
+        helpers: dict[str, Any] = {"owner_text": owner_text, "tag_pairs": tag_pairs}
 
         @self.app.get("/catalog/objects/{name:path}", response_class=HTMLResponse, tags=["ui"])
         def catalog_object(request: Request, name: str, user: str = ""):
@@ -94,7 +95,9 @@ class CatalogRoutes(Routes):
             if (refusal := login_required(request)) is not None:
                 return refusal
             chosen = object.strip()
-            namespaces, grants, detail, error, off = [], [], None, None, False
+            namespaces: list = []
+            grants: list = []
+            detail, error, off = None, None, False
             try:
                 namespaces = governance.namespaces()
                 if chosen:

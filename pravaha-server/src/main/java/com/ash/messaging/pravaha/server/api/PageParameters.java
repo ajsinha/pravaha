@@ -23,7 +23,7 @@ package com.ash.messaging.pravaha.server.api;
  * substitutes the default for an <em>empty</em> value as well as an absent one, so {@code ?limit=} --
  * most often a shell variable that did not expand -- silently meant fifty. Absent still means the
  * default: not asking is not the same as asking for nothing. Present and empty, or present and not a
- * number, is refused {@code PRV-0400} with the parameter's name.
+ * number, is refused {@code PRV-1051} ({@link ApiErrors#INVALID_PARAMETER}) with the parameter's name.
  */
 final class PageParameters {
 

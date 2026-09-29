@@ -135,9 +135,14 @@ def create_app(config: PropertiesConfigurator, engine: Engine | None = None) -> 
     messages = Messages(config.get("ui.language", "en"))
     templates.env.globals["t"] = messages
     use_messages(messages)
-    content = ContentLibrary(ROOT / "content")
+    # The help, the tutorials and About read from the content/ shipped with the console and from the
+    # repository it sits in (README, docs/, examples/case-studies/). Both are settable, and nothing
+    # but the visual tests sets them: they point them at a fixed copy so prose edits leave their
+    # screenshots alone (ABOUTBASE-1).
+    content = ContentLibrary(Path(config.get("content.root") or ROOT / "content"),
+                             include_root=Path(config.get("content.repository"))
+                             if config.get("content.repository") else None)
     help_catalog = HelpCatalog(content)
-    content = ContentLibrary(ROOT / "content")
     ctx = {
         "config": config,
         # Signs the per-person landing preference (routes.auth_routes); a preference, not a secret.
