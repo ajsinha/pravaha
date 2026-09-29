@@ -30,6 +30,7 @@ import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.common.config.Configuration;
 import com.ash.messaging.pravaha.common.memory.MemoryAccess;
+import com.ash.messaging.pravaha.common.observe.EngineSpans;
 import com.ash.messaging.pravaha.runtime.exec.QueryExecution;
 import com.ash.messaging.pravaha.runtime.lane.LaneConfig;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
@@ -613,13 +614,9 @@ public final class QueryRegistry implements AutoCloseable {
     /**
      * Registers a query that also writes its changelog to a named sink (ADR-043, W8-13).
      *
-     * <p>The sink is named as an argument rather than in the SQL. {@code INSERT INTO <sink> SELECT}
-     * is the better eventual form and every comparable engine uses it, but the planner refuses
-     * {@code INSERT} with {@code PRV-2020} on the grounds that Pravaha answers questions and sinks
-     * write results -- giving the keyword a second meaning needs a DML surface that exists only as a
-     * refusal today. ADR-043 records that, and the reasoning for fanning a shared computation out to
-     * every sink bound to it rather than forking the computation, since a sink does not change the
-     * answer.
+     * <p>The sink is named as an argument rather than in the SQL: the planner refuses {@code INSERT}
+     * with {@code PRV-2020}, and ADR-043 records why, and why a shared computation fans out to every
+     * sink bound to it rather than forking, since a sink does not change the answer.
      *
      * <p><strong>The changelog check happens here, before the feed opens.</strong> Design section
      * 15.5's failure is silent: a query that revises its answer, pointed at a sink that can only
@@ -748,15 +745,10 @@ public final class QueryRegistry implements AutoCloseable {
         // SinkAuthorization's own javadoc.
         RegistrationAuthorization.requireSink(policy, audit, principal, action, name, sinkName, sql);
 
-        // Bound values are in the plan, so they are in the fingerprint: two bindings of the same SQL
-        // are two computations. That is the truth rather than a policy, and it is precisely why a
-        // parameter the view carries should be a tap filter instead -- same answer, one computation.
-        //
-        // The principal's row filters are in it too, and that is the point of the two-argument
-        // form. Without them, a principal restricted to one region and a principal restricted to
-        // none produced the same fingerprint, shared one computation and one copy of the state --
-        // and the read path was the only thing standing between that and the restricted principal
-        // seeing everything.
+        // Bound values are in the plan, so in the fingerprint: two bindings are two computations,
+        // which is why a parameter the view carries should be a tap filter instead. The principal's
+        // row filters are in it too: without them a principal restricted to one region and one
+        // restricted to none shared one computation, and only the read path stood between them.
         // I-3: the key columns and the retention are part of what makes a computation itself.
         // Without them `--keys 1` and `--keys 0,1` over identical SQL shared one view, keyed as the
         // first registrant asked and with the second one's retention dropped, silently.
@@ -775,47 +767,50 @@ public final class QueryRegistry implements AutoCloseable {
             Retention retention,
             BoundParameters parameters,
             String sinkName) {
-        QueryNames.require(name, byName.keySet());
-        Preparation prepared = prepare(name, sql, keyColumns, principal, retention, parameters, sinkName, "register");
-        RegisteredQuery running = byFingerprint.get(prepared.fingerprint());
-        tenants.admit(
-                audit,
-                principal,
-                "register",
-                name,
-                sql,
-                byFingerprint.values(),
-                true,
-                running == null || running.state().isTerminal());
-
-        // Opened after every refusal above and before anything runs, so a registration refused for
-        // its SQL, its sink's changelog or its principal never opened a connection -- and a fresh
-        // computation can attach the sink before its feed delivers a row.
-        SinkDelivery delivery = sinkName == null
-                ? null
-                : openDelivery(name, sinkName, prepared.plan().outputSchema());
-        try {
-            RegisteredQuery registered = register(
+        return EngineSpans.traced("pravaha.query.register", "pravaha.query", name, () -> {
+            QueryNames.require(name, byName.keySet());
+            Preparation prepared =
+                    prepare(name, sql, keyColumns, principal, retention, parameters, sinkName, "register");
+            RegisteredQuery running = byFingerprint.get(prepared.fingerprint());
+            tenants.admit(
+                    audit,
+                    principal,
+                    "register",
                     name,
                     sql,
-                    keyColumns,
-                    principal,
-                    retention,
-                    parameters,
-                    sinkName,
-                    prepared.plan(),
-                    prepared.placements(),
-                    prepared.fingerprint(),
-                    delivery,
-                    recoveringInto == null ? QueryCheckpoints.directoryFor(name) : recoveringInto);
-            tenants.assign(name, principal.tenant());
-            return registered;
-        } catch (RuntimeException e) {
-            if (delivery != null) {
-                delivery.close();
+                    byFingerprint.values(),
+                    true,
+                    running == null || running.state().isTerminal());
+
+            // Opened after every refusal above and before anything runs, so a registration refused for
+            // its SQL, its sink's changelog or its principal never opened a connection -- and a fresh
+            // computation can attach the sink before its feed delivers a row.
+            SinkDelivery delivery = sinkName == null
+                    ? null
+                    : openDelivery(name, sinkName, prepared.plan().outputSchema());
+            try {
+                RegisteredQuery registered = register(
+                        name,
+                        sql,
+                        keyColumns,
+                        principal,
+                        retention,
+                        parameters,
+                        sinkName,
+                        prepared.plan(),
+                        prepared.placements(),
+                        prepared.fingerprint(),
+                        delivery,
+                        recoveringInto == null ? QueryCheckpoints.directoryFor(name) : recoveringInto);
+                tenants.assign(name, principal.tenant());
+                return registered;
+            } catch (RuntimeException e) {
+                if (delivery != null) {
+                    delivery.close();
+                }
+                throw e;
             }
-            throw e;
-        }
+        });
     }
 
     /**
@@ -836,32 +831,34 @@ public final class QueryRegistry implements AutoCloseable {
             String sinkName,
             String checkpointDirectory,
             com.ash.messaging.pravaha.backfill.BackfillPlan backfill) {
-        Preparation prepared =
-                prepare(name, sql, keyColumns, principal, retention, BoundParameters.none(), sinkName, "replace");
-        tenants.requireSameTenant(audit, principal, name, sql);
-        tenants.admit(audit, principal, "replace", name, sql, byFingerprint.values(), false, true);
-        RegisteredQuery existing = byFingerprint.get(prepared.fingerprint());
-        // The same computation is a replacement only when it moves the name between lanes.
-        if (existing != null && !existing.state().isTerminal() && !declaring.moves(existing, byName.get(name))) {
-            throw new PravahaException(
-                    com.ash.messaging.pravaha.backfill.BackfillErrors.REPLACEMENT_IN_PROGRESS,
-                    "the new version of '" + name + "' is the same computation as '" + existing.name()
-                            + "', which is already running: replacing a query with one that normalises to the "
-                            + "same plan would cut over to itself. Registrations that ask the same question "
-                            + "share one computation, so point readers at '" + existing.name() + "' instead, or "
-                            + "say lane = 'dedicated' or 'shared' to move it between lanes.");
-        }
-        return start(
-                name,
-                sql,
-                prepared.plan(),
-                keyColumns,
-                prepared.fingerprint(),
-                retention,
-                prepared.placements(),
-                null,
-                checkpointDirectory,
-                backfill);
+        return EngineSpans.traced("pravaha.query.replace", "pravaha.query", name, () -> {
+            Preparation prepared =
+                    prepare(name, sql, keyColumns, principal, retention, BoundParameters.none(), sinkName, "replace");
+            tenants.requireSameTenant(audit, principal, name, sql);
+            tenants.admit(audit, principal, "replace", name, sql, byFingerprint.values(), false, true);
+            RegisteredQuery existing = byFingerprint.get(prepared.fingerprint());
+            // The same computation is a replacement only when it moves the name between lanes.
+            if (existing != null && !existing.state().isTerminal() && !declaring.moves(existing, byName.get(name))) {
+                throw new PravahaException(
+                        com.ash.messaging.pravaha.backfill.BackfillErrors.REPLACEMENT_IN_PROGRESS,
+                        "the new version of '" + name + "' is the same computation as '" + existing.name()
+                                + "', which is already running: replacing a query with one that normalises to the "
+                                + "same plan would cut over to itself. Registrations that ask the same question "
+                                + "share one computation, so point readers at '" + existing.name() + "' instead, or "
+                                + "say lane = 'dedicated' or 'shared' to move it between lanes.");
+            }
+            return start(
+                    name,
+                    sql,
+                    prepared.plan(),
+                    keyColumns,
+                    prepared.fingerprint(),
+                    retention,
+                    prepared.placements(),
+                    null,
+                    checkpointDirectory,
+                    backfill);
+        });
     }
 
     /**

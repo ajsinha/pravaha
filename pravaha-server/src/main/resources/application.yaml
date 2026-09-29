@@ -706,3 +706,28 @@ pravaha:
     # PARTITIONED on a mechanism without consensus is refused at startup (PRV-9002), not warned
     # about: two nodes each believing they own a partition corrupt it silently and durably.
     mechanism: single
+
+  # How this node's log lines are written (deploy/observability, the observability help topic).
+  #   text  Spring Boot's pattern, for a person reading a terminal (the default)
+  #   json  one JSON object per line -- @timestamp, level, logger_name, thread_name, message, and the
+  #         logging context as fields of their own: correlationId, query, and traceId/spanId while a
+  #         span is open. What Loki, Elasticsearch and a log shipper parse without a pattern.
+  # Anything else refuses the start: a pipeline expecting JSON that receives text breaks quietly.
+  # For Elastic Common Schema instead, set Boot's own logging.structured.format.console: ecs.
+  logging:
+    format: text
+
+  # OpenTelemetry tracing. OFF by default, and off means no tracer at all: no spans, no trace ids.
+  # On, a span covers each REST request, each Flight call (a query, a subscription, register and the
+  # other actions), each registration and replacement, each checkpoint and each alert notification,
+  # exported over OTLP/HTTP. A client's W3C traceparent is continued, so a trace started in the
+  # console or the Python SDK runs through the node.
+  #   endpoint              the OTLP/HTTP traces URL, e.g. http://otel-collector:4318/v1/traces.
+  #                         When empty, OTEL_EXPORTER_OTLP_TRACES_ENDPOINT, else OTEL_EXPORTER_OTLP_ENDPOINT
+  #                         + /v1/traces; with none, spans are made and trace ids logged, not exported
+  #   sampling-probability  0 to 1; 1.0 traces every call, 0.1 one in ten
+  # management.tracing.* and management.otlp.tracing.* remain available and win over these.
+  tracing:
+    enabled: false
+    endpoint: ""
+    sampling-probability: 1.0

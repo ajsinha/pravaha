@@ -62,6 +62,8 @@ public final class Catalog {
     private final List<PolicyBinding> bindings = new ArrayList<>();
     private String importedPolicy;
     private volatile long generation;
+    private final Map<String, java.util.concurrent.atomic.LongAdder> changes =
+            new java.util.concurrent.ConcurrentHashMap<>();
     private Supplier<Map<ObjectKind, Collection<String>>> infrastructure = Map::of;
 
     private Catalog(CatalogJournal journal, Clock clock) {
@@ -315,7 +317,7 @@ public final class Catalog {
         byEngineName(kind, engineName).ifPresent(view -> {
             journal.append(List.of(List.of("x", view.fullName())));
             forget(view.fullName());
-            changed();
+            changed("object");
         });
     }
 
@@ -346,7 +348,7 @@ public final class Catalog {
         }
         journal.append(List.of(encode(grant)));
         grants.add(grant);
-        changed();
+        changed("grant");
         return grant;
     }
 
@@ -358,7 +360,7 @@ public final class Catalog {
         }
         journal.append(List.of(List.of("r", object, privilege.name(), grantee.encode())));
         grants.removeIf(wanted::sameAllow);
-        changed();
+        changed("revoke");
         return true;
     }
 
@@ -383,7 +385,9 @@ public final class Catalog {
 
     public synchronized CatalogObject setOwner(String fullName, Grantee owner, String by) {
         CatalogObject object = require(fullName);
-        return replace(object.changed(owner, object.description(), object.tags(), by, clock.instant()));
+        CatalogObject owned = object.changed(owner, object.description(), object.tags(), by, clock.instant());
+        put(owned, "owner");
+        return owned;
     }
 
     /**
@@ -416,7 +420,7 @@ public final class Catalog {
         journal.append(List.of(List.of("m", fullName, destination), encode(moved)));
         applyMove(fullName, destination);
         objects.put(destination, moved);
-        changed();
+        changed("move");
         return moved;
     }
 
@@ -446,7 +450,7 @@ public final class Catalog {
         journal.append(List.of(encode(created), encode(definition)));
         index(created);
         policies.put(fullName, definition);
-        changed();
+        changed("policy_create");
         return created;
     }
 
@@ -459,7 +463,7 @@ public final class Catalog {
         }
         journal.append(List.of(encode("b", binding)));
         bindings.add(binding);
-        changed();
+        changed("policy_bind");
         return binding;
     }
 
@@ -470,7 +474,7 @@ public final class Catalog {
         }
         journal.append(List.of(encode("ub", place)));
         bindings.removeIf(place::samePlace);
-        changed();
+        changed("policy_unbind");
         return true;
     }
 
@@ -481,7 +485,7 @@ public final class Catalog {
         }
         journal.append(List.of(List.of("x", fullName)));
         forget(fullName);
-        changed();
+        changed("policy_drop");
     }
 
     /**
@@ -507,7 +511,7 @@ public final class Catalog {
             }
         }
         importedPolicy = policy;
-        changed();
+        changed("import");
     }
 
     /** Rewrites the journal with only what is live. */
@@ -532,9 +536,13 @@ public final class Catalog {
     }
 
     private void put(CatalogObject object) {
+        put(object, "object");
+    }
+
+    private void put(CatalogObject object, String kind) {
         journal.append(List.of(encode(object)));
         index(object);
-        changed();
+        changed(kind);
     }
 
     private CatalogObject replace(CatalogObject object) {
@@ -595,6 +603,22 @@ public final class Catalog {
 
     private void changed() {
         generation++;
+    }
+
+    /** A change made on this node now, counted by kind; a replayed record moves only the generation. */
+    private void changed(String kind) {
+        changes.computeIfAbsent(kind, k -> new java.util.concurrent.atomic.LongAdder())
+                .increment();
+        changed();
+    }
+
+    /**
+     * Changes of {@code kind} made since this node started -- one of {@link CatalogStatistics#CHANGE_KINDS}
+     * -- for the {@code pravaha_catalog_changes_total} meter. Replaying the journal at start counts nothing.
+     */
+    public long changes(String kind) {
+        java.util.concurrent.atomic.LongAdder counted = changes.get(kind);
+        return counted == null ? 0 : counted.sum();
     }
 
     private int liveRecordCount() {

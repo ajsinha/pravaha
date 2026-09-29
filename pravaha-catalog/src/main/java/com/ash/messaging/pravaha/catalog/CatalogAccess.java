@@ -63,6 +63,7 @@ public final class CatalogAccess {
     private final Catalog catalog;
     private final ConcurrentHashMap<String, Verdict> cache = new ConcurrentHashMap<>();
     private volatile long cachedGeneration = -1;
+    private final CatalogStatistics statistics = new CatalogStatistics();
 
     public CatalogAccess(Catalog catalog) {
         this.catalog = catalog;
@@ -70,6 +71,11 @@ public final class CatalogAccess {
 
     public Catalog catalog() {
         return catalog;
+    }
+
+    /** What this catalogue has decided since the node started, for the node's meters. */
+    public CatalogStatistics statistics() {
+        return statistics;
     }
 
     /** Whether {@code principal} holds {@code privilege} on {@code fullName}, cached. */
@@ -90,8 +96,10 @@ public final class CatalogAccess {
                 + fullName;
         Verdict cached = cache.get(key);
         if (cached != null) {
+            statistics.cacheHit();
             return cached;
         }
+        statistics.cacheMiss();
         Verdict decided = decide(principal, privilege, fullName);
         // Stored only if nothing changed while deciding; otherwise the next call decides afresh.
         if (catalog.generation() == generation) {

@@ -25,6 +25,8 @@ reproduced. This file discharges that obligation.
 | Netty | Apache License 2.0 | https://netty.io |
 | gRPC-Java | Apache License 2.0 | https://grpc.io |
 | Micrometer | Apache License 2.0 | https://micrometer.io |
+| Micrometer Tracing | Apache License 2.0 | https://micrometer.io |
+| OpenTelemetry Java (API, SDK, OTLP exporter) | Apache License 2.0 | https://opentelemetry.io |
 | Spring Boot | Apache License 2.0 | https://spring.io/projects/spring-boot |
 | HdrHistogram | CC0 1.0 / BSD 2-Clause (dual) | https://hdrhistogram.github.io |
 

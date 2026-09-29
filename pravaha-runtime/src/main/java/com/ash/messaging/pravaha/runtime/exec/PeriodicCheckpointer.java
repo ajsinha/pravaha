@@ -207,6 +207,12 @@ public final class PeriodicCheckpointer implements AutoCloseable {
      * @return the checkpoint taken
      */
     public Checkpoint checkpointNow() {
+        // A span per checkpoint when the node traces (pravaha.tracing.enabled); nothing otherwise.
+        return com.ash.messaging.pravaha.common.observe.EngineSpans.traced(
+                "pravaha.checkpoint", "pravaha.checkpoint.next-id", Long.toString(nextId.get()), this::takeCheckpoint);
+    }
+
+    private Checkpoint takeCheckpoint() {
         long id = nextId.getAndIncrement();
         long started = System.nanoTime();
         Checkpoint checkpoint;

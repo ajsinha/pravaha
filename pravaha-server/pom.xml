@@ -232,6 +232,39 @@
       <artifactId>micrometer-registry-prometheus</artifactId>
       <scope>runtime</scope>
     </dependency>
+    <!--
+      Tracing (off by default; pravaha.tracing.enabled). Micrometer Tracing is the facade Spring Boot's
+      own HTTP observations already speak, and the OpenTelemetry bridge turns its spans into OTLP. Both
+      versions come from Spring Boot's BOM. Pure Java, so ADR-053 has nothing to say about them.
+
+      The OTLP exporter's default transport is OkHttp, which brings Kotlin's standard library with it;
+      it is excluded, and the exporter sends over the JDK's own HttpClient instead
+      (opentelemetry-exporter-sender-jdk). One HTTP client fewer, and no Kotlin in a Java server.
+    -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-tracing-bridge-otel</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-exporter-otlp</artifactId>
+      <exclusions>
+        <exclusion>
+          <groupId>io.opentelemetry</groupId>
+          <artifactId>opentelemetry-exporter-sender-okhttp</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-exporter-sender-jdk</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-sdk-testing</artifactId>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>io.netty</groupId>
       <artifactId>netty-transport-native-unix-common</artifactId>
@@ -246,6 +279,19 @@
   </dependencies>
   <build>
     <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <!--
+            The flags bin/pravaha-server starts the node with, so a test that reads a view back over
+            Flight (TracingTest) runs the node the way a deployment does. Arrow writes a batch through
+            java.nio internals the module system closes by default; without these the stream is
+            cancelled mid-answer with "sun.misc.Unsafe or java.nio.DirectByteBuffer not available".
+          -->
+          <argLine>@{jacoco.surefire.argLine} -Xss4m --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED</argLine>
+        </configuration>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-enforcer-plugin</artifactId>

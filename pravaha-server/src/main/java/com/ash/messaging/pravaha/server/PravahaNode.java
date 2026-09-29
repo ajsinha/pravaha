@@ -238,6 +238,15 @@ public class PravahaNode implements SmartLifecycle {
 
     private final NodeAlerts alerts = new NodeAlerts();
 
+    /** Spans and meters for every Flight call (pravaha.tracing.*). A setter, as setTenancy; none by default. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setFlightObservation(com.ash.messaging.pravaha.flight.FlightObservation observation) {
+        flightObservation = observation == null ? com.ash.messaging.pravaha.flight.FlightObservation.NONE : observation;
+    }
+
+    private com.ash.messaging.pravaha.flight.FlightObservation flightObservation =
+            com.ash.messaging.pravaha.flight.FlightObservation.NONE;
+
     /** The node's alerts, once it has started (ADR-057). */
     public Optional<com.ash.messaging.pravaha.registry.alert.AlertService> alerts() {
         return alerts.service();
@@ -1235,6 +1244,7 @@ public class PravahaNode implements SmartLifecycle {
                     // B5. The same files the HTTP endpoints read, so `pravaha dlq` and the REST
                     // API cannot disagree about what is in the queue.
                     .withDeadLetters(feeds.deadLetters())
+                    .observedBy(flightObservation)
                     .hosting(registry);
             TokenVerifier flightVerifier = transportVerifier();
             if (flightVerifier != null) {
