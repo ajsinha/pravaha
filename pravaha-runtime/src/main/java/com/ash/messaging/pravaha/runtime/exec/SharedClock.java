@@ -91,27 +91,60 @@ public final class SharedClock {
         }
         long millis = period.toMillis();
         AtomicBoolean running = new AtomicBoolean();
+        // When the firing in flight started, and how many ticks it has cost so far (OBS-1).
+        java.util.concurrent.atomic.AtomicLong startedAt = new java.util.concurrent.atomic.AtomicLong();
+        java.util.concurrent.atomic.AtomicLong skipped = new java.util.concurrent.atomic.AtomicLong();
         return TIMER.scheduleAtFixedRate(
                 () -> {
                     if (!running.compareAndSet(false, true)) {
                         // The previous firing has not finished. Skipping rather than queueing: two
                         // of these at once would race through the same lanes, and a backlog of them
                         // has nothing to contribute that the next one does not carry.
+                        //
+                        // OBS-1: said, once per overrunning firing. A checkpoint that takes four
+                        // intervals costs three checkpoints, and silently that looked exactly like a
+                        // schedule that had stopped -- one was seen once and could not be explained.
+                        if (skipped.incrementAndGet() == 1) {
+                            LOG.log(
+                                    System.Logger.Level.WARNING,
+                                    "'" + what + "' is still running after "
+                                            + (System.nanoTime() - startedAt.get()) / 1_000_000L
+                                            + " ms, longer than its " + millis + " ms period: this tick "
+                                            + "and any more until it finishes are skipped");
+                        }
                         return;
                     }
-                    WORK.execute(() -> {
-                        try {
-                            task.run();
-                        } catch (Throwable failure) {
-                            // A periodic task that throws must not stop the schedule. It is the
-                            // caller's business what the failure means -- both of this clock's users
-                            // record it on the query -- and this is only the backstop that keeps the
-                            // timer alive for every other query sharing it.
-                            LOG.log(System.Logger.Level.WARNING, what + " failed on this tick", failure);
-                        } finally {
-                            running.set(false);
-                        }
-                    });
+                    startedAt.set(System.nanoTime());
+                    try {
+                        WORK.execute(() -> {
+                            try {
+                                task.run();
+                            } catch (Throwable failure) {
+                                // A periodic task that throws must not stop the schedule. It is the
+                                // caller's business what the failure means -- both of this clock's
+                                // users record it on the query -- and this is only the backstop that
+                                // keeps the timer alive for every other query sharing it.
+                                LOG.log(System.Logger.Level.WARNING, what + " failed on this tick", failure);
+                            } finally {
+                                long missed = skipped.getAndSet(0);
+                                if (missed > 0) {
+                                    LOG.log(
+                                            System.Logger.Level.WARNING,
+                                            "'" + what + "' finished after "
+                                                    + (System.nanoTime() - startedAt.get()) / 1_000_000L
+                                                    + " ms; " + missed + " tick(s) were skipped while it ran");
+                                }
+                                running.set(false);
+                            }
+                        });
+                    } catch (Throwable notStarted) {
+                        // OBS-1: the firing could not even be handed to a thread (a virtual thread
+                        // that could not be created). Clear the flag, or every later tick would
+                        // find it set and skip for ever -- and do not rethrow: an exception out of
+                        // a fixed-rate task cancels the schedule, silently, for good.
+                        running.set(false);
+                        LOG.log(System.Logger.Level.WARNING, what + " could not start on this tick", notStarted);
+                    }
                 },
                 millis,
                 millis,

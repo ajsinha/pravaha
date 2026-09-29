@@ -12,6 +12,16 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **A window whose state has spilled fires at memory speed again (SPILL-4).** Firing a window and
+  discarding dead slices walked every accumulator in the index's hash order, a random read each;
+  they now walk the store slab by slab (`RowStore.forEachLive`). Under a 384 MiB cap, 1.18 M
+  accumulators: firing 295,384 groups took 0.6 s instead of 87.3 s, 2,517 major faults instead of
+  452,758, 154 MB read instead of 25.3 GB.
+- **A periodic task that overruns its period says so, and cannot stop its schedule (OBS-1).** The
+  shared clock skipped ticks while a checkpoint or watermark tick was still running without a word;
+  it now logs once when a firing overruns and again, with the count, when it finishes. A firing that
+  could not be handed to a thread left its flag set, so every later tick was skipped for good, and an
+  exception out of the timer would have cancelled the schedule; both are caught.
 - **Performance harnesses decline under the coverage agent (PERF-1).** One check, `CoverageAgent` in
   `pravaha-common`, is asked by every harness that times: `ProfileAGateIT`, `ProfileBGateIT`,
   `NexmarkCoverageIT`'s timing test, `RestartCompileIT` and `OperatorMetricsOverheadIT` skip naming
