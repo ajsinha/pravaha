@@ -847,7 +847,15 @@ public final class RegisteredQuery implements AutoCloseable {
 
     /** What the restored checkpoint recorded for the sink of registration {@code name}, taken once. */
     java.util.Optional<SinkDelivery.Restored> claimRestoredSink(String name) {
-        return java.util.Optional.ofNullable(restoredSinks.remove(name));
+        SinkDelivery.Restored restored = restoredSinks.remove(name);
+        String bare = com.ash.messaging.pravaha.security.ViewNames.localName(name);
+        if (restored == null && !bare.equals(name)) {
+            // ADR-060: a checkpoint written before names were per tenant recorded this view's sink under
+            // its bare name. A checkpoint is one computation's, and a computation is one tenant's, so the
+            // bare name there can only have been this one.
+            restored = restoredSinks.remove(bare);
+        }
+        return java.util.Optional.ofNullable(restored);
     }
 
     /** Forgets restored sinks no registration claimed: names refused at recovery, or dropped. */

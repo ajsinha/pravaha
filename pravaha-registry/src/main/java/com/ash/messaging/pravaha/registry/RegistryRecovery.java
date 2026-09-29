@@ -68,6 +68,10 @@ final class RegistryRecovery {
                 // made before per-tenant names keeps its state. Nothing is moved.
                 String local = ViewNames.localName(entry.name());
                 String engine = ViewNames.engineName(owner.get().tenant(), local);
+                if (!engine.equals(entry.name())) {
+                    // Its dead letters go with it, before its feed opens a queue under the new name.
+                    registry.feeds().renamed(entry.name(), engine);
+                }
                 registry.registerWithoutJournalling(
                         local,
                         entry.sql(),

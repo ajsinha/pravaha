@@ -76,9 +76,9 @@ running one and takes the name only at a cutover.
 Registering the *same computation* under a second name is not this — it is sharing: the second name
 points at the running computation and costs nothing (see [Sharing](/help/topics/sharing)).
 
-View names are unique on the node, across tenants, so the name may be taken in a tenant other than
-yours; the refusal is the same either way and does not say whose it is. Dropping or replacing it
-needs its owner, a grant or an admin. Per-tenant names are decided (ADR-060) and not yet built.
+View names are unique within a tenant, not on the node (ADR-060), so this means your own tenant
+holds the name. A name another tenant holds is free to you: registering it succeeds, and nothing you
+can ask says that tenant has it. Dropping or replacing a name needs its owner, a grant or an admin.
 
 ### PRV-8008 — name unusable
 

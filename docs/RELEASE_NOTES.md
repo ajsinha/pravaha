@@ -27,12 +27,34 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   catalogue that imports `authenticated` now imports it without `MODIFY`; one that imported it
   earlier keeps the grant, and the node warns at start until `REVOKE MODIFY ON CATALOG FROM ROLE
   authenticated`.
-- **A name another tenant holds is refused without saying whose it is (ADR-060, slice 1).** The
-  `PRV-8022` refusal of a cross-tenant replacement no longer names the tenant that holds the name,
-  and a registration choosing another tenant's name — refused with `PRV-8001` in the same words as
-  a name taken in the caller's own tenant — is audited as `register:name` `DENY` with the holding
-  tenant. View names are still unique on the node, so the refusal still says the name is taken;
-  ADR-060 decides per-tenant names and the rest of it is not built.
+- **View names are unique per tenant, and a name is resolved in the caller's tenant (ADR-060,
+  TEN-1).** Two tenants may each register `orders`; each reads, subscribes to, lists, describes,
+  drops and builds on its own, and a name only another tenant holds answers every surface — Flight
+  SQL and its actions, pgwire and its catalogue, REST, `SHOW`/`DROP … CONTINUOUS QUERY`, subscriptions,
+  dead letters, debug sessions, replacements — exactly as a name nobody holds. A registration choosing
+  another tenant's name used to be refused with `PRV-8001`, which told the caller it existed; it now
+  succeeds. The `PRV-8022` refusal of a cross-tenant replacement does not name the holding tenant.
+  **Upgrading:**
+  - A node that has only ever had one tenant (`public`) changes nothing: its names, checkpoint
+    directories, journal and dead-letter files are as they were.
+  - Inside the engine a view of any other tenant is now `tenant.default.name` — its catalogue name.
+    Metric `query` labels, audit targets, `GET /api/v1/tenants`, lane rebalancing and the recovery log
+    show that name for such views; a `SecurityPolicy` of your own is asked about them by it.
+  - Reading another tenant's view by its bare name — possible under `permissive` and `authenticated`
+    — stops working: an admin addresses it as `tenant.default.name` (quoted in a SQL `FROM`), and
+    anyone else naming another tenant is refused `PRV-7002` whether it exists or not. An admin's
+    listings (`pravaha queries`, `pravaha.list`, `GET /api/v1/queries`, `GetTables`) show other
+    tenants' views by that name.
+  - At the first start, each view another tenant registered before this release is re-keyed: one `N`
+    record per view is appended to the registry journal, its checkpoints stay in the directory its
+    bare name implied, its dead-letter files are renamed to its new name, and the catalogue record is
+    re-keyed with its grants. **A build that predates this refuses a journal holding an `N` record**,
+    so this release cannot be rolled back past once another tenant's view has been recovered.
+  - A default-tenant view registered under a bare name another tenant's recovered view still holds
+    checkpoints in `<name>-1`, journalled as a `C` record; `C` records now carry bound values, which
+    an older build ignores.
+  - Alert names are still unique on the node (ADR-057): `CREATE ALERT` of a name another tenant holds
+    is refused `PRV-8041`.
 - **A window whose state has spilled fires at memory speed again (SPILL-4).** Firing a window and
   discarding dead slices walked every accumulator in the index's hash order, a random read each;
   they now walk the store slab by slab (`RowStore.forEachLive`). Under a 384 MiB cap, 1.18 M

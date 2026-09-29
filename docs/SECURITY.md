@@ -117,14 +117,25 @@ to let them register.
 
 A principal's tenant (`Principal.tenant()`, `public` when the token does not name one) owns the
 names it registers, the computations behind those names, and the view keys those computations
-hold. It does **not** yet scope view names, which stay unique on the node: a registration choosing
-a name another tenant holds is refused with `PRV-8001` in the same words as one the caller's own
-tenant holds, and audited as `register:name` `DENY` with the holding tenant, so an operator can see
-one tenant probing another's names. The refusal itself still tells the caller the name is taken;
-[ADR-060](adr/060-view-names-are-unique-per-tenant.md) makes names unique per tenant, and that part
-is not built. It does not scope reads, sources or sinks, which the policy decides, and it does not
-scope lanes, which every tenant shares
+hold. It does not scope reads, sources or sinks, which the policy decides, and it does not scope
+lanes, which every tenant shares
 ([ADR-050](adr/050-a-tenant-owns-names-and-state-and-shares-only-with-itself.md)).
+
+- **A view name is unique within its tenant, and every name is resolved in the caller's tenant**
+  ([ADR-060](adr/060-view-names-are-unique-per-tenant.md)). Two tenants may each register `orders`,
+  and each reads, subscribes to, lists, describes, drops and builds on its own. A name another tenant
+  holds is, to the caller, a name nothing holds -- registering it succeeds, and every lookup of it
+  (Flight, pgwire, REST, SQL statements, subscriptions, dead letters, debug sessions, replacements,
+  `GetTables`, pgwire's catalogue) answers exactly as for a name nobody holds. Before this, a
+  registration choosing another tenant's name was refused with `PRV-8001` (TEN-1), which told the
+  caller the name existed.
+- **Inside the engine** a view outside the default tenant is known by its catalogue name,
+  `tenant.default.name`; a default-tenant view by its name, so a one-tenant node is unchanged. The
+  policy, the catalogue, the audit trail and the metrics see that engine name.
+- **Only an admin reaches another tenant's view**, by its catalogue name (`acme.default.orders`, quoted
+  in a SQL `FROM` clause). Anyone else naming another tenant is refused `PRV-7002` in the same words
+  whether the view exists or not, and another tenant's view is administered by nobody outside it but
+  an admin, under either `pravaha.security.administer` rule.
 
 - **Sharing stays inside a tenant.** The tenant is part of the fingerprint, so identical SQL from
   two tenants is two computations. Within one tenant it is still one computation. Before this

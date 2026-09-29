@@ -41,9 +41,10 @@ A tenant **does not scope** the following. Each is a deliberate choice:
   every read path — Flight SQL, pgwire, the REST view read, `ViewQuery` — resolving a name through
   the caller's tenant. That is a namespace feature with its own ADR. One consequence follows and
   was already true: `PRV-8001` tells a principal in one tenant that a name is taken in another.
-  *Superseded by [ADR-060](060-view-names-are-unique-per-tenant.md), which makes names unique per
-  tenant; its first slice is built (the refusal no longer names the holder, and the probe is
-  audited), the per-tenant key is not.*
+  *Superseded by [ADR-060](060-view-names-are-unique-per-tenant.md), built: a view name is unique
+  within its tenant, every surface resolves a name in the caller's tenant, and a name another tenant
+  holds is, to the caller, a name nothing holds -- so `PRV-8001` no longer says anything about another
+  tenant.*
 - **Reads, sources and sinks.** The policy decides these (`mayRead`, `mayWriteTo`,
   `mayAdminister`), as before. A policy that should confine reads to a tenant says so in
   `mayRead`. The engine does not assume a tenant boundary that the policy did not draw.

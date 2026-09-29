@@ -320,7 +320,9 @@ per principal/privilege/object and dropped whenever the catalogue's generation m
   catalogue holding grants it never imported a policy for — refuses with `PRV-7034`.
   `authority: catalog` is the deployment choosing the catalogue alone.
 - **Names.** Engine names stay single identifiers, unique on the node (ADR-050), and the catalogue
-  records where each lives: a registration lands in `<tenant>.default` and moves with `ALTER VIEW …
+  records where each lives *(amended by [ADR-060](060-view-names-are-unique-per-tenant.md): a view's
+  engine name is its bare name in the default tenant and `tenant.default.name` in any other, and
+  `byEngineName` keys by it)*: a registration lands in `<tenant>.default` and moves with `ALTER VIEW …
   SET NAMESPACE`, taking its grants. The hierarchy is `*` → tenant → namespace → object. What the node
   is configured with (streams, sources, sinks, lookups) belongs to no tenant and is catalogued under
   the pseudo-tenant `node` (`node.streams.orders`), recorded when first named; a grant there reaches
