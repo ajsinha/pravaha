@@ -83,7 +83,7 @@ tool `pravaha-engine` (`validate`, `explain`, `run`). Every command:
 <dependency>
   <groupId>com.ash.messaging</groupId>
   <artifactId>pravaha-sdk-java-flight</artifactId>
-  <version>0.2.1-SNAPSHOT</version>
+  <version>1.0.0</version>
 </dependency>
 ```
 
