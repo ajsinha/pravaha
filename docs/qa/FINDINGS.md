@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **480 findings carrying a
-status — 462 FIXED, 0 OPEN, 9 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
+only part that is kept current. Counting the register as it stands: **481 findings carrying a
+status — 463 FIXED, 0 OPEN, 9 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
 GA-BLOCKER, 0 GA-REQUIRED, 0 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -7318,7 +7318,7 @@ the lead.
 
 > **Status:** BY DESIGN — a fresh import of `authenticated` no longer grants `MODIFY ON CATALOG`; a catalogue imported earlier keeps the grant because grants are never rewritten silently. The node logs a WARN at every start until an operator runs `REVOKE MODIFY ON CATALOG FROM ROLE authenticated`; RELEASE_NOTES flags it for upgrades.
 
-## Found running Pravaha in Docker and every container-backed suite (2026-09-30), 9 findings
+## Found running Pravaha in Docker and every container-backed suite (2026-09-30), 10 findings
 
 ### SINKKEYROWS-2 (MEDIUM) — an upsert sink is handed a replaced key as a delete and then an insert
 
@@ -7355,4 +7355,8 @@ the lead.
 ### PGWIRETX-1 (MEDIUM) — the pgwire gateway refused BEGIN, so psycopg's default mode and most ORMs failed
 
 > **Status:** FIXED — BEGIN/START TRANSACTION, COMMIT/END, ROLLBACK/ABORT, AND CHAIN, SAVEPOINT/RELEASE/ROLLBACK TO, SET TRANSACTION and SET SESSION CHARACTERISTICS are accepted as no-ops with PostgreSQL's tags and I/T/E ReadyForQuery status on both protocols, including the failed-block rule (25P02 until ROLLBACK; COMMIT of a failed block reports ROLLBACK). Reads in a block are READ COMMITTED; stronger levels are accepted with a NOTICE. SHOW answers the transaction settings and the parameters announced at connect. New codes PRV-6212 to 6215. `PgTransactionBlockTest` (raw protocol), `JdbcTransactionTest` (pgjdbc, autocommit off), `NpgsqlClientTest` (BeginTransaction), `PsycopgClientTest` (psycopg 3 default mode); the autocommit workaround is gone from the docs.
+
+### PSQLDESCRIBE-1 (LOW) — psql 18's `\d <view>` was refused by the catalog shim
+
+> **Status:** FIXED — found the first time `PsqlSessionTest` ran on the development machine (psql had not been installed, so it had skipped): psql 18's `\d` asks `pg_constraint` for foreign keys and NOT NULL constraints, a shape the shim refused with PRV-6205, so describing a view failed. A view has no constraints as PostgreSQL objects, so `PgCatalogShim` now answers any `pg_constraint` query empty, as it does `pg_inherits`; the test also accepts psql 18's `\dt` title "List of tables". `PsqlSessionTest` 10/10 against psql 18.6.
 
