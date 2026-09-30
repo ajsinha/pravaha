@@ -266,6 +266,14 @@ and the assistant's packaged dialect card did not: rebuild it with
 `./mvnw -Ppython verify` runs the same pytest invocations for the SDK and the console from the last
 module of the reactor (`pravaha-it`), against this build's classes; it needs both venvs to exist.
 
+**The gate runs the SDK suite.** `tools/verify-clean.sh` (full verify) adds `-Ppython
+-Dpravaha.console.tests.skip=true`, so the SDK's pytest suite runs in `pravaha-it`'s verify phase
+against the Flight server this build just compiled, adding about 2.5 minutes. It uses
+`sdk/python/.venv`, or `PRAVAHA_SDK_PYTHON=<interpreter>`; a missing interpreter, or one without
+pytest and pyarrow, fails the gate by name before anything is built. `PRAVAHA_GATE_SDK=0` leaves the
+suite out and says so. The console's suite, whose browser tests need Chrome and about half an hour,
+is not gated: run it with `./mvnw -Ppython verify` or from `console/` directly.
+
 ## Console
 
 ```bash
