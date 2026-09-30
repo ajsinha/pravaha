@@ -674,8 +674,9 @@ pravaha:
 **What the database must allow**, each refused at open with its fix named (`PRV-5112`): PostgreSQL
 14 or later; `wal_level = logical` (a restart, not a reload); the table `REPLICA IDENTITY FULL`
 (`ALTER TABLE public.customers REPLICA IDENTITY FULL;` — without it a delete's before-image is the
-key alone and nothing can be retracted); and a role with `REPLICATION`, which owns the table if the
-plugin is to create the publication. The shared `tls.*` options are refused, as for `jdbc`
+key alone and nothing can be retracted); and a role with `REPLICATION`, which owns the table and holds
+`CREATE` on the database (`GRANT CREATE ON DATABASE <db> TO <role>;`) if the plugin is to create the
+publication — without that grant the open fails with `PRV-5111`, `permission denied for database`. The shared `tls.*` options are refused, as for `jdbc`
 ([`CONNECTOR_TLS.md`](CONNECTOR_TLS.md)); the replication connection is opened from the same URL.
 
 **The schema** is read from the table. Declare one to pin it, or to leave out a column whose type is

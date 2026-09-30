@@ -691,6 +691,8 @@ the database host. A connector that asked you to mount a log directory would be 
 - `wal_level = logical` in `postgresql.conf` — **a server restart**, so it is a change somebody has to
   schedule rather than apply during an incident.
 - A role carrying the `REPLICATION` attribute, and `max_replication_slots` with room for one more.
+  For the plugin to create its own publication, that role also owns the table and holds `CREATE` on
+  the database (`GRANT CREATE ON DATABASE <db> TO <role>;`); `CREATE PUBLICATION` needs both.
 - `REPLICA IDENTITY FULL` on each captured table — see below, because without it corrections are
   silently impossible.
 

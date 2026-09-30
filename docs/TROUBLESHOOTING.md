@@ -543,7 +543,9 @@ or the slot is missing, invalidated (`wal_status = 'lost'`) or belongs to anothe
 `PRV-5113` is the table's columns disagreeing with a declared `schema`, or a column type with no
 mapping (leave it out of a declared schema). `PRV-5111` is the database unreachable, the credentials
 refused, or the PostgreSQL driver not on the classpath — the plugin uses the driver the deployment
-supplies, as `jdbc` does.
+supplies, as `jdbc` does — or PostgreSQL refusing a statement the plugin runs to prepare the capture:
+`permission denied for database <db>` is `CREATE PUBLICATION` without `GRANT CREATE ON DATABASE <db>
+TO <role>;` (or create the publication yourself and set `create.publication: "false"`).
 
 **A `postgres-cdc` source with `snapshot.mode: initial` is refused with `PRV-5118`.** The initial
 snapshot could not start or could not be read. At start it is almost always a transaction left open
