@@ -13,7 +13,7 @@
  *
  * See the LICENSE file in the root of this repository for the full terms.
  */
-package com.ash.messaging.pravaha.plugin.aerospike;
+package com.ash.messaging.pravaha.it;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -26,29 +26,23 @@ import org.testcontainers.images.builder.Transferable;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * A real Aerospike server, for tests that would otherwise be guesses.
+ * A single-node Aerospike Community server for the integration tests here, on free host ports.
  *
- * <p>Mocking a store is mocking one's own beliefs about it, and the beliefs are the part most likely
- * to be wrong. Two things in this plugin were only discoverable against the real server: that a
- * record's last-update time is not readable from a scan callback, and that {@code Exp.lastUpdate()}
- * counts from 2010 rather than 1970. A mock would have agreed with whatever the code assumed.
- *
- * <p>Community Edition, deliberately. It is the edition with no change feed at all, which is the
- * constraint the plugin's whole strategy hierarchy exists to handle -- testing against Enterprise
- * would test the easy case and ship the hard one untried.
+ * <p>The same server as the Aerospike plugin's own {@code AerospikeContainer}, which says why each
+ * setting is what it is; this module cannot see that plugin's test classes.
  */
-final class AerospikeContainer {
+public final class AerospikeTestServer {
 
     /** The namespace the stock image configures. Using it avoids shipping a config file. */
-    static final String NAMESPACE = "test";
+    public static final String NAMESPACE = "test";
 
     /** Where the server this class last created is configured: see {@link #create}. */
     private static volatile int port = -1;
 
-    private AerospikeContainer() {}
+    private AerospikeTestServer() {}
 
     /** The service port of the server {@link #create} last configured. */
-    static int port() {
+    public static int port() {
         if (port < 0) {
             throw new IllegalStateException("no Aerospike container has been created");
         }
@@ -64,7 +58,7 @@ final class AerospikeContainer {
      * without a listening socket on the host, the test connects to it and truncates its sets. A port
      * nobody holds cannot be anybody else's server.
      */
-    static GenericContainer<?> create() {
+    public static GenericContainer<?> create() {
         int service = freePort();
         int fabric = freePort();
         int heartbeat = freePort();

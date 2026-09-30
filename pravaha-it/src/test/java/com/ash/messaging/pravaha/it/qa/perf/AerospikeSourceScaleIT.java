@@ -35,13 +35,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.utility.DockerImageName;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
 import com.ash.messaging.pravaha.bindings.ingest.PluginSourceFeeds;
 import com.ash.messaging.pravaha.bindings.ingest.SourceBinding;
+import com.ash.messaging.pravaha.it.AerospikeTestServer;
 import com.ash.messaging.pravaha.registry.QueryRegistry;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
@@ -84,7 +83,6 @@ class AerospikeSourceScaleIT {
 
     private static final String NAMESPACE = "test";
     private static final String SET = "txn";
-    private static final int PORT = 3000;
 
     /**
      * How many continuous queries to register over the one set.
@@ -121,22 +119,9 @@ class AerospikeSourceScaleIT {
                 .as("docker is not available; the cost of N queries to an Aerospike cluster cannot be measured "
                         + "without an Aerospike cluster, and reasoning about it is not the same answer")
                 .isTrue();
-        assumeThat(portIsFree(PORT))
-                .as("something is already listening on port %d; host networking needs it free", PORT)
-                .isTrue();
-        aerospike = new GenericContainer<>(DockerImageName.parse("aerospike/aerospike-server:latest"))
-                // Host networking: an Aerospike client routes by partition map, and a bridged node
-                // advertises its container-internal address, so reads through a mapped port connect
-                // and then hang. See AerospikeContinuousQueryIT, which paid for that discovery.
-                .withNetworkMode("host")
-                .withCreateContainerCmdModifier(
-                        cmd -> cmd.getHostConfig().withUlimits(new com.github.dockerjava.api.model.Ulimit[] {
-                            new com.github.dockerjava.api.model.Ulimit("nofile", 16_000L, 16_000L)
-                        }))
-                .waitingFor(Wait.forLogMessage(".*migrations: complete.*\\n", 1))
-                .withStartupTimeout(Duration.ofMinutes(2));
+        aerospike = AerospikeTestServer.create();
         aerospike.start();
-        hosts = "127.0.0.1:" + PORT;
+        hosts = "127.0.0.1:" + AerospikeTestServer.port();
 
         ClientPolicy policy = new ClientPolicy();
         policy.failIfNotConnected = true;
@@ -144,7 +129,7 @@ class AerospikeSourceScaleIT {
         RuntimeException last = null;
         while (System.nanoTime() < deadline) {
             try {
-                admin = new AerospikeClient(policy, new Host("127.0.0.1", PORT));
+                admin = new AerospikeClient(policy, new Host("127.0.0.1", AerospikeTestServer.port()));
                 load();
                 return;
             } catch (RuntimeException e) {
@@ -446,15 +431,6 @@ class AerospikeSourceScaleIT {
             }
         }
         return values;
-    }
-
-    private static boolean portIsFree(int port) {
-        try (java.net.Socket probe = new java.net.Socket()) {
-            probe.connect(new java.net.InetSocketAddress("127.0.0.1", port), 500);
-            return false;
-        } catch (java.io.IOException refused) {
-            return true;
-        }
     }
 
     private static void sleep(long millis) {

@@ -100,14 +100,14 @@ class AerospikeDeleteDetectionIT {
                 .isTrue();
         aerospike = AerospikeContainer.create();
         aerospike.start();
-        hosts = "127.0.0.1:" + AerospikeContainer.PORT;
+        hosts = "127.0.0.1:" + AerospikeContainer.port();
         com.aerospike.client.policy.ClientPolicy policy = new com.aerospike.client.policy.ClientPolicy();
         policy.failIfNotConnected = true;
         long deadline = System.nanoTime() + Duration.ofSeconds(90).toNanos();
         while (admin == null) {
             try {
                 admin = new AerospikeClient(
-                        policy, new com.aerospike.client.Host("127.0.0.1", AerospikeContainer.PORT));
+                        policy, new com.aerospike.client.Host("127.0.0.1", AerospikeContainer.port()));
             } catch (RuntimeException e) {
                 if (System.nanoTime() > deadline) {
                     throw e;

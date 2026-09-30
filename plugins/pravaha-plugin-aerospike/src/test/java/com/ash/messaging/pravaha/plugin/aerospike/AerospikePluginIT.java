@@ -72,7 +72,7 @@ class AerospikePluginIT {
                 .isTrue();
         aerospike = AerospikeContainer.create();
         aerospike.start();
-        hosts = "127.0.0.1:" + AerospikeContainer.PORT;
+        hosts = "127.0.0.1:" + AerospikeContainer.port();
         // Single-node, because the container's node advertises its own internal address and the
         // client would try to connect to that from the host.
         com.aerospike.client.policy.ClientPolicy policy = new com.aerospike.client.policy.ClientPolicy();
@@ -92,7 +92,8 @@ class AerospikePluginIT {
         RuntimeException last = null;
         while (System.nanoTime() < deadline) {
             try {
-                return new AerospikeClient(policy, new com.aerospike.client.Host("127.0.0.1", AerospikeContainer.PORT));
+                return new AerospikeClient(
+                        policy, new com.aerospike.client.Host("127.0.0.1", AerospikeContainer.port()));
             } catch (RuntimeException e) {
                 last = e;
                 sleep(1000);

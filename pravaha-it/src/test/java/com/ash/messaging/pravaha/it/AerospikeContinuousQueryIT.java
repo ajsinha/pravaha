@@ -34,8 +34,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.utility.DockerImageName;
 
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 import com.ash.messaging.pravaha.api.data.Types;
@@ -82,7 +80,6 @@ import static org.assertj.core.api.Assumptions.assumeThat;
 class AerospikeContinuousQueryIT {
 
     private static final String NAMESPACE = "test";
-    private static final int PORT = 3000;
     private static final long SECOND = 1_000_000_000L;
 
     private static GenericContainer<?> aerospike;
@@ -140,25 +137,9 @@ class AerospikeContinuousQueryIT {
         assumeThat(DockerClientFactory.instance().isDockerAvailable())
                 .as("docker is not available; this test needs a real Aerospike server")
                 .isTrue();
-        aerospike = new GenericContainer<>(DockerImageName.parse("aerospike/aerospike-server:latest"))
-                // Host networking: the client routes by partition map, and a bridged node advertises
-                // its container-internal address, so reads through a mapped port connect and hang.
-                .withNetworkMode("host")
-                .withCreateContainerCmdModifier(
-                        cmd -> cmd.getHostConfig().withUlimits(new com.github.dockerjava.api.model.Ulimit[] {
-                            new com.github.dockerjava.api.model.Ulimit("nofile", 16_000L, 16_000L)
-                        }))
-                .waitingFor(Wait.forLogMessage(".*migrations: complete.*\\n", 1))
-                .withStartupTimeout(Duration.ofMinutes(2));
-        // Host networking means the container binds the host's own port 3000, so anything else
-        // already listening there -- a leftover container from a previous run, a local install --
-        // makes this fail as an unexplained container launch error. Saying so first turns ten
-        // minutes of confusion into one line. Cost exactly that once.
-        assumeThat(portIsFree(PORT))
-                .as("something is already listening on port %d; stop it before running this test", PORT)
-                .isTrue();
+        aerospike = AerospikeTestServer.create();
         aerospike.start();
-        hosts = "127.0.0.1:" + PORT;
+        hosts = "127.0.0.1:" + AerospikeTestServer.port();
 
         ClientPolicy policy = new ClientPolicy();
         policy.failIfNotConnected = true;
@@ -166,7 +147,7 @@ class AerospikeContinuousQueryIT {
         RuntimeException last = null;
         while (System.nanoTime() < deadline) {
             try {
-                admin = new AerospikeClient(policy, new Host("127.0.0.1", PORT));
+                admin = new AerospikeClient(policy, new Host("127.0.0.1", AerospikeTestServer.port()));
                 return;
             } catch (RuntimeException e) {
                 last = e;
@@ -466,16 +447,6 @@ class AerospikeContinuousQueryIT {
 
         source.close();
         profiles.close();
-    }
-
-    /** Whether nothing is listening on the host's service port yet. */
-    private static boolean portIsFree(int port) {
-        try (java.net.Socket probe = new java.net.Socket()) {
-            probe.connect(new java.net.InetSocketAddress("127.0.0.1", port), 500);
-            return false;
-        } catch (java.io.IOException refused) {
-            return true;
-        }
     }
 
     private static void sleep(long millis) {

@@ -68,7 +68,7 @@ class AerospikeDeleteDetectionTckIT extends SourcePluginTck {
         while (admin == null) {
             try {
                 admin = new AerospikeClient(
-                        policy, new com.aerospike.client.Host("127.0.0.1", AerospikeContainer.PORT));
+                        policy, new com.aerospike.client.Host("127.0.0.1", AerospikeContainer.port()));
             } catch (RuntimeException e) {
                 if (System.nanoTime() > deadline) {
                     throw e;
@@ -103,7 +103,7 @@ class AerospikeDeleteDetectionTckIT extends SourcePluginTck {
                 "tck",
                 Map.of(
                         "hosts",
-                        "127.0.0.1:" + AerospikeContainer.PORT,
+                        "127.0.0.1:" + AerospikeContainer.port(),
                         "namespace",
                         AerospikeContainer.NAMESPACE,
                         "set",

@@ -100,7 +100,7 @@ class AerospikeSourceTckIT extends SourcePluginTck {
                 .isTrue();
         aerospike = AerospikeContainer.create();
         aerospike.start();
-        hosts = "127.0.0.1:" + AerospikeContainer.PORT;
+        hosts = "127.0.0.1:" + AerospikeContainer.port();
         com.aerospike.client.policy.ClientPolicy policy = new com.aerospike.client.policy.ClientPolicy();
         policy.failIfNotConnected = true;
         admin = connectWithRetries(policy);
@@ -112,7 +112,8 @@ class AerospikeSourceTckIT extends SourcePluginTck {
         RuntimeException last = null;
         while (System.nanoTime() < deadline) {
             try {
-                return new AerospikeClient(policy, new com.aerospike.client.Host("127.0.0.1", AerospikeContainer.PORT));
+                return new AerospikeClient(
+                        policy, new com.aerospike.client.Host("127.0.0.1", AerospikeContainer.port()));
             } catch (RuntimeException e) {
                 last = e;
                 sleep(1000);
