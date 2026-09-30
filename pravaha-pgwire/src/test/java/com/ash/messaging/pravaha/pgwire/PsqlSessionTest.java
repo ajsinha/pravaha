@@ -136,7 +136,11 @@ class PsqlSessionTest {
 
         String output = psql(null, "\\dt");
 
-        assertThat(output).contains("List of relations").contains("user_volume").contains("table");
+        // psql 18 titles \dt "List of tables"; earlier versions, "List of relations".
+        assertThat(output)
+                .containsAnyOf("List of relations", "List of tables")
+                .contains("user_volume")
+                .contains("table");
     }
 
     @Test

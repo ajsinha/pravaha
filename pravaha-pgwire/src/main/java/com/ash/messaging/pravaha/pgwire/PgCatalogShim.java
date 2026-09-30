@@ -162,6 +162,16 @@ final class PgCatalogShim {
                             .build(),
                     List.of()));
         }
+        // FROM pg_catalog.pg_constraint: keys, checks, foreign keys and (psql 18's \d) NOT NULL
+        // constraints. A view has none of these as PostgreSQL objects -- nullability is reported
+        // through pg_attribute.attnotnull -- so the true answer is always empty.
+        if (containsIgnoreCase(sql, "pg_constraint")) {
+            return Optional.of(new ViewQuery.Result(
+                    StreamSchema.builder("pg_constraint")
+                            .field("conname", Types.string())
+                            .build(),
+                    List.of()));
+        }
         throw new PravahaException(
                 PgWireErrors.UNSUPPORTED_CATALOG_QUERY,
                 "this looks like a pg_catalog query this gateway does not recognise: " + preview(sql)
@@ -750,6 +760,7 @@ final class PgCatalogShim {
             "pg_attribute",
             "pg_type",
             "pg_inherits",
+            "pg_constraint",
             "pg_am",
             "pg_roles",
             "pg_tablespace",

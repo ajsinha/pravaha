@@ -597,13 +597,13 @@ Everything here has one, and it can be run now.
 | | Command | What it proves |
 |---|---|---|
 | Image | `deploy/docker/smoke.sh --image <tag>` | Ten steps against a real container, two of them seeds: readiness goes red when Flight is taken away, and the node serves under `--read-only` |
-| Chart | `deploy/helm/test.sh` | 18 checks; `helm lint` and `helm template` over three scenarios, six seeds that must be refused |
+| Chart | `deploy/helm/test.sh` | 19 checks; `helm lint` and `helm template` over three scenarios, six seeds that must be refused |
 | Release | `deploy/release/test.sh` | 8 checks on a throwaway copy of the tree; four seeds, including one pom left at another version |
 | CI helpers | `deploy/ci/test.sh` | 15 checks; eleven seeds, from malformed YAML to a suite that skipped every test |
 
-Helm is **not installed on the development machine**. Every chart run recorded here used a
-helm 3.16.3 binary fetched into a scratch directory for the purpose and removed afterwards; the
-`packaging` workflow installs the same version with `azure/setup-helm`.
+The chart's 19 checks pass under helm 3.16.3 (the version the `packaging` workflow installs with
+`azure/setup-helm`) and, since 2026-09-30, under helm 4.3.0 installed on the development machine,
+including the `/opt/pravaha` layout in `_pod.tpl`.
 
 ---
 
