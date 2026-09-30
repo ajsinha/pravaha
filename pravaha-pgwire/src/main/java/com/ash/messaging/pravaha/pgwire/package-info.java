@@ -56,8 +56,18 @@
  *       com.ash.messaging.pravaha.pgwire.PgTypes#encodeBinary}), because Npgsql -- the driver inside
  *       Power BI -- asks for them on every query.
  *   <li><strong>Anything that writes.</strong> Not refused here at all -- it is refused by the
- *       planner, one layer down, so that pgwire and Flight give the same answer.
+ *       planner, one layer down, so that pgwire and Flight give the same answer. Inside a
+ *       transaction block the refusal fails the block, as any error does.
  * </ul>
+ *
+ * <p><strong>Transactions are accepted, as no-ops with PostgreSQL's protocol state</strong>
+ * (PGWIRE-TX-1): {@code BEGIN}/{@code START TRANSACTION}, {@code COMMIT}/{@code END}, {@code
+ * ROLLBACK}/{@code ABORT}, savepoints and {@code SET TRANSACTION}, with the right tags and the {@code
+ * I}/{@code T}/{@code E} status on every {@code ReadyForQuery}, on both protocols. There is nothing to
+ * commit on a read-only gateway; what a driver needs is the state. Reads in a block are {@code READ
+ * COMMITTED} -- each statement sees the views as they are when it runs, not a snapshot taken at
+ * {@code BEGIN}. See {@link com.ash.messaging.pravaha.pgwire.PgTransactionBlock}, and {@link
+ * com.ash.messaging.pravaha.pgwire.PgShow} for the settings drivers probe with {@code SHOW}.
  *
  * <h2>Slice 2: a catalog, and a session that connects</h2>
  *

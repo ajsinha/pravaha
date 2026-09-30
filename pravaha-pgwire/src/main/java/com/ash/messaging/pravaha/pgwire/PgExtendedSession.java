@@ -80,10 +80,18 @@ final class PgExtendedSession {
 
     private boolean errorState;
 
+    /** This session's transaction block: shared with the simple query protocol, which reads and writes the same one. */
+    private final PgTransactionBlock transaction = new PgTransactionBlock();
+
     PgExtendedSession(ViewQuery queries, PgCatalogShim catalog, Principal principal) {
         this.queries = queries;
         this.catalog = catalog;
         this.principal = principal;
+    }
+
+    /** The session's transaction state, which {@code PgWireConnection.simpleQuery} shares. */
+    PgTransactionBlock transaction() {
+        return transaction;
     }
 
     /**
@@ -124,6 +132,14 @@ final class PgExtendedSession {
         if (statement.isEmpty()) {
             return new PgStatement.Empty();
         }
+        Optional<PgTransactionBlock.Command> control = PgTransactionBlock.recognise(statement);
+        if (control.isPresent()) {
+            // Judged at Execute against the block's state then, not now: a driver parses COMMIT once
+            // and runs it in whatever state each later block ends in.
+            return new PgStatement.ForTransaction(control.get());
+        }
+        // A failed block refuses a new statement at Parse, as PostgreSQL does.
+        transaction.refuseIfFailed();
         if (PgSessionSet.isSetStatement(statement)) {
             // Validated now, not deferred to Execute: a real backend refuses a bad statement at
             // Parse, and doing the same work twice (Parse and Execute) is cheap for a SET, which
@@ -134,6 +150,10 @@ final class PgExtendedSession {
         // Refused at Parse, as a real backend refuses a statement it will not run, rather than
         // planned: the planner would call CREATE CONTINUOUS QUERY a syntax error.
         PgWireErrors.refuseContinuousStatement(statement);
+        Optional<ViewQuery.Result> shown = PgShow.answer(statement, catalog.serverVersion());
+        if (shown.isPresent()) {
+            return new PgStatement.ForShow(shown.get());
+        }
         // Recognised by a bare probe first: PgCatalogShim matches this statement's own markers
         // (join shape, column names, function names) whether or not it has $n placeholders yet, so
         // whether it is catalog-shaped at all does not depend on knowing their count.
@@ -170,6 +190,9 @@ final class PgExtendedSession {
             String portalName = r.cstring();
             String statementName = r.cstring();
             PgStatement statement = requireStatement(statementName);
+            if (!(statement instanceof PgStatement.ForTransaction)) {
+                transaction.refuseIfFailed();
+            }
 
             short[] paramFormats = readFormatCodes(r);
             short paramCount = r.int16();
@@ -294,6 +317,11 @@ final class PgExtendedSession {
                 backend.emptyQueryResponse();
                 return;
             }
+            if (portal.statement() instanceof PgStatement.ForTransaction control) {
+                transaction.answer(backend, control.command());
+                return;
+            }
+            transaction.refuseIfFailed();
             if (portal.statement() instanceof PgStatement.ForSet forSet) {
                 PgSessionSet.handle(forSet.sql());
                 backend.commandComplete("SET");
@@ -309,6 +337,9 @@ final class PgExtendedSession {
     }
 
     private ViewQuery.Result runOnce(PgPortal portal) {
+        if (portal.statement() instanceof PgStatement.ForShow forShow) {
+            return forShow.answer();
+        }
         if (portal.statement() instanceof PgStatement.ForCatalog forCatalog) {
             // The real bound values substituted back in, not the wildcard probe Parse used only to
             // learn the schema: a client must never read rows filtered by '%' when it asked to bind
@@ -345,7 +376,8 @@ final class PgExtendedSession {
             // treat this batch as the whole answer.
             backend.portalSuspended();
         } else {
-            backend.commandComplete("SELECT " + rows.size());
+            backend.commandComplete(
+                    portal.statement() instanceof PgStatement.ForShow ? "SHOW" : "SELECT " + rows.size());
         }
     }
 
@@ -381,10 +413,14 @@ final class PgExtendedSession {
         portals.clear();
     }
 
-    /** Ends this Sync-delimited sequence: clears any error state, and answers {@code ReadyForQuery}. */
+    /**
+     * Ends this Sync-delimited sequence: clears any error state, and answers {@code ReadyForQuery}
+     * with the transaction block's status -- {@code T} after a {@code BEGIN} in the sequence, {@code E}
+     * after an error inside a block, which is how pgjdbc and psycopg learn either.
+     */
     void sync(PgBackend backend) throws IOException {
         errorState = false;
-        backend.readyForQuery(PgBackend.STATUS_IDLE);
+        backend.readyForQuery(transaction.status());
     }
 
     // -------------------------------------------------------------------------------------
@@ -414,6 +450,7 @@ final class PgExtendedSession {
 
     private void fail(PgBackend backend, PravahaException refused) throws IOException {
         errorState = true;
+        transaction.failed();
         backend.errorResponse(
                 "ERROR",
                 PgWireErrors.sqlStateFor(refused),

@@ -187,6 +187,21 @@ limit 2");
                     return Rows(cmd);
                 }
             });
+            // PGWIRE-TX-1: BeginTransaction sends BEGIN (with Npgsql's isolation level) and Commit sends
+            // COMMIT; both were refused as a syntax error before.
+            Check("transaction", () =>
+            {
+                using (var tx = conn.BeginTransaction())
+                {
+                    string rows;
+                    using (var cmd = new NpgsqlCommand($"SELECT region FROM {view} WHERE region = 'EMEA'", conn, tx))
+                    {
+                        rows = Rows(cmd);
+                    }
+                    tx.Commit();
+                    return rows;
+                }
+            });
             Refused(conn, "insert-refused", $"INSERT INTO {view} (region, revenue) VALUES ('X', 1)");
         }
 

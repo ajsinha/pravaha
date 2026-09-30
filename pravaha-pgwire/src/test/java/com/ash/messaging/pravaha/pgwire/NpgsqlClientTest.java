@@ -205,6 +205,8 @@ class NpgsqlClientTest {
                 .startsWith("2 rows: ")
                 .contains("region=EMEA(String)")
                 .contains("region=AMER(String)");
+        // PGWIRE-TX-1: NpgsqlConnection.BeginTransaction / Commit around a read.
+        assertThat(lines.get("OK transaction")).isEqualTo("1 rows: region=EMEA(String)");
         assertThat(lines.get("REFUSED insert-refused")).isNotNull();
         assertThat(lines.get("OK pooled-reopen")).isEqualTo("1 rows: region=APAC(String)");
         assertThat(lines.keySet()).noneMatch(key -> key.startsWith("FAIL"));
