@@ -7,7 +7,7 @@ icon: server
 summary: "Reading maintained views from psql, DBeaver, Grafana, Power BI or any PostgreSQL driver: turning the gateway on, connecting, the types it sends, what it refuses (writes, PRV-6211, BYTES and TIME), and TLS on the same port."
 badge: GATEWAY
 audience: Developers
-keywords: [psql, postgres, postgresql, pgwire, dbeaver, grafana, jdbc, pgjdbc, npgsql, power bi, 5432, sslmode, "25006", read-only, "\\d", PRV-6211, PRV-6200]
+keywords: [psql, postgres, postgresql, pgwire, dbeaver, grafana, jdbc, pgjdbc, npgsql, psycopg, power bi, transaction, begin, autocommit, "25P02", 5432, sslmode, "25006", read-only, "\\d", PRV-6211, PRV-6200]
 guide: architecture
 related: [views-and-keys, clients, power-bi, authentication, tls, consistency]
 ---
@@ -29,7 +29,8 @@ It is **read-only**, and **off by default**.
 | Protocol | Simple **and** extended query protocol (Parse/Bind/Describe/Execute/Sync); `$1`-style parameters |
 | Announces itself as | PostgreSQL `9.4.26 (Pravaha)` — the version whose catalogue queries `psql` sends and the shim answers |
 | Catalogue | A minimal read-only `pg_catalog` (`pg_class`, `pg_namespace`, `pg_attribute`, `version()`, `current_schema()`), Npgsql's type loading (`pg_type`) and the `information_schema` questions Npgsql's `GetSchema` and Power BI's navigator ask — all filtered by what you may read — so `\d`, a driver's `getTables()` and Power BI's navigator work |
-| Tested clients | `psql`, pgjdbc 42.7 (simple and extended protocol) and **Npgsql 4.0.17** — the driver inside Power BI — each driven by the module's own tests. DBeaver connects through pgjdbc |
+| Tested clients | `psql`, pgjdbc 42.7 (simple and extended protocol, autocommit on or off), **Npgsql 4.0.17** — the driver inside Power BI — and psycopg 3 in its default (non-autocommit) mode, each driven by the module's own tests. DBeaver connects through pgjdbc |
+| Transactions | `BEGIN`, `COMMIT`, `ROLLBACK`, savepoints and `SET TRANSACTION` are accepted as no-ops with PostgreSQL's tags and transaction status; reads in a block are `READ COMMITTED` — see [Transactions](#transactions) |
 | Authentication | The **password** is the node's credential (a bearer token under `authentication: token`); with the engine's own accounts on, an **API key** or a **session token** — never the account's own password (PGWIREPASS-1). The user name is informational |
 | Writes | None. `INSERT`/`UPDATE`/`DELETE` are refused by the planner; continuous-query statements with PRV-6211 (SQLSTATE `25006`) |
 | TLS | `pravaha.pgwire.tls.certificate` and `pravaha.pgwire.tls.key` (PEM chain, PKCS#8 key): the gateway then answers `SSLRequest` on the same port. **Off until both are set** — see below |
@@ -289,7 +290,11 @@ refused with PRV-6209.
 | `INSERT`, `UPDATE`, `DELETE` | PRV-2020, by the planner — the same answer Flight gives | `42000` |
 | A column of type `BYTES` or `TIME` | PRV-6200 | `0A000` |
 | `COPY`, `DECLARE`/`FETCH` cursors | Refused by name as unsupported (PRV-6201) | `0A000` |
-| `DISCARD ALL` | Accepted: forgets the session's named statements and portals, which is all the session state there is. Npgsql sends it whenever it reuses a pooled connection | — |
+| `DISCARD ALL` | Accepted: forgets the session's named statements and portals, which is all the session state there is. Npgsql sends it whenever it reuses a pooled connection. Inside a transaction block it is refused with PRV-6215, as PostgreSQL refuses it | `25001` inside a block |
+| Anything but `ROLLBACK`, `COMMIT` or `ROLLBACK TO SAVEPOINT` after an error inside a transaction block | PRV-6212 | `25P02` in_failed_sql_transaction |
+| `SAVEPOINT`, `RELEASE`, `ROLLBACK TO` or `COMMIT AND CHAIN` outside a block | PRV-6213 | `25P01` no_active_sql_transaction |
+| `RELEASE` or `ROLLBACK TO` a savepoint the block never set | PRV-6214 | `3B001` |
+| `SET TRANSACTION SNAPSHOT` | PRV-6204: the gateway keeps no snapshots to import | `0A000` |
 | A `SET` outside the accepted list | PRV-6204 | `0A000` |
 | A catalogue query shape the shim does not recognise | PRV-6205 | `0A000` |
 | A view that does not exist | PRV-4023, the serving layer's own code | `42P01` undefined_table. It was PRV-2002 and the generic `42000` until finding L-3: the serving layer answered PRV-4023 only over an empty catalogue and let the planner's SQL-validation failure through otherwise. An unknown **column** of a view that does exist is still PRV-2002 and `42000`, deliberately — a confident "no such table" would send you looking in the wrong place |
@@ -320,6 +325,44 @@ ERROR:  PRV-6211  the PostgreSQL gateway is read-only: it does not register, dro
 Anything the gateway does not map to a more specific SQLSTATE arrives as `42000` — a name that does not
 resolve, a shape the planner refuses, a type error. The message always begins with the engine's own
 PRV code, which is the part to search for.
+
+## Transactions
+
+Most drivers wrap reads in a transaction unless told not to: psycopg outside `autocommit`, pgjdbc
+with `setAutoCommit(false)`, Npgsql's `BeginTransaction`, and most ORMs. The gateway writes nothing,
+so there is nothing for a transaction to make atomic; it accepts the statements as no-ops and keeps
+the part a driver depends on — the command tag and the transaction status every `ReadyForQuery`
+carries (`I` idle, `T` in a block, `E` failed), on the simple and the extended protocol alike.
+
+| You send | Tag | Status after |
+|---|---|---|
+| `BEGIN`, `BEGIN WORK`/`TRANSACTION`, with any `ISOLATION LEVEL`, `READ ONLY`/`READ WRITE`, `[NOT] DEFERRABLE` | `BEGIN` | `T` (a second `BEGIN` warns `25001` and stays `T`) |
+| `START TRANSACTION` with the same options | `START TRANSACTION` | `T` |
+| `COMMIT`, `END` | `COMMIT` — or `ROLLBACK` if the block had failed | `I` (outside a block: a `25P01` warning, still `I`) |
+| `ROLLBACK`, `ABORT` | `ROLLBACK` | `I` |
+| `COMMIT AND CHAIN`, `ROLLBACK AND CHAIN` | as above | `T`: the next block opens at once |
+| `SAVEPOINT x` | `SAVEPOINT` | `T` |
+| `RELEASE [SAVEPOINT] x` | `RELEASE` | `T` |
+| `ROLLBACK TO [SAVEPOINT] x` | `ROLLBACK` | `T`, even from a failed block |
+| `SET TRANSACTION …`, `SET SESSION CHARACTERISTICS AS TRANSACTION …` | `SET` | unchanged |
+
+After an error inside a block — a view that does not exist, a refused write — the block is failed:
+every statement but `ROLLBACK`, `COMMIT` and `ROLLBACK TO SAVEPOINT` is refused with `25P02`
+(PRV-6212) until one of them ends or rewinds it, exactly as PostgreSQL behaves. An error outside a
+block leaves the session idle.
+
+**Reads in a block are `READ COMMITTED`.** Each statement reads the views as they are when *that
+statement* runs, not as of a snapshot taken at `BEGIN`, so two reads in one block can see two
+different moments of a view that is being maintained between them. `REPEATABLE READ` and
+`SERIALIZABLE` are accepted — refusing them would break drivers' isolation-level setters — and
+answered with a `NOTICE` saying they run as `READ COMMITTED`. `SHOW transaction_isolation` (and `SHOW
+TRANSACTION ISOLATION LEVEL`) always answers `read committed`, and `SHOW transaction_read_only` answers
+`on`, because that is what the gateway does whatever the block asked for. `READ WRITE` is accepted;
+writes are still refused.
+
+The other settings a driver probes are answered from what the gateway announced at connect:
+`SHOW standard_conforming_strings`, `server_version`, `client_encoding`, `DateStyle`, `TimeZone` and
+the rest of that list.
 
 ## Pitfalls
 

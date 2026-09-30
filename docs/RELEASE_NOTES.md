@@ -12,6 +12,21 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **The PostgreSQL gateway accepts transactions (PGWIRE-TX-1).** `BEGIN` was refused as
+  `PRV-2001 … near the keyword 'BEGIN'`, so psycopg in its default mode, pgjdbc with
+  `setAutoCommit(false)`, Npgsql's `BeginTransaction` and most ORMs failed on their first read.
+  `BEGIN`/`START TRANSACTION` (any isolation level, `READ ONLY`/`READ WRITE`, `DEFERRABLE`),
+  `COMMIT`/`END`, `ROLLBACK`/`ABORT`, `AND CHAIN`, `SAVEPOINT`, `RELEASE`, `ROLLBACK TO` and `SET
+  TRANSACTION`/`SET SESSION CHARACTERISTICS` are now accepted as no-ops over the read-only gateway,
+  with PostgreSQL's command tags and the `I`/`T`/`E` transaction status on every `ReadyForQuery`, on
+  the simple and the extended protocol. After an error inside a block, everything but `ROLLBACK`,
+  `COMMIT` (which reports `ROLLBACK`) and `ROLLBACK TO SAVEPOINT` is refused with `25P02` until the
+  block ends, as PostgreSQL does. Reads in a block are `READ COMMITTED` — each sees the views as they
+  are when it runs; `REPEATABLE READ` and `SERIALIZABLE` are accepted with a `NOTICE` saying so.
+  `SHOW transaction_isolation`, `transaction_read_only`, `standard_conforming_strings` and the other
+  parameters announced at connect are answered. Writes stay refused, and a refused write fails the
+  block. New codes `PRV-6212`–`PRV-6215` (`25P02`, `25P01`, `3B001`, `25001`). The `autocommit=True`
+  workaround in the docs is gone. Tested with raw protocol bytes, pgjdbc, Npgsql 4.0.17 and psycopg 3.
 - **An upsert sink is handed a replaced key's new row alone, not a delete and an insert
   (SINKKEYROWS-2).** Since SINKKEYROWS-1 a keyed sink in upsert mode follows the view's answer, and
   a commit that replaced a key's row reached it as the old row withdrawn and then the new one: a
