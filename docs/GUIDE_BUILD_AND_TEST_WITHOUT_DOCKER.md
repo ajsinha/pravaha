@@ -133,6 +133,12 @@ Run time 1 min 37 s, 0 failures, 0 skips. The transport tests start a real Fligh
 `pravaha-flight/target/test-classes` with `$JAVA_HOME/bin/java`; if they skip with *"pravaha-flight
 is not built"*, step 3 did not run (or ran with `-Dmaven.test.skip`).
 
+**The SDKs for a client.** The SDKs are shipped apart from the server. `tools/build-sdk.sh` builds
+only them (the Java SDK's jars, its `-all` jar, the wheel and the sdist) into `target/sdk-dist/`,
+without building the server; install the wheel from there with `pip install
+'target/sdk-dist/python/pravaha-<version>-py3-none-any.whl[flight]'`. See
+[Testing: the SDKs on their own](TESTING.md#the-sdks-on-their-own).
+
 ## 6. The console's tests
 
 ```bash

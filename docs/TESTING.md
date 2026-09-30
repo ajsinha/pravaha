@@ -29,6 +29,7 @@ with other builds running. Treat the times as an order of magnitude, not a bench
 | Performance gates | `pravaha-it/.../qa/perf/*GateIT`, `RestartCompileIT`, `NexmarkCoverageIT`; `pravaha-runtime/.../*MeasurementIT` | JDK 21, a quiet machine, no coverage agent | see [Performance and measurement](#performance-and-measurement) | skip themselves under the coverage agent; **not measured in this pass** |
 | Python SDK | `sdk/python/tests` | Python ≥ 3.9 venv; built `pravaha-flight` test classes | `make -C sdk/python test` | 426 passed, 0 skipped, 1 min 37 s |
 | Console | `console/tests` | Python ≥ 3.11 venv; Chrome or Chromium for the browser suites | `make -C console test` / `make -C console test-fast` | 1,937 passed, 1 skipped, 31 min 27 s with Chrome ([Console](#console)) |
+| SDK, standalone | `tools/sdk-standalone-check.sh`, after `tools/build-sdk.sh` | Docker (or a running node), Maven, Python with venv or uv | `sg docker -c "tools/sdk-standalone-check.sh --docker pravaha/pravaha-server:local"` | four clients outside the repository (Maven, `-all` jar, wheel with and without `[flight]`), green on 2026-09-30 ([below](#the-sdks-on-their-own)) |
 | Deck | `tests/deck` | `tools/deck/.venv` (python-pptx) | `tools/deck/.venv/bin/python -m pytest -q tests/deck` | 5 passed, 1 s |
 | The gate | whole reactor | JDK 21, the shared `~/.m2` | `tools/verify-clean.sh` | **not run in this pass**; its header records 5 min 50 s for 2,274 tests |
 | A running stack | a real node, the console, the CLI, pgwire | the built jars (or Docker) | [End to end](#end-to-end-against-a-running-stack) | walked through, outside Docker |
@@ -82,6 +83,31 @@ reinstalls it, and several checkouts sharing one `~/.m2` install each other's ha
 | a linked git worktree | `tools/worktree-build.sh <maven args>` | a Maven repository of the worktree's own, `<worktree>/.m2-local`, seeded from `~/.m2` by hard links without Pravaha's artefacts. Install the modules you change (`install -pl <module>`) before testing a module that depends on them |
 | the main checkout, iterating | `./mvnw -o -pl <module> -am test` or `tools/check.sh <module>` | `-am` rebuilds the dependencies in the reactor. `check.sh` skips spotless and is not a gate |
 | the main checkout, before a commit | `tools/verify-clean.sh` | deletes Pravaha's artefacts from `~/.m2` first, then `clean install` and a full `verify`. **Never from a worktree while another checkout is building** — it deletes shared jars |
+
+### The SDKs on their own
+
+The client SDKs are built and shipped apart from the server. `tools/build-sdk.sh` builds only what a
+client needs, `pravaha-api`, `pravaha-sdk-java`, `pravaha-sdk-java-flight` (thin jar and `-all`
+jar) and the Python wheel and sdist, into `target/sdk-dist/`, with a `README.txt` saying what each
+file is. It never builds the server, and refuses to continue if Maven's reactor holds anything but
+those three modules and the parent POM:
+
+```bash
+tools/build-sdk.sh                  # 7 s warm; --install also puts the Java SDK in the Maven repository
+tools/build-sdk.sh --java-only      # or --python-only; `-- -o` passes -o to Maven
+```
+
+It passes `-Dsdk.standalone`, which drops the Flight SDK's test-scope server dependencies (its own
+tests start a real server) so `-am` does not follow them into the engine, and skips that module's
+tests; every other build runs them. `tools/sdk-standalone-check.sh` then proves the artefacts work
+with nothing else: a Maven client whose only dependency is `pravaha-sdk-java-flight`, resolved from
+a repository holding no other Pravaha artefact (its dependency tree is printed and checked), the
+same client on the `-all` jar with plain `javac`/`java`, and the wheel installed with and without
+`[flight]` into fresh virtualenvs, all outside the repository and against a throwaway node. It
+starts a container, so it is not part of any gate. `SdkIndependenceTest` in `pravaha-it` is the
+part that is: it fails if an SDK module reaches a server module, a server module reaches an SDK,
+the server's executable jar carries SDK classes, or the Python package needs more than the
+standard library to import.
 
 ---
 

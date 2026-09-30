@@ -201,10 +201,40 @@ security notes are in [`docs/ASSIST.md`](../../docs/ASSIST.md).
 
 ## Install
 
+The SDK is its own distribution, built and released apart from the server: installing it installs
+nothing of the engine, and it needs no Pravaha checkout. It has **no required dependencies**; what
+a client needs beyond the standard library comes through an extra.
+
 ```bash
-pip install pravaha            # contracts only
-pip install 'pravaha[flight]'  # with the transport (pyarrow, which brings Flight and gRPC)
+pip install pravaha                  # the types, the HTTP API client and the `pravaha` CLI's HTTP commands
+pip install 'pravaha[flight]'        # + the transport: pyarrow, which brings Arrow Flight and gRPC
+pip install 'pravaha[tls-keystore]'  # + cryptography, for a JKS or PKCS12 keystore/truststore
 ```
+
+Without `[flight]`, `import pravaha` still works and so does everything over HTTP; the first Flight
+call (`pravaha.connect`, `query`, `subscribe`) raises `ImportError` naming the extra to install.
+
+**From a build of this repository**, rather than a package index: `tools/build-sdk.sh` builds the
+wheel and the sdist (and the Java SDK) into `target/sdk-dist/`, without building the server, and
+the wheel installs anywhere with its extras:
+
+```bash
+tools/build-sdk.sh --python-only
+pip install 'target/sdk-dist/python/pravaha-<version>-py3-none-any.whl[flight]'
+```
+
+`tools/sdk-standalone-check.sh` proves it: it installs the wheel, with and without `[flight]`, into
+fresh virtualenvs outside the repository and reads a view from a running node.
+`SdkIndependenceTest` (pravaha-it) imports every module of the package with the standard library
+alone and fails if one needs more, or imports the console.
+
+**Which server.** Use the SDK from the same release as the server, the same major.minor version.
+The Flight protocol carries no version handshake: a request an older server does not know (a verb
+added later, such as `subscribe(..., changes="answer")`) is refused by that server with an error,
+never misread or silently downgraded. Nothing checks the pairing when a client connects, and other
+pairings are not tested, so a mismatch shows up as that refusal on the first new request. The same
+policy covers the Java SDK
+([`sdk/pravaha-sdk-java/README.md`](../pravaha-sdk-java/README.md)).
 
 ## Develop
 
@@ -254,8 +284,8 @@ Flat, with the package in the project root rather than under `src/`. No `pom.xml
 ## Design notes
 
 **No runtime dependencies by default.** A client is installed into someone else's environment,
-and every pin it adds is one their resolver has to reconcile. gRPC, protobuf and pyarrow arrive
-with the `grpc` extra, not on the default path.
+and every pin it adds is one their resolver has to reconcile. pyarrow, and the gRPC and protobuf it
+carries, arrive with the `flight` extra, not on the default path.
 
 **Options are validated at construction.** A malformed connection string fails next to the code
 that supplied it rather than inside a request fifteen minutes later.

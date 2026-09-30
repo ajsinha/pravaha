@@ -306,6 +306,13 @@ its caches in `~/.cache/pravaha-docker` (yours too):
 | `tools/docker-test.sh all` | the four, in order |
 | `tools/docker-test.sh mvn <args>` | any Maven command in the same container |
 
+The client SDKs build and are checked on their own, apart from the server: `tools/build-sdk.sh`
+puts the Java SDK's jars and the Python wheel in `target/sdk-dist/`, and `sg docker -c
+"tools/sdk-standalone-check.sh --docker pravaha/pravaha-server:local"` starts a throwaway node from
+the image built in step 3 on 127.0.0.1:39090 and reads a view from it with four clients outside the
+repository, each using only those artefacts; the container is removed afterwards. See
+[Testing: the SDKs on their own](TESTING.md#the-sdks-on-their-own).
+
 What each printed here:
 
 ```text
