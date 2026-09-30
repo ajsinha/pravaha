@@ -315,14 +315,12 @@ final class PgWireConnection implements Runnable {
             throws IOException {
         // What a client is entitled to assume about this server. Each of these is a promise the
         // encoder in PgTypes actually keeps -- in particular DateStyle, which is what makes
-        // "2026-09-16 12:00:00+00" the right thing to send rather than a guess.
-        backend.parameterStatus("server_version", serverVersion);
-        backend.parameterStatus("server_encoding", "UTF8");
-        backend.parameterStatus("client_encoding", "UTF8");
-        backend.parameterStatus("DateStyle", "ISO, MDY");
-        backend.parameterStatus("TimeZone", "UTC");
-        backend.parameterStatus("integer_datetimes", "on");
-        backend.parameterStatus("standard_conforming_strings", "on");
+        // "2026-09-16 12:00:00+00" the right thing to send rather than a guess. PgShow answers `SHOW`
+        // for each of them from the same list.
+        for (Map.Entry<String, String> announced :
+                PgShow.announced(serverVersion).entrySet()) {
+            backend.parameterStatus(announced.getKey(), announced.getValue());
+        }
         backend.parameterStatus("application_name", startupParameters.getOrDefault("application_name", ""));
         backend.backendKeyData(
                 ProcessHandle.current().pid() > Integer.MAX_VALUE
@@ -391,7 +389,7 @@ final class PgWireConnection implements Runnable {
                     // client that has already stopped reading is a write to a half-closed socket.
                     return;
                 }
-                default -> unimplemented(backend, message.type());
+                default -> unimplemented(backend, message.type(), extended.transaction());
             }
         }
     }
@@ -406,15 +404,27 @@ final class PgWireConnection implements Runnable {
      */
     private void simpleQuery(PgBackend backend, Principal principal, String sql, PgExtendedSession extended)
             throws IOException {
+        PgTransactionBlock transaction = extended.transaction();
         try {
             String statement = SimpleQueryText.singleStatement(sql);
             if (statement.isEmpty()) {
                 backend.emptyQueryResponse();
                 return;
             }
+            java.util.Optional<PgTransactionBlock.Command> control = PgTransactionBlock.recognise(statement);
+            if (control.isPresent()) {
+                // BEGIN, COMMIT, ROLLBACK, savepoints, SET TRANSACTION: accepted no-ops over a
+                // read-only gateway, with PostgreSQL's tags and statuses -- see PgTransactionBlock.
+                transaction.answer(backend, control.get());
+                return;
+            }
+            // After an error inside a block, nothing but ROLLBACK (or COMMIT) runs: 25P02.
+            transaction.refuseIfFailed();
             if (PgSessionSet.isDiscardAll(statement)) {
                 // Npgsql's pool resets every reused connection with this. Honoured, not ignored: the
                 // only session state this server keeps is named statements and portals, and they go.
+                // Refused inside a block (25001), as PostgreSQL refuses it there.
+                transaction.refuseInsideBlock("DISCARD ALL");
                 extended.discardAll();
                 backend.commandComplete("DISCARD ALL");
                 return;
@@ -425,6 +435,13 @@ final class PgWireConnection implements Runnable {
                 return;
             }
             PgWireErrors.refuseContinuousStatement(statement);
+            java.util.Optional<ViewQuery.Result> shown = PgShow.answer(statement, serverVersion);
+            if (shown.isPresent()) {
+                backend.rowDescription(shown.get().schema());
+                backend.dataRow(shown.get().rows().get(0), shown.get().schema());
+                backend.commandComplete("SHOW");
+                return;
+            }
             // The catalog shim answers first, and only queries it recognises as pg_catalog
             // introspection (PgCatalogShim.looksLikeCatalogQuery) -- everything else, including
             // every ordinary SELECT over a view, falls through to the one call that matters below.
@@ -455,6 +472,8 @@ final class PgWireConnection implements Runnable {
         } catch (PravahaException e) {
             // The engine's own diagnosis, with its PRV code, rather than a generic internal error.
             // A client that gets "PRV-4023 ... this server serves [user_volume]" can act on it.
+            // Inside a transaction block, any failure fails the block: 'E' until ROLLBACK.
+            transaction.failed();
             backend.errorResponse(
                     "ERROR",
                     PgWireErrors.sqlStateFor(e),
@@ -464,9 +483,10 @@ final class PgWireConnection implements Runnable {
             // XX000 internal_error, and the message rather than the class name: anything reaching
             // here is a bug in this server, and the person who has to find it is reading a psql
             // window, not a heap dump.
+            transaction.failed();
             backend.errorResponse("ERROR", "XX000", String.valueOf(e.getMessage()), null);
         } finally {
-            backend.readyForQuery(PgBackend.STATUS_IDLE);
+            backend.readyForQuery(transaction.status());
         }
     }
 
@@ -484,7 +504,7 @@ final class PgWireConnection implements Runnable {
      * (PostgreSQL's own, unrelated to a SQL function call), {@code COPY} in either direction, and a
      * stray {@code PasswordMessage} outside authentication.
      */
-    private void unimplemented(PgBackend backend, char type) throws IOException {
+    private void unimplemented(PgBackend backend, char type, PgTransactionBlock transaction) throws IOException {
         String what =
                 switch (type) {
                     case 'F' -> "FunctionCall";
@@ -497,8 +517,9 @@ final class PgWireConnection implements Runnable {
                 + "of what is deliberately absent.";
         PravahaException refusal = new PravahaException(
                 PgWireErrors.UNSUPPORTED_REQUEST, what + " is not supported by this server. " + detail);
+        transaction.failed();
         backend.errorResponse("ERROR", PgWireErrors.sqlStateFor(refusal), refusal.getMessage(), null);
-        backend.readyForQuery(PgBackend.STATUS_IDLE);
+        backend.readyForQuery(transaction.status());
     }
 
     /** A failure the connection cannot survive: say so, then let the socket close. */

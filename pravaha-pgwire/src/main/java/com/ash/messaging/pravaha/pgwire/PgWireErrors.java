@@ -140,6 +140,26 @@ public final class PgWireErrors {
      */
     public static final ErrorCode READ_ONLY = new ErrorCode(6211, "PGWIRE_READ_ONLY");
 
+    /**
+     * A statement sent inside a transaction block that an earlier error has already failed.
+     *
+     * <p>{@code 25P02 in_failed_sql_transaction}, PostgreSQL's own rule: until {@code ROLLBACK} (or
+     * {@code ROLLBACK TO SAVEPOINT}), nothing else in the block runs. See {@link PgTransactionBlock}.
+     */
+    public static final ErrorCode TRANSACTION_ABORTED = new ErrorCode(6212, "PGWIRE_TRANSACTION_ABORTED");
+
+    /**
+     * {@code SAVEPOINT}, {@code RELEASE}, {@code ROLLBACK TO} or {@code COMMIT/ROLLBACK AND CHAIN}
+     * outside a transaction block: {@code 25P01 no_active_sql_transaction}, as PostgreSQL answers.
+     */
+    public static final ErrorCode NO_TRANSACTION = new ErrorCode(6213, "PGWIRE_NO_TRANSACTION");
+
+    /** {@code RELEASE} or {@code ROLLBACK TO} a savepoint this block never set: {@code 3B001}. */
+    public static final ErrorCode NO_SUCH_SAVEPOINT = new ErrorCode(6214, "PGWIRE_NO_SUCH_SAVEPOINT");
+
+    /** {@code DISCARD ALL} inside a transaction block: {@code 25001 active_sql_transaction}, as PostgreSQL. */
+    public static final ErrorCode TRANSACTION_ACTIVE = new ErrorCode(6215, "PGWIRE_TRANSACTION_ACTIVE");
+
     /** Refuses a continuous-query statement, if {@code statement} is one; the same words from both protocols. */
     static void refuseContinuousStatement(String statement) {
         if (com.ash.messaging.pravaha.sql.ContinuousStatements.isContinuousStatement(statement)) {
@@ -206,6 +226,10 @@ public final class PgWireErrors {
             case "PRV-6206" -> "08000";
             case "PRV-6202" -> "08P01"; // protocol_violation
             case "PRV-6211" -> "25006"; // read_only_sql_transaction
+            case "PRV-6212" -> "25P02"; // in_failed_sql_transaction
+            case "PRV-6213" -> "25P01"; // no_active_sql_transaction
+            case "PRV-6214" -> "3B001"; // invalid_savepoint_specification
+            case "PRV-6215" -> "25001"; // active_sql_transaction
             case "PRV-6207" -> "26000"; // invalid_sql_statement_name
             case "PRV-6208" -> "34000"; // invalid_cursor_name
             // 54000 program_limit_exceeded: the result was larger than one response may carry.

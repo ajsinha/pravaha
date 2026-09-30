@@ -25,10 +25,11 @@ import com.ash.messaging.pravaha.serving.ViewQuery;
  * What a {@code Parse} produced, kept under its statement name until {@code Close} or the session
  * ends.
  *
- * <p>Four kinds, because {@code PgWireConnection.simpleQuery} already answers four different shapes
- * of statement text with four different code paths -- a view query, a {@code pg_catalog} question,
- * a {@code SET}, and an empty string -- and the extended protocol is the same four shapes with a
- * name attached and the planning and the execution pulled apart. This is that same classification,
+ * <p>Six kinds, because {@code PgWireConnection.simpleQuery} already answers six different shapes
+ * of statement text with six different code paths -- a view query, a {@code pg_catalog} question,
+ * a {@code SET}, transaction control, a {@code SHOW}, and an empty string -- and the extended
+ * protocol is the same six shapes with a name attached and the planning and the execution pulled
+ * apart. This is that same classification,
  * made once at {@code Parse} and reused at {@code Describe}, {@code Bind} and {@code Execute} rather
  * than re-decided at each one.
  */
@@ -96,6 +97,26 @@ sealed interface PgStatement {
         @Override
         public java.util.Optional<StreamSchema> resultSchema() {
             return java.util.Optional.empty();
+        }
+    }
+
+    /**
+     * Transaction control -- {@code BEGIN}, {@code COMMIT}, a savepoint verb, {@code SET TRANSACTION}.
+     * Run at {@code Execute}, not {@code Parse}: pgjdbc parses {@code BEGIN} and {@code COMMIT} once and
+     * executes them many times. See {@link PgTransactionBlock}.
+     */
+    record ForTransaction(PgTransactionBlock.Command command) implements PgStatement {
+        @Override
+        public java.util.Optional<StreamSchema> resultSchema() {
+            return java.util.Optional.empty();
+        }
+    }
+
+    /** A {@code SHOW} {@link PgShow} answers: one fixed row, known at {@code Parse}. Tagged {@code SHOW}. */
+    record ForShow(ViewQuery.Result answer) implements PgStatement {
+        @Override
+        public java.util.Optional<StreamSchema> resultSchema() {
+            return java.util.Optional.of(answer.schema());
         }
     }
 

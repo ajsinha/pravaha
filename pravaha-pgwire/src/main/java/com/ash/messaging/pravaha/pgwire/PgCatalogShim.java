@@ -99,6 +99,11 @@ final class PgCatalogShim {
         this.informationSchema = new PgInformationSchema(catalog);
     }
 
+    /** The PostgreSQL version this gateway announces; {@link PgShow} answers {@code SHOW server_version} with it. */
+    String serverVersion() {
+        return serverVersion;
+    }
+
     /**
      * Answers {@code sql}, if it is one of the catalog shapes this class recognises.
      *

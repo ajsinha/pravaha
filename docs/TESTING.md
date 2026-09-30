@@ -394,6 +394,10 @@ machine found five kinds of failure, none of them an environment problem:
 | `sdk/python` `test_authentication.py` (3), dialect card (1) | the test Flight server's principals were in tenant `acme` while its views are the default tenant's (ADR-060); the packaged dialect card was stale | test | fixed on `develop` as SDK-AUTH and SDK-CARD, which also put the SDK suite in the gate |
 | console `test_browser_visual.py` (16) | the query page gained an Owner row (view ownership) and its baselines were not retaken | test | reviewed the diffs, retook `query-*` only |
 
-A defect noticed on the way, not fixed here: the pgwire gateway refuses `BEGIN`, so a client that
-opens a transaction before its first statement — psycopg by default, many ORMs — fails with
-`PRV-2001 … near the keyword 'BEGIN'`. `psql`, pgjdbc and psycopg with `autocommit=True` work.
+A defect noticed on the way, and fixed since as PGWIRE-TX-1: the pgwire gateway refused `BEGIN`, so a
+client that opens a transaction before its first statement — psycopg by default, many ORMs — failed
+with `PRV-2001 … near the keyword 'BEGIN'`. Transaction control is now accepted as a no-op with
+PostgreSQL's tags and transaction status, and `autocommit=True` is not needed.
+`pravaha-pgwire`'s `PsycopgClientTest` drives psycopg in its default mode; it runs when
+`$PRAVAHA_PSYCOPG_PYTHON` (or `python3`) can `import psycopg` and is skipped otherwise — neither the
+SDK's nor the console's virtualenv carries psycopg.

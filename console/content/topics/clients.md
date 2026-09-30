@@ -412,7 +412,10 @@ PGPASSWORD="$PRAVAHA_TOKEN" psql "host=engine port=5432 dbname=pravaha" \
 ```
 
 A subscription or a registration is not possible here: the gateway is read-only, and a
-`CREATE CONTINUOUS QUERY` is refused with PRV-6211. Details, drivers and types:
+`CREATE CONTINUOUS QUERY` is refused with PRV-6211. A driver's own transactions — psycopg's default
+mode, pgjdbc with autocommit off, an ORM's session — work as they do against PostgreSQL, with no
+`autocommit` setting needed; each read in one sees the view as it is when that read runs
+([Transactions](/help/topics/pgwire#transactions)). Details, drivers and types:
 [The PostgreSQL gateway](/help/topics/pgwire).
 
 ### The embedded engine

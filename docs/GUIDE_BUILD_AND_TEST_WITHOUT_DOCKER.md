@@ -315,7 +315,7 @@ refused with `PRV-7001 the credential was rejected`). With psycopg:
 ```python
 import psycopg
 with psycopg.connect(host="127.0.0.1", port=36432, user="admin", password=token,
-                     dbname="pravaha", autocommit=True) as conn:
+                     dbname="pravaha") as conn:
     with conn.cursor() as cur:
         cur.execute("SELECT user_id, amount FROM by_user")
         for row in cur.fetchall():
@@ -326,8 +326,10 @@ with psycopg.connect(host="127.0.0.1", port=36432, user="admin", password=token,
 ('carol', 900)
 ```
 
-`autocommit=True` matters: psycopg otherwise sends `BEGIN` first, and the gateway refuses it
-(`PRV-2001 Incorrect syntax near the keyword 'BEGIN'`). With `psql` the same connection is
+`autocommit=True` is not needed since PGWIRE-TX-1: psycopg's default mode sends `BEGIN` first,
+and the gateway accepts it — transaction control is a no-op with PostgreSQL's tags and transaction
+status, and each read in the block sees the view as it is when it runs. With `psql` the same
+connection is
 `PGPASSWORD=$token psql -h 127.0.0.1 -p 36432 -U admin -d pravaha -c "SELECT * FROM by_user"`
 (not run here: this machine has no `psql`).
 
@@ -394,7 +396,8 @@ database or set: a CDC source creates a replication slot, and sinks write.
 | Node exits with `PRV-6202 … Address already in use` | a port in use (another node, a PostgreSQL on 5432 for pgwire) | change `server.port`, `pravaha.flight.port`, `pravaha.pgwire.port` |
 | CLI: `PRV-1031` | a token over plaintext | `PRAVAHA_INSECURE_TOKEN=true` on loopback; TLS otherwise |
 | pgwire: `PRV-7001 the credential was rejected` | the user's password given as the pgwire password | give the session token or an API key |
-| pgwire: `PRV-2001 … near the keyword 'BEGIN'` | the client opened a transaction | autocommit on |
+| pgwire: `PRV-2001 … near the keyword 'BEGIN'` | a node from before PGWIRE-TX-1, which refused transaction control | rebuild; no autocommit setting is needed since |
+| pgwire: `PRV-6212` / `25P02` *current transaction is aborted* | an earlier statement in the same transaction failed | roll back, as against PostgreSQL |
 | SDK tests skip: *pravaha-flight is not built* | test classes missing | step 3 without `-Dmaven.test.skip` |
 | Console browser tests skip | no Chrome found | install one, or `PRAVAHA_CHROME=/path/to/chrome` |
 | The view stays empty | the stream's schema or the file does not match, or a windowed query with no event-time | `bin/pravaha queries` (ROWS IN), `logs/server.log`, [Troubleshooting](TROUBLESHOOTING.md) |

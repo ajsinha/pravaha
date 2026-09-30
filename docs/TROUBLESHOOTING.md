@@ -413,6 +413,18 @@ reports its *bridge* address to clients, so the client connects to the seed and 
 somewhere it cannot reach. The symptom is a hang rather than an error, which is why it costs people
 an afternoon. Port 3000 must be free.
 
+**A PostgreSQL client fails with `PRV-2001 … near the keyword 'BEGIN'`.** An older node: the
+gateway refused transaction control until PGWIRE-TX-1, so psycopg outside `autocommit`, pgjdbc with
+`setAutoCommit(false)` and most ORMs failed on their first statement. Now `BEGIN`, `COMMIT`,
+`ROLLBACK`, savepoints and `SET TRANSACTION` are accepted as no-ops with PostgreSQL's tags and
+transaction status, and no `autocommit` workaround is needed. After an error inside a block, every
+statement but `ROLLBACK` (or `COMMIT`, or `ROLLBACK TO SAVEPOINT`) is refused with `PRV-6212`
+(`25P02`, "current transaction is aborted") until the block ends — the client's own error handling
+should roll back, as it would against PostgreSQL. `PRV-6213` (`25P01`) is a savepoint verb outside a
+block, `PRV-6214` (`3B001`) a savepoint the block never set, `PRV-6215` (`25001`) `DISCARD ALL`
+inside a block. Reads in a block are `READ COMMITTED`: each one sees the views as they are when it
+runs (the console help topic *The PostgreSQL gateway*, section *Transactions*).
+
 **`RST_STREAM ... CANCEL` from a Flight client, with nothing explaining why.** Almost always the JVM
 missing `--add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED`.
 Arrow fails *inside the server* and cancels the stream; the client sees only the cancellation. On
@@ -1068,6 +1080,10 @@ client models the error rather than an empty object.
 | `PRV-6209` | PGWIRE_UNSUPPORTED_WIRE_FORMAT | gateway |
 | `PRV-6210` | PGWIRE_UNSUPPORTED_PARAMETER_SYNTAX | gateway |
 | `PRV-6211` | PGWIRE_READ_ONLY | gateway |
+| `PRV-6212` | PGWIRE_TRANSACTION_ABORTED | gateway |
+| `PRV-6213` | PGWIRE_NO_TRANSACTION | gateway |
+| `PRV-6214` | PGWIRE_NO_SUCH_SAVEPOINT | gateway |
+| `PRV-6215` | PGWIRE_TRANSACTION_ACTIVE | gateway |
 | `PRV-7001` | SECURITY_UNAUTHENTICATED | security |
 | `PRV-7002` | SECURITY_FORBIDDEN | security |
 | `PRV-7003` | SECURITY_FILTER_NOT_ENFORCEABLE | security |

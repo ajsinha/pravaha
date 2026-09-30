@@ -4,10 +4,10 @@ slug: errors-gateway
 category: errors
 order: 70
 icon: hdd-network
-summary: "PRV-6100 to PRV-6211: what the Flight SQL and PostgreSQL gateways refuse — types they will not put on the wire, requests they do not implement, TLS they cannot load, and writes to a read-only gateway."
+summary: "PRV-6100 to PRV-6215: what the Flight SQL and PostgreSQL gateways refuse — types they will not put on the wire, requests they do not implement, TLS they cannot load, writes to a read-only gateway, and statements in a failed transaction block."
 badge: PRV-6XXX
 audience: Developers, operators
-keywords: [flight, arrow, grpc, pgwire, postgresql, psql, jdbc, sqlstate, set, pg_catalog, prepared statement, portal, binary format, $1, read-only, tls, certificate]
+keywords: [flight, arrow, grpc, pgwire, postgresql, psql, jdbc, sqlstate, set, pg_catalog, prepared statement, portal, binary format, $1, read-only, tls, certificate, transaction, savepoint, "25P02"]
 guide: continuous-queries#16-types
 related: [pgwire, clients, tls, errors-overview, sql-reference]
 listed_on: errors-overview
@@ -45,6 +45,10 @@ as "gateway".)
 | PRV-6209 | PGWIRE_UNSUPPORTED_WIRE_FORMAT | PostgreSQL | `0A000` |
 | PRV-6210 | PGWIRE_UNSUPPORTED_PARAMETER_SYNTAX | PostgreSQL | `0A000` |
 | PRV-6211 | PGWIRE_READ_ONLY | PostgreSQL | `25006` |
+| PRV-6212 | PGWIRE_TRANSACTION_ABORTED | PostgreSQL | `25P02` |
+| PRV-6213 | PGWIRE_NO_TRANSACTION | PostgreSQL | `25P01` |
+| PRV-6214 | PGWIRE_NO_SUCH_SAVEPOINT | PostgreSQL | `3B001` |
+| PRV-6215 | PGWIRE_TRANSACTION_ACTIVE | PostgreSQL | `25001` |
 
 ## Arrow Flight SQL
 
@@ -226,6 +230,45 @@ query --sql`, or the console's workbench -- where it runs as your principal.
 ```
 
 **Do:** send it over Flight SQL — an SDK's `query()`, `pravaha query --sql`, or the workbench.
+
+### PRV-6212 — pgwire transaction aborted
+
+A statement sent inside a transaction block after an earlier statement in the same block failed. The
+gateway accepts `BEGIN`, `COMMIT`, `ROLLBACK` and savepoints as no-ops with PostgreSQL's transaction
+status ([Transactions](/help/topics/pgwire#transactions)), and keeps PostgreSQL's rule with them: once
+a block has failed, nothing but `ROLLBACK`, `COMMIT` (which then reports `ROLLBACK`) or `ROLLBACK TO
+SAVEPOINT` runs until the block ends. SQLSTATE `25P02 in_failed_sql_transaction` — psycopg's
+`InFailedSqlTransaction`.
+
+```text
+ann=> BEGIN;
+ann=*> SELECT * FROM no_such_view;
+ERROR:  PRV-4023 ...
+ann=!> SELECT user_id FROM hourly_spend;
+ERROR:  PRV-6212  current transaction is aborted, commands ignored until end of transaction block.
+ann=!> ROLLBACK;
+```
+
+**Do:** roll back (or roll back to a savepoint) and run the statement again.
+
+### PRV-6213 — pgwire no transaction
+
+`SAVEPOINT`, `RELEASE`, `ROLLBACK TO` or `COMMIT`/`ROLLBACK AND CHAIN` outside a transaction block.
+SQLSTATE `25P01 no_active_sql_transaction`, as PostgreSQL answers. A plain `COMMIT` or `ROLLBACK`
+outside a block is not an error: it answers with a `WARNING` and the session stays idle.
+
+**Do:** `BEGIN` first.
+
+### PRV-6214 — pgwire no such savepoint
+
+`RELEASE` or `ROLLBACK TO` a savepoint this block never set, or already released. An unquoted name is
+folded to lower case, as PostgreSQL folds it. SQLSTATE `3B001`; the block is failed afterwards.
+
+### PRV-6215 — pgwire transaction active
+
+`DISCARD ALL` inside a transaction block. SQLSTATE `25001 active_sql_transaction`, as PostgreSQL
+refuses it there. Npgsql sends `DISCARD ALL` only when it hands out a pooled connection, which it
+rolls back first.
 
 ## Where next
 

@@ -77,8 +77,11 @@ final class PgBackend {
     /** No format codes at all: every column text, the protocol's own default. */
     static final short[] ALL_TEXT = new short[0];
 
-    /** {@code ReadyForQuery}'s transaction status: idle, and this server is always idle. */
-    static final char STATUS_IDLE = 'I';
+    /**
+     * {@code ReadyForQuery}'s transaction status at the end of the handshake: idle. After that the
+     * session's {@link PgTransactionBlock} decides ({@code I}, {@code T} or {@code E}).
+     */
+    static final char STATUS_IDLE = PgTransactionBlock.IDLE;
 
     private final OutputStream out;
 
@@ -306,10 +309,15 @@ final class PgBackend {
 
     /** A remark that is not a failure; the connection carries on. */
     void noticeResponse(String message) throws IOException {
+        noticeResponse("NOTICE", "00000", message);
+    }
+
+    /** A {@code NOTICE} or {@code WARNING} with its own SQLSTATE -- PostgreSQL's "no transaction in progress". */
+    void noticeResponse(String severity, String sqlState, String message) throws IOException {
         send(NOTICE_RESPONSE, body -> {
-            field(body, 'S', "NOTICE");
-            field(body, 'V', "NOTICE");
-            field(body, 'C', "00000");
+            field(body, 'S', severity);
+            field(body, 'V', severity);
+            field(body, 'C', sqlState);
             field(body, 'M', message);
             body.writeByte(0);
         });
