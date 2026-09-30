@@ -230,7 +230,10 @@ tests, from the root:
 ./mvnw -Ppython verify
 ```
 
-It invokes the same `pytest` in this directory, preferring `.venv` when one exists. A cross-language
+It invokes the same `pytest` in this directory, preferring `.venv` when one exists. The gate,
+`tools/verify-clean.sh`, runs this suite as part of every full verify (the console's is left out:
+`-Dpravaha.console.tests.skip=true`), using this directory's `.venv`, so `make install` here is part of
+setting up a machine that gates. A cross-language
 test that is not in the build is a test nobody notices has stopped working — which had already
 happened here once, silently, to sixteen of them.
 

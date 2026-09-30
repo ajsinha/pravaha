@@ -352,8 +352,13 @@ Base package `com.ash.messaging.pravaha`. Requires **JDK 21+**; the Maven wrappe
 ./mvnw clean verify                                  # full build
 ./mvnw -T1C -DskipITs -Dbenchmarks.skip=true test    # fast inner loop
 ./mvnw -Pall verify                                  # everything, as CI runs it
-tools/verify-clean.sh                                # the gate: offline, no stale jars
+tools/verify-clean.sh                                # the gate: offline, no stale jars, + the Python SDK's suite
 ```
+
+The gate runs the Python SDK's tests too (`-Ppython`, the console's suite left out), from
+`sdk/python/.venv` — make it with `make install` in `sdk/python`, name another with
+`PRAVAHA_SDK_PYTHON`, or leave the suite out with `PRAVAHA_GATE_SDK=0`. A missing interpreter fails
+the gate by name rather than skipping it.
 
 **Modules**, in build order — checked against `pom.xml` by `DocumentationFreshnessTest`:
 `pravaha-bom`, `pravaha-api`, `pravaha-common`, `pravaha-algebra`, `pravaha-catalog`,

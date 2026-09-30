@@ -27,6 +27,7 @@ import com.ash.messaging.pravaha.security.AuditSink;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
 import com.ash.messaging.pravaha.security.StaticTokenVerifier;
+import com.ash.messaging.pravaha.security.ViewNames;
 import com.ash.messaging.pravaha.serving.ServedView;
 import com.ash.messaging.pravaha.serving.ViewCatalog;
 
@@ -187,6 +188,9 @@ public final class TestFlightServerMain {
 
     public static final String INTERN_TOKEN = "intern-token-1";
 
+    /** The tenant both fixed principals are in, and so the tenant the fixed views are served from. */
+    public static final String FIXTURE_TENANT = "acme";
+
     private TestFlightServerMain() {}
 
     public static void main(String[] args) throws Exception {
@@ -216,7 +220,16 @@ public final class TestFlightServerMain {
         int port = args.length > 0 ? Integer.parseInt(args[0]) : 0;
         boolean authenticated = args.length > 1 && "--authenticated".equals(args[1]);
 
-        ViewCatalog catalog = new ViewCatalog().register(view).register(readings);
+        // The two fixed views live in the tenant the callers are in. Views are keyed by (tenant, name)
+        // (ADR-060), and a principal plans against its own tenant's views only, so with both views in
+        // the default tenant and both principals in "acme", every read over --authenticated answered
+        // PRV-4023 "no views are registered" -- correctly -- and the Python SDK's three authorization
+        // tests failed while the Maven gate, which does not run them, stayed green (SDK-AUTH). An
+        // unauthenticated caller is in the default tenant, so there the views stay bare-named.
+        String tenant = authenticated ? FIXTURE_TENANT : ViewNames.DEFAULT_TENANT;
+        ViewCatalog catalog = new ViewCatalog()
+                .registerAs(ViewNames.engineName(tenant, view.name()), view)
+                .registerAs(ViewNames.engineName(tenant, readings.name()), readings);
 
         // A registry, so a client in another language can register a continuous query and subscribe
         // to it -- which is most of what an SDK has to be able to do and none of what a fixture
@@ -256,8 +269,8 @@ public final class TestFlightServerMain {
             configured
                     .authenticatedBy(StaticTokenVerifier.of(
                                     ANALYST_TOKEN,
-                                    new Principal("dana", "acme", Set.of("analyst"), Map.of("tier", "gold")))
-                            .and(INTERN_TOKEN, new Principal("sam", "acme", Set.of("intern"), Map.of())))
+                                    new Principal("dana", FIXTURE_TENANT, Set.of("analyst"), Map.of("tier", "gold")))
+                            .and(INTERN_TOKEN, new Principal("sam", FIXTURE_TENANT, Set.of("intern"), Map.of())))
                     .authorizedBy(policy, AuditSink.NONE);
         }
 

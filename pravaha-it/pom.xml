@@ -231,7 +231,7 @@
             </goals>
             <phase>verify</phase>
             <configuration>
-              <skip>${pravaha.python.tests.skip}</skip>
+              <skip>${pravaha.console.tests.skip}</skip>
               <executable>${console.executable}</executable>
               <workingDirectory>${project.basedir}/../console</workingDirectory>
               <arguments>

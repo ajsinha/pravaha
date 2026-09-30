@@ -612,7 +612,11 @@ The binding's options are wrong: a required option missing, a value out of range
 ### PRV-5111 — PostgreSQL CDC: connect failed
 
 The database unreachable, the credentials refused, or the PostgreSQL driver not on the classpath —
-the plugin uses the driver the deployment supplies, as `jdbc` does.
+the plugin uses the driver the deployment supplies, as `jdbc` does. Also where a statement the plugin
+runs while preparing the capture is refused by PostgreSQL: `cannot prepare ... for capture: ERROR:
+permission denied for database <db>` is `CREATE PUBLICATION` without `CREATE` on the database —
+`GRANT CREATE ON DATABASE <db> TO <role>;`, or create the publication yourself and set
+`create.publication: "false"`.
 
 ### PRV-5112 — PostgreSQL CDC: not capturable
 

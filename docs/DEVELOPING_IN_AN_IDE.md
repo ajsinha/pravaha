@@ -119,7 +119,8 @@ responsive while you step.
 - Tests that need Docker (the Kafka, PostgreSQL CDC and Aerospike integration tests) skip, **by
   name**, when no daemon is reachable. That is not a failure.
 - The project's gate is `tools/verify-clean.sh`, from a terminal. It builds the whole reactor
-  offline from a clean `~/.m2`, and is what a commit is held to.
+  offline from a clean `~/.m2`, runs the Python SDK's suite against the server it just built (it
+  needs `sdk/python/.venv`; `PRAVAHA_GATE_SDK=0` leaves the suite out), and is what a commit is held to.
 - Building in several git worktrees at once? Use `tools/worktree-build.sh` in place of `./mvnw`
   (same arguments). In a linked worktree it gives the build a Maven repository of its own,
   `<worktree>/.m2-local` (gitignored, seeded from `~/.m2` by hard links without Pravaha's own
