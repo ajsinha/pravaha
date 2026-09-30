@@ -125,6 +125,9 @@
     <console.executable>python3</console.executable>
     <!-- Python tests are off unless -Ppython asks for them; a Java-only build needs no interpreter. -->
     <pravaha.python.tests.skip>true</pravaha.python.tests.skip>
+    <!-- The console's suite, on its own switch so a gate can run the SDK's without it: the console's
+         browser suites take most of ten minutes and need a Chrome. Follows the switch above unless set. -->
+    <pravaha.console.tests.skip>${pravaha.python.tests.skip}</pravaha.console.tests.skip>
     <curator.version>5.7.1</curator.version>
     <exec.maven.plugin.version>3.6.3</exec.maven.plugin.version>
     <maven.dependency.plugin.version>3.8.1</maven.dependency.plugin.version>

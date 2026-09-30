@@ -44,6 +44,37 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 ARTIFACTS="${HOME}/.m2/repository/com/ash/messaging"
+
+# The Python SDK's suite is part of the full gate (SDK-AUTH). Three of its authorization tests failed
+# for as long as the Maven-only gate stayed green: they start the real Flight server from
+# pravaha-flight's test classes, so an engine change broke them and nothing that gated noticed.
+# pravaha-it runs them in its verify phase under -Ppython, after the reactor has built what they start;
+# the console's suite stays out (its browser suites take most of ten minutes and need a Chrome) --
+# pravaha.console.tests.skip keeps it off while -Ppython is on. About two and a half minutes.
+#
+# Needs sdk/python/.venv (`make install` in sdk/python), or PRAVAHA_SDK_PYTHON naming an interpreter
+# with the SDK's dev and flight extras. A missing one fails the gate by name rather than skipping:
+# a gate that quietly stopped running a suite is how this suite came to be ungated.
+# PRAVAHA_GATE_SDK=0 leaves it out, on purpose and said out loud. Checked here, first, so a missing
+# interpreter fails in a second rather than after the install.
+# Only the full verify: a run given its own Maven arguments runs what they say.
+SDK=()
+if [[ $# -gt 0 ]]; then
+    :
+elif [[ "${PRAVAHA_GATE_SDK:-1}" != "0" ]]; then
+    SDK_PYTHON="${PRAVAHA_SDK_PYTHON:-$REPO_ROOT/sdk/python/.venv/bin/python}"
+    if [[ ! -x "$SDK_PYTHON" ]] || ! "$SDK_PYTHON" -c "import pytest, pyarrow" 2>/dev/null; then
+        echo "verify-clean: the Python SDK suite is part of the gate, and $SDK_PYTHON cannot run it" >&2
+        echo "  (missing, or without pytest and pyarrow). Create it: cd sdk/python && make install" >&2
+        echo "  Or name one: PRAVAHA_SDK_PYTHON=/path/to/python. Or leave the suite out: PRAVAHA_GATE_SDK=0" >&2
+        exit 2
+    fi
+    SDK=(-Ppython -Dpravaha.console.tests.skip=true "-Dpython.executable=$SDK_PYTHON")
+    echo "python SDK suite: on ($SDK_PYTHON); PRAVAHA_GATE_SDK=0 turns it off"
+else
+    echo "python SDK suite: OFF (PRAVAHA_GATE_SDK=0)"
+fi
+
 LOCK="${HOME}/.m2/.pravaha-verify-clean.lock"
 
 # ---------------------------------------------------------------------------
@@ -130,7 +161,7 @@ echo "surefire forks: ${PRAVAHA_FORKS:-0.5C}"
 
 if [[ $# -eq 0 ]]; then
     echo "running the full verify"
-    ./mvnw -o -T1C $FORKS verify
+    ./mvnw -o -T1C $FORKS ${SDK[@]+"${SDK[@]}"} verify
 else
     echo "running: ./mvnw -o -T1C $FORKS $*"
     ./mvnw -o -T1C $FORKS "$@"
