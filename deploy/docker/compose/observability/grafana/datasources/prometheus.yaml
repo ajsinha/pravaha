@@ -1,0 +1,15 @@
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+#
+# The observability profile's Grafana datasource: the profile's own Prometheus. Each shipped
+# dashboard has a "Data source" variable of type prometheus, which picks this one as the default.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: pravaha-prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

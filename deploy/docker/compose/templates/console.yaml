@@ -1,0 +1,30 @@
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+#
+# THE CONSOLE'S CONFIGURATION FOR THE COMPOSE STACK: $PRAVAHA_HOME/conf/console.yaml.
+#
+# Read after the console's own defaults inside the image, and wins key by key: any key of
+# console/config/application.yaml can be set here. tools/docker-env.sh writes it once, generating the
+# session secret, and never overwrites it. Mode 0600. No password and no engine credential: people
+# sign in as themselves, against the engine's users (ADR-052).
+
+console:
+  # Signs the session cookie. Fixed, so a restart does not sign everybody out.
+  session_secret: "@@SESSION_SECRET@@"
+
+server:
+  host: 0.0.0.0
+  port: 17070
+
+engine:
+  # The engine by its service name on the compose network: 19090 Flight SQL, 18080 HTTP.
+  url: grpc://pravaha-server:19090
+  http_url: http://pravaha-server:18080
+  # Shown in psql snippets only; the host's side of the published pgwire port.
+  pgwire: "localhost:@@PGWIRE_PORT@@"
+
+logging:
+  level: INFO
+  # The image sets CONSOLE_LOG_FILE=/opt/pravaha/logs/pravaha-console.log; this names it too.
+  file: /opt/pravaha/logs/pravaha-console.log

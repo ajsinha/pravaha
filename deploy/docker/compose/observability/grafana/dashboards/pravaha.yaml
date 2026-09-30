@@ -1,0 +1,15 @@
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+#
+# The observability profile's Grafana dashboards: the four that ship in deploy/observability/grafana,
+# mounted read-only at /var/lib/pravaha-dashboards and loaded into a folder called Pravaha.
+apiVersion: 1
+providers:
+  - name: pravaha
+    folder: Pravaha
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /var/lib/pravaha-dashboards
