@@ -86,6 +86,16 @@ if [[ $java -eq 1 ]]; then
         [[ -f "$jar" ]] || { echo "build-sdk: expected $jar was not built" >&2; exit 1; }
         cp "$jar" "$out/java/"
     done
+    # Sources and javadoc for the three thin jars, so an IDE shows them.
+    for base in \
+        "$root/pravaha-api/target/pravaha-api-$version" \
+        "$root/sdk/pravaha-sdk-java/target/pravaha-sdk-java-$version" \
+        "$root/sdk/pravaha-sdk-java-flight/target/pravaha-sdk-java-flight-$version"; do
+        for classifier in sources javadoc; do
+            [[ -f "$base-$classifier.jar" ]] || { echo "build-sdk: expected $base-$classifier.jar was not built" >&2; exit 1; }
+            cp "$base-$classifier.jar" "$out/java/"
+        done
+    done
     # The POMs, so the thin jars can be installed or deployed elsewhere with their dependencies.
     cp "$root/pom.xml" "$out/java/pravaha-$version.pom"
     cp "$root/pravaha-api/pom.xml" "$out/java/pravaha-api-$version.pom"
@@ -127,6 +137,7 @@ java/  (Maven coordinates com.ash.messaging:<artifact>:$version; the Flight clie
                                                    -cp pravaha-sdk-java-flight-$version-all.jar:. MyClient
                                             Nothing is relocated: do not put it beside another
                                             gRPC, Netty, Arrow or protobuf; use the thin jars.
+  *-sources.jar, *-javadoc.jar              Sources and javadoc of the three thin jars.
   *.pom                                     The POMs, for mvn install:install-file -DpomFile=...
 
 python/  (pip install; Python 3.9 or later)

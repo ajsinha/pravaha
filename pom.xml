@@ -139,6 +139,7 @@
     <maven.deploy.plugin.version>3.1.4</maven.deploy.plugin.version>
     <maven.site.plugin.version>3.22.0</maven.site.plugin.version>
     <maven.javadoc.plugin.version>3.12.0</maven.javadoc.plugin.version>
+    <maven.source.plugin.version>3.3.1</maven.source.plugin.version>
     <spotless.plugin.version>3.10.2</spotless.plugin.version>
     <palantir.format.version>2.98.0</palantir.format.version>
     <jacoco.plugin.version>0.8.15</jacoco.plugin.version>
@@ -520,6 +521,22 @@
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-javadoc-plugin</artifactId>
           <version>${maven.javadoc.plugin.version}</version>
+        </plugin>
+
+        <!-- Sources and javadoc are attached for what clients depend on (pravaha-api and the SDKs),
+             so an IDE shows them; the engine's modules are not a library and do not attach them. -->
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-source-plugin</artifactId>
+          <version>${maven.source.plugin.version}</version>
+          <executions>
+            <execution>
+              <id>attach-sources</id>
+              <goals>
+                <goal>jar-no-fork</goal>
+              </goals>
+            </execution>
+          </executions>
         </plugin>
 
         <plugin>
