@@ -657,7 +657,7 @@ streams it was built with.
 <dependency>
   <groupId>com.ash.messaging</groupId>
   <artifactId>pravaha-embedded</artifactId>
-  <version>1.0.0</version>
+  <version>1.0.1-SNAPSHOT</version>
 </dependency>
 ```
 
@@ -741,7 +741,7 @@ engine: the build refuses Spring inside `pravaha-embedded` and everything it is 
 <dependency>
   <groupId>com.ash.messaging</groupId>
   <artifactId>pravaha-spring-boot-starter</artifactId>
-  <version>1.0.0</version>
+  <version>1.0.1-SNAPSHOT</version>
 </dependency>
 ```
 

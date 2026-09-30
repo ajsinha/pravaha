@@ -348,7 +348,7 @@ short.
 ```xml
 <groupId>com.ash.messaging</groupId>
 <artifactId>pravaha</artifactId>
-<version>1.0.0</version>
+<version>1.0.1-SNAPSHOT</version>
 ```
 
 Base package `com.ash.messaging.pravaha`. Requires **JDK 21+**; the Maven wrapper is vendored.
