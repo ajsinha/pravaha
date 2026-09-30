@@ -104,9 +104,23 @@ ENV PRAVAHA_HOME=/opt/pravaha \
 USER 10001:10001
 EXPOSE 17070
 
+# What the console writes: the assistant's files and its log. Declared at exactly the paths the compose
+# stack bind-mounts, so a mounted run creates no anonymous volume beside them.
+VOLUME ["/opt/pravaha/data/console", "/opt/pravaha/logs"]
+
 # Liveness only: /health/live never consults the engine, so a console pointed at an engine that is
 # still starting is not reported unhealthy (/health/ready is the one that asks).
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
   CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:17070/health/live', timeout=2).status == 200 else 1)"]
+
+# Last, so a new revision re-labels the image without rebuilding a layer above.
+ARG PRAVAHA_VERSION=0.0.0-unset
+ARG VCS_REF=unknown
+ARG BUILD_DATE=unknown
+LABEL org.opencontainers.image.version="${PRAVAHA_VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.authors="Ashutosh Sinha <ajsinha@gmail.com>" \
+      org.opencontainers.image.source="https://github.com/ajsinha/pravaha"
 
 CMD ["python", "run_pravaha_web.py", "--config", "/opt/pravaha/console/config/application.yaml,/opt/pravaha/console/conf/application.yaml,/opt/pravaha/conf/console.yaml"]
