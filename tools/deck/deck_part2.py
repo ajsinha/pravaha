@@ -310,7 +310,7 @@ PART5: list[dict[str, Any]] = [
             "size": 15.5,
         },
         "source": "Source: docs/OPERATIONS.md 'Sizing a node for many queries' (settings table) and "
-        "'Sharing lanes between queries'; docs/RELEASE_NOTES.md 'Unreleased' ('Lane sharing is on by "
+        "'Sharing lanes between queries'; docs/RELEASE_NOTES.md '1.0.0' ('Lane sharing is on by "
         "default, as auto').",
     },
     {
@@ -370,7 +370,7 @@ PART5: list[dict[str, Any]] = [
         ],
         "size": 16,
         "source": "Source: docs/OPERATIONS.md 'Keeping one query on its own lane' (statements quoted, "
-        "names elided); docs/RELEASE_NOTES.md 'Unreleased' (WITH (lane = 'dedicated'), the L record, "
+        "names elided); docs/RELEASE_NOTES.md '1.0.0' (WITH (lane = 'dedicated'), the L record, "
         "PRV-8017, GET /api/v1/queries lane and sharedLane); commit fba15e14.",
     },
     {
@@ -394,7 +394,7 @@ PART5: list[dict[str, Any]] = [
         ],
         "size": 16,
         "source": "Source: docs/OPERATIONS.md 'An administrator rebalances by hand'; commits 14914ae0, "
-        "6869419b, 86dd3e19; docs/RELEASE_NOTES.md 'Unreleased'.",
+        "6869419b, 86dd3e19; docs/RELEASE_NOTES.md '1.0.0'.",
     },
     {
         "kind": "table",
@@ -453,7 +453,7 @@ PART5: list[dict[str, Any]] = [
         },
         "source": "Source: docs/adr/055-an-equality-index-over-a-column-outside-the-key.md §1–§4 "
         "(ServedView.commit, SecondaryIndexTest, SecondaryIndexRegistryTest, MAX_EQUALITY_INDEXES, "
-        "PRV-2074); README.md first-versions table (no way yet to see which access path a read took).",
+        "PRV-2074); docs/RELEASE_NOTES.md '1.0.0' (IDXVIS-1: access paths visible).",
     },
 ]
 

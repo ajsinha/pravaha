@@ -1,8 +1,9 @@
 # Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 # Proprietary and confidential; see LICENSE at the repository root.
 """
-The deck, as data. Parts 10 and 11: the thirteen case studies, four in depth,
-and what is measured, what is not built, and where to start.
+The deck, as data. Parts 11 and 12: the thirteen case studies, four in depth,
+and the evidence -- what is measured and tested, what 1.0 promises, what is not
+built -- and where to start.
 
 Every number on a case-study slide is quoted from the study's README, where it
 is either the output of a real run or an answer the build checks
@@ -24,7 +25,7 @@ from typing import Any
 PART10: list[dict[str, Any]] = [
     {
         "kind": "divider",
-        "num": "10",
+        "num": "11",
         "title": "Thirteen worked systems",
         "sub": "Each study is a business problem, a data model, the data, the continuous queries "
         "and the client code in Java and Python — and every one is run by the build against "
@@ -141,16 +142,17 @@ PART10: list[dict[str, Any]] = [
                  "39 is 10 + 27 + 2, today's numbers — not 40 + 12 + 6 plus the changes, because each "
                  "update withdrew the row it replaced."),
                 ("A cleared alert is a −1",
-                 "“A consumer that only listened for rows arriving would page the buyer about toasters "
-                 "for ever.”"),
+                 "CREATE ALERT low_stock_alert ON low_stock NOTIFY buyers: FIRED sku-200 at 09:05, "
+                 "CLEARED at 09:20 — the retraction the binlog delivered."),
                 ("Exactly once from the binlog",
                  "Resumes from the file and position its last checkpoint recorded."),
             ],
             "size": 15,
         },
         "source": "Source: examples/case-studies/retail-inventory-mysql/README.md steps 4–5 (the "
-        "morning table, abridged to four of six statements; units per warehouse; the toaster "
-        "sentence); checked by CaseStudyRunTest.",
+        "morning table, abridged to four of six statements; units per warehouse) and step 7 (the "
+        "alert, its FIRED and CLEARED lines); checked by CaseStudyRunTest and "
+        "RetailLowStockAlertEndToEndTest.",
     },
     {
         "kind": "code",
@@ -253,23 +255,22 @@ PART10: list[dict[str, Any]] = [
 PART11: list[dict[str, Any]] = [
     {
         "kind": "divider",
-        "num": "11",
-        "title": "What is measured, what is not built, and where to start",
+        "num": "12",
+        "title": "Evidence, 1.0, and where to start",
         "sub": "Every number here was taken on a developer laptop running other work, with the load "
         "average beside it. A target that was not reached is reported as not reached, and none of "
         "these figures is quoted as the engine's capability.",
         "points": [
             "The requirement, and the gates kept beside it",
-            "What the gates measured",
-            "Nexmark: what runs",
-            "What the micro-benchmarks say, and do not",
-            "What is not built",
-            "Boundaries",
+            "What the gates measured; Nexmark; micro-benchmarks",
+            "How it is tested, and what testing found",
+            "What 1.x promises, and what is experimental",
+            "What is not built; boundaries",
             "Where to start",
         ],
         "source": "Source: docs/gates/measured-2026-09-20/README.md; benchmarks/README.md; "
-        "docs/adr/042-the-throughput-bar-is-the-requirement.md; README.md 'Performance', 'What is "
-        "not built'.",
+        "docs/adr/042-the-throughput-bar-is-the-requirement.md; docs/TESTING.md; docs/qa/FINDINGS.md; "
+        "docs/COMPATIBILITY.md; README.md 'Performance', 'What is not built'.",
     },
     {
         "kind": "bullets",
@@ -300,8 +301,9 @@ PART11: list[dict[str, Any]] = [
             ["P2 · Profile A throughput", "≥ 1.2 M rows/s per lane",
              "All 30 warm passes and 29 of 30 cold above it; the miss 1,043,974 at load 77", "Reached"],
             ["P2 · scaling, 1 → 8 lanes", "≥ 90 % of linear",
-             "28–42 % (09-20); 33–46 % without the coverage agent (09-26); the machine's own ceiling "
-             "for work sharing nothing: 51–55 %", "Not reached"],
+             "28–42 % (09-20); 33–46 % without the coverage agent (09-26); 30–31 % re-taken at load "
+             "3.1–5.2 (09-29); the machine's own ceiling for work sharing nothing: 51–55 %",
+             "Not reached"],
             ["P3 · Profile B throughput", "≥ 350 k rows/s per lane",
              "Every one of 15 passes above it; the worst 1,096,560, during a load spike", "Reached"],
             ["W5 · Nexmark vs Flink", "Parity on ≥ 18 of 22", "Not run: no Flink, no quiet machine, no "
@@ -313,7 +315,7 @@ PART11: list[dict[str, Any]] = [
         "— running other build agents throughout, at load averages from 5.8 to 77.8.",
         "source": "Source: docs/gates/measured-2026-09-20/README.md (verdict line; 'The machine, named'; "
         "Gate P2 throughput and scaling; re-measured 2026-09-26 incl. machineScalingReference; Gate "
-        "P3; W5).",
+        "P3; W5); docs/RELEASE_NOTES.md '1.0.0' PERF-1 and commit 75e9fc9e (30–31 % at load 3.1–5.2).",
     },
     {
         "kind": "table",
@@ -361,13 +363,97 @@ PART11: list[dict[str, Any]] = [
         "interpreted, end to end'.",
     },
     {
+        "kind": "table",
+        "kicker": "How it is tested · docs/TESTING.md, 2026-09-29/30",
+        "title": "Tiers, what each needs, and what each ran",
+        "rows": [
+            ["Tier", "Needs", "Recorded"],
+            ["The gate: the whole reactor", "JDK 21", "4,688 Java tests, 0 failures, 211 skipped "
+             "(Docker-only among them); now runs the Python SDK suite too"],
+            ["In-process integration (pravaha-it)", "JDK 21", "960 tests: real nodes, documentation "
+             "checks, every case study against hand-worked answers"],
+            ["Plugins against real stores", "Docker", "Testcontainers: Kafka 50, Postgres-CDC 60, JDBC 13, "
+             "MySQL-CDC 9, Aerospike 40, Cassandra 39 — all green"],
+            ["Python SDK · console", "Python · Chrome", "426 passed · 1,937 passed with the browser "
+             "suites, zero axe violations in every theme"],
+            ["SDKs on their own", "Docker, Maven", "Four clients outside the repository, green"],
+            ["Performance gates", "A quiet machine", "Refuse to report under a coverage agent (PERF-1)"],
+        ],
+        "col_w": [1.9, 1.1, 3.4],
+        "size": 13.5,
+        "note": "A green build without Docker has not tested any connector against its store: the "
+        "container tests skip, by name, and the report has to be read.",
+        "source": "Source: docs/TESTING.md 'The tiers at a glance', 'With Docker' measured table, "
+        "'Without Docker'; docs/HANDOVER.md §1 (4,688 Java tests, 211 skipped, verify-clean "
+        "2026-09-29); docs/RELEASE_NOTES.md '1.0.0' (PERF-1).",
+    },
+    {
+        "kind": "table",
+        "kicker": "The findings register · docs/qa/FINDINGS.md",
+        "title": "482 findings, none open — and each found one step outside the last test",
+        "rows": [
+            ["Finding", "Found by", "What it was"],
+            ["SINKKEYROWS-2", "A broker test that had not run since a fix",
+             "A keyed Kafka sink saw a replaced key as a tombstone, then the value"],
+            ["PGWIRETX-1", "psycopg against a running stack",
+             "BEGIN refused, so default-mode clients and ORMs failed on their first read"],
+            ["SDKNETTYMIX-1", "A Maven client outside the build",
+             "Two Netty lines resolved; the SDK failed on its first call"],
+            ["VIEWW-1", "The property test the research paper asked for",
+             "A key could show the row just retracted; fails 5 of 5 on the old code"],
+            ["TESTNAME-1", "Closing the paper's own gaps",
+             "A property test whose name no test runner matched had never run"],
+        ],
+        "col_w": [1.3, 2.2, 2.9],
+        "size": 13.5,
+        "note": "464 fixed, 9 closed by design, 9 superseded, 0 open; a finding is fixed only when the "
+        "case that found it has been re-run. The commonest defect: built, correct, connected to nothing.",
+        "source": "Source: docs/qa/FINDINGS.md (header counts; SINKKEYROWS-2, PGWIRETX-1, SDKNETTYMIX-1, "
+        "VIEWW-1, TESTNAME-1; 'The commonest defect'); docs/TESTING.md 'What this pass found'; "
+        "docs/RELEASE_NOTES.md '1.0.0'.",
+    },
+    {
+        "kind": "split",
+        "kicker": "Release 1.0.0 · docs/COMPATIBILITY.md",
+        "title": "What 1.x keeps stable, and what may still move",
+        "left": {
+            "head": "Stable in 1.x",
+            "items": [
+                ("Language and APIs",
+                 "The SQL dialect; the Java and Python SDKs; every /api/v1 path and field (an OpenAPI "
+                 "lock checks it); Flight verbs and columns; what psql, pgjdbc, Npgsql, psycopg send."),
+                ("Operations",
+                 "PRV codes and SQLSTATEs, never reused; CLI commands and exit codes; pravaha.* keys; "
+                 "metric names; the /opt/pravaha layout."),
+                ("State on disk",
+                 "A 1.x node reads what any earlier 1.x wrote. Going back is not promised."),
+            ],
+            "size": 14,
+        },
+        "right": {
+            "head": "Experimental, or not in 1.0",
+            "items": [
+                ("The assistant", "Works and is tested; may change in a minor release."),
+                ("The catalogue beyond phases 1–2",
+                 "Grants, namespaces, filters and masks are stable; lineage and contracts are not built."),
+                ("Cluster mode (wave 11)",
+                 "On hold; when it comes, a 1.x addition a single node need not adopt."),
+                ("Clients and servers",
+                 "Same major.minor; an older node refuses what it does not know, by name."),
+            ],
+            "size": 14,
+        },
+        "source": "Source: docs/COMPATIBILITY.md (Stable in 1.x table; Experimental in 1.0; Clients and "
+        "servers; Upgrading from 0.2.x).",
+    },
+    {
         "kind": "split",
         "kicker": "Not built",
-        "title": "Feature-complete for one node; these are deferred, or not yet done",
+        "title": "One node, feature-complete; these are deferred, or not yet done",
         "left": {
             "head": "Deferred or dropped by decision",
             "items": [
-                ("Multi-node execution",
+                ("Multi-node execution — wave 11, on hold",
                  "Membership, fenced leases and rebalance are built as libraries and no node consumes "
                  "them; a node refuses PARTITIONED mode (PRV-9002)."),
                 ("MFA and single sign-on",
@@ -375,22 +461,25 @@ PART11: list[dict[str, Any]] = [
                 ("Not yet proven",
                  "The eight-lane scaling target; the manual WCAG 2.2 AA audit."),
             ],
-            "size": 15.5,
+            "size": 15,
         },
         "right": {
             "head": "First versions: not yet",
             "rows": [
                 ["Piece", "Not yet"],
-                ["mysql-cdc", "An initial snapshot, TLS, GTID positions across a failover"],
+                ["mysql-cdc", "An initial snapshot, TLS"],
                 ["iceberg-sink", "Object stores, catalogs, partitioned tables, schema evolution"],
-                ["One reader per ordered source", "Delta and JDBC; CDC keeps a reader per query"],
-                ["Equality index", "A way to see which access path a read took"],
+                ["One reader per ordered source", "Delta and JDBC; a CDC binding has one consumer"],
+                ["Queries on queries", "Windows, joins, MIN/MAX over a view; replacing a chain member"],
+                ["Alerts", "Email, Teams and PagerDuty channels"],
             ],
             "col_w": [1.4, 2.6],
-            "size": 14,
+            "size": 13.5,
         },
         "source": "Source: README.md 'What is not built, or not finished' (deferred by decision; first "
-        "versions table; not yet proven); docs/adr/039; docs/adr/052 status line.",
+        "versions table; not yet proven); docs/adr/039; docs/adr/052 status line; docs/adr/056 "
+        "'Consequences'; docs/adr/057 status line; docs/RELEASE_NOTES.md '1.0.0' (MYC-2 GTID positions; "
+        "IDXVIS-1 access paths visible; CDCREPL-2).",
     },
     {
         "kind": "bullets",
@@ -407,10 +496,11 @@ PART11: list[dict[str, Any]] = [
             ("Formats say what they say",
              "A proto3 scalar without optional has no NULL; an upsert tombstone does not say which row "
              "it deletes; a TRUNCATE names no rows to retract."),
-            ("Grants live in the deployment's policy",
-             "The console shows them and does not edit them."),
+            ("A transaction over a live answer is READ COMMITTED",
+             "Each read sees the last commit; the gateway says so rather than promise repeatable reads."),
         ],
-        "source": "Source: README.md 'Boundaries: limits of a store, a format or a recorded decision'.",
+        "source": "Source: README.md 'Boundaries: limits of a store, a format or a recorded decision'; "
+        "docs/RELEASE_NOTES.md '1.0.0' (PGWIRE-TX-1: READ COMMITTED, REPEATABLE READ with a NOTICE).",
     },
     {
         "kind": "table",
@@ -419,6 +509,8 @@ PART11: list[dict[str, Any]] = [
         "rows": [
             ["Read", "For"],
             ["docs/QUICKSTART.md", "Clone to a running, changing view in about ten minutes"],
+            ["docs/RUNNING_IN_DOCKER.md", "Images, the compose stack and its profiles, /opt/pravaha"],
+            ["docs/COMPATIBILITY.md", "What 1.x keeps stable, and what is experimental"],
             ["docs/CONCEPTS.md", "The eight ideas; most surprises are one of them working correctly"],
             ["docs/tutorials/", "Four lessons: registering, following, replacing and debugging a query"],
             ["examples/case-studies/", "Thirteen worked systems to copy, each checked by the build"],
@@ -432,7 +524,8 @@ PART11: list[dict[str, Any]] = [
         "size": 15.5,
         "note": "Ask once. Answer always.",
         "source": "Source: README.md 'Try it' and 'Documentation'; docs/CONCEPTS.md opening; "
-        "examples/case-studies/README.md (docs/tutorials/, four lessons).",
+        "examples/case-studies/README.md (docs/tutorials/, four lessons); docs/RUNNING_IN_DOCKER.md; "
+        "docs/COMPATIBILITY.md.",
     },
 ]
 

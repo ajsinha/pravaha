@@ -1,6 +1,9 @@
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see LICENSE at the repository root.
 """
-The deck, as data. Parts 6 to 9: changing a running query (ADR-046), the
-connectors in plugins/, security and identity (ADR-031, ADR-052, ADR-050), and
+The deck, as data. Parts 6 to 10: changing a running query (ADR-046), answers built
+on answers (ADR-056, ADR-057), the connectors in plugins/, security, identity and
+governance (ADR-031, ADR-052, ADR-050, ADR-059, ADR-060), and
 operating it (deployment, console, CLI, SDKs, metrics).
 
 One deck split across several modules only to keep each file short; read them in
@@ -140,10 +143,152 @@ PART6: list[dict[str, Any]] = [
     },
 ]
 
-PART7: list[dict[str, Any]] = [
+CHAINS: list[dict[str, Any]] = [
     {
         "kind": "divider",
         "num": "7",
+        "title": "Answers built on answers",
+        "sub": "A query can read another query's view and follow its answer, exactly, across restarts. "
+        "An alert follows a view's answer and says when a row enters it and when it leaves.",
+        "points": [
+            "Queries on queries (ADR-056)",
+            "A seam with no position: the consumed answer",
+            "Alerts that fire and clear (ADR-057)",
+            "Exactly-once state, at-least-once delivery",
+        ],
+        "source": "Source: docs/adr/056-queries-on-queries.md; docs/adr/057-alerts.md; "
+        "docs/RELEASE_NOTES.md '1.0.0'.",
+    },
+    {
+        "kind": "code",
+        "kicker": "Queries on queries · ADR-056",
+        "title": "A query over a view follows its answer, not its changelog",
+        "code": [
+            "CREATE CONTINUOUS QUERY cleaned",
+            "  KEYED BY (user_id)",
+            "AS SELECT user_id, region, amount",
+            "   FROM txn WHERE amount > 0;",
+            "",
+            "CREATE CONTINUOUS QUERY by_region",
+            "  KEYED BY (region)",
+            "AS SELECT region, SUM(amount) AS total,",
+            "   COUNT(*) AS n",
+            "   FROM cleaned GROUP BY region;",
+            "",
+            "CREATE CONTINUOUS QUERY big_regions",
+            "  KEYED BY (region)",
+            "AS SELECT region, total",
+            "   FROM by_region WHERE total > 100;",
+        ],
+        "code_size": 12,
+        "code_w": 0.52,
+        "items": [
+            ("Fed the answer's changes",
+             "Its snapshot, then per commit the row that left the answer at −1 and the one that entered "
+             "at +1 — so an upsert upstream is an update downstream, not a second row."),
+            ("What can be maintained exactly",
+             "Filters, projections and unwindowed COUNT, SUM and AVG, with GROUP BY; windows, joins, "
+             "top-N, MIN/MAX and COUNT(DISTINCT) are refused (PRV-2075)."),
+            ("Named refusals",
+             "Dropping a view others read (PRV-8024, no cascade), a cycle (PRV-8025), replacing a chain "
+             "member (PRV-8026), deeper than eight (PRV-8027)."),
+        ],
+        "size": 15,
+        "source": "Source: docs/CONTINUOUS_QUERIES.md §3.1 (the three statements, verbatim, reflowed); "
+        "docs/adr/056-queries-on-queries.md §1, §4, §5; docs/RELEASE_NOTES.md '1.0.0' (Queries on "
+        "queries).",
+    },
+    {
+        "kind": "flow",
+        "kicker": "Exactly once across a chain",
+        "title": "No position to meet at, so the seam is the answer consumed",
+        "steps": [
+            ("A view has no position",
+             "Commits follow a timer; after a restart the upstream's commit n is a different set of "
+             "changes. A sequence number cannot be resumed from."),
+            ("Record the answer seen",
+             "The downstream keeps an image of the upstream rows it was handed, and its checkpoint "
+             "stores it, cut under the same freeze as its state."),
+            ("Restore by difference",
+             "Follow the upstream again, and feed its snapshot minus the image first — retractions and "
+             "insertions — then every change."),
+        ],
+        "box_h": 2.05,
+        "items": [
+            ("Exact whichever side checkpointed later",
+             "The difference is between two answers, not two positions. It works because every operator "
+             "allowed over a view depends only on what its input adds up to."),
+            ("A reader that falls 65,536 changes behind",
+             "Drops its queue, re-snapshots and is fed the difference: conflation without loss."),
+        ],
+        "size": 15,
+        "source": "Source: docs/adr/056-queries-on-queries.md §2 (the image, the freeze, restore by "
+        "difference, the 65,536-change queue); QueryChainsTest, UpstreamReaderTest; "
+        "docs/research/continuous-queries-as-maintained-answers.tex §8 (Theorem: a chain is exact).",
+    },
+    {
+        "kind": "code",
+        "kicker": "Alerts · ADR-057",
+        "title": "Told when a row enters the answer, and when it leaves",
+        "code": [
+            "CREATE ALERT low_stock_alert",
+            "  ON low_stock",
+            "  WHERE warehouse = 'LDN'",
+            "  NOTIFY buyers",
+            "  WITH (severity = 'warning',",
+            "        fire_after = '1m',",
+            "        clear_after = '5m',",
+            "        dedupe = '10m',",
+            "        resend_every = '1h')",
+            "",
+            "SNOOZE ALERT low_stock_alert FOR '2h'",
+            "ACK    ALERT low_stock_alert",
+        ],
+        "code_w": 0.5,
+        "items": [
+            ("A clear is a retraction, not a guess",
+             "A delivery arrives from mysql-cdc as −1 old, +1 new; the filter passes neither half, the "
+             "row leaves low_stock, and the alert is told."),
+            ("What is true, and what is said",
+             "fire_after and clear_after decide the first; dedupe, pause, snooze and reminders only "
+             "hold the second back — a flap folds into its end state."),
+            ("Channels are plugins",
+             "A webhook signed with HMAC-SHA256 (a Slack format too) and a log channel; email, Teams "
+             "and PagerDuty are designed, not built."),
+        ],
+        "size": 15,
+        "source": "Source: docs/adr/057-alerts.md §1–§3, §5 (statement shape and options from §2; "
+        "channels built and designed); docs/RELEASE_NOTES.md '1.0.0' (Alerts).",
+    },
+    {
+        "kind": "table",
+        "kicker": "Guarantees, plainly",
+        "title": "Exactly-once alert state, at-least-once delivery",
+        "rows": [
+            ["Situation", "What happens"],
+            ["Any decision", "Fired, cleared, told, acknowledged — journalled and forced to disk before "
+             "anything is sent"],
+            ["Restart, key still in the answer", "Not fired again"],
+            ["Restart, a clear decided but not delivered", "Delivered: it is owed, and the journal says so"],
+            ["A channel refuses or times out", "Retried with backoff, then re-sent every minute until "
+             "accepted; the failure is on the alert (PRV-8045)"],
+            ["A receiver sees one twice", "Every attempt carries the same Idempotency-Key, across "
+             "retries and restarts"],
+            ["The view it follows is dropped", "Refused while the alert exists (PRV-8024)"],
+        ],
+        "col_w": [2.2, 3.8],
+        "size": 14.5,
+        "note": "Tested end to end: the retail study's low-stock alert on a real node with a signed "
+        "webhook and a restart (RetailLowStockAlertEndToEndTest).",
+        "source": "Source: docs/adr/057-alerts.md §4 (journal, restart, redelivery, idempotency key) and "
+        "§6 (PRV-8024); docs/RELEASE_NOTES.md '1.0.0' (Alerts, RetailLowStockAlertEndToEndTest).",
+    },
+]
+
+PART7: list[dict[str, Any]] = [
+    {
+        "kind": "divider",
+        "num": "8",
         "title": "Connectors",
         "sub": "Ten connector plugins, each a jar with a service declaration. Every source says what it "
         "can promise — ordered or not, exactly once or at least once — and the registry holds a "
@@ -205,7 +350,7 @@ PART7: list[dict[str, Any]] = [
         "note": "A sink with a configured schema or key reports it, and a registration that does not "
         "match is refused before the sink opens (PRV-8010).",
         "source": "Source: README.md 'Sinks'; docs/CONNECTORS.md §1 (StreamSinkPlugin row); "
-        "docs/RELEASE_NOTES.md 0.2.0 (Avro/Protobuf, commit.mode: prepared) and 'Unreleased' "
+        "docs/RELEASE_NOTES.md 0.2.0 (Avro/Protobuf, commit.mode: prepared) and '1.0.0' "
         "(iceberg-sink).",
     },
     {
@@ -237,7 +382,7 @@ PART7: list[dict[str, Any]] = [
             "size": 16,
         },
         "source": "Source: docs/adr/041-change-data-capture-without-debezium.md; README.md 'Sources' "
-        "(postgres-cdc, mysql-cdc); docs/RELEASE_NOTES.md 'Unreleased' (mysql-cdc, PRV-5152).",
+        "(postgres-cdc, mysql-cdc); docs/RELEASE_NOTES.md '1.0.0' (mysql-cdc, PRV-5152).",
     },
     {
         "kind": "bullets",
@@ -267,20 +412,22 @@ PART7: list[dict[str, Any]] = [
 PART8: list[dict[str, Any]] = [
     {
         "kind": "divider",
-        "num": "8",
-        "title": "Security and identity",
+        "num": "9",
+        "title": "Security, identity and governance",
         "sub": "Authorization is enforced by Pravaha on every read, at the layer that produces the "
-        "row. The engine keeps its own users, keys and sessions, stores only what cannot be "
-        "reversed, and a tenant shares only with itself.",
+        "row. Grants, row filters and masks live in the engine as a governed catalogue of live "
+        "answers; the engine keeps its own users, keys and sessions; a tenant shares only with itself.",
         "points": [
             "Why not delegate to the store (ADR-031)",
             "Three seams and one rule",
+            "The governed catalogue (ADR-059)",
+            "Row filters and masks as policies",
             "The engine is the identity authority (ADR-052)",
-            "Tenancy (ADR-050)",
+            "Tenancy and ownership (ADR-050, ADR-060)",
             "What is not built",
         ],
         "source": "Source: docs/adr/031-authorization-at-the-pravaha-layer.md; docs/adr/052; "
-        "docs/adr/050; docs/SECURITY.md.",
+        "docs/adr/050; docs/adr/059; docs/adr/060; docs/SECURITY.md.",
     },
     {
         "kind": "cards",
@@ -328,14 +475,107 @@ PART8: list[dict[str, Any]] = [
                 ("A registration is a standing read",
                  "mayRead is asked for every stream in the plan; a sink is a standing write "
                  "(mayWriteTo), audited by name."),
-                ("A row-filtered principal cannot subscribe",
-                 "It reads the view instead, which honours the filter."),
+                ("Catalogue filters reach subscriptions",
+                 "A catalogue row filter is enforced per change; a programmatic policy's filter still "
+                 "refuses subscribe (STRM-13) — read the view instead."),
             ],
             "size": 15,
         },
         "source": "Source: docs/adr/031 (three pieces; soundness rule); docs/SECURITY.md 'What a "
         "registration is allowed to read / write', 'A conditional entitlement cannot subscribe' "
-        "(STRM-13).",
+        "(STRM-13; catalogue filters enforced per change).",
+    },
+    {
+        "kind": "table",
+        "kicker": "The Pravaha Catalog · ADR-059",
+        "title": "Grants live in the engine, and govern answers still being computed",
+        "rows": [
+            ["Privilege", "What it allows — and why a live answer needs it"],
+            ["USE · SELECT", "Enter a namespace; read an object's rows"],
+            ["SUBSCRIBE", "Follow a view's changes; re-asked every two seconds, so a REVOKE ends an open stream"],
+            ["BUILD_ON", "Name an object as a registration's input: a registration is a standing read"],
+            ["CREATE · WRITE", "Create in a namespace; write to a sink or notify a channel"],
+            ["MODIFY · MANAGE · OWN", "Administer: drop, pause, replace; change grants; own it"],
+        ],
+        "col_w": [1.6, 4.4],
+        "size": 14.5,
+        "intro": "tenant.namespace.object names, each with an owner, description, tags and version. "
+        "Grants are allow-only, to roles and users, inherited down namespaces; tenants are walls.",
+        "note": "GRANT, REVOKE, SHOW EFFECTIVE ACCESS run wherever CREATE CONTINUOUS QUERY does; "
+        "pravaha grant | revoke | access why; the console's Catalog and Admin → Grants.",
+        "source": "Source: docs/RELEASE_NOTES.md '1.0.0' (The Pravaha Catalog, phase 1); "
+        "docs/adr/059-the-pravaha-catalog-governs-live-answers.md 'Phase 1, as built' (mid-stream "
+        "revocation every two seconds); README.md 'Governed catalogue'.",
+    },
+    {
+        "kind": "code",
+        "kicker": "Policies · ADR-059 phase 2",
+        "title": "Row filters and masks are policies, applied where rows leave an object",
+        "code": [
+            "CREATE ROW FILTER sales.region_scope",
+            "  AS region = session_attribute('region')",
+            "  EXCEPT ROLE finance_admin;",
+            "",
+            "CREATE MASK sales.card_last4 ON COLUMN card",
+            "  AS 'XXXX-' || RIGHT(card, 4)",
+            "  EXCEPT ROLE payments_ops;",
+            "",
+            "ALTER STREAM orders",
+            "  SET POLICY sales.region_scope;",
+            "ALTER TAG 'pii'",
+            "  SET POLICY sales.card_last4;",
+        ],
+        "code_w": 0.5,
+        "items": [
+            ("One place covers every path",
+             "Flight and point reads, pgwire text and binary, subscriptions, registrations built on "
+             "the view, and alerts evaluated as their owner."),
+            ("A masked column is never an operand",
+             "As a filter, group, join or sort key, aggregate argument or view key it would leak the "
+             "true value — refused, PRV-7006."),
+            ("In the fingerprint",
+             "Registrants narrowed differently get different computations; a query over a masked view "
+             "carries the mask into its own answer."),
+        ],
+        "size": 15,
+        "source": "Source: docs/SECURITY.md 'Row filters and masks as catalogue objects (ADR-059 §4)' "
+        "(the statements, verbatim, reflowed); docs/RELEASE_NOTES.md '1.0.0' (phase 2: where it is "
+        "enforced; PRV-7006; the fingerprint); docs/adr/059 'Phase 2, as built'.",
+    },
+    {
+        "kind": "split",
+        "kicker": "Vacuity · TAUTOFILTER-1, VACUITYGAP-1",
+        "title": "A filter that restricts nothing is refused, not enforced",
+        "left": {
+            "head": "Refused",
+            "rows": [
+                ["Filter", "Why"],
+                ["region = region", "true for every row"],
+                ["1 = 1 OR region = 'x'", "folds to TRUE"],
+                ["a < 5 OR a > 2", "covers every integer"],
+                ["x IS NULL OR x IS NOT NULL", "true for every row"],
+                ["a >= a", "drops only NULLs, unsaid"],
+            ],
+            "col_w": [2.1, 1.7],
+            "size": 13.5,
+        },
+        "right": {
+            "head": "Sound, not complete",
+            "items": [
+                ("Never refuses a real restriction",
+                 "Constants cut a column's values into regions; each comparison is decided region by "
+                 "region. A property test checks every verdict against every region."),
+                ("Decided where it can be",
+                 "A session-free policy at binding (PRV-7038); one reading the session per reader, at "
+                 "each read and registration (PRV-7003)."),
+                ("Too large to decide",
+                 "Assumed to restrict."),
+            ],
+            "size": 14.5,
+        },
+        "source": "Source: docs/RELEASE_NOTES.md '1.0.0' (TAUTOFILTER-1: the listed filters, PRV-7003, "
+        "PRV-7038); commit af5ee635 (VACUITYGAP-1: a < 5 OR a > 2, regions); docs/adr/059 'Vacuity'; "
+        "FilterVacuityTest.",
     },
     {
         "kind": "table",
@@ -380,16 +620,21 @@ PART8: list[dict[str, Any]] = [
             "size": 15.5,
         },
         "right": {
-            "head": "A tenant does not scope, by decision",
+            "head": "Who may administer a view",
             "items": [
-                ("Reads, sources and sinks", "The policy decides; no tenant boundary it did not draw."),
-                ("Lanes and CPU", "Shared; per-tenant CPU scheduling is not built."),
-                ("Operator state outside the view", "Bounded per query by its ceilings instead."),
+                ("Its owner, a grantee, or an admin",
+                 "Drop, pause, replace, debug: the registrant, MODIFY or MANAGE, or the admin role. "
+                 "Reading a view no longer lets you destroy it (PRV-7002)."),
+                ("A tenant does not scope lanes or CPU",
+                 "Shared by decision; per-tenant CPU scheduling is not built."),
+                ("Upgrading from 0.2 is one-way",
+                 "Once a view outside the default tenant is recovered under per-tenant names."),
             ],
-            "size": 15.5,
+            "size": 15,
         },
         "source": "Source: docs/adr/050-a-tenant-owns-names-and-state-and-shares-only-with-itself.md "
-        "§1–§2; docs/adr/060-view-names-are-unique-per-tenant.md; docs/SECURITY.md 'Tenants'.",
+        "§1–§2; docs/adr/060-view-names-are-unique-per-tenant.md; docs/SECURITY.md 'Tenants'; "
+        "docs/RELEASE_NOTES.md '1.0.0' (upgrade notes; LIFE-040, SX-6 ownership; one-way upgrade).",
     },
     {
         "kind": "bullets",
@@ -400,27 +645,34 @@ PART8: list[dict[str, Any]] = [
              "Flight carries TLS by default; /api/v1 is reached over HTTPS only through server.ssl.*."),
             ("No mTLS between nodes, no OIDC or JWT verifier out of the box",
              "There are no nodes yet; TokenVerifier is the seam for a verifier."),
-            ("No column masking; grants live in the deployment's policy",
-             "The console shows grants and does not edit them."),
+            ("The catalogue's phases 3 and 4",
+             "Column tags, lineage and labels that follow it, contracts, sharing and access history "
+             "are not built."),
+            ("MFA and single sign-on",
+             "Dropped by the owner: users, passwords, API keys and sessions are what Pravaha keeps."),
         ],
-        "source": "Source: docs/SECURITY.md 'Transport', 'What is not built'; README.md 'Boundaries' (grants).",
+        "source": "Source: docs/SECURITY.md 'Transport', 'What is not built'; docs/adr/059 status line "
+        "(phases 3 and 4 not built); docs/adr/052 status line.",
     },
 ]
 
 PART9: list[dict[str, Any]] = [
     {
         "kind": "divider",
-        "num": "9",
+        "num": "10",
         "title": "Operating it",
-        "sub": "Three ways to run one engine, a console that is a product and not a dashboard, two "
-        "command lines, two SDKs that survive a restart, and metrics that say what is not "
-        "measured rather than reporting zero.",
+        "sub": "Three ways to run one engine, one directory it lives in with or without Docker, a "
+        "console that is a product and not a dashboard, two command lines, SDKs that ship on their "
+        "own and survive a restart, BI tools over the PostgreSQL protocol, and metrics that say what "
+        "is not measured rather than reporting zero.",
         "points": [
-            "Three ways to run it",
+            "Three ways to run it; one /opt/pravaha",
             "The console",
             "pravaha and pravaha-engine",
-            "SDKs, and reconnecting",
+            "SDKs, on their own, and reconnecting",
+            "BI tools over the PostgreSQL protocol",
             "What to watch",
+            "The assistant (experimental)",
             "The time-travel debugger",
         ],
         "source": "Source: README.md 'How it is built' (Deployment), 'The console', 'Try it', "
@@ -449,6 +701,42 @@ PART9: list[dict[str, Any]] = [
         "ADR-045, ADR-047, ADR-053).",
     },
     {
+        "kind": "code",
+        "kicker": "In Docker and out of it · RUNNING_IN_DOCKER.md",
+        "title": "One directory, /opt/pravaha, owned by whoever runs it",
+        "code": [
+            "deploy/docker/build.sh \\",
+            "  --tag pravaha/pravaha-server:local",
+            "deploy/docker/console/build.sh \\",
+            "  --tag pravaha/pravaha-console:local",
+            "tools/docker-env.sh   # .env + pravaha-home/",
+            "docker compose \\",
+            "  -f deploy/docker/compose/docker-compose.yml \\",
+            "  --profile seed up -d",
+            "",
+            "# console  http://localhost:17070",
+            "# Flight   grpc://localhost:19090",
+            "# REST     http://localhost:18080",
+            "# psql     localhost:15432",
+        ],
+        "code_w": 0.55,
+        "code_size": 12,
+        "items": [
+            ("PRAVAHA_HOME",
+             "conf/, secrets/, plugins/, data/, logs/, tmp/ — the same layout in a container and in an "
+             "unpacked distribution; relative paths mean the same in both."),
+            ("As you, read-only root",
+             "Engine and console run as the invoking uid:gid; nothing is written outside the home."),
+            ("Profiles",
+             "seed, cdc (PostgreSQL, MySQL), stores (Aerospike, Cassandra), observability "
+             "(Prometheus, Grafana), tools."),
+        ],
+        "size": 14,
+        "source": "Source: docs/RUNNING_IN_DOCKER.md 'The short version' (commands, ports) and 'One root: "
+        "PRAVAHA_HOME' (layout); commit 36d766f8 (compose stack: profiles, uid:gid, read-only roots); "
+        "commit c2af8cfb (PRAVAHA_HOME, PravahaHomeLayoutTest).",
+    },
+    {
         "kind": "bullets",
         "kicker": "The console",
         "title": "Each persona lands on its own screen",
@@ -462,12 +750,16 @@ PART9: list[dict[str, Any]] = [
              "The engine's metrics read into a verdict — healthy, and if not, where — with backfill "
              "and cutover, and any view watched live with its +1/−1 weights."),
             ("Administrator: Admin",
-             "Users, keys and sessions; the audit trail, filterable and paged; and Admin → Lanes."),
+             "Users, keys and sessions; grants and policies; AI models; the audit trail; Lanes."),
+            ("Everyone: Catalog and Alerts",
+             "Objects with owners, tags and grants; alerts firing, snoozed and acknowledged."),
         ],
-        "note": "FastAPI, server-rendered, with every asset vendored so it runs air-gapped. All eight "
-        "§23.18 journeys run in headless Chrome; the manual WCAG 2.2 AA audit is not done.",
-        "source": "Source: README.md 'The console'; docs/RELEASE_NOTES.md 'Unreleased' (Admin → "
-        "Lanes); commit ff9fae5d (console per-user sign-in, account and admin pages).",
+        "note": "FastAPI, server-rendered, every asset vendored so it runs air-gapped; four themes, "
+        "crimson by default. 1,937 console tests pass with the browser suites, zero axe violations in "
+        "every theme; the manual WCAG 2.2 AA audit is not done.",
+        "source": "Source: README.md 'The console'; docs/RELEASE_NOTES.md '1.0.0' (Admin → Lanes, Admin · "
+        "AI models, Catalog and Admin → Grants/Policies, Alerts screens, MAYA design and four themes); "
+        "docs/TESTING.md tiers table (console 1,937 passed); commit ff9fae5d.",
     },
     {
         "kind": "split",
@@ -495,7 +787,7 @@ PART9: list[dict[str, Any]] = [
             ],
             "size": 16,
         },
-        "source": "Source: docs/RELEASE_NOTES.md 'Unreleased' (the Java CLI is now pravaha-engine; "
+        "source": "Source: docs/RELEASE_NOTES.md '1.0.0' (the Java CLI is now pravaha-engine; "
         "commands moved to the Python CLI); docs/QUICKSTART.md (pip install); docs/ARCHITECTURE.md "
         "module table (pravaha-cli). Commit 90b14871.",
     },
@@ -532,7 +824,65 @@ PART9: list[dict[str, Any]] = [
         ],
         "size": 16,
         "source": "Source: docs/USER_GUIDE.md 'Surviving a restart: reconnect' (both snippets, "
-        "reflowed); docs/RELEASE_NOTES.md 'Unreleased' (JavaSdkReconnectTest, test_reconnect.py).",
+        "reflowed); docs/RELEASE_NOTES.md '1.0.0' (JavaSdkReconnectTest, test_reconnect.py).",
+    },
+    {
+        "kind": "cards",
+        "kicker": "SDKs · SDKSTANDALONE-1",
+        "title": "The client SDKs build, ship and run without the server",
+        "cols": 3,
+        "cards": [
+            ("JAVA", "pravaha-sdk-java-flight",
+             "The thin jar through Maven or Gradle — the default — or a 19 MB -all jar with every "
+             "runtime dependency, for a client with no build tool. Sources and javadoc jars attached."),
+            ("PYTHON", "the pravaha wheel",
+             "Imports with the standard library alone; pip install \"pravaha[flight]\" adds Flight. "
+             "The pravaha CLI and the assistant ship in it."),
+            ("PROVED OUTSIDE", "sdk-standalone-check.sh",
+             "Four clients outside the repository against a throwaway node: Maven, the -all jar with "
+             "plain java, the wheel with and without [flight]."),
+        ],
+        "note": "SdkIndependenceTest fails the build if an SDK reaches a server module or the server's "
+        "jar carries SDK classes. The standalone check found SDKNETTYMIX-1: a Maven client resolved two "
+        "Netty lines and failed on its first call — invisible to tests inside the build.",
+        "source": "Source: docs/RELEASE_NOTES.md '1.0.0' (SDKSTANDALONE-1, SDKNETTYMIX-1); "
+        "docs/TESTING.md 'The SDKs on their own'; commit bc971c6b (sources and javadoc jars).",
+    },
+    {
+        "kind": "split",
+        "kicker": "BI tools · the PostgreSQL gateway",
+        "title": "Power BI, psql and psycopg read views as if from PostgreSQL",
+        "left": {
+            "head": "What was needed",
+            "items": [
+                ("Npgsql 4.0.17, Power BI's own driver",
+                 "Its type-loading queries, binary results for every type, the navigator's "
+                 "INFORMATION_SCHEMA queries, DirectQuery's LIMIT 1000001."),
+                ("Transactions, as no-ops",
+                 "BEGIN … COMMIT with PostgreSQL's tags and status: psycopg's default mode, pgjdbc "
+                 "without auto-commit, most ORMs (PGWIRE-TX-1)."),
+                ("psql 18",
+                 "\\d answered."),
+            ],
+            "size": 14.5,
+        },
+        "right": {
+            "head": "What is stated, not implied",
+            "items": [
+                ("READ COMMITTED, always",
+                 "Each read sees the view as its last commit left it; REPEATABLE READ is accepted with "
+                 "a NOTICE saying so. Writes are refused."),
+                ("AVG of an integer is numeric here only",
+                 "As PostgreSQL clients expect; every other surface keeps the engine's integer AVG."),
+                ("Same grants, filters and masks",
+                 "Signed in with an API key or session token."),
+            ],
+            "size": 14.5,
+        },
+        "note": "Tested with the real Npgsql 4.0.17, pgjdbc, psycopg 3 and psql. Power BI Desktop itself "
+        "was not run.",
+        "source": "Source: docs/RELEASE_NOTES.md '1.0.0' (Power BI through the gateway; PGWIRE-TX-1; "
+        "AVGINT-1; PGWIREPASS-1); commit 2a77768a (psql 18's \\d); README.md 'BI tools'.",
     },
     {
         "kind": "table",
@@ -551,10 +901,44 @@ PART9: list[dict[str, Any]] = [
         ],
         "col_w": [3.3, 2.5],
         "size": 14.5,
-        "note": "Per-operator rows, state and sampled self time appear on GET /api/v1/queries/{name}/plan "
-        "when pravaha.metrics.operators is on — off by default, as it costs about 8 % of throughput.",
+        "note": "Shipped beside them: four Grafana dashboards, Prometheus rules (and a Helm "
+        "PrometheusRule), JSON logs with correlation and trace ids, OpenTelemetry tracing (off by "
+        "default). Per-operator metrics cost about 12 % of throughput, so they are off by default.",
         "source": "Source: docs/OPERATIONS.md 'Watching a running node' (per-query and per-node tables; "
-        "FEED-1; ADR-037 B1); README.md 'Observability' (8 %).",
+        "FEED-1; ADR-037 B1); docs/RELEASE_NOTES.md '1.0.0' (Observability, built out; PERF-1: about "
+        "12 %, re-taken without the coverage agent).",
+    },
+    {
+        "kind": "flow",
+        "kicker": "The assistant · ADR-058 · experimental in 1.0",
+        "title": "Plain English to continuous SQL, with the engine as the judge",
+        "steps": [
+            ("Context, as you",
+             "Streams and views you may read, sinks you may write to, the dialect's rules, a few "
+             "worked examples. No row is ever sent."),
+            ("Any model drafts",
+             "Hosted or local — built-in providers, any OpenAI-compatible server, Ollama, or a "
+             "plugin — with fallback chains and budgets; switched at runtime."),
+            ("The engine judges",
+             "Validates and explains the draft; up to three repair turns, none allowed to change what "
+             "the query reads."),
+            ("A person registers",
+             "Only an accepted draft, only after confirmation; a running query with the same plan is "
+             "offered for reuse."),
+        ],
+        "box_h": 2.15,
+        "items": [
+            ("Where", "pravaha ask, explain-sql and why; the console's Describe it and Explain; Admin · "
+             "AI models."),
+            ("Measured how",
+             "pravaha assist eval scores a model on a golden set generated from the case studies: 27 "
+             "cases that must be accepted, 3 that must be refused or asked about. No score is claimed "
+             "here."),
+        ],
+        "size": 14.5,
+        "source": "Source: docs/adr/058-plain-english-to-continuous-sql.md (status; §1, §2, §3); "
+        "docs/RELEASE_NOTES.md '1.0.0' (the assistant, phases 1–3; 27 + 3 golden cases); "
+        "docs/COMPATIBILITY.md 'Experimental in 1.0'; docs/ASSIST.md.",
     },
     {
         "kind": "bullets",
@@ -578,4 +962,4 @@ PART9: list[dict[str, Any]] = [
     },
 ]
 
-SLIDES = PART6 + PART7 + PART8 + PART9
+SLIDES = PART6 + CHAINS + PART7 + PART8 + PART9
