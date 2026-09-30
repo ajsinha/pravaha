@@ -57,35 +57,60 @@
       <artifactId>netty-transport-native-unix-common</artifactId>
       <scope>runtime</scope>
     </dependency>
+    <!--
+      Every Netty artifact the transport reaches, named here so an application gets ONE Netty
+      (SDKNETTYMIX-1). In this reactor the parent's netty-bom holds them all at ${netty.version}; but
+      a dependencyManagement section, the parent's included, governs only the build that declares
+      it. An application depending on this artifact resolved Netty by nearest-wins instead: 4.2.9
+      netty-common and netty-handler from Arrow, 4.1.130 codecs from grpc-netty, 4.1.135 buffer and
+      transport from here; and failed on its first call with an AbstractMethodError inside
+      netty-buffer (UnsupportedOperationException from Arrow's allocator on Java 25). The SDK's own
+      tests never saw it, because they run in the reactor. A direct dependency is nearer than any
+      of those paths, so it decides the version wherever this SDK is used; the versions still come
+      from netty-bom. Found by tools/sdk-standalone-check.sh, which builds a client outside the
+      repository; a new Netty artifact under Arrow or gRPC belongs in this list.
+    -->
     <dependency>
-      <groupId>com.ash.messaging</groupId>
-      <artifactId>pravaha-security</artifactId>
-      <version>${project.version}</version>
-      <scope>test</scope>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-common</artifactId>
     </dependency>
     <dependency>
-      <groupId>com.ash.messaging</groupId>
-      <artifactId>pravaha-registry</artifactId>
-      <version>${project.version}</version>
-      <scope>test</scope>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-buffer</artifactId>
     </dependency>
     <dependency>
-      <groupId>com.ash.messaging</groupId>
-      <artifactId>pravaha-common</artifactId>
-      <version>${project.version}</version>
-      <scope>test</scope>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-resolver</artifactId>
     </dependency>
     <dependency>
-      <groupId>com.ash.messaging</groupId>
-      <artifactId>pravaha-flight</artifactId>
-      <version>${project.version}</version>
-      <scope>test</scope>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-transport</artifactId>
     </dependency>
     <dependency>
-      <groupId>com.ash.messaging</groupId>
-      <artifactId>pravaha-serving</artifactId>
-      <version>${project.version}</version>
-      <scope>test</scope>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-codec</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-codec-http</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-codec-http2</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-handler</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-codec-socks</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-handler-proxy</artifactId>
+      <scope>runtime</scope>
     </dependency>
   </dependencies>
 
@@ -130,27 +155,162 @@
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-dependency-plugin</artifactId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>${maven.shade.version}</version>
         <executions>
           <execution>
-            <!--
-              Same mechanism pravaha-flight's own pom uses for the Python SDK's plaintext
-              cross-language test: writes this module's test classpath to a file so a Python
-              test can start TestTlsFlightServerMain, the real PravahaFlightServer with real
-              TLS, rather than a Python imitation of it.
-            -->
-            <id>write-test-classpath</id>
+            <id>all-in-one-jar</id>
             <goals>
-              <goal>build-classpath</goal>
+              <goal>shade</goal>
             </goals>
-            <phase>test-compile</phase>
+            <phase>package</phase>
             <configuration>
-              <outputFile>${project.build.directory}/test-classpath.txt</outputFile>
-              <includeScope>test</includeScope>
+              <!--
+                pravaha-sdk-java-flight-<version>-all.jar: this SDK, pravaha-sdk-java, pravaha-api and
+                everything they need at run time (Arrow Flight SQL, gRPC, protobuf, Netty, Jackson,
+                Guava) in one file, for a client that has no Maven or Gradle and wants
+                `java -cp pravaha-sdk-java-flight-<version>-all.jar:. MyClient`. The thin jar stays the
+                primary artifact, and its POM is unchanged (no dependency-reduced POM), so a build
+                tool still resolves and reconciles the dependencies itself.
+
+                Nothing is relocated, deliberately. The public API hands out Arrow types
+                (PravahaFlightClient.connect(options, BufferAllocator)), so relocating Arrow would
+                change the SDK's own signatures in this one jar; and gRPC finds its transports,
+                name resolvers and load balancers through META-INF/services, Arrow its allocation
+                manager by class name, both of which relocation must rewrite perfectly or fail at
+                the first call. The price is the usual fat-jar one: an application that already
+                has its own gRPC, Netty, Arrow or protobuf on the classpath gets two copies and a
+                conflict. Such an application uses the thin jar through its build tool, which is
+                the default recommendation (sdk/pravaha-sdk-java/README.md).
+              -->
+              <shadedArtifactAttached>true</shadedArtifactAttached>
+              <shadedClassifierName>all</shadedClassifierName>
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+              <transformers>
+                <!-- gRPC's providers and Arrow's services: merged, never last-one-wins. -->
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer" />
+                <!-- Netty reads its own versions from this file; every netty jar ships one. -->
+                <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                  <resource>META-INF/io.netty.versions.properties</resource>
+                </transformer>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <manifestEntries>
+                    <Implementation-Title>Pravaha Java SDK (Flight, all dependencies)</Implementation-Title>
+                    <Implementation-Vendor>Ashutosh Sinha</Implementation-Vendor>
+                    <Implementation-Version>${project.version}</Implementation-Version>
+                    <!-- Some of the bundled jars (Jackson, protobuf) are multi-release. -->
+                    <Multi-Release>true</Multi-Release>
+                  </manifestEntries>
+                </transformer>
+              </transformers>
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <!-- Signature files from signed dependencies; kept, they fail verification. -->
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                    <!-- One jar is one unnamed module; forty module descriptors would be noise. -->
+                    <exclude>module-info.class</exclude>
+                    <exclude>META-INF/versions/*/module-info.class</exclude>
+                  </excludes>
+                </filter>
+              </filters>
             </configuration>
           </execution>
         </executions>
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <!--
+      The SDK's own tests start a real server in-process, so they need server modules, at test
+      scope, which never reaches a client. But Maven's -am follows test-scope dependencies into the
+      reactor too, so `-pl sdk/pravaha-sdk-java-flight -am` would build half the engine to package a
+      client. tools/build-sdk.sh passes -Dsdk.standalone: these dependencies drop out of the model,
+      -am then pulls only pravaha-api and pravaha-sdk-java, and the tests (which cannot compile
+      without them) are skipped. Every other build, the gate included, has the property unset and
+      runs them as before.
+    -->
+    <profile>
+      <id>sdk-server-tests</id>
+      <activation>
+        <property>
+          <name>!sdk.standalone</name>
+        </property>
+      </activation>
+      <dependencies>
+        <dependency>
+          <groupId>com.ash.messaging</groupId>
+          <artifactId>pravaha-security</artifactId>
+          <version>${project.version}</version>
+          <scope>test</scope>
+        </dependency>
+        <dependency>
+          <groupId>com.ash.messaging</groupId>
+          <artifactId>pravaha-registry</artifactId>
+          <version>${project.version}</version>
+          <scope>test</scope>
+        </dependency>
+        <dependency>
+          <groupId>com.ash.messaging</groupId>
+          <artifactId>pravaha-common</artifactId>
+          <version>${project.version}</version>
+          <scope>test</scope>
+        </dependency>
+        <dependency>
+          <groupId>com.ash.messaging</groupId>
+          <artifactId>pravaha-flight</artifactId>
+          <version>${project.version}</version>
+          <scope>test</scope>
+        </dependency>
+        <dependency>
+          <groupId>com.ash.messaging</groupId>
+          <artifactId>pravaha-serving</artifactId>
+          <version>${project.version}</version>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-dependency-plugin</artifactId>
+            <executions>
+              <execution>
+                <!--
+                  Same mechanism pravaha-flight's own pom uses for the Python SDK's plaintext
+                  cross-language test: writes this module's test classpath to a file so a Python
+                  test can start TestTlsFlightServerMain, the real PravahaFlightServer with real
+                  TLS, rather than a Python imitation of it.
+                -->
+                <id>write-test-classpath</id>
+                <goals>
+                  <goal>build-classpath</goal>
+                </goals>
+                <phase>test-compile</phase>
+                <configuration>
+                  <outputFile>${project.build.directory}/test-classpath.txt</outputFile>
+                  <includeScope>test</includeScope>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>sdk-standalone</id>
+      <activation>
+        <property>
+          <name>sdk.standalone</name>
+        </property>
+      </activation>
+      <properties>
+        <maven.test.skip>true</maven.test.skip>
+      </properties>
+    </profile>
+  </profiles>
 </project>

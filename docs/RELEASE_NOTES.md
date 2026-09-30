@@ -12,6 +12,29 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **The client SDKs build, ship and run on their own (SDKSTANDALONE-1).** The SDKs are for clients,
+  so they are built and released apart from the server, and neither side leans on the other.
+  `tools/build-sdk.sh` builds only `pravaha-api`, `pravaha-sdk-java`, `pravaha-sdk-java-flight` and
+  the Python wheel and sdist into `target/sdk-dist/`, never the server: `-Dsdk.standalone` drops the
+  Flight SDK's test-scope server dependencies, which Maven's `-am` otherwise followed into twelve
+  engine modules. `pravaha-sdk-java-flight` gains a `-all` classifier, the client and every runtime
+  dependency in one 19 MB jar for a client with no build tool; nothing in it is relocated (the API
+  hands out Arrow types), so it must not share a classpath with another gRPC, Netty or Arrow, and
+  the thin jar through Maven or Gradle stays the default. `SdkIndependenceTest` fails if an SDK
+  module reaches a server module at compile or runtime scope, a server module depends on an SDK,
+  the server's executable jar carries SDK classes, or the Python package needs more than the
+  standard library to import or imports the console. `tools/sdk-standalone-check.sh` runs four
+  clients outside the repository against a throwaway node (a Maven project depending on
+  `pravaha-sdk-java-flight` alone, the `-all` jar with plain `java`, the wheel with and without
+  `[flight]`). The SDK READMEs state the version policy: SDK and server from the same major.minor;
+  a request an older server does not know is refused, never downgraded.
+- **A Maven or Gradle client of `pravaha-sdk-java-flight` gets one Netty (SDKNETTYMIX-1).** The
+  parent's `netty-bom` pin applied only inside this build; an application depending on the SDK
+  resolved Netty by nearest-wins, 4.2.9 `netty-common` and `netty-handler` from Arrow beside 4.1.x
+  buffer, transport and codecs, and failed on its first call with an `AbstractMethodError` in
+  `netty-buffer` (on Java 25, an `UnsupportedOperationException` from Arrow's allocator). The SDK's
+  own tests run in the reactor and never saw it. The SDK now names each Netty artifact it needs, so
+  the client resolves 4.1.135, the version the SDK is tested with. Found by the standalone check.
 - **The PostgreSQL gateway accepts transactions (PGWIRE-TX-1).** `BEGIN` was refused as
   `PRV-2001 … near the keyword 'BEGIN'`, so psycopg in its default mode, pgjdbc with
   `setAutoCommit(false)`, Npgsql's `BeginTransaction` and most ORMs failed on their first read.
