@@ -3,11 +3,22 @@
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
 
-[`pravaha-medium-post.md`](pravaha-medium-post.md) is a long-form article about Pravaha's design:
-the maintained answer, weighted rows, one-cut checkpoints, lanes, the exact seam, blue/green at a
-position, the equality index, identity, the connectors, operating it, and three case studies worked
-end to end. Its thirteen diagrams are in [`images/`](images/). Each one is a hand-written SVG, which
-is the source, with a PNG exported from it at 2x, which is what gets published.
+[`pravaha-medium-post.md`](pravaha-medium-post.md) is a long-form article about Pravaha 1.0.0's
+design: the maintained answer, weighted rows, one-cut checkpoints, lanes, the exact seam, blue/green at
+a position, the equality index, identity, the connectors, operating it; then what is new in 1.0
+(queries on queries, alerts, the governed catalogue, Power BI and psql over the PostgreSQL gateway, one
+`/opt/pravaha` in and out of Docker, standalone SDKs, the assistant, how it was tested, what 1.x
+promises); and three case studies worked end to end. Its seventeen diagrams are in
+[`images/`](images/). Each one is a hand-written SVG, which is the source, with a PNG exported from it
+at 2x, which is what gets published on Medium.
+
+[`pravaha-medium-post.html`](pravaha-medium-post.html) is the same post as one self-contained page in
+the console's crimson identity, every diagram inlined (as its SVG), to send, attach or open offline. It
+is generated, never edited:
+
+```bash
+console/.venv/bin/python tools/medium-page/render.py     # any Python with the markdown package
+```
 
 Every number, name and code sample in the post comes from this repository: the root README,
 `docs/*.md`, `docs/adr/*.md`, `docs/RELEASE_NOTES.md`, `docs/CLI.md`, `sdk/python/README.md` and the

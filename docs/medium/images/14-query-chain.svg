@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="560" viewBox="0 0 800 560">
+  <title>Queries on queries: a chain that follows answers</title>
+  <style>
+    text { font-family: 'Source Sans 3', 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; fill: #1A1A1A; }
+    .title { font-family: 'Source Serif 4', 'Charis SIL', Georgia, serif; font-size: 23px; font-weight: 700; }
+    .head { font-size: 14.5px; font-weight: 700; }
+    .small { font-size: 12.5px; fill: #4A5058; }
+    .item { font-size: 13px; }
+    .mono { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 11.5px; }
+    .chip { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 11.5px; font-weight: 700; fill: #FFFFFF; }
+    .deep { font-size: 13px; font-weight: 700; fill: #8A1626; }
+    .lbl { font-size: 11.5px; fill: #8A1626; font-weight: 600; }
+    .inv { font-size: 13.5px; font-weight: 600; fill: #FFFFFF; }
+  </style>
+  <defs>
+    <marker id="aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#A51C30"/></marker>
+  </defs>
+  <rect width="800" height="560" fill="#F7F5F2"/>
+  <text x="40" y="44" class="title">Answers built on answers</text>
+  <text x="40" y="68" class="small">A query whose FROM names another registered query follows that query's answer:</text>
+  <text x="40" y="85" class="small">its snapshot, then each commit's rows leaving (−1) and entering (+1).</text>
+
+  <!-- the chain -->
+  <rect x="24" y="104" width="140" height="104" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="40" y="128" class="head">txn</text>
+  <text x="40" y="148" class="small">a stream</text>
+  <text x="40" y="176" class="small">rows with weights</text>
+  <text x="40" y="193" class="small">from its source</text>
+
+  <line x1="166" y1="156" x2="196" y2="156" stroke="#A51C30" stroke-width="1.8" marker-end="url(#aa)"/>
+
+  <rect x="202" y="104" width="178" height="104" rx="10" fill="#F6E8EA" stroke="#A51C30" stroke-width="1.5"/>
+  <text x="218" y="128" class="deep">cleaned</text>
+  <text x="218" y="146" class="mono">KEYED BY (user_id)</text>
+  <text x="218" y="172" class="small">user_id, region, amount</text>
+  <text x="218" y="190" class="small">WHERE amount &gt; 0</text>
+
+  <line x1="382" y1="156" x2="412" y2="156" stroke="#A51C30" stroke-width="1.8" marker-end="url(#aa)"/>
+
+  <rect x="418" y="104" width="178" height="104" rx="10" fill="#F6E8EA" stroke="#A51C30" stroke-width="1.5"/>
+  <text x="434" y="128" class="deep">by_region</text>
+  <text x="434" y="146" class="mono">KEYED BY (region)</text>
+  <text x="434" y="172" class="small">SUM(amount), COUNT(*)</text>
+  <text x="434" y="190" class="small">GROUP BY region</text>
+
+  <line x1="598" y1="156" x2="628" y2="156" stroke="#A51C30" stroke-width="1.8" marker-end="url(#aa)"/>
+
+  <rect x="634" y="104" width="142" height="104" rx="10" fill="#F6E8EA" stroke="#A51C30" stroke-width="1.5"/>
+  <text x="650" y="128" class="deep">big_regions</text>
+  <text x="650" y="146" class="mono">KEYED BY (region)</text>
+  <text x="650" y="172" class="small">total &gt; 100</text>
+  <text x="650" y="190" class="small">for an alert to watch</text>
+
+  <text x="400" y="228" class="lbl" text-anchor="middle">each arrow after the first carries the upstream's answer changes, not its changelog</text>
+
+  <!-- why the answer, not the changelog -->
+  <rect x="24" y="244" width="752" height="136" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="40" y="268" class="head">Why the answer: cleaned receives a second row for user u7</text>
+  <text x="40" y="290" class="small">It replaces the row cleaned showed for u7. An illustration, in the shape the design records (ADR-056 §1):</text>
+
+  <text x="40" y="318" class="item" font-weight="600">The changelog carries</text>
+  <rect x="40" y="328" width="34" height="20" rx="4" fill="#A51C30"/><text x="57" y="343" class="chip" text-anchor="middle">+1</text>
+  <text x="84" y="343" class="mono">(u7, EU, 30)</text>
+  <text x="40" y="368" class="small">A SUM over it counts u7 twice: EU = 20 + 30.</text>
+
+  <line x1="396" y1="306" x2="396" y2="370" stroke="#E3DED7"/>
+
+  <text x="416" y="318" class="item" font-weight="600">A follower is fed the answer change</text>
+  <rect x="416" y="328" width="34" height="20" rx="4" fill="#293352"/><text x="433" y="343" class="chip" text-anchor="middle">−1</text>
+  <text x="458" y="343" class="mono">(u7, EU, 20)</text>
+  <rect x="560" y="328" width="34" height="20" rx="4" fill="#A51C30"/><text x="577" y="343" class="chip" text-anchor="middle">+1</text>
+  <text x="602" y="343" class="mono">(u7, EU, 30)</text>
+  <text x="416" y="368" class="small">An update: EU = 30, as a reader of cleaned sees it.</text>
+
+  <!-- restart by difference -->
+  <rect x="24" y="396" width="752" height="148" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="40" y="420" class="head">A restart: no position to resume from, so the seam is the answer consumed</text>
+
+  <rect x="40" y="436" width="214" height="92" rx="8" fill="#F7F5F2" stroke="#E3DED7"/>
+  <text x="54" y="458" class="item" font-weight="600">by_region's checkpoint</text>
+  <text x="54" y="478" class="small">its state, and the image I:</text>
+  <text x="54" y="495" class="small">every row of cleaned it was</text>
+  <text x="54" y="512" class="small">handed, cut at one freeze</text>
+
+  <rect x="290" y="436" width="214" height="92" rx="8" fill="#F7F5F2" stroke="#E3DED7"/>
+  <text x="304" y="458" class="item" font-weight="600">cleaned, restored</text>
+  <text x="304" y="478" class="small">its own checkpoint or replay;</text>
+  <text x="304" y="495" class="small">its answer now is S. Commit</text>
+  <text x="304" y="512" class="small">numbers mean nothing across it</text>
+
+  <line x1="256" y1="482" x2="284" y2="482" stroke="#A51C30" stroke-width="1.8" marker-end="url(#aa)"/>
+  <line x1="506" y1="482" x2="534" y2="482" stroke="#A51C30" stroke-width="1.8" marker-end="url(#aa)"/>
+
+  <rect x="540" y="436" width="220" height="92" rx="8" fill="#A51C30"/>
+  <text x="554" y="460" class="inv">Fed first: S − I</text>
+  <text x="554" y="482" fill="#FFFFFF" font-size="12.5px">retractions and insertions,</text>
+  <text x="554" y="499" fill="#FFFFFF" font-size="12.5px">then every change. Exact,</text>
+  <text x="554" y="516" fill="#FFFFFF" font-size="12.5px">whichever checkpointed later</text>
+</svg>

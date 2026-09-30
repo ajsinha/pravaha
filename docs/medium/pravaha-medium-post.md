@@ -1,6 +1,6 @@
-# Keeping the Answer: Inside Pravaha, a Continuous-SQL Engine in Java 21
+# Keeping the Answer: Inside Pravaha 1.0, a Continuous-SQL Engine in Java 21
 
-### Register a SQL question once and the engine keeps its answer current as the data changes. Here are the design decisions behind that, what each one costs, and the alternatives we turned down.
+### Register a SQL question once and the engine keeps its answer current as the data changes. Pravaha 1.0.0 is out: here are the design decisions behind it, what each one costs, the alternatives we turned down, and what the first release with a compatibility promise adds.
 
 *By Ashutosh Sinha*
 
@@ -12,7 +12,9 @@ A buyer wants to know which stock lines have fallen to their reorder point. A su
 
 I built Pravaha for that situation. You register the SQL question once, the engine keeps the answer up to date as rows arrive, change and disappear, and anyone who wants the answer reads it by key or subscribes to its changes.
 
-This post walks through the design: the ideas, the decisions, what each cost, and the alternatives rejected. The project keeps an architectural decision record (ADR) for each choice, and I quote them freely. Every number comes from the repository's own documentation and test records, and where something is not built or not proven, I say so.
+**Pravaha 1.0.0 was released on 30 September 2026.** It's the first release with a compatibility promise: what a 1.0 client, statement, configuration or data directory relies on keeps working through every 1.x. It's a **one-node** release. Clustering is on hold and isn't in it, and I'll say where that shows. Since the last release, the engine has learned to build answers on other answers, to tell somebody when a row enters an answer and when it leaves, to govern who sees which rows and columns of an answer that is still being computed, to serve Power BI and psql as if it were PostgreSQL, and to run in or out of Docker from one directory you own.
+
+This post walks through the design first: the ideas, the decisions, what each cost, and the alternatives rejected. Then it covers what's new in 1.0 with worked examples, and three case studies end to end. The project keeps an architectural decision record (ADR) for each choice, and I quote them freely. Every number comes from the repository's own documentation and test records, and where something is not built or not proven, I say so.
 
 ---
 
@@ -227,7 +229,9 @@ A record count can't bound the read, because Kafka offsets have gaps for transac
 
 A catch-up that makes no progress towards its seam for a grace period stops the group with a named failure. If a source's positions don't behave as declared, reading past the seam would duplicate records, and silence would be the wrong response.
 
-Here is where it stops today. It's built for Kafka and for files read once through. Delta and JDBC will follow once their positions are shown to be totally ordered. **CDC sources keep a reader per query**, because a PostgreSQL slot is confirmed at each checkpoint, and a shared slot could only be confirmed up to the slowest member's durable position. That needs its own design.
+This is tested against a real Kafka broker, not only a test source. Transactional producers with aborted transactions put control records and gaps beside every position, and a query joining behind the shared reader, one restored ahead of it across a 20,000-record gap, one restored behind and one from nothing each count every committed record once and no aborted one, in topic order.
+
+Here is where it stops today. It's built for Kafka and for files read once through. Delta and JDBC will follow once their positions are shown to be totally ordered. **A CDC binding has exactly one consumer.** It names one PostgreSQL replication slot or one MySQL replica id, so a second, different query over it is refused at registration (`PRV-8028`), naming the query that holds it. The engine doesn't quietly create a slot per query, because every slot retains the database's log, and one the engine lost track of would fill the database's disk. Bind the table again, with a slot of its own.
 
 ---
 
@@ -263,7 +267,7 @@ What each party sees at the cutover was decided deliberately:
 
 The rejected alternatives are the most useful part of ADR-046. *Swap at a wall-clock instant*: two versions running at slightly different speeds drop records or emit them twice, invisibly. *Cut over after N rows or N minutes*: proxies that are wrong exactly when the input rate changes, which is when somebody is most likely to be deploying. *Move the checkpoint files at cutover*: a crash in that window points the name at the other version's state, so the directory travels with the registration instead.
 
-The costs are stated too. The rollback window keeps a whole computation running. A backfill competes with production traffic on the same storage, and since nothing probes the store's latency, `backfill.adaptive` is refused by name (`PRV-4018`). `pravaha throttle` can lower a running backfill's rate but never raise it above the starting ceiling, so a rate chosen during an incident can't be undone by somebody else's typo.
+The costs are stated too. The rollback window keeps a whole computation running. A backfill competes with production traffic on the same storage, and since nothing probes the store's latency, `backfill.adaptive` is refused by name (`PRV-4018`). A query over a change feed can't be replaced in place either (`PRV-4018`, naming the slot): the running version is the slot's one reader, and a slot's "beginning" is its confirmed position, so there's no history to replay. `pravaha throttle` can lower a running backfill's rate but never raise it above the starting ceiling, so a rate chosen during an incident can't be undone by somebody else's typo.
 
 The same mechanism moves a running query between a shared lane and its own. `CREATE OR REPLACE ... WITH (lane = 'dedicated') AS <the same SQL>` backfills the new version on its own lane and cuts over at an exact position. The admin rebalance is built on this.
 
@@ -284,7 +288,7 @@ The tests check this directly: every value's probe is compared to a scan after e
 
 The refusals are just as deliberate. `FLOAT` (`0.0` and `-0.0` are equal to a filter but stored differently), `DECIMAL` (`1.0` and `1.00`), `BYTES` and the view's whole key can't be indexed (`PRV-2074`), and `INDEX (a, b)` is refused because it reads like a composite index. A view keeps at most four, on the heap, one entry per row. Declaring one is an allocation, so it's journalled with the registration.
 
-One gap is stated openly: there's no `EXPLAIN` for a view read, so you can't yet see which access path a read took. The evidence is in the view's counters (`indexLookups` versus `scans`), and the tests assert on them.
+Which access path a view's reads took is visible, too. `GET /api/v1/queries/{name}` answers `accessPaths` (point, range, index and scan reads, and the entries in each index), the console shows them under "Reads of its view", and `pravaha_query_view_reads_total{query,path}` counts them. An index that never gets used is something you can see.
 
 ---
 
@@ -364,6 +368,158 @@ for batch in client.subscribe("trade_feed", snapshot=True, reconnect=True):
         for row in batch:
             ...  # apply by row.weight
 ```
+
+---
+
+## What's new in 1.0
+
+Everything above was true of the engine a release ago. What follows is what 1.0 adds, each with the smallest example that shows it working.
+
+### Answers built on answers
+
+People layer answers: a cleaned feed, an aggregate over it, a condition over the aggregate. Until 1.0, a continuous query could only read streams. A `FROM` naming a registered view was a one-off read, computed over whatever the view held at that moment and never again. Now a query whose `FROM` names another registered query **follows that query's answer** (ADR-056):
+
+```sql
+CREATE CONTINUOUS QUERY cleaned KEYED BY (user_id)
+AS SELECT user_id, region, amount FROM txn WHERE amount > 0;
+
+CREATE CONTINUOUS QUERY by_region KEYED BY (region)
+AS SELECT region, SUM(amount) AS total, COUNT(*) AS n FROM cleaned GROUP BY region;
+
+CREATE CONTINUOUS QUERY big_regions KEYED BY (region)
+AS SELECT region, total FROM by_region WHERE total > 100;
+```
+
+![Top: txn feeds cleaned (keyed by user_id), which feeds by_region (SUM and COUNT by region), which feeds big_regions (total over 100). Middle: when cleaned receives a second row for user u7, its changelog carries only +1 (u7, EU, 30), and a sum over it would count u7 twice; a follower is fed −1 (u7, EU, 20) and +1 (u7, EU, 30), an update. Bottom: after a restart, by_region's checkpoint holds its state and the image I of the rows it was handed; cleaned's answer is now S; by_region is fed S − I first, then every change, which is exact whichever checkpointed later.](images/14-query-chain.png)
+*A downstream is fed how the upstream's answer changed, and on a restart, the difference between the answer it had seen and the answer now.*
+
+Two decisions make this correct rather than approximately correct.
+
+**A downstream is fed the answer, not the changelog.** For a keyed view the two differ. When `cleaned` receives a second row for a user, the row replaces the one the view showed, but the changelog carries only the `+1`. A `SUM` over the changelog counts that user twice. So a downstream is handed what a *reader* of the view sees: for each commit, the row that left the answer at −1 and the row that entered it at +1.
+
+**There's no position to resume from, so the seam is the answer consumed.** Every other hand-over in this engine meets at a source position. A view has none that survives a restart: its commits follow a timer, and after the upstream restarts and replays, its hundredth commit is a different set of changes. So the downstream remembers the answer it has been handed, cuts that image under the same freeze as its own state, and on restart is fed the upstream's current answer *minus* that image, then every change. The difference is between two answers, not two positions, so it's exact whichever of the two checkpointed later. It works because the only operators allowed over a view are ones whose state depends on what their input adds up to, not on the order it arrived in: filters, projections, and `COUNT`, `SUM` and `AVG`, grouped or not. Windows, joins, top-N, `MIN`, `MAX` and `COUNT(DISTINCT)` over a view are refused by name (`PRV-2075`). So is dropping a view others read (`PRV-8024`, naming them, with no cascade), replacing a member of a chain (`PRV-8026`), a cycle (`PRV-8025`), and a chain deeper than eight (`PRV-8027`).
+
+### Alerts that fire, and clear
+
+The retail case study below computes `low_stock`, the stock lines at or under their reorder point. In 1.0 the engine can tell the buyers (ADR-057):
+
+```bash
+pravaha query --url grpc://localhost:19090 --sql \
+  "CREATE ALERT low_stock_alert ON low_stock NOTIFY buyers
+   WITH (severity = 'warning', include = (on_hand, reorder_point))"
+```
+
+Run before the morning's changes, the `buyers` channel is told, in order:
+
+```text
+FIRED   sku-400 MAN   on_hand 3 of 4     09:00, opened under its reorder point
+FIRED   sku-200 LDN   on_hand 7 of 8     09:05, the update crosses it
+FIRED   sku-300 LDN   on_hand 2 of 5     09:10
+CLEARED sku-200 LDN                      09:20, the delivery -- its -1 takes the line out
+CLEARED sku-400 MAN                      09:25, the DELETE
+FIRED   sku-100 LDN   on_hand 10 of 10   09:30, <= counts
+```
+
+![An alert pipeline: low_stock's answer changes feed "what is true" (enters means FIRED, leaves means CLEARED, decided with fire_after and clear_after), then alerts.journal (every decision forced to disk before anything is sent), then "what is said" (dedupe, snooze, pause, reminders until acknowledged; a signed webhook or the log). Below, the morning's timeline: FIRED for sku-400, sku-200 and sku-300; silence at 09:15; a node restart; CLEARED for sku-200 and sku-400; FIRED for sku-100.](images/15-alert-lifecycle.png)
+*An alert follows the view's answer, so a clear is a retraction it was handed, not a guess from silence.*
+
+An alert is a follower of the view's answer, so it knows when a row **enters** (an insert, or an update across the threshold) and when it **leaves** (a delete, or the update back). The clear isn't inferred from silence. It's the retraction the binary log delivered.
+
+What is *true* and what has been *said* are kept apart. `fire_after` and `clear_after` decide the first. `dedupe`, pause, snooze and reminders until `ACK` only hold the second back, and when a hold ends the channel is told the key's state *then*, so a flapping line folds into its end state and a clear is never lost.
+
+The guarantees are stated plainly: **exactly-once state, at-least-once delivery.** Every decision is journalled and forced to disk before anything is sent, so a node restarted mid-morning doesn't page about lines that were already low, and a delivery that arrived while it was down is still announced as a clear. A notification is retried until the channel accepts it, and every attempt carries the same `Idempotency-Key`, so a receiver that must act once de-duplicates on it. Exactly-once delivery to an HTTP endpoint needs the endpoint's cooperation, and that key is its half. The webhook signs each request with HMAC-SHA256 (with a Slack format), and there's a log channel. Email, Teams and PagerDuty channels are designed and not built. The morning above runs end to end on a real node, through a signed webhook, with a restart after 09:15, in the build.
+
+### Governing an answer that is still being computed
+
+Until 1.0, grants lived in a Java interface a deployment implemented, and row filters could only be supplied programmatically. Now the engine keeps a **governed catalogue** (ADR-059): every stream, view, sink and alert has an owner, a description, tags and allow-only grants, inherited down namespaces.
+
+```sql
+CREATE NAMESPACE sales COMMENT 'Order-to-cash';
+GRANT SELECT, SUBSCRIBE ON VIEW sales.revenue TO ROLE analyst;
+REVOKE SUBSCRIBE ON VIEW sales.revenue FROM ROLE analyst;
+SHOW EFFECTIVE ACCESS FOR USER ana ON VIEW sales.revenue;
+```
+
+A catalogue for data at rest has a table and a scan. A view is an answer still being computed, with subscribers reading it this second and other queries built on it, so two privileges exist here that a table catalogue doesn't need. `SUBSCRIBE` is re-checked on an open subscription, so the `REVOKE` above ends a stream that is already flowing, within seconds. `BUILD_ON` is asked of every input a registration names, because a registration is a standing read that outlives the session that made it.
+
+Row filters and column masks are catalogue policies, defined once and bound to an object or to every object carrying a tag:
+
+```sql
+CREATE ROW FILTER sales.region_scope
+  AS region = session_attribute('region')
+  EXCEPT ROLE finance_admin;
+
+CREATE MASK sales.card_last4 ON COLUMN card_number
+  AS 'XXXX-XXXX-XXXX-' || RIGHT(card_number, 4)
+  EXCEPT ROLE payments_ops;
+
+ALTER STREAM orders SET POLICY sales.region_scope;
+ALTER TAG 'pii' SET POLICY sales.card_last4;   -- every object tagged pii, now and later
+```
+
+![A view called payments, with an owner, the tag pii and its grants, feeds "the edge of the object", where the row filter sales.region_scope and the mask sales.card_last4 are applied, then every way rows leave: Flight SQL scans and point reads, pgwire for psql, Power BI and psycopg, subscriptions, queries registered on the view (which carry the mask into their own answer and the narrowing into their fingerprint), and alerts evaluated as their owner. Below, two refusals: a masked column used as an operand (WHERE card = …, GROUP BY card) is PRV-7006; a filter that restricts nothing (region = region, a < 5 OR a > 2) is PRV-7003 or PRV-7038.](images/16-governance.png)
+*Policies apply where rows leave the object, so one place covers every read, subscription, chained query and alert.*
+
+Three decisions carry the weight. **Policies apply where rows leave the object**, before any operator of the reader's query, instead of rewriting each reader's projection, so one place covers scans, point reads, prepared statements, the PostgreSQL gateway, subscriptions, queries built on the view and alerts. **A masked column is never an operand.** Filtering, grouping, joining or sorting on its true value would leak it through which rows appear, so that's refused (`PRV-7006`). **A filter that restricts nothing is refused, not enforced.** `region = region`, `1 = 1 OR region = 'x'` and `a < 5 OR a > 2` look like restrictions and aren't. The check decides a column's comparisons region by region over the values the column can hold. It never refuses a filter that really restricts, and it doesn't claim to catch every one that doesn't.
+
+Two related changes. **A view is administered by its owner** (or a grantee with `MODIFY` or `MANAGE`, or an admin), where before anyone who could read it unfiltered could drop it. And **view and alert names are unique per tenant**, not per node: two tenants can each have `orders`, and a name only another tenant holds answers exactly as a name nobody holds, instead of telling you it exists.
+
+### Power BI and psql, reading a live answer
+
+The PostgreSQL gateway now serves the tools that assume a database. Power BI's own PostgreSQL connector (Npgsql 4.0.17) connects, lists your views in its navigator, and reads them in Import or DirectQuery mode, signed in with an API key as the password, under exactly the grants, filters and masks above. From the Docker stack below, psql reads a seeded view:
+
+```text
+$ docker run --rm --network host -e PGPASSWORD="$(cat deploy/docker/compose/pravaha-home/secrets/seed.token)" \
+    postgres:16-alpine psql "host=127.0.0.1 port=15432 dbname=pravaha user=seed" \
+    -c "SELECT customer, orders, spend FROM spend_per_minute"
+ customer | orders | spend
+----------+--------+-------
+ acme     |      1 |   120
+ globex   |      1 |    75
+ ...
+(10 rows)
+```
+
+One question needed an honest answer rather than a fix: **what does a transaction mean over an answer that is still moving?** psycopg, pgjdbc with auto-commit off, Npgsql and most ORMs open a transaction before their first read, and the gateway used to refuse `BEGIN`. It now accepts transaction control as a no-op, with PostgreSQL's command tags and transaction status. Every read in a block is `READ COMMITTED`: it sees each view as its last commit left it. Ask for `REPEATABLE READ` and it's accepted with a `NOTICE` that says so, because two reads of a maintained view at one frontier is a consistency the engine doesn't offer. Power BI Desktop itself hasn't been run against the gateway; its driver has, byte for byte, along with psql, pgjdbc and psycopg.
+
+### One directory, in Docker or out of it
+
+```bash
+deploy/docker/build.sh --tag pravaha/pravaha-server:local            # needs the server jar built
+deploy/docker/console/build.sh --tag pravaha/pravaha-console:local
+tools/docker-env.sh                                                  # .env + pravaha-home/, as you
+docker compose -f deploy/docker/compose/docker-compose.yml --profile seed up -d
+```
+
+That's the engine, the console and a Kafka broker, with a topic of orders and two views registered: the console at `localhost:17070`, Flight SQL at `19090`, the REST API at `18080` and psql at `15432`. Other profiles add PostgreSQL and MySQL ready for change data capture, Aerospike and Cassandra, and Prometheus with Grafana and the shipped dashboards.
+
+![The /opt/pravaha tree: bin and lib from the image, conf with application.yaml and console.yaml, secrets (0700), plugins, data with the registry, catalogue, alert and identity journals and checkpoints, logs, and tmp. Beside it, the compose stack's ports (console 17070, Flight 19090, REST 18080, psql 15432) and profiles (seed, cdc, stores, observability, tools), and a note that the engine and console run as the invoking user on read-only root file systems.](images/17-pravaha-home.png)
+*Everything a node writes is under one directory, and the directory is yours.*
+
+Everything a node keeps is under one directory, `PRAVAHA_HOME`: `/opt/pravaha` in the images, and wherever you unpack the distribution outside them. Configuration, secrets, plugins, journals, checkpoints, logs and temporary files all live there, and the configuration uses relative paths so it means the same in both places. In a container, the engine and the console run as **your** uid and gid on read-only root file systems, with the home bind-mounted, so everything they write belongs to you and nothing is written outside it. Every test tier runs in a container the same way (`tools/docker-test.sh`).
+
+### SDKs that stand on their own
+
+The client SDKs are built and shipped apart from the server: the Java Flight SDK as a thin jar for Maven or Gradle, or a 19 MB `-all` jar for a client with no build tool, and the Python package as a wheel that imports with the standard library alone. A test fails the build if an SDK reaches a server module. A second check runs four clients *outside* the repository against a throwaway node, and it found a defect no test inside the build could see: an application depending on the Java SDK resolved two lines of Netty and failed on its first call, because a version pin in the project's own build doesn't reach anybody else's.
+
+### The assistant, marked experimental
+
+`pravaha ask` turns a description in plain English into a `CREATE CONTINUOUS QUERY` through any model: hosted APIs, any OpenAI-compatible server, Ollama or a plugin, switched while the console runs. The design keeps the model away from every guarantee above (ADR-058). The model drafts. **The engine judges**, validating and explaining the draft with registration's own preparation, and allowing up to three repair turns, none of which may change what the query reads. **A person registers it**, only after confirming. No row is ever sent to a model. There's an evaluation harness over a golden set generated from the case studies, and I'm not quoting a score for any model. It's the one feature marked experimental in 1.0, which means it may still change in a minor release.
+
+### How 1.0 was tested, and what testing found
+
+The tiers, with the counts the repository records for 29 and 30 September: 4,688 Java tests in the gate (0 failures, 211 skipped, the container-backed ones among them); 960 in-process integration tests on real nodes; the connector plugins against real Kafka, PostgreSQL, MySQL, Aerospike and Cassandra through Testcontainers; 426 Python SDK tests; 1,937 console tests with the browser suites, and zero accessibility violations on every page in every theme; and the four standalone SDK clients. The findings register holds **482 findings: 464 fixed, 9 closed by design, 9 superseded, none open.**
+
+What testing found is more interesting than the counts, because each defect was invisible from where the previous tests stood:
+
+- **A broker test that hadn't run since a fix** found a keyed Kafka sink seeing a replaced key as a tombstone and then the value, so every consumer saw the key deleted.
+- **psycopg against a running stack** found the gateway refusing `BEGIN`.
+- **A Maven client outside the build** found the two Netty lines.
+- **The research paper** found gaps in its own evidence. Writing it meant checking every claim against a test, and the claims with no test were filed as findings. Closing them reproduced a served-view defect (a key could show the row just retracted) with a property test that fails five runs out of five on the old code, and turned up a property test whose name no test runner matched, so it had never run in a build.
+
+### What 1.x promises
+
+From 1.0.0 the project follows semantic versioning. Stable through 1.x: the SQL dialect (a statement 1.0 accepts, every 1.x accepts and answers the same); the Java and Python SDKs' public names; every path and field of the HTTP API, held by a checked-in lock of the OpenAPI document; the Flight SQL verbs and their result columns; what psql, pgjdbc, Npgsql and psycopg may send; the `PRV` error codes, never reused; the command lines and exit codes; the configuration keys; the metric names; the `/opt/pravaha` layout; and state on disk, which any later 1.x reads. Experimental: the assistant, and anything a page marks as a preview. Going back to an older build isn't promised, and the upgrade from 0.2 is one-way once a view outside the default tenant has been recovered under its per-tenant name. Back up `data/` first.
 
 ---
 
@@ -522,13 +678,16 @@ The first minute has one payment, not two, because `p-003` was declined. Widen t
 
 **The requirement is about 1,000 rows per second** (ADR-042), because Pravaha maintains answers to registered questions rather than moving bulk data. The design's original figures, 1.2 M rows/s per lane for one profile and ≥ 90% scaling from one lane to eight, are **kept, unchanged, as gate criteria**. The ADR explains why restating a bar against the real requirement differs from moving a gate to fit a result: the number moves in public, and both figures stay on record.
 
-On 2026-09-20, the gates were measured on the development machine, a 12-core heterogeneous laptop that was running other work at the time. There's no reference hardware, and there won't be. Per-lane throughput for both profiles was **reached**. **The scaling criterion was not**: 28–42% of linear at eight lanes against a target of 90%, recorded as measured. None of those numbers is quoted as the engine's capability. Also measured: the lane machinery runs at about **21 M rows/s**, and **12 of Nexmark's 23 published queries** run as of 2026-09-26. The eleven that don't are missing SQL, not missing speed. The head-to-head against Flink hasn't been run.
+On 2026-09-20, the gates were measured on the development machine, a 12-core heterogeneous laptop that was running other work at the time. There's no reference hardware, and there won't be. Per-lane throughput for both profiles was **reached**. **The scaling criterion was not**: 28–42% of linear at eight lanes against a target of 90%, recorded as measured, and 30–31% when re-taken on 2026-09-29 at load 3.1–5.2. None of those numbers is quoted as the engine's capability. Also measured: the lane machinery runs at about **21 M rows/s**, and **12 of Nexmark's 23 published queries** run as of 2026-09-26. The eleven that don't are missing SQL, not missing speed. The head-to-head against Flink hasn't been run.
+
+One correction is worth telling. Per-operator metrics were quoted as costing 8% of a narrow query's throughput. That figure had been taken with a code-coverage agent attached, and so had the first scaling runs. Every timing harness now refuses to report a number under one, and taken again the metrics cost **about 12%**. The published figure changed because the method did.
 
 **What isn't built, or isn't finished:**
 
-- **Multi-node execution.** Membership, fenced partition leases and rebalance/handoff exist as libraries, and no node uses them. A node **refuses to start in `PARTITIONED` mode** (`PRV-9002`) rather than pretend. The owner put clustering on hold. Pravaha is one node.
+- **Multi-node execution.** Membership, fenced partition leases and rebalance/handoff exist as libraries, and no node uses them. A node **refuses to start in `PARTITIONED` mode** (`PRV-9002`) rather than pretend. Cluster mode, the last wave of the plan, is on hold by the owner's decision and isn't in 1.0. When it comes, it's meant to arrive as a 1.x addition that a single node doesn't have to adopt. Pravaha 1.0 is one node.
 - **MFA and single sign-on**, dropped by decision.
-- **`mysql-cdc`** has no initial snapshot, no TLS, and no GTID positions that survive a failover. **`iceberg-sink`** writes local-filesystem tables only. **One reader per ordered source** doesn't yet cover Delta, JDBC or CDC. **The equality index** has no way to show which access path a read took.
+- **`mysql-cdc`** has no initial snapshot and no TLS (GTID positions that survive a failover are built). **`iceberg-sink`** writes local-filesystem tables only. **One reader per ordered source** doesn't yet cover Delta or JDBC, and a CDC binding has one consumer.
+- **Over a view**, windows, joins, `MIN`, `MAX` and `COUNT(DISTINCT)` are refused, and a member of a chain can't be replaced. **Alerts** have webhook and log channels only. **The catalogue** has no lineage, column-level tags or contracts yet.
 - **Session windows** are refused (`PRV-2020`).
 - The manual **WCAG 2.2 AA audit** of the console, which is a person's task.
 
@@ -538,10 +697,10 @@ On 2026-09-20, the gates were measured on the development machine, a 12-core het
 
 ## Closing
 
-If one habit runs through this project, it's **refusing instead of guessing.** A windowed query that could never emit is refused at registration. An aggregate over a source that repeats rows is refused. A cutover that can't find a common position is refused. A checkpoint that would drop rows in flight is refused. An index over a column whose equality isn't stored-value equality is refused. In each case the alternative was an answer that would have looked right and been slightly wrong, with nothing to say so.
+If one habit runs through this project, it's **refusing instead of guessing.** A windowed query that could never emit is refused at registration. An aggregate over a source that repeats rows is refused. A cutover that can't find a common position is refused. A checkpoint that would drop rows in flight is refused. An index over a column whose equality isn't stored-value equality is refused. A window over a view, whose frontier isn't a watermark, is refused. A row filter that restricts nothing is refused. In each case the alternative was an answer that would have looked right and been slightly wrong, with nothing to say so.
 
 The other habit is **writing the trade-off down next to the decision.** A shared lane shares its fate. A rollback window costs a running computation. An index is an allocation. A hand-written CDC decoder costs decoder work and one database instead of seven. None of these is hidden in a footnote; each one sits in the ADR that made the choice, next to the alternatives that lost.
 
-The goal was never an engine that does everything. It's an engine that keeps the answer to a question you asked once, tells you exactly how far that answer can be trusted, and says plainly what it doesn't do yet.
+The goal was never an engine that does everything. It's an engine that keeps the answer to a question you asked once, tells you exactly how far that answer can be trusted, and says plainly what it doesn't do yet. With 1.0, it also promises not to change those answers under you.
 
-*Pravaha is proprietary software by Ashutosh Sinha. The design documents, decision records and case studies quoted here are in the project's repository.*
+*Pravaha is proprietary software by Ashutosh Sinha. The design documents, decision records and case studies quoted here are in the project's repository. The design is also written up as a research paper, "Continuous Queries as Maintained Answers", whose second edition covers 1.0.*

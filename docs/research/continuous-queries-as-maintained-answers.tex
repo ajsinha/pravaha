@@ -110,7 +110,8 @@
   pdfauthor={Ashutosh Sinha},
   pdfsubject={Exact cuts, exact seams and lossless cutover in a single-node streaming SQL engine},
   pdfkeywords={incremental view maintenance, Z-sets, DBSP, streaming SQL, exactly-once,
-    checkpointing, shared scans, blue/green deployment, materialized views}}
+    checkpointing, shared scans, blue/green deployment, materialized views, alerts, row-level
+    security, data governance}}
 
 \title{\bfseries Continuous Queries as Maintained Answers\\[6pt]
 {\large Exact Cuts, Exact Seams and Lossless Cutover\\
@@ -119,7 +120,7 @@ in a Single-Node Streaming SQL Engine}}
 \author{Ashutosh Sinha\\[2pt]
 {\normalsize\itshape Independent Researcher}\\[2pt]
 {\normalsize\ttfamily ajsinha@gmail.com}}
-\date{}
+\date{\normalsize Second edition, for \Pv\ 1.0.0 (30 September 2026)}
 
 \begin{document}
 
@@ -162,14 +163,28 @@ same operation reversed (\Cref{thm:cutover}). Underneath these sit the model the
 in --- rows with integer weights, after DBSP --- and its operator algebra, whose laws we state with
 proofs and with an honest account of where the running engine is and is not held to them.
 
+This second edition describes release 1.0.0, the first with a compatibility promise, and adds a fifth
+hand-over that the thesis did not at first cover: a computation that follows another computation's
+\emph{answer} --- a query registered over another query's view, an alert, an upsert sink. A view's
+commits are renumbered by every restart, so there is no ordered position to meet at; we show that the
+seam can instead be the \emph{consumed answer itself}, recorded under the same freeze as the state, so
+that a restore is fed the difference between two answers and is exact whichever side checkpointed last
+(\Cref{thm:chain}). We also treat governance where it touches the model: row filters and column masks
+bound as policies are applied where rows leave an object and enter the fingerprint, a masked column is
+never an operand, and a filter that restricts nothing is refused by an analysis that is sound though not
+complete (\Cref{prop:mask,prop:vacuity}).
+
 Every formal claim is marked with what carries it in the implementation: a named test that runs, a
 test that covers part of it, an argument from the code with no test, or nothing. The markers are not
 uniformly favourable. The reference algebra is tested as stated but is imported by no module of the
-running engine; the served view has an open finding against one of its invariants; and the engine is
-one node, with clustering built as libraries that no node consumes. \Cref{sec:register} collects the
-markers, \Cref{sec:evaluation} reports only figures present in the repository together with the
-conditions they were taken under, and \Cref{sec:limits} states what the implementation does not
-establish.
+running engine, and the engine is one node, with clustering built as libraries that no node consumes.
+The four gaps the first edition reported against its own claims --- an invariant of the served view,
+a replacement over a change feed, the exact seam over a real Kafka broker, and fate-sharing on a shared
+lane --- have since been closed by tests, and three of the four found a real defect on the way.
+\Cref{sec:register}
+collects the markers, \Cref{sec:testing} describes the test tiers and the findings register behind them,
+\Cref{sec:evaluation} reports only figures present in the repository together with the conditions they
+were taken under, and \Cref{sec:limits} states what the implementation does not establish.
 \end{abstract}
 
 \tableofcontents
@@ -316,8 +331,17 @@ Stated precisely, and with the evidence each rests on named in the section that 
       answers, and the exact condition under which an equality index over a non-key column is sound
       --- stored-value equality must refine the filter's equality (\Cref{prop:indexsound}) --- which
       is why \code{FLOAT}, \code{DECIMAL} and \code{BYTES} columns are refused.
+\item For a computation that follows another's answer --- a query over a query, an alert, an upsert
+      sink --- the observation that the changelog is the wrong input for a keyed view, and a seam
+      without a position: the consumed answer, cut under the freeze, against which a restore is fed a
+      difference of answers (\Cref{prop:follow,thm:chain,prop:alert}).
+\item For governance: the placement of masks where rows leave an object, the refusal of a masked column
+      as an operand, the policies in the fingerprint, and a vacuity analysis for row filters that is
+      sound by construction (\Cref{prop:mask,prop:vacuity}).
 \item A register (\Cref{sec:register}) that states, for every formal claim, whether a named test in
-      the repository carries it, carries part of it, or carries none of it.
+      the repository carries it, carries part of it, or carries none of it; and an account of the test
+      tiers and the findings register that stand behind it, including what writing the first edition of
+      this paper found (\Cref{sec:testing}).
 \end{enumerate}
 
 \subsection{What is borrowed, and what is not claimed}
@@ -344,10 +368,12 @@ We make no performance claim beyond the figures the repository records, with the
 \Cref{sec:objects} states the objects in engineering terms before the mathematics begins.
 \Cref{sec:model} gives the model: weighted rows, the operator algebra, the served view, event time.
 \Cref{sec:reading} is H1, \Cref{sec:exactly-once} is H2, \Cref{sec:seam} is H3,
-\Cref{sec:cutover} is H4. \Cref{sec:lanes} is the execution substrate and what it isolates;
-\Cref{sec:serving} is reading; \Cref{sec:security} is security and tenancy as they affect the model.
-\Cref{sec:register} collects every claim's marker, \Cref{sec:evaluation} the measurements,
-\Cref{sec:related} related work, and \Cref{sec:limits} limitations and future work.
+\Cref{sec:cutover} is H4, and \Cref{sec:follow} is the fifth hand-over, following an answer.
+\Cref{sec:lanes} is the execution substrate and what it isolates; \Cref{sec:serving} is reading;
+\Cref{sec:security} is security, governance and tenancy as they affect the model; \Cref{sec:release} is
+the release the paper describes and how it is deployed. \Cref{sec:register} collects every claim's
+marker, \Cref{sec:testing} the test tiers and the findings register, \Cref{sec:evaluation} the
+measurements, \Cref{sec:related} related work, and \Cref{sec:limits} limitations and future work.
 
 The mathematics is elementary and the vocabulary is unevenly shared between the audiences this is
 written for. Every formal statement is therefore followed by a shaded \emph{plain terms} gloss and,
@@ -363,6 +389,27 @@ tested, but not demonstrably of the running engine, for a reason \Cref{sec:algeb
 plain. \textsf{Not in \Pv} says the system does not carry the construction. The markers are placed
 where a reader would look for the favourable one, and \Cref{sec:register} collects them into a table
 that can be checked against the repository in an afternoon.
+
+\subsection{What changed since the first edition}
+
+The first edition (28 September 2026) described the engine two days after it became feature-complete
+for one node. This edition describes release 1.0.0 (30 September 2026). Four things changed in the
+paper, and we list them so that a reader of the first can find them.
+\begin{enumerate}[leftmargin=*,itemsep=2pt]
+\item \textbf{Its own open items were closed.} The first edition's register carried an open finding
+      against the served view (VIEWW-1), an unreproduced interaction between replacement and a change
+      feed (CDCREPL-1), no broker-backed test of the exact seam over Kafka, and fate-sharing argued rather
+      than tested. Each was filed as a finding while the paper was being written and has since been closed
+      by a test; the markers in \Cref{sec:view,sec:cutover,sec:seam,sec:lanes} and the register say how.
+\item \textbf{A fifth hand-over.} Queries on queries (ADR-056) and alerts (ADR-057) follow a view's
+      answer, and the seam there has no position; \Cref{sec:follow} is new.
+\item \textbf{Governance.} Grants, row filters and column masks moved into the engine as a catalogue
+      (ADR-059 phases 1--2), names became unique per tenant rather than per node (ADR-060), and
+      administration follows ownership. \Cref{sec:security} is rewritten around them.
+\item \textbf{The evidence behind the markers.} \Cref{sec:testing} is new, \Cref{sec:release} is new,
+      and \Cref{sec:evaluation} gains the figures re-taken without a coverage agent attached.
+\end{enumerate}
+The four theorems of the first edition, their proofs and their assumptions are unchanged.
 
 \section{The objects, in engineering terms}\label{sec:objects}
 
@@ -419,6 +466,11 @@ sink is effectively once; a plain append is at least once.
 CONTINUOUS QUERY} starts the new version beside the old one. It replays the source history, splices
 onto the live stream where the old version stands, and takes the name only at a position both have
 consumed exactly. The old version keeps running for a retention window so a rollback is one swap.
+
+\paragraph{A view can be an input, and an alert watches one.} A continuous query whose \code{FROM}
+names another registered query follows that query's answer rather than reading a stream, and an
+\emph{alert} (\code{CREATE ALERT \ldots\ ON view NOTIFY channel}) tells a notifier channel when a key's
+row enters the view's answer and when it leaves.
 
 \begin{plain}
 \pt Eight words carry the rest of this paper. A \emph{stream} is where rows come from, stamped with
@@ -683,30 +735,51 @@ replaced, in which a single $-1$ removed a key that three inserts had put there 
 decided by the sign of the last weight. What the proposition does \emph{not} settle is \emph{which
 row} a present key holds, which is the next paragraph.}
 
-The view stores, for a present key, the values of the most recent change that left the key's net
-weight positive --- and that change may be a retraction. If a key is inserted as row $A$, then as row
-$B$ (net weight $2$), and then $A$ is retracted (net weight $1$), the view holds $A$'s values, while
-the row still present in $v$ is $B$. The repository records this as finding VIEWW-1, open, found by
-reading and not reproduced. The engine's own operators emit an update as the retraction of the old
-row \emph{before} the insertion of the new, within one batch, and a batch reaches the view whole, so
-the case needs a source or a query that holds two distinct rows under one key at once. We therefore
-state the stronger property as conditional:
+The first edition stated which row a present key shows only under a condition, because the view then
+stored, for a present key, the values of the most recent change that left its net weight positive ---
+and that change could be a retraction. A key inserted as row $A$, then as row $B$ (net weight $2$), with
+$A$ then retracted (net weight $1$), showed $A$, while the row still present in $v$ was $B$. The first
+edition recorded this as finding VIEWW-1, found by reading and not reproduced. Writing the property test
+the finding's disposition asked for reproduced it: the test fails on the earlier code in five runs out
+of five. The view now keeps, for a key holding more than one distinct row, each row with its own weight
+(a key holding one row at a time --- nearly every key of a \code{GROUP BY} or a keyed projection ---
+pays nothing for this), a retraction takes weight from the row it names, and the stronger property
+holds without the condition:
 
-\begin{proposition}[The keyed view is the Z-set, under key-functional input]\label{prop:keyfunctional}
-If at every commit each present key has exactly one row of positive weight in $v$ (the output is
-\defn{key-functional}), and within a batch a key's retraction precedes its replacement, then after
-each commit the view maps each present key to that row.
+\begin{definition}[Well-formed input]\label{def:wellformed}
+A sequence of weighted changes is \defn{well formed} if no retraction takes from a row more weight than
+the row holds at that point. This is what a lane sends: an operator retracts only what it emitted.
+\end{definition}
+
+\begin{proposition}[The keyed view shows a row of the Z-set]\label{prop:keyfunctional}
+Let well-formed changes be applied to \cls{ServedView} and committed, with $v$ as in
+\Cref{prop:presence}. After each commit, every present key $k$ shows a row $o$ with $\kappa(o) = k$ and
+$v(o) > 0$: of those rows, the one that most recently gained weight. A checkpoint and a subscriber's
+snapshot carry every row of $v$ with its own weight, so a copy kept as a Z-set equals $v$ and a copy
+that overwrites by key ends on the row the view shows.
 \end{proposition}
-\argued{from \cls{ServedView.applyWeighted} as above; no test generates inputs that violate key
-functionality and checks the row. The disposition of VIEWW-1 is ``a Z-set property test on the view
-first''. The registry's refusals are the practical guard: a query whose output can repeat a key over a
-source that repeats rows is refused an aggregate (\code{PRV-2042}) and a keyed sink.}
+\begin{proof}
+Per key the view keeps the distinct rows with positive weight in the order they last gained weight; an
+insertion moves its row to the end, a retraction lowers the named row's weight and removes it at zero.
+Under well-formed input no weight goes negative, so the rows kept are exactly $\{o : \kappa(o) = k,\,
+v(o) > 0\}$, and the key's net weight is positive exactly when that set is non-empty, which agrees with
+\Cref{prop:presence}. The row shown is the last of the set. The commit moves the per-key sets with the
+overlay, and the snapshot writes every row with its weight, the shown one last.
+\end{proof}
+\runs{\cls{ViewZSetPropertyTest}: \code{theViewShowsTheZSetOneRowPerKey} (2{,}000 generated schedules of
+insertions, retractions, commits and a checkpoint restored into a fresh view, each read compared with a
+Z-set model, latest and consistent reads alike, and the final snapshot compared with the model's Z-set),
+\code{aRetractionOfTheOlderOfTwoRowsLeavesTheNewerShowing},
+\code{aRetractionOfTheNewerOfTwoRowsBringsTheOlderBack}, \code{bothRowsSurviveACheckpoint},
+\code{aSubscribersSnapshotCarriesEveryRowOfAKeyWithItsOwnWeight}. The generator makes only well-formed
+schedules, since that is the input a lane sends.}
 
 \begin{plain}
 \pt The answer is stored as ``one row per key''. A key is there while the pluses and minuses for it add
-up to more than zero, and that part is right and tested. Which row the key shows is right as long as
-the query never has two different rows for one key at the same time --- which is what declaring a key
-means --- and there is an open note in the project's own defect register about the case where it does.
+up to more than zero. If a query ever has two different rows for one key at once, the view keeps both,
+shows the newer, and when one is withdrawn shows the one that is left --- never the row just withdrawn.
+The first edition could only promise this for queries that never do that; a test written to check it
+found the case where the view got it wrong, and the view was changed.
 \end{plain}
 
 \subsection{Event time, watermarks, windows and lateness}\label{sec:time}
@@ -803,6 +876,24 @@ meaning --- a view's maximum key count, a join side's maximum rows --- exceeding
 belongs in the query; a bound that protects the machine belongs in configuration and fails loudly.
 This is a design rule rather than a theorem, and it is enforced by the planner's refusals, which the
 documentation's SQL reference lists and a test plans against the engine.
+
+The same rule applies to arithmetic. The group laws of \Cref{prop:group} are about $\Z$, and a 64-bit
+accumulator is not $\Z$: a \code{SUM} that passes $2^{63}$ used to wrap and publish a negative total
+(finding SUMWRAP-1). Every \code{SUM}, \code{COUNT} and \code{AVG} accumulator now adds, and retracts,
+with checked arithmetic, and a total that leaves the range refuses the query by name (\code{PRV-3025})
+rather than publishing a wrong number. Because weights may cancel inside a batch --- $+\textsc{max}$ then
+$-\textsc{max}$ is a legal pair of changes whose running sum overflows and whose net is zero --- a sum is
+netted over the batch in 128 bits and refused only if the \emph{committed} total leaves 64 bits
+(TRANSOVF-1); every emit, window firing and checkpoint settles the batch first, so a wrapped value is
+never read. Decimal aggregates carry the unscaled value exactly and are refused, not rounded, where they
+could not be (\code{AVG} of a \code{DECIMAL}, \code{PRV-2021}).
+\runs{\cls{AggregateOverflowTest}: \code{anUnwindowedSumPastTheRangeStopsByNameRatherThanWrapping},
+\code{aRetractionThatCarriesTheTotalPastTheRangeIsRefusedToo},
+\code{aTotalThatPassesTheRangeInsideABatchAndComesBackIsAnswered}; \cls{TransientSumOverflowTest}:
+\code{aGlobalSumWhoseNetLeavesTheRangeIsRefused}, \code{aGlobalTotalIsNeverEmittedUnsettled};
+\cls{SlicedAggregateOverflowTest}: \code{theWideArithmeticIsExact},
+\code{aWindowTotalPastTheRangeIsRefusedWhenItsSlicesAreCombined}. The 128-bit path's cost is in
+\Cref{sec:evaluation}.}
 
 \section{Reading a maintained answer: commits and subscriptions}\label{sec:reading}
 
@@ -1319,11 +1410,17 @@ hands out): \code{aLateJoinerCatchesUpToTheSeamAndThenSharesWithNothingTwice},
 \code{theSameSourceWithoutDeclaringAnOrderKeepsAReaderPerQuery}; the measure is rows in, not the
 view, because a keyed view absorbs a duplicate that ingest counted. The filesystem bounded read:
 \cls{FilesystemPluginTest}: \code{aBoundedReadStopsOnTheLineNumberEvenWithBlankLinesInTheWay}.}
-\partly{Kafka's \code{pollBefore} is not exercised directly by any test in the Kafka plugin; its gap
-handling is tested for ordinary reads (\cls{KafkaSourcePluginTest}:
-\code{offsetsWithNoRecordAreSteppedOverOnlyOnceEverythingBeforeThemIsHandedOver}), and the protocol is
-tested over the test source above rather than over a broker. A broker-backed test of a late joiner over
-a topic with transaction markers across the seam is the missing piece.}
+\runs{over a real Kafka broker (Testcontainers), \cls{KafkaExactSharingBrokerTest}:
+\code{aQueryJoiningBehindTheSharedReaderOverTransactionMarkersGetsEveryRecordOnceInOrder} and
+\code{aQueryRestoredAheadAndOneRestoredBehindEachGetEveryRecordOnce}. Transactional producers with
+aborted transactions put control records and gaps beside every position; a query joining behind the
+shared reader while records arrive, one restored ahead of it across a 20{,}000-record gap, one restored
+behind and one from nothing each count every committed record once and no aborted one, in topic order,
+with one shared reader. The first edition marked this claim \textsf{In part} for want of exactly this
+test and filed the gap as finding SEAMKAFKA-1. Nothing needed fixing; the test was checked against a
+seeded defect (a reader that hands over the record on its bound), which it catches. Gap handling for
+ordinary reads: \cls{KafkaSourcePluginTest}:
+\code{offsetsWithNoRecordAreSteppedOverOnlyOnceEverythingBeforeThemIsHandedOver}.}
 
 \begin{plain}
 \pt One reader walks down the log, and every query standing where it stands gets each record from it.
@@ -1544,9 +1641,224 @@ rollback within the hour would have put the old version back the same way.
 whose positions do not order its records (\code{PRV-4018}); the design's adaptive backfill options,
 because there is no probe of the store's latency to adapt to (\code{PRV-4018}); and a replacement by a
 principal who may not administer the name --- reading its status included, because a candidate's SQL
-describes a query the caller may not be allowed to read. One interaction is open: replacing a query over
-a \code{postgres-cdc} stream is not refused, and the candidate's backfill probably contends for the
-running version's replication slot (finding CDCREPL-1, open, not reproduced).
+describes a query the caller may not be allowed to read. A replacement over a \code{postgres-cdc} or
+\code{mysql-cdc} stream is refused too (\code{PRV-4018}), naming the replication slot or replica id.
+The first edition recorded this interaction as open and unreproduced (CDCREPL-1); against a real
+PostgreSQL the candidate's backfill waited fifteen seconds for the running version's slot and failed,
+and a slot's ``beginning'' is its confirmed position, so there was no history to replay in any case.
+A source plugin now declares that a second reader is refused (\code{secondReaderRefusal()}), and the
+refusal is taken before anything opens (\cls{PostgresCdcReplacementTest}, \cls{MySqlCdcSecondReaderTest}).
+Closing it found the next case: a second, \emph{different} query over one change-feed binding also
+contends for its single consumer, and is now refused at registration (\code{PRV-8028}, CDCREPL-2).
+
+\section{Following an answer: queries on queries, alerts and upsert sinks}\label{sec:follow}
+
+People layer answers: a cleaned feed, an aggregate over the cleaned feed, a condition over the
+aggregate that somebody wants to be told about. Until release 1.0 a continuous query could read only
+streams; a \code{FROM} naming a registered view was a bounded read, computed once over whatever the view
+held and never again. This section is the fifth hand-over. It is H1 --- a consumer joining a running
+view --- where the consumer is itself a computation that checkpoints, restarts and must be exact, and
+it is the one hand-over in this paper whose seam has no position.
+
+\subsection{The changelog is the wrong input}
+
+A subscriber is handed what the view's lanes \emph{applied} (\Cref{sec:reading}). For a keyed view that
+is not how the answer changed: a query that emits a second row for a key the view already holds
+replaces the row the view shows, while the changelog carries only the $+1$. A client that overwrites by
+key is right; a computation that sums the changelog counts both rows and is wrong.
+
+\begin{definition}[The answer and its change]\label{def:answer}
+The \defn{answer} of a keyed view after a commit is the set of rows it shows, one per present key
+(\Cref{prop:keyfunctional}), each at weight $+1$. The \defn{answer change} of commit $c$ is, for every
+key $c$ touched, the row shown before $c$ at weight $-1$ (if any) and the row shown after $c$ at $+1$
+(if any), consolidated: a key whose shown row did not change contributes nothing.
+\end{definition}
+
+\begin{proposition}[A follower is handed the answer]\label{prop:follow}
+A listener registered with \cls{ServedView.followAnswer} receives the answer at some commit $c_0$ and
+then the answer change of every later commit, once each and in commit order; the running sum of what it
+has received equals the view's answer after each commit.
+\end{proposition}
+\begin{proof}
+The view computes the answer change in its own commit, from the row it held under each touched key and
+the row it holds after --- the same before-and-after the equality index is maintained from
+(\Cref{sec:serving}), and including rows retention evicts. Registering the listener and handing it the
+committed answer happen in one critical section of the view's monitor, and every later commit hands its
+change to the listeners inside its own critical section; the argument of \Cref{thm:snapshot} then applies
+with ``answer'' for ``committed rows'' and ``answer change'' for ``commit'', and the order is by
+construction rather than by assumption (S3). Summing a snapshot and consecutive answer changes telescopes
+to the answer after the last.
+\end{proof}
+\runs{\cls{ViewSinkAnswerTest}: \code{anUpsertAndAnEvictionReachTheAnswerButNotTheChangelog},
+\code{aSnapshotFollowerStartsFromTheShownRowsAndDetachesCleanly}; \cls{UpstreamReaderTest}:
+\code{anUpsertIsFedAsTheRowItReplacedLeavingAndTheNewOneEntering},
+\code{changesWithinOneCommitAreNettedBeforeTheyAreHandedOver},
+\code{aRowUpdatedAndEvictedInOneCommitLeavesTheAnswerOnce}. Over the wire the same follower is a
+subscription option (\code{subscribe.answer}, \code{changes="answer"} in the Python SDK).}
+
+\subsection{A seam without a position}
+
+A downstream query $d$ over an upstream $u$ is a separate computation with its own lane, checkpoints and
+sink, fed $u$'s answer changes through an ordinary ingest pump. \Cref{thm:cut} makes a checkpoint of $d$
+one cut of $d$; what it must also record is where $d$'s input stands, and the tools of the earlier
+sections do not apply.
+
+\begin{observation}[A view offers no position]\label{obs:noposition}
+$u$'s commits follow a timer, and after $u$ restarts and replays its sources, its $n$-th commit is a
+different set of changes from the $n$-th commit before the restart. A commit sequence number is therefore
+neither ordered across restarts nor replayable, and assumption (A1) of \Cref{ass:eo} fails for a view
+read as a source. Aligning the two checkpoints instead would need a barrier crossing from one
+computation's view into another's inbox, and would still fail when a crash lands between the two stores.
+\end{observation}
+
+What $d$ has consumed is not a position but an \emph{answer}: the rows of $u$ it has been handed, net of
+retractions. An answer can be compared with another answer.
+
+\begin{definition}[The image]\label{def:image}
+The \defn{image} $I_d$ of a downstream $d$ is the Z-set of $u$'s rows $d$ has been handed, kept by $d$'s
+reader keyed by $u$'s key and sharing $u$'s own row arrays. A checkpoint of $d$ stores the image read
+under the ingest freeze of \Cref{lem:freeze}, with the changes handed over between the freeze and the
+marker undone from the copy written.
+\end{definition}
+
+\begin{theorem}[A chain is exact across restarts, whichever side checkpointed last]\label{thm:chain}
+Assume $d$'s operators are \emph{linear in its input's integral}: filters, projections, and unwindowed
+\code{COUNT}, \code{SUM} and \code{AVG}, global or grouped. Let $d$ restore a checkpoint holding state
+$\sigma$ and image $I$, and let $u$'s answer when $d$ follows it again be $S$. If $d$ is fed $S - I$ as
+its first batch and then every later answer change of $u$, then after each of $u$'s commits $d$'s state
+equals the state $d$ would hold had it consumed $u$'s current answer once, from empty. This holds
+whether $u$ checkpointed before $d$, after it, or not at all, and whether $u$ restored or replayed.
+\end{theorem}
+\begin{proof}
+By \Cref{lem:freeze} and \Cref{def:image}, $\sigma$ reflects exactly the rows of $I$: the image and the
+state were cut at one marker. For an operator linear in its input's integral, the state reached from
+empty by any sequence of changes depends only on their sum, so $\sigma = F(I)$ for the function $F$ the
+query computes. Feeding $S - I$ gives $F(I + (S - I)) = F(S)$; each later answer change $\Delta$ gives
+$F(S + \Delta)$, which by \Cref{prop:follow} is $F$ of $u$'s answer after that commit. Nothing in the
+argument names a commit number or compares a checkpoint of $u$ with one of $d$: the difference is taken
+between two answers, and $u$'s own recovery (\Cref{thm:cut}) is what makes $S$ an answer $u$ really
+holds. If $u$ restored from an older cut than $d$ saw, $S - I$ contains retractions of rows $d$ has
+consumed and $u$ has not recomputed yet; they return as insertions when $u$'s replay reaches them.
+\end{proof}
+\runs{\cls{QueryChainsTest}: \code{aRestartOfBothRestoresTheDownstreamExactlyWhicheverCheckpointedLater},
+\code{aRestartRestoresTheDownstreamWhenTheUpstreamCheckpointedLater},
+\code{anAggregateOverAFilterViewFollowsInsertsUpdatesAndDeletes},
+\code{aPausedDownstreamHoldsItsAnswerAndCatchesUpWhenResumed}; \cls{UpstreamReaderTest}:
+\code{aSnapshotIsComparedWithWhatWasConsumedSoOnlyTheDifferenceIsFed},
+\code{theCutIsTheImageAsTheLaneHadItAtTheFreezeNotAsItIsNow}, \code{anImageOfAnotherUpstreamIsRefused}.}
+
+The assumption is why the planner accepts exactly these operators over a view and refuses the rest with
+\code{PRV-2075}, naming the construct: \code{MIN} and \code{MAX} (retracting the extreme needs an ordered
+multiset per group, and the state is not a function of the sum), \code{COUNT(DISTINCT)}, windows (the
+upstream's frontier is not a watermark over any column of its rows, so a correction inside the upstream's
+lateness would arrive below a window already closed on it), joins and top-N. A restored checkpoint of $d$
+whose view holds rows but which carries no image is refused (\code{PRV-8026}): starting from an empty
+image beside a restored state would feed the whole answer again on top of what the state already counts.
+
+\begin{remark}[Conflation without loss]\label{rem:conflate}
+The queue between a view's listener and $d$'s reader is bounded (65{,}536 changes). A reader that falls
+that far behind drops the queue, follows $u$ again from a fresh snapshot, and is fed the difference
+against its image, exactly as on restore. $d$'s answer stays exact; what $d$ does not see is each
+intermediate answer $u$ passed through while $d$ was behind. The image turns a gap from fatal into
+recoverable, and it costs one entry per upstream row, bounded by $u$'s key ceiling.
+\end{remark}
+\runs{\cls{UpstreamReaderTest}: \code{anOverflowIsRecoveredByAFreshSnapshotAndNothingIsLost}.}
+
+A chain is also refused where it cannot yet be made exact or safe: dropping a query others read
+(\code{PRV-8024}, naming them, with no cascade --- a cascade would drop queries other people registered);
+a replacement that would read its own answer (\code{PRV-8025}); replacing any member of a chain
+(\code{PRV-8026}), because handing a follower across a cutover at the cutover's position is not built;
+and a chain deeper than eight (\code{PRV-8027}) (\cls{QueryChainsTest}:
+\code{droppingAnUpstreamThatOthersReadIsRefusedNamingThem},
+\code{aReplacementThatWouldReadItsOwnAnswerIsRefusedAsACycle},
+\code{whatCannotBeMaintainedOverAViewIsRefusedByName}, \code{aChainDeeperThanEightIsRefused}). The
+downstream's fingerprint includes each upstream's name and fingerprint, and registering it needs read
+access to the upstream and to every stream behind it, transitively.
+
+\subsection{Alerts: entering and leaving the answer}
+
+An alert is a registered follower of one view's answer with a condition over its rows --- comparisons of
+the view's own columns with literals, joined by \code{AND}; anything richer is a question, and belongs in
+a query over the view that the alert then watches. Per commit, for each touched key the alert sees
+whether the key's row satisfied the condition before and after. A key \defn{fires} when it enters and
+\defn{clears} when it leaves. Because the alert follows the answer, a clear is a retraction it was
+handed, not an inference from silence: the delivery that tops a stock line up arrives from a change feed
+as the old row at $-1$ and the new at $+1$, the filter passes neither half into the low-stock view, the
+answer loses the row, and the alert is told the key left.
+
+What is true and what has been said are kept apart. \code{fire\_after} and \code{clear\_after} decide
+the first (a key must stay in, or out, that long); deduplication, pause, snooze and reminders only hold
+the second back, and at the end of each hold the channels are told the key's state \emph{then}, only if
+it differs from what they were last told --- so a flap folds into its end state and a clear is never
+lost.
+
+\begin{proposition}[Exactly-once alert state, at-least-once delivery]\label{prop:alert}
+Every decision --- fired, cleared, told, acknowledged --- is appended to the alert journal and forced to
+the device before anything is sent. After a restart, a key that was firing and is still in the restored
+answer is not fired again; a clear that was decided and not delivered is delivered; and a notification
+is sent until every channel accepts it, every attempt carrying the same idempotency key.
+\end{proposition}
+\begin{proof}[Argument]
+The journal is the checkpoint of every alert. On restart the alert replays it, follows the view again
+and compares the restored answer with the keys it holds --- \Cref{thm:chain}'s difference of answers,
+applied to keys. What was last said is in the journal, so an owed clear is known to be owed. A firing
+key missing from the restored answer clears only after a recovery grace as well as \code{clear\_after},
+so a view rebuilt by replay rather than restored has time to catch up. A send and its record are not
+atomic, so a crash between them sends again; the idempotency key --- a hash of the alert's identity,
+the key, the episode, the kind and the reminder number --- is the same across retries and restarts.
+\end{proof}
+\runs{\cls{AlertServiceTest}: \code{aKeyFiresWhenItsRowEntersAndClearsWhenAnUpdateOrADeleteTakesItOut},
+\code{fireAfterAndClearAfterSwallowAFlap}, \code{dedupeFoldsFlapsIntoTheStateAtTheEndOfTheWindow},
+\code{aRestartNeitherReFiresAFiringKeyNorLosesAClear},
+\code{aFailedDeliveryIsSentAgainLaterUnderTheSameKey}; end to end on a real node with a signed webhook
+and a restart, \cls{RetailLowStockAlertEndToEndTest}:
+\code{anUpdateAcrossTheReorderPointFiresAndADeliveryClearsItAcrossARestart}.}
+
+We claim exactly-once \emph{state} and at-least-once \emph{delivery}, and no more: exactly-once delivery
+to an HTTP endpoint needs the endpoint's cooperation, which the idempotency key is. Notifier channels are
+plugins; the webhook signs each request (HMAC-SHA256 over a timestamp and the body) and the log channel
+always delivers. E-mail, Teams and PagerDuty channels are designed in ADR-057 and not built.
+
+\subsection{Upsert sinks follow the answer too}
+
+The same mistake was made once more and found by testing. A keyed sink in upsert mode --- a JDBC table,
+a Kafka topic, a Delta or Iceberg table, an Aerospike set --- was handed the changelog. When a key held
+two rows and the shown one was retracted, the changelog's only change for that commit was the
+retraction, and the sink deleted a key the view still showed (SINKKEYROWS-1). Such a sink is now handed
+the answer change of each commit, inside the same commit and before a checkpoint's cut, so
+\Cref{thm:sink} is unchanged. Running the Kafka sink's broker-backed test, which had not run since that
+fix, then showed that an answer change replacing a key's row reached the topic as a tombstone followed
+by the new value, so every consumer saw the key deleted and compaction kept the tombstone
+(SINKKEYROWS-2); the withdrawal of a key that re-enters in the same commit is now dropped, and the
+insertion is the upsert. A sink in changelog mode still receives the changelog verbatim.
+\runs{\cls{UpsertSinkKeyRowsTest}:
+\code{retractingTheShownRowOfAKeyWithTwoRowsLeavesTheSinkHoldingTheRowBehindIt},
+\code{anUpsertThatReplacesAKeysRowArrivesAsTheNewRowAlone},
+\code{aKeyThatLeavesAndDoesNotReturnIsStillWithdrawnInTheCommitThatReplacesAnother},
+\code{aChangelogSinkStillReceivesTheChangelogVerbatim}.}
+
+\begin{plain}
+\pt A view is an answer, and some things built on it want the answer, not the list of edits the view
+received: a second query that sums it, an alert that pages somebody when a line runs low, a table kept
+equal to it. They are all handed ``this row left the answer, this one entered''. When they restart,
+there is no bookmark to resume from, because the upstream's history is recomputed on its own restart.
+So they remember what answer they had seen, and on restart they are handed the difference between that
+and the answer as it is now. That works whichever of the two restarted first, and it is why only
+sums, counts, filters and projections are allowed on top of a view: for those, it does not matter in
+what order the rows arrived, only what they add up to.
+\end{plain}
+
+\begin{worked}
+\wk{an alert that clears itself}
+The retail case study's \code{low\_stock} view holds the lines at or under their reorder point, read
+from MySQL's binary log. At 09:05 the toasters at the London warehouse, \code{sku-200}, fall to 7
+against a reorder point of 8: the answer change is $+1$ for \code{(sku-200, LDN)}, and
+\code{low\_stock\_alert} fires and journals \code{F} before the webhook is called. At 09:20 a delivery
+arrives as the old row at $-1$ and the new at $+1$ on the stock table; the filter passes neither half,
+so the answer change is $-1$ for the key, and the alert clears. Had the node restarted between the
+journal record \code{C} and the webhook's acceptance, the restarted alert would find the clear owed and
+send it under the same idempotency key.
+\end{worked}
 
 \section{Lanes: isolation against memory}\label{sec:lanes}
 
@@ -1621,13 +1933,18 @@ sharing on therefore never makes a node accept fewer queries than it does with s
 \end{proposition}
 \partly{(i) runs: \cls{LaneRunnerTest}: \code{oneLaneFailingDoesNotStopTheOthersSharingItsThread};
 \cls{LaneGroupTest}: \code{aFailedLaneLeavesItsSiblingsRunning}; \cls{LaneDeathVisibilityTest}:
-\code{aLaneThatDiesOnTheFeedPathIsAskableAbout}. (ii) and (iii) are stated in the operations
-documentation and follow from a lane being the unit of failure and of buffering; we found no test that
-fails one query on a shared lane and asserts that its neighbours stop, and none that measures one
-query's slowness on its neighbours' latency. They are argued, not tested. The per-query backpressure
-metrics --- how often and how long a writer found no room, recorded against the query whose writer it
-was --- exist so that ``this query is the limit'' can be told apart from ``this query is queued behind a
-neighbour''.}
+\code{aLaneThatDiesOnTheFeedPathIsAskableAbout}. (ii) and (iv), and (iii) for a lane's own queries, run:
+\cls{SharedLaneFateTest}: \code{aPipelineFailingOnASharedLaneTakesDownExactlyTheQueriesOnThatLane} (the
+other shared lane and a lane of its own keep answering throughout) and
+\code{aStalledQueryOnASharedLaneBackpressuresItsLaneAndOnlyItsLane} (and loses nothing). The first
+edition marked (ii) and (iii) argued and filed the gap as LANEFATE-1; writing the test found a defect:
+a registration placed after a shared lane had failed could land on the dead lane, report
+\code{RUNNING}, and fail on its first row with the other query's error. \cls{SharedLanes} now skips a
+failed lane until the node restarts. What remains argued is the reach of (iii) through a shared reader
+to lanes other than the stalled one, and the thirty-second \code{PRV-3002}; no test measures one query's
+slowness on its neighbours' latency. The per-query backpressure metrics --- how often and how long a
+writer found no room, recorded against the query whose writer it was --- exist so that ``this query is
+the limit'' can be told apart from ``this query is queued behind a neighbour''.}
 
 \begin{plain}
 \pt A lane of its own is a room of its own: if the query in it falls over, nobody else notices, and if
@@ -1804,12 +2121,42 @@ An index costs one entry per row whose value is non-null, referencing the row th
 rather than copying it; a view keeps at most four; so an index is bounded by the ceiling that bounds the
 view. It is on the heap and does not spill, because the view does not either (the memory-mapped tier of
 ADR-044 is for operator state). The declaration is an allocation, written to the registry journal in the
-same write as the registration, so a restart cannot bring the query back without it.
+same write as the registration, so a restart cannot bring the query back without it. Which path a
+view's reads took is counted per path --- point, range, index, scan --- and reported with the query and
+as a metric (IDXVIS-1), so the claim that an index is being used is itself observable.
 
-\section{Security, identity and tenancy, as they affect the model}\label{sec:security}
+\subsection{The PostgreSQL protocol, for tools that were not written for a live answer}
 
-Security enters this paper only where it changes what a computation is or who may share one. Three
-places.
+Business-intelligence tools do not speak Flight SQL; they speak PostgreSQL, through drivers that assume
+a database. Serving them raised two questions that bear on the model rather than on the protocol.
+
+\emph{What a transaction means over an answer that is still moving.} psycopg in its default mode,
+pgjdbc with auto-commit off, Npgsql and most object-relational mappers open a transaction before their
+first read, and the gateway refused \code{BEGIN} (finding PGWIRETX-1, noticed while walking a running
+stack with psycopg). Transaction control is now accepted as a no-op over the read-only gateway, with
+PostgreSQL's command tags and the transaction status on every \code{ReadyForQuery}, and PostgreSQL's
+failed-block discipline (\code{25P02} until the block ends). The isolation offered is stated rather than
+implied: every read in a block is \code{READ COMMITTED} --- it sees each view as its last commit left it
+(\Cref{prop:atomic}) --- and a request for \code{REPEATABLE READ} or \code{SERIALIZABLE} is accepted
+with a \code{NOTICE} saying so, because two reads of a maintained view at one frontier is exactly the
+cross-view consistent read the engine does not provide (\Cref{sec:limits}).
+
+\emph{Whose type an aggregate has.} PostgreSQL's \code{avg(integer)} is \code{numeric}; the engine's
+\code{AVG} keeps its argument's integer type, as documented, and changing that would change every
+existing view's column type. The gateway alone plans \code{AVG} of an integer as the exact sum over the
+count at sixteen decimal places, so a report's averages are not truncated, and every other surface keeps
+the engine's rule (AVGINT-1). Power~BI's own connector (Npgsql 4.0.17) reads views in Import and
+DirectQuery modes, under the same grants, row filters and masks as any reader (\Cref{sec:security}).
+\runs{\cls{NpgsqlClientTest} (the real Npgsql 4.0.17; skipped without a .NET SDK), \cls{PowerBiGatewayTest}
+(the same statement texts replayed everywhere), \cls{PsycopgClientTest} (psycopg 3 in its default,
+transactional mode), \cls{PsqlSessionTest} (psql, including version 18's \code{\textbackslash d}). Power~BI
+Desktop itself has not been run against the gateway.}
+
+\section{Security, governance and tenancy, as they affect the model}\label{sec:security}
+
+Security enters this paper only where it changes what a computation is, who may share one, or what a
+reader is shown. Since the first edition the policy that answers those questions moved into the engine
+as a governed catalogue (ADR-059), so this section has more to say than it did.
 
 \paragraph{Authorization is at the engine, on derived rows.} A view is derived data the store has never
 seen: there is no record in the source whose permissions correspond to ``u42's gold-tier total for the
@@ -1834,9 +2181,8 @@ drop rows arbitrarily.
 \runs{\cls{ViewQueryAuthorizationTest}: \code{aRowFilterSurvivesAnAggregate},
 \code{aRowFilterCannotBeUndoneByTheCallersOwnWhereClause},
 \code{aRowFilterIsAppliedWhetherOrNotTheQueryMentionsItsColumn}; \cls{SubscriptionTest}:
-\code{aFilterOnAColumnTheViewDoesNotHaveIsRefused}. Row filters are, by ADR-031's own status line,
-programmatic only: the rule and the plan injection are built and tested, and no server configuration can
-yet supply a policy that returns a row filter.}
+\code{aFilterOnAColumnTheViewDoesNotHaveIsRefused}. When the first edition was written row filters were
+programmatic only; they are now catalogue policies a server binds (below), and the rule is the same.}
 
 \paragraph{Sharing is by fingerprint, and the fingerprint includes entitlement.} Two registrations share
 one computation when their \emph{fingerprints} are equal, and the fingerprint is a hash of a canonical
@@ -1868,13 +2214,109 @@ and no further, so \code{WHERE a > 0 AND b > 5} and \code{WHERE b > 5 AND a > 0}
 Sharing too little costs a second copy of the state; sharing too much would be two principals reading
 each other's rows. Where the two risks meet the design takes the first.
 
+\paragraph{Grants live in the engine, and govern live answers.} With the catalogue on, the engine keeps
+every governed object --- namespaces (\code{tenant.namespace.object}), streams, views, sinks, alerts and
+notifier channels --- with an owner, a description, tags and a version, and allow-only grants on it:
+\code{USE}, \code{SELECT}, \code{SUBSCRIBE}, \code{BUILD\_ON}, \code{CREATE}, \code{WRITE}, \code{MODIFY},
+\code{MANAGE} and \code{OWN}, to roles and users, inherited down namespaces; tenants are walls. Two of
+the privileges exist because the object is a live answer rather than a table: \code{SUBSCRIBE}, which
+an open subscription is re-asked every two seconds, so a revocation ends a stream already flowing; and
+\code{BUILD\_ON}, asked of each input a registration names, because a registration is a standing read
+that outlives the session that made it. The catalogue is journalled beside the registry journal and
+answers every check the earlier policy interface asked, so where checks happen did not change.
+Administering a view --- drop, pause, resume, replace, debug --- was allowed to anyone whose read of it
+was unfiltered, so one reader could destroy state every other reader depends on; it is now allowed to
+the view's owner, a grantee of \code{MODIFY} or \code{MANAGE}, and the \code{admin} role
+(\cls{QueryOwnershipTest}: \code{anUnfilteredReaderWhoDoesNotOwnItIsRefusedAsEveryAuthorizationRefusalIs},
+\code{theSameIdInAnotherTenantIsNotTheOwner}, \code{theOwnerSurvivesARestart}).
+
+\paragraph{Row filters and masks are policies, applied where rows leave an object.} A row filter or a
+column mask is a catalogue object, bound to an object or to every object carrying a tag, now and later;
+its expression may read the object's columns and the session (\code{session\_attribute},
+\code{current\_user()}, \code{is\_member}). Filters are conjoined; a reader holding an \code{EXCEPT ROLE}
+is exempt. Masks are applied where rows leave the object, before any operator of the reader's query,
+rather than by rewriting the reader's projection: one place then covers scans, point reads, prepared
+statements, the PostgreSQL gateway, subscriptions (the snapshot and every commit), registrations and
+alerts.
+
+\begin{proposition}[A masked column is never an operand]\label{prop:mask}
+A reader's query, registration, subscription or alert that uses a masked column as a filter operand, a
+group, join or sort key, an aggregate's argument, a view key or a tap filter is refused
+(\code{PRV-7006}); a query registered over a masked view carries the mask into its own answer; and the
+narrowing a registrant is subject to is part of the fingerprint, so registrants narrowed differently get
+different computations.
+\end{proposition}
+\begin{proof}[Argument]
+The mask replaces the value where rows leave the object, so the reader's operators see only masked
+values; but an operator applied to the \emph{true} value would leak it through the result --- a filter
+\code{salary > 100000} over a masked salary reveals which rows exceed it, a group by it reveals its
+distinct values --- so the planner refuses a masked column in any position where its true value would
+decide which rows or groups appear. The narrowing is compiled into the plan before fingerprinting, and
+\Cref{prop:fingerprint}'s argument applies to it as to a row filter.
+\end{proof}
+\runs{\cls{ViewQueryNarrowingTest}: \code{aScanShowsOnlyKeptRowsWithTheirMasksAndAnExemptReaderEverything},
+\code{aPointReadByKeyIsNarrowedTooEvenForARowTheFilterDrops}, \code{aMaskedColumnComparedIsRefusedByName};
+\cls{NarrowedRegistrationTest}:
+\code{twoRegistrantsNarrowedDifferentlyGetTwoComputationsEachHoldingWhatTheyMaySee},
+\code{aMaskedColumnIsNotAKeyNorComparedInARegistration},
+\code{aQueryOverAMaskedViewCarriesTheMaskIntoItsOwnAnswer}; \cls{SubscriptionNarrowingTest}:
+\code{theSnapshotAndEveryCommitAreFilteredAndMasked}, \code{aTapFilterOnAMaskedColumnIsRefused};
+\cls{PgNarrowingTest}: \code{textAndBinaryResultsCarryOnlyKeptRowsAndMaskedValues}.}
+
+\paragraph{A filter that restricts nothing is refused.} A row filter is a promise that some rows are
+withheld. One that withholds nothing --- \code{region = region}, \code{1 = 1 OR region = 'x'},
+\code{a < 5 OR a > 2} --- is a grant that reads as a restriction, and the first versions enforced such
+filters as though they meant something (TAUTOFILTER-1).
+
+\begin{definition}[Vacuous filter]\label{def:vacuous}
+A filter $\varphi$ over an object's columns is \defn{vacuous} if it holds for every row the columns'
+types admit, and \defn{nulls-only} if the rows it drops all have a \code{NULL} in a column it compares
+without saying \code{IS NOT NULL}.
+\end{definition}
+
+\begin{proposition}[The vacuity analysis is sound]\label{prop:vacuity}
+\cls{FilterVacuity} never calls a filter that restricts by value vacuous or nulls-only. It is not
+complete: some vacuous filters pass it and are enforced as written.
+\end{proposition}
+\begin{proof}[Argument]
+The compiled predicate is decided as a propositional formula: constants are folded, an expression
+compared with itself is given its value, and a \code{NOT NULL} column is never null. The comparisons of
+one integer or decimal column with constants are not independent variables: the constants cut the
+number line into regions --- each constant, and each run of values between two constants that contains a
+value of the column's type --- and every comparison is constant on each region, so the filter is decided
+region by region, with a region left out only when it is provably empty. A decimal column compared with
+a constant at another scale is judged on the values the column can hold (DECSCALE-1). A filter too large
+to decide within a budget is assumed to restrict. Every step either decides exactly or errs toward
+``restricts''.
+\end{proof}
+\runs{\cls{FilterVacuityTest}: \code{theListedTautologiesAreCaught}, \code{neverCallsARestrictingFilterVacuous}
+and \code{theIntervalCheckNeverCallsARestrictingFilterVacuous} (generated filters checked against a
+representative of every region), \code{comparisonsOfOneColumnWithDifferentConstantsAreJudgedByTheValuesTheyCover},
+\code{aDecimalVerdictAtMixedScalesHoldsOfEveryRow},
+\code{aFilterTooLargeToDecideIsAssumedToRestrictAndAWideOneIsDecidedWithinTheBudget}.}
+
+Where the decision is taken depends on what the expression reads. A policy that reads nothing about the
+session is the same filter for everybody and is decided when it is bound; one false for every row is
+refused there too, since it is a deny that \code{REVOKE} says plainly. A policy that reads the session is
+decided when it is bound to a reader, at each read and registration: under stand-in values its verdict
+would describe nobody, and a filter false for every row of one reader can be the right answer for that
+reader.
+
 \paragraph{A tenant owns names and state, and does not own a lane.} Under ADR-050 a tenant owns the
 names it registers, the computations behind them, and the keys their views hold, and is admitted by
 quota: a registration that would exceed the tenant's query count or view-key count is refused by name
 (\code{PRV-8020}, \code{PRV-8021}) before a sink is opened or a feed started, and a replacement from
 another tenant is refused (\cls{TenancyTest}:
 \code{aTenantAtItsQueryQuotaIsRefusedByNameAndAnotherTenantIsNot},
-\code{aReplacementFromAnotherTenantIsRefusedByName}). A tenant does \emph{not} scope lanes or CPU. Shared
+\code{aReplacementFromAnotherTenantIsRefusedByName}). Names are unique per tenant, not per node
+(ADR-060): ADR-050 had refused a registration choosing a name another tenant held, which told the second
+tenant the name existed --- an existence oracle of the kind the subscribe path had already closed. Every
+surface that addresses a view or an alert by name now resolves it in the caller's tenant, and a name only
+another tenant holds answers exactly as a name nobody holds; the PostgreSQL catalogue's relation
+identifiers are a hash of the name rather than a node-wide counter that disclosed how many relations
+others had described (\cls{FlightTenantNamesTest}:
+\code{anotherTenantsNameAnswersOverFlightAsANameNobodyHolds}; \cls{PgTenantNamesTest};
+\cls{AlertTenantNamesTest}). A tenant does \emph{not} scope lanes or CPU. Shared
 lanes are shared across tenants, so \Cref{prop:fate}(ii) and (iii) cross tenant boundaries: one tenant's
 query that fails on a shared lane takes down the other tenants' queries on that lane, and one tenant's
 slow query slows them. Per-tenant CPU scheduling is not built. An operator who needs isolation between
@@ -1883,8 +2325,55 @@ tenants has, today, \code{lane = 'dedicated'} and sharing turned off.
 \paragraph{Identity.} Since ADR-052 the engine is its own identity authority: it keeps users, Argon2id
 password hashes, API keys (shown once, scoped, expiring, rotatable) and sessions, and one verifier
 serves every transport. What matters for the model is only its output: a \code{Principal} carrying an
-id, a tenant, roles and claims, which is what the policy, the fingerprint and the quotas read.
-Multi-factor authentication and single sign-on were dropped by the owner's decision.
+id, a tenant, roles and claims, which is what the policy, the fingerprint and the quotas read. A user's
+attributes are presented as claims by every credential of theirs, so a policy reading
+\code{session\_attribute('region')} applies to people the engine itself authenticated. Multi-factor
+authentication and single sign-on were dropped by the owner's decision.
+
+\section{The release, and how it runs}\label{sec:release}
+
+The engine this paper describes is release 1.0.0 (30 September 2026), the first to carry a compatibility
+promise. Nothing in this section is a result; it says what the theorems are theorems \emph{about}.
+
+\paragraph{One node.} 1.0 is a one-node release. Cluster mode --- the eleventh and last wave of the
+implementation plan --- is on hold by the owner's decision, and when it comes it is to arrive as a 1.x
+addition a single node does not have to adopt. A node refuses to start in partitioned mode
+(\code{PRV-9002}) rather than pretend.
+
+\paragraph{What 1.x keeps stable.} Semantic versioning from 1.0.0: a minor release adds without
+breaking, a patch fixes without changing what a client may rely on. Stable are the SQL dialect (a
+statement 1.0 accepts is accepted by every 1.x and answers the same), the Java and Python SDKs' public
+names, every path and field of the HTTP API (held by a checked-in lock of the OpenAPI document that
+records every body field, so a removed or retyped field fails the build), the Flight SQL verbs and the
+columns of their results, what a psql, pgjdbc, Npgsql or psycopg client may send to the gateway, the
+\code{PRV-nnnn} codes and their SQLSTATEs (a code is never reused), the command lines and their exit
+codes, the configuration keys (deprecated for a minor release before removal in a major), the metric
+names, and state on disk: a 1.x node reads the journals, checkpoints, catalogue and identity stores any
+earlier 1.x node wrote. Going back is not promised, and the upgrade from 0.2 is one-way once a view
+outside the default tenant has been recovered, because the per-tenant names of ADR-060 are journalled in
+a record older builds refuse.
+
+\paragraph{What is experimental.} The assistant (ADR-058) turns a description in plain English into a
+\code{CREATE CONTINUOUS QUERY} through any model and provider, switchable while the console runs, and
+explains queries and refusals. Its design keeps the model out of every guarantee in this paper: the
+model drafts, the \emph{engine} judges --- the draft is validated and explained by the registration's own
+preparation, up to three repair turns are allowed and none may change what the query reads --- and a
+person confirms before anything is registered; no row is ever sent to a model. What the model's
+drafts are worth is measured by a harness over a golden set generated from the case studies, and no
+model's score is recorded in the repository, so we make no claim about it. The assistant is marked
+experimental in 1.0 and may change in a minor release.
+
+\paragraph{How it runs.} The engine runs in process (no Spring, no network), inside a Spring Boot
+application, or as a server. A server keeps everything under one directory, \code{PRAVAHA\_HOME}
+(\code{/opt/pravaha} in the images) --- configuration, secrets, plugins, data, logs and temporary files
+--- in a container and out of one alike; in a container it runs as the invoking user's uid on a read-only
+root file system, so everything it writes is the user's and nothing is written outside the home
+(\cls{PravahaHomeLayoutTest} holds every path the node writes to that directory). The client SDKs are
+built and shipped apart from the server, and a test fails if an SDK module reaches a server module, if
+the server's jar carries SDK classes, or if the Python package needs more than the standard library to
+import (\cls{SdkIndependenceTest}). Observability is metrics with bounded labels, dashboards and alert
+rules shipped beside them, structured logs with correlation and trace identifiers, and optional
+OpenTelemetry tracing.
 
 \section{The register: what carries each claim}\label{sec:register}
 
@@ -1910,8 +2399,10 @@ Chains of views (\Cref{cor:chain}) & algebra only & \cls{IncrementalOracleTest} 
 Runtime operators satisfy \eqref{eq:contract} (\Cref{obs:algebra}) & in part & differential tests
 between implementations and against hand-computed answers; no oracle comparison \\
 Presence is net weight (\Cref{prop:presence}) & runs & \cls{ServedViewTest} \\
-The keyed view is the Z-set (\Cref{prop:keyfunctional}) & argued & conditional on key-functional input;
-finding VIEWW-1 open \\
+The keyed view shows a row of the Z-set (\Cref{prop:keyfunctional}) & runs & \cls{ViewZSetPropertyTest};
+was argued and conditional in the first edition (VIEWW-1, since reproduced and fixed) \\
+Sums exact or refused, netted in 128 bits (\Cref{sec:bounds}) & runs & \cls{AggregateOverflowTest},
+\cls{TransientSumOverflowTest}, \cls{SlicedAggregateOverflowTest} \\
 Watermark monotone, idle exclusion (\Cref{prop:wm}) & runs & \cls{WatermarkTrackerTest} \\
 Corrections consolidate; too-late is counted (\Cref{prop:correction}) & runs & \cls{LateDataTest},
 \cls{StreamAllowedLatenessTest} \\
@@ -1931,8 +2422,8 @@ Exactly-once to a transactional sink (\Cref{thm:sink}) & runs & \cls{Transaction
 \cls{KafkaSinkBrokerTest}, \cls{KafkaSinkRegistrationTest}, \cls{DeltaSinkRegistrationTest} \\
 Weakest link (\Cref{prop:weakest}) & runs & \cls{CapabilitiesTest}, \cls{SinkGuaranteeListingTest} \\
 Waiting member attached at its position (\Cref{lem:waiting}) & runs & \cls{ExactSharingTest} \\
-Exact-seam sharing (\Cref{thm:seam}) & in part & \cls{ExactSharingTest} over a test source;
-filesystem bounded read tested; Kafka's \code{pollBefore} untested directly \\
+Exact-seam sharing (\Cref{thm:seam}) & runs & \cls{ExactSharingTest} over a test source;
+\cls{KafkaExactSharingBrokerTest} over a real broker with transaction markers (SEAMKAFKA-1) \\
 The splice (\Cref{lem:splice}) & runs & \cls{OffsetSplicedReaderTest} \\
 Lossless cutover (\Cref{thm:cutover}) & runs; (iii) argued & \cls{QueryReplacementTest},
 \cls{BackfillSpliceEquivalenceTest}, \cls{ReplacementSinkHandoverTest}; no test races reads
@@ -1940,11 +2431,20 @@ against the swap \\
 Rollback window (\Cref{prop:rollback}) & runs & \cls{QueryReplacementTest},
 \cls{ReplacementSinkHandoverTest} \\
 Replacement survives restart (\Cref{prop:replrestart}) & runs & \cls{ReplacementRestartTest} \\
+A follower is handed the answer (\Cref{prop:follow}) & runs & \cls{ViewSinkAnswerTest},
+\cls{UpstreamReaderTest} \\
+A chain is exact across restarts (\Cref{thm:chain}) & runs & \cls{QueryChainsTest},
+\cls{UpstreamReaderTest} \\
+Conflation without loss (\Cref{rem:conflate}) & runs & \cls{UpstreamReaderTest} \\
+Alert state exactly once, delivery at least once (\Cref{prop:alert}) & runs & \cls{AlertServiceTest},
+\cls{RetailLowStockAlertEndToEndTest} \\
+Upsert sinks follow the answer (\Cref{sec:follow}) & runs & \cls{UpsertSinkKeyRowsTest} \\
 Single writer (\Cref{prop:confine}) & runs & \cls{LaneRunnerTest} \\
 Placement does not change answers (\Cref{prop:placement}) & runs & \cls{SharedLaneIngestPropertyTest},
 \cls{SharedLanePlacementTest}, \cls{LaneMultiplexerTest} \\
 Sharing never admits fewer (\Cref{prop:admission}) & runs & \cls{SharedLanePlacementTest} \\
-Fate-sharing (\Cref{prop:fate}) & in part & (i) runs; (ii)--(iv) argued \\
+Fate-sharing (\Cref{prop:fate}) & in part & (i), (ii), (iv) run (\cls{SharedLaneFateTest}, LANEFATE-1);
+(iii) runs for the lane's own queries, its reach through a shared reader argued \\
 Rebalance preserves answers (\Cref{cor:rebalance}) & runs & \cls{LaneRebalanceTest},
 \cls{DedicatedLaneTest} \\
 Access-path invariance (\Cref{prop:accesspath}) & runs & \cls{ViewIndexEquivalenceTest},
@@ -1954,21 +2454,120 @@ Index is a function of the view (\Cref{prop:indexfn}) & runs & \cls{SecondaryInd
 Stored-equality soundness (\Cref{prop:indexsound}) & proved; refusal runs &
 \code{anIndexThisEngineCannotKeepIsRefusedByName} \\
 Filter soundness rule (\Cref{prop:soundness}) & runs & \cls{ViewQueryAuthorizationTest},
-\cls{SubscriptionTest}; row filters programmatic only \\
+\cls{SubscriptionTest} \\
 Fingerprint separates entitlements (\Cref{prop:fingerprint}) & runs & \cls{TenancyTest},
-\cls{SharingIdentityTest} \\
+\cls{SharingIdentityTest}, \cls{NarrowedRegistrationTest} \\
+A masked column is never an operand (\Cref{prop:mask}) & runs & \cls{ViewQueryNarrowingTest},
+\cls{NarrowedRegistrationTest}, \cls{SubscriptionNarrowingTest}, \cls{PgNarrowingTest} \\
+The vacuity analysis is sound (\Cref{prop:vacuity}) & runs & \cls{FilterVacuityTest}, generated filters
+against every region \\
+Administration follows ownership (\Cref{sec:security}) & runs & \cls{QueryOwnershipTest} \\
+A name another tenant holds answers as nobody's (\Cref{sec:security}) & runs & \cls{FlightTenantNamesTest},
+\cls{PgTenantNamesTest}, \cls{AlertTenantNamesTest} \\
 Cross-view consistent read & not in \Pv & no read returns several views at one frontier \\
 \bottomrule
 \end{longtable}
 \end{center}
 
-Of thirty-five rows, twenty-three run as stated; two run with one clause argued; one is proved here,
-with the refusal it justifies running; three run in part; three --- covering seven results --- hold of the
-reference algebra only; two are argued; and one construction is absent. The rows that
-matter most to a reader deciding whether to trust the engine are the algebra-only rows: the design rests
-on DBSP's laws and the tests show those laws of a module the engine does not execute. The seam
-theorems, which are this paper's own contribution, are better carried than the algebra they sit on, and
-that asymmetry is the first thing \Cref{sec:limits} proposes to fix.
+Of forty-five rows, thirty-five run as stated; two run with one clause argued; one is proved here,
+with the refusal it justifies running; two run in part; three --- covering seven results --- hold of the
+reference algebra only; one is argued; and one construction is absent. In the first edition the same
+table had thirty-five rows, of which twenty-three ran as stated, three ran in part and two were argued;
+the two claims that moved from ``in part'' and ``argued'' to ``runs'' moved because the paper filed their
+gaps as findings and the findings were closed by tests (\Cref{sec:testing}). The rows that matter most
+to a reader deciding whether to trust the engine are still the algebra-only rows: the design rests on
+DBSP's laws and the tests show those laws of a module the engine does not execute. The seam theorems,
+which are this paper's own contribution, are better carried than the algebra they sit on, and that
+asymmetry is the first thing \Cref{sec:limits} proposes to fix.
+
+\section{How the engine is tested, and what testing found}\label{sec:testing}
+
+A marker that names a test is only as good as the test and the build that runs it. This section says
+what the tiers are, what each needs, how many tests each ran, and what running them found. The counts
+are those the repository records for 29 and 30 September 2026 on the development machine of
+\Cref{sec:evaluation}; they are counts of a build, not measurements of the engine.
+
+\subsection{The tiers}
+
+\begin{center}
+\small
+\begin{longtable}{@{}L{0.25\linewidth}L{0.22\linewidth}L{0.45\linewidth}@{}}
+\toprule
+\textbf{Tier} & \textbf{Needs} & \textbf{Recorded} \\
+\midrule
+\endhead
+The whole reactor, as the gate runs it & JDK~21 & 4{,}688 Java tests, 0 failures, 211 skipped (the
+container-backed ones among them); the gate now also runs the Python SDK's suite \\
+Unit and property tests (jqwik) & JDK~21 & e.g.\ \code{pravaha-algebra} 42, \code{pravaha-registry} 344,
+\code{pravaha-server} 323 \\
+In-process integration (\code{pravaha-it}) & JDK~21 & 960 tests, 2 skipped: real nodes, the documentation
+checks, the case studies against hand-worked answers \\
+Container-backed plugin tests (Testcontainers) & Docker & Kafka 50 (with a schema registry),
+PostgreSQL CDC 60, JDBC 13, MySQL CDC 9, Aerospike 40, Cassandra 39; three more in \code{pravaha-it};
+all green. Delta (82) and Iceberg (47) need no container \\
+Python SDK & Python & 426 passed, against a real Flight server \\
+Console & Python, Chrome & 1{,}937 passed, 1 skipped, the browser suites included: journeys, states,
+zero axe-core violations on every page in every theme, visual baselines \\
+SDKs on their own & Docker, Maven, Python & four clients outside the repository against a throwaway
+node: a Maven project depending on the Flight SDK alone, the \code{-all} jar with plain \code{java}, the
+wheel with and without its Flight extra \\
+Performance gates & a quiet machine & skip themselves when a coverage agent is attached \\
+\bottomrule
+\end{longtable}
+\end{center}
+
+Two properties of the tiers matter more than the counts. First, \emph{a green build without Docker has
+not tested any connector against its store}: the container-backed tests skip, deliberately and by name,
+and a reader of a green report has to read the skips. Second, the performance harnesses refuse to report
+a figure under a coverage agent (PERF-1), because two published figures had been taken with one attached
+without anybody knowing (\Cref{sec:evaluation}).
+
+\subsection{The findings register}
+
+Every defect found is recorded with its status, and a test (\cls{FindingsRegisterTest}) enforces the
+status lines and counts them. At release 1.0.0 the register holds \textbf{482 findings: 464 fixed, 9
+closed as by design, 9 superseded, and none open}. The first round of testing ran 254 cases, of which 75
+failed. A finding is closed as fixed only when the case that found it has been re-run.
+
+The commonest defect in the register is worth naming because no single test finds it: a component that
+is built, correct and tested, and connected to nothing --- a policy asked about a view's name and never
+about the data behind it, a fingerprint that omitted the key columns so two different views were ``the
+same'', a watermark computed correctly and never asked for. It has been fixed seven times under seven
+identifiers, and a test that finds classes nothing calls exists because the same thing happened at the
+level of whole classes.
+
+\subsection{What testing found}
+
+A few findings are instructive about the method rather than about the engine.
+
+\begin{itemize}[leftmargin=*,itemsep=3pt]
+\item \textbf{Writing the paper.} The first edition's markers were written by checking every claim against
+      the tree, and where a claim was argued rather than tested, the gap was filed. That produced three
+      findings (SEAMKAFKA-1, LANEFATE-1, and DOCSHARE-1 --- four documents still describing sharing as it
+      was before ADR-054) beside the open VIEWW-1 and CDCREPL-1. Closing them reproduced VIEWW-1 with a
+      property test, reproduced CDCREPL-1 against a real PostgreSQL, found the dead-lane placement defect
+      of \Cref{sec:lanes}, and found two more: CDCREPL-2 (a second query over one change-feed binding) and
+      TESTNAME-1 --- a jqwik property test of the snapshot hand-over, \code{SnapshotHandoffProperties},
+      whose name matched none of the build's test patterns, so its thousand random schedules had never run
+      in a build. Renamed, it passes.
+\item \textbf{Running every tier in containers.} The first run of every container suite on one machine
+      found a product defect that no in-process test could: a keyed Kafka sink handed a replaced key as a
+      tombstone and then the value (SINKKEYROWS-2, \Cref{sec:follow}), in a broker-backed test that had
+      not run since the change it would have caught.
+\item \textbf{Walking a running stack with a real client.} psycopg's default mode opens a transaction,
+      and the gateway refused \code{BEGIN} (PGWIRETX-1, \Cref{sec:serving}).
+\item \textbf{Using the SDK from outside the build.} The build pinned one version of Netty for its own
+      modules, and a pin in a parent build does not reach a downstream project: an application depending
+      on the Java Flight SDK resolved two Netty lines and failed on its first call (SDKNETTYMIX-1). The
+      SDK's own tests run inside the build and could not see it; the standalone check did.
+\item \textbf{Taking a figure again.} The per-operator metrics' cost had been quoted as 8\,\%; taken again
+      without the coverage agent it is about 12\,\% (PERF-1).
+\end{itemize}
+
+The common thread is that each defect was invisible from where the previous tests stood --- inside the
+build, inside the process, without the store, with a name the runner did not match --- and visible from
+one step outside. We do not claim the register is complete. We claim that it is the complete list of
+what was found, and that a claim in this paper whose test did not exist was filed rather than asserted.
 
 \section{Evaluation: what has been measured, and under what conditions}\label{sec:evaluation}
 
@@ -2006,6 +2605,8 @@ Profile A, through the registry and a served view, cold pool (34.7~MiB) & best 5
 Profile B, windowed aggregate, 100{,}000 Zipf keys & best 2.47--2.85~M rows/s; worst of fifteen passes 1.10~M & load 7.2--8.1; \cls{ProfileBGateIT}\\
 Scaling, one lane to eight (2026-09-20) & 28--42\,\% of linear, eight runs & JaCoCo agent attached (found later); \cls{ProfileAGateIT}\\
 Scaling, one lane to eight (2026-09-26) & 33--46\,\% of linear & agent removed; load 1.1--4.4\\
+Scaling, one lane to eight (2026-09-29) & 30--31\,\% of linear & every harness refusing the agent
+(PERF-1); load 3.1--5.2\\
 The machine's own scaling, 16 independent threads & 51--55\,\% of linear & \code{machineScalingReference} arm\\
 \bottomrule
 \end{tabular}
@@ -2086,8 +2687,29 @@ RAM; once the state exceeds what the node can cache, a random lookup costs page 
 falls to about 1{,}000--2{,}500 operations a second on the machine's NVMe, against 160{,}000--540{,}000
 cached. The tier is off by default and documented as survival, not capacity.
 
-\paragraph{Instrumentation.} Per-operator counters and sampled self time cost about 8\,\% of a narrow
-query's throughput (\cls{OperatorMetricsOverheadIT}), so they are compiled in only when switched on.
+\paragraph{Instrumentation.} Per-operator counters and sampled self time cost about 12\,\% of a narrow
+query's throughput (\cls{OperatorMetricsOverheadIT}: 12.6, 11.9 and 11.5\,\% in three runs at load 1.7--3.9
+on 24 logical processors), so they are compiled in only when switched on. The first edition quoted
+8\,\%, a figure taken with a coverage agent attached; every timing harness now declines to report under
+one (PERF-1).
+
+\paragraph{Figures taken since the first edition.} Each is from the commit or release note that
+recorded it, on the same machine.
+\begin{itemize}[leftmargin=*,itemsep=2pt]
+\item \emph{Firing spilled windows.} Firing a window and discarding dead slices had walked every
+      accumulator in the index's hash order, a random read each; walking the store slab by slab instead,
+      under a 384~MiB memory cap with 1.18~million accumulators, firing 295{,}384 groups took 0.6~s rather
+      than 87.3~s, with 2{,}517 major page faults rather than 452{,}758 and 154~MB read rather than 25.3~GB
+      (SPILL-4).
+\item \emph{Restarting with generated code.} A node with a journal and checkpoints restarted with 100, 500
+      and 1{,}000 distinct queries in 0.51, 1.04 and 1.54~s, of which compiling the generated pipelines was
+      0.23, 0.76 and 1.15~s; without the code generator the restarts took 0.28, 0.28 and 0.39~s (warm JVM,
+      load 3--4, \cls{RestartCompileIT}). Every query is running generated code when the restart returns.
+\item \emph{Exact sums.} Netting sums in 128 bits within a batch (\Cref{sec:bounds}) left throughput
+      where it was: the commit that made the change records the pairs 19.2 and 19.7~ns a row for a
+      global sum, 35.5 and 34.4 keyed, 98.5 and 98.8 windowed, and no load average, so we read them only
+      as ``no visible cost'' (TRANSOVF-1).
+\end{itemize}
 
 \subsection{What has not been measured}\label{sec:unmeasured}
 
@@ -2103,6 +2725,9 @@ The costs of the mechanisms this paper is about are, with one exception, unmeasu
 \item end-to-end latency from a source write to a visible commit, and commit latency beyond the exact
       mean the metrics report;
 \item recovery time after a crash as a function of state size;
+\item the latency a chain of queries on queries adds per level, and an alert's time from a commit to a
+      notification;
+\item what the assistant's drafts are worth on any particular model;
 \item anything with more than one node.
 \end{itemize}
 The exception is the cost of subscribers, above. We regard the absence of seam-cost measurements as the
@@ -2179,6 +2804,16 @@ semantics a late joiner can simply wrap around. For an ordered, exactly-once log
 contribution of \Cref{sec:seam} is the contract under which it can still join exactly: an order on
 positions and a read that stops at a position.
 
+\paragraph{Governance and row-level security.} Row-level security policies attached to tables are
+standard in relational databases, PostgreSQL's among them \cite{pgrls}, and governance catalogues such
+as Unity Catalog \cite{unitycatalog} keep owners, grants, tags, row filters and column masks for data at
+rest. \Pv's catalogue borrows that shape. What differs is the object: a view is an answer still being
+computed, read by subscribers this second and built on by other computations, so a grant has to reach an
+open stream (\code{SUBSCRIBE}), a registration is a standing read (\code{BUILD\_ON}), and a policy has to
+enter the fingerprint of every computation behind it (\Cref{prop:mask}). We know of no published
+vacuity analysis for row filters and do not claim that none exists; ours is a small, sound procedure
+rather than a contribution to decision procedures.
+
 \paragraph{Property-based testing.} Much of the evidence in \Cref{sec:register} is generated-input
 testing in the QuickCheck tradition \cite{claessen2000}, with jqwik on the JVM, and in several cases the
 test is shown to fail on a seeded version of the bug it guards against.
@@ -2199,16 +2834,24 @@ asked to start in partitioned mode refuses (\code{PRV-9002}). The owner has put 
 Every theorem in this paper is a single-node theorem, and a query moved between nodes would be a new
 seam this paper does not treat --- though \Cref{thm:cutover} suggests the shape its answer should take.
 
-\paragraph{Open findings against stated invariants.} VIEWW-1 (\Cref{prop:keyfunctional}): a retraction
-that leaves a key's net weight positive may leave the retracted row's values as the key's row. CDCREPL-1:
-a replacement over a \code{postgres-cdc} stream probably contends for the running version's replication
-slot. Neither is reproduced; both are recorded in the repository's findings register as open and not
-blocking. The windowed aggregate's 128-bit slice digest (W8-14) is a bounded, recorded departure from
-exact keys.
+\paragraph{No open findings, which is not the same as no defects.} The findings register holds none open
+at release 1.0.0, and the two the first edition listed against its own invariants (VIEWW-1, CDCREPL-1)
+are fixed. That says every defect found has been dealt with, not that none remain: \Cref{sec:testing}
+shows each recent one was found by stepping outside where the previous tests stood. The windowed
+aggregate's 128-bit slice digest (W8-14) remains a bounded, recorded departure from exact keys.
 
-\paragraph{Partial evidence for the seam theorems.} Kafka's bounded read has no broker-backed test with
-transaction markers at the seam; fate-sharing on a shared lane is argued; no test races reads against a
-cutover's catalogue swap.
+\paragraph{Partial evidence for the seam theorems.} No test races reads against a cutover's catalogue
+swap; the reach of backpressure through a shared reader to other lanes is argued.
+
+\paragraph{What following an answer does not do.} Windows, joins, top-N, \code{MIN}, \code{MAX} and
+\code{COUNT(DISTINCT)} over a view are refused, because \Cref{thm:chain} needs operators linear in their
+input's integral. A member of a chain cannot be replaced: handing a follower across a cutover at the
+cutover's position is not built. Chains do not cross nodes.
+
+\paragraph{What governance does not do.} The catalogue's phases 3 and 4 --- lineage and labels that
+follow it, column-level tags, contracts, sharing, access history --- are not built. A running
+registration is re-planned when its inputs' policies change only at replacement or restart. The vacuity
+analysis is sound but not complete. Multi-factor authentication and single sign-on were dropped.
 
 \paragraph{What the exchange and the lanes do not do.} A registered query runs on one lane; the exchange
 between lanes is not cut by a checkpoint, and such a checkpoint is refused. A tenant does not own a lane,
@@ -2216,8 +2859,10 @@ so a shared lane's fate is shared across tenants, and per-tenant CPU scheduling 
 
 \paragraph{Scope of exact sharing.} Only the filesystem (not followed) and Kafka declare ordered
 positions and bounded reads. Delta and JDBC wait on a proof that their positions are totally ordered.
-Change-data-capture sources keep a reader per query because a shared slot could be confirmed only to the
-slowest member's durable position.
+A change-data-capture binding names one replication slot or replica id, which has one consumer, so it is
+read by one query: a second, different query over it is refused at registration (\code{PRV-8028}), and a
+slot per query is not created, because every slot retains the database's log and one the engine lost
+track of would fill the database's disk.
 
 \paragraph{SQL.} Session windows, window aggregates over row frames, \code{ORDER BY}, set operations,
 subqueries other than the temporal join, and unwindowed grouping over a stream are refused; outer joins
@@ -2237,8 +2882,11 @@ being ended by \code{PRV-6105} (\Cref{thm:snapshot}); a restore whose answer cou
 misses one, over a replayable source, without a refusal (\Cref{thm:cut}); a Kafka partition with a
 control record at the seam on which a late joiner receives a record twice or not at all
 (\Cref{thm:seam}); a read of a replaced name that returns a row of neither version's view at the seam
-(\Cref{thm:cutover}); and an index probe that returns a different answer from the scan
-(\Cref{prop:accesspath,prop:indexfn}).
+(\Cref{thm:cutover}); an index probe that returns a different answer from the scan
+(\Cref{prop:accesspath,prop:indexfn}); a restored query on a query whose answer differs from the same
+query computed afresh over its upstream's answer (\Cref{thm:chain}); a filter refused as vacuous that
+withholds a row by its values (\Cref{prop:vacuity}); and a reader who learns a masked column's value
+through a result's rows or groups (\Cref{prop:mask}).
 
 \subsection{Future work}
 
@@ -2250,11 +2898,12 @@ control record at the seam on which a late joiner receives a record twice or not
 \item \textbf{An executable register.} One file stating every claim of \Cref{sec:register} with the
       test that carries it, and a test that fails when a named test disappears or the paper and the file
       disagree.
-\item \textbf{A broker-backed seam test} for Kafka with transaction markers at and around the seam, and
-      a fate-sharing test on a shared lane.
 \item \textbf{Measure the seams}: freeze duration, catch-up convergence, alignment retries and backfill
-      time, so an operator can plan for the guarantees' cost.
-\item \textbf{Close VIEWW-1} with a Z-set property test on the served view, and decide CDCREPL-1.
+      time, and the latency each level of a chain adds, so an operator can plan for the guarantees' cost.
+\item \textbf{Hand a follower across a cutover}, so a member of a chain of queries can be replaced: the
+      follower's image makes this a difference of answers at the cutover's position.
+\item \textbf{Windows over a view}, which need a watermark derived from the upstream's rows rather than
+      its commit frontier.
 \item \textbf{Cut the exchange}: forward the marker along each ring and align on it, which would admit
       multi-lane registered queries into \Cref{thm:cut}.
 \item \textbf{Cross-view reads at one frontier}, which the reference \cls{Frontier} describes and the
@@ -2279,6 +2928,14 @@ theorems are carried by tests that exercise the seams, several of them shown to 
 guard against. The algebra underneath them is carried by tests of a module the engine does not run.
 That asymmetry is the most useful thing this paper can report to someone deciding whether to rely on
 the engine, and it is the first thing to fix.
+
+The second edition adds a hand-over the first did not see, and it sharpens the thesis rather than
+breaking it. Where a position exists, the seam is a position. Where none does --- a view read as a
+source, whose history is recomputed on every restart --- the seam is the answer consumed, cut under the
+same freeze, and a restore is a difference of answers; the price is that only operators whose state is a
+function of what their input adds up to may stand on it. The discipline of the markers also turned out
+to be a way of finding defects: the gaps the first edition filed against its own claims were closed
+within two days, and three of them found something wrong.
 
 The slogan the project uses is \emph{ask once, answer always}. The theorems in this paper are what
 ``always'' has to mean for it to be worth saying: across a subscriber joining, a restart, a shared
@@ -2375,6 +3032,11 @@ accessed 2026.
 \bibitem{risingwave} RisingWave Labs. RisingWave documentation. \url{https://docs.risingwave.com/},
 accessed 2026.
 
+\bibitem{pgrls} The PostgreSQL Global Development Group. Row security policies. \emph{PostgreSQL
+documentation}, \url{https://www.postgresql.org/docs/current/ddl-rowsecurity.html}, accessed 2026.
+
+\bibitem{unitycatalog} Unity Catalog. Documentation. \url{https://docs.unitycatalog.io/}, accessed 2026.
+
 \bibitem{neumann2011} T.~Neumann. Efficiently compiling efficient query plans for modern hardware.
 \emph{PVLDB}, 4(9):539--550, 2011.
 
@@ -2422,15 +3084,24 @@ package under \code{com.ash.messaging.pravaha}).
 \code{pravaha-backfill} & \cls{OffsetSplicedReader}, \cls{SplicedReader} \\
 \code{pravaha-bindings} & \cls{SharedPartitionFeed}, \cls{SharedSourceGroup} \\
 \code{pravaha-registry} & \cls{QueryRegistry}, \cls{QueryReplacements}, \cls{QueryFingerprint},
-\cls{SharedLanes}, \cls{LaneRebalance}, \cls{TenantQuotas}, \cls{RegistryJournal} \\
+\cls{SharedLanes}, \cls{LaneRebalance}, \cls{TenantQuotas}, \cls{RegistryJournal}, \cls{QueryChains},
+\cls{UpstreamReader}, \cls{UpstreamFeed}; \code{registry.alert}: \cls{AlertService}, \cls{AlertJournal},
+\cls{Notifiers} \\
+\code{pravaha-catalog} & \cls{Catalog}, \cls{PolicyService}, \cls{PolicyDefinition}, \cls{PolicyBinding} \\
+\code{pravaha-sql} & \cls{FilterVacuity}, \cls{NarrowingPlan}, \cls{MaskedColumnUse}, \cls{AlertStatements} \\
+\code{pravaha-pgwire} & the PostgreSQL gateway; the tests named in \Cref{sec:serving} \\
 \bottomrule
 \end{longtable}
 \end{center}
 
 The decision records cited (ADR-008, 013, 015, 025, 026, 027, 029, 031, 036, 042, 044, 046, 049, 050,
-052, 054, 055) are in \code{docs/adr/}; the findings cited (VIEW-1, VIEWW-1, CDCREPL-1, SUB-1, STRM-11,
-LANE-1, LANE-6, SRC-3, W8-14) are in \code{docs/qa/FINDINGS.md}; the measurements are in
-\code{docs/gates/measured-2026-09-20/README.md} and the ADRs named beside each figure.
+052, 054, 055, 056, 057, 058, 059, 060) are in \code{docs/adr/}; the findings cited (VIEW-1, VIEWW-1,
+CDCREPL-1, CDCREPL-2, SUB-1, STRM-11, LANE-1, LANE-6, SRC-3, W8-14, SEAMKAFKA-1, LANEFATE-1,
+DOCSHARE-1, TESTNAME-1, SUMWRAP-1, TRANSOVF-1, SINKKEYROWS-1, SINKKEYROWS-2, TAUTOFILTER-1, DECSCALE-1,
+PGWIRETX-1, AVGINT-1, IDXVIS-1, SDKNETTYMIX-1, SPILL-4, PERF-1) are in \code{docs/qa/FINDINGS.md}; the
+measurements are in \code{docs/gates/measured-2026-09-20/README.md}, \code{docs/TESTING.md},
+\code{docs/RELEASE\_NOTES.md} and the ADRs and commits named beside each figure. What 1.x keeps stable
+is \code{docs/COMPATIBILITY.md}.
 
 \bigskip
 \noindent{\footnotesize Copyright \copyright\ 2026 Ashutosh Sinha. This paper is licensed under the
