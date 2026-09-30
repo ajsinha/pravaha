@@ -1,0 +1,38 @@
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+#
+# A starting point for $PRAVAHA_HOME/conf/application.yaml. Copy it there, then edit:
+#
+#   cp conf/application.yaml.example conf/application.yaml && chmod 0600 conf/application.yaml
+#
+# The layout already places the registry journal, checkpoints, identity store, audit file and the
+# node's log under $PRAVAHA_HOME (the jar's pravaha-home.yaml); this file says only what differs.
+# Paths here may be relative: the node's working directory is $PRAVAHA_HOME. Every key the node
+# reads, with its default, is in the jar's application.yaml and the console's Help > Settings.
+
+pravaha:
+  node:
+    id: pravaha-node-01
+
+  # THE NODE REFUSES TO START until a security model is chosen. For a first local run, the open one,
+  # said out loud (or start with --spring.profiles.active=dev instead):
+  security:
+    allow-anonymous: true
+  #
+  # For anything shared: people and API keys kept by the node (ADR-052), token authentication.
+  # identity:
+  #   enabled: true
+  #   bootstrap-password-file: secrets/initial-admin-password
+  # security:
+  #   authentication: token
+  #   policy: authenticated
+  #   audit: file
+
+  # Set aside undecodable records instead of stopping the source; spill instead of failing PRV-4001.
+  # dlq:
+  #   directory: data/dlq
+  # state:
+  #   spill:
+  #     directory: data/spill
+  #     max-bytes: 8GB

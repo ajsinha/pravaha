@@ -1,0 +1,44 @@
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+#
+# The engine node under systemd, from a distribution unpacked at /opt/pravaha (deploy/release/dist.sh).
+#
+#   sudo useradd --system --home-dir /opt/pravaha --shell /usr/sbin/nologin pravaha
+#   sudo chown -R pravaha:pravaha /opt/pravaha/conf /opt/pravaha/data /opt/pravaha/logs \
+#                                 /opt/pravaha/plugins /opt/pravaha/secrets /opt/pravaha/tmp
+#   sudo cp /opt/pravaha/conf/pravaha-server.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now pravaha-server
+#
+# PRAVAHA_HOME is /opt/pravaha, so the node writes nothing outside it: the journal and checkpoints
+# in data/, its log and audit trail in logs/, java.io.tmpdir in tmp/ (docs/RUNNING_IN_DOCKER.md,
+# "The layout" -- the same layout as the container). The hardening below says so to the kernel as
+# well: the whole filesystem is read-only to the service except /opt/pravaha's writable directories.
+
+[Unit]
+Description=Pravaha engine node (continuous SQL)
+Documentation=file:///opt/pravaha/LICENSE
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pravaha
+Group=pravaha
+Environment=PRAVAHA_HOME=/opt/pravaha
+Environment="PRAVAHA_JAVA_OPTS=-XX:MaxRAMPercentage=50.0 -XX:+ExitOnOutOfMemoryError"
+ExecStart=/opt/pravaha/bin/pravaha-server
+# A checkpoint and the sinks' commit happen on SIGTERM; give them time before SIGKILL.
+TimeoutStopSec=60
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ReadWritePaths=/opt/pravaha/data /opt/pravaha/logs /opt/pravaha/tmp
+
+[Install]
+WantedBy=multi-user.target
