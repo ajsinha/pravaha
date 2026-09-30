@@ -120,9 +120,21 @@ final class Preflight {
                                 "publication '" + options.publication() + "' does not exist and "
                                         + "create.publication is false. Run: " + create);
                     }
+                    mayCreatePublication(connection, options, create);
                     try (Statement ddl = connection.createStatement()) {
                         ddl.execute(
                                 "CREATE PUBLICATION " + options.publication() + " FOR TABLE " + options.quotedTable());
+                    } catch (SQLException e) {
+                        if (!INSUFFICIENT_PRIVILEGE.equals(e.getSQLState())) {
+                            throw e;
+                        }
+                        // Checked above, so this is a rule the check does not know about. Still a missing
+                        // prerequisite rather than a connection failure, and said as one.
+                        throw notCapturable(
+                                options,
+                                "PostgreSQL refused to create publication '" + options.publication() + "': "
+                                        + e.getMessage() + ". Create it as a role that may -- " + create
+                                        + " -- and set create.publication: \"false\".");
                     }
                     return;
                 }
@@ -287,6 +299,62 @@ final class Preflight {
             rows.next();
             return rows.getString(1);
         }
+    }
+
+    /** PostgreSQL's SQLSTATE for "permission denied" and "must be owner of". */
+    private static final String INSUFFICIENT_PRIVILEGE = "42501";
+
+    /**
+     * Whether this role may run {@code CREATE PUBLICATION ... FOR TABLE}: PostgreSQL requires it to own
+     * the table (or be a member of the role that does) AND to hold CREATE on the database. A fresh role
+     * made to own the table has the first and not the second, and the statement failed with "permission
+     * denied for database" -- surfacing as PRV-5111, a connection failure, rather than as the missing
+     * prerequisite it is (DOC-PGCDC). Checked before anything is created, like every other prerequisite,
+     * and refused naming the statement that fixes it and the way around it.
+     */
+    private static void mayCreatePublication(Connection connection, CdcOptions options, String create)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT current_database(), current_user, has_database_privilege(current_database(), 'CREATE'), "
+                        + "pg_has_role(c.relowner, 'USAGE'), pg_get_userbyid(c.relowner) "
+                        + "FROM pg_class c WHERE c.oid = to_regclass(?)")) {
+            statement.setString(1, options.quotedTable());
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) {
+                    return; // tableOid, which runs first, already refused a table that is not there
+                }
+                String database = rows.getString(1);
+                String role = rows.getString(2);
+                boolean mayCreate = rows.getBoolean(3);
+                boolean owns = rows.getBoolean(4);
+                String owner = rows.getString(5);
+                String grant = "GRANT CREATE ON DATABASE " + identifier(database) + " TO " + identifier(role) + ";";
+                String instead = " Or create the publication as a role that may -- " + create
+                        + " -- and set create.publication: \"false\"; then this role needs neither.";
+                if (!owns) {
+                    throw notCapturable(
+                            options,
+                            "role '" + role + "' cannot create publication '" + options.publication()
+                                    + "': CREATE PUBLICATION ... FOR TABLE needs the table's owner, and "
+                                    + options.qualifiedTable() + " is owned by '" + owner + "'. Run: ALTER TABLE "
+                                    + options.qualifiedTable() + " OWNER TO " + identifier(role) + ";"
+                                    + (mayCreate ? "" : " and " + grant) + instead);
+                }
+                if (!mayCreate) {
+                    throw notCapturable(
+                            options,
+                            "role '" + role + "' cannot create publication '" + options.publication()
+                                    + "': CREATE PUBLICATION needs CREATE on the database as well as owning the "
+                                    + "table, and this role has no CREATE on database '" + database + "'. Run: "
+                                    + grant + instead);
+                }
+            }
+        }
+    }
+
+    /** A name as SQL needs it written: bare when it is a plain lower-case identifier, quoted otherwise. */
+    static String identifier(String name) {
+        return name.matches("[a-z_][a-z0-9_$]*") ? name : "\"" + name.replace("\"", "\"\"") + "\"";
     }
 
     private static ConfigurationException notCapturable(CdcOptions options, String message) {

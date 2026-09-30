@@ -971,9 +971,8 @@ The role needs the `REPLICATION` attribute and, if the plugin is to create the p
 (`create.publication`), to own the table **and** hold `CREATE` on the database —
 `GRANT CREATE ON DATABASE <db> TO <role>;`, which `CREATE PUBLICATION` requires and a fresh role
 lacks. Otherwise create the publication yourself and set `create.publication: "false"`. Each
-prerequisite that is missing is refused at open with the statement that fixes it (`PRV-5112`) —
-except that grant: its absence surfaces as `PRV-5111` carrying PostgreSQL's `permission denied for
-database <db>`.
+prerequisite that is missing is refused at open with the statement that fixes it (`PRV-5112`),
+the ownership and the grant included — before any slot or publication is created.
 
 **Checkpointing is required, not optional.** The slot is confirmed only at positions a durable
 checkpoint recorded — never at what was merely delivered, because a restore would need those changes
