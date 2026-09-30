@@ -13,6 +13,12 @@
 > the design rests on is tested in a module nothing imports, one invariant of the served view has an
 > open finding against it, and the engine is one node.
 
+> **This article follows the paper's first edition (28 September 2026).** The paper's second edition,
+> for Pravaha 1.0.0 (the PDF beside this file), supersedes it where they differ: the served-view finding
+> (VIEWW-1), the change-feed replacement (CDCREPL-1), the Kafka seam and shared-lane fate are now closed
+> by tests; the ledger has forty-five claims, thirty-five of them running as stated; and it adds queries
+> on queries and alerts (a seam with no position), governance, the release and the test tiers.
+
 ---
 
 Here is a question that sounds like a solved problem:

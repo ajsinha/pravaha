@@ -303,8 +303,8 @@ density are photographed and audited by axe. The manual WCAG 2.2 AA audit is not
 | [Case studies](examples/case-studies/) | Thirteen worked systems: a data model, the data, the continuous queries and the app code, each run and checked by the build |
 | [CLI](docs/CLI.md) | `pravaha`, the command line for a running engine, and `pravaha-engine` for SQL with no server |
 | [The assistant](docs/ASSIST.md) | `pravaha explain-sql` and `pravaha why` through any model, with the engine as the judge (ADR-058) |
-| [The deck](docs/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx) | 75 slides: why, the vocabulary, correctness, scale, replacement, connectors, security, operations, case studies and what is measured. Generated from [`tools/deck`](tools/deck/GUIDE.md) |
-| [The Medium post](docs/medium/pravaha-medium-post.md) | The design and its trade-offs for engineers, with 13 diagrams and three case studies worked end to end; [how to publish it](docs/medium/README.md) |
+| [The deck](docs/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx) | 91 slides for 1.0.0: why, the vocabulary, correctness, scale, replacement, queries on queries and alerts, connectors, security and governance, operations, case studies, the evidence and what 1.x promises. Generated from [`tools/deck`](tools/deck/GUIDE.md) |
+| [The Medium post](docs/medium/pravaha-medium-post.md) | The design and its trade-offs for engineers, what is new in 1.0, 17 diagrams and three case studies worked end to end; also [as one self-contained page](docs/medium/pravaha-medium-post.html); [how to publish it](docs/medium/README.md) |
 | [Python API guide](docs/PYTHON_API_GUIDE.md) | Every REST and SDK call with a Python sample, for integration |
 | [Running from an IDE](docs/DEVELOPING_IN_AN_IDE.md) | The server in IntelliJ IDEA and the console in PyCharm |
 | [Testing](docs/TESTING.md) | Every test tier, with and without Docker, what skips and why, measured times; and a [step-by-step build and test without Docker](docs/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) |
@@ -326,7 +326,7 @@ density are photographed and audited by axe. The manual WCAG 2.2 AA audit is not
 | [Architecture](docs/ARCHITECTURE.md) | How it is put together, and why each part is shaped that way |
 | [System design](docs/system_design.md) | The full specification |
 | [Decision records](docs/adr/) | Every architectural decision, including the ones later reversed |
-| [Research paper](docs/research/continuous-queries-as-maintained-answers.pdf) · [article](docs/research/continuous-queries-as-maintained-answers-article.md) | *Continuous Queries as Maintained Answers*: the model, and why subscription, recovery, reader sharing and replacement are exact — each claim marked with the test that carries it, or marked argued |
+| [Research paper](docs/research/continuous-queries-as-maintained-answers.pdf) · [article](docs/research/continuous-queries-as-maintained-answers-article.md) | *Continuous Queries as Maintained Answers*: the model, and why subscription, recovery, reader sharing and replacement are exact — second edition for 1.0.0, adding queries on queries and alerts, governance and the test tiers; each claim marked with the test that carries it, or marked argued |
 | [Handover](docs/HANDOVER.md) | Current state, and what to pick up next |
 | [What is left](docs/REMAINING.md) | The build strategy for the gaps, in tranches |
 | [Release notes](docs/RELEASE_NOTES.md) | What each tagged release contains |

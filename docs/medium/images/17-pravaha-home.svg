@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="560" viewBox="0 0 800 560">
+  <title>One PRAVAHA_HOME, in a container and out of one</title>
+  <style>
+    text { font-family: 'Source Sans 3', 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; fill: #1A1A1A; }
+    .title { font-family: 'Source Serif 4', 'Charis SIL', Georgia, serif; font-size: 23px; font-weight: 700; }
+    .head { font-size: 14.5px; font-weight: 700; }
+    .small { font-size: 12.5px; fill: #4A5058; }
+    .item { font-size: 13px; }
+    .mono { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 12px; }
+    .monod { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 12px; font-weight: 700; fill: #8A1626; }
+    .note { font-size: 11.5px; fill: #4A5058; }
+    .deep { font-size: 13px; font-weight: 700; fill: #8A1626; }
+    .inv { font-size: 14px; font-weight: 700; fill: #FFFFFF; }
+    .invs { font-size: 12.5px; fill: #FFFFFF; }
+    .port { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 12px; font-weight: 700; fill: #FFFFFF; }
+  </style>
+  <rect width="800" height="560" fill="#F7F5F2"/>
+  <text x="40" y="44" class="title">One directory, owned by whoever runs it</text>
+  <text x="40" y="68" class="small">PRAVAHA_HOME is /opt/pravaha in both images, and wherever you unpack a distribution outside them.</text>
+
+  <!-- the tree -->
+  <rect x="24" y="88" width="360" height="456" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="40" y="114" class="monod">/opt/pravaha/</text>
+  <text x="56" y="140" class="mono">bin/  lib/</text><text x="220" y="140" class="note">the image or distribution</text>
+  <text x="56" y="166" class="mono">conf/</text><text x="220" y="166" class="note">yours: engine and console</text>
+  <text x="76" y="184" class="mono">application.yaml</text>
+  <text x="76" y="202" class="mono">console.yaml</text>
+  <text x="56" y="228" class="mono">secrets/</text><text x="220" y="228" class="note">0700: admin password,</text>
+  <text x="220" y="243" class="note">tokens, TLS keys</text>
+  <text x="56" y="266" class="mono">plugins/</text><text x="220" y="266" class="note">extra jars, a JDBC driver</text>
+  <text x="56" y="292" class="mono">data/</text><text x="220" y="292" class="note">the engine's state</text>
+  <text x="76" y="310" class="mono">registry.journal</text>
+  <text x="76" y="328" class="mono">checkpoints/&lt;query&gt;/</text>
+  <text x="76" y="346" class="mono">identity/identity.journal</text>
+  <text x="76" y="364" class="mono">catalog.journal</text>
+  <text x="76" y="382" class="mono">alerts.journal</text>
+  <text x="76" y="400" class="mono">console/</text><text x="220" y="400" class="note">the assistant's config</text>
+  <text x="56" y="426" class="mono">logs/</text><text x="220" y="426" class="note">rolled, 1 GB cap</text>
+  <text x="76" y="444" class="mono">pravaha-server.log</text>
+  <text x="76" y="462" class="mono">audit.jsonl</text>
+  <text x="56" y="488" class="mono">tmp/</text><text x="220" y="488" class="note">java.io.tmpdir, user.home</text>
+  <text x="40" y="524" class="small">Nothing is written outside it: not /tmp, not /var.</text>
+
+  <!-- compose -->
+  <rect x="400" y="88" width="376" height="250" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="416" y="114" class="head">docker compose --profile seed up -d</text>
+  <text x="416" y="136" class="small">Always: the engine, the console, a KRaft Kafka.</text>
+
+  <rect x="416" y="150" width="84" height="26" rx="5" fill="#A51C30"/><text x="458" y="168" class="port" text-anchor="middle">17070</text>
+  <text x="510" y="168" class="item">console</text>
+  <rect x="596" y="150" width="84" height="26" rx="5" fill="#A51C30"/><text x="638" y="168" class="port" text-anchor="middle">19090</text>
+  <text x="690" y="168" class="item">Flight</text>
+  <rect x="416" y="186" width="84" height="26" rx="5" fill="#A51C30"/><text x="458" y="204" class="port" text-anchor="middle">18080</text>
+  <text x="510" y="204" class="item">REST</text>
+  <rect x="596" y="186" width="84" height="26" rx="5" fill="#A51C30"/><text x="638" y="204" class="port" text-anchor="middle">15432</text>
+  <text x="690" y="204" class="item">psql</text>
+
+  <text x="416" y="236" class="deep">Profiles</text>
+  <text x="416" y="256" class="item"><tspan font-weight="600">seed</tspan>  a topic, twelve orders, two views</text>
+  <text x="416" y="274" class="item"><tspan font-weight="600">cdc</tspan>  PostgreSQL 16 and MySQL 8.0, ready</text>
+  <text x="416" y="292" class="item"><tspan font-weight="600">stores</tspan>  Aerospike, Cassandra 4.1</text>
+  <text x="416" y="310" class="item"><tspan font-weight="600">observability</tspan>  Prometheus, Grafana</text>
+  <text x="416" y="328" class="item"><tspan font-weight="600">tools</tspan>  the pravaha CLI in a container</text>
+
+  <!-- ownership -->
+  <rect x="400" y="354" width="376" height="190" rx="10" fill="#A51C30"/>
+  <text x="416" y="380" class="inv">As you, read-only everywhere else</text>
+  <text x="416" y="406" class="invs">The engine and the console run as the invoking</text>
+  <text x="416" y="424" class="invs">user's uid:gid on read-only root file systems; the</text>
+  <text x="416" y="442" class="invs">home is bind-mounted, so everything they write is</text>
+  <text x="416" y="460" class="invs">yours. Ports are published on 127.0.0.1 only.</text>
+  <text x="416" y="490" class="invs">The configuration uses relative paths, so it means</text>
+  <text x="416" y="508" class="invs">the same in a container and on a host: one layout,</text>
+  <text x="416" y="526" class="invs">one backup (data/), one place to look (logs/).</text>
+</svg>

@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="560" viewBox="0 0 800 560">
+  <title>An alert follows a view's answer: fired when a row enters, cleared when it leaves</title>
+  <style>
+    text { font-family: 'Source Sans 3', 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; fill: #1A1A1A; }
+    .title { font-family: 'Source Serif 4', 'Charis SIL', Georgia, serif; font-size: 23px; font-weight: 700; }
+    .head { font-size: 14.5px; font-weight: 700; }
+    .small { font-size: 12.5px; fill: #4A5058; }
+    .item { font-size: 13px; }
+    .mono { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 11.5px; }
+    .chip { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 11px; font-weight: 700; fill: #FFFFFF; }
+    .time { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 11.5px; fill: #4A5058; }
+    .deep { font-size: 13px; font-weight: 700; fill: #8A1626; }
+    .inv { font-size: 13.5px; font-weight: 600; fill: #FFFFFF; }
+    .invs { font-size: 12.5px; fill: #FFFFFF; }
+  </style>
+  <defs>
+    <marker id="aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#A51C30"/></marker>
+  </defs>
+  <rect width="800" height="560" fill="#F7F5F2"/>
+  <text x="40" y="44" class="title">An alert that clears itself</text>
+  <text x="40" y="68" class="small">CREATE ALERT low_stock_alert ON low_stock NOTIFY buyers: the retail case study's morning.</text>
+
+  <!-- pipeline -->
+  <rect x="24" y="88" width="160" height="118" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="40" y="112" class="head">low_stock</text>
+  <text x="40" y="132" class="small">its answer changes:</text>
+  <text x="40" y="150" class="small">a key's row enters (+1)</text>
+  <text x="40" y="168" class="small">or leaves (−1)</text>
+
+  <line x1="186" y1="147" x2="208" y2="147" stroke="#A51C30" stroke-width="1.8" marker-end="url(#aa)"/>
+
+  <rect x="214" y="88" width="178" height="118" rx="10" fill="#F6E8EA" stroke="#A51C30" stroke-width="1.5"/>
+  <text x="230" y="112" class="deep">What is true</text>
+  <text x="230" y="132" class="small">enters → FIRED</text>
+  <text x="230" y="150" class="small">leaves → CLEARED</text>
+  <text x="230" y="168" class="small">fire_after, clear_after</text>
+  <text x="230" y="186" class="small">decide it</text>
+
+  <line x1="394" y1="147" x2="416" y2="147" stroke="#A51C30" stroke-width="1.8" marker-end="url(#aa)"/>
+
+  <rect x="422" y="88" width="160" height="118" rx="10" fill="#A51C30"/>
+  <text x="438" y="112" class="inv">alerts.journal</text>
+  <text x="438" y="134" class="invs">every decision,</text>
+  <text x="438" y="152" class="invs">forced to disk</text>
+  <text x="438" y="170" class="invs">before anything</text>
+  <text x="438" y="188" class="invs">is sent</text>
+
+  <line x1="584" y1="147" x2="606" y2="147" stroke="#A51C30" stroke-width="1.8" marker-end="url(#aa)"/>
+
+  <rect x="612" y="88" width="164" height="118" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="628" y="112" class="head">What is said</text>
+  <text x="628" y="132" class="small">dedupe, snooze, pause,</text>
+  <text x="628" y="150" class="small">reminders until ACK;</text>
+  <text x="628" y="168" class="small">a signed webhook</text>
+  <text x="628" y="186" class="small">or log channel</text>
+
+  <!-- timeline -->
+  <rect x="24" y="224" width="752" height="210" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="40" y="248" class="head">What the buyers channel is told, one line per transition</text>
+  <line x1="56" y1="352" x2="760" y2="352" stroke="#6B7480" stroke-width="1.6"/>
+
+  <!-- 09:00 FIRED sku-400 -->
+  <line x1="84" y1="322" x2="84" y2="352" stroke="#A51C30" stroke-width="2"/>
+  <rect x="56" y="302" width="56" height="20" rx="4" fill="#A51C30"/><text x="84" y="316" class="chip" text-anchor="middle">FIRED</text>
+  <text x="84" y="280" class="item" text-anchor="middle">sku-400</text><text x="84" y="295" class="small" text-anchor="middle">MAN</text>
+  <text x="84" y="370" class="time" text-anchor="middle">09:00</text>
+
+  <!-- 09:05 FIRED sku-200 -->
+  <line x1="190" y1="322" x2="190" y2="352" stroke="#A51C30" stroke-width="2"/>
+  <rect x="162" y="302" width="56" height="20" rx="4" fill="#A51C30"/><text x="190" y="316" class="chip" text-anchor="middle">FIRED</text>
+  <text x="190" y="280" class="item" text-anchor="middle">sku-200</text><text x="190" y="295" class="small" text-anchor="middle">LDN, 7 of 8</text>
+  <text x="190" y="370" class="time" text-anchor="middle">09:05</text>
+
+  <!-- 09:10 FIRED sku-300 -->
+  <line x1="296" y1="322" x2="296" y2="352" stroke="#A51C30" stroke-width="2"/>
+  <rect x="268" y="302" width="56" height="20" rx="4" fill="#A51C30"/><text x="296" y="316" class="chip" text-anchor="middle">FIRED</text>
+  <text x="296" y="280" class="item" text-anchor="middle">sku-300</text><text x="296" y="295" class="small" text-anchor="middle">LDN, 2 of 5</text>
+  <text x="296" y="370" class="time" text-anchor="middle">09:10</text>
+
+  <!-- 09:15 nothing; restart -->
+  <text x="382" y="370" class="time" text-anchor="middle">09:15</text>
+  <text x="372" y="290" class="small" text-anchor="middle">above its</text>
+  <text x="372" y="305" class="small" text-anchor="middle">point: silent</text>
+  <line x1="420" y1="270" x2="420" y2="352" stroke="#8A1626" stroke-width="1.6" stroke-dasharray="5 4"/>
+  <text x="428" y="284" class="deep">node restarted here</text>
+
+  <!-- 09:20 CLEARED sku-200 -->
+  <line x1="490" y1="352" x2="490" y2="382" stroke="#293352" stroke-width="2"/>
+  <rect x="456" y="382" width="68" height="20" rx="4" fill="#293352"/><text x="490" y="396" class="chip" text-anchor="middle">CLEARED</text>
+  <text x="490" y="418" class="item" text-anchor="middle">sku-200 LDN</text>
+  <text x="490" y="340" class="time" text-anchor="middle">09:20</text>
+
+  <!-- 09:25 CLEARED sku-400 -->
+  <line x1="600" y1="352" x2="600" y2="382" stroke="#293352" stroke-width="2"/>
+  <rect x="566" y="382" width="68" height="20" rx="4" fill="#293352"/><text x="600" y="396" class="chip" text-anchor="middle">CLEARED</text>
+  <text x="600" y="418" class="item" text-anchor="middle">sku-400 MAN</text>
+  <text x="600" y="340" class="time" text-anchor="middle">09:25</text>
+
+  <!-- 09:30 FIRED sku-100 -->
+  <line x1="712" y1="322" x2="712" y2="352" stroke="#A51C30" stroke-width="2"/>
+  <rect x="684" y="302" width="56" height="20" rx="4" fill="#A51C30"/><text x="712" y="316" class="chip" text-anchor="middle">FIRED</text>
+  <text x="712" y="280" class="item" text-anchor="middle">sku-100</text><text x="712" y="295" class="small" text-anchor="middle">LDN, 10 of 10</text>
+  <text x="712" y="370" class="time" text-anchor="middle">09:30</text>
+
+  <!-- guarantees -->
+  <rect x="24" y="450" width="370" height="94" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="40" y="474" class="head">Exactly-once state</text>
+  <text x="40" y="495" class="small">After the restart, keys still low are not fired again;</text>
+  <text x="40" y="512" class="small">a clear that was owed is delivered. A clear is the</text>
+  <text x="40" y="529" class="small">retraction the binlog delivered, not a guess.</text>
+
+  <rect x="406" y="450" width="370" height="94" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="422" y="474" class="head">At-least-once delivery</text>
+  <text x="422" y="495" class="small">Retried with backoff, re-sent until accepted. Every</text>
+  <text x="422" y="512" class="small">attempt carries the same Idempotency-Key, so a</text>
+  <text x="422" y="529" class="small">receiver that must act once de-duplicates on it.</text>
+</svg>
