@@ -155,6 +155,12 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
      */
     private final boolean upserting;
 
+    /**
+     * The ordinals of the sink's key columns in the rows it is handed, when {@link #upserting};
+     * null otherwise, or when a key column is not in the schema. See {@link #supersede}.
+     */
+    private final int[] keyOrdinals;
+
     private final AtomicLong rowsWritten = new AtomicLong();
     private final AtomicLong batchesWritten = new AtomicLong();
 
@@ -212,6 +218,25 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
         this.acceptsRetractions = capabilities.accepts(EmitMode.UPSERT) || capabilities.accepts(EmitMode.RETRACT);
         this.upserting =
                 capabilities.accepts(EmitMode.UPSERT) && !plugin.keyColumns().isEmpty();
+        this.keyOrdinals = upserting ? keyOrdinals(schema, plugin.keyColumns()) : null;
+    }
+
+    /** Where each named key column sits in {@code schema}, matched as the shape check matches it. */
+    private static int[] keyOrdinals(StreamSchema schema, List<String> keyColumns) {
+        int[] ordinals = new int[keyColumns.size()];
+        for (int i = 0; i < ordinals.length; i++) {
+            ordinals[i] = -1;
+            for (int ordinal = 0; ordinal < schema.fieldCount(); ordinal++) {
+                if (schema.field(ordinal).name().equalsIgnoreCase(keyColumns.get(i))) {
+                    ordinals[i] = ordinal;
+                    break;
+                }
+            }
+            if (ordinals[i] < 0) {
+                return null;
+            }
+        }
+        return ordinals;
     }
 
     /**
@@ -466,10 +491,57 @@ final class SinkDelivery implements ViewChangeListener, AutoCloseable {
     }
 
     private void write(List<ViewChange> changes) {
+        changes = supersede(changes);
         for (int from = 0; from < changes.size(); from += maxBatchRows) {
             List<ViewChange> slice = changes.subList(from, Math.min(changes.size(), from + maxBatchRows));
             writeBatch(slice);
         }
+    }
+
+    /**
+     * Drops, for an upsert sink, the withdrawal of a key that re-enters in the same commit (SINKKEYROWS-2).
+     *
+     * <p>Following the answer, a commit that replaces a key's row arrives as the old row leaving and
+     * the new one entering. An upsert sink writes an insert over the key's record, so the withdrawal
+     * adds nothing to where it ends up -- and on the way it deletes the record: a tombstone on a
+     * Kafka topic that every consumer reads and compaction keeps for its retention, a DELETE a reader
+     * of the table can see between the two statements when it is not transactional. The insert alone
+     * is the upsert. A withdrawal whose key nothing re-enters is kept; it is the key's deletion.
+     *
+     * <p>Within one commit only: a key that leaves in one commit and returns in the next was absent
+     * from the answer in between. The answer holds one row per key, so a commit has at most one row
+     * leaving and one entering each key.
+     */
+    private List<ViewChange> supersede(List<ViewChange> changes) {
+        if (keyOrdinals == null || changes.size() < 2) {
+            return changes;
+        }
+        java.util.Set<List<Object>> entering = new java.util.HashSet<>();
+        for (ViewChange change : changes) {
+            if (change.weight() > 0) {
+                entering.add(keyOf(change.values()));
+            }
+        }
+        if (entering.isEmpty()) {
+            return changes;
+        }
+        List<ViewChange> kept = new ArrayList<>(changes.size());
+        for (ViewChange change : changes) {
+            if (change.weight() >= 0 || !entering.contains(keyOf(change.values()))) {
+                kept.add(change);
+            }
+        }
+        return kept;
+    }
+
+    /** A row's key, compared by value; byte arrays by content. */
+    private List<Object> keyOf(Object[] values) {
+        List<Object> key = new ArrayList<>(keyOrdinals.length);
+        for (int ordinal : keyOrdinals) {
+            Object value = values[ordinal];
+            key.add(value instanceof byte[] raw ? java.nio.ByteBuffer.wrap(raw) : value);
+        }
+        return key;
     }
 
     /**

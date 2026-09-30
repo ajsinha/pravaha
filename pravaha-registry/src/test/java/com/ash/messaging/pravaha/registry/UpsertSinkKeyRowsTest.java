@@ -135,15 +135,48 @@ class UpsertSinkKeyRowsTest {
                 .isEmpty();
     }
 
+    /**
+     * SINKKEYROWS-2: a key whose row is replaced within a commit arrives as the new row alone, an
+     * upsert over the key's record. The old row's withdrawal would delete the record on the way --
+     * a tombstone on a Kafka topic, a DELETE a reader can see -- and adds nothing to where it ends.
+     */
     @Test
-    void anUpsertThatReplacesAKeysRowArrivesAsTheOldRowWithdrawnThenTheNewOne() {
+    void anUpsertThatReplacesAKeysRowArrivesAsTheNewRowAlone() {
         RegisteredQuery query = registry.registerWritingTo("latest", LATEST, List.of(0), DANA, "table");
         feed(query, "u1", 10, 1, 0);
         query.commit();
         feed(query, "u1", 20, 1, 0);
         query.commit();
 
-        assertThat(sinks.sink("table").rows()).containsExactly("+[u1, 10]", "-[u1, 10]", "+[u1, 20]");
+        assertThat(sinks.sink("table").rows()).containsExactly("+[u1, 10]", "+[u1, 20]");
+    }
+
+    @Test
+    void aKeyThatLeavesAndDoesNotReturnIsStillWithdrawnInTheCommitThatReplacesAnother() {
+        RegisteredQuery query = registry.registerWritingTo("latest", LATEST, List.of(0), DANA, "table");
+        feed(query, "u1", 10, 1, 0);
+        feed(query, "u2", 5, 1, 0);
+        query.commit();
+        feed(query, "u1", 20, 1, 0);
+        feed(query, "u2", 5, -1, 0);
+        query.commit();
+
+        assertThat(sinks.sink("table").rows())
+                .as("u1 replaced by an upsert, u2 deleted")
+                .containsExactlyInAnyOrder("+[u1, 10]", "+[u2, 5]", "+[u1, 20]", "-[u2, 5]");
+        assertThat(table("table")).isEqualTo(shown(query)).containsExactly(Map.entry("u1", "[u1, 20]"));
+    }
+
+    @Test
+    void aChangelogSinkStillReceivesTheReplacementAsTheChangelogHasIt() {
+        RegisteredQuery query = registry.registerWritingTo("latest", LATEST, List.of(0), DANA, "log");
+        feed(query, "u1", 10, 1, 0);
+        query.commit();
+        feed(query, "u1", 10, -1, 0);
+        feed(query, "u1", 20, 1, 0);
+        query.commit();
+
+        assertThat(sinks.sink("log").rows()).containsExactly("+[u1, 10]", "-[u1, 10]", "+[u1, 20]");
     }
 
     @Test

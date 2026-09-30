@@ -12,6 +12,16 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ## Unreleased
 
+- **An upsert sink is handed a replaced key's new row alone, not a delete and an insert
+  (SINKKEYROWS-2).** Since SINKKEYROWS-1 a keyed sink in upsert mode follows the view's answer, and
+  a commit that replaced a key's row reached it as the old row withdrawn and then the new one: a
+  tombstone and a value on a `kafka-sink` topic, where every consumer saw the key deleted and
+  compaction keeps the tombstone for its retention, and a `DELETE` before the upsert on a
+  `jdbc-sink` table. The withdrawal of a key that re-enters in the same commit is now dropped; the
+  insert is the upsert. A key that leaves and does not return is still deleted, and a sink in
+  changelog mode still receives the changelog verbatim. Found by running `KafkaSinkRegistrationTest`
+  against a real broker (Testcontainers), which had not run since SINKKEYROWS-1;
+  `UpsertSinkKeyRowsTest` pins it without Docker.
 - **A view is administered by its owner, not by everyone who may read it (LIFE-040, SX-6).** Drop,
   pause, resume, replace, debug and dead-letter replay were allowed to anyone whose read of the view
   carried no row filter, so one reader could destroy the state every other reader depends on. They

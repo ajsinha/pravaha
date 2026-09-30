@@ -106,9 +106,9 @@ class ReplacementSinkHandoverTest {
         List<String> handover =
                 warehouse.writes().subList(writesBefore, warehouse.writes().size());
         assertThat(handover)
-                .as("the sink was sent the difference -- the old answer withdrawn, the new one written "
-                        + "-- and nothing else: not the whole of the new view, and nothing twice")
-                .containsExactly("-[u1, 1]", "-[u2, 2]", "+[u1, 10]", "+[u2, 20]");
+                .as("the sink was sent the difference -- each key's new row, an upsert over the old one "
+                        + "(SINKKEYROWS-2) -- and nothing else: not the whole of the new view, and nothing twice")
+                .containsExactly("+[u1, 10]", "+[u2, 20]");
         assertThat(warehouse.committedTwice())
                 .as("no transaction was committed under a label the store had already seen")
                 .isEmpty();

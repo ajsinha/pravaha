@@ -162,6 +162,12 @@ deleted a key the view still showed (SINKKEYROWS-1). A sink in changelog mode (`
 is still handed the changelog, weights as applied. A row that retention ages out of the view is
 not deleted from either: it was not withdrawn, and the sink is where it is kept.
 
+When a commit replaces a key's row, the upsert sink is handed the new row alone: the insert
+overwrites the key's record, and writing the old row's withdrawal first would delete the record on
+the way — a tombstone every consumer of a Kafka topic reads, a `DELETE` a reader of a table can
+see (SINKKEYROWS-2). A key that leaves the answer and does not come back in the same commit is
+still deleted.
+
 The query below plans perfectly — and is refused at registration, because the columns are in the
 wrong order for `large_payments` (`txn_id, user_id, amount`):
 
