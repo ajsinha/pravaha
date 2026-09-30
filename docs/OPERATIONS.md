@@ -1516,6 +1516,33 @@ served field and no log line at all (CFG-1). It is also a `node` tag on every me
 A node also logs, once, the off-heap implementation it chose: `off-heap access: bytebuffer
 (-Dpravaha.memory, -Dpravaha.ffm=false)`. See [JVM flags](#jvm-flags).
 
+### Where a node keeps its files: PRAVAHA_HOME
+
+Start the node from a **home** and everything it writes is under one directory, with or without
+Docker. `bin/pravaha-server` treats a directory as the home when `PRAVAHA_HOME` names it, or when it
+runs from an unpacked distribution (`lib/pravaha-server.jar` beside `bin/`); the container images
+set `PRAVAHA_HOME=/opt/pravaha`. From a home:
+
+```bash
+export PRAVAHA_HOME=~/pravaha-home                  # anywhere you own
+mkdir -p "$PRAVAHA_HOME/conf"
+cp deploy/release/distribution/application.yaml.example "$PRAVAHA_HOME/conf/application.yaml"
+bin/pravaha-server                                  # from a checkout, or $PRAVAHA_HOME/bin/pravaha-server
+```
+
+creates `conf/ data/ logs/ plugins/ secrets/ tmp/` as the user it runs as (`umask 077`; set
+`PRAVAHA_UMASK` to change it), works from the home, reads `$PRAVAHA_HOME/conf/application.yaml`
+after the jar's layout file, and keeps the registry journal, checkpoints, identity store, catalogue,
+alerts, audit trail, the log, heap dumps and the JVM's temporary files under it. A relative path in
+`conf/application.yaml` is relative to the home, so one file works in a container and on a host.
+Every path is listed, with the setting that places it, in
+[`RUNNING_IN_DOCKER.md`](RUNNING_IN_DOCKER.md), "The layout". Without a home — `bin/pravaha-server`
+from a checkout with `PRAVAHA_HOME` unset — nothing changes: the jar's defaults, in the current
+directory, as before.
+
+A distribution to unpack is `deploy/release/dist.sh` (`target/dist/pravaha-<version>.tar.gz`), with a
+systemd unit in its `conf/` ([`DEPLOYMENT.md`](DEPLOYMENT.md), "Without Docker: the same layout").
+
 ### Where a failure's help link points
 
 Every refusal carries a `PRV-nnnn` code, and where that code is written up is the deployment's to
@@ -2287,6 +2314,11 @@ crash — there is a test that an interrupted run equals an uninterrupted one.
 or a projection has no operator accumulators, so the view *is* the entire answer, and a restore that
 took the offsets without it resumed the source past every row it had read and served an empty view
 under a query reporting `RUNNING`.
+
+**What to copy.** From a home, the engine's state is `$PRAVAHA_HOME/data` and what it is configured
+with is `conf/` and `secrets/`; `logs/` is optional and `tmp/` never. Copy them with the node
+stopped ([`RUNNING_IN_DOCKER.md`](RUNNING_IN_DOCKER.md), "Backup, restore and upgrade", has the
+commands and the restore that was run).
 
 **Without a checkpoint directory a restart is a warm-up, not a restore.** The journal brings back
 every question and none of the answers, and the view fills as data arrives. For a view with a

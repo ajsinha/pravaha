@@ -126,3 +126,32 @@ The console became its own image, `pravaha/pravaha-console`, built by
 `deploy/docker/console/build.sh` from the checkout. It follows the same rule as this one: it builds
 nothing the reactor or the SDK's own packaging has not already defined, it runs as uid 10001, and
 it is configured by one mounted YAML file, `/opt/pravaha/console/conf/application.yaml`.
+
+## Amendment, 2026-09-29: PRAVAHA_HOME, the same layout everywhere, and any uid
+
+The owner asked that Pravaha run the same in a container and out of one, with every path under
+`/opt/pravaha` in Docker and every file the product creates owned by the user who runs it.
+
+- **The layout moved into the jar.** `/opt/pravaha/defaults/application.yaml` is gone; the server jar
+  carries `pravaha-home.yaml`, which places the log, the registry journal, the checkpoints, the
+  identity store and the audit file under `${PRAVAHA_HOME}`, and `bin/pravaha-server` names it, then
+  `$PRAVAHA_HOME/conf/`, when it runs from a home (`PRAVAHA_HOME` set, or `bin/` beside
+  `lib/pravaha-server.jar`). It also points `java.io.tmpdir`, `user.home`, heap dumps and `hs_err`
+  files under the home and keeps HotSpot's perf counters off `/tmp`. So the image, an unpacked
+  distribution (`deploy/release/dist.sh`) and a developer's chosen home get one layout, and
+  `--read-only` with only `/opt/pravaha` writable is enough — `smoke.sh` now proves that with no
+  `/tmp` at all.
+- **Any uid.** Directories are `10001:0` and group-writable, code is root's and read-only, nothing at
+  runtime needs root or `chown`s; run as `--user $(id -u):$(id -g)` over bind mounts and every file is
+  the caller's. The compose stack (`deploy/docker/compose`) runs that way, read-only.
+- **`plugins/`.** The jar's layout is `ZIP`, so its launcher is `PropertiesLauncher` and
+  `-Dloader.path=$PRAVAHA_HOME/plugins` works: the "a JDBC driver cannot be added at deployment time"
+  consequence recorded in DEPLOYMENT.md no longer holds.
+- **The root `Dockerfile`** builds only `pravaha-server` and `pravaha-cli`, with a BuildKit cache for
+  `~/.m2`, into the same runtime layout. It remains the no-JDK route; this Dockerfile remains what a
+  release publishes.
+- The console image keeps its code at `/opt/pravaha/console` and reads `/opt/pravaha/conf/console.yaml`
+  after its defaults (and the QA layout's `console/conf/application.yaml`), logs to
+  `/opt/pravaha/logs`, and keeps `HOME`, `TMPDIR` and the assistant's files under `/opt/pravaha`.
+
+docs/RUNNING_IN_DOCKER.md is the reference for all of it.

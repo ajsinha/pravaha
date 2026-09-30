@@ -10,6 +10,7 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 | [Quickstart](QUICKSTART.md) | Clone to a running continuous query | First |
 | [Concepts](CONCEPTS.md) | The eight ideas everything follows from | Second, and it is the highest-value page here |
 | [User guide](USER_GUIDE.md) | The whole surface, task by task, in Java / Python / shell | When you start building |
+| [Building and testing with Docker](GUIDE_BUILD_AND_TEST_WITH_DOCKER.md) | Step by step from a fresh clone with only Docker: images, the compose stack, a query end to end, every test suite in containers | When you want it running without installing a JDK or Python |
 | [Running from an IDE](DEVELOPING_IN_AN_IDE.md) | The engine in IntelliJ IDEA and the console in PyCharm: run configurations, debugging, tests | When you change the code |
 | [Python integration guide](PYTHON_API_GUIDE.md) | Every Python SDK call and every REST endpoint, with a verified sample each | When you connect an application |
 | [The assistant](ASSIST.md) | Plain English to and from continuous SQL through any model, with the engine as the judge: configuration, providers, runtime switching, plugins, security | When you want a query or a refusal explained |
@@ -21,6 +22,7 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 |---|---|
 | [Troubleshooting](TROUBLESHOOTING.md) | Every `PRV-` code, and the five you will actually meet |
 | [Operations](OPERATIONS.md) | Memory, disk, admission, what to watch, what is not solved |
+| [Running in Docker](RUNNING_IN_DOCKER.md) | The two images, the `/opt/pravaha` layout path by path, the compose stack and its profiles, ports, ownership, backup, troubleshooting |
 | [Deployment](DEPLOYMENT.md) | The container image, the Helm chart, the volumes, the ports, the environment, upgrading a node, the release procedure, and what the chart deliberately does not do |
 | [Security](SECURITY.md) | Authentication, authorization, row filters, audit |
 
