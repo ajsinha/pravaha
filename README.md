@@ -218,7 +218,7 @@ The console is then at <http://localhost:17070>. Step by step, test suites inclu
 
 **Without Docker** (JDK 21, and Python 3.11+ for the CLI and console) — from a checkout, as below, or
 from a distribution unpacked anywhere (`deploy/release/dist.sh`; [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md),
-"Without Docker: the same layout"). The walkthrough is `docs/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md`.
+"Without Docker: the same layout"). The walkthrough is [docs/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md](docs/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md).
 
 ```bash
 ./mvnw -q -DskipTests install
@@ -304,6 +304,7 @@ density are photographed and audited by axe. The manual WCAG 2.2 AA audit is not
 | [The Medium post](docs/medium/pravaha-medium-post.md) | The design and its trade-offs for engineers, with 13 diagrams and three case studies worked end to end; [how to publish it](docs/medium/README.md) |
 | [Python API guide](docs/PYTHON_API_GUIDE.md) | Every REST and SDK call with a Python sample, for integration |
 | [Running from an IDE](docs/DEVELOPING_IN_AN_IDE.md) | The server in IntelliJ IDEA and the console in PyCharm |
+| [Testing](docs/TESTING.md) | Every test tier, with and without Docker, what skips and why, measured times; and a [step-by-step build and test without Docker](docs/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) |
 
 | Reference | |
 |---|---|
@@ -359,6 +360,9 @@ The gate runs the Python SDK's tests too (`-Ppython`, the console's suite left o
 `sdk/python/.venv` — make it with `make install` in `sdk/python`, name another with
 `PRAVAHA_SDK_PYTHON`, or leave the suite out with `PRAVAHA_GATE_SDK=0`. A missing interpreter fails
 the gate by name rather than skipping it.
+
+What each tier needs and skips, the container-backed plugin tests (`-Pit` with Docker), and the
+Python and console suites: [docs/TESTING.md](docs/TESTING.md).
 
 **Modules**, in build order — checked against `pom.xml` by `DocumentationFreshnessTest`:
 `pravaha-bom`, `pravaha-api`, `pravaha-common`, `pravaha-algebra`, `pravaha-catalog`,
