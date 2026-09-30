@@ -195,10 +195,11 @@ class CassandraPluginIT {
     }
 
     @Test
-    void resumingContinuesThePassExactlyRatherThanReplayingOrLosingRows() {
-        // Unlike the Aerospike lut-scan, a token-range pass has no filter that could double-count
-        // the boundary: the underlying data does not change between the two reads, so the resumed
-        // read must be exactly the unread remainder -- no more, no less.
+    void resumingContinuesThePassFromThePartitionItStoppedInLosingNothing() {
+        // The resumed read is the unread remainder plus the partition the first read stopped in,
+        // read again from its first row (CASS-1): a stop inside a wide partition must not skip the
+        // rest of it, and a re-read row lands at +1 on a keyed view like every row of every pass.
+        // Each partition here is one row, so that is exactly one row read twice -- no more.
         for (long id = 1; id <= 6; id++) {
             put(id, "NEW", id * 10);
         }
@@ -221,13 +222,17 @@ class CassandraPluginIT {
         }
 
         Set<Long> firstIds = first.rows.stream().map(row -> (Long) row[0]).collect(java.util.stream.Collectors.toSet());
-        Set<Long> restIds = rest.rows.stream().map(row -> (Long) row[0]).collect(java.util.stream.Collectors.toSet());
+        List<Long> restIds = rest.rows.stream().map(row -> (Long) row[0]).toList();
+        long stoppedIn = (Long) first.rows.get(first.rows.size() - 1)[0];
+        Set<Long> unread = new HashSet<>(Set.of(1L, 2L, 3L, 4L, 5L, 6L));
+        unread.removeAll(firstIds);
         assertThat(firstIds).hasSize(3);
-        assertThat(restIds).hasSize(3);
-        assertThat(java.util.stream.Stream.concat(firstIds.stream(), restIds.stream())
-                        .collect(java.util.stream.Collectors.toSet()))
-                .as("the two reads together must be exactly the six rows written, with none missing or doubled")
-                .containsExactlyInAnyOrder(1L, 2L, 3L, 4L, 5L, 6L);
+        assertThat(restIds)
+                .as("the unread remainder, and the partition the first read stopped in again -- nothing "
+                        + "missing, and no partition before it replayed")
+                .containsExactlyInAnyOrderElementsOf(
+                        java.util.stream.Stream.concat(unread.stream(), java.util.stream.Stream.of(stoppedIn))
+                                .toList());
         plugin.close();
     }
 
