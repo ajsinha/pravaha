@@ -10,6 +10,7 @@
 
 *Pravaha* (Sanskrit: *continuous, uninterrupted flow*) · pronounced *pruh-VAA-huh*
 
+[![Release](https://img.shields.io/badge/release-1.0.0-crimson)](docs/RELEASE_NOTES.md)
 [![Status](https://img.shields.io/badge/status-wave%2010%20of%2011-blue)](docs/HANDOVER.md)
 [![Java](https://img.shields.io/badge/Java-21%20LTS-orange)](docs/system_design.md#4-language-decision-java-vs-scala)
 [![Build](https://img.shields.io/badge/build-Maven-C71A36)](docs/implementation_plan.md)
@@ -19,6 +20,8 @@
 
 ---
 
+> **Pravaha 1.0.0**, the first release with a compatibility promise ([what 1.x promises](docs/COMPATIBILITY.md)).
+>
 > **Project status: Wave 10 of 11.** One node: an engine that maintains the answers to registered
 > SQL questions as data changes, serves them back by key, writes them to sinks, and survives its own
 > restart, at a thread and memory cost that stops following the query count. **Clustering is not
@@ -315,6 +318,7 @@ density are photographed and audited by axe. The manual WCAG 2.2 AA audit is not
 | [Deployment](docs/DEPLOYMENT.md) | The container image and the Helm chart: volumes, ports, environment, probes, upgrading a node, the release procedure, and what the chart deliberately does not do |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Every `PRV-` code |
 | [Security](docs/SECURITY.md) | Authentication, authorization, row filters, audit |
+| [Compatibility](docs/COMPATIBILITY.md) | What 1.x keeps stable, what is experimental, which clients work with which nodes, upgrading from 0.2.x |
 | [Known limits](docs/LIMITS.md) | What is not built, whether it could be, and what is a boundary |
 
 | How and why | |
@@ -407,7 +411,7 @@ hold: the membership, lease and handoff libraries exist and no node uses them. "
 performance gate passed.
 
 Work happens on `develop`, and `main` is fast-forwarded to it after each gated change. The newest
-release is `v0.2.0`, a QA build: `deploy/release/release.sh` cuts a release, and `deploy/qa/bundle.sh`
+release is `v1.0.0`, one node, the first with a [compatibility promise](docs/COMPATIBILITY.md): `deploy/release/release.sh` cuts a release, and `deploy/qa/bundle.sh`
 packs the server and console images and their YAML files into one files-only bundle for a QA host,
 everything under `/opt/pravaha` ([Deployment](docs/DEPLOYMENT.md)). [Full roadmap with acceptance gates →](docs/system_design.md#31-delivery-roadmap)
 

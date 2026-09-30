@@ -10,6 +10,7 @@ at phone width -- is in ``test_browser_journeys.py``.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 
@@ -163,7 +164,14 @@ def test_the_footer_is_mayas_closing_line(admin, anonymous):
     for client, path in ((admin, "/catalog"), (anonymous, "/help"), (anonymous, "/login")):
         foot = client.get(path).text.split('<footer class="pv-foot">')[1].split("</footer>")[0]
         text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", foot)).strip()
-        assert text == "Ask once. Answer always. Pravaha 0.2.1 · Help · About · © 2026 Ashutosh Sinha. All rights reserved.", text
+        assert text == (f"Ask once. Answer always. Pravaha {_console_version()} · Help · About · "
+                        "© 2026 Ashutosh Sinha. All rights reserved."), text
+
+
+def _console_version() -> str:
+    # The version set-version.sh writes into the console's configuration, which the footer shows.
+    config = (Path(__file__).resolve().parents[1] / "config" / "application.yaml").read_text()
+    return re.search(r'^\s*version:\s*"([^"]+)"', config, re.M).group(1)
 
 
 def test_the_banners_say_where_this_is_and_what_is_wrong(admin, engine):

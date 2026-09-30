@@ -10,7 +10,33 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
 ---
 
-## Unreleased
+## 1.0.0 — 2026-09-30
+
+**The first release with a compatibility promise.** One node, feature-complete: continuous SQL over
+streams and change feeds, answers served by key over Arrow Flight SQL, HTTP and the PostgreSQL
+protocol, sinks with exactly-once delivery, queries on queries, alerts, a governed catalogue with
+grants, row filters and masks, per-tenant names, a console, standalone SDKs for Java and Python,
+and container images that keep everything under `/opt/pravaha`. What 1.x keeps stable, what is
+experimental and which clients work with which nodes: [COMPATIBILITY.md](COMPATIBILITY.md).
+Cluster mode (wave 11) is not in 1.0.
+
+**Read before upgrading from 0.2.x.**
+
+- **One-way.** Once a 0.2.x node has restarted on 1.0 with a view outside the default tenant, it
+  cannot go back: ADR-060 journals per-tenant names in a record older builds refuse. Back up
+  `data/` first.
+- **Administration follows ownership.** Reading a view no longer lets you drop or change it; its
+  owner, a grantee with MANAGE or an admin may. `pravaha.security.administer=legacy-read` restores
+  the old rule; it is deprecated, kept through 1.x and removed in 2.0.
+- **A catalogue that imported `authenticated` before 1.0** still grants MODIFY on the catalogue to
+  every signed-in caller; the node warns at start until `REVOKE MODIFY ON CATALOG FROM ROLE
+  authenticated`.
+- **Names outside the default tenant** appear as `tenant.default.name` in metrics, audit and
+  listings, and pgwire relation OIDs change once.
+- **The assistant is experimental** in 1.0 ([COMPATIBILITY.md](COMPATIBILITY.md)).
+
+Everything since 0.2.0:
+
 
 - **The client SDKs build, ship and run on their own (SDKSTANDALONE-1).** The SDKs are for clients,
   so they are built and released apart from the server, and neither side leans on the other.

@@ -22,6 +22,7 @@
 #   sdk/python/pyproject.toml          the Python SDK wheel
 #   console/pyproject.toml             the console wheel
 #   deploy/helm/pravaha/Chart.yaml     appVersion (the chart's OWN version is separate; see below)
+#   README.md, docs/USER_GUIDE.md and five console help pages: the versions they show
 #
 # PYTHON AND -SNAPSHOT. PEP 440 has no snapshot, so a Python version is the Maven one with
 # -SNAPSHOT removed: 0.2.0-SNAPSHOT and 0.2.0 both give 0.2.0. That is why a snapshot wheel is
@@ -143,6 +144,34 @@ if [[ -f "$console_cfg" ]]; then
   fi
 else
   problem "console/config/application.yaml is missing"
+fi
+
+# ---------------------------------------------------------------- the pages that show a version
+#
+# A <dependency> block, an artifact version or an example response copied from the docs has to
+# resolve against the build it came with (console/tests/test_help_accuracy.py checks it). Only
+# these shapes, in these files, are rewritten: history -- the release notes, the findings -- is left
+# as it was written.
+
+doc_pages=(README.md docs/USER_GUIDE.md console/content/topics/clients.md
+           console/content/topics/spring-boot-starter.md console/content/topics/embedded-engine.md
+           console/content/topics/http-api.md console/content/topics/cli-reference.md)
+if [[ "$check_only" == 0 && "$current" != "$target" ]]; then
+  current_python="${current%-SNAPSHOT}"
+  for page in "${doc_pages[@]}"; do
+    file="$root/$page"
+    [[ -f "$file" ]] || continue
+    before="$(cksum < "$file")"
+    perl -0pi -e "s|<version>\Q$current\E</version>|<version>$target</version>|g;
+                  s|version \x60\Q$current\E\x60 in this repository|version \x60$target\x60 in this repository|g;
+                  s|\"version\": \"\Q$current\E\"|\"version\": \"$target\"|g;
+                  s|pravaha-server:\Q$current\E|pravaha-server:$target|g;
+                  s|^(version +)\Q$current_python\E(?![0-9A-Za-z.-])|\${1}$python_version|mg" -- "$file"
+    if [[ "$(cksum < "$file")" != "$before" ]]; then
+      changed=$((changed + 1))
+      note "$page  $current -> $target"
+    fi
+  done
 fi
 
 # ---------------------------------------------------------------- the chart

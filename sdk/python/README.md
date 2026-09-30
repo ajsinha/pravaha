@@ -212,7 +212,7 @@ pip install 'pravaha[tls-keystore]'  # + cryptography, for a JKS or PKCS12 keyst
 ```
 
 Without `[flight]`, `import pravaha` still works and so does everything over HTTP; the first Flight
-call (`pravaha.connect`, `query`, `subscribe`) raises `ImportError` naming the extra to install.
+call (`pravaha.connect(...)`, `query`, `subscribe`) raises `ImportError` naming the extra to install.
 
 **From a build of this repository**, rather than a package index: `tools/build-sdk.sh` builds the
 wheel and the sdist (and the Java SDK) into `target/sdk-dist/`, without building the server, and

@@ -12,6 +12,9 @@ guide: python-sdk
 related: [sql-refusals, create-continuous-query, cli-reference, audit, observability]
 ---
 
+> **Experimental in 1.0.** It works and is tested, and may still change in a minor release, its
+> configuration file included; the release notes will say so.
+
 The assistant drafts a continuous query from a description in plain English, explains a continuous
 query, and explains a refusal — what a code such as PRV-2050 means for *your* statement and what to
 change. It asks a language model you configure:

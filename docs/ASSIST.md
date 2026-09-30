@@ -3,6 +3,10 @@
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 Proprietary and confidential; see [`../LICENSE`](../LICENSE).
 
+> **Experimental in 1.0.** The assistant works and is tested, and may still change in a minor
+> release — its configuration file included; the release notes will say so. See
+> [what 1.x promises](COMPATIBILITY.md).
+
 The assistant drafts a continuous query from a plain-English description, explains a continuous
 query in plain English, and explains a refusal — what `PRV-2050` means for *this* statement and
 what to change. It asks a language model you configure,

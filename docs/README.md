@@ -25,6 +25,7 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 | [Running in Docker](RUNNING_IN_DOCKER.md) | The two images, the `/opt/pravaha` layout path by path, the compose stack and its profiles, ports, ownership, backup, troubleshooting |
 | [Deployment](DEPLOYMENT.md) | The container image, the Helm chart, the volumes, the ports, the environment, upgrading a node, the release procedure, and what the chart deliberately does not do |
 | [Security](SECURITY.md) | Authentication, authorization, row filters, audit |
+| [Compatibility](COMPATIBILITY.md) | What 1.x keeps stable, what is experimental, which clients work with which nodes, upgrading from 0.2.x |
 | [Testing](TESTING.md) | Every test tier — unit, in-process, container-backed plugins, SDK, console, deck, performance — with and without Docker, what skips, measured times, and CI guidance. Walkthrough: [build and test without Docker](GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) |
 
 ## How it works

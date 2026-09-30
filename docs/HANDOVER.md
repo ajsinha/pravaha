@@ -15,7 +15,7 @@ otherwise have to rediscover the hard way.
 | | |
 |---|---|
 | `main` | Fast-forwarded to `develop` after every gated change ("drill"), so normally equal to it |
-| `develop` | Pushed after every verified change. Releases are tagged `v0.1.0` to `v0.2.0` (QA builds); `develop` is 0.2.1-SNAPSHOT |
+| `develop` | Pushed after every verified change. Releases are tagged `v0.1.0` to `v0.2.0` (QA builds) and `v1.0.0` (2026-09-30, the first with a compatibility promise, [COMPATIBILITY.md](COMPATIBILITY.md)); `develop` is 1.0.1-SNAPSHOT |
 | Modules | **37** Maven modules (38 reactor projects with the root), plus `sdk/python` and `console`, which are not Maven |
 | Java tests | **4,688** tests, 0 failures, 211 skipped (Docker-only broker and database tests among them) -- `tools/verify-clean.sh`, 2026-09-29 |
 | Python tests | **424** in `sdk/python`, and about **1,926** in `console` (browser suites included), all passing on 2026-09-29 |

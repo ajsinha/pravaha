@@ -189,7 +189,7 @@ console's query page. `GET /api/v1/me/permissions` answers `administer` by the s
 | Value | Who may administer a registered view |
 |---|---|
 | `ownership` (default) | its owner, a principal the policy grants it to, or the `admin` role |
-| `legacy-read` | the policy's `mayAdminister` alone — by default anyone whose read carries no row filter, as before. **Kept for one release**, so a deployment whose operators relied on reading can move them to grants (`GRANT MODIFY ON VIEW ...`) or the `admin` role first |
+| `legacy-read` | the policy's `mayAdminister` alone — by default anyone whose read carries no row filter, as before. **Deprecated: kept through 1.x and removed in 2.0**, so a deployment whose operators relied on reading can move them to grants (`GRANT MODIFY ON VIEW ...`) or the `admin` role first |
 
 Anything else is refused at start with `PRV-7004`. The embedded engine reads the same key from its
 `Configuration`. With the catalogue on, `authority: import` now imports `authenticated` without
