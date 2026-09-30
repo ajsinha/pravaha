@@ -87,11 +87,12 @@ this page.)
   table, or does not publish updates and deletes, is refused naming the `ALTER PUBLICATION`.
 - **To create that publication, the role needs two things**: to own the table, and `CREATE` on the
   database (`GRANT CREATE ON DATABASE <db> TO <role>;`) — PostgreSQL's own rule for `CREATE
-  PUBLICATION`, and one a fresh role does not have. Without the grant the source is refused at open
-  with [PRV-5111](/help/codes/PRV-5111) and PostgreSQL's `permission denied for database <db>`,
-  not with PRV-5112 and the statement. Or create the publication yourself as a role that may
-  (`CREATE PUBLICATION pravaha_<table> FOR TABLE <table>;`) and set `create.publication: "false"`;
-  then the capture role needs neither.
+  PUBLICATION`, and one a fresh role does not have. Both are checked at open, before anything is
+  created, and either missing is refused with [PRV-5112](/help/codes/PRV-5112) naming the statement:
+  `GRANT CREATE ON DATABASE <db> TO <role>;`, or `ALTER TABLE <table> OWNER TO <role>;`. Or create the
+  publication yourself as a role that may (`CREATE PUBLICATION pravaha_<table> FOR TABLE <table>;`)
+  and set `create.publication: "false"`; then the capture role needs neither — the refusal says that
+  too.
 
 ## Options
 
@@ -393,8 +394,8 @@ DROP PUBLICATION IF EXISTS pravaha_orders;
 | Code | When | Usually |
 |---|---|---|
 | [PRV-5110](/help/codes/PRV-5110) | at configuration | An option missing or malformed: a URL that is not `jdbc:postgresql:`, a slot name with a capital, `status.interval: 0`, a `tls.*` option |
-| [PRV-5111](/help/codes/PRV-5111) | at open | The database unreachable, the credentials refused, the PostgreSQL driver not on the classpath, or `permission denied for database` creating the publication (`GRANT CREATE ON DATABASE`) |
-| [PRV-5112](/help/codes/PRV-5112) | at open | A prerequisite missing — `wal_level`, `REPLICA IDENTITY FULL`, the publication, PostgreSQL 14 — or the slot missing, invalidated, or another plugin's. The message names the statement that fixes it |
+| [PRV-5111](/help/codes/PRV-5111) | at open | The database unreachable, the credentials refused, or the PostgreSQL driver not on the classpath |
+| [PRV-5112](/help/codes/PRV-5112) | at open | A prerequisite missing — `wal_level`, `REPLICA IDENTITY FULL`, the publication, the role's ownership of the table or `CREATE` on the database to create it, PostgreSQL 14 — or the slot missing, invalidated, or another plugin's. The message names the statement that fixes it |
 | [PRV-5113](/help/codes/PRV-5113) | at open | A declared `schema` that disagrees with the table, or a column with no mapping |
 | [PRV-5114](/help/codes/PRV-5114) | at restore | A checkpoint holds an offset this plugin did not write |
 | [PRV-5115](/help/codes/PRV-5115) | at restore | The slot has confirmed past the checkpoint being restored. Recover as above |

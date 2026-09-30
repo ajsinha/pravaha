@@ -676,7 +676,7 @@ pravaha:
 (`ALTER TABLE public.customers REPLICA IDENTITY FULL;` — without it a delete's before-image is the
 key alone and nothing can be retracted); and a role with `REPLICATION`, which owns the table and holds
 `CREATE` on the database (`GRANT CREATE ON DATABASE <db> TO <role>;`) if the plugin is to create the
-publication — without that grant the open fails with `PRV-5111`, `permission denied for database`. The shared `tls.*` options are refused, as for `jdbc`
+publication — without either, the open is refused with `PRV-5112` naming the statement. The shared `tls.*` options are refused, as for `jdbc`
 ([`CONNECTOR_TLS.md`](CONNECTOR_TLS.md)); the replication connection is opened from the same URL.
 
 **The schema** is read from the table. Declare one to pin it, or to leave out a column whose type is

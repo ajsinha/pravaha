@@ -627,7 +627,7 @@ gained a key in a new version is merged by hand — `diff` your `conf/applicatio
 | `PRV-1031` from the CLI or SDK | a token over plaintext Flight: add `--insecure-token` / `PRAVAHA_INSECURE_TOKEN=true` on one machine, or configure TLS |
 | `PRV-2050` registering a `GROUP BY` | unbounded state over a stream: add a window, or group a view instead (the seed does both) |
 | a windowed view stays empty | its windows have not closed: the watermark is the newest event time minus the allowed lateness, so a stream that has gone quiet holds its last window open. Watch `pravaha_query_watermark_lag_seconds` |
-| `PRV-5111 ... permission denied for database` from postgres-cdc | the role cannot create the publication: `GRANT CREATE ON DATABASE <db> TO <role>` (the stack's init script does) |
+| `PRV-5112 ... has no CREATE on database` from postgres-cdc | the role cannot create the publication: `GRANT CREATE ON DATABASE <db> TO <role>` (the stack's init script does). Before 2026-09-30 the same thing surfaced as `PRV-5111 ... permission denied for database` |
 | Aerospike restarts in a loop, `1024 system file descriptors not enough` | its `nofile` limit; the compose file raises it — keep `ulimits` if you copy the service |
 | a port is already taken | change its variable in `.env` (`PRAVAHA_HTTP_PORT`, ...) and `up -d` again |
 | the console says the engine is unreachable | `$C ps`: is `pravaha-server` healthy? The console reaches it as `pravaha-server:19090` on the compose network |

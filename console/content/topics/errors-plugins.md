@@ -612,11 +612,8 @@ The binding's options are wrong: a required option missing, a value out of range
 ### PRV-5111 — PostgreSQL CDC: connect failed
 
 The database unreachable, the credentials refused, or the PostgreSQL driver not on the classpath —
-the plugin uses the driver the deployment supplies, as `jdbc` does. Also where a statement the plugin
-runs while preparing the capture is refused by PostgreSQL: `cannot prepare ... for capture: ERROR:
-permission denied for database <db>` is `CREATE PUBLICATION` without `CREATE` on the database —
-`GRANT CREATE ON DATABASE <db> TO <role>;`, or create the publication yourself and set
-`create.publication: "false"`.
+the plugin uses the driver the deployment supplies, as `jdbc` does. A role that may not create the
+publication the plugin creates for it is not this code: that is PRV-5112, below.
 
 ### PRV-5112 — PostgreSQL CDC: not capturable
 
@@ -624,8 +621,11 @@ The database cannot support change capture as configured, and the message names 
 fixes it: `wal_level` is not `logical` (`ALTER SYSTEM SET wal_level = logical;` and a **restart**), the
 table is not `REPLICA IDENTITY FULL` (`ALTER TABLE ... REPLICA IDENTITY FULL;`, without which a delete
 could retract only the key), the publication does not publish updates and deletes or does not include
-the table, the server is older than PostgreSQL 14, or the slot is missing, invalidated or belongs to
-another plugin or database.
+the table, the role may not create the publication (it does not own the table —
+`ALTER TABLE ... OWNER TO <role>;` — or has no `CREATE` on the database —
+`GRANT CREATE ON DATABASE <db> TO <role>;`; or create the publication as a role that may and set
+`create.publication: "false"`), the server is older than PostgreSQL 14, or the slot is missing,
+invalidated or belongs to another plugin or database.
 
 ### PRV-5113 — PostgreSQL CDC: schema mismatch
 
