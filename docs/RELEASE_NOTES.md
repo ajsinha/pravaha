@@ -732,7 +732,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   in every theme.
 
 
-Register: **471 findings — 453 fixed, 0 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **480 findings — 462 fixed, 0 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ---
 

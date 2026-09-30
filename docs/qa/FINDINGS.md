@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **471 findings carrying a
-status — 453 FIXED, 0 OPEN, 9 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
+only part that is kept current. Counting the register as it stands: **480 findings carrying a
+status — 462 FIXED, 0 OPEN, 9 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
 GA-BLOCKER, 0 GA-REQUIRED, 0 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -7317,4 +7317,42 @@ the lead.
 ### LEGACYMODIFY-1 (LOW) — a catalogue that imported `authenticated` before ownership still grants MODIFY on the catalogue to every verified caller
 
 > **Status:** BY DESIGN — a fresh import of `authenticated` no longer grants `MODIFY ON CATALOG`; a catalogue imported earlier keeps the grant because grants are never rewritten silently. The node logs a WARN at every start until an operator runs `REVOKE MODIFY ON CATALOG FROM ROLE authenticated`; RELEASE_NOTES flags it for upgrades.
+
+## Found running Pravaha in Docker and every container-backed suite (2026-09-30), 9 findings
+
+### SINKKEYROWS-2 (MEDIUM) — an upsert sink is handed a replaced key as a delete and then an insert
+
+> **Status:** FIXED — since SINKKEYROWS-1 an upsert sink received a replaced key as "old row withdrawn, then new row", so kafka-sink wrote a transient tombstone (a deletion every consumer reads, kept by compaction for its retention) and jdbc-sink issued a DELETE before the upsert. `SinkDelivery` now drops a withdrawal superseded by the same key re-entering in the same commit; a key that leaves for good is still deleted, and changelog sinks are unchanged. `UpsertSinkKeyRowsTest`, `ReplacementSinkHandoverTest`, `KafkaSinkRegistrationTest` against a real broker.
+
+### SDKAUTH-1 (LOW) — three Python SDK authorization tests failed after ADR-060, unnoticed because the gate ran Maven only
+
+> **Status:** FIXED — the test Flight server served its fixed views in the default tenant to principals authenticated into tenant `acme`, and per-tenant view scoping correctly hid them (PRV-4023). The engine was right, the fixture wrong; `FlightTenantNamesTest` pins the isolation. The fixture now serves the views in the principals' tenant, and `tools/verify-clean.sh` now runs the SDK's pytest suite (`-Ppython`, console suite left out; `PRAVAHA_GATE_SDK=0` opts out and says so), so the escape cannot recur silently.
+
+### SDKCARD-1 (LOW) — the packaged dialect card was stale against the guide
+
+> **Status:** FIXED — `test_the_packaged_card_is_current_with_the_guide` failed because sections 10.1 and 13 of `docs/CONTINUOUS_QUERIES.md` had changed; ungated for the same reason as SDKAUTH-1. Regenerated with `tools/build_dialect_card.py`.
+
+### DOCPGCDC-1 (LOW) — the postgres-cdc prerequisites omitted the database CREATE privilege
+
+> **Status:** FIXED — `CREATE PUBLICATION` needs table ownership and CREATE on the database, and a fresh role lacks the second; every page that lists the prerequisites now names `GRANT CREATE ON DATABASE <db> TO <role>` or `create.publication: "false"` with a publication made by a role that may.
+
+### PGCDCPRIV-1 (LOW) — a missing publication privilege was reported as a connection failure
+
+> **Status:** FIXED — a capture role that did not own the table or had no CREATE on the database failed inside `CREATE PUBLICATION` and surfaced as PRV-5111 "cannot prepare … permission denied", with no fixing statement. `Preflight` now checks both before creating anything and refuses with PRV-5112 naming `ALTER TABLE … OWNER TO` and/or `GRANT CREATE ON DATABASE … TO`, or the `create.publication: "false"` alternative; an unforeseen 42501 is PRV-5112 too. `PublicationPrivilegeRefusalTest` (Testcontainers) pins all three cases and that each fix works.
+
+### AEROPORT-1 (LOW) — Aerospike integration tests bound host ports 3000–3002
+
+> **Status:** FIXED — under host networking they collided with, and could have connected to and truncated, a developer's own Aerospike, and the pravaha-it ones skipped themselves. Each container now takes three free ports and starts its server with a config naming them (`AerospikeContainer`, `AerospikeTestServer`); the three pravaha-it Aerospike ITs now execute.
+
+### CASSIT-1 (LOW) — `CassandraPluginIT` contradicted CASS-1's resume semantics
+
+> **Status:** FIXED — it still expected the exact-remainder resume from before CASS-1 and had not run since; it now expects the remainder plus the partition the read stopped in.
+
+### VISBASE-1 (LOW) — the query page's visual baselines were not retaken after the Owner row
+
+> **Status:** FIXED — ownership added an Owner row to the query page and 16 visual tests failed; the diffs were reviewed (every changed pixel is the page shifting down one row) and only the `query-*` baselines retaken.
+
+### PGWIRETX-1 (MEDIUM) — the pgwire gateway refused BEGIN, so psycopg's default mode and most ORMs failed
+
+> **Status:** FIXED — BEGIN/START TRANSACTION, COMMIT/END, ROLLBACK/ABORT, AND CHAIN, SAVEPOINT/RELEASE/ROLLBACK TO, SET TRANSACTION and SET SESSION CHARACTERISTICS are accepted as no-ops with PostgreSQL's tags and I/T/E ReadyForQuery status on both protocols, including the failed-block rule (25P02 until ROLLBACK; COMMIT of a failed block reports ROLLBACK). Reads in a block are READ COMMITTED; stronger levels are accepted with a NOTICE. SHOW answers the transaction settings and the parameters announced at connect. New codes PRV-6212 to 6215. `PgTransactionBlockTest` (raw protocol), `JdbcTransactionTest` (pgjdbc, autocommit off), `NpgsqlClientTest` (BeginTransaction), `PsycopgClientTest` (psycopg 3 default mode); the autocommit workaround is gone from the docs.
 
