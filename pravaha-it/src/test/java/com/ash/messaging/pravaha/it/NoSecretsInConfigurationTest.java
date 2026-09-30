@@ -46,7 +46,7 @@ class NoSecretsInConfigurationTest {
     private static final Pattern TOKEN_ENTRY = Pattern.compile("^\\s+\"([^\"]+)\"\\s*:\\s*$");
 
     private static final Pattern SAFE = Pattern.compile(
-            "\"\"|''|\"?@@[A-Z0-9_]+@@\"?|\"?\\$\\{[^}]*}\"?|true|false|[0-9]+|[0-9]+(ms|s|m|h|d)|\\{\\}|\\[\\]");
+            "\"\"|''|\"?@@[A-Z0-9_]+@@\"?|\"?\\$\\{[^}]*}\"?|([\"']?)(true|false|[0-9]+|[0-9]+(ms|s|m|h|d))\\1|\\{\\}|\\[\\]");
 
     @Test
     void noTrackedConfigurationHoldsALiteralSecret() throws IOException {
