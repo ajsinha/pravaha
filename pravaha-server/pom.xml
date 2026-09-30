@@ -375,6 +375,15 @@
               -->
               <classifier>app</classifier>
               <mainClass>com.ash.messaging.pravaha.server.PravahaServerApplication</mainClass>
+              <!--
+                ZIP, so the launcher is Spring Boot's PropertiesLauncher, which honours loader.path.
+                The default JAR layout's launcher reads only what is inside the jar, so a JDBC driver
+                for a database other than PostgreSQL could not be added at deployment time.
+                bin/pravaha-server passes -Dloader.path=$PRAVAHA_HOME/plugins: a jar dropped there
+                is on the classpath at the next start, found by ServiceLoader like a bundled one.
+                Everything already in the jar loads exactly as before.
+              -->
+              <layout>ZIP</layout>
             </configuration>
           </execution>
         </executions>

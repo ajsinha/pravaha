@@ -1,0 +1,79 @@
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+#
+# THE PRAVAHA_HOME LAYOUT: where a node keeps everything, relative to one root.
+#
+# Read only when the node runs from a home -- bin/pravaha-server names this file in
+# spring.config.additional-location when PRAVAHA_HOME is set, or when it runs from an unpacked
+# distribution (bin/ beside lib/pravaha-server.jar). A container sets PRAVAHA_HOME=/opt/pravaha.
+# A developer running the jar from a checkout with no PRAVAHA_HOME gets none of this, and the jar's
+# own application.yaml defaults are unchanged.
+#
+# Precedence, lowest first: the jar's application.yaml, THIS file, $PRAVAHA_HOME/conf/application.yaml,
+# then PRAVAHA_* / SPRING_* environment variables, then --key=value arguments. So a deployment that
+# wants a path elsewhere says so in conf/application.yaml and this file never gets in its way.
+#
+# The whole layout (docs/RUNNING_IN_DOCKER.md, "The layout"):
+#
+#   $PRAVAHA_HOME/bin/        launchers                                 (the distribution's)
+#   $PRAVAHA_HOME/lib/        pravaha-server.jar                        (the distribution's)
+#   $PRAVAHA_HOME/conf/       application.yaml, console.yaml            (the deployment's)
+#   $PRAVAHA_HOME/secrets/    key material, 0700                        (the deployment's)
+#   $PRAVAHA_HOME/plugins/    extra jars on the classpath (loader.path) (the deployment's)
+#   $PRAVAHA_HOME/data/       every byte of engine state                (the node's)
+#   $PRAVAHA_HOME/logs/       the node's log, the audit trail, heap dumps, JVM error files
+#   $PRAVAHA_HOME/tmp/        java.io.tmpdir (native codecs unpack here: it must allow exec)
+#
+# Only locations are set here. A key whose value changes what the engine DOES rather than where it
+# writes is left to the deployment, even when this layout has a directory waiting for it -- see
+# the bottom of the file.
+#
+# ${PRAVAHA_HOME} is resolved from the environment; bin/pravaha-server exports it. It has no default
+# here on purpose: a layout resolved against an empty root would write to /data and /logs.
+
+logging:
+  file:
+    # Spring Boot's rolling file appender. The console output stays as well -- that is what
+    # `docker logs` and journald read -- so this is a second copy, rotated, on the volume.
+    name: ${PRAVAHA_HOME}/logs/pravaha-server.log
+  logback:
+    rollingpolicy:
+      max-file-size: 50MB
+      max-history: 10
+      total-size-cap: 1GB
+
+pravaha:
+  # Registered continuous queries. Holds query text and bound parameter values: data, not config.
+  registry:
+    journal: ${PRAVAHA_HOME}/data/registry.journal
+
+  # What each query had accumulated; one directory per query beneath this one.
+  checkpoint:
+    directory: ${PRAVAHA_HOME}/data/checkpoints
+
+  # Users, password hashes, API key hashes and sessions, when pravaha.identity.enabled is true.
+  identity:
+    store: ${PRAVAHA_HOME}/data/identity/identity.journal
+
+  # Where `audit: file` writes. Only a location: whether there is an audit trail is
+  # pravaha.security.audit, which stays the deployment's decision.
+  security:
+    audit-file: ${PRAVAHA_HOME}/logs/audit.jsonl
+
+  # The catalogue's grants (pravaha.catalog.journal) and the alerts' decisions
+  # (pravaha.alerts.journal) default to files beside the registry journal above -- so to
+  # $PRAVAHA_HOME/data/catalog.journal and $PRAVAHA_HOME/data/alerts.journal -- with nothing set here.
+
+# --------------------------------------------------------------------------------------------
+# Deliberately NOT set, although the layout has a place for each. Each changes behaviour, not only
+# location, so the deployment sets it in $PRAVAHA_HOME/conf/application.yaml:
+#
+#   pravaha.dlq.directory: ${PRAVAHA_HOME}/data/dlq
+#       Set, an undecodable record is set aside there and the source keeps reading; unset, the
+#       source stops, loudly.
+#   pravaha.state.spill.directory: ${PRAVAHA_HOME}/data/spill
+#       A directory alone switches the overflow tier on (ADR-044). Set it with state.spill.max-bytes.
+#   pravaha.security.*
+#       The shipped defaults refuse to start, on purpose; no credential is in any layout.
+# --------------------------------------------------------------------------------------------
