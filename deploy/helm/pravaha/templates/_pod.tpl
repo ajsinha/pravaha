@@ -96,10 +96,14 @@ containers:
       - name: PRAVAHA_JAVA_OPTS
         value: {{ $v.javaOpts | quote }}
       {{- end }}
-      # Lowest precedence first, and a location named later wins. The image sets the first two;
+      # Lowest precedence first, and a location named later wins. bin/pravaha-server names the first two;
       # this adds the mounted secret, which must therefore come last.
+      # Kubernetes collects stdout; the layout's rolling file under /opt/pravaha/logs would be a
+      # second copy on an emptyDir. Empty is "no file" to Spring Boot.
+      - name: LOGGING_FILE_NAME
+        value: ""
       - name: SPRING_CONFIG_ADDITIONAL_LOCATION
-        value: "optional:file:/opt/pravaha/defaults/,optional:file:/opt/pravaha/conf/{{ if $v.auth.existingSecret }},optional:file:/opt/pravaha/secrets/auth/{{ end }}{{ range $v.extraConfigMounts }},optional:file:{{ .mountPath }}/{{ end }}"
+        value: "optional:classpath:/pravaha-home.yaml,optional:file:/opt/pravaha/conf/{{ if $v.auth.existingSecret }},optional:file:/opt/pravaha/secrets/auth/{{ end }}{{ range $v.extraConfigMounts }},optional:file:{{ .mountPath }}/{{ end }}"
       {{- with $v.extraEnv }}
       {{- toYaml . | nindent 6 }}
       {{- end }}
@@ -169,11 +173,17 @@ containers:
       - name: spill
         mountPath: {{ $v.persistence.mountPath }}/spill
       {{- end }}
-      # The root filesystem is read-only, and the JVM still needs somewhere to put hsperfdata and
-      # whatever a library decides to unpack. Memory-backed and small on purpose: if something
-      # starts writing data here it should fail rather than fill the node.
+      # The root filesystem is read-only. Under PRAVAHA_HOME=/opt/pravaha the launcher points
+      # java.io.tmpdir (native codecs, Tomcat's work directory) at /opt/pravaha/tmp and heap dumps
+      # and hs_err files at /opt/pravaha/logs; /tmp stays for what HotSpot alone decides, the
+      # attach socket jcmd opens. Memory-backed and small on purpose: if something starts writing
+      # data here it should fail rather than fill the node.
       - name: tmp
         mountPath: /tmp
+      - name: home-tmp
+        mountPath: /opt/pravaha/tmp
+      - name: logs
+        mountPath: /opt/pravaha/logs
 volumes:
   - name: config
     configMap:
@@ -208,7 +218,15 @@ volumes:
   - name: tmp
     emptyDir:
       medium: Memory
+      sizeLimit: 16Mi
+  - name: home-tmp
+    emptyDir:
+      medium: Memory
       sizeLimit: 64Mi
+  # The node's log goes to stdout here (LOGGING_FILE_NAME is blanked above), so this holds only a
+  # heap dump or an hs_err file -- on disk, not memory, because a heap dump is the size of the heap.
+  - name: logs
+    emptyDir: {}
   {{- if and $v.persistence.enabled $v.persistence.existingClaim }}
   - name: data
     persistentVolumeClaim:

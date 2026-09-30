@@ -18,6 +18,7 @@ import asyncio
 import io
 import json
 import logging
+import logging.handlers
 import pathlib
 import re
 import shutil
@@ -164,6 +165,31 @@ def test_json_log_lines_carry_the_request_correlation_id():
 def test_a_logging_format_that_is_neither_text_nor_json_refuses_the_start():
     with pytest.raises(ValueError, match="text or json"):
         configure_logging("yaml")
+
+
+def test_logging_file_writes_the_log_to_a_rotated_file_as_well_as_standard_error(tmp_path):
+    target = tmp_path / "logs" / "pravaha-console.log"      # the directory does not exist yet
+    root = logging.getLogger()
+    before, level = list(root.handlers), root.level
+    try:
+        configure_logging("text", "INFO", file=str(target), max_bytes=1024, backups=2)
+        kinds = [type(h) for h in root.handlers]
+        assert logging.StreamHandler in kinds
+        assert logging.handlers.RotatingFileHandler in kinds
+        logging.getLogger("pravaha.console").info("written to the file")
+        for handler in root.handlers:
+            handler.flush()
+        assert "written to the file" in target.read_text(encoding="utf-8")
+        # configured again without a file: the file handler is closed and gone, standard error stays
+        configure_logging("text", "INFO")
+        assert [type(h) for h in root.handlers] == [logging.StreamHandler]
+    finally:
+        for handler in list(root.handlers):
+            root.removeHandler(handler)
+            handler.close()
+        for handler in before:
+            root.addHandler(handler)
+        root.setLevel(level)
 
 
 def test_each_request_gets_a_correlation_id_and_keeps_its_traceparent_for_engine_calls():
