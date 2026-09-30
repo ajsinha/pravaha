@@ -367,7 +367,7 @@ READING: list[Reading] = [
             "docs/research/continuous-queries-as-maintained-answers.pdf",
             "continuous-queries-as-maintained-answers.pdf"),
     Reading("file-earmark-slides", "A continuous SQL engine: design and evidence",
-            "The deck, 76 slides: why ask once, the vocabulary, a query's life, correctness, scale on one "
+            "The deck, 91 slides: why ask once, the vocabulary, a query's life, correctness, scale on one "
             "node, connectors, security, operating it, and what is measured.",
             "docs/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx",
             "pravaha-design-and-evidence.pptx"),
