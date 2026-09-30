@@ -1,0 +1,12 @@
+{"order_id": 1, "customer": "acme", "amount": 120, "event_time": "2026-09-29T10:00:00Z"}
+{"order_id": 2, "customer": "globex", "amount": 75, "event_time": "2026-09-29T10:00:30Z"}
+{"order_id": 3, "customer": "acme", "amount": 300, "event_time": "2026-09-29T10:01:00Z"}
+{"order_id": 4, "customer": "initech", "amount": 42, "event_time": "2026-09-29T10:01:30Z"}
+{"order_id": 5, "customer": "globex", "amount": 510, "event_time": "2026-09-29T10:02:00Z"}
+{"order_id": 6, "customer": "acme", "amount": 18, "event_time": "2026-09-29T10:02:30Z"}
+{"order_id": 7, "customer": "initech", "amount": 260, "event_time": "2026-09-29T10:03:00Z"}
+{"order_id": 8, "customer": "globex", "amount": 99, "event_time": "2026-09-29T10:03:30Z"}
+{"order_id": 9, "customer": "acme", "amount": 1000, "event_time": "2026-09-29T10:04:00Z"}
+{"order_id": 10, "customer": "initech", "amount": 7, "event_time": "2026-09-29T10:04:30Z"}
+{"order_id": 11, "customer": "globex", "amount": 150, "event_time": "2026-09-29T10:05:00Z"}
+{"order_id": 12, "customer": "acme", "amount": 64, "event_time": "2026-09-29T10:05:30Z"}

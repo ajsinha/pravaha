@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#
+# Project Pravaha -- Ask once. Answer always.
 # Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 # Proprietary and confidential; see the LICENSE file in the root of this repository.
 #
@@ -25,11 +25,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "$tag" ]]; then
-  version="$(awk -F'"' '/^version = "/ { print $2; exit }' "$root/console/pyproject.toml")"
-  [[ -n "$version" ]] || { echo "build.sh: no version in console/pyproject.toml" >&2; exit 1; }
-  tag="pravaha/pravaha-console:$version"
-fi
+version="$(awk -F'"' '/^version = "/ { print $2; exit }' "$root/console/pyproject.toml")"
+[[ -n "$version" ]] || { echo "build.sh: no version in console/pyproject.toml" >&2; exit 1; }
+tag="${tag:-pravaha/pravaha-console:$version}"
 
-"$docker_bin" build -f "$root/deploy/docker/console/Dockerfile" -t "$tag" "$root"
+# What the image says it is, as the engine's image does (org.opencontainers.image.* labels).
+vcs_ref="$(git -C "$root" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+if ! git -C "$root" diff --quiet HEAD 2>/dev/null; then vcs_ref="$vcs_ref-dirty"; fi
+
+"$docker_bin" build -f "$root/deploy/docker/console/Dockerfile" -t "$tag" \
+  --build-arg "PRAVAHA_VERSION=$version" \
+  --build-arg "VCS_REF=$vcs_ref" \
+  --build-arg "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  "$root"
 echo "  built $tag"

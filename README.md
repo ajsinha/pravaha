@@ -197,6 +197,29 @@ hold 61 MiB off-heap at the advised inbox sizing. The evidence packs in
 
 ## Try it
 
+Two routes, the same result — and in both, everything the engine and the console write lives under
+one directory, `PRAVAHA_HOME` (`/opt/pravaha` in a container), owned by you:
+
+**With Docker only** (no JDK, no Python on the machine) — the engine, the console and Kafka, with a
+sample continuous query registered end to end:
+
+```bash
+docker build -t pravaha/pravaha-server:local .                 # the engine, built from source inside Docker
+deploy/docker/console/build.sh --tag pravaha/pravaha-console:local
+tools/docker-env.sh                                            # .env and pravaha-home/, as you
+docker compose -f deploy/docker/compose/docker-compose.yml --profile seed up -d
+docker compose -f deploy/docker/compose/docker-compose.yml run --rm cli query \
+  --sql "SELECT customer, COUNT(*) AS orders, SUM(amount) AS spend FROM orders_live GROUP BY customer"
+```
+
+The console is then at <http://localhost:17070>. Step by step, test suites included:
+[`docs/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md`](docs/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md); the reference:
+[`docs/RUNNING_IN_DOCKER.md`](docs/RUNNING_IN_DOCKER.md).
+
+**Without Docker** (JDK 21, and Python 3.11+ for the CLI and console) — from a checkout, as below, or
+from a distribution unpacked anywhere (`deploy/release/dist.sh`; [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md),
+"Without Docker: the same layout"). The walkthrough is `docs/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md`.
+
 ```bash
 ./mvnw -q -DskipTests install
 
@@ -287,6 +310,7 @@ density are photographed and audited by axe. The manual WCAG 2.2 AA audit is not
 | [Streams, queries and SQL](docs/CONTINUOUS_QUERIES.md) | Declaring streams and sources, registering, reading, sinks, windows, joins — and every SQL construct that works or is refused |
 | [Connectors](docs/CONNECTORS.md) and [TLS](docs/CONNECTOR_TLS.md) | Building a source or sink plugin; encrypting every connection |
 | [Operations](docs/OPERATIONS.md) | Configuration, sizing, sinks, state, recovery, what to watch |
+| [Running in Docker](docs/RUNNING_IN_DOCKER.md) | The two images, the `/opt/pravaha` layout, the compose stack and its profiles, ownership, backup, troubleshooting |
 | [Deployment](docs/DEPLOYMENT.md) | The container image and the Helm chart: volumes, ports, environment, probes, upgrading a node, the release procedure, and what the chart deliberately does not do |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Every `PRV-` code |
 | [Security](docs/SECURITY.md) | Authentication, authorization, row filters, audit |

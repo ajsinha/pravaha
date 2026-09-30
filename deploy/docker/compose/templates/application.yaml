@@ -1,0 +1,119 @@
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+#
+# THE ENGINE'S CONFIGURATION FOR THE COMPOSE STACK: $PRAVAHA_HOME/conf/application.yaml.
+#
+# tools/docker-env.sh writes this once from deploy/docker/compose/templates/application.yaml, putting
+# the generated credentials where the @@...@@ markers are, and never overwrites it afterwards: edit it,
+# then `docker compose restart pravaha-server`. Mode 0600 -- it holds credentials.
+#
+# EVERY PATH HERE IS RELATIVE, and so it means the same thing in the container and out of it:
+# bin/pravaha-server runs the node with PRAVAHA_HOME as its working directory, /opt/pravaha in the
+# container and whatever directory you chose on a host. The places the layout already gives
+# (registry journal, checkpoints, identity store, audit file, the log) are not repeated here; see
+# pravaha-server/src/main/resources/pravaha-home.yaml.
+#
+# Read after the jar's defaults and the layout, so any key of the jar's application.yaml can be set
+# here and wins.
+
+pravaha:
+  node:
+    id: pravaha-stack-01
+
+  # Every refusal is a PRV-nnnn code; this makes each one a link into the console's help.
+  docs:
+    base-url: http://localhost:17070/help/codes/
+
+  # psql, DBeaver and Grafana's PostgreSQL datasource read views here. Inside the container it is
+  # 5432; the compose file publishes it on the host as ${PRAVAHA_PGWIRE_PORT:-15432}, because 5432 on a
+  # developer's machine is usually a real PostgreSQL. Plaintext: the stack is for one machine.
+  pgwire:
+    enabled: true
+    host: 0.0.0.0
+    port: 5432
+
+  # ------------------------------------------------------------------------------ who may connect
+  # People sign in to the console against this node's users (ADR-052). `admin` is created on the first
+  # start with the password in secrets/initial-admin-password -- change it at the first sign-in.
+  identity:
+    enabled: true
+    environment: stack
+    bootstrap-password-file: secrets/initial-admin-password
+
+  # Token authentication; nothing for a caller without one. The two static tokens below are for
+  # programs that cannot sign in: the seed job and the host's CLI (id seed), and Prometheus (id
+  # prometheus). THE MAP KEY IS THE SECRET; `id` is what the audit trail records.
+  security:
+    authentication: token
+    policy: authenticated
+    audit: file
+    allow-anonymous: false
+    tokens:
+      "@@SEED_TOKEN@@":
+        id: seed
+        tenant: public
+        roles: [operator, admin]
+      "@@PROMETHEUS_TOKEN@@":
+        id: prometheus
+        tenant: public
+        roles: [reader]
+
+  # ------------------------------------------------------------------------------ state
+  # The registry journal, checkpoints and identity store are placed by the layout, under data/.
+  checkpoint:
+    interval: 30s
+    keep: 3
+  # A record no source can decode is set aside here and the source keeps reading.
+  dlq:
+    directory: data/dlq
+  # A query that outgrows memory slows down onto this disk rather than failing with PRV-4001.
+  state:
+    spill:
+      directory: data/spill
+      max-bytes: 2GB
+
+  # ------------------------------------------------------------------------------ streams
+  # orders: JSON objects on the Kafka topic `orders`. The seed profile creates the topic, writes
+  # twelve orders and registers spend_by_customer over it (deploy/docker/compose/seed/).
+  #
+  # customers and payments: change data capture from the `cdc` profile's PostgreSQL and MySQL. Declared
+  # always; a source opens only when a query over it registers, so they cost nothing while the cdc
+  # profile is down -- and a registration over one then is refused naming the unreachable database.
+  streams:
+    orders:
+      schema: "order_id:INT64,customer:STRING,amount:INT64,event_time:TIMESTAMP"
+      event-time: event_time
+      out-of-orderness: 10s
+    customers:
+      schema: "id:INT64,name:STRING,tier:STRING"
+    payments:
+      schema: "id:INT64,customer:STRING,amount:INT64"
+
+  sources:
+    orders:
+      plugin: kafka
+      options:
+        bootstrap.servers: kafka:9092
+        topic: orders
+        format: json
+        schema: "order_id:INT64,customer:STRING,amount:INT64,event_time:TIMESTAMP"
+        start.from: earliest
+    customers:
+      plugin: postgres-cdc
+      options:
+        url: "jdbc:postgresql://postgres:5432/shop"
+        user: pravaha_cdc
+        password: "@@CDC_PASSWORD@@"
+        table: public.customers
+        schema: "id:INT64,name:STRING,tier:STRING"
+        snapshot.mode: initial
+    payments:
+      plugin: mysql-cdc
+      options:
+        host: mysql
+        port: "3306"
+        user: pravaha_cdc
+        password: "@@CDC_PASSWORD@@"
+        table: shop.payments
+        server.id: "6401"

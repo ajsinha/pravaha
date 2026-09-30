@@ -342,14 +342,17 @@ ok "flightless node: readiness $code, not 200 (no client can reach it)"
 
 # ------------------------------------- 10. a read-only root filesystem
 
-# The chart sets readOnlyRootFilesystem: true and mounts an emptyDir at /tmp. There is no cluster
-# on this machine to prove that on, and `docker run --read-only --tmpfs /tmp` is the same
-# constraint: nothing outside the volume and /tmp may be written. If the JVM or the engine needs
-# to write anywhere else, it fails here rather than in somebody's cluster. `exec` because Docker's
-# tmpfs is noexec by default and the Parquet codecs load their native library from there; a
-# Kubernetes emptyDir allows it (ADR-053).
+# The chart sets readOnlyRootFilesystem: true and mounts emptyDirs at /opt/pravaha/tmp and
+# /opt/pravaha/logs. There is no cluster on this machine to prove that on, and `docker run
+# --read-only` with a tmpfs at /opt/pravaha/tmp and nothing at /tmp is the same constraint and a
+# stricter one: NOTHING outside /opt/pravaha may be written -- the PRAVAHA_HOME rule
+# (docs/RUNNING_IN_DOCKER.md). logs/ is the image's VOLUME, so it gets an anonymous one. If the JVM
+# or the engine needs to write anywhere else, it fails here rather than in somebody's cluster.
+# `exec` because Docker's tmpfs is noexec by default and the Parquet codecs load their native
+# library from java.io.tmpdir; a Kubernetes emptyDir allows it (ADR-053). mode=1777 because a
+# Docker tmpfs is root's 0755 otherwise, and the node does not run as root.
 "$docker_bin" run -d --name "$name-noflight" \
-  --read-only --tmpfs /tmp:rw,exec,size=64m \
+  --read-only --tmpfs /opt/pravaha/tmp:rw,exec,size=64m,mode=1777 \
   -p "127.0.0.1:$http_port:18080" \
   -p "127.0.0.1:$flight_port:19090" \
   -v "$work/data:/opt/pravaha/data" \
@@ -367,7 +370,7 @@ done
 rows="$(pravaha query --sql "SELECT user_id, amount FROM by_user" 2>&1 || true)"
 grep -q '300' <<<"$rows" || fail "read-only root: the view did not come back:
 $rows"
-ok "ready, and serving, with --read-only and only /tmp and the volume writable"
+ok "ready, and serving, with --read-only and only /opt/pravaha/{data,logs,tmp} writable"
 
 
 # ------------------------------------- 11. the image's native code loads

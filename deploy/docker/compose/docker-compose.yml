@@ -1,0 +1,287 @@
+# Project Pravaha -- Ask once. Answer always.
+# Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
+# Proprietary and confidential; see the LICENSE file in the root of this repository.
+#
+# PRAVAHA IN DOCKER, ON ONE MACHINE: the engine, the console, Kafka, and -- behind profiles --
+# PostgreSQL and MySQL for change data capture, Aerospike and Cassandra, Prometheus and Grafana, and
+# a seed job that registers a sample continuous query end to end. docs/RUNNING_IN_DOCKER.md is the
+# reference; docs/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md walks it step by step.
+#
+#   tools/docker-env.sh                                   # once: .env, pravaha-home/, credentials
+#   docker compose -f deploy/docker/compose/docker-compose.yml up -d
+#   docker compose -f deploy/docker/compose/docker-compose.yml --profile seed up -d
+#   docker compose -f deploy/docker/compose/docker-compose.yml --profile cdc --profile observability up -d
+#   docker compose -f deploy/docker/compose/docker-compose.yml --profile '*' down        # add -v to drop volumes
+#
+# Profiles (none of them is needed for the core three services):
+#
+#   (always)        pravaha-server, pravaha-console, kafka
+#   seed            seed-kafka + seed-register: topic `orders`, twelve orders, the view spend_by_customer
+#   cdc             postgres (wal_level=logical) and mysql (row binlog, GTIDs), each with a table ready
+#   stores          aerospike and cassandra, for the lookups, sinks and sources that use them
+#   observability   prometheus (scraping the node, with the shipped rules) and grafana (the shipped dashboards)
+#   tools           cli: `docker compose run --rm cli queries` -- the pravaha command line, no Python on the host
+#
+# THE ONE ROOT. The engine and the console each see ONE tree, /opt/pravaha, and on this host it is
+# $PRAVAHA_HOME_DIR (tools/docker-env.sh makes deploy/docker/compose/pravaha-home unless told otherwise):
+# its conf/, secrets/, plugins/, data/, logs/ and tmp/ are bind-mounted onto the same names under
+# /opt/pravaha. Not the directory itself, because the image's own bin/ and lib/ live under /opt/pravaha
+# too, and a mount over the root would hide them.
+#
+# OWNED BY YOU. Both run as ${PRAVAHA_UID}:${PRAVAHA_GID} -- your uid and gid, which docker-env.sh
+# wrote into .env -- so every file they create in pravaha-home is yours, and none is root's. Both
+# run with a read-only root filesystem, so the only place either can write is those mounts: the
+# stack itself proves nothing is written outside /opt/pravaha. Kafka, the databases and the
+# monitoring keep their state in named volumes of this project, owned by their own images' users.
+#
+# PORTS. Published on ${PRAVAHA_BIND:-127.0.0.1} only, and chosen away from the usual defaults so a
+# PostgreSQL, Kafka or Grafana already on this machine keeps its port. Each is a variable in .env.
+#
+# The project is called pravaha-stack: `docker compose ls`, `docker ps --filter
+# label=com.docker.compose.project=pravaha-stack`, and `down` touch only its own containers,
+# network and volumes.
+
+name: pravaha-stack
+
+x-pravaha-user: &pravaha-user "${PRAVAHA_UID:-10001}:${PRAVAHA_GID:-10001}"
+
+services:
+  # ------------------------------------------------------------------------------ the engine
+  pravaha-server:
+    image: pravaha/pravaha-server:${PRAVAHA_TAG:-local}
+    user: *pravaha-user
+    read_only: true
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "${PRAVAHA_BIND:-127.0.0.1}:${PRAVAHA_HTTP_PORT:-18080}:18080"     # HTTP: REST API, operator pages, probes
+      - "${PRAVAHA_BIND:-127.0.0.1}:${PRAVAHA_FLIGHT_PORT:-19090}:19090"   # Flight SQL: the SDKs, the CLI, the console
+      - "${PRAVAHA_BIND:-127.0.0.1}:${PRAVAHA_PGWIRE_PORT:-15432}:5432"    # PostgreSQL wire: psql, BI tools
+    volumes:
+      - ${PRAVAHA_HOME_DIR:?run tools/docker-env.sh first}/conf:/opt/pravaha/conf:ro
+      - ${PRAVAHA_HOME_DIR}/secrets:/opt/pravaha/secrets:ro
+      - ${PRAVAHA_HOME_DIR}/plugins:/opt/pravaha/plugins:ro
+      - ${PRAVAHA_HOME_DIR}/data:/opt/pravaha/data
+      - ${PRAVAHA_HOME_DIR}/logs:/opt/pravaha/logs
+      - ${PRAVAHA_HOME_DIR}/tmp:/opt/pravaha/tmp
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:18080/actuator/health/readiness || exit 1"]
+      interval: 10s
+      timeout: 3s
+      start_period: 60s
+      retries: 6
+    stop_grace_period: 60s                 # a checkpoint and the sinks' commit, before SIGKILL
+
+  # ------------------------------------------------------------------------------ the console
+  pravaha-console:
+    image: pravaha/pravaha-console:${PRAVAHA_TAG:-local}
+    user: *pravaha-user
+    read_only: true
+    restart: unless-stopped
+    depends_on:
+      pravaha-server:
+        condition: service_started
+    ports:
+      - "${PRAVAHA_BIND:-127.0.0.1}:${PRAVAHA_CONSOLE_PORT:-17070}:17070"
+    volumes:
+      # Its own file only: the engine's application.yaml holds the engine's credentials.
+      - ${PRAVAHA_HOME_DIR}/conf/console.yaml:/opt/pravaha/conf/console.yaml:ro
+      - ${PRAVAHA_HOME_DIR}/data/console:/opt/pravaha/data/console
+      - ${PRAVAHA_HOME_DIR}/logs:/opt/pravaha/logs
+      - ${PRAVAHA_HOME_DIR}/tmp:/opt/pravaha/tmp
+
+  # ------------------------------------------------------------------------------ Kafka, KRaft
+  # One broker that is also its own controller: no ZooKeeper. Containers reach it as kafka:9092;
+  # the host as localhost:${PRAVAHA_KAFKA_PORT:-29092}.
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    restart: unless-stopped
+    environment:
+      CLUSTER_ID: "cHJhdmFoYS1zdGFjay0wMQ"
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,HOST://localhost:${PRAVAHA_KAFKA_PORT:-29092}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    ports:
+      - "${PRAVAHA_BIND:-127.0.0.1}:${PRAVAHA_KAFKA_PORT:-29092}:29092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      start_period: 30s
+      retries: 12
+
+  # ------------------------------------------------------------------------------ profile: seed
+  seed-kafka:
+    profiles: [seed]
+    image: confluentinc/cp-kafka:7.6.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./seed:/seed:ro
+    entrypoint: ["/bin/sh", "/seed/kafka.sh"]
+    restart: "no"
+
+  seed-register:
+    profiles: [seed]
+    image: pravaha/pravaha-console:${PRAVAHA_TAG:-local}
+    user: *pravaha-user
+    read_only: true
+    depends_on:
+      seed-kafka:
+        condition: service_completed_successfully
+      pravaha-server:
+        condition: service_healthy
+    environment:
+      PRAVAHA_URL: grpc://pravaha-server:19090
+      PRAVAHA_HTTP: http://pravaha-server:18080
+      PRAVAHA_TOKEN: ${PRAVAHA_SEED_TOKEN:?run tools/docker-env.sh first}
+      PRAVAHA_INSECURE_TOKEN: "true"     # Flight on the compose network is plaintext
+    tmpfs:
+      - /opt/pravaha/tmp
+    volumes:
+      - ./seed:/seed:ro
+    entrypoint: ["/bin/sh", "/seed/register.sh"]
+    restart: "no"
+
+  # ------------------------------------------------------------------------------ profile: tools
+  # docker compose -f deploy/docker/compose/docker-compose.yml run --rm cli query --sql "SELECT * FROM spend_by_customer"
+  cli:
+    profiles: [tools]
+    image: pravaha/pravaha-console:${PRAVAHA_TAG:-local}
+    user: *pravaha-user
+    read_only: true
+    environment:
+      PRAVAHA_URL: grpc://pravaha-server:19090
+      PRAVAHA_HTTP: http://pravaha-server:18080
+      PRAVAHA_TOKEN: ${PRAVAHA_SEED_TOKEN:-}
+      PRAVAHA_INSECURE_TOKEN: "true"
+    tmpfs:
+      - /opt/pravaha/tmp
+    entrypoint: ["pravaha"]
+    command: ["--help"]
+    restart: "no"
+
+  # ------------------------------------------------------------------------------ profile: cdc
+  postgres:
+    profiles: [cdc]
+    image: postgres:16-alpine
+    restart: unless-stopped
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=10", "-c", "max_wal_senders=10"]
+    environment:
+      POSTGRES_DB: shop
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run tools/docker-env.sh first}
+      PRAVAHA_CDC_PASSWORD: ${PRAVAHA_CDC_PASSWORD:?run tools/docker-env.sh first}
+    ports:
+      - "${PRAVAHA_BIND:-127.0.0.1}:${PRAVAHA_POSTGRES_PORT:-25432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./initdb/postgres:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d shop"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mysql:
+    profiles: [cdc]
+    image: mysql:8.0
+    restart: unless-stopped
+    command: ["--server-id=1", "--log-bin=mysql-bin", "--binlog-format=ROW", "--binlog-row-image=FULL",
+              "--gtid-mode=ON", "--enforce-gtid-consistency=ON"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?run tools/docker-env.sh first}
+      MYSQL_DATABASE: shop
+      PRAVAHA_CDC_PASSWORD: ${PRAVAHA_CDC_PASSWORD}
+    ports:
+      - "${PRAVAHA_BIND:-127.0.0.1}:${PRAVAHA_MYSQL_PORT:-23306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./initdb/mysql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      start_period: 30s
+      retries: 30
+
+  # ------------------------------------------------------------------------------ profile: stores
+  aerospike:
+    profiles: [stores]
+    image: aerospike/aerospike-server:latest
+    restart: unless-stopped
+    # The server refuses to start below 15000 file descriptors ("1024 system file descriptors not
+    # enough"), and Docker's default is 1024.
+    ulimits:
+      nofile: {soft: 65536, hard: 65536}
+    ports:
+      - "${PRAVAHA_BIND:-127.0.0.1}:${PRAVAHA_AEROSPIKE_PORT:-23100}:3000"
+    volumes:
+      - aerospike-data:/opt/aerospike/data
+
+  cassandra:
+    profiles: [stores]
+    image: cassandra:4.1
+    restart: unless-stopped
+    environment:
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 128M
+    ports:
+      - "${PRAVAHA_BIND:-127.0.0.1}:${PRAVAHA_CASSANDRA_PORT:-29042}:9042"
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+
+  # ------------------------------------------------------------------------------ profile: observability
+  prometheus:
+    profiles: [observability]
+    image: prom/prometheus:v2.53.2
+    restart: unless-stopped
+    ports:
+      - "${PRAVAHA_BIND:-127.0.0.1}:${PRAVAHA_PROMETHEUS_PORT:-29190}:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../../observability/prometheus/pravaha-rules.yaml:/etc/prometheus/rules/pravaha-rules.yaml:ro
+      - ${PRAVAHA_HOME_DIR}/secrets/prometheus.token:/etc/prometheus/pravaha.token:ro
+      - prometheus-data:/prometheus
+
+  grafana:
+    profiles: [observability]
+    image: grafana/grafana:11.2.0
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?run tools/docker-env.sh first}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "${PRAVAHA_BIND:-127.0.0.1}:${PRAVAHA_GRAFANA_PORT:-23030}:3000"
+    volumes:
+      - ./observability/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./observability/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ../../observability/grafana:/var/lib/pravaha-dashboards:ro
+      - grafana-data:/var/lib/grafana
+
+volumes:
+  kafka-data:
+  postgres-data:
+  mysql-data:
+  aerospike-data:
+  cassandra-data:
+  prometheus-data:
+  grafana-data:

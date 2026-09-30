@@ -129,6 +129,11 @@ logging:
   # level, logger, thread, message, the request's correlationId, and traceId/spanId when
   # OpenTelemetry is installed and tracing -- for Loki or Elasticsearch. Anything else refuses the start.
   format: "${CONSOLE_LOG_FORMAT:text}"
+  # Also write the log to this file, rotated past max_bytes keeping `backups` generations. Empty:
+  # standard error only. The console image sets CONSOLE_LOG_FILE=/opt/pravaha/logs/pravaha-console.log.
+  file: "${CONSOLE_LOG_FILE:}"
+  max_bytes: 52428800
+  backups: 10
 
 # The assistant's metrics for Prometheus at /metrics: requests, tokens, failures, fallbacks and
 # latency per model and profile, and today's tokens from the usage ledger. OFF by default: it names

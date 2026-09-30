@@ -201,7 +201,10 @@ def main() -> None:
     config = PropertiesConfigurator(config_path())
     # text (the default) or json: one JSON object per line for Loki or Elasticsearch. Anything else
     # refuses the start rather than writing what a log pipeline did not ask for.
-    configure_logging(config.get("logging.format", "text"), config.get("logging.level", "INFO"))
+    configure_logging(config.get("logging.format", "text"), config.get("logging.level", "INFO"),
+                      file=config.get("logging.file") or None,
+                      max_bytes=config.get_int("logging.max_bytes", 50 * 1024 * 1024),
+                      backups=config.get_int("logging.backups", 10))
 
     host = config.get("server.host", "127.0.0.1")
     port = config.get_int("server.port", 17070)

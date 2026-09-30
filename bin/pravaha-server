@@ -9,6 +9,23 @@
 # anybody having said so. For a local first run:
 #
 #     bin/pravaha-server --spring.profiles.active=dev
+#
+# PRAVAHA_HOME. When it is set -- or when this script runs from an unpacked distribution, where
+# ../lib/pravaha-server.jar sits beside it, which is also the container image -- the node runs from
+# that one root and writes nothing outside it (docs/RUNNING_IN_DOCKER.md, "The layout"):
+#
+#     conf/      application.yaml, read after the layout, so it wins      (created if missing)
+#     data/      journal, checkpoints, identity store, catalogue, alerts  (created if missing)
+#     logs/      pravaha-server.log, audit.jsonl, heap dumps, hs_err files (created if missing)
+#     plugins/   jars added to the classpath (-Dloader.path)               (created if missing)
+#     secrets/   key material, 0700                                         (created if missing)
+#     tmp/       java.io.tmpdir and user.home; native codecs unpack here    (created if missing)
+#
+# and the working directory is PRAVAHA_HOME, so a relative path in conf/application.yaml is relative
+# to it. Without PRAVAHA_HOME, from a source checkout, none of this happens and the node behaves
+# exactly as it always has: the jar's defaults, in the current directory.
+#
+# PRAVAHA_JAVA_OPTS comes after everything this script sets, so any of it can be overridden there.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,9 +43,67 @@ if [[ -z "$jar" || ! -f "$jar" ]]; then
   echo "  Or point at it: PRAVAHA_SERVER_JAR=/path/to/pravaha-server-<version>-app.jar" >&2
   exit 2
 fi
+jar="$(cd "$(dirname "$jar")" && pwd)/$(basename "$jar")"
+
+home="${PRAVAHA_HOME:-}"
+if [[ -z "$home" && -f "$here/../lib/pravaha-server.jar" ]]; then
+  home="$(cd "$here/.." && pwd)"
+fi
+
+home_opts=()
+if [[ -n "$home" ]]; then
+  mkdir -p "$home" 2>/dev/null || true
+  home="$(cd "$home" 2>/dev/null && pwd)" || {
+    echo "pravaha-server: PRAVAHA_HOME=$PRAVAHA_HOME does not exist and cannot be created." >&2
+    exit 2
+  }
+  export PRAVAHA_HOME="$home"
+  # Owner-only, for what this process creates: data/ holds query text, bound parameters and
+  # password hashes, and the engine narrows a looser state directory itself -- with a warning each
+  # time -- so it is created right rather than corrected. Set PRAVAHA_UMASK to loosen it (027 lets
+  # a group read the logs).
+  umask "${PRAVAHA_UMASK:-077}"
+
+  # Created by the process that will write them, so they belong to whoever runs the node -- in a
+  # container, the --user it was started with. A directory that already exists is left as it is.
+  for dir in conf data logs plugins tmp; do
+    mkdir -p "$home/$dir" 2>/dev/null || true
+  done
+  if [[ ! -d "$home/secrets" ]]; then
+    (umask 077 && mkdir -p "$home/secrets") 2>/dev/null || true
+  fi
+  # Said, not refused: a deployment may have pointed every path elsewhere in conf/application.yaml,
+  # and then an unwritable directory here is not a fault. When it is, this is the line to find.
+  for dir in data logs tmp; do
+    if [[ ! -w "$home/$dir" ]]; then
+      echo "pravaha-server: WARNING $home/$dir is not writable by uid $(id -u) --" \
+           "give it to the user the node runs as (docs/RUNNING_IN_DOCKER.md, \"Ownership\")." >&2
+    fi
+  done
+
+  cd "$home"
+  home_opts+=(
+    "-Djava.io.tmpdir=$home/tmp"
+    # An arbitrary --user has no passwd entry, and the JVM then sets user.home to "?" -- which a
+    # library that writes under user.home turns into a directory called "?" in the working directory.
+    "-Duser.home=$home/tmp"
+    # HotSpot's performance counters are a file under /tmp/hsperfdata_<user> whatever tmpdir says;
+    # kept in memory instead, so the node writes nothing outside the home. jcmd still works.
+    "-XX:+PerfDisableSharedMem"
+    "-XX:HeapDumpPath=$home/logs"
+    "-XX:ErrorFile=$home/logs/hs_err_pid%p.log"
+    "-Dloader.path=$home/plugins"
+  )
+  # The layout, then the deployment's conf/, which wins. An explicit SPRING_CONFIG_ADDITIONAL_LOCATION
+  # in the environment replaces both, as it always did.
+  if [[ -z "${SPRING_CONFIG_ADDITIONAL_LOCATION:-}" ]]; then
+    home_opts+=("-Dspring.config.additional-location=optional:classpath:/pravaha-home.yaml,optional:file:$home/conf/")
+  fi
+fi
 
 exec "${JAVA_HOME:+$JAVA_HOME/bin/}java" \
   --add-opens=java.base/java.nio=ALL-UNNAMED \
   --add-opens=java.base/java.lang=ALL-UNNAMED \
+  ${home_opts[@]+"${home_opts[@]}"} \
   ${PRAVAHA_JAVA_OPTS:-} \
   -jar "$jar" "$@"

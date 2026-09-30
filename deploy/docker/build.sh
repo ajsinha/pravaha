@@ -56,11 +56,10 @@ fi
 staging="$(mktemp -d "${TMPDIR:-/tmp}/pravaha-image.XXXXXX")"
 trap 'rm -rf "$staging"' EXIT
 
-mkdir -p "$staging/bin" "$staging/lib" "$staging/conf"
+mkdir -p "$staging/bin" "$staging/lib"
 cp "$root/bin/pravaha-server" "$staging/bin/pravaha-server"
 cp "$jar"                     "$staging/lib/pravaha-server.jar"
-cp "$here/conf/application.yaml" "$staging/conf/application.yaml"
-cp "$here/Dockerfile"            "$staging/Dockerfile"
+cp "$here/Dockerfile"         "$staging/Dockerfile"
 
 vcs_ref="$(git -C "$root" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 if ! git -C "$root" diff --quiet HEAD 2>/dev/null; then

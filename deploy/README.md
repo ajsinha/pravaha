@@ -7,11 +7,15 @@ Everything a deployment needs and nothing the engine needs. **The page to read i
 [`../docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md)**; this is the map of the directory.
 
 ```
-docker/     the engine node's container image
-  Dockerfile          glibc JRE 21 (ADR-053), uid 10001, over artefacts the reactor already built (ADR-047)
-  conf/               the image's own application.yaml -- the lowest of three config layers
-  build.sh            stage an ~80 MB context and build.   --tag, --push
-  smoke.sh            ten steps against a REAL container.  --image, --keep
+docker/     the container images and the compose stack (docs/RUNNING_IN_DOCKER.md)
+  Dockerfile          the engine: glibc JRE 21 (ADR-053), PRAVAHA_HOME=/opt/pravaha, any uid, over
+                      artefacts the reactor already built (ADR-047)
+  build.sh            stage the launcher and the jar and build.   --tag, --push
+  smoke.sh            eleven steps against a REAL container.     --image, --keep
+  console/            the console's image (python:3.13-slim) and its build.sh
+  compose/            engine + console + Kafka as the invoking user; profiles seed, cdc, stores,
+                      observability, tools. tools/docker-env.sh prepares it
+  test/               the test runner image tools/docker-test.sh uses (Maven, JDK 21, Python 3)
 
 helm/       the Kubernetes chart
   pravaha/            one node, as a StatefulSet. Values documented one line each in values.yaml
@@ -26,6 +30,7 @@ observability/  watching a node: import, load, point at the node
                       ones. Identical to the "Metrics and alerts" help topic's (a test says so)
 
 release/    versioning, and as much of a release as this repository can run
+  dist.sh             the engine as a distribution: a PRAVAHA_HOME when unpacked (distribution/)
   version.sh          print the reactor's version. One reader, so three cannot disagree
   set-version.sh      set or --check it across 37 poms, 2 wheels and the chart
   release.sh          the procedure, --dry-run first. Publishes NOTHING, and says why

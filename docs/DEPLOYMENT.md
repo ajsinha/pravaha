@@ -39,22 +39,28 @@ been through it is an image nobody has run.
 
 ## One root, /opt/pravaha
 
-Every path the product touches is under `/opt/pravaha`, in the image and on a host, and nothing
-outside it is the product's (the owner's decision, 2026-09-26):
+Every path the product touches is under one root, `PRAVAHA_HOME` — `/opt/pravaha` in both images,
+on a QA host, and in an unpacked distribution — and nothing outside it is the product's (the owner's
+decisions, 2026-09-26 and 2026-09-29). `bin/pravaha-server` makes it so: from a home it points the
+JVM's temporary directory, `user.home`, heap dumps and crash files under it and names the jar's
+`pravaha-home.yaml`, which places the journal, checkpoints, identity store, audit trail and log.
+[`RUNNING_IN_DOCKER.md`](RUNNING_IN_DOCKER.md), "The layout", has every path, with the setting that
+places it:
 
 | Path | Holds | Written by |
 |---|---|---|
-| `bin/`, `lib/` | the launcher and the server jar | the image |
-| `defaults/application.yaml` | the image's own defaults: where the journal and checkpoints go | the image |
-| `conf/application.yaml` | **the deployment's engine configuration**, and `conf/tls/`, `conf/schemas/` beside it | the operator |
-| `secrets/` | key material a chart mounts (`secrets/tls`, `secrets/auth`) | Kubernetes |
-| `data/` | the volume: registry journal, checkpoints, dead letters, spill | the engine |
-| `logs/` | the engine's log file and the audit trail | the engine |
-| `console/` | the console, in its own image; `console/conf/application.yaml` is **the deployment's console configuration** | the operator |
+| `bin/`, `lib/` | the launcher and the server jar | the image / distribution |
+| `conf/application.yaml` | **the deployment's engine configuration**, read after the layout so it wins; `conf/console.yaml` the console's | the operator |
+| `secrets/` | key material: the initial admin password, tokens, TLS keys (a chart mounts `secrets/tls`, `secrets/auth`) | the operator / Kubernetes |
+| `plugins/` | jars added to the engine's classpath (`loader.path`) | the operator |
+| `data/` | the volume: registry journal, checkpoints, identity store, catalogue, alerts, dead letters, spill | the engine |
+| `logs/` | `pravaha-server.log`, `audit.jsonl`, `pravaha-console.log`, heap dumps | the engine, the console |
+| `tmp/` | `java.io.tmpdir`: native codecs, Tomcat's work directory | the engine, the console |
+| `console/` | the console's code, in its own image | the image |
 
-The image's defaults moved from `conf/` to `defaults/` so that `conf/` is entirely the operator's: a
-directory mounted there hides nothing the image needs. Mount each directory at the same path it
-has inside the container, so a path in a log line is a path on the host.
+The image's old `defaults/application.yaml` is gone: the layout now travels inside the jar, so the
+image, a distribution and a developer's `PRAVAHA_HOME` all get the same one. Mount each directory
+at the same path it has inside the container, so a path in a log line is a path on the host.
 
 ## A QA host: two images, two files
 
@@ -71,7 +77,7 @@ sudo ./install.sh --host qa-vm.example && cd /opt/pravaha && sudo docker compose
 | Image | Built by | Configured by |
 |---|---|---|
 | `pravaha/pravaha-server:<v>` | `deploy/docker/build.sh` | `/opt/pravaha/conf/application.yaml` |
-| `pravaha/pravaha-console:<v>` | `deploy/docker/console/build.sh` (python:3.13-slim, uid 10001, 481 MB) | `/opt/pravaha/console/conf/application.yaml` |
+| `pravaha/pravaha-console:<v>` | `deploy/docker/console/build.sh` (python:3.13-slim, uid 10001 or any, 519 MB) | `/opt/pravaha/console/conf/application.yaml` |
 
 The console reads its product defaults from the image first and the deployment's file second, key
 by key, so the deployment's file names only what it changes and cannot pin a stale version.
@@ -89,21 +95,21 @@ so the console holds no credential: people sign in as themselves.
 |---|---|
 | Built by | [`deploy/docker/Dockerfile`](../deploy/docker/Dockerfile), staged by [`deploy/docker/build.sh`](../deploy/docker/build.sh) |
 | Base | `eclipse-temurin:21-jre` (Ubuntu, glibc, 459 MB). Not Alpine: Parquet's Snappy codec is glibc-only ([ADR-053](adr/053-native-code-only-where-java-cannot.md)) |
-| Size | **436,555,582 bytes** (~437 MB) as `docker image inspect` reports it; 77 MB of that is the application jar |
-| User | uid **10001**, non-root, numeric — a Kubernetes `runAsUser` and a `docker --user` both take a number |
+| Size | **803 MB** on disk as `docker images` reports it on 2026-09-29 (280 MB content); 176 MB of that is the application jar |
+| User | uid **10001** by default, non-root, numeric; **any** `--user` works over bind mounts ([`RUNNING_IN_DOCKER.md`](RUNNING_IN_DOCKER.md), "Any uid") |
 | Entrypoint | `/__cacert_entrypoint.sh bin/pravaha-server` |
 | Ports | 18080 HTTP, 19090 Flight SQL |
-| Volume | `/opt/pravaha/data` |
+| Volumes | `/opt/pravaha/data`, `/opt/pravaha/logs` |
 | Healthcheck | `wget --spider /actuator/health/liveness`, every 30s after a 45s start period |
 
-It does **not** build the project. `build.sh` stages an ~80 MB context — the launcher, the jar and
-the image's own `application.yaml` — so the daemon is never sent `.git`, `target/` or the
-worktrees. Why not Jib, why not distroless, why not a Maven stage:
+It does **not** build the project. `build.sh` stages a context of the launcher and the jar (~190
+MB), so the daemon is never sent `.git`, `target/` or the worktrees. Why not Jib, why not distroless, why not a Maven stage:
 [ADR-047](adr/047-the-image-is-a-dockerfile-over-built-artefacts.md).
 
 The **root `Dockerfile` is a different thing** and is kept: clone the repository, `docker build .`,
 wait while Maven resolves the world inside the daemon. It is the convenience build for someone who
-has only a clone. `deploy/docker/` is what a release publishes.
+has only a clone and Docker — no JDK — and builds just `pravaha-server` and `pravaha-cli`, into the
+same runtime layout. `deploy/docker/` is what a release publishes.
 
 ### The Arrow flags
 
@@ -128,15 +134,11 @@ allocate direct buffers for every Flight call, and the spill tier is only fast w
 holds its index. A heap at three quarters of the limit leaves that nothing, and then the kernel
 decides what gives way rather than the JVM.
 
-The image's own `application.yaml` sets **two** keys, both of which are *location*, not meaning:
+The image sets `PRAVAHA_HOME=/opt/pravaha` and nothing else of the engine's configuration. The
+launcher then reads the jar's `pravaha-home.yaml`, which sets only *locations* — the node's log, the
+registry journal, the checkpoints, the identity store and the audit file, all under `/opt/pravaha`.
 
-```yaml
-pravaha:
-  registry:   { journal:   /opt/pravaha/data/registry.journal }
-  checkpoint: { directory: /opt/pravaha/data/checkpoints }
-```
-
-It deliberately leaves these unset although it creates the directories:
+Neither the image nor the layout sets these, although the layout has a place for each:
 
 | Key | Why the image will not decide it |
 |---|---|
@@ -145,17 +147,19 @@ It deliberately leaves these unset although it creates the directories:
 | `pravaha.node.id` | Defaults to `pravaha-node-01` from the jar. Two containers on one volume under one id is the case `PRV-4003` refuses. The chart sets it from the pod name |
 | `pravaha.security.*` | The shipped defaults **refuse to start**, on purpose. No credential is in this image and none will be |
 
-### Configuration: three layers, and which wins
+### Configuration: the layers, and which wins
 
 ```
-  /opt/pravaha/defaults/application.yaml   the image's defaults           (lowest)
-  /opt/pravaha/conf/application.yaml       a mounted file or a ConfigMap
-  PRAVAHA_* / SPRING_* in the environment                                 (highest)
+  the jar's application.yaml                  the engine's defaults           (lowest)
+  the jar's pravaha-home.yaml                 where things go under /opt/pravaha
+  /opt/pravaha/conf/application.yaml          a mounted file or a ConfigMap
+  PRAVAHA_* / SPRING_* in the environment                                     (highest)
 ```
 
-Spring Boot gives a location named later in `spring.config.additional-location` precedence over one
-named earlier, and an environment variable precedence over both. The image sets the first two, both
-`optional:`, so a container run with neither still starts.
+`bin/pravaha-server` names the middle two in `spring.config.additional-location`, both `optional:`,
+so a container run with no mount still starts; a location named later wins. An explicit
+`SPRING_CONFIG_ADDITIONAL_LOCATION` replaces them — the chart sets one, naming the layout first,
+then `conf/`, then its secret mount.
 
 Relaxed binding means every key has an environment spelling: `pravaha.flight.enabled` is
 `PRAVAHA_FLIGHT_ENABLED`, `pravaha.state.spill.max-bytes` is `PRAVAHA_STATE_SPILL_MAX_BYTES`. One
@@ -164,18 +168,25 @@ Relaxed binding means every key has an environment spelling: `pravaha.flight.ena
 ### Running one by hand
 
 ```bash
-docker run -d --name pravaha \
-  -p 18080:18080 -p 19090:19090 \
-  -v pravaha-data:/opt/pravaha/data \
-  -v "$PWD/application.yaml:/opt/pravaha/conf/application.yaml:ro" \
-  --read-only --tmpfs /tmp:rw,size=64m \
+mkdir -p pravaha-home/{conf,data,logs,tmp}          # yours, before Docker can make them root's
+docker run -d --name pravaha --user "$(id -u):$(id -g)" --read-only \
+  -p 127.0.0.1:18080:18080 -p 127.0.0.1:19090:19090 \
+  -v "$PWD/pravaha-home/conf:/opt/pravaha/conf:ro" \
+  -v "$PWD/pravaha-home/data:/opt/pravaha/data" \
+  -v "$PWD/pravaha-home/logs:/opt/pravaha/logs" \
+  -v "$PWD/pravaha-home/tmp:/opt/pravaha/tmp" \
   pravaha/pravaha-server:0.2.1-SNAPSHOT
 ```
 
-`--read-only` works and is tested: the node needs nothing writable but the volume and `/tmp`.
+`--read-only` works and is tested: the node needs nothing writable outside `/opt/pravaha`
+(`deploy/docker/smoke.sh` runs it with only a tmpfs at `/opt/pravaha/tmp`, and the compose stack runs
+that way every time). For the whole stack — console, Kafka, databases, monitoring — use
+[`deploy/docker/compose`](../deploy/docker/compose); [`RUNNING_IN_DOCKER.md`](RUNNING_IN_DOCKER.md)
+is its reference.
 
-The CLI is **not** in the image — 49 MB, a second copy of the whole engine, to run a client that
-belongs on the operator's machine. Point it at the container instead:
+The CLI is **not** in the engine image — 49 MB, a second copy of the whole engine, to run a client
+that belongs on the operator's machine. Point it at the container, or use the console image, which
+carries the Python `pravaha` command:
 
 ```bash
 pravaha queries --url grpc://127.0.0.1:19090
@@ -184,14 +195,72 @@ pravaha queries --url grpc://127.0.0.1:19090
 ### What is on the volume, and who can read it
 
 Three files hold what a customer would call their data, and all three are created **owner-only**
-(`rw-------`) by uid 10001 before the first byte is written: the registry journal (query text and
-the values clients filtered on), the checkpoints (the aggregated data itself) and the dead-letter
-queue (the raw bytes of every record that failed). The user who started the container cannot read
-them, and that is intended — [`OPERATIONS.md`](OPERATIONS.md), "Files that hold data". To look,
-mount the volume into a throwaway container.
+(`rw-------`) by the user the node runs as, before the first byte is written: the registry journal
+(query text and the values clients filtered on), the checkpoints (the aggregated data itself) and the
+dead-letter queue (the raw bytes of every record that failed). Run the container as yourself over
+bind mounts and they are yours to read; run it as the default uid 10001 over a named volume and
+they are 10001's — [`OPERATIONS.md`](OPERATIONS.md), "Files that hold data".
 
 **Nothing is encrypted at rest.** If that is required, put the volume on an encrypted one.
 
+
+---
+
+## Without Docker: the same layout
+
+The container is not required. A node runs the same way from any directory you choose as its
+`PRAVAHA_HOME`, with the same layout, the same configuration file and the same guarantee that
+nothing is written outside it — and every file belongs to the user who runs it.
+
+**A distribution.** `deploy/release/dist.sh` assembles one from the built jars (it does not run
+Maven), as a directory and a tarball that is a home the moment it is unpacked:
+
+```bash
+./mvnw -o -pl pravaha-server,pravaha-cli -am package -DskipTests
+deploy/release/dist.sh
+#   dist.sh: .../target/dist/pravaha-0.2.1-SNAPSHOT
+#   dist.sh: .../target/dist/pravaha-0.2.1-SNAPSHOT.tar.gz (185M)
+```
+
+```
+pravaha-0.2.1-SNAPSHOT/
+  bin/pravaha-server  bin/pravaha-engine
+  lib/pravaha-server.jar  lib/pravaha-engine.jar
+  conf/application.yaml.example  conf/pravaha-server.service
+  data/ (0700)  logs/  plugins/  secrets/ (0700)  tmp/
+  LICENSE  VERSION
+```
+
+Unpacked anywhere and started from anywhere, it finds its home from `bin/`:
+
+```bash
+tar xzf pravaha-0.2.1-SNAPSHOT.tar.gz && cd pravaha-0.2.1-SNAPSHOT
+cp conf/application.yaml.example conf/application.yaml     # open, for a first run; edit it
+cd / && /path/to/pravaha-0.2.1-SNAPSHOT/bin/pravaha-server
+```
+
+Run that way on 2026-09-29 (from `/`, `PRAVAHA_HOME` unset), the node came ready and wrote only
+`conf/application.yaml` (the copy), `data/.pravaha-owner`, `data/checkpoints/.pravaha-owner`,
+`logs/pravaha-server.log` and, in `tmp/`, the Snappy library and Tomcat's work directories — all
+inside the unpacked directory.
+
+**A home of your own, from a checkout.** `PRAVAHA_HOME=~/pravaha-home bin/pravaha-server` does the same
+with the jar in `pravaha-server/target`: see [`OPERATIONS.md`](OPERATIONS.md), "Where a node keeps its
+files: PRAVAHA_HOME". With `PRAVAHA_HOME` unset, a checkout behaves as it always has.
+
+**systemd.** The distribution carries
+[`conf/pravaha-server.service`](../deploy/release/distribution/pravaha-server.service), for a home at
+`/opt/pravaha` owned by a `pravaha` system user: `PRAVAHA_HOME=/opt/pravaha`, a 60-second stop
+timeout for the last checkpoint, and `ProtectSystem=strict` with only `data/`, `logs/` and `tmp/`
+writable, so the kernel enforces the layout too. Its header has the four commands that install it.
+It passes `systemd-analyze verify` (checked with the paths pointed at the unpacked distribution
+above); it has not been run under systemd on this machine.
+
+**The console without Docker** runs from a checkout (`console/`, `make run`) or its wheel, with the
+same convention if you want it: `--config console/config/application.yaml,$PRAVAHA_HOME/conf/console.yaml`,
+`CONSOLE_LOG_FILE=$PRAVAHA_HOME/logs/pravaha-console.log` and `PRAVAHA_CONFIG_DIR=$PRAVAHA_HOME/data/console`.
+[`GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md`](GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) walks the whole
+no-Docker route, build and tests included.
 ---
 
 ## Native code
@@ -409,18 +478,19 @@ node would go on running the old one — an upgrade reporting success and changi
 - **No PodDisruptionBudget by default.** On one replica `minAvailable: 1` is unsatisfiable by
   definition and `kubectl drain` blocks for ever; the chart refuses that setting outright.
   `maxUnavailable: 1` is honest: it says nothing is protected, because with one node nothing can be.
-- **Every connector ships inside the jar; there is no plugin directory.** Since 2026-09-26 the
-  server jar carries all eight connector modules (`filesystem`, `feedfile`, `delta`, `jdbc`,
-  `kafka`, `postgres-cdc`, `aerospike`, `cassandra`: fourteen plugins in all, lookups and sinks
-  included) and the PostgreSQL JDBC driver, so `java -jar` binds any of them with nothing
-  installed. The jar is about 163 MB, up from 74. Spring Boot's nested layout keeps each plugin jar
-  whole, so no plugin's `META-INF/services` file is merged over by another's.
-  Two consequences to know. Spring Boot's Cassandra auto-configuration is excluded, because with
-  the driver present it opened a session to `localhost:9042` at startup and a node with no
-  Cassandra refused to start: connections belong to plugins, never to the framework. And the
-  launcher still reads only what is inside the jar (`-Dloader.path` is not honoured), so a JDBC
-  driver for a database other than PostgreSQL cannot be added at deployment time. The container
-  image is built from this jar, so it carries the connectors too.
+- **Every connector ships inside the jar, and `plugins/` adds to it.** Since 2026-09-26 the
+  server jar carries all its connector modules and the PostgreSQL JDBC driver, so `java -jar` binds
+  any of them with nothing installed; the jar is about 176 MB. Spring Boot's nested layout keeps
+  each plugin jar whole, so no plugin's `META-INF/services` file is merged over by another's.
+  Spring Boot's Cassandra auto-configuration is excluded, because with the driver present it opened
+  a session to `localhost:9042` at startup: connections belong to plugins, never to the framework.
+  Since 2026-09-29 the jar's launcher is `PropertiesLauncher` (the `ZIP` layout) and
+  `bin/pravaha-server` passes `-Dloader.path=$PRAVAHA_HOME/plugins`, so a jar dropped in `plugins/`
+  is on the classpath at the next start — a JDBC driver for a database other than PostgreSQL, found
+  by `DriverManager` like a bundled one. Proved in the compose stack: a `jdbc` source against MySQL
+  was refused with `PRV-5070 ... No suitable driver found`, then answered after
+  `mysql-connector-j-9.1.0.jar` was copied into `plugins/` and the node restarted. The chart does not
+  mount a `plugins/` volume; add one with `extraConfigMounts`-style values if a cluster needs it.
 
 ---
 

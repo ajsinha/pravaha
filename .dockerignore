@@ -12,3 +12,9 @@ console/tests/
 sdk/python/.venv/
 sdk/python/tests/
 **/.pytest_cache/
+# A worktree's own Maven repository, a local PRAVAHA_HOME and agents' worktrees: never context.
+.m2-local/
+pravaha-home/
+deploy/docker/compose/pravaha-home/
+deploy/docker/compose/.env
+.claude/

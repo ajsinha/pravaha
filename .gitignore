@@ -56,3 +56,8 @@ docs/research/*.fdb_latexmk
 docs/research/*.synctex.gz
 docs/research/*.bbl
 docs/research/*.blg
+
+# The compose stack (tools/docker-env.sh): its generated .env and a local PRAVAHA_HOME. Credentials.
+deploy/docker/compose/.env
+deploy/docker/compose/pravaha-home/
+/pravaha-home/

@@ -27,6 +27,8 @@ import contextvars
 import datetime
 import json
 import logging
+import logging.handlers
+import pathlib
 import re
 import secrets
 import threading
@@ -233,21 +235,36 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(line, ensure_ascii=False, default=str)
 
 
-def configure_logging(format_name: str, level: str = "INFO") -> None:
+def configure_logging(format_name: str, level: str = "INFO", file: str | None = None,
+                      max_bytes: int = 50 * 1024 * 1024, backups: int = 10) -> None:
     """``logging.format``: ``text`` (the default pattern) or ``json``. Anything else refuses the start,
-    because a pipeline expecting one and receiving the other breaks quietly."""
+    because a pipeline expecting one and receiving the other breaks quietly.
+
+    ``logging.file``: also write every line to this file, rotated at ``max_bytes`` keeping ``backups``
+    generations, in the same format. Standard error is always written as well -- that is what
+    ``docker logs`` and journald read. Its directory is created. The console image sets it to
+    ``/opt/pravaha/logs/pravaha-console.log``, so the console's log lands beside the engine's.
+    """
     chosen = (format_name or "text").strip().lower()
     if chosen not in ("text", "json"):
         raise ValueError(f"logging.format is {format_name!r}, and it is text or json")
-    handler = logging.StreamHandler()
-    if chosen == "json":
-        handler.setFormatter(JsonFormatter())
-    else:
-        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-5s %(name)s — %(message)s"))
+    formatter: logging.Formatter = (
+        JsonFormatter() if chosen == "json"
+        else logging.Formatter("%(asctime)s %(levelname)-5s %(name)s — %(message)s"))
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    if file and file.strip():
+        path = pathlib.Path(file.strip()).expanduser()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handlers.append(logging.handlers.RotatingFileHandler(
+            path, maxBytes=max_bytes, backupCount=backups, encoding="utf-8"))
     root = logging.getLogger()
     for existing in list(root.handlers):
         root.removeHandler(existing)
-    root.addHandler(handler)
+        if isinstance(existing, logging.FileHandler):
+            existing.close()
+    for handler in handlers:
+        handler.setFormatter(formatter)
+        root.addHandler(handler)
     root.setLevel(getattr(logging, (level or "INFO").upper(), logging.INFO))
 
 
