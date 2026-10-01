@@ -47,15 +47,18 @@ jobs:
           JAVA_HOME: ${{ env[format('JAVA_HOME_{0}_X64', matrix.build)] }}
         run: ./mvnw -B clean install -DskipTests
       # No `clean`: the classes compiled above are the ones under test, and the compiler plugin,
-      # finding nothing stale, compiles nothing. If it ever recompiled, the leg would no longer cross
-      # JDKs and would pass for the wrong reason, so a recompile fails it.
+      # finding nothing stale, compiles nothing. If it ever recompiled the shipped classes, the leg
+      # would no longer cross JDKs and would pass for the wrong reason, so that fails it. (One
+      # recompile is expected and allowed: pravaha-it's test classes. The module has no main
+      # sources, so no target/classes, and the compiler plugin reads the missing directory as a
+      # change -- "I/O error reading dependency state" -- on every build without clean.)
       - name: run the tests on JDK ${{ matrix.run }}
         env:
           JAVA_HOME: ${{ env[format('JAVA_HOME_{0}_X64', matrix.run)] }}
         run: |
           set -o pipefail
           ./mvnw -B install -DskipITs | tee test-run.log
-          if grep -E 'Compiling [0-9]+ source file' test-run.log; then
+          if grep -E 'Compiling [0-9]+ source files? .* to target/classes' test-run.log; then
             echo "the test run recompiled: these are not the classes JDK ${{ matrix.build }} built" >&2
             exit 1
           fi
