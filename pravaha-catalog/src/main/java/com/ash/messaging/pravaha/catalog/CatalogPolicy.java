@@ -26,7 +26,6 @@ import java.util.stream.Collectors;
 
 import com.ash.messaging.pravaha.api.PravahaException;
 import com.ash.messaging.pravaha.security.AccessDecision;
-import com.ash.messaging.pravaha.security.Administration;
 import com.ash.messaging.pravaha.security.Narrowing;
 import com.ash.messaging.pravaha.security.Principal;
 import com.ash.messaging.pravaha.security.SecurityPolicy;
@@ -319,21 +318,14 @@ public final class CatalogPolicy implements SecurityPolicy {
      *       audit trail stay with {@code admin} and the configured audit readers, as before.
      * </ul>
      *
-     * <p>Under {@code pravaha.security.administer=ownership} (the default) {@code authenticated} is
-     * imported without {@code MODIFY}: that grant was the policy's administer rule -- anyone who may read
+     * <p>{@code authenticated} is imported without {@code MODIFY}: that grant was the policy's administer rule -- anyone who may read
      * may drop -- written down, and it is the rule ownership replaces. A view is then administered by its
      * owner, a principal granted {@code MODIFY} or {@code MANAGE} on it, or an admin. {@code permissive}
      * is imported whole either way: it makes every caller a manager of the catalogue, and a principal who
      * may grant themselves {@code MODIFY} is not one that withholding it restricts.
      */
     public static List<Grant> importedGrants(String policy, String by, Instant at) {
-        return importedGrants(policy, by, at, Administration.Rule.OWNERSHIP);
-    }
-
-    /** As {@link #importedGrants(String, String, Instant)}, under the given administer rule. */
-    public static List<Grant> importedGrants(String policy, String by, Instant at, Administration.Rule administer) {
         String canonical = policy == null ? "" : policy.strip().toLowerCase(Locale.ROOT);
-        boolean byReading = administer == Administration.Rule.LEGACY_READ;
         return switch (canonical) {
             case "permissive" ->
                 EnumSet.complementOf(EnumSet.of(Privilege.OWN)).stream()
@@ -349,7 +341,7 @@ public final class CatalogPolicy implements SecurityPolicy {
                                 Privilege.WRITE,
                                 Privilege.MODIFY)
                         .stream()
-                        .filter(p -> byReading || p != Privilege.MODIFY)
+                        .filter(p -> p != Privilege.MODIFY)
                         .map(p -> new Grant(CatalogNames.ROOT, p, Grantee.role(Grantee.AUTHENTICATED), by, at))
                         .toList();
             default ->

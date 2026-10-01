@@ -9,10 +9,14 @@ fixes defects and changes nothing a client can rely on, except where the old beh
 defect. 2.0 is a **one-node** release, as 1.0 was: cluster mode (wave 11) is not in it, and when it
 comes it arrives as a 2.x addition that a single node does not have to adopt.
 
-## 2.0: Java 25 is the minimum
+## 2.0: what breaks
 
-2.0's one breaking change is the Java baseline ([ADR-061](../design/adr/061-jdk-25-is-the-baseline-from-2-0.md)).
-**Java 25 is required** to build, run, embed or call Pravaha from Java: every module, `pravaha-api`
+2.0 breaks two things: the Java baseline, and `pravaha.security.administer: legacy-read`, removed as
+1.x announced.
+
+### Java 25 is the minimum
+
+[ADR-061](../design/adr/061-jdk-25-is-the-baseline-from-2-0.md). **Java 25 is required** to build, run, embed or call Pravaha from Java: every module, `pravaha-api`
 and the Java SDKs included, is Java 25 class files. 1.x required 21 (`pravaha-api` and
 `pravaha-sdk-java` targeted 17) and supported 25.
 
@@ -25,9 +29,21 @@ and the Java SDKs included, is Java 25 class files. 1.x required 21 (`pravaha-ap
 | A Java SDK client | Java 25. The wire is unchanged, so a 1.x Java SDK keeps speaking it to a 2.0 node while an application moves; the tested pairing is still the same major.minor (below) |
 | The Python SDK, the CLI, the console | Nothing |
 
+### `legacy-read` is removed
+
+`pravaha.security.administer: legacy-read` was deprecated in 1.0.0 and announced for removal in 2.0
+(the rule below: a key is deprecated through a minor release, then removed in the next major). It
+let anyone who may read a view without a row filter drop, pause, resume or replace it. In 2.0 a
+view is administered by its owner, a principal granted `MODIFY` or `MANAGE` on it, or the `admin`
+role — as it already was by default in 1.x. A node or embedded engine that still sets `legacy-read`
+**refuses to start** with `PRV-7004 … legacy-read was removed in 2.0; grant MODIFY/MANAGE or use the admin role`. Grant those
+operators `MODIFY` or `MANAGE`, or the `admin` role, then remove the setting
+([SECURITY.md](SECURITY.md#drop-pause-resume-and-replace-are-authorized-by-ownership-not-by-reading)).
+`ownership` stays an accepted value.
+
 Everything else this page calls stable is unchanged from 1.x: the SQL, the wire protocols, the
-HTTP API, the error codes, the configuration keys, the metrics and the container layout. A 2.0
-node reads the state any 1.x node wrote.
+HTTP API, the error codes, every other configuration key, the metrics and the container layout. A
+2.0 node reads the state any 1.x node wrote.
 
 ## Stable in 2.x
 

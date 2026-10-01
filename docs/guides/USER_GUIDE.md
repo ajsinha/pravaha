@@ -444,8 +444,8 @@ drop through the other — and `SHOW` lists only what `pravaha queries` would sh
 **Who may pause, resume, replace or drop a query** is its owner — whoever registered it, or replaced
 it last — a principal granted `MODIFY` or `MANAGE` on it, or a holder of the `admin` role. Being able
 to read it is not enough: anyone else is refused `PRV-7002`. `pravaha describe` shows the owner.
-`pravaha.security.administer: legacy-read` restores the old rule (anyone who may read it unfiltered)
-for one release; see [Security](../operations/SECURITY.md#drop-pause-resume-and-replace-are-authorized-by-ownership-not-by-reading).
+`pravaha.security.administer: legacy-read`, the 1.x way back to the old rule (anyone who may read it
+unfiltered), was removed in 2.0 and is refused at start with `PRV-7004`; see [Security](../operations/SECURITY.md#drop-pause-resume-and-replace-are-authorized-by-ownership-not-by-reading).
 
 ```bash
 pravaha queries                       # name, state, fingerprint, rows in, sink; a stopped source

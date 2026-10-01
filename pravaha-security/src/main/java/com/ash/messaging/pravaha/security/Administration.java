@@ -39,9 +39,10 @@ import com.ash.messaging.pravaha.api.PravahaException;
  * any deployment's own. A policy that inherits the interface's default grants nothing beyond
  * ownership, because that default is the unrestricted-read rule this replaces.
  *
- * <p><strong>{@code pravaha.security.administer=legacy-read}</strong> restores the policy's own
- * answer for every view, for one release, so a deployment whose operators relied on the old rule
- * can move to grants first.
+ * <p><strong>{@code pravaha.security.administer=legacy-read}</strong>, which restored the policy's own
+ * answer for every view through 1.x, was removed in 2.0 as 1.0.0 announced. The setting is kept with
+ * one value, {@code ownership}, so that a node still configured with {@code legacy-read} refuses to
+ * start and says why, rather than quietly applying a stricter rule than its operators expect.
  */
 public final class Administration {
 
@@ -55,13 +56,11 @@ public final class Administration {
 
     /** Which rule decides who may administer a registered view. */
     public enum Rule {
-        /** Its owner, a principal the policy grants it to, or an admin. The default. */
-        OWNERSHIP("ownership"),
-        /**
-         * The policy's own {@code mayAdminister}, as before ownership was recorded -- by default, anyone
-         * whose read of the view carries no row filter. Kept for one release.
-         */
-        LEGACY_READ("legacy-read");
+        /** Its owner, a principal the policy grants it to, or an admin. The only rule from 2.0. */
+        OWNERSHIP("ownership");
+
+        /** The 1.x setting removed in 2.0, refused by name. */
+        static final String REMOVED_LEGACY_READ = "legacy-read";
 
         private final String setting;
 
@@ -77,7 +76,8 @@ public final class Administration {
         /**
          * The rule a setting names; empty or null means {@link #OWNERSHIP}.
          *
-         * @throws PravahaException {@code PRV-7004} for anything else, naming both values
+         * @throws PravahaException {@code PRV-7004} for anything else; {@code legacy-read} is refused
+         *     naming its removal and what replaces it
          */
         public static Rule parse(String text) {
             String value = text == null ? "" : text.strip().toLowerCase(Locale.ROOT);
@@ -89,16 +89,24 @@ public final class Administration {
                     return rule;
                 }
             }
+            if (REMOVED_LEGACY_READ.equals(value)) {
+                throw new PravahaException(
+                        SecurityErrors.MISCONFIGURED,
+                        SETTING + " is 'legacy-read', and legacy-read was removed in 2.0; grant MODIFY/MANAGE "
+                                + "or use the admin role. A view is administered by its owner, a principal granted "
+                                + "MODIFY or MANAGE on it, or an admin; remove the setting or set it to 'ownership'");
+            }
             throw new PravahaException(
                     SecurityErrors.MISCONFIGURED,
-                    SETTING + " is '" + text + "'; it is 'ownership' (a view is administered by its owner, a "
-                            + "principal the policy grants it to, or an admin) or 'legacy-read' (anyone who may read "
-                            + "it unfiltered, as before; kept for one release)");
+                    SETTING + " is '" + text + "'; the one value is 'ownership' (a view is administered by its "
+                            + "owner, a principal the policy grants it to, or an admin). 'legacy-read' was removed "
+                            + "in 2.0");
         }
     }
 
     /**
-     * May {@code principal} administer {@code view}?
+     * May {@code principal} administer {@code view}? Its owner, a principal the policy grants it to,
+     * or an admin.
      *
      * @param registered whether a view is registered under the name. A name nothing holds has no owner
      *     to ask about, so the policy answers as it always did -- a permitted caller then meets the
@@ -106,13 +114,8 @@ public final class Administration {
      * @param owner who registered it, when known
      */
     public static AccessDecision decide(
-            Rule rule,
-            SecurityPolicy policy,
-            Principal principal,
-            String view,
-            boolean registered,
-            Optional<Principal> owner) {
-        if (rule == Rule.LEGACY_READ || !registered) {
+            SecurityPolicy policy, Principal principal, String view, boolean registered, Optional<Principal> owner) {
+        if (!registered) {
             return policy.mayAdminister(principal, view);
         }
         if (principal.hasRole(ADMIN_ROLE)) {

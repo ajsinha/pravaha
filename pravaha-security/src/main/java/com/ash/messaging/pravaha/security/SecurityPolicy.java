@@ -97,8 +97,8 @@ public interface SecurityPolicy {
      * records who registered each view and asks {@link Administration}: the owner, an admin, or a
      * principal this method grants it to -- and it counts as a grant only when a policy implements
      * this method itself. Inherited, as here, it grants nothing beyond ownership. This default still
-     * decides for a name no view holds (a stream), and for every view under {@code
-     * pravaha.security.administer=legacy-read}.
+     * decides for a name no view holds (a stream). (Through 1.x it also decided every view under
+     * {@code pravaha.security.administer=legacy-read}, removed in 2.0.)
      */
     default AccessDecision mayAdminister(Principal principal, String view) {
         AccessDecision read = mayRead(principal, view);

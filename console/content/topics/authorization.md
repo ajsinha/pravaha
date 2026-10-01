@@ -69,8 +69,9 @@ A view is administered by **its owner** (whoever registered it, or replaced it l
 policy grants it to, or the `admin` role — not by everyone who may read it, even in full, because
 dropping or pausing a view affects every other reader. `mayAdminister` is the grant: the catalogue
 answers it with `MODIFY` or `MANAGE` on the view, and a policy of your own answers it by implementing
-it. `pravaha.security.administer: legacy-read` restores the old rule — anyone who may read the view
-without a row filter — for one release.
+it. `pravaha.security.administer: legacy-read`, which restored the old rule (anyone who may read the
+view without a row filter) through 1.x, was removed in 2.0: a node that still sets it refuses to start
+with `PRV-7004` naming the removal. Grant `MODIFY` or `MANAGE`, or use the `admin` role, instead.
 
 ## The policies that ship
 

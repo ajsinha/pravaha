@@ -66,9 +66,9 @@ public class SecurityProperties {
     /**
      * Who may drop, pause, resume, replace or debug a registered view. {@code ownership} (the default):
      * the principal who registered it, a principal the policy grants it to, or a holder of the {@code
-     * admin} role. {@code legacy-read}: anyone whose read of it carries no row filter, as before --
-     * kept for one release so a deployment can move to grants first. Anything else is refused at
-     * startup with PRV-7004.
+     * admin} role -- the only value from 2.0. {@code legacy-read} (anyone whose read carries no row
+     * filter, kept through 1.x) was removed in 2.0 and is refused at startup with PRV-7004 naming the
+     * removal; anything else is refused with PRV-7004 too.
      */
     private String administer = "ownership";
 

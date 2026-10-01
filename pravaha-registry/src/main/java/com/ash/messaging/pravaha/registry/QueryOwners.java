@@ -70,18 +70,18 @@ public final class QueryOwners {
 
     /**
      * May {@code principal} administer {@code view}? Its owner, a principal the policy grants it to, or
-     * an admin; under {@code legacy-read}, the policy's own answer. A name nothing holds is the policy's
+     * an admin. A name nothing holds is the policy's
      * to answer, so a permitted caller then meets the registry's "no such query".
      */
     public AccessDecision mayAdminister(Principal principal, String view) {
         Principal owner = view == null ? null : owners.get(view);
         if (owner != null && !ViewNames.visibleTo(principal, view)) {
-            // ADR-060: another tenant's view is administered by nobody outside it but an admin, under
-            // either rule -- a name reaches one only by a catalogue name, which only an admin may use.
+            // ADR-060: another tenant's view is administered by nobody outside it but an admin -- a name
+            // reaches one only by a catalogue name, which only an admin may use.
             return AccessDecision.deny(
                     principal.id() + " may not administer a view outside tenant '" + principal.tenant() + "'");
         }
-        return Administration.decide(rule, policy, principal, view, owner != null, Optional.ofNullable(owner));
+        return Administration.decide(policy, principal, view, owner != null, Optional.ofNullable(owner));
     }
 
     /** A registration was recorded -- a new one, a second name on a shared computation, or a replay. */

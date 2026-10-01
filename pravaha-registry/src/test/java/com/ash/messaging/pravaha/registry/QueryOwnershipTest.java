@@ -41,7 +41,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * A view is administered by its owner, a principal the policy grants it to, or an admin -- not by
- * everyone who may read it (LIFE-040, SX-6) -- and {@code legacy-read} restores the old rule.
+ * everyone who may read it (LIFE-040, SX-6). {@code legacy-read}, which restored the old rule through
+ * 1.x, was removed in 2.0 and is refused by name.
  */
 class QueryOwnershipTest {
 
@@ -167,15 +168,13 @@ class QueryOwnershipTest {
     }
 
     @Test
-    void legacyReadRestoresAdministeringByUnrestrictedRead() {
-        try (QueryRegistry registry = registry(SecurityPolicy.PERMISSIVE)) {
-            registry.owners().administering(Administration.Rule.parse("legacy-read"));
-            registry.register("totals", SQL, List.of(0), DANA);
-
-            drop(registry, ERIN, "totals");
-
-            assertThat(registry.find("acme.default.totals")).isEmpty();
-        }
+    void legacyReadIsRefusedNamingItsRemoval() {
+        // Removed in 2.0, as 1.0.0 announced. Refused loudly rather than ignored: a deployment that
+        // still sets it expects readers to administer, and silently enforcing ownership would surprise it.
+        assertThatThrownBy(() -> Administration.Rule.parse(" Legacy-Read "))
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("legacy-read was removed in 2.0; grant MODIFY/MANAGE or use the admin role")
+                .satisfies(e -> assertThat(((PravahaException) e).errorCode()).isEqualTo(SecurityErrors.MISCONFIGURED));
     }
 
     @Test
