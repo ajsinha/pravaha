@@ -10,13 +10,11 @@
 # already built (ADR-047). The two must produce the same layout; docs/operations/RUNNING_IN_DOCKER.md says which
 # to reach for. This one additionally carries bin/pravaha-engine, the offline Java CLI.
 
-# JDK 25 by default, as deploy/docker/Dockerfile; `--build-arg JAVA_VERSION=21` builds and runs on
-# 21 instead. Either way the classes target Java 21 (maven.compiler.release), so the jar is the
-# same one a 21 user runs, and bin/pravaha-server gives a 24+ JVM the options it needs.
-ARG JAVA_VERSION=25
+# JDK 25, and only 25, as deploy/docker/Dockerfile: from 2.0 the classes are Java 25 class files
+# (ADR-061), built on 25 and run on 25.
 
 # ---- build ------------------------------------------------------------------
-FROM maven:3.9-eclipse-temurin-${JAVA_VERSION} AS build
+FROM maven:3.9-eclipse-temurin-25 AS build
 WORKDIR /src
 
 COPY . .
@@ -28,15 +26,14 @@ RUN --mount=type=cache,target=/root/.m2 \
 
 # ---- run --------------------------------------------------------------------
 # Kept in step with deploy/docker/Dockerfile's runtime stage: same base, same uid, same layout.
-FROM eclipse-temurin:${JAVA_VERSION}-jre
-ARG JAVA_VERSION
+FROM eclipse-temurin:25-jre
 
 LABEL org.opencontainers.image.title="Pravaha engine node (source build)" \
       org.opencontainers.image.description="Continuous-query engine node: HTTP on 18080, Flight SQL on 19090." \
       org.opencontainers.image.authors="Ashutosh Sinha <ajsinha@gmail.com>" \
       org.opencontainers.image.licenses="LicenseRef-Proprietary" \
       org.opencontainers.image.source="https://github.com/ajsinha/pravaha" \
-      com.ash.messaging.pravaha.java="${JAVA_VERSION}"
+      com.ash.messaging.pravaha.java="25"
 
 WORKDIR /opt/pravaha
 

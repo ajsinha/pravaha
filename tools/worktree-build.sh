@@ -17,6 +17,8 @@
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 cd "$root"
+# JDK 25 on JAVA_HOME, or a stop naming the requirement (ADR-061).
+source "$root/tools/jdk25.sh"
 
 args=()
 git_dir="$(git rev-parse --absolute-git-dir 2>/dev/null || true)"

@@ -32,7 +32,8 @@
         <version>1.0.1</version>
       </dependency>
       <!--
-        The same reason, found by running the Boot 3.2 leg for the first time: Boot 3.2's BOM manages
+        The same reason, found by running the Boot 3.2 leg for the first time (a 1.x line; 3.4 is the
+        floor from 2.0, and its BOM still downgrades these): Boot 3.2's BOM manages
         commons-dbcp2 at 2.10.0 and HttpClient 5 at 5.2.3 / HttpCore 5 at 5.2.5, below what Calcite
         (dbcp2 2.11.0) and Avatica (httpclient5 5.4.1, httpcore5 5.3.1) are built against, and
         requireUpperBoundDeps refuses the downgrade. Pinned to what Boot 3.5, the server's line,
@@ -158,25 +159,18 @@
     With no profile the starter builds against ${spring.boot.version} above, the server's version;
     each profile moves the Boot BOM, and so Spring Framework, Actuator and the test stack with it.
 
-      ./mvnw -pl pravaha-spring-boot-starter -am test -Pboot-3.2
+      ./mvnw -pl pravaha-spring-boot-starter -am test -Pboot-3.4
       ./mvnw -pl pravaha-spring-boot-starter -am test -Pboot-3.5
+
+    3.4 is the floor from 2.0 (ADR-061). The starter's classes are Java 25 class files (major 69),
+    and the ASM inside Spring Framework 6.0 and 6.1 (Boot 3.2 and 3.3) cannot read them: every
+    test errors with "Unsupported class file major version 69" while Boot reads the
+    auto-configuration's metadata (2026-10-01, 36 of 38 tests on each line). Their profiles are gone.
 
     A leg needs its Boot version in the local repository; an offline build of a version that was
     never downloaded fails at resolution, not in a test.
   -->
   <profiles>
-    <profile>
-      <id>boot-3.2</id>
-      <properties>
-        <spring.boot.version>3.2.12</spring.boot.version>
-      </properties>
-    </profile>
-    <profile>
-      <id>boot-3.3</id>
-      <properties>
-        <spring.boot.version>3.3.13</spring.boot.version>
-      </properties>
-    </profile>
     <profile>
       <id>boot-3.4</id>
       <properties>

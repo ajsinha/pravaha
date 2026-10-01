@@ -40,6 +40,10 @@ except ImportError:  # pragma: no cover - the message is the point
 # branch holds today, which makes a green build yesterday no evidence about today.
 FLOATING = {"main", "master", "latest", "HEAD"}
 
+# The one JDK a workflow may set up (ADR-061: Pravaha 2.x builds, tests and runs on Java 25 only).
+# A leg on another JDK is either testing a version nobody supports or failing at the enforcer.
+JAVA = "25"
+
 
 def problems_in(path: Path) -> list[str]:
     found: list[str] = []
@@ -110,6 +114,11 @@ def problems_in(path: Path) -> list[str]:
                     bad(f"{at} uses '{uses}' with no version; it would follow the default branch")
                 elif uses.rsplit("@", 1)[1] in FLOATING:
                     bad(f"{at} uses '{uses}', a floating ref; pin it to a tag or a sha")
+                if uses.startswith("actions/setup-java@"):
+                    wanted = str((step.get("with") or {}).get("java-version", "")).split()
+                    if wanted != [JAVA]:
+                        bad(f"{at} sets up Java {' '.join(wanted) or '(none named)'}; "
+                            f"Pravaha 2.x builds and runs on Java {JAVA} only (ADR-061)")
 
     return found
 

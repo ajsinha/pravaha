@@ -24,9 +24,9 @@ if [[ -z "$jar" || ! -f "$jar" ]]; then
   exit 2
 fi
 
-# Supported JDKs: 21 and 25. On 24 and later, the two options that keep the JVM from warning about
-# Unsafe memory access (JEP 498) and native loading (JEP 472) -- given only to a JVM that knows them,
-# since java 21 refuses --sun-misc-unsafe-memory-access. bin/pravaha-server explains at length.
+# Java 25 or later, only (2.0, ADR-061); an older JVM is refused by name. Always the two options that
+# keep the JVM from warning about Unsafe memory access (JEP 498) and native loading (JEP 472).
+# bin/pravaha-server explains at length.
 java_bin="${JAVA_HOME:+$JAVA_HOME/bin/}java"
 java_feature=""
 if [[ -n "${JAVA_HOME:-}" && -r "$JAVA_HOME/release" ]]; then
@@ -35,10 +35,13 @@ fi
 if [[ -z "$java_feature" ]]; then
   java_feature="$("$java_bin" -version 2>&1 | sed -n 's/.* version "\([0-9][0-9]*\).*/\1/p' | head -n 1)" || true
 fi
-jdk_opts=()
-if [[ "$java_feature" =~ ^[0-9]+$ ]] && (( java_feature >= 24 )); then
-  jdk_opts+=(--sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED)
+if [[ "$java_feature" =~ ^[0-9]+$ ]] && (( java_feature < 25 )); then
+  echo "pravaha-engine: Java $java_feature found ($java_bin); Pravaha 2.x requires Java 25 or later." >&2
+  echo "  Point JAVA_HOME at a JDK or JRE 25, e.g. JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64" >&2
+  echo "  (Pravaha 1.x is the line that runs on Java 21; docs/operations/COMPATIBILITY.md)." >&2
+  exit 1
 fi
+jdk_opts=(--sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED)
 
 # Arrow allocates off-heap through java.nio internals that the module system closes by default.
 # Without these the engine's Arrow paths fail with nothing explaining why -- which cost an

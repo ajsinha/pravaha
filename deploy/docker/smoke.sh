@@ -404,9 +404,9 @@ ok "ready, and serving, with --read-only and only /opt/pravaha/{data,logs,tmp} w
 # The only native code the build allows is Parquet's two codecs (ADR-053). Each is loaded and made
 # to round-trip bytes inside the image, under the same constraints as step 10, because a native
 # library that does not load fails at the first Parquet file rather than at startup -- which is how
-# snappy-java failed unseen on the Alpine image (PORT-1). --enable-native-access, which every JDK from
-# 21 accepts, is what bin/pravaha-server gives a 24+ JVM (JEP 472); without it a Java 25 image prints
-# four WARNING lines about the very loading this step is here to prove.
+# snappy-java failed unseen on the Alpine image (PORT-1). --enable-native-access is what
+# bin/pravaha-server always gives the JVM (JEP 472); without it the Java 25 image prints four WARNING
+# lines about the very loading this step is here to prove.
 codecs="$("$docker_bin" run --rm --read-only --tmpfs /tmp:rw,exec,size=64m --entrypoint java "$image" \
   --enable-native-access=ALL-UNNAMED -cp lib/pravaha-server.jar -Dloader.main=com.ash.messaging.pravaha.server.NativeCodecs \
   org.springframework.boot.loader.launch.PropertiesLauncher 2>&1)" || fail "a native codec does not load in the image:

@@ -99,7 +99,7 @@ def engine():
         pytest.skip(
             "the Pravaha server did not start using java at '"
             + java_bin
-            + "' (set JAVA_HOME, or put java 21 on PATH). Output: "
+            + "' (set JAVA_HOME to a JDK 25, or put java 25 on PATH). Output: "
             + (tail or "none")
         )
 

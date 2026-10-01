@@ -67,7 +67,7 @@ import com.ash.messaging.pravaha.runtime.plan.ScanOperator;
 @OutputTimeUnit(TimeUnit.SECONDS)
 @Fork(
         value = 1,
-        jvmArgsAppend = {"-XX:+UseZGC", "-XX:+ZGenerational"})
+        jvmArgsAppend = {"-XX:+UseZGC"})
 @Warmup(iterations = 3, time = 2)
 @Measurement(iterations = 5, time = 2)
 @State(Scope.Thread)

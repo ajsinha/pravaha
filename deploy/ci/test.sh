@@ -109,6 +109,19 @@ jobs:
       - uses: actions/checkout
 ' "with no version"
 
+seed "a JDK other than 25" 'name: x
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '"'"'21'"'"'
+          distribution: temurin
+' "sets up Java 21"
+
 seed "no jobs" 'name: x
 on: push
 ' "has no jobs"

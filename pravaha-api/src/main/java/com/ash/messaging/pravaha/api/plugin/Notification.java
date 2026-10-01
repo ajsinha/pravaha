@@ -130,7 +130,7 @@ public record Notification(
     }
 
     private static void value(StringBuilder json, Object value) {
-        // Java 17 (this module's level): no patterns in switch.
+        // Written when this module targeted Java 17 (1.x), before patterns in switch.
         if (value == null) {
             json.append("null");
         } else if (value instanceof Boolean b) {
