@@ -115,7 +115,8 @@ else
     echo "no previously installed Pravaha artefacts to remove"
 fi
 
-export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk-amd64}"
+# JDK 25 on JAVA_HOME, or a stop naming the requirement (ADR-061).
+source "$REPO_ROOT/tools/jdk25.sh"
 
 echo "cleaning and installing from the working tree"
 # clean as well: a resource deleted from src/ stays in target/ until something removes it, and a

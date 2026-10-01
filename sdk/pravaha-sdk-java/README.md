@@ -34,8 +34,11 @@ A connection string without a scheme is TLS; `grpc://host:port` is plaintext. A 
 | `com.ash.messaging:pravaha-api` | The public API types both share | nothing |
 | `pravaha-sdk-java-flight-<version>-all.jar` | The client and every runtime dependency in one jar, for a client with no build tool | (bundled) |
 
-`pravaha-api` and `pravaha-sdk-java` target **Java 17**, the baseline of many applications a client
-is embedded in. The Flight client, and so the `-all` jar, needs **Java 21**, like the engine.
+All three artefacts, and so the `-all` jar, are Java 25 class files: **a client application needs
+Java 25** from Pravaha 2.0 (ADR-061). In 1.x `pravaha-api` and `pravaha-sdk-java` targeted Java 17
+and the Flight client Java 21. The wire is unchanged in 2.0, so an application that cannot move to
+25 yet can keep a 1.x client against a 2.0 node meanwhile; the tested pairing is still client and
+node of the same major.minor (docs/operations/COMPATIBILITY.md).
 
 ### With Maven or Gradle (the default)
 
@@ -77,12 +80,11 @@ It bundles `slf4j-api` but no binding, so the SDK logs nowhere until the applica
 
 ### Runtime flags
 
-Arrow, underneath Flight, reads direct buffers' addresses. On Java 17 and later it needs
+Arrow, underneath Flight, reads direct buffers' addresses, so it needs
 `--add-opens=java.base/java.nio=ALL-UNNAMED` on the `java` command line (or in
-`JDK_JAVA_OPTIONS`), with either kind of jar. Java 24 and later also print a warning that Netty
-calls a deprecated `sun.misc.Unsafe` method; it is a warning, and
-`--sun-misc-unsafe-memory-access=allow` silences it -- on Java 24 and later only, since Java 21
-does not know the option and refuses to start. The client is tested on Java 21 and 25.
+`JDK_JAVA_OPTIONS`), with either kind of jar. Java 25 also prints a warning that Netty calls a
+deprecated `sun.misc.Unsafe` method; it is a warning, and `--sun-misc-unsafe-memory-access=allow`
+silences it. The client is tested on Java 25.
 
 ## Building it
 

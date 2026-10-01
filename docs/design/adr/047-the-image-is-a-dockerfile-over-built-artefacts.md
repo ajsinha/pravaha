@@ -173,3 +173,13 @@ probe is now `bin/pravaha-health`, HTTP/1.0 over bash's `/dev/tcp` — `bash`, w
 keeps for the launcher, is all it needs — and the compose healthcheck and `helm test`'s probe pod use
 it too. `smoke.sh` runs the image's own `HEALTHCHECK` inside a serving container, because every other
 step probes from the host and so could not have seen this.
+
+## Amendment, 2026-10-01 (later): Java 25 only, from 2.0
+
+[ADR-061](061-jdk-25-is-the-baseline-from-2-0.md) makes Java 25 the only JDK from Pravaha 2.0, and the
+jar's classes are Java 25 class files, so the image's JRE is no longer a choice. Both Dockerfiles name
+`eclipse-temurin:25-jre` (and `maven:3.9-eclipse-temurin-25` for the root one's build stage) with no
+`JAVA_VERSION` argument; the test runner is 25 only; `deploy/docker/build.sh --java` is refused by
+name, the `-jre21` tag is not built, and `release.sh` builds and smoke-tests one engine image. The
+launcher adds `--sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED` always, and
+refuses a JVM older than 25.

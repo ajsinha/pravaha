@@ -13,9 +13,9 @@
 #   1. refuses unless the working tree is clean and on a branch that may be released from
 #   2. sets the version across 37 poms, 2 wheels and the chart (deploy/release/set-version.sh)
 #   3. `./mvnw -o clean verify` -- the whole reactor, offline, tests and all
-#   4. builds the container images (engine and console) and tags them with the release version:
-#      the engine on Java 25 as <version>, and on Java 21 as <version>-jre21 (the same jar)
-#   5. runs the image's smoke journey against both engine images it just built
+#   4. builds the container images (engine and console) and tags them with the release version;
+#      the engine runs on Java 25, the only JRE from 2.0 (ADR-061)
+#   5. runs the image's smoke journey against the engine image it just built
 #   6. packages the Helm chart, if helm is available
 #   7. commits the version bump and writes an ANNOTATED TAG
 #   8. sets the version to --next and commits that
@@ -39,6 +39,8 @@ set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
+# Java 25 builds the release, and nothing else does (ADR-061): JAVA_HOME, or a stop naming it.
+source "$root/tools/jdk25.sh"
 
 version=""
 next=""
@@ -109,19 +111,13 @@ run "$root/mvnw" -o -B clean verify -f "$root/pom.xml"
 
 # ---------------------------------------------------------------- 4 and 5. the image
 
-# Java 25 is the image's JRE (2026-10-01, the owner's decision); 21 is built and smoke-tested beside it
-# under -jre21, because it is supported and a tag nobody ran is not a release of it.
+# One engine image, on Java 25: from 2.0 the classes are Java 25 class files, so the 1.x -jre21
+# image has nothing left to run (ADR-061).
 step "build the image (Java 25)"
-run "$root/deploy/docker/build.sh" --java 25 --tag "$image_repo:$version"
+run "$root/deploy/docker/build.sh" --tag "$image_repo:$version"
 
 step "smoke-test the image (Java 25)"
 run "$root/deploy/docker/smoke.sh" --image "$image_repo:$version"
-
-step "build the image (Java 21)"
-run "$root/deploy/docker/build.sh" --java 21 --tag "$image_repo:$version-jre21"
-
-step "smoke-test the image (Java 21)"
-run "$root/deploy/docker/smoke.sh" --image "$image_repo:$version-jre21"
 
 # The console is its own image (2026-09-26, the owner's decision): same version, same release.
 step "build the console image"
@@ -163,7 +159,6 @@ cat <<EOF
 
   tag     $tag          (annotated, NOT pushed)
   image   $image_repo:$version   (Java 25; built and smoke-tested, NOT pushed)
-  image   $image_repo:$version-jre21   (Java 21; built and smoke-tested, NOT pushed)
   image   ${image_repo%-server}-console:$version   (built, NOT pushed)
   chart   target/pravaha-*.tgz   (if helm was available)
   jars    pravaha-*/target/*.jar
@@ -172,7 +167,6 @@ What a person still has to do, and why this script will not:
 
   git push && git push origin $tag       the owner decides when a release is public
   deploy/docker/build.sh --push --tag <registry>/pravaha-server:$version
-  deploy/docker/build.sh --java 21 --push --tag <registry>/pravaha-server:$version-jre21
                                           there is no registry configured in this repository
   helm push target/pravaha-*.tgz oci://<registry>/charts
                                           likewise

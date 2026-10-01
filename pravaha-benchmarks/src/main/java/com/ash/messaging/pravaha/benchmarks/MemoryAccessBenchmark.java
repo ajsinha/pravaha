@@ -56,7 +56,7 @@ import com.ash.messaging.pravaha.common.observe.CoverageAgent;
 @OutputTimeUnit(TimeUnit.NANOSECONDS)
 @Fork(
         value = 2,
-        jvmArgsAppend = {"-XX:+UseZGC", "-XX:+ZGenerational"})
+        jvmArgsAppend = {"-XX:+UseZGC"})
 @Measurement(iterations = 5, time = 2)
 @State(Scope.Thread)
 public class MemoryAccessBenchmark {

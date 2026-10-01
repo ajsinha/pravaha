@@ -33,8 +33,8 @@ class MemoryAccessTest {
     void bestFallsBackWhenAnUnavailableImplementationIsRequested() {
         // An unavailable implementation is never an error: the default is a correct answer, not a
         // degraded one, so selection falls through silently. Still true after CFG-22, and it is the
-        // half that must stay true -- -Dpravaha.ffm=true on a JDK 21 is a launcher that will start
-        // working on an upgrade, not a mistake.
+        // half that must stay true -- -Dpravaha.ffm=true where no FFM implementation is present is a
+        // launcher that will start working when one is, not a mistake.
         withProperty(
                 MemoryAccess.FFM_PROPERTY,
                 "true",

@@ -883,17 +883,20 @@ Secure it as you secure the rest of the management port.
 
 ### Boot versions
 
-Built and tested against Boot 3.5 (3.5.16, the server's version). The starter's pom has profiles
-`boot-3.2`, `boot-3.3`, `boot-3.4` and `boot-3.5`, each moving the Boot BOM, and `BootVersionTest`
-fails a leg that ran some other Boot than the one it names:
+Built and tested against Boot 3.5 (3.5.16, the server's version). **Boot 3.4 is the floor from
+Pravaha 2.0**: the starter's classes are Java 25 class files, and Boot 3.2 and 3.3 (Spring Framework
+6.0 and 6.1) cannot read them — every test errors with *Unsupported class file major version 69*
+while Boot reads the auto-configuration (ADR-061). In 1.x the starter ran on 3.2 to 3.5. The
+starter's pom has profiles `boot-3.4` and `boot-3.5`, each moving the Boot BOM, and
+`BootVersionTest` fails a leg that ran some other Boot than the one it names:
 
 ```bash
-./mvnw -pl pravaha-spring-boot-starter -am test -Pboot-3.2
+./mvnw -pl pravaha-spring-boot-starter -am test -Pboot-3.4
 ```
 
-All four legs run green (2026-09-27, 41 tests each), and CI's `matrix` workflow runs them on every
-pull request and nightly. A leg needs its Boot version in the local repository, so an offline build
-of a line never downloaded fails at resolution. The Boot 3.2 to 3.4 BOMs manage commons-dbcp2 and
+Both legs run green on JDK 25 (2026-10-01, 41 tests each), and CI's `matrix` workflow runs them on
+every pull request and nightly. A leg needs its Boot version in the local repository, so an offline
+build of a line never downloaded fails at resolution. The Boot 3.4 BOM manages commons-dbcp2 and
 HttpClient 5 below what Calcite and Avatica are built against; the starter pins them to the versions
 Boot 3.5 resolves, so the engine runs on the same classpath on every line.
 

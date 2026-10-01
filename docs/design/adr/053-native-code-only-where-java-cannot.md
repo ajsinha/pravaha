@@ -73,3 +73,9 @@ The images now default to Java 25 (ADR-047's amendment of the same date), so the
 on it — `smoke.sh` step 11, read-only root, prints `snappy loaded 28 bytes zstd loaded 35 bytes` on
 25 and on the `--java 21` image alike — and with `--enable-native-access=ALL-UNNAMED`, which the
 launcher gives a 24+ JVM, loading them prints no JEP 472 warning.
+
+## Amendment, 2026-10-01 (later): Java 25 only
+
+From 2.0 ([ADR-061](061-jdk-25-is-the-baseline-from-2-0.md)) the `--java 21` image is gone and
+Pravaha runs on any platform with a JDK 25 (the Consequences' "JDK 21" above is 1.x). The launcher
+gives every JVM `--enable-native-access=ALL-UNNAMED`.

@@ -25,16 +25,11 @@
 # only, and failed to load on the Alpine image, so the commonest Parquet file could not be read in
 # the container (PORT-1). smoke.sh now loads both Parquet codecs on this image.
 #
-# The JRE: 25 by default (the owner's decision, 2026-10-01), 21 by `build.sh --java 21` (or
-# --build-arg JAVA_VERSION=21). Both are supported; the jar is the same either way -- its classes
-# target Java 21 (maven.compiler.release), the floor every client and plugin is held to -- and
-# bin/pravaha-server gives a 24+ JVM the options it needs (--sun-misc-unsafe-memory-access=allow,
-# --enable-native-access=ALL-UNNAMED), so the node starts on 25 without a warning. The image is
-# the one place the runtime is ours to choose, so it runs on the newer LTS; 21 is an image a
-# deployment chooses.
-ARG JAVA_VERSION=25
-FROM eclipse-temurin:${JAVA_VERSION}-jre
-ARG JAVA_VERSION
+# The JRE: 25, and only 25. From 2.0 the classes are Java 25 class files (ADR-061), so there is no
+# other JRE to offer; the 1.x `--java 21` / `-jre21` image is gone with the 21 baseline.
+# bin/pravaha-server gives the JVM --sun-misc-unsafe-memory-access=allow and
+# --enable-native-access=ALL-UNNAMED, so the node starts without a warning.
+FROM eclipse-temurin:25-jre
 
 # A deployment wants to know what it is running without starting it.
 ARG PRAVAHA_VERSION=0.0.0-unset
@@ -48,7 +43,7 @@ LABEL org.opencontainers.image.title="Pravaha engine node" \
       org.opencontainers.image.authors="Ashutosh Sinha <ajsinha@gmail.com>" \
       org.opencontainers.image.licenses="LicenseRef-Proprietary" \
       org.opencontainers.image.source="https://github.com/ajsinha/pravaha" \
-      com.ash.messaging.pravaha.java="${JAVA_VERSION}"
+      com.ash.messaging.pravaha.java="25"
 
 WORKDIR /opt/pravaha
 
@@ -103,7 +98,7 @@ COPY --chmod=0644 lib/pravaha-server.jar lib/pravaha-server.jar
 # replaces 2 and 3 -- the chart sets it, naming both, plus its secret mount.
 ENV PRAVAHA_HOME=/opt/pravaha
 
-# The JVM (21 and 25 alike) reads the cgroup limit, so the only question is what share of it the HEAP may take. 50%,
+# The JVM reads the cgroup limit, so the only question is what share of it the HEAP may take. 50%,
 # not the 75% a mostly-heap service would use: this engine's state is off-heap (inboxes, arenas,
 # row stores), Arrow and Netty allocate direct buffers for every Flight call, and the spill tier
 # is only fast while the page cache holds its index (docs/operations/OPERATIONS.md, "Disk"). A heap sized at

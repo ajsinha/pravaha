@@ -1,18 +1,13 @@
 name: matrix
 
 # HAS THIS EVER RUN? Not as a GitHub Actions workflow. Its commands have run on the development
-# machine: the four Spring Boot legs, 3.2 to 3.5, ran green on 2026-09-27 (41 tests each), and the
-# four JDK legs below on 2026-10-01 (JDK 21.0.12 and 25.0.4). They are written so that a leg CANNOT
-# pass by testing something else -- see BootVersionTest, and the recompile check, below.
+# machine: the Spring Boot legs, 3.4 and 3.5, ran green on JDK 25 on 2026-10-01 (41 tests each). They are
+# written so that a leg CANNOT pass by testing something else -- see BootVersionTest, below.
 #
-# Supported JDKs: 21 and 25. Releases are built on 21 (design section 4.5), but the classes are Java
-# 21 class files whichever JDK compiles them (maven.compiler.release=21; the API and the Java SDK,
-# 17), so a jar built on either runs on both. Each leg compiles on one JDK and runs the whole
-# reactor's tests on the same one or the other: the two a developer has, and the two crossings a
-# deployment meets -- a release built on 21 run on a newer JVM, and a build made on 25 run where
-# only 21 is installed. There is no toolchain: the JDK on JAVA_HOME compiles. (This file used to say
-# compilation was pinned to 21 by one; maven-toolchains-plugin is declared but never bound, so the
-# old 25 leg, `clean verify` on 25, recompiled on 25.)
+# One JDK: 25 (ADR-061, 2.0). Pravaha 1.x crossed built-with x run-on {21, 25} here, four legs
+# with a check that the test run had not recompiled; with Java 25 class files there is no other JDK
+# to cross to, so the JDK legs are gone and the one JDK-25 run of the whole reactor is fast.yml's.
+# What stays is what still varies: the flagged Agrona memory path and the Spring Boot lines.
 on:
   pull_request:
     branches: [develop, main]
@@ -20,49 +15,6 @@ on:
     - cron: '0 3 * * *'
 
 jobs:
-  jdk:
-    name: built with JDK ${{ matrix.build }}, tests on JDK ${{ matrix.run }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { build: '21', run: '21' }
-          - { build: '25', run: '25' }
-          - { build: '21', run: '25' }
-          - { build: '25', run: '21' }
-    steps:
-      - uses: actions/checkout@v4
-      # Both JDKs; each step names its own through the JAVA_HOME_<n>_X64 setup-java exports.
-      - uses: actions/setup-java@v4
-        with:
-          java-version: |
-            21
-            25
-          distribution: temurin
-          cache: maven
-      - name: compile and install on JDK ${{ matrix.build }}
-        env:
-          JAVA_HOME: ${{ env[format('JAVA_HOME_{0}_X64', matrix.build)] }}
-        run: ./mvnw -B clean install -DskipTests
-      # No `clean`: the classes compiled above are the ones under test, and the compiler plugin,
-      # finding nothing stale, compiles nothing. If it ever recompiled the shipped classes, the leg
-      # would no longer cross JDKs and would pass for the wrong reason, so that fails it. (One
-      # recompile is expected and allowed: pravaha-it's test classes. The module has no main
-      # sources, so no target/classes, and the compiler plugin reads the missing directory as a
-      # change -- "I/O error reading dependency state" -- on every build without clean.)
-      - name: run the tests on JDK ${{ matrix.run }}
-        env:
-          JAVA_HOME: ${{ env[format('JAVA_HOME_{0}_X64', matrix.run)] }}
-        run: |
-          set -o pipefail
-          ./mvnw -B install -DskipITs | tee test-run.log
-          if grep -E 'Compiling [0-9]+ source files? .* to target/classes' test-run.log; then
-            echo "the test run recompiled: these are not the classes JDK ${{ matrix.build }} built" >&2
-            exit 1
-          fi
-
   agrona-flagged:
     name: agrona memory path (flagged)
     runs-on: ubuntu-latest
@@ -71,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
-          java-version: '21'
+          java-version: '25'
           distribution: temurin
           cache: maven
       # Agrona 2.x reaches jdk.internal.misc.Unsafe. It is never the default for exactly that
@@ -87,15 +39,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        boot: ['3.2', '3.3', '3.4', '3.5']
+        # 3.4 is the floor from 2.0: Boot 3.2 and 3.3 (Spring Framework 6.0, 6.1) cannot read Java 25
+        # class files (ADR-061).
+        boot: ['3.4', '3.5']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
-          java-version: '21'
+          java-version: '25'
           distribution: temurin
           cache: maven
       # Each leg is a profile in pravaha-spring-boot-starter's pom, and BootVersionTest fails the leg
       # if the Boot on the test classpath is not the one the profile names -- so a leg cannot pass
-      # by quietly testing the default line. All four ran green on the development machine.
+      # by quietly testing the default line. Both ran green on the development machine.
       - run: ./mvnw -B -pl pravaha-spring-boot-starter -am verify -DskipITs -Pboot-${{ matrix.boot }}

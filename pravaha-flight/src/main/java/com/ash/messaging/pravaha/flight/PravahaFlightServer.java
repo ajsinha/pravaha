@@ -46,9 +46,9 @@ import com.ash.messaging.pravaha.serving.ViewCatalog;
  * --add-opens=java.base/java.lang=ALL-UNNAMED
  * </pre>
  *
- * <p>On Java 24 and later, {@code --sun-misc-unsafe-memory-access=allow} is needed as well. It is
- * <em>not</em> a valid option on 21 -- the JVM refuses to start rather than ignoring it -- so it
- * cannot simply be added to every command line.
+ * <p>{@code --sun-misc-unsafe-memory-access=allow} belongs beside them, or Java 25 warns about Arrow's
+ * use of {@code sun.misc.Unsafe} (JEP 498). From 2.0, Java 25 only, {@code bin/pravaha-server} always
+ * passes it; 1.x could not, because Java 21 refuses the option rather than ignoring it.
  *
  * <p>Without them the failure is an {@code InaccessibleObjectException} at class-load that mentions
  * neither Arrow nor Flight, so it is stated here rather than left to be rediscovered.

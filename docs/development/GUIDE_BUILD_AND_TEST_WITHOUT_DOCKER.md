@@ -6,7 +6,8 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 From a fresh clone to a running node, a continuous query read four ways, and a restart that keeps
 its answer — on a Linux machine with no Docker. Every command below was run on 2026-09-29 on the
 development machine (Ubuntu, 24 cores, 61 GiB RAM, OpenJDK 21.0.12, Python 3.14.4), and the output
-shown is what it printed, trimmed where marked.
+shown is what it printed, trimmed where marked. **From 2.0 the JDK is 25** (2026-10-01, ADR-061):
+the prerequisites below say so, and the walkthrough's commands are the same on it.
 
 [Testing Pravaha](TESTING.md) is the reference this walks through: every tier, what it needs, what
 skips. The container route is [Build and test with Docker](GUIDE_BUILD_AND_TEST_WITH_DOCKER.md).
@@ -15,21 +16,21 @@ skips. The container route is [Build and test with Docker](GUIDE_BUILD_AND_TEST_
 
 ## 1. Prerequisites
 
-**Supported JDKs: 21 and 25** (Temurin or OpenJDK). Pravaha builds on either and runs on either; the
-classes always target Java 21 (`maven.compiler.release=21`; `pravaha-api` and `pravaha-sdk-java`
-target 17), so a jar built on 25 runs on 21 and the other way round. Releases are built on 21. To
-build with 25: `JAVA_HOME=/path/to/jdk-25 ./mvnw -o clean install`. On JDK 24 and later the JVM warns
-when libraries use `sun.misc.Unsafe` memory methods (JEP 498: Arrow, Netty, protobuf) or load native
-code (JEP 472: snappy, zstd); `bin/pravaha-server` and `bin/pravaha-engine` add
-`--sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED` only on 24 and later
-(JDK 21 refuses the first), and `PRAVAHA_JAVA_OPTS` still comes last. An application embedding
-Pravaha on 24+ may add the same two options; on 21 it must not.
+**JDK 25, and only 25** (Temurin or OpenJDK), from Pravaha 2.0
+([ADR-061](../design/adr/061-jdk-25-is-the-baseline-from-2-0.md)). Every module, `pravaha-api` and the
+Java SDKs included, compiles to Java 25 class files (`maven.compiler.release=25`); the enforcer
+refuses an older JDK, and `bin/pravaha-server` and `bin/pravaha-engine` refuse an older JVM by name.
+The JVM warns when libraries use `sun.misc.Unsafe` memory methods (JEP 498: Arrow, Netty, protobuf)
+or load native code (JEP 472: snappy, zstd), so the launchers always add
+`--sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED`, and `PRAVAHA_JAVA_OPTS`
+still comes last. An application embedding Pravaha may add the same two options. (Pravaha 1.x ran
+on 21 and 25.)
 
 ```bash
-/usr/lib/jvm/java-21-openjdk-amd64/bin/java -version
+/usr/lib/jvm/java-25-openjdk-amd64/bin/java -version
 ```
 ```
-openjdk version "21.0.12.1" 2026-08-18
+openjdk version "25.0.4.1" 2026-08-18
 ```
 
 ```bash
@@ -42,22 +43,22 @@ git version 2.53.0
 
 | | Needed for | Notes |
 |---|---|---|
-| JDK 21 | everything | set `JAVA_HOME` to it. `java` on `PATH` may be another version (here it is 25) and the build refuses anything but 21 |
+| JDK 25 | everything | set `JAVA_HOME` to it. The build scripts (`tools/worktree-build.sh`, `tools/verify-clean.sh`, ...) find `/usr/lib/jvm/java-25-openjdk*` when it is unset, and refuse a `JAVA_HOME` older than 25 by name; plain `./mvnw` uses whatever `JAVA_HOME` or `PATH` gives it, and the enforcer refuses anything before 25 |
 | Git | the clone | |
 | Python ≥ 3.11 with `venv` | the SDK (≥ 3.9) and the console (≥ 3.11) | Debian/Ubuntu split `venv` out: without `python3.X-venv`, `make install` stops at *"ensurepip is not available"*. Install that package, or create the venv with `uv venv --seed .venv` and then run `make install` |
 | Chrome or Chromium | the console's browser suites only | found on `PATH`, or `PRAVAHA_CHROME=<path>` |
 | `psql` | optional, step 9 | any PostgreSQL client works; this machine had none, so step 9 uses psycopg |
 | Disk / RAM | | a few GiB for the build and `~/.m2`; 8 GiB RAM is ample for everything here |
 
-**macOS.** Not run for this guide. The same commands apply with a JDK 21 from your package manager
-(`JAVA_HOME=$(/usr/libexec/java_home -v 21)`); `/tmp` is not a tmpfs there, and the Linux-only
+**macOS.** Not run for this guide. The same commands apply with a JDK 25 from your package manager
+(`JAVA_HOME=$(/usr/libexec/java_home -v 25)`); `/tmp` is not a tmpfs there, and the Linux-only
 measurement tests (`systemd-run` memory caps, `strace`) skip themselves with a reason.
 
 Set these for every step (the temporary directory is moved off `/tmp`, a RAM-backed tmpfs on many
 Linux machines, because tests write real state files):
 
 ```bash
-export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+export JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64
 export TMPDIR=$HOME/.cache/pravaha-tmp
 export MAVEN_OPTS=-Djava.io.tmpdir=$HOME/.cache/pravaha-tmp
 mkdir -p "$TMPDIR"
@@ -407,7 +408,7 @@ database or set: a CDC source creates a replication slot, and sinks write.
 |---|---|---|
 | `make install`: *ensurepip is not available* | Debian/Ubuntu `venv` package missing | install `python3.X-venv`, or `uv venv --seed .venv` then `make install` |
 | A test fails in one module after a change in another, or passes when it should not | a stale Pravaha jar in `~/.m2` (MAVENRACE-1) | `./mvnw -o -pl <module> -am …`; in a worktree `tools/worktree-build.sh`; before committing `tools/verify-clean.sh` |
-| `--release 21` errors, or the enforcer refuses the JDK | `JAVA_HOME` unset and `java` is another version | `export JAVA_HOME=…21…` |
+| `release version 25 not supported`, the enforcer refuses the JDK, or *"Pravaha 2.x requires Java 25"* | `JAVA_HOME` (or `java` on `PATH`) is older than 25 | `export JAVA_HOME=…25…` |
 | State or spill tests slow, or `/tmp` fills | `/tmp` is RAM | `TMPDIR` and `MAVEN_OPTS=-Djava.io.tmpdir=…` as in step 1 |
 | Node exits with `PRV-6202 … Address already in use` | a port in use (another node, a PostgreSQL on 5432 for pgwire) | change `server.port`, `pravaha.flight.port`, `pravaha.pgwire.port` |
 | CLI: `PRV-1031` | a token over plaintext | `PRAVAHA_INSECURE_TOKEN=true` on loopback; TLS otherwise |

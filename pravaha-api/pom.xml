@@ -8,11 +8,10 @@
   </parent>
   <artifactId>pravaha-api</artifactId>
   <name>Pravaha :: api</name>
-  <description>The public SPI. Zero third-party dependencies, compiled to Java 17 bytecode so that
-    plugin authors and embedders still on 17 can depend on it (design 4.5, 7.2).</description>
+  <description>The public SPI. Zero third-party dependencies (design 7.2); Java 25 class files, like
+    every module, from 2.0 (ADR-061).</description>
 
   <properties>
-    <maven.compiler.release>${api.compiler.release}</maven.compiler.release>
     <jacoco.line.coverage>0.85</jacoco.line.coverage>
   </properties>
 

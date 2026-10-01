@@ -16,7 +16,8 @@
 # Always finish a batch with tools/verify-clean.sh before committing.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
-export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk-amd64}"
+# JDK 25 on JAVA_HOME, or a stop naming the requirement (ADR-061).
+source tools/jdk25.sh
 
 FORKS="${PRAVAHA_FORKS:-0.5C}"
 TARGET="${1:?usage: tools/check.sh <module>|--all [maven args]}"

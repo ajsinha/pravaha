@@ -1,20 +1,40 @@
-# What 1.x promises
+# What 2.x promises
 
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
-Pravaha follows semantic versioning from 1.0.0. A **major** release (2.0) may break what this page
-calls stable; a **minor** release (1.1) adds to it without breaking it; a **patch** release (1.0.1)
+Pravaha follows semantic versioning from 1.0.0. A **major** release (3.0) may break what this page
+calls stable; a **minor** release (2.1) adds to it without breaking it; a **patch** release (2.0.1)
 fixes defects and changes nothing a client can rely on, except where the old behaviour was the
-defect. 1.0 is a **one-node** release: cluster mode (wave 11) is not in it, and when it comes it
-arrives as a 1.x addition that a single node does not have to adopt.
+defect. 2.0 is a **one-node** release, as 1.0 was: cluster mode (wave 11) is not in it, and when it
+comes it arrives as a 2.x addition that a single node does not have to adopt.
 
-## Stable in 1.x
+## 2.0: Java 25 is the minimum
+
+2.0's one breaking change is the Java baseline ([ADR-061](../design/adr/061-jdk-25-is-the-baseline-from-2-0.md)).
+**Java 25 is required** to build, run, embed or call Pravaha from Java: every module, `pravaha-api`
+and the Java SDKs included, is Java 25 class files. 1.x required 21 (`pravaha-api` and
+`pravaha-sdk-java` targeted 17) and supported 25.
+
+| Who | What changes |
+|---|---|
+| Running a node from the jar or the distribution | `JAVA_HOME` must be a JDK or JRE 25; the launchers refuse an older JVM by name |
+| Running the image | Nothing: it was already on `eclipse-temurin:25-jre`. The 1.x `-jre21` tag is not built for 2.x |
+| Embedding (`pravaha-embedded`), a plugin against `pravaha-api` | The application's JVM must be 25 |
+| The Spring Boot starter | Java 25, and **Spring Boot 3.4 or later**: Boot 3.2 and 3.3 cannot read Java 25 class files (1.x: Boot 3.2 to 3.5) |
+| A Java SDK client | Java 25. The wire is unchanged, so a 1.x Java SDK keeps speaking it to a 2.0 node while an application moves; the tested pairing is still the same major.minor (below) |
+| The Python SDK, the CLI, the console | Nothing |
+
+Everything else this page calls stable is unchanged from 1.x: the SQL, the wire protocols, the
+HTTP API, the error codes, the configuration keys, the metrics and the container layout. A 2.0
+node reads the state any 1.x node wrote.
+
+## Stable in 2.x
 
 | Surface | What stays compatible | Where it is defined |
 |---|---|---|
-| Java | JDK 21 is the minimum through 1.x; JDK 25 is supported for building and running, and CI crosses built-with × run-on {21, 25}. Classes target Java 21 (`pravaha-api` and `pravaha-sdk-java`, 17). The container images default to Java 25 (`eclipse-temurin:25-jre`); `deploy/docker/build.sh --java 21` builds one on 21. | [GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md](../development/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) |
-| The SQL dialect | Every statement, function and clause [../guides/CONTINUOUS_QUERIES.md](../guides/CONTINUOUS_QUERIES.md) documents keeps its meaning; a statement accepted by 1.0 is accepted by every 1.x and answers the same. New syntax and functions may be added. | [../guides/CONTINUOUS_QUERIES.md](../guides/CONTINUOUS_QUERIES.md) |
+| Java | JDK 25 is the minimum through 2.x, for building, running, embedding and the Java SDKs; every module's classes target Java 25. The container images run on `eclipse-temurin:25-jre`. (1.x: JDK 21 minimum, 25 supported.) | [GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md](../development/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) |
+| The SQL dialect | Every statement, function and clause [../guides/CONTINUOUS_QUERIES.md](../guides/CONTINUOUS_QUERIES.md) documents keeps its meaning; a statement accepted by 1.0 is accepted by every 1.x and 2.x and answers the same. New syntax and functions may be added. | [../guides/CONTINUOUS_QUERIES.md](../guides/CONTINUOUS_QUERIES.md) |
 | The Java SDK | Public types and methods of `pravaha-api`, `pravaha-sdk-java` and `pravaha-sdk-java-flight` are not removed or changed incompatibly; methods may be added. | the javadoc jars; `sdk/pravaha-sdk-java/README.md` |
 | The Python SDK | The public names in `pravaha` (everything not starting with `_`), excluding `pravaha.assist` — see below. | [../guides/PYTHON_API_GUIDE.md](../guides/PYTHON_API_GUIDE.md) |
 | The HTTP API | Every path and field under `/api/v1`; fields may be added, never removed or retyped. | the checked-in OpenAPI lock (OPENAPILOCK-1) |
@@ -24,17 +44,17 @@ arrives as a 1.x addition that a single node does not have to adopt.
 | The command lines | `pravaha` and `pravaha-engine` subcommands, flags and exit codes; JSON output fields may be added. | [../guides/CLI.md](../guides/CLI.md) |
 | Configuration | Every documented `pravaha.*` key; a key is deprecated for at least one minor release, with a warning at start, before it is removed in the next major. | [OPERATIONS.md](OPERATIONS.md) |
 | Metrics | Names and labels of the `pravaha.*` meters; new ones may be added. | `ObservabilityContractTest` |
-| State on disk | A 1.x node reads the journal, checkpoints, catalogue and identity stores written by any earlier 1.x node. Going *back* is not promised: an older 1.x build may refuse state written by a newer one. | [OPERATIONS.md](OPERATIONS.md) |
+| State on disk | A 2.x node reads the journal, checkpoints, catalogue and identity stores written by any earlier 1.x or 2.x node. Going *back* is not promised: an older build may refuse state written by a newer one. | [OPERATIONS.md](OPERATIONS.md) |
 | The container layout | Everything under `PRAVAHA_HOME` (`/opt/pravaha` in the images): `conf/`, `data/`, `logs/`, `plugins/`, `secrets/`, `tmp/`. | [RUNNING_IN_DOCKER.md](RUNNING_IN_DOCKER.md) |
 
-## Experimental in 1.0
+## Experimental in 1.0 and 2.0
 
 These work and are tested, and may still change in a minor release, said in the release notes:
 
 - **The assistant** — `pravaha.assist`, `pravaha ask`, `explain-sql`, `why`, `assist eval`, the
   console's *Describe it* and *Explain*, and **Admin · AI models** ([../guides/ASSIST.md](../guides/ASSIST.md),
   ADR-058). Model behaviour moves under it, and its configuration file's shape may change.
-- **The catalogue's unbuilt phases** — what ADR-059 plans beyond phases 1 and 2 is not in 1.0.
+- **The catalogue's unbuilt phases** — what ADR-059 plans beyond phases 1 and 2 is not in 1.0 or 2.0.
   What *is* built — privileges, grants, namespaces, row filters and masks as policies — is stable.
 - **Anything a page marks as a preview.**
 

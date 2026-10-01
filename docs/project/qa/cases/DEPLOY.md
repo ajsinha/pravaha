@@ -9,7 +9,7 @@ Scratch directory: `/tmp/.../scratchpad/qa-deploy` (outside the repository tree)
 
 Environment assumed by every case unless it says otherwise:
 
-    export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+    export JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64   # JDK 25 only from 2.0 (ADR-061)
     cd /home/ashutosh/IdeaProjects/pravaha
 
 ---

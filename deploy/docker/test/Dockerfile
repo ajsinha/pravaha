@@ -10,14 +10,9 @@
 #
 # Runs as whoever docker-test.sh says (--user $(id -u):$(id -g)), with HOME and every cache on a
 # mounted directory, so it needs no user of its own and writes nothing into the image.
-# JDK 25, as the engine image: the reactor builds on 25 and its classes still target 21
-# (maven.compiler.release), so a test run here proves the code on the JVM the image ships. To test
-# on 21 instead, build a second runner and name it:
-#   docker build --build-arg JAVA_VERSION=21 -t pravaha/test-runner:jdk21 deploy/docker/test
-#   PRAVAHA_TEST_IMAGE=pravaha/test-runner:jdk21 tools/docker-test.sh unit
-ARG JAVA_VERSION=25
-FROM maven:3.9-eclipse-temurin-${JAVA_VERSION}
-ARG JAVA_VERSION
+# JDK 25, and only 25, as the engine image: from 2.0 the reactor builds Java 25 class files
+# (ADR-061), so a test run here proves the code on the JVM the image ships.
+FROM maven:3.9-eclipse-temurin-25
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3 python3-venv \
@@ -29,5 +24,5 @@ ENTRYPOINT []
 CMD ["bash"]
 
 LABEL org.opencontainers.image.title="Pravaha test runner" \
-      org.opencontainers.image.description="JDK ${JAVA_VERSION}, Maven and Python 3 for tools/docker-test.sh" \
+      org.opencontainers.image.description="JDK 25, Maven and Python 3 for tools/docker-test.sh" \
       org.opencontainers.image.licenses="LicenseRef-Proprietary"
