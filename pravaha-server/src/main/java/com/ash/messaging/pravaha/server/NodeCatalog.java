@@ -165,7 +165,7 @@ final class NodeCatalog {
             catalog.importPolicy(
                     configured,
                     CatalogPolicy.importedGrants(
-                            configured, "import", Clock.systemUTC().instant(), security.administerRule()));
+                            configured, "import", Clock.systemUTC().instant()));
             log.info("catalog: imported pravaha.security.policy={} as grants, once", configured);
             return;
         }
@@ -187,8 +187,7 @@ final class NodeCatalog {
                         && grant.privilege() == com.ash.messaging.pravaha.catalog.Privilege.MODIFY
                         && grant.grantee().role()
                         && grant.grantee().name().equals(com.ash.messaging.pravaha.catalog.Grantee.AUTHENTICATED));
-        if (readersAdminister
-                && security.administerRule() == com.ash.messaging.pravaha.security.Administration.Rule.OWNERSHIP) {
+        if (readersAdminister) {
             log.warn(
                     "catalog: the catalogue grants MODIFY ON CATALOG TO ROLE authenticated (imported before views were "
                             + "administered by their owners), so every verified caller may still drop, pause and replace "

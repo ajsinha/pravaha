@@ -14,8 +14,9 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 **2.0.0 — breaking: Java 25 required.** Pravaha is built, tested, run and released on JDK 25 only,
 and every module, `pravaha-api` and the Java SDKs included, is compiled to Java 25 class files
-(ADR-061). It is the one breaking change of 2.0: the SQL, the wire protocols, the HTTP API, the
-Python SDK, the configuration keys and the state on disk are as 1.x left them
+(ADR-061). With it, `pravaha.security.administer: legacy-read` is removed, as 1.0.0 announced. Those
+are 2.0's two breaking changes: the SQL, the wire protocols, the HTTP API, the Python SDK, every
+other configuration key and the state on disk are as 1.x left them
 ([../operations/COMPATIBILITY.md](../operations/COMPATIBILITY.md), "2.0").
 
 - **Who it breaks.**
@@ -33,6 +34,13 @@ Python SDK, the configuration keys and the state on disk are as 1.x left them
   - *Anyone running the jar or the distribution on Java 21*: `bin/pravaha-server` and
     `bin/pravaha-engine` stop at once with a message naming Java 25, rather than failing on the
     first class they load. Point `JAVA_HOME` at a JDK or JRE 25.
+  - *Deployments still setting `pravaha.security.administer: legacy-read`* (server or embedded):
+    the node refuses to start with `PRV-7004 … legacy-read was removed in 2.0; grant MODIFY/MANAGE or use the admin role`.
+    Since 1.0.0 that setting let anyone who may read a view unfiltered drop, pause, resume or
+    replace it; it was deprecated then and is removed now. Grant those operators `MODIFY` or
+    `MANAGE` on the views (or the `admin` role), then remove the setting. `ownership`, the 1.x
+    default, is still accepted. A catalogue `authority: import` of `authenticated` no longer has a
+    rule under which it imports `MODIFY`.
   - *Image users*: no change in what runs — the image was already on 25 — but the `-jre21` image is
     no longer built, and `deploy/docker/build.sh --java` is refused.
 - **Building from source** needs JDK 25: the enforcer requires it (`[25,)`), and the build scripts

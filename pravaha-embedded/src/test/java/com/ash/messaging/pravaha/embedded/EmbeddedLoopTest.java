@@ -290,6 +290,27 @@ class EmbeddedLoopTest {
     }
 
     @Test
+    void anEngineConfiguredWithTheRemovedLegacyReadRuleRefusesToStart() {
+        PravahaEngine engine = PravahaEngine.create(Configuration.builder()
+                .set("pravaha.streams.txn.schema", TXN)
+                .set("pravaha.security.administer", "legacy-read")
+                .build());
+        assertThatThrownBy(engine::start)
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("legacy-read was removed in 2.0; grant MODIFY/MANAGE or use the admin role");
+        assertThat(engine.state()).isEqualTo(EngineState.FAILED);
+        engine.close();
+
+        try (PravahaEngine owned = PravahaEngine.create(Configuration.builder()
+                .set("pravaha.streams.txn.schema", TXN)
+                .set("pravaha.security.administer", "ownership")
+                .build())) {
+            owned.start();
+            assertThat(owned.state()).isEqualTo(EngineState.RUNNING);
+        }
+    }
+
+    @Test
     void aRestartedEngineComesBackWithItsQueriesAndTheirState(@TempDir Path dir) throws Exception {
         Configuration persistent = Configuration.builder()
                 .set("pravaha.streams.txn.schema", TXN)

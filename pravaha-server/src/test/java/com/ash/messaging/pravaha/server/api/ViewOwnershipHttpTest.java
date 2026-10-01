@@ -95,10 +95,19 @@ class ViewOwnershipHttpTest {
     }
 
     @Test
-    void legacyReadLetsTheReaderAdministerAgain() {
-        registry.owners().administering(Administration.Rule.LEGACY_READ);
+    void aNodeStillConfiguredWithLegacyReadRefusesToStartNamingTheRemoval() {
+        com.ash.messaging.pravaha.server.security.SecurityProperties security =
+                new com.ash.messaging.pravaha.server.security.SecurityProperties();
+        security.setAdminister("legacy-read");
 
-        authorizer.requireAdminister(as(RAY), "orders");
+        assertThatThrownBy(security::validate)
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-7004")
+                .hasMessageContaining("legacy-read was removed in 2.0; grant MODIFY/MANAGE or use the admin role");
+        // And the reader still may not administer what it does not own.
+        assertThat(registry.owners().rule()).isEqualTo(Administration.Rule.OWNERSHIP);
+        assertThatThrownBy(() -> authorizer.requireAdminister(as(RAY), "orders"))
+                .isInstanceOf(PravahaException.class);
     }
 
     @Test

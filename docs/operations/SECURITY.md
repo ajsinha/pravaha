@@ -135,7 +135,7 @@ lanes, which every tenant shares
 - **Only an admin reaches another tenant's view**, by its catalogue name (`acme.default.orders`, quoted
   in a SQL `FROM` clause). Anyone else naming another tenant is refused `PRV-7002` in the same words
   whether the view exists or not, and another tenant's view is administered by nobody outside it but
-  an admin, under either `pravaha.security.administer` rule.
+  an admin.
 
 - **Sharing stays inside a tenant.** The tenant is part of the fingerprint, so identical SQL from
   two tenants is two computations. Within one tenant it is still one computation. Before this
@@ -184,15 +184,15 @@ The owner is shown to anyone who may see the query: `owner` in `GET /api/v1/quer
 and Java SDKs' registered-query records, `pravaha describe`, `pravaha queries --verbose`, and the
 console's query page. `GET /api/v1/me/permissions` answers `administer` by the same rule.
 
-**`pravaha.security.administer`** chooses the rule:
+**`pravaha.security.administer`** names the rule, and from 2.0 there is one:
 
 | Value | Who may administer a registered view |
 |---|---|
-| `ownership` (default) | its owner, a principal the policy grants it to, or the `admin` role |
-| `legacy-read` | the policy's `mayAdminister` alone — by default anyone whose read carries no row filter, as before. **Deprecated: kept through 1.x and removed in 2.0**, so a deployment whose operators relied on reading can move them to grants (`GRANT MODIFY ON VIEW ...`) or the `admin` role first |
+| `ownership` (the default, and the only value) | its owner, a principal the policy grants it to, or the `admin` role |
+| `legacy-read` | **Removed in 2.0**, as 1.0.0 announced. Through 1.x it handed the decision to the policy's `mayAdminister` alone — by default anyone whose read carries no row filter. A node or embedded engine that still sets it **refuses to start** with `PRV-7004 … legacy-read was removed in 2.0; grant MODIFY/MANAGE or use the admin role` rather than quietly enforcing a stricter rule than its operators expect. Move those operators to grants (`GRANT MODIFY ON VIEW ...` or `MANAGE`) or the `admin` role, then remove the setting |
 
-Anything else is refused at start with `PRV-7004`. The embedded engine reads the same key from its
-`Configuration`. With the catalogue on, `authority: import` now imports `authenticated` without
+Anything else is refused at start with `PRV-7004` too. The embedded engine reads the same key from its
+`Configuration`. With the catalogue on, `authority: import` imports `authenticated` without
 `MODIFY` on the catalogue; a catalogue that imported it before this change keeps that grant — the
 engine does not rewrite grants — and the node warns at every start until `REVOKE MODIFY ON CATALOG
 FROM ROLE authenticated`. `permissive` is imported whole either way: it makes every caller a manager

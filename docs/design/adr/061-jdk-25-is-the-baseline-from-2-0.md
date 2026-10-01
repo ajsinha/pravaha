@@ -18,7 +18,9 @@ on. Every module targets Java 25 — the engine, `pravaha-api`, `pravaha-sdk-jav
 or shipped on 21 any more: the 1.x `--java 21` image and its `-jre21` tag, the cross-JDK CI legs,
 and the 17 target of the API and the thin Java SDK are gone.
 
-This is the one breaking change of 2.0. Everything else 1.x called stable stays stable
+This is one of 2.0's two breaking changes; the other is the removal of
+`pravaha.security.administer: legacy-read`, which 1.0.0 deprecated and announced for 2.0, and which is
+not a decision of this ADR. Everything else 1.x called stable stays stable
 ([COMPATIBILITY.md](../../operations/COMPATIBILITY.md)).
 
 ## Context

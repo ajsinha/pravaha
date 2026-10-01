@@ -150,15 +150,10 @@ class CatalogPolicyTest {
     }
 
     @Test
-    void importingAuthenticatedUnderLegacyReadStillGrantsModifyToEveryVerifiedCaller() {
-        catalog.importPolicy(
-                "authenticated",
-                CatalogPolicy.importedGrants(
-                        "authenticated",
-                        "import",
-                        CLOCK.instant(),
-                        com.ash.messaging.pravaha.security.Administration.Rule.LEGACY_READ));
+    void importingAuthenticatedNeverGrantsModifyToEveryVerifiedCaller() {
+        // 1.x granted it when importing under pravaha.security.administer=legacy-read, removed in 2.0.
+        catalog.importPolicy("authenticated", CatalogPolicy.importedGrants("authenticated", "import", CLOCK.instant()));
         policy.registered(ANA, "v");
-        assertThat(policy.mayAdminister(BOB, "v").allowed()).isTrue();
+        assertThat(policy.mayAdminister(BOB, "v").allowed()).isFalse();
     }
 }

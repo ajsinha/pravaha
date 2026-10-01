@@ -139,8 +139,8 @@ class LifeAuthorizationTest extends LifecycleTestSupport {
     void life040_aReaderMayNotAdministerAViewItDoesNotOwn() {
         // LIFE-040 found that read access was destroy access: PERMISSIVE never overrides
         // mayAdminister, whose default is "anyone who may read it unfiltered". The registry now
-        // records who registered each view and decides by ownership (QueryOwners); the policy's
-        // default is the rule only under pravaha.security.administer=legacy-read.
+        // records who registered each view and decides by ownership (QueryOwners). The 1.x escape
+        // hatch, pravaha.security.administer=legacy-read, was removed in 2.0 and is refused by name.
         QueryRegistry policed = new QueryRegistry(views, SecurityPolicy.PERMISSIVE, AuditSink.NONE, TXN);
         try {
             Principal owner = Principal.of("owner");
@@ -153,10 +153,13 @@ class LifeAuthorizationTest extends LifecycleTestSupport {
                     .isFalse();
             assertThat(policed.owners().mayAdminister(owner, "v1").allowed()).isTrue();
 
-            policed.owners().administering(com.ash.messaging.pravaha.security.Administration.Rule.LEGACY_READ);
+            org.assertj.core.api.Assertions.assertThatThrownBy(
+                            () -> com.ash.messaging.pravaha.security.Administration.Rule.parse("legacy-read"))
+                    .as("legacy-read was removed in 2.0, and saying it is refused rather than ignored")
+                    .hasMessageContaining("legacy-read was removed in 2.0");
             assertThat(policed.owners().mayAdminister(reader, "v1").allowed())
-                    .as("legacy-read restores the old rule for one release")
-                    .isTrue();
+                    .as("ownership is unchanged")
+                    .isFalse();
         } finally {
             policed.close();
         }

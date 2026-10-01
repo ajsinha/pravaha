@@ -257,7 +257,8 @@ final class DefaultPravahaEngine implements PravahaEngine {
         StreamSchema[] streams = declaredStreams.values().toArray(new StreamSchema[0]);
         ViewCatalog views = new ViewCatalog();
         QueryRegistry built = new QueryRegistry(views, SecurityPolicy.PERMISSIVE, AuditSink.NONE, streams);
-        // Who may drop, pause or replace a view: its owner, a grant or an admin, unless configured back.
+        // Who may drop, pause or replace a view: its owner, a grant or an admin. The setting accepts only
+        // 'ownership'; the removed 'legacy-read' is refused by name (PRV-7004).
         built.owners()
                 .administering(com.ash.messaging.pravaha.security.Administration.Rule.parse(configuration
                         .getString(com.ash.messaging.pravaha.security.Administration.SETTING)
