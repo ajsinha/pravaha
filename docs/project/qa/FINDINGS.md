@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **490 findings carrying a
-status — 470 FIXED, 1 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 1 open, **0 are
+only part that is kept current. Counting the register as it stands: **492 findings carrying a
+status — 472 FIXED, 1 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 1 open, **0 are
 GA-BLOCKER, 0 GA-REQUIRED, 1 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -7402,4 +7402,14 @@ the lead.
 ### SPOTLESSUNSAFE-1 (LOW) — builds on JDK 25 print four `sun.misc.Unsafe` warnings
 
 > **Status:** BY DESIGN — the warnings come from spotless-lib 4.10.2's `ModuleHelper` during the build only (JEP 498); the node prints none. A third-party build plugin's message, not a defect in Pravaha; it goes when spotless stops calling the method.
+
+## Found moving to JDK 25 for 2.0 (2026-10-01), 2 findings
+
+### BOOTFLOOR-1 (MEDIUM) — the Spring Boot starter cannot load on Boot 3.2 or 3.3 once its classes are Java 25
+
+> **Status:** FIXED — Spring Framework 6.0/6.1's ASM refuses Java 25 class files ("Unsupported class file major version 69"; 36 of 38 starter tests on Boot 3.2 and 3.3). Boot 3.4 is the starter's floor from 2.0 (ADR-061), the `boot-3.2` and `boot-3.3` profiles and CI legs are removed, and the release notes, COMPATIBILITY.md, the user guide and ADR-020 say so; Boot 3.4 and 3.5 pass 41/41 on JDK 25.
+
+### LEGACYREAD-1 (LOW) — `legacy-read`, announced for removal in 2.0, had to go
+
+> **Status:** FIXED — `pravaha.security.administer=legacy-read`, deprecated in 1.0.0 and announced for removal in 2.0, is removed: the key accepts only `ownership`, and `legacy-read` is refused at start with PRV-7004 naming the removal and the way off it ("grant MODIFY/MANAGE or use the admin role"), on the server and in the embedded engine. `QueryOwnershipTest`, `LifeAuthorizationTest`, `ViewOwnershipHttpTest`, `EmbeddedLoopTest`.
 

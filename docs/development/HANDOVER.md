@@ -21,7 +21,7 @@ pointing at an old path.
 | | |
 |---|---|
 | `main` | Fast-forwarded to `develop` after every gated change ("drill"), so normally equal to it |
-| `develop` | Pushed after every verified change. Releases are tagged `v0.1.0` to `v0.2.0` (QA builds) and `v1.0.0` (2026-09-30, the first with a compatibility promise, [../operations/COMPATIBILITY.md](../operations/COMPATIBILITY.md)); `develop` is 1.0.1-SNAPSHOT, to be cut as 2.0.0: Java 25 only (ADR-061) |
+| `develop` | Pushed after every verified change. Releases are tagged `v0.1.0` to `v0.2.0` (QA builds) `v1.0.0` (2026-09-30, the first with a compatibility promise) and `v2.0.0` (2026-10-01, JDK 25 only, ADR-061; [../operations/COMPATIBILITY.md](../operations/COMPATIBILITY.md)); `develop` is 2.0.1-SNAPSHOT |
 | Modules | **37** Maven modules (38 reactor projects with the root), plus `sdk/python` and `console`, which are not Maven |
 | Java tests | **4,688** tests, 0 failures, 211 skipped (Docker-only broker and database tests among them) -- `tools/verify-clean.sh`, 2026-09-29 |
 | Python tests | **424** in `sdk/python`, and about **1,926** in `console` (browser suites included), all passing on 2026-09-29 |
@@ -29,7 +29,7 @@ pointing at an old path.
 | ADRs | **61** |
 
 **Where it stands, 2026-09-29.** Wave 10 is done (one node feature-complete on 2026-09-27) and wave
-11, cluster mode, is on hold. No GA-BLOCKER or GA-REQUIRED finding is open (490 findings, 470 fixed,
+11, cluster mode, is on hold. No GA-BLOCKER or GA-REQUIRED finding is open (492 findings, 472 fixed,
 one open, POST-GA). Since 2026-09-27: queries on queries (ADR-056), alerts (ADR-057), the plain-English
 assistant with any model switched at runtime (ADR-058), the governed catalogue with grants, row
 filters and column masks (ADR-059 phases 1–2), Power BI over the PostgreSQL gateway, observability

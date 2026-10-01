@@ -10,7 +10,7 @@
 
 *Pravaha* (Sanskrit: *continuous, uninterrupted flow*) · pronounced *pruh-VAA-huh*
 
-[![Release](https://img.shields.io/badge/release-1.0.0-crimson)](docs/project/RELEASE_NOTES.md)
+[![Release](https://img.shields.io/badge/release-2.0.0-crimson)](docs/project/RELEASE_NOTES.md)
 [![Status](https://img.shields.io/badge/status-wave%2010%20of%2011-blue)](docs/development/HANDOVER.md)
 [![Java](https://img.shields.io/badge/Java-25%20LTS-orange)](docs/design/system_design.md#4-language-decision-java-vs-scala)
 [![Build](https://img.shields.io/badge/build-Maven-C71A36)](docs/design/implementation_plan.md)
@@ -20,7 +20,7 @@
 
 ---
 
-> **Pravaha 1.0.0**, the first release with a compatibility promise ([what 1.x promises](docs/operations/COMPATIBILITY.md)).
+> **Pravaha 2.0.0** — JDK 25 only ([what 2.0 changes and what 2.x promises](docs/operations/COMPATIBILITY.md)).
 >
 > **Project status: Wave 10 of 11.** One node: an engine that maintains the answers to registered
 > SQL questions as data changes, serves them back by key, writes them to sinks, and survives its own
@@ -411,7 +411,7 @@ hold: the membership, lease and handoff libraries exist and no node uses them. "
 performance gate passed.
 
 Work happens on `develop`, and `main` is fast-forwarded to it after each gated change. The newest
-release is `v1.0.0`, one node, the first with a [compatibility promise](docs/operations/COMPATIBILITY.md): `deploy/release/release.sh` cuts a release, and `deploy/qa/bundle.sh`
+release is `v2.0.0`, one node on JDK 25, with a [compatibility promise](docs/operations/COMPATIBILITY.md): `deploy/release/release.sh` cuts a release, and `deploy/qa/bundle.sh`
 packs the server and console images and their YAML files into one files-only bundle for a QA host,
 everything under `/opt/pravaha` ([Deployment](docs/operations/DEPLOYMENT.md)). [Full roadmap with acceptance gates →](docs/design/system_design.md#31-delivery-roadmap)
 

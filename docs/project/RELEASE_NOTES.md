@@ -10,7 +10,7 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ---
 
-## Unreleased
+## 2.0.0 — 2026-10-01
 
 **2.0.0 — breaking: Java 25 required.** Pravaha is built, tested, run and released on JDK 25 only,
 and every module, `pravaha-api` and the Java SDKs included, is compiled to Java 25 class files
@@ -76,7 +76,7 @@ Since 1.0.0, also:
 - **Docs** are in six folders under `docs/` (guides, operations, development, design, publications,
   project); `MarkdownLinksTest` checks every relative link in the repository.
 
-Register: **490 findings — 470 fixed, 1 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **492 findings — 472 fixed, 1 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ## 1.0.0 — 2026-09-30
 
