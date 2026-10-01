@@ -121,8 +121,8 @@ warm-up and measurement settings, and params.
 readRowOfTwelveFields, equalsUtf8Literal}`, `LaneScalingBenchmark.oneRow`,
 `FalseSharingBenchmark` (four methods in two groups), and
 `ProfileABenchmark.{generated, interpreted, predicateOnly}`. Step 4 must match the source:
-`MemoryAccessBenchmark` — `AverageTime`, `NANOSECONDS`, `@Fork(2, jvmArgsAppend = {"-XX:+UseZGC",
-"-XX:+ZGenerational"})`, `@Measurement(5, time = 2)`, **no `@Warmup` annotation** so JMH's default
+`MemoryAccessBenchmark` — `AverageTime`, `NANOSECONDS`, `@Fork(2, jvmArgsAppend = {"-XX:+UseZGC"})`
+(`-XX:+ZGenerational` dropped in 2.0: JDK 25 ignores it), `@Measurement(5, time = 2)`, **no `@Warmup` annotation** so JMH's default
 5×10 s applies, `@Param({"bytebuffer", "agrona"})`; `LaneScalingBenchmark` — `Throughput`, `SECONDS`,
 `@Fork(1)` with the same ZGC flags, `@Warmup(3, 2)`, `@Measurement(5, 3)`,
 `@Param({"1","2","4","8"}) lanes` and `@Param({"SPIN_THEN_YIELD"}) waitStrategy`;

@@ -16,7 +16,7 @@ about. The full specification is [`system_design.md`](system_design.md); every d
 
 ```
       ┌───────────────────────────────┐        ┌──────────────────────────────┐
-      │   pravaha-server   (Java 21)  │        │   Pravaha Console  (Python)  │
+      │   pravaha-server   (Java 25)  │        │   Pravaha Console  (Python)  │
       │                               │        │                              │
       │   engine + public REST API    │◄───────│   FastAPI + Jinja templates  │
       │   /status  (plain HTML,       │  SDK   │   built on the pravaha SDK   │
@@ -169,7 +169,8 @@ Connection count must never become thread count. Five tiers, chosen by what the 
 | Flight call handling, source feed loops | **Virtual (Loom)** since W9-1/W9-2 | nothing. A parked subscription and a napping feed each cost a continuation, not a thread |
 | Watermark advance, periodic checkpoints | one **`SharedClock`** daemon thread for the process, each tick on a virtual thread | nothing. These were two `newSingleThreadScheduledExecutor`s *per query* before W9-3 |
 
-Virtual threads are Java 21's, and the baseline is Java 21 precisely because of them (design §4.5).
+Virtual threads are Java 21's, and the baseline was Java 21 precisely because of them (design §4.5);
+from 2.0 it is Java 25 ([ADR-061](adr/061-jdk-25-is-the-baseline-from-2-0.md)).
 They are already on for the server — `spring.threads.virtual.enabled` in `application.yaml` — since
 the control plane is short, blocking, I/O-bound requests in large numbers, which is exactly the
 workload Loom exists for.
@@ -625,7 +626,7 @@ parameter schema when a statement is prepared, so neither SDK guesses.
 
 | Module | What it is |
 |---|---|
-| `pravaha-api` | The public SPI. Zero third-party dependencies, Java 17 bytecode. |
+| `pravaha-api` | The public SPI. Zero third-party dependencies, Java 25 class files (17 in 1.x). |
 | `pravaha-common` | Memory access, arenas, rings, row layout, configuration. |
 | `pravaha-algebra` | Z-sets, frontiers, the incremental lift and its property oracle. |
 | `pravaha-runtime` | The plan IR and interpreted execution. **No Calcite.** |

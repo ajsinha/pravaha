@@ -12,25 +12,59 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ## Unreleased
 
-- **JDK 25 supported** alongside 21, for building and running: every module's tests pass for
-  built-with × run-on {21, 25} (4,832 tests each way), the Python SDK suite passes against a node on
-  25, and the Kafka and postgres-cdc container tests pass on 25. The release target stays Java 21.
+**2.0.0 — breaking: Java 25 required.** Pravaha is built, tested, run and released on JDK 25 only,
+and every module, `pravaha-api` and the Java SDKs included, is compiled to Java 25 class files
+(ADR-061). It is the one breaking change of 2.0: the SQL, the wire protocols, the HTTP API, the
+Python SDK, the configuration keys and the state on disk are as 1.x left them
+([../operations/COMPATIBILITY.md](../operations/COMPATIBILITY.md), "2.0").
+
+- **Who it breaks.**
+  - *Applications embedding the engine* (`pravaha-embedded`) or compiling a plugin against
+    `pravaha-api`: the host JVM must be 25. On 21 the classes do not load
+    (`UnsupportedClassVersionError`, class-file version 69).
+  - *Java SDK clients* (`pravaha-sdk-java`, `pravaha-sdk-java-flight`, the `-all` jar): need Java
+    25. In 1.x `pravaha-api` and `pravaha-sdk-java` targeted 17 and the Flight client 21. The wire
+    is unchanged, so a client that cannot move yet can keep a 1.x SDK against a 2.0 node meanwhile;
+    the tested pairing is still the same major.minor.
+  - *Spring Boot starter users* (`pravaha-spring-boot-starter`): the application runs on Java 25,
+    and on **Spring Boot 3.4 or later**. Boot 3.2 and 3.3 (Spring Framework 6.0, 6.1) cannot read
+    Java 25 class files (*Unsupported class file major version 69*); 1.x supported 3.2 to 3.5. The
+    `boot-3.2` and `boot-3.3` profiles and CI legs are gone; 3.4 and 3.5 pass 41 tests each on 25.
+  - *Anyone running the jar or the distribution on Java 21*: `bin/pravaha-server` and
+    `bin/pravaha-engine` stop at once with a message naming Java 25, rather than failing on the
+    first class they load. Point `JAVA_HOME` at a JDK or JRE 25.
+  - *Image users*: no change in what runs — the image was already on 25 — but the `-jre21` image is
+    no longer built, and `deploy/docker/build.sh --java` is refused.
+- **Building from source** needs JDK 25: the enforcer requires it (`[25,)`), and the build scripts
+  (`tools/worktree-build.sh`, `tools/verify-clean.sh`, `tools/build-sdk.sh`,
+  `deploy/release/release.sh`, ...) source `tools/jdk25.sh`, which defaults `JAVA_HOME` to an
+  installed JDK 25 and refuses an older one by name.
+- **The launchers** always pass `--sun-misc-unsafe-memory-access=allow
+  --enable-native-access=ALL-UNNAMED` (JEPs 498 and 472); the 1.x version gate is gone.
+- **Docker**: one engine image on `eclipse-temurin:25-jre`, no `JAVA_VERSION` build argument; the
+  root `Dockerfile` builds in `maven:3.9-eclipse-temurin-25`; the test runner is JDK 25 only;
+  `release.sh` builds and smoke-tests one engine image.
+- **Proved on 25**: the whole reactor, 4,832 tests, 0 failures, 12 skipped
+  (`tools/worktree-build.sh -o clean install`); every module's main classes are class-file version
+  69; the Python SDK suite (426) against a node on 25; `deploy/docker/smoke.sh` on the image; a
+  node started by `bin/pravaha-server` on 25 serves a query registered and read with the CLI, and
+  on 21 both launchers refuse.
+- **CI**: every workflow on JDK 25; the built-with × run-on {21, 25} matrix is gone, and
+  `deploy/ci/check-workflows.py` refuses a workflow that sets up any other Java.
+
+Since 1.0.0, also:
+
 - **Fixed (JDKSUBJECT-1):** Parquet feeds, Delta and Iceberg failed on JDK 23 and later with
   "getSubject is not supported". Hadoop client 3.4.0 → 3.4.3, one version for api and runtime;
   commons-logging 1.2 → 1.3.0.
-- **Launchers** add `--sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED` on
-  JDK 24 and later only.
-- **Docker defaults to Java 25:** the engine image runs on `eclipse-temurin:25-jre` (822 MB, against
-  803 MB on 21), the root `Dockerfile` builds in `maven:3.9-eclipse-temurin-25`, and the test runner
-  is JDK 25. The jar is unchanged (classes target 21). `deploy/docker/build.sh --java 21` builds the
-  engine on 21, tagged `<version>-jre21`; the plain `<version>` tag is 25. Both pass
-  `deploy/docker/smoke.sh`, and the compose stack's seed, cdc and observability profiles run on 25.
+- **The engine image moved to Java 25** (`eclipse-temurin:25-jre`, 822 MB) before the baseline did;
+  it passes `deploy/docker/smoke.sh`, and the compose stack's seed, cdc and observability profiles
+  run on it.
 - **Fixed:** the engine image's `HEALTHCHECK` (and the compose stack's, and `helm test`'s probe pod)
   called `wget`, which the 25 JRE base does not carry: Docker reported a serving node unhealthy and
   compose held the console and seed back. The probe is now `bin/pravaha-health`, which needs only
   bash; `helm test`'s Flight check, which called an `nc` no JRE base carries, uses it too.
   `smoke.sh` now runs the image's own HEALTHCHECK inside the container.
-- **CI:** a four-leg JDK matrix that fails if shipped classes are recompiled on the run JDK.
 - **Docs** are in six folders under `docs/` (guides, operations, development, design, publications,
   project); `MarkdownLinksTest` checks every relative link in the repository.
 

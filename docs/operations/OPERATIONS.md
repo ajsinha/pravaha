@@ -125,7 +125,7 @@ Each random lookup past the cache is two or three major faults — the index's s
 then the row — and each fault reads `read_ahead_kb` (128 KiB here) to use 4 KiB of it, so the device
 is saturated at a few thousand operations a second rather than by its IOPS. Lowering
 `/sys/block/<device>/queue/read_ahead_kb` for the spill device is the lever that exists today; the
-engine cannot ask for `MADV_RANDOM` on JDK 21. The maxima are the kernel reclaiming (and writing
+engine does not ask for `MADV_RANDOM` (a native call; ADR-053). The maxima are the kernel reclaiming (and writing
 dirty pages back) inside an operation, not the device.
 
 **So size the page cache for the index.** Roughly 100 bytes per distinct key per join side (the slot
@@ -2244,7 +2244,7 @@ No consensus, no membership protocol, no Ratis (ADR-035, ADR-034). Two processes
 |---|---|---|
 | Embedded | `pravaha-embedded` | Inside a Java application. A lifecycle seam only: it starts, stops and reports state, and cannot register or read a query. The CLI does **not** use it |
 | Server | `pravaha-server` + `pravaha-flight` | Standard deployment |
-| Container | `deploy/docker/` | The same server, packaged: a non-root image on a JDK 21 glibc base, built from artefacts the reactor already produced ([ADR-047](../design/adr/047-the-image-is-a-dockerfile-over-built-artefacts.md)) |
+| Container | `deploy/docker/` | The same server, packaged: a non-root image on a Java 25 glibc base, built from artefacts the reactor already produced ([ADR-047](../design/adr/047-the-image-is-a-dockerfile-over-built-artefacts.md)) |
 | Kubernetes | `deploy/helm/pravaha/` | **One** node as a StatefulSet, because of the state claim below. More replicas are refused at render time |
 | Console | `console/`, separate process | Operator UI, talks only to the public API |
 
@@ -2277,8 +2277,10 @@ Arrow allocates off-heap through `java.nio` internals the module system closes b
 ```
 
 Without them a Flight server fails *inside* `putNext` and cancels the stream; the client sees
-`RST_STREAM` and nothing explains why. On Java 24+ add `--sun-misc-unsafe-memory-access=allow` — it is
-**not** a valid option on 21, where the JVM refuses to start rather than ignoring it.
+`RST_STREAM` and nothing explains why. Add `--sun-misc-unsafe-memory-access=allow
+--enable-native-access=ALL-UNNAMED` too, or Java 25 warns about Arrow's, Netty's and the Parquet
+codecs' use of exactly what they permit; `bin/pravaha-server` always passes them from 2.0 (1.x passed
+them only on 24 and later, because 21 refuses the first).
 
 ### Choosing the off-heap implementation
 
@@ -2294,8 +2296,8 @@ before any Spring context exists, so they cannot live in `application.yaml`:
 about what is computed, and that was measured across all four selections. So the reason to set one
 is to be *certain* which is running — which is why a name that does not exist is now refused at
 startup rather than falling through to the default (CFG-22). An implementation that exists and is
-merely unavailable still falls through silently and deliberately: `-Dpravaha.ffm=true` on Java 21
-is a launcher that starts working on an upgrade, not a mistake.
+merely unavailable still falls through silently and deliberately: `-Dpravaha.ffm=true` where no FFM
+implementation is present is a launcher that starts working when one is, not a mistake.
 
 Either way the node logs the answer once, at startup:
 

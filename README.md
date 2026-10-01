@@ -12,7 +12,7 @@
 
 [![Release](https://img.shields.io/badge/release-1.0.0-crimson)](docs/project/RELEASE_NOTES.md)
 [![Status](https://img.shields.io/badge/status-wave%2010%20of%2011-blue)](docs/development/HANDOVER.md)
-[![Java](https://img.shields.io/badge/Java-21%20LTS-orange)](docs/design/system_design.md#4-language-decision-java-vs-scala)
+[![Java](https://img.shields.io/badge/Java-25%20LTS-orange)](docs/design/system_design.md#4-language-decision-java-vs-scala)
 [![Build](https://img.shields.io/badge/build-Maven-C71A36)](docs/design/implementation_plan.md)
 [![License](https://img.shields.io/badge/license-Proprietary-red)](LICENSE)
 
@@ -219,7 +219,7 @@ The console is then at <http://localhost:17070>. Step by step, test suites inclu
 [`docs/development/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md`](docs/development/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md); the reference:
 [`docs/operations/RUNNING_IN_DOCKER.md`](docs/operations/RUNNING_IN_DOCKER.md).
 
-**Without Docker** (JDK 21 or 25, and Python 3.11+ for the CLI and console) — from a checkout, as below, or
+**Without Docker** (JDK 25, and Python 3.11+ for the CLI and console) — from a checkout, as below, or
 from a distribution unpacked anywhere (`deploy/release/dist.sh`; [`docs/operations/DEPLOYMENT.md`](docs/operations/DEPLOYMENT.md),
 "Without Docker: the same layout"). The walkthrough is [docs/development/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md](docs/development/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md).
 
@@ -244,12 +244,12 @@ changing view in about ten minutes.
 
 ## How it is built
 
-- **Language** — Java 21 LTS, one language. Calcite plans; Pravaha's own operators execute. [Why not Scala →](docs/design/system_design.md#4-language-decision-java-vs-scala)
+- **Language** — Java 25 LTS, one language. Calcite plans; Pravaha's own operators execute. [Why not Scala →](docs/design/system_design.md#4-language-decision-java-vs-scala)
 - **Execution** — Whole-stage code generation (Janino) over binary flyweight rows in off-heap arenas. No `Map<String,Object>`, no boxing, no allocation on the hot path
 - **Concurrency** — Partitioned lanes and the single-writer principle: one inbox, one state slice and one timer wheel per lane, and exactly one thread driving a lane at a time, drawn from a fixed pool of one per core. No locks in steady state
 - **Incrementality** — Z-sets and DBSP-derived operators: work is proportional to what changed, not to how much data exists
 - **Correctness** — Exactly-once **state**: a checkpoint holds every source between rows, cuts every lane at one point and records the offsets of that same point (ADR-008). Output is cut at that point too: exactly once to a transactional sink, effectively once to an idempotent one, at least once to a plain append
-- **Deployment** — Three ways to run one engine. In process with no Spring and no network (`pravaha-embedded`: declare streams, register, push rows, read, subscribe, persist); in a Spring Boot application of your own (`pravaha-spring-boot-starter`: an engine bean from `pravaha.*`, `PravahaTemplate`, `@PravahaListener`); or as a server — `pravaha-server`, a Spring Boot node with the engine, Flight SQL, the PostgreSQL gateway and a plain `/status` page — with the console as a separate Python process built on the published SDK, so it cannot reach past the public API (ADR-024). The engine core contains no Spring, enforced by the build (ADR-019). Packaged: a non-root container image on a JDK 21 glibc base, with native code limited to Parquet's two codecs and enforced by the build (ADR-053), built from the reactor's own artefacts (`deploy/docker/`, ADR-047), and a Helm chart that installs **one** node as a StatefulSet -- because a node claims its state directories by node id, and multi-node is on hold (`deploy/helm/pravaha/`, ADR-045). [Deployment →](docs/operations/DEPLOYMENT.md)
+- **Deployment** — Three ways to run one engine. In process with no Spring and no network (`pravaha-embedded`: declare streams, register, push rows, read, subscribe, persist); in a Spring Boot application of your own (`pravaha-spring-boot-starter`: an engine bean from `pravaha.*`, `PravahaTemplate`, `@PravahaListener`); or as a server — `pravaha-server`, a Spring Boot node with the engine, Flight SQL, the PostgreSQL gateway and a plain `/status` page — with the console as a separate Python process built on the published SDK, so it cannot reach past the public API (ADR-024). The engine core contains no Spring, enforced by the build (ADR-019). Packaged: a non-root container image on a Java 25 glibc base, with native code limited to Parquet's two codecs and enforced by the build (ADR-053), built from the reactor's own artefacts (`deploy/docker/`, ADR-047), and a Helm chart that installs **one** node as a StatefulSet -- because a node claims its state directories by node id, and multi-node is on hold (`deploy/helm/pravaha/`, ADR-045). [Deployment →](docs/operations/DEPLOYMENT.md)
 
 Rows are read and subscribed to over Flight SQL or the PostgreSQL wire protocol. Everything that
 manages the engine is also on REST under `/api/v1`: status, streams, queries (validate, explain,
@@ -318,7 +318,7 @@ density are photographed and audited by axe. The manual WCAG 2.2 AA audit is not
 | [Deployment](docs/operations/DEPLOYMENT.md) | The container image and the Helm chart: volumes, ports, environment, probes, upgrading a node, the release procedure, and what the chart deliberately does not do |
 | [Troubleshooting](docs/guides/TROUBLESHOOTING.md) | Every `PRV-` code |
 | [Security](docs/operations/SECURITY.md) | Authentication, authorization, row filters, audit |
-| [Compatibility](docs/operations/COMPATIBILITY.md) | What 1.x keeps stable, what is experimental, which clients work with which nodes, upgrading from 0.2.x |
+| [Compatibility](docs/operations/COMPATIBILITY.md) | What 2.0 changes (Java 25), what 2.x keeps stable, what is experimental, which clients work with which nodes, upgrading from 0.2.x |
 | [Known limits](docs/guides/LIMITS.md) | What is not built, whether it could be, and what is a boundary |
 
 | How and why | |
@@ -351,7 +351,7 @@ short.
 <version>1.0.1-SNAPSHOT</version>
 ```
 
-Base package `com.ash.messaging.pravaha`. Requires **JDK 21+**; supported and tested on **JDK 21 and 25**, building and running on either (the classes target Java 21). The Maven wrapper is vendored.
+Base package `com.ash.messaging.pravaha`. Requires **JDK 25**, for building and running alike: every module, the API and the Java SDKs included, targets Java 25 ([ADR-061](docs/design/adr/061-jdk-25-is-the-baseline-from-2-0.md), from 2.0; 1.x ran on 21). The Maven wrapper is vendored.
 
 ```bash
 ./mvnw clean verify                                  # full build

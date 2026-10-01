@@ -8,9 +8,9 @@ Everything a deployment needs and nothing the engine needs. **The page to read i
 
 ```
 docker/     the container images and the compose stack (docs/operations/RUNNING_IN_DOCKER.md)
-  Dockerfile          the engine: glibc JRE 25 (ADR-053; --java 21), PRAVAHA_HOME=/opt/pravaha, any uid, over
+  Dockerfile          the engine: glibc JRE 25, the only one (ADR-053, ADR-061), PRAVAHA_HOME=/opt/pravaha, any uid, over
                       artefacts the reactor already built (ADR-047)
-  build.sh            stage the launcher and the jar and build.   --tag, --push, --java 21
+  build.sh            stage the launcher and the jar and build.   --tag, --push
   smoke.sh            eleven steps against a REAL container.     --image, --keep
   console/            the console's image (python:3.13-slim) and its build.sh
   compose/            engine + console + Kafka as the invoking user; profiles seed, cdc, stores,

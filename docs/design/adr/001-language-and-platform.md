@@ -1,5 +1,9 @@
 # ADR-001: language and platform
 
+> **Baseline superseded by [ADR-061](061-jdk-25-is-the-baseline-from-2-0.md)** (2026-10-01): from
+> Pravaha 2.0 the baseline is Java 25 for every module, `pravaha-api` and the Java SDKs included,
+> and 21 is no longer built or supported. The language decision (Java, one language) stands.
+
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 Proprietary and confidential; see `../../LICENSE`.
 

@@ -23,7 +23,9 @@ honest account of what the "zero downtime" machinery does today.
 ## The procedure
 
 1. **Read the release notes for format changes.** Look for a checkpoint snapshot version change and
-   for journal record changes. Most releases have neither.
+   for journal record changes. Most releases have neither. **Upgrading 1.x to 2.0** changes neither,
+   and needs **Java 25**: point `JAVA_HOME` at a JDK or JRE 25 first, or the new launcher refuses to
+   start (the image is already on 25).
 2. **Check the last checkpoint is recent** — `time() - pravaha_query_checkpoint_last_success_timestamp_seconds`
    well under an interval for every query. That is how much the restart replays.
 3. **Back up** the checkpoint root and the journal together (a filesystem snapshot, or copy with the
@@ -139,8 +141,10 @@ by v2.
     upgrade and fills from whatever its sources still hold.
 
 !!! warning "Pitfall: the JVM flags of a custom launcher"
-    A new Java version may need another flag: on Java 24+ add `--sun-misc-unsafe-memory-access=allow`,
-    which Java 21 refuses as an unknown option. `bin/pravaha-server` passes `PRAVAHA_JAVA_OPTS` through.
+    A new Java version may need another flag. From 2.0 (Java 25 only) a launcher of your own needs
+    `--sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED`, as `bin/pravaha-server`
+    passes them, or the JVM warns; Java 21 refused the first as an unknown option, which is why 1.x
+    passed it only on 24 and later. `bin/pravaha-server` passes `PRAVAHA_JAVA_OPTS` through.
 
 ## Where next
 

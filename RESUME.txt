@@ -130,7 +130,7 @@ what changed and why. docs/project/qa/FINDINGS.md status lines come next. This f
 5. COMMANDS
 ====================================================================
 
-  export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+  export JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64   # JDK 25 only from 2.0 (ADR-061)
 
   Full gate (~4-7 min, the one that counts):
       tools/verify-clean.sh

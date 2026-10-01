@@ -9,10 +9,10 @@ again. Each step has the command and what you should see; the outputs are the on
 printed on 2026-09-29, and on 2026-10-01 where the images moved to Java 25 (steps 3 and 8, and the
 checks re-run throughout), trimmed only where marked `...`.
 
-**Java 25 throughout.** Every image here is built on JDK 25 by default — the engine's JRE, the root
-`Dockerfile`'s Maven stage, the test runner — while the classes still target Java 21, so the jar is
-the one a JDK 21 user runs. `deploy/docker/build.sh --java 21` builds the engine on a 21 JRE instead
-(tag `<version>-jre21`); see [Running in Docker: the images](../operations/RUNNING_IN_DOCKER.md#the-images).
+**Java 25 throughout, and only 25.** Every image here is built on JDK 25 — the engine's JRE, the
+root `Dockerfile`'s Maven stage, the test runner — and from 2.0 the classes are Java 25 class files
+too ([ADR-061](../design/adr/061-jdk-25-is-the-baseline-from-2-0.md)). The 1.x `--java 21` option
+and its `-jre21` tag are gone; see [Running in Docker: the images](../operations/RUNNING_IN_DOCKER.md#the-images).
 
 This is the walkthrough. The reference — every path, variable, port and profile — is
 [`../operations/RUNNING_IN_DOCKER.md`](../operations/RUNNING_IN_DOCKER.md). The same journey without Docker is
@@ -73,7 +73,7 @@ Docker. The engine has two routes; pick by what your machine has.
 
 **Route A — nothing but Docker.** The root [`Dockerfile`](../../Dockerfile) builds `pravaha-server` and
 `pravaha-cli` inside a `maven:3.9-eclipse-temurin-25` stage, with no JDK on the host, and runs them on
-`eclipse-temurin:25-jre` (`--build-arg JAVA_VERSION=21` for both on 21):
+`eclipse-temurin:25-jre`:
 
 ```text
 $ docker build -t pravaha/pravaha-server:local .
@@ -96,7 +96,7 @@ $ docker run --rm --entrypoint bin/pravaha-engine pravaha/pravaha-server:local v
 pravaha-engine 1.0.1-SNAPSHOT
 ```
 
-**Route B — a JDK (21 or 25) on the host too.** Build the jar yourself and put the release image over it
+**Route B — a JDK 25 on the host too.** Build the jar yourself and put the release image over it
 ([`deploy/docker/Dockerfile`](../../deploy/docker/Dockerfile), [ADR-047](../design/adr/047-the-image-is-a-dockerfile-over-built-artefacts.md)):
 
 ```text
@@ -374,13 +374,7 @@ What that says, honestly:
 - **The console's 1374 skips are its browser suites**, switched off by `PRAVAHA_BROWSER_TESTS=0` (the
   runner has no Chrome). Its real-engine tests run and pass.
 
-The runner is JDK 25. To run any suite on JDK 21 instead, build a second runner and name it — the
-script then skips its own build:
-
-```bash
-docker build --build-arg JAVA_VERSION=21 -t pravaha/test-runner:jdk21 deploy/docker/test
-PRAVAHA_TEST_IMAGE=pravaha/test-runner:jdk21 tools/docker-test.sh unit -pl pravaha-common -am
-```
+The runner is JDK 25, the only JDK Pravaha 2.x builds on; there is no 21 runner to build.
 
 Run `tools/docker-test.sh all` for everything; it takes a while — the `unit` step is the whole reactor.
 Single tests go through `mvn`, with `--docker` when they need Testcontainers:

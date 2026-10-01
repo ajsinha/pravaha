@@ -21,12 +21,12 @@ pointing at an old path.
 | | |
 |---|---|
 | `main` | Fast-forwarded to `develop` after every gated change ("drill"), so normally equal to it |
-| `develop` | Pushed after every verified change. Releases are tagged `v0.1.0` to `v0.2.0` (QA builds) and `v1.0.0` (2026-09-30, the first with a compatibility promise, [../operations/COMPATIBILITY.md](../operations/COMPATIBILITY.md)); `develop` is 1.0.1-SNAPSHOT |
+| `develop` | Pushed after every verified change. Releases are tagged `v0.1.0` to `v0.2.0` (QA builds) and `v1.0.0` (2026-09-30, the first with a compatibility promise, [../operations/COMPATIBILITY.md](../operations/COMPATIBILITY.md)); `develop` is 1.0.1-SNAPSHOT, to be cut as 2.0.0: Java 25 only (ADR-061) |
 | Modules | **37** Maven modules (38 reactor projects with the root), plus `sdk/python` and `console`, which are not Maven |
 | Java tests | **4,688** tests, 0 failures, 211 skipped (Docker-only broker and database tests among them) -- `tools/verify-clean.sh`, 2026-09-29 |
 | Python tests | **424** in `sdk/python`, and about **1,926** in `console` (browser suites included), all passing on 2026-09-29 |
 | Design doc | 33 sections + §11.1a, §13.7, §19.7–19.10 |
-| ADRs | **60** |
+| ADRs | **61** |
 
 **Where it stands, 2026-09-29.** Wave 10 is done (one node feature-complete on 2026-09-27) and wave
 11, cluster mode, is on hold. No GA-BLOCKER or GA-REQUIRED finding is open (490 findings, 470 fixed,
@@ -434,8 +434,8 @@ now writes it at `test-compile` via `maven-dependency-plugin:build-classpath`. T
 for real, rather than reporting as skips.
 
 **Arrow needs JVM flags**: `--add-opens=java.base/java.nio=ALL-UNNAMED` and
-`--add-opens=java.base/java.lang=ALL-UNNAMED`, plus `--sun-misc-unsafe-memory-access=allow` on Java
-24+ (which is *not* a valid option on 21 — the JVM refuses to start rather than ignoring it).
+`--add-opens=java.base/java.lang=ALL-UNNAMED`, plus `--sun-misc-unsafe-memory-access=allow` — always
+from 2.0 (Java 25 only); 1.x passed it only on 24+, because 21 refuses it rather than ignoring it.
 
 ### Deferred, on purpose
 
@@ -560,7 +560,7 @@ there is nothing to keep in step.
 
 | | |
 |---|---|
-| **Always `export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64`** | `java` on `PATH` resolves to 25 and `javac` to 21. Unexported, the wrapper picks the wrong one and `--release 21` fails confusingly. |
+| **Always `export JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64`** | From 2.0 (ADR-061) JDK 25 is the only one Pravaha builds on, and the enforcer refuses anything older. A login shell here may still export `JAVA_HOME` at 21 (it did on 2026-10-01); the build scripts refuse it by name rather than build on it. |
 | Python | 3.13 under `~/.local/share/uv/python/cpython-3.13.15-linux-x86_64-gnu/bin` |
 | Maven | Use `./mvnw`. A system Maven exists but the wrapper is the contract. |
 | JMH | Never run `clean` while a benchmark is running — it deletes the jar mid-flight. Clear `/tmp/jmh.lock` if a run was killed. |

@@ -18,7 +18,7 @@ bounds its memory, what to watch, what a restart costs, what is not solved — i
 # 1. build the artefacts (offline; drop -o on a machine with an empty ~/.m2)
 ./mvnw -o -pl pravaha-server -am package -DskipTests
 
-# 2. build the image from them (Java 25; --java 21 for a 21 JRE, tagged 1.0.1-SNAPSHOT-jre21)
+# 2. build the image from them (Java 25, the only JRE from 2.0)
 deploy/docker/build.sh --tag pravaha/pravaha-server:1.0.1-SNAPSHOT
 
 # 3. prove it serves, end to end, against a real container
@@ -76,7 +76,7 @@ sudo ./install.sh --host qa-vm.example && cd /opt/pravaha && sudo docker compose
 
 | Image | Built by | Configured by |
 |---|---|---|
-| `pravaha/pravaha-server:<v>` | `deploy/docker/build.sh` (`eclipse-temurin:25-jre`; `<v>-jre21` on 21) | `/opt/pravaha/conf/application.yaml` |
+| `pravaha/pravaha-server:<v>` | `deploy/docker/build.sh` (`eclipse-temurin:25-jre`) | `/opt/pravaha/conf/application.yaml` |
 | `pravaha/pravaha-console:<v>` | `deploy/docker/console/build.sh` (python:3.13-slim, uid 10001 or any, 497 MB) | `/opt/pravaha/console/conf/application.yaml` |
 
 The console reads its product defaults from the image first and the deployment's file second, key
@@ -94,10 +94,10 @@ so the console holds no credential: people sign in as themselves.
 | | |
 |---|---|
 | Built by | [`deploy/docker/Dockerfile`](../../deploy/docker/Dockerfile), staged by [`deploy/docker/build.sh`](../../deploy/docker/build.sh) |
-| Base | `eclipse-temurin:25-jre` (Ubuntu, glibc, 478 MB); `build.sh --java 21` for `eclipse-temurin:21-jre` (459 MB), tagged `<version>-jre21`. The jar is the same on both: its classes target Java 21. Not Alpine: Parquet's Snappy codec is glibc-only ([ADR-053](../design/adr/053-native-code-only-where-java-cannot.md)) |
-| Size | **822 MB** on disk as `docker images` reports it on 2026-10-01 (282 MB content; 803 MB / 280 MB on the 21 JRE); 176 MB of that is the application jar |
+| Base | `eclipse-temurin:25-jre` (Ubuntu, glibc, 478 MB), the only JRE: from 2.0 the jar's classes are Java 25 class files ([ADR-061](../design/adr/061-jdk-25-is-the-baseline-from-2-0.md)), and the 1.x `-jre21` image is not built. Not Alpine: Parquet's Snappy codec is glibc-only ([ADR-053](../design/adr/053-native-code-only-where-java-cannot.md)) |
+| Size | **822 MB** on disk as `docker images` reports it on 2026-10-01 (282 MB content); 176 MB of that is the application jar |
 | User | uid **10001** by default, non-root, numeric; **any** `--user` works over bind mounts ([`RUNNING_IN_DOCKER.md`](RUNNING_IN_DOCKER.md), "Any uid") |
-| Entrypoint | `/__cacert_entrypoint.sh bin/pravaha-server`, which adds `--sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED` on a 24+ JVM, so a 25 node starts without a JVM warning |
+| Entrypoint | `/__cacert_entrypoint.sh bin/pravaha-server`, which adds `--sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED`, so the node starts without a JVM warning, and refuses a JVM older than 25 |
 | Ports | 18080 HTTP, 19090 Flight SQL |
 | Volumes | `/opt/pravaha/data`, `/opt/pravaha/logs` |
 | Healthcheck | `bin/pravaha-health /actuator/health/liveness` (bash only; the 25 JRE carries no `wget` or `curl`), every 30s after a 45s start period |
@@ -123,8 +123,9 @@ They are on `bin/pravaha-server`'s `exec` line, **ahead of** `PRAVAHA_JAVA_OPTS`
 That placement is the point. Setting `PRAVAHA_JAVA_OPTS` cannot lose them, which is exactly what
 would happen if they lived in it. Without them a Flight server fails *inside* `putNext` and the
 client sees `RST_STREAM` with nothing explaining why ([`OPERATIONS.md`](OPERATIONS.md), "JVM
-flags"). On Java 24+ add `--sun-misc-unsafe-memory-access=allow`; it is **not** a valid option on
-21, where the JVM refuses to start rather than ignoring it — so it is not in the image.
+flags"). `--sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED` are on the
+same exec line, always, from 2.0 (Java 25 only); 1.x added them only on 24 and later, because 21
+refuses the first.
 
 ### What the image sets, and what it refuses to set
 
@@ -265,7 +266,7 @@ no-Docker route, build and tests included.
 
 ## Native code
 
-Pravaha is Java, and runs wherever a JDK 21 does, TLS included: TLS uses the JDK's own engine, not
+Pravaha is Java, and runs wherever a JDK 25 does, TLS included: TLS uses the JDK's own engine, not
 BoringSSL. The build refuses native libraries on any compile or runtime path
 ([ADR-053](../design/adr/053-native-code-only-where-java-cannot.md), `enforce-portable-native-code` in the root
 POM), with one exception. Parquet's Snappy and zstd codecs have no Java implementation Parquet can
@@ -530,9 +531,9 @@ deploy/release/release.sh --version 0.2.0 --next 0.2.1-SNAPSHOT
    branch, or a tag that already exists.
 2. Set the version across all forty files.
 3. `./mvnw -o clean verify` — the whole reactor, offline, tests and all.
-4. Build the engine image on Java 25 and tag it with the release version, and on Java 21 as
-   `<version>-jre21`; build the console image.
-5. Run `deploy/docker/smoke.sh` against **both engine images it just built**.
+4. Build the engine image (Java 25, the only JRE from 2.0) and tag it with the release version;
+   build the console image.
+5. Run `deploy/docker/smoke.sh` against **the engine image it just built**.
 6. `deploy/helm/test.sh`, then `helm package`.
 7. Commit, and write an **annotated tag** `v0.2.0`.
 8. Set the tree to `0.2.1-SNAPSHOT` and commit that.
@@ -546,7 +547,7 @@ in a script would let a release report success having shipped nothing.
 |---|---|
 | `mvn deploy` | No `<distributionManagement>` in the root pom, and no repository to deploy to. Adding one is a decision about where the jars live and who may publish them |
 | Push the tag and the commits | Deliberate. `release.sh` makes a release reproducible; the owner decides when it is public |
-| Push the image | No registry configured, no credential in the repository. One command once there is one: `deploy/docker/build.sh --push --tag <registry>/pravaha-server:0.2.0` (and `--java 21 ... :0.2.0-jre21`) |
+| Push the image | No registry configured, no credential in the repository. One command once there is one: `deploy/docker/build.sh --push --tag <registry>/pravaha-server:0.2.0` |
 | Push the chart | Likewise: `helm push target/pravaha-*.tgz oci://<registry>/charts` |
 | Publish the wheels | `python -m build` in `sdk/python` and `console` produces them. No index, no credential |
 | Sign anything | No GPG key, no keyless signing, no provenance attestation, no SBOM |
@@ -562,10 +563,9 @@ the shape a release tag takes from here.
 |---|---|---|
 | `fast` | build, format, unit and property tests | Its **command** runs constantly on the development machine. Never as a GitHub Actions workflow |
 | `verify` | integration tests under `-Pit` | **No.** Listed in [`../development/REMAINING.md`](../development/REMAINING.md) B12 as never run |
-| `matrix` | JDK 21 | Command yes, workflow no |
-| `matrix` | JDK 25 | **No** — there is no 25 on the development machine |
+| `matrix` | Agrona memory path, flagged | Workflow no. The 1.x JDK legs (built-with × run-on {21, 25}) are gone in 2.0: JDK 25 only, and `fast` is its whole-reactor run |
 | `matrix` | Spring Boot 3.5 | Command yes |
-| `matrix` | Spring Boot 3.2, 3.3, 3.4 | Command yes (2026-09-27, 41 tests each). Workflow no |
+| `matrix` | Spring Boot 3.4 | Command yes (on JDK 25, 2026-10-01, 41 tests). Workflow no. 3.2 and 3.3 are gone in 2.0: they cannot read Java 25 class files (ADR-061) |
 | `suites` | Python SDK | Command yes (`make -C sdk/python test`). Workflow no |
 | `suites` | console, headless Chrome | Command yes (`make -C console test`). Workflow no |
 | `packaging` | versions, CI helpers, chart, image | Every command green on the development machine; **no** workflow run |
