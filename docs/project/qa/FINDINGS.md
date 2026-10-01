@@ -4,8 +4,8 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **485 findings carrying a
-status — 466 FIXED, 1 OPEN, 9 BY DESIGN, 9 SUPERSEDED.** Of the 1 open, **0 are
+only part that is kept current. Counting the register as it stands: **490 findings carrying a
+status — 470 FIXED, 1 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 1 open, **0 are
 GA-BLOCKER, 0 GA-REQUIRED, 1 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
@@ -7380,4 +7380,26 @@ the lead.
 
 > **Status:** OPEN — found while validating JDK 25: the `ep` and `all` profiles set `errorprone.skip=false`, but nothing consumes the property; no pom passes `-Xplugin:ErrorProne` to javac, and the root pom's own comment says "opt-in until P0-02b". The static analysis the profiles name is not performed.
 > **Disposition:** POST-GA — tooling, not product behaviour: wiring it in means triaging whatever it reports across the reactor.
+
+## Found moving the Docker images to JDK 25 (2026-10-01), 5 findings
+
+### DOCKERHEALTH-1 (MEDIUM) — on the JDK 25 image a serving node was reported unhealthy forever
+
+> **Status:** FIXED — the image HEALTHCHECK, the compose server healthcheck and the `helm test` probe pod called `wget` (the pod also `nc`); the `eclipse-temurin:25-jre` base carries neither, so a node serving correctly stayed unhealthy and compose refused to start the console and the seed. `smoke.sh` passed because it probes from the host. All three now use `bin/pravaha-health` (bash `/dev/tcp`, no tools), and `smoke.sh` runs the image's own HEALTHCHECK inside the container — a step that fails as intended against the pre-fix image.
+
+### HELMPROBE-1 (LOW) — `helm test` could never pass its Flight check
+
+> **Status:** FIXED — the probe pod checked the Flight port with `nc -z`, which no JRE base image carries (21 included), so the check was broken before JDK 25 too. It uses `pravaha-health --tcp`; the rendered probe ran green against a node.
+
+### SMOKEPYARROW-1 (LOW) — `smoke.sh` without pyarrow failed late and unclearly
+
+> **Status:** FIXED — in a checkout with no `sdk/python/.venv`, it failed at step 3 as "register over Flight". It now checks before starting a container that the interpreter `bin/pravaha` will use can import `pyarrow.flight`, and names the fix (`make -C sdk/python install` or `PRAVAHA_PYTHON`).
+
+### DOCKERTESTDOC-1 (LOW) — the Docker guide's unit-test command failed on a fresh cache
+
+> **Status:** FIXED — `tools/docker-test.sh unit -pl pravaha-common` could not resolve `pravaha-api` on a cache without it; the guide now says `-pl pravaha-common -am`.
+
+### SPOTLESSUNSAFE-1 (LOW) — builds on JDK 25 print four `sun.misc.Unsafe` warnings
+
+> **Status:** BY DESIGN — the warnings come from spotless-lib 4.10.2's `ModuleHelper` during the build only (JEP 498); the node prints none. A third-party build plugin's message, not a defect in Pravaha; it goes when spotless stops calling the method.
 

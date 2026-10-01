@@ -34,7 +34,7 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 - **Docs** are in six folders under `docs/` (guides, operations, development, design, publications,
   project); `MarkdownLinksTest` checks every relative link in the repository.
 
-Register: **485 findings — 466 fixed, 1 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+Register: **490 findings — 470 fixed, 1 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
 ## 1.0.0 — 2026-09-30
 

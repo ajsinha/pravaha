@@ -99,6 +99,16 @@ ok()   { echo "ok:   $*"; }
 # with curl instead, so the least tooling possible stands between this script and the node.
 [[ -x "$root/bin/pravaha" ]] || fail "no bin/pravaha: the Python CLI registers and reads over Flight.
       pip install the Pravaha Python SDK (sdk/python) so bin/pravaha can run"
+# bin/pravaha picks PRAVAHA_PYTHON, else sdk/python/.venv, else python3; the Flight steps need pyarrow
+# in that interpreter. Ask before starting a container, so a missing pyarrow is named here rather
+# than surfacing later as a failed "register over Flight".
+smoke_python="${PRAVAHA_PYTHON:-}"
+if [[ -z "$smoke_python" ]]; then
+  if [[ -x "$root/sdk/python/.venv/bin/python" ]]; then smoke_python="$root/sdk/python/.venv/bin/python"; else smoke_python=python3; fi
+fi
+"$smoke_python" -c 'import pyarrow.flight' 2>/dev/null || fail "$smoke_python cannot import pyarrow.flight, which the Flight steps need.
+      make -C sdk/python install   (creates sdk/python/.venv with pyarrow), or set PRAVAHA_PYTHON
+      to an interpreter that has pyarrow"
 
 pravaha() { "$root/bin/pravaha" "$@" --url "grpc://127.0.0.1:$flight_port"; }
 # The names of the registered queries, from GET /api/v1/queries.
