@@ -29,8 +29,8 @@ pointing at an old path.
 | ADRs | **60** |
 
 **Where it stands, 2026-09-29.** Wave 10 is done (one node feature-complete on 2026-09-27) and wave
-11, cluster mode, is on hold. No GA-BLOCKER or GA-REQUIRED finding is open (482 findings, 464 fixed,
-none open). Since 2026-09-27: queries on queries (ADR-056), alerts (ADR-057), the plain-English
+11, cluster mode, is on hold. No GA-BLOCKER or GA-REQUIRED finding is open (485 findings, 466 fixed,
+one open, POST-GA). Since 2026-09-27: queries on queries (ADR-056), alerts (ADR-057), the plain-English
 assistant with any model switched at runtime (ADR-058), the governed catalogue with grants, row
 filters and column masks (ADR-059 phases 1–2), Power BI over the PostgreSQL gateway, observability
 (dashboards, rules, JSON logs, tracing), the console in MAYA's design, the help checked against the

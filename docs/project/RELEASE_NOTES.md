@@ -10,6 +10,24 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ---
 
+## Unreleased
+
+- **JDK 25 supported** alongside 21, for building and running: every module's tests pass for
+  built-with × run-on {21, 25} (4,832 tests each way), the Python SDK suite passes against a node on
+  25, and the Kafka and postgres-cdc container tests pass on 25. The release target stays Java 21.
+- **Fixed (JDKSUBJECT-1):** Parquet feeds, Delta and Iceberg failed on JDK 23 and later with
+  "getSubject is not supported". Hadoop client 3.4.0 → 3.4.3, one version for api and runtime;
+  commons-logging 1.2 → 1.3.0.
+- **Launchers** add `--sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED` on
+  JDK 24 and later only.
+- **Docker:** a `JAVA_VERSION` build argument and `deploy/docker/build.sh --java 25` (tag
+  `<version>-jre25`); the default image stays on 21.
+- **CI:** a four-leg JDK matrix that fails if shipped classes are recompiled on the run JDK.
+- **Docs** are in six folders under `docs/` (guides, operations, development, design, publications,
+  project); `MarkdownLinksTest` checks every relative link in the repository.
+
+Register: **485 findings — 466 fixed, 1 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
+
 ## 1.0.0 — 2026-09-30
 
 **The first release with a compatibility promise.** One node, feature-complete: continuous SQL over

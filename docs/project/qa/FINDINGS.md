@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **482 findings carrying a
-status — 464 FIXED, 0 OPEN, 9 BY DESIGN, 9 SUPERSEDED.** Of the 0 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 0 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **485 findings carrying a
+status — 466 FIXED, 1 OPEN, 9 BY DESIGN, 9 SUPERSEDED.** Of the 1 open, **0 are
+GA-BLOCKER, 0 GA-REQUIRED, 1 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7365,4 +7365,19 @@ the lead.
 ### SDKNETTYMIX-1 (MEDIUM) — a Maven or Gradle client of the Java Flight SDK failed on its first call
 
 > **Status:** FIXED — a client depending on `pravaha-sdk-java-flight` resolved a mixed Netty (4.2.9 common and handler from Arrow, 4.1.130 codecs from grpc-netty, 4.1.135 buffer and transport) and failed on its first call with `AbstractMethodError` on Java 21. The parent's `netty-bom` governed only the reactor, where the SDK's own tests ran, so they never saw it. The SDK now declares each Netty artifact, so clients get 4.1.135. Found by `tools/sdk-standalone-check.sh`, which builds clients outside the repository (a Maven project, the `-all` jar with plain `java`, the wheel in a fresh venv) against a live node; `SdkIndependenceTest` guards the SDKs' independence from the server.
+
+## Found validating JDK 25 (2026-10-01), 3 findings
+
+### JDKSUBJECT-1 (MEDIUM) — Parquet feeds, Delta and Iceberg failed on JDK 23 and later
+
+> **Status:** FIXED — Hadoop 3.4.0's `UserGroupInformation.getCurrentUser` calls `Subject.getSubject`, which JDK 23 and later refuse (JEP 486) with "getSubject is not supported", so every Parquet, Delta and Iceberg file operation failed on JDK 25 (70 tests across feedfile, delta and iceberg). Hadoop client 3.4.3 carries the `SubjectUtil` backport; its version is now managed once for api and runtime, because Delta Kernel's own runtime 3.4.0 under a 3.4.3 api fails with `NoClassDefFoundError` in `Configuration`; commons-logging 1.2 → 1.3.0 for the upper-bound rule. The full reactor (4,832 tests) passes for built-with × run-on {21, 25}.
+
+### CIJDK-1 (LOW) — the CI matrix's JDK 25 leg did not test what it said
+
+> **Status:** FIXED — `matrix.yml` said its JDK 25 leg ran 21-built classes "pinned by the toolchain", but no toolchain is bound, so the leg recompiled everything on 25 and the crossing it described never ran. It is now four legs (21/21, 25/25, 21→25, 25→21), each building on one JDK and testing on the other without a clean, and failing if a shipped class is recompiled.
+
+### ERRORPRONE-1 (LOW) — Error Prone and NullAway never run in any build
+
+> **Status:** OPEN — found while validating JDK 25: the `ep` and `all` profiles set `errorprone.skip=false`, but nothing consumes the property; no pom passes `-Xplugin:ErrorProne` to javac, and the root pom's own comment says "opt-in until P0-02b". The static analysis the profiles name is not performed.
+> **Disposition:** POST-GA — tooling, not product behaviour: wiring it in means triaging whatever it reports across the reactor.
 

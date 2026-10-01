@@ -15,7 +15,6 @@
 
   <properties>
     <parquet.version>1.12.3</parquet.version>
-    <hadoop.client.version>3.4.0</hadoop.client.version>
     <jacoco.line.coverage>0.70</jacoco.line.coverage>
   </properties>
 

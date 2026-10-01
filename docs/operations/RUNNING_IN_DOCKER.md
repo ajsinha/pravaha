@@ -101,7 +101,7 @@ arguments.
 |---|---|---|
 | Dockerfile | [`deploy/docker/Dockerfile`](../../deploy/docker/Dockerfile) (release, over a built jar); [`Dockerfile`](../../Dockerfile) at the root builds from source | [`deploy/docker/console/Dockerfile`](../../deploy/docker/console/Dockerfile) |
 | Built by | [`deploy/docker/build.sh`](../../deploy/docker/build.sh) | [`deploy/docker/console/build.sh`](../../deploy/docker/console/build.sh) |
-| Base | `eclipse-temurin:21-jre` (glibc, ADR-053) | `python:3.13-slim` |
+| Base | `eclipse-temurin:21-jre` (glibc, ADR-053); `--java 25` for `eclipse-temurin:25-jre` | `python:3.13-slim` |
 | Size, as built here | **803 MB** on disk, 280 MB content (the jar is 176 MB); **863 MB** / 308 MB from the root `Dockerfile`, which adds `pravaha-engine` | **519 MB** on disk, 124 MB content |
 | User | `10001:10001` by default; **any uid** works (below) | the same |
 | Entrypoint / command | `/__cacert_entrypoint.sh bin/pravaha-server` | `python run_pravaha_web.py --config <three files>` |
@@ -109,6 +109,11 @@ arguments.
 | Volumes | `/opt/pravaha/data`, `/opt/pravaha/logs` | `/opt/pravaha/data/console`, `/opt/pravaha/logs` |
 | Healthcheck | `wget --spider :18080/actuator/health/liveness` every 30s | `GET :17070/health/live` every 30s |
 | Labels | `org.opencontainers.image.{title,description,version,revision,created,authors,licenses,source}` | the same |
+
+The engine image runs on a Java 21 JRE by default. `deploy/docker/build.sh --java 25` builds the same
+jar on `eclipse-temurin:25-jre`, tagged `<version>-jre25`; the root Dockerfile takes
+`--build-arg JAVA_VERSION=25`. The image's JRE is recorded in the label
+`com.ash.messaging.pravaha.java`. Both pass `deploy/docker/smoke.sh`.
 
 **Which engine Dockerfile.** `deploy/docker/build.sh` stages the launcher and a jar you already built
 (`./mvnw -pl pravaha-server -am package -DskipTests`) into an ~190 MB context and builds that: fast,

@@ -24,7 +24,14 @@
 # the base changes". One had: snappy-java arrives with Parquet (feedfile, delta), is built for glibc
 # only, and failed to load on the Alpine image, so the commonest Parquet file could not be read in
 # the container (PORT-1). smoke.sh now loads both Parquet codecs on this image.
-FROM eclipse-temurin:21-jre
+#
+# The JRE: 21 by default, 25 by `build.sh --java 25` (or --build-arg JAVA_VERSION=25). Both are
+# supported; the jar is the same either way (compiled for 21), and bin/pravaha-server gives a 24+
+# JVM the options it needs. 21 stays the default because it is the floor every client and plugin
+# is held to; 25 is an image a deployment chooses.
+ARG JAVA_VERSION=21
+FROM eclipse-temurin:${JAVA_VERSION}-jre
+ARG JAVA_VERSION
 
 # A deployment wants to know what it is running without starting it.
 ARG PRAVAHA_VERSION=0.0.0-unset
@@ -37,7 +44,8 @@ LABEL org.opencontainers.image.title="Pravaha engine node" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.authors="Ashutosh Sinha <ajsinha@gmail.com>" \
       org.opencontainers.image.licenses="LicenseRef-Proprietary" \
-      org.opencontainers.image.source="https://github.com/ajsinha/pravaha"
+      org.opencontainers.image.source="https://github.com/ajsinha/pravaha" \
+      com.ash.messaging.pravaha.java="${JAVA_VERSION}"
 
 WORKDIR /opt/pravaha
 

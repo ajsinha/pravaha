@@ -15,6 +15,16 @@ skips. The container route is [Build and test with Docker](GUIDE_BUILD_AND_TEST_
 
 ## 1. Prerequisites
 
+**Supported JDKs: 21 and 25** (Temurin or OpenJDK). Pravaha builds on either and runs on either; the
+classes always target Java 21 (`maven.compiler.release=21`; `pravaha-api` and `pravaha-sdk-java`
+target 17), so a jar built on 25 runs on 21 and the other way round. Releases are built on 21. To
+build with 25: `JAVA_HOME=/path/to/jdk-25 ./mvnw -o clean install`. On JDK 24 and later the JVM warns
+when libraries use `sun.misc.Unsafe` memory methods (JEP 498: Arrow, Netty, protobuf) or load native
+code (JEP 472: snappy, zstd); `bin/pravaha-server` and `bin/pravaha-engine` add
+`--sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED` only on 24 and later
+(JDK 21 refuses the first), and `PRAVAHA_JAVA_OPTS` still comes last. An application embedding
+Pravaha on 24+ may add the same two options; on 21 it must not.
+
 ```bash
 /usr/lib/jvm/java-21-openjdk-amd64/bin/java -version
 ```
