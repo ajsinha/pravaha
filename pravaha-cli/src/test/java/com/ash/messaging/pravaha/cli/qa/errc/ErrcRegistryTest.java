@@ -48,7 +48,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * ERRC-097 .. ERRC-103 -- PRV-8xxx, the query registry, which {@code ErrorCode.category()} has no
  * entry for (E5: since commit e0b6395, {@code category()} no longer throws for 8xxx -- see
- * {@code docs/qa/logs/ERRC.md} for the reconfirmation).
+ * {@code docs/project/qa/logs/ERRC.md} for the reconfirmation).
  *
  * <p>Surface: the server verbs, through the Java SDK ({@code SdkVerbs}), against a real, in-process
  * {@link PravahaFlightServer}/{@link QueryRegistry}
@@ -411,7 +411,7 @@ class ErrcRegistryTest extends ErrcServerSupport {
         // path contains "/.claude/", so a substring test discards the whole tree and the check
         // passes on nothing.
         Path root = Path.of("").toAbsolutePath();
-        while (root != null && !Files.exists(root.resolve("docs/adr"))) {
+        while (root != null && !Files.exists(root.resolve("docs/design/adr"))) {
             root = root.getParent();
         }
         Path finalRoot = root;

@@ -296,4 +296,4 @@ bound, and a null-padded row is emitted once and never withdrawn.
   the inputs to turn a right join into a left one.
 
 The full list of what runs and what is refused is
-[`docs/CONTINUOUS_QUERIES.md`](../../../docs/CONTINUOUS_QUERIES.md).
+[`docs/guides/CONTINUOUS_QUERIES.md`](../../../docs/guides/CONTINUOUS_QUERIES.md).

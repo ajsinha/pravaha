@@ -111,7 +111,7 @@ class ErrcSqlTest extends ErrcTestSupport {
     // subquery, a recursive CTE, a windowed OVER() function): all four are intercepted earlier, by
     // PRV-2020 (operator) or PRV-2021 (expression) refusals, before Calcite's own rel-conversion could
     // fail. Finding this code's actual trigger needs SQLX's own refusal-list expertise (the case's own
-    // words); not manufactured here. See docs/qa/logs/ERRC.md for the four candidates tried.
+    // words); not manufactured here. See docs/project/qa/logs/ERRC.md for the four candidates tried.
 
     // ------------------------------------------------------------ ERRC-022 -- PRV-2020
 
@@ -295,7 +295,7 @@ class ErrcSqlTest extends ErrcTestSupport {
 
     private static Path repoRoot() {
         Path path = Path.of("").toAbsolutePath();
-        while (path != null && !Files.exists(path.resolve("docs/adr"))) {
+        while (path != null && !Files.exists(path.resolve("docs/design/adr"))) {
             path = path.getParent();
         }
         return path;

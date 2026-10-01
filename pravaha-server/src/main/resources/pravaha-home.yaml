@@ -14,7 +14,7 @@
 # then PRAVAHA_* / SPRING_* environment variables, then --key=value arguments. So a deployment that
 # wants a path elsewhere says so in conf/application.yaml and this file never gets in its way.
 #
-# The whole layout (docs/RUNNING_IN_DOCKER.md, "The layout"):
+# The whole layout (docs/operations/RUNNING_IN_DOCKER.md, "The layout"):
 #
 #   $PRAVAHA_HOME/bin/        launchers                                 (the distribution's)
 #   $PRAVAHA_HOME/lib/        pravaha-server.jar                        (the distribution's)

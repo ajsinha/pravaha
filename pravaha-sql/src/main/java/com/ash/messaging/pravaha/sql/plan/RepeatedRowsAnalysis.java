@@ -60,7 +60,7 @@ import com.ash.messaging.pravaha.sql.SqlErrors;
  * change -- so a weight above 1 is never walked back down past a row that should still be there. A
  * subscriber does see each copy, as a {@code +1} of values it already has, which is an upsert of
  * the same row; a subscriber that sums weights instead of overwriting by key would count the copies,
- * and {@code docs/TROUBLESHOOTING.md} says so under this code. A sink that upserts by key is admitted
+ * and {@code docs/guides/TROUBLESHOOTING.md} says so under this code. A sink that upserts by key is admitted
  * for the same reason as the view.
  *
  * <p>Checked for every registration, not only one that names a sink: a view is where SCAN-1 was

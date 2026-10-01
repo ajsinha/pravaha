@@ -46,7 +46,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code LookupJoin}'s concurrency, caching and staleness behaviour, exercised directly (harness
  * HJ5's counterpart for the lookup operator) rather than through the registry or a live plugin.
  *
- * <p>Covers the cases in {@code docs/qa/cases/JOIN.md} §4 that need to watch the operator's own
+ * <p>Covers the cases in {@code docs/project/qa/cases/JOIN.md} §4 that need to watch the operator's own
  * counters -- {@code peakInFlight()}, {@code coalescedCount()}, {@code lookupCount()},
  * {@code cacheHitCount()} -- which only a test inside {@code com.ash.messaging.pravaha.runtime.exec}
  * can read.

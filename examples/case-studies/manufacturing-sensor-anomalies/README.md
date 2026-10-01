@@ -338,4 +338,4 @@ Lateness belongs to windows. A stateless filter has nothing to be late for.
   `PRV-2002`. That is the engine saving you from a view that would never fill.
 
 The full list of what runs and what is refused is
-[`docs/CONTINUOUS_QUERIES.md`](../../../docs/CONTINUOUS_QUERIES.md).
+[`docs/guides/CONTINUOUS_QUERIES.md`](../../../docs/guides/CONTINUOUS_QUERIES.md).

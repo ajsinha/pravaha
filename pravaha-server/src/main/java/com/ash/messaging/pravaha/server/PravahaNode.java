@@ -1178,7 +1178,7 @@ public class PravahaNode implements SmartLifecycle {
         if (measureOperators) {
             log.info("pravaha.metrics.operators is on: queries registered from now on count rows, rows out, "
                     + "state bytes and a sampled self time per operator, which GET /api/v1/queries/"
-                    + "{{name}}/plan returns beside each node. It costs throughput; see docs/OPERATIONS.md");
+                    + "{{name}}/plan returns beside each node. It costs throughput; see docs/operations/OPERATIONS.md");
         }
         if (stateSpill.resolvedEnabled()) {
             log.info(

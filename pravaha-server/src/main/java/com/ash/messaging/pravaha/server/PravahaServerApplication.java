@@ -193,7 +193,7 @@ public class PravahaServerApplication {
      * <p>CFG-5. This returned {@code AuditSink.NONE} unconditionally, so {@code HttpAuthorizer} --
      * the only thing enforcing authorization on {@code /api/v1/**} -- discarded every decision it
      * made, whatever {@code pravaha.security.audit} said, while the Flight half of the same node
-     * recorded correctly. Nothing at startup mentioned the difference and {@code docs/SECURITY.md}
+     * recorded correctly. Nothing at startup mentioned the difference and {@code docs/operations/SECURITY.md}
      * did not distinguish the two transports.
      *
      * <p>Taken from the node rather than resolved again from the same key, and that distinction is

@@ -176,13 +176,13 @@ class PluginSourceFeedsTest {
                     .hasMessageContaining("filesystem")
                     // CFG-4. On a shipped server that list has ONE entry, so for six of the seven
                     // plugin names in the documentation the remedy the message offered was not one:
-                    // an operator reading "Available: [filesystem]" beside docs/CONNECTORS.md's
+                    // an operator reading "Available: [filesystem]" beside docs/guides/CONNECTORS.md's
                     // seven has no way to tell whether they mistyped a name or whether the jar is
                     // simply absent. The message now says which of the two it is, and what an
                     // "available" plugin is.
                     .hasMessageContaining("ServiceLoader")
                     .hasMessageContaining("classpath")
-                    .hasMessageContaining("docs/CONNECTORS.md");
+                    .hasMessageContaining("docs/guides/CONNECTORS.md");
         }
     }
 

@@ -1,4 +1,4 @@
-"""The dialect card is current with docs/CONTINUOUS_QUERIES.md; the prompts are versioned
+"""The dialect card is current with docs/guides/CONTINUOUS_QUERIES.md; the prompts are versioned
 package resources; the two tasks ground the model in the engine.
 
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
@@ -20,7 +20,7 @@ from pravaha.assist.prompts import prompt_versions
 from pravaha.assist.providers import FakeProvider
 
 SDK = pathlib.Path(__file__).resolve().parents[1]
-GUIDE = SDK.parent.parent / "docs" / "CONTINUOUS_QUERIES.md"
+GUIDE = SDK.parent.parent / "docs" / "guides" / "CONTINUOUS_QUERIES.md"
 TOOL = SDK / "tools" / "build_dialect_card.py"
 
 
@@ -38,7 +38,7 @@ def test_the_packaged_card_is_current_with_the_guide():
     packaged = (SDK / "pravaha" / "assist" / "resources" / "dialect-card.json").read_text(
         encoding="utf-8")
     assert packaged == fresh, (
-        "docs/CONTINUOUS_QUERIES.md changed: run `.venv/bin/python tools/build_dialect_card.py` "
+        "docs/guides/CONTINUOUS_QUERIES.md changed: run `.venv/bin/python tools/build_dialect_card.py` "
         "in sdk/python and commit the card"
     )
 
@@ -80,7 +80,7 @@ Read the message.
 
 def test_the_card_explains_the_codes_that_matter():
     card = load_card()
-    assert card.source == "docs/CONTINUOUS_QUERIES.md" and len(card.version) == 12
+    assert card.source == "docs/guides/CONTINUOUS_QUERIES.md" and len(card.version) == 12
     for code in ("PRV-2050", "PRV-2042", "PRV-2075", "PRV-2001"):
         assert card.knows(code) and card.means(code)
     titles = [e.title for e in card.excerpts("PRV-2050")]

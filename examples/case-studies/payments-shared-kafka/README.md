@@ -5,9 +5,9 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 
 **Store:** Kafka · **Time to first result:** about fifteen minutes · **Shows:** several different
 queries over one Kafka topic sharing **one reader**, exactly once
-([ADR-054](../../../docs/adr/054-an-ordered-source-is-shared-at-an-exact-seam.md)); an **equality
+([ADR-054](../../../docs/design/adr/054-an-ordered-source-is-shared-at-an-exact-seam.md)); an **equality
 index** on a column outside the view's key, `INDEX (merchant)`
-([ADR-055](../../../docs/adr/055-an-equality-index-over-a-column-outside-the-key.md))
+([ADR-055](../../../docs/design/adr/055-an-equality-index-over-a-column-outside-the-key.md))
 
 ## The problem
 
@@ -301,5 +301,5 @@ same read of the topic.
   payment; a heartbeat record keeps answers prompt.
 
 The full list of what runs and what is refused is
-[`docs/CONTINUOUS_QUERIES.md`](../../../docs/CONTINUOUS_QUERIES.md); the Kafka source is described in
-[`docs/CONNECTORS.md`](../../../docs/CONNECTORS.md).
+[`docs/guides/CONTINUOUS_QUERIES.md`](../../../docs/guides/CONTINUOUS_QUERIES.md); the Kafka source is described in
+[`docs/guides/CONNECTORS.md`](../../../docs/guides/CONNECTORS.md).

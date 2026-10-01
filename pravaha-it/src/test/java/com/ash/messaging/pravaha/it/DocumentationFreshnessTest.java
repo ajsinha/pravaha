@@ -46,7 +46,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <ul>
  *   <li>every Maven module is described somewhere in the documentation;
  *   <li>no document names a module that no longer exists;
- *   <li>every file path a document points at is really there;
+ *   <li>every file path a document points at is really there -- in every markdown file in the
+ *       repository, anchors included, which is {@link MarkdownLinksTest}'s job;
  *   <li>the README's stated wave matches the newest gate that has been recorded.
  * </ul>
  *
@@ -57,20 +58,20 @@ class DocumentationFreshnessTest {
 
     private static final List<String> DOCS = List.of(
             "README.md",
-            "docs/system_design.md",
-            "docs/implementation_plan.md",
-            "docs/QUICKSTART.md",
-            "docs/ARCHITECTURE.md",
-            "docs/HANDOVER.md",
-            "docs/CONTINUOUS_QUERIES.md",
+            "docs/design/system_design.md",
+            "docs/design/implementation_plan.md",
+            "docs/guides/QUICKSTART.md",
+            "docs/design/ARCHITECTURE.md",
+            "docs/development/HANDOVER.md",
+            "docs/guides/CONTINUOUS_QUERIES.md",
             "docs/README.md",
-            "docs/CONCEPTS.md",
-            "docs/USER_GUIDE.md",
-            "docs/OPERATIONS.md",
-            "docs/SECURITY.md",
-            "docs/TROUBLESHOOTING.md",
-            "docs/RELEASE_NOTES.md",
-            "docs/COMPETITIVE_LANDSCAPE.md");
+            "docs/guides/CONCEPTS.md",
+            "docs/guides/USER_GUIDE.md",
+            "docs/operations/OPERATIONS.md",
+            "docs/operations/SECURITY.md",
+            "docs/guides/TROUBLESHOOTING.md",
+            "docs/project/RELEASE_NOTES.md",
+            "docs/publications/COMPETITIVE_LANDSCAPE.md");
 
     /**
      * The release note's defect counts are the register's, or the page is lying to the reader it
@@ -83,8 +84,8 @@ class DocumentationFreshnessTest {
      */
     @Test
     void theReleaseNotesDefectCountsAreTheRegistersOwn() throws IOException {
-        Path notes = repoRoot().resolve("docs/RELEASE_NOTES.md");
-        Path register = repoRoot().resolve("docs/qa/FINDINGS.md");
+        Path notes = repoRoot().resolve("docs/project/RELEASE_NOTES.md");
+        Path register = repoRoot().resolve("docs/project/qa/FINDINGS.md");
         java.util.regex.Matcher header = java.util.regex.Pattern.compile(
                         "\\*\\*(\\d+) findings carrying a\\s+status — (\\d+) FIXED, (\\d+) OPEN")
                 .matcher(Files.readString(register, StandardCharsets.UTF_8));
@@ -93,7 +94,7 @@ class DocumentationFreshnessTest {
         String stated =
                 "**" + header.group(1) + " findings — " + header.group(2) + " fixed, " + header.group(3) + " open";
         assertThat(Files.readString(notes, StandardCharsets.UTF_8))
-                .as("docs/RELEASE_NOTES.md must say what docs/qa/FINDINGS.md says: \"%s\"", stated)
+                .as("docs/project/RELEASE_NOTES.md must say what docs/project/qa/FINDINGS.md says: \"%s\"", stated)
                 .contains(stated);
     }
 
@@ -152,7 +153,7 @@ class DocumentationFreshnessTest {
         // record that is cited but unwritten is the most expensive kind of rot: the reasoning is
         // gone, and the citation makes it look as though it was captured.
         Set<String> recorded = new LinkedHashSet<>();
-        Path adrDir = repoRoot().resolve("docs/adr");
+        Path adrDir = repoRoot().resolve("docs/design/adr");
         try (Stream<Path> files = Files.list(adrDir)) {
             files.map(f -> f.getFileName().toString())
                     .filter(n -> n.matches("\\d{3}-.*\\.md"))
@@ -177,36 +178,14 @@ class DocumentationFreshnessTest {
             }
         }
         assertThat(uncaptured)
-                .as("these documents cite decisions that have no record in docs/adr: %s", uncaptured)
+                .as("these documents cite decisions that have no record in docs/design/adr: %s", uncaptured)
                 .isEmpty();
-    }
-
-    @Test
-    void everyRepositoryPathADocumentPointsAtExists() throws IOException {
-        List<String> broken = new ArrayList<>();
-        // Markdown links to files inside the repository, ignoring anchors and external URLs.
-        Pattern link = Pattern.compile("\\]\\((?!https?://)([A-Za-z0-9_./-]+\\.[A-Za-z0-9]+)(?:#[^)]*)?\\)");
-
-        for (String doc : DOCS) {
-            Path path = repoRoot().resolve(doc);
-            if (!Files.exists(path)) {
-                continue;
-            }
-            Matcher matcher = link.matcher(Files.readString(path, StandardCharsets.UTF_8));
-            while (matcher.find()) {
-                Path target = path.getParent().resolve(matcher.group(1)).normalize();
-                if (!Files.exists(target)) {
-                    broken.add(doc + " -> " + matcher.group(1));
-                }
-            }
-        }
-        assertThat(broken).as("documents linking to files that do not exist").isEmpty();
     }
 
     @Test
     void theReadmeStatedWaveMatchesTheNewestRecordedGate() throws IOException {
         // The single most reliable form of rot: a status line written once and never revisited.
-        Path gates = repoRoot().resolve("docs/gates");
+        Path gates = repoRoot().resolve("docs/project/gates");
         if (!Files.exists(gates)) {
             return;
         }
@@ -307,7 +286,7 @@ class DocumentationFreshnessTest {
     void theQuickstartExistsAndNamesRunnableCommands() throws IOException {
         // A quickstart that cannot be followed is worse than none: it is the first thing an
         // evaluator tries, and for a closed-source product they cannot fall back to reading code.
-        Path quickstart = repoRoot().resolve("docs/QUICKSTART.md");
+        Path quickstart = repoRoot().resolve("docs/guides/QUICKSTART.md");
         assertThat(quickstart).exists();
         String text = Files.readString(quickstart, StandardCharsets.UTF_8);
         assertThat(text).contains("./mvnw").contains("pravaha");
@@ -647,7 +626,8 @@ class DocumentationFreshnessTest {
         // The knobs that decide what a node holding many queries costs. They existed for a whole
         // wave before any document named one, which is the same failure as not having them: an
         // operator cannot turn a knob they cannot find.
-        String operations = Files.readString(repoRoot().resolve("docs/OPERATIONS.md"), StandardCharsets.UTF_8);
+        String operations =
+                Files.readString(repoRoot().resolve("docs/operations/OPERATIONS.md"), StandardCharsets.UTF_8);
         List<String> undocumented = settingsDeclaredInApplicationYaml().stream()
                 .filter(key -> key.startsWith("pravaha.lane."))
                 .filter(key -> !operations.contains(key))
@@ -656,7 +636,7 @@ class DocumentationFreshnessTest {
 
         assertThat(undocumented)
                 .as(
-                        "every pravaha.lane.* key must be named in docs/OPERATIONS.md, where an operator "
+                        "every pravaha.lane.* key must be named in docs/operations/OPERATIONS.md, where an operator "
                                 + "sizing a node for many queries will look for it: %s",
                         undocumented)
                 .isEmpty();
@@ -672,7 +652,8 @@ class DocumentationFreshnessTest {
                 .as("the per-query metric publisher must exist for this check to mean anything")
                 .exists();
 
-        String operations = Files.readString(repoRoot().resolve("docs/OPERATIONS.md"), StandardCharsets.UTF_8);
+        String operations =
+                Files.readString(repoRoot().resolve("docs/operations/OPERATIONS.md"), StandardCharsets.UTF_8);
         Matcher gauge = Pattern.compile("\"(pravaha\\.query\\.[a-z.]+)\"")
                 .matcher(Files.readString(metrics, StandardCharsets.UTF_8));
 
@@ -704,7 +685,7 @@ class DocumentationFreshnessTest {
         // have been wrong: HANDOVER's total lagged by a wave more than once, and an ADR written
         // without a row in the index is one nobody finds.
         List<String> files;
-        try (Stream<Path> adrs = Files.list(repoRoot().resolve("docs/adr"))) {
+        try (Stream<Path> adrs = Files.list(repoRoot().resolve("docs/design/adr"))) {
             files = adrs.map(path -> path.getFileName().toString())
                     .filter(name -> name.matches("\\d{3}-.*\\.md"))
                     .sorted()
@@ -712,20 +693,22 @@ class DocumentationFreshnessTest {
         }
         assertThat(files).as("there should be ADRs to count").isNotEmpty();
 
-        String index = Files.readString(repoRoot().resolve("docs/adr/README.md"), StandardCharsets.UTF_8);
+        String index = Files.readString(repoRoot().resolve("docs/design/adr/README.md"), StandardCharsets.UTF_8);
         List<String> unlisted =
                 files.stream().filter(name -> !index.contains(name)).toList();
         assertThat(unlisted)
-                .as("every ADR file needs a row in docs/adr/README.md, which is the only index there is: %s", unlisted)
+                .as(
+                        "every ADR file needs a row in docs/design/adr/README.md, which is the only index there is: %s",
+                        unlisted)
                 .isEmpty();
 
-        String handover = Files.readString(repoRoot().resolve("docs/HANDOVER.md"), StandardCharsets.UTF_8);
+        String handover = Files.readString(repoRoot().resolve("docs/development/HANDOVER.md"), StandardCharsets.UTF_8);
         Matcher counted = Pattern.compile("\\| ADRs \\| \\*\\*(\\d+)\\*\\* \\|").matcher(handover);
         assertThat(counted.find())
                 .as("HANDOVER.md must carry a '| ADRs | **N** |' row for this check to have something to check")
                 .isTrue();
         assertThat(Integer.parseInt(counted.group(1)))
-                .as("HANDOVER.md says %s ADRs and docs/adr holds %d", counted.group(1), files.size())
+                .as("HANDOVER.md says %s ADRs and docs/design/adr holds %d", counted.group(1), files.size())
                 .isEqualTo(files.size());
     }
 

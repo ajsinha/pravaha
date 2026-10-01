@@ -12,7 +12,7 @@
 # Six of the checks are SEEDS: they render a values file that must be REFUSED, and fail if it
 # renders. A guard nobody has watched refuse is a guard nobody knows works.
 #
-# Runs under helm 3.16.3 (what the CI job installs) and helm 4.3.0; docs/DEPLOYMENT.md records both.
+# Runs under helm 3.16.3 (what the CI job installs) and helm 4.3.0; docs/operations/DEPLOYMENT.md records both.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -58,7 +58,7 @@ def default_config_path(environ: Optional[Mapping[str, str]] = None) -> pathlib.
 def _reject_other_formats(path: pathlib.Path) -> None:
     if path.suffix.lower() in (".yaml", ".yml", ".toml"):
         raise AssistConfigError(
-            f"{path}: the assistant's configuration is JSON (see docs/ASSIST.md -- YAML would need "
+            f"{path}: the assistant's configuration is JSON (see docs/guides/ASSIST.md -- YAML would need "
             f"a dependency the SDK does not have, and TOML cannot be written back by the standard "
             f"library). Write it as {path.with_suffix('.json').name}"
         )

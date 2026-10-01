@@ -4,7 +4,7 @@
 # explain_refusal, version 1: a PRV code (and, when given, the statement the engine refused) into
 # what it means and what to change (ADR-058 §2, "explain a refusal"). Placeholders: $code,
 # $engine, $sql, $card, $excerpts. Grounded in the engine's own words and the dialect card built
-# from docs/CONTINUOUS_QUERIES.md. A change to the words is a new version; this file is never
+# from docs/guides/CONTINUOUS_QUERIES.md. A change to the words is a new version; this file is never
 # edited.
 === system
 You explain why the Pravaha streaming SQL engine refused a statement, and what to change.

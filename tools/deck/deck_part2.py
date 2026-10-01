@@ -33,8 +33,8 @@ PART4: list[dict[str, Any]] = [
             "Survival, and state that degrades",
             "A bound that changes the answer",
         ],
-        "source": "Source: docs/adr/008-aligned-checkpoints.md; README.md 'Corrections', 'Recovery', "
-        "'Survival', 'How it is built'; docs/CONCEPTS.md §4, §7.",
+        "source": "Source: docs/design/adr/008-aligned-checkpoints.md; README.md 'Corrections', 'Recovery', "
+        "'Survival', 'How it is built'; docs/guides/CONCEPTS.md §4, §7.",
     },
     {
         "kind": "cards",
@@ -57,7 +57,7 @@ PART4: list[dict[str, Any]] = [
         ],
         "note": "AlignedCheckpointBarrierTest and ControlTaskBarrierTest hold all three, taking "
         "checkpoints with the sources still running.",
-        "source": "Source: docs/adr/008-aligned-checkpoints.md 'Implementation status — as of "
+        "source": "Source: docs/design/adr/008-aligned-checkpoints.md 'Implementation status — as of "
         "2026-09-14' (W8-2, W8-3, W8-4; IngestPump.pumpOnce, QueryExecution.checkpoint, "
         "freezeIngest; the two named tests).",
     },
@@ -81,10 +81,10 @@ PART4: list[dict[str, Any]] = [
         "note": "End to end is still capped by the source: anything read from Aerospike is at "
         "least once, whatever the engine does (ADR-029), and a source that cannot rewind caps "
         "every sink behind it.",
-        "source": "Source: docs/adr/008-aligned-checkpoints.md ('Output is cut at the same marker "
+        "source": "Source: docs/design/adr/008-aligned-checkpoints.md ('Output is cut at the same marker "
         "(amended 2026-09-19, ADR-043 \"As built\")', ADR-029 cap); README.md 'Sinks' and "
         "'Boundaries' (transactional sinks; capped by whether the source can rewind); "
-        "docs/OPERATIONS.md sink delivery table.",
+        "docs/operations/OPERATIONS.md sink delivery table.",
     },
     {
         "kind": "bullets",
@@ -104,8 +104,8 @@ PART4: list[dict[str, Any]] = [
              "The exchange between lanes is not cut. No compiled pipeline sends on it, and a "
              "checkpoint that would have to cut it is refused rather than stored wrong."),
         ],
-        "source": "Source: docs/OPERATIONS.md 'Restarts: what survives' and 'Checkpoints: what is "
-        "actually true' (PRV-8006; pravaha.checkpoint.keep default 3); docs/adr/008 ('The exchange is "
+        "source": "Source: docs/operations/OPERATIONS.md 'Restarts: what survives' and 'Checkpoints: what is "
+        "actually true' (PRV-8006; pravaha.checkpoint.keep default 3); docs/design/adr/008 ('The exchange is "
         "not cut', QueryExecution.refuseWhileRowsCrossTheExchange).",
     },
     {
@@ -127,7 +127,7 @@ PART4: list[dict[str, Any]] = [
              "Overwrite by key if only current values matter; apply the weights if you keep your "
              "own total."),
         ],
-        "source": "Source: docs/CONCEPTS.md §4; README.md 'Corrections' and 'Sinks' (kafka-sink "
+        "source": "Source: docs/guides/CONCEPTS.md §4; README.md 'Corrections' and 'Sinks' (kafka-sink "
         "tombstone, iceberg-sink equality deletes).",
     },
     {
@@ -159,8 +159,8 @@ PART4: list[dict[str, Any]] = [
                  "Not the instant the late row is read."),
             ],
         },
-        "source": "Source: docs/CONCEPTS.md §3 (lateness belongs to the source; 10-second default; "
-        "allowed lateness defaults to zero); docs/CONTINUOUS_QUERIES.md §2 (TIME-3; join takes the "
+        "source": "Source: docs/guides/CONCEPTS.md §3 (lateness belongs to the source; 10-second default; "
+        "allowed lateness defaults to zero); docs/guides/CONTINUOUS_QUERIES.md §2 (TIME-3; join takes the "
         "minimum); examples/case-studies/manufacturing-sensor-anomalies/README.md step 5 "
         "('A correction is emitted when event time next moves').",
     },
@@ -183,8 +183,8 @@ PART4: list[dict[str, Any]] = [
             ("A lane fails alone",
              "A throwing pipeline drops its lane; sibling lanes never learn of it."),
         ],
-        "source": "Source: README.md 'Survival', 'State', 'Boundaries' (ADR-044); docs/CONCEPTS.md §7 "
-        "(state_held, _ceiling, _fraction; PRV-4001); docs/EXECUTION_MODEL.md §2 'A lane fails alone'.",
+        "source": "Source: README.md 'Survival', 'State', 'Boundaries' (ADR-044); docs/guides/CONCEPTS.md §7 "
+        "(state_held, _ceiling, _fraction; PRV-4001); docs/design/EXECUTION_MODEL.md §2 'A lane fails alone'.",
     },
     {
         "kind": "table",
@@ -207,8 +207,8 @@ PART4: list[dict[str, Any]] = [
         "size": 15,
         "note": "A view forgets because retention is a cache policy; a join fails because evicting "
         "to fit would silently lose matches the query asked for.",
-        "source": "Source: docs/OPERATIONS.md 'What holds memory, and what bounds it' (rows "
-        "abridged); docs/CONCEPTS.md §7.",
+        "source": "Source: docs/operations/OPERATIONS.md 'What holds memory, and what bounds it' (rows "
+        "abridged); docs/guides/CONCEPTS.md §7.",
     },
 ]
 
@@ -229,7 +229,7 @@ PART5: list[dict[str, Any]] = [
             "An equality index (ADR-055)",
         ],
         "source": "Source: README.md 'Project status', 'Many queries on one node'; "
-        "docs/EXECUTION_MODEL.md; docs/OPERATIONS.md 'Sizing a node for many queries'.",
+        "docs/design/EXECUTION_MODEL.md; docs/operations/OPERATIONS.md 'Sizing a node for many queries'.",
     },
     {
         "kind": "cards",
@@ -250,8 +250,8 @@ PART5: list[dict[str, Any]] = [
         ],
         "note": "A full inbox backpressures the source rather than spilling; a row wider than a "
         "cell is refused at ingest (PRV-3001) rather than buffered.",
-        "source": "Source: docs/EXECUTION_MODEL.md §1 'A lane', §2 'Why there are no locks', §3 "
-        "'Lane vs thread'; docs/OPERATIONS.md 'Sizing a node for many queries' (PRV-3001).",
+        "source": "Source: docs/design/EXECUTION_MODEL.md §1 'A lane', §2 'Why there are no locks', §3 "
+        "'Lane vs thread'; docs/operations/OPERATIONS.md 'Sizing a node for many queries' (PRV-3001).",
     },
     {
         "kind": "stats",
@@ -275,7 +275,7 @@ PART5: list[dict[str, Any]] = [
         "size": 16,
         "source": "Source: README.md 'Many queries on one node' and 'Performance' (200 queries, 24 "
         "threads; 1 MiB idle; 3.7 ms and 61 MiB, NodeScaleTest and SourceScaleTest); "
-        "docs/OPERATIONS.md 'Sizing a node for many queries' (1,024 KiB, 1,328 KiB, 64 KiB) and "
+        "docs/operations/OPERATIONS.md 'Sizing a node for many queries' (1,024 KiB, 1,328 KiB, 64 KiB) and "
         "'Sharing lanes between queries' (SRC-2).",
     },
     {
@@ -309,8 +309,8 @@ PART5: list[dict[str, Any]] = [
             ],
             "size": 15.5,
         },
-        "source": "Source: docs/OPERATIONS.md 'Sizing a node for many queries' (settings table) and "
-        "'Sharing lanes between queries'; docs/RELEASE_NOTES.md '1.0.0' ('Lane sharing is on by "
+        "source": "Source: docs/operations/OPERATIONS.md 'Sizing a node for many queries' (settings table) and "
+        "'Sharing lanes between queries'; docs/project/RELEASE_NOTES.md '1.0.0' ('Lane sharing is on by "
         "default, as auto').",
     },
     {
@@ -335,7 +335,7 @@ PART5: list[dict[str, Any]] = [
              "one read of the source."),
         ],
         "size": 16,
-        "source": "Source: docs/OPERATIONS.md 'Sharing lanes between queries' (SharedLaneDensityTest; "
+        "source": "Source: docs/operations/OPERATIONS.md 'Sharing lanes between queries' (SharedLaneDensityTest; "
         "LANE-2; PRV-3002); README.md 'Many queries on one node', 'Continuous queries'.",
     },
     {
@@ -369,8 +369,8 @@ PART5: list[dict[str, Any]] = [
              "PRV-8017."),
         ],
         "size": 16,
-        "source": "Source: docs/OPERATIONS.md 'Keeping one query on its own lane' (statements quoted, "
-        "names elided); docs/RELEASE_NOTES.md '1.0.0' (WITH (lane = 'dedicated'), the L record, "
+        "source": "Source: docs/operations/OPERATIONS.md 'Keeping one query on its own lane' (statements quoted, "
+        "names elided); docs/project/RELEASE_NOTES.md '1.0.0' (WITH (lane = 'dedicated'), the L record, "
         "PRV-8017, GET /api/v1/queries lane and sharedLane); commit fba15e14.",
     },
     {
@@ -393,8 +393,8 @@ PART5: list[dict[str, Any]] = [
              "replacement refuses is reported and the rest go on."),
         ],
         "size": 16,
-        "source": "Source: docs/OPERATIONS.md 'An administrator rebalances by hand'; commits 14914ae0, "
-        "6869419b, 86dd3e19; docs/RELEASE_NOTES.md '1.0.0'.",
+        "source": "Source: docs/operations/OPERATIONS.md 'An administrator rebalances by hand'; commits 14914ae0, "
+        "6869419b, 86dd3e19; docs/project/RELEASE_NOTES.md '1.0.0'.",
     },
     {
         "kind": "table",
@@ -416,9 +416,9 @@ PART5: list[dict[str, Any]] = [
         "note": "Built for Kafka and files read once through: a thousand queries over one topic read "
         "it once. Delta and JDBC follow when their order is shown total; CDC keeps a reader per "
         "query, because a slot can only be confirmed as far as its slowest member.",
-        "source": "Source: docs/adr/054-an-ordered-source-is-shared-at-an-exact-seam.md (Decision, "
+        "source": "Source: docs/design/adr/054-an-ordered-source-is-shared-at-an-exact-seam.md (Decision, "
         "table verbatim, 'Which sources'); README.md 'What is not built' first-versions table; "
-        "docs/RELEASE_NOTES.md 0.2.0.",
+        "docs/project/RELEASE_NOTES.md 0.2.0.",
     },
     {
         "kind": "split",
@@ -451,9 +451,9 @@ PART5: list[dict[str, Any]] = [
             ],
             "size": 15.5,
         },
-        "source": "Source: docs/adr/055-an-equality-index-over-a-column-outside-the-key.md §1–§4 "
+        "source": "Source: docs/design/adr/055-an-equality-index-over-a-column-outside-the-key.md §1–§4 "
         "(ServedView.commit, SecondaryIndexTest, SecondaryIndexRegistryTest, MAX_EQUALITY_INDEXES, "
-        "PRV-2074); docs/RELEASE_NOTES.md '1.0.0' (IDXVIS-1: access paths visible).",
+        "PRV-2074); docs/project/RELEASE_NOTES.md '1.0.0' (IDXVIS-1: access paths visible).",
     },
 ]
 

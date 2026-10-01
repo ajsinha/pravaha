@@ -34,7 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * HLP-13: claims in {@code docs/CONTINUOUS_QUERIES.md} that had drifted from the planner, each
+ * HLP-13: claims in {@code docs/guides/CONTINUOUS_QUERIES.md} that had drifted from the planner, each
  * measured here and then looked for in the document.
  *
  * <p>Every one of these was written down as working, or as refused for a different reason, or not
@@ -222,15 +222,15 @@ class ContinuousQueriesClaimsTest {
 
     private static String continuousQueries() {
         try {
-            return Files.readString(repoRoot().resolve("docs/CONTINUOUS_QUERIES.md"), StandardCharsets.UTF_8);
+            return Files.readString(repoRoot().resolve("docs/guides/CONTINUOUS_QUERIES.md"), StandardCharsets.UTF_8);
         } catch (IOException e) {
-            throw new IllegalStateException("cannot read docs/CONTINUOUS_QUERIES.md", e);
+            throw new IllegalStateException("cannot read docs/guides/CONTINUOUS_QUERIES.md", e);
         }
     }
 
     private static Path repoRoot() {
         Path path = Path.of("").toAbsolutePath();
-        while (path != null && !Files.exists(path.resolve("docs/adr"))) {
+        while (path != null && !Files.exists(path.resolve("docs/design/adr"))) {
             path = path.getParent();
         }
         if (path == null) {

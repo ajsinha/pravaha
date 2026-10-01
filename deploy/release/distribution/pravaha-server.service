@@ -11,7 +11,7 @@
 #   sudo systemctl daemon-reload && sudo systemctl enable --now pravaha-server
 #
 # PRAVAHA_HOME is /opt/pravaha, so the node writes nothing outside it: the journal and checkpoints
-# in data/, its log and audit trail in logs/, java.io.tmpdir in tmp/ (docs/RUNNING_IN_DOCKER.md,
+# in data/, its log and audit trail in logs/, java.io.tmpdir in tmp/ (docs/operations/RUNNING_IN_DOCKER.md,
 # "The layout" -- the same layout as the container). The hardening below says so to the kernel as
 # well: the whole filesystem is read-only to the service except /opt/pravaha's writable directories.
 

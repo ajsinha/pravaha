@@ -293,5 +293,5 @@ its commit record.
   closed hour can still change.
 
 The connector's full description is the Iceberg section of
-[`docs/CONNECTORS.md`](../../../docs/CONNECTORS.md); what runs and what is refused is
-[`docs/CONTINUOUS_QUERIES.md`](../../../docs/CONTINUOUS_QUERIES.md).
+[`docs/guides/CONNECTORS.md`](../../../docs/guides/CONNECTORS.md); what runs and what is refused is
+[`docs/guides/CONTINUOUS_QUERIES.md`](../../../docs/guides/CONTINUOUS_QUERIES.md).

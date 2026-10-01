@@ -30,7 +30,7 @@ PART1: list[dict[str, Any]] = [
             "One query, end to end",
             "Pravaha in one slide",
         ],
-        "source": "Source: examples/case-studies/*/README.md (problem statements); docs/CONCEPTS.md §1; "
+        "source": "Source: examples/case-studies/*/README.md (problem statements); docs/guides/CONCEPTS.md §1; "
         "README.md 'What it is'.",
     },
     {
@@ -87,7 +87,7 @@ PART1: list[dict[str, Any]] = [
             ],
         },
         "source": "Source: examples/case-studies/finance-counterparty-exposure/README.md; "
-        "retail-inventory-mysql/README.md; logistics-delivery-sla/README.md; docs/system_design.md "
+        "retail-inventory-mysql/README.md; logistics-delivery-sla/README.md; docs/design/system_design.md "
         "§19 (connector shapes table, 'Poll with a watermark').",
     },
     {
@@ -108,8 +108,8 @@ PART1: list[dict[str, Any]] = [
             ("Two ways to take the answer",
              "Read the view by key, or subscribe and receive every commit as weighted changes."),
         ],
-        "source": "Source: docs/CONCEPTS.md §1 'A continuous query is a computation, not a request' "
-        "(costs measured by NodeScaleTest, per docs/OPERATIONS.md 'Sizing a node for many queries').",
+        "source": "Source: docs/guides/CONCEPTS.md §1 'A continuous query is a computation, not a request' "
+        "(costs measured by NodeScaleTest, per docs/operations/OPERATIONS.md 'Sizing a node for many queries').",
     },
     {
         "kind": "code",
@@ -187,7 +187,7 @@ PART2: list[dict[str, Any]] = [
             "A weight on every row, and the commit",
             "Lane, checkpoint, sink",
         ],
-        "source": "Source: docs/CONTINUOUS_QUERIES.md §1–§2; docs/CONCEPTS.md; docs/EXECUTION_MODEL.md §1.",
+        "source": "Source: docs/guides/CONTINUOUS_QUERIES.md §1–§2; docs/guides/CONCEPTS.md; docs/design/EXECUTION_MODEL.md §1.",
     },
     {
         "kind": "flow",
@@ -212,7 +212,7 @@ PART2: list[dict[str, Any]] = [
         ],
         "col_w": [1.0, 1.1, 3.0],
         "size": 15,
-        "source": "Source: docs/CONTINUOUS_QUERIES.md §1 'The three nouns' (table and the source → "
+        "source": "Source: docs/guides/CONTINUOUS_QUERIES.md §1 'The three nouns' (table and the source → "
         "stream → continuous query → view → SELECT line).",
     },
     {
@@ -247,8 +247,8 @@ PART2: list[dict[str, Any]] = [
              "advances event time; a lookup is only asked."),
         ],
         "size": 16,
-        "source": "Source: docs/CONTINUOUS_QUERIES.md §2 'Declaring a stream' (the three blocks and "
-        "the YAML, schema line wrapped for the slide); docs/CONNECTORS.md §3 ('a binding is per "
+        "source": "Source: docs/guides/CONTINUOUS_QUERIES.md §2 'Declaring a stream' (the three blocks and "
+        "the YAML, schema line wrapped for the slide); docs/guides/CONNECTORS.md §3 ('a binding is per "
         "stream name, not per query'); README.md 'Sources' (one reader per source binding).",
     },
     {
@@ -270,7 +270,7 @@ PART2: list[dict[str, Any]] = [
              "A windowed query over a stream that declares no event-time column is refused at "
              "registration (PRV-2002) — it would report RUNNING, ingest everything and emit nothing."),
         ],
-        "source": "Source: docs/CONCEPTS.md §2 'Event time, not clock time' and §3 'Watermarks' "
+        "source": "Source: docs/guides/CONCEPTS.md §2 'Event time, not clock time' and §3 'Watermarks' "
         "(10-second default, minimum across partitions, idle exclusion, PRV-2002 / TIME-6).",
     },
     {
@@ -299,7 +299,7 @@ PART2: list[dict[str, Any]] = [
         "size": 16,
         "note": "The panel is a real run: a late reading from press-02 corrected the 08:03 minute "
         "(machine sensor anomalies, step 5), trimmed to the columns that changed.",
-        "source": "Source: docs/CONCEPTS.md §4 'Changes carry weights' (STRM-1); docs/USER_GUIDE.md "
+        "source": "Source: docs/guides/CONCEPTS.md §4 'Changes carry weights' (STRM-1); docs/guides/USER_GUIDE.md "
         "'Subscribing to a registered query' (per commit, never per row); "
         "examples/case-studies/manufacturing-sensor-anomalies/README.md step 5 (the snapshot and "
         "commit lines, columns trimmed; temperatures are deci-degrees).",
@@ -323,8 +323,8 @@ PART2: list[dict[str, Any]] = [
              "exactly once to a transactional sink, effectively once to an idempotent upsert, at "
              "least once to a plain append."),
         ],
-        "source": "Source: docs/EXECUTION_MODEL.md §1–§2 ('One thread, one inbox, one arena, one "
-        "processor, one loop'); docs/adr/008-aligned-checkpoints.md; README.md 'Recovery', 'Sinks', "
+        "source": "Source: docs/design/EXECUTION_MODEL.md §1–§2 ('One thread, one inbox, one arena, one "
+        "processor, one loop'); docs/design/adr/008-aligned-checkpoints.md; README.md 'Recovery', 'Sinks', "
         "'How it is built' (Correctness).",
     },
 ]
@@ -343,7 +343,7 @@ PART3: list[dict[str, Any]] = [
             "Reading the answer",
             "Subscribing to the changes",
         ],
-        "source": "Source: docs/CONTINUOUS_QUERIES.md §3–§4; docs/ARCHITECTURE.md 'One path, end to end'.",
+        "source": "Source: docs/guides/CONTINUOUS_QUERIES.md §3–§4; docs/design/ARCHITECTURE.md 'One path, end to end'.",
     },
     {
         "kind": "code",
@@ -373,7 +373,7 @@ PART3: list[dict[str, Any]] = [
              "RESUME and DROP CONTINUOUS QUERY manage what runs."),
         ],
         "size": 16,
-        "source": "Source: docs/CONTINUOUS_QUERIES.md §3 'Registering a continuous query' (the "
+        "source": "Source: docs/guides/CONTINUOUS_QUERIES.md §3 'Registering a continuous query' (the "
         "statement verbatim, the TUMBLE line wrapped for the slide; --keys, --retain, TY-21).",
     },
     {
@@ -397,9 +397,9 @@ PART3: list[dict[str, Any]] = [
              "caused by somebody tidying up their own query."),
         ],
         "size": 16,
-        "source": "Source: docs/CONTINUOUS_QUERIES.md §3 'What happens at registration' (six steps, "
-        "condensed to five); docs/CONCEPTS.md §5 'Sharing is by fingerprint'; "
-        "docs/adr/050-a-tenant-owns-names-and-state-and-shares-only-with-itself.md (tenant in the "
+        "source": "Source: docs/guides/CONTINUOUS_QUERIES.md §3 'What happens at registration' (six steps, "
+        "condensed to five); docs/guides/CONCEPTS.md §5 'Sharing is by fingerprint'; "
+        "docs/design/adr/050-a-tenant-owns-names-and-state-and-shares-only-with-itself.md (tenant in the "
         "fingerprint).",
     },
     {
@@ -423,10 +423,10 @@ PART3: list[dict[str, Any]] = [
         "size": 15,
         "note": "A refusal names the setting to change. A query that could never answer is not "
         "allowed to report RUNNING with an empty view.",
-        "source": "Source: docs/CONTINUOUS_QUERIES.md §2 (PRV-2002, TIME-6), §3 steps 2 (PRV-2042, "
-        "PRV-2041); docs/CONCEPTS.md §7 (PRV-2050); README.md 'Windows and event time' (PRV-2020), "
-        "'Sinks' (PRV-8010); docs/CONNECTORS.md §1 (a sink reports schema() and keyColumns()); "
-        "docs/adr/050 §2 (PRV-8020, PRV-8021).",
+        "source": "Source: docs/guides/CONTINUOUS_QUERIES.md §2 (PRV-2002, TIME-6), §3 steps 2 (PRV-2042, "
+        "PRV-2041); docs/guides/CONCEPTS.md §7 (PRV-2050); README.md 'Windows and event time' (PRV-2020), "
+        "'Sinks' (PRV-8010); docs/guides/CONNECTORS.md §1 (a sink reports schema() and keyColumns()); "
+        "docs/design/adr/050 §2 (PRV-8020, PRV-8021).",
     },
     {
         "kind": "code",
@@ -461,7 +461,7 @@ PART3: list[dict[str, Any]] = [
         ],
         "size": 16,
         "source": "Source: README.md 'What it is' (both SDK snippets, string literal split across "
-        "lines for the slide) and 'Serving'; docs/ARCHITECTURE.md 'One path, end to end' step 4.",
+        "lines for the slide) and 'Serving'; docs/design/ARCHITECTURE.md 'One path, end to end' step 4.",
     },
     {
         "kind": "bullets",
@@ -481,8 +481,8 @@ PART3: list[dict[str, Any]] = [
              "A commit hands each subscriber the batch and returns; a slow consumer backs up its own "
              "buffer, not the feed's publish timer."),
         ],
-        "source": "Source: docs/USER_GUIDE.md 'Subscribing to a registered query' (snapshot then "
-        "commits; CONFLATE, DROP_OLDEST, FAIL); docs/CONCEPTS.md §8 (STRM-8); docs/OPERATIONS.md "
+        "source": "Source: docs/guides/USER_GUIDE.md 'Subscribing to a registered query' (snapshot then "
+        "commits; CONFLATE, DROP_OLDEST, FAIL); docs/guides/CONCEPTS.md §8 (STRM-8); docs/operations/OPERATIONS.md "
         "'What to watch' (dropped()/conflated(), ChangeBatch.droppedBefore, STRM-10).",
     },
 ]

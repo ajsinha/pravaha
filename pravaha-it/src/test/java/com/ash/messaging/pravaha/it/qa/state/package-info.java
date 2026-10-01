@@ -16,7 +16,7 @@
 /**
  * STATE: checkpoints, the registry journal, recovery, cluster modes.
  *
- * <p>{@code docs/qa/cases/STATE.md} authors 110 cases against {@code FileCheckpointStore},
+ * <p>{@code docs/project/qa/cases/STATE.md} authors 110 cases against {@code FileCheckpointStore},
  * {@code PeriodicCheckpointer}, {@code QueryExecution.checkpoint/restore}, {@code
  * InterpretedPipeline}'s snapshot format, {@code QueryRegistry}'s per-query checkpoint directories
  * and journal, {@code RegistryJournal} itself, and {@code CoordinatorFactory}'s cluster-mode matrix.
@@ -28,7 +28,7 @@
  * and calls {@code restoreFrom} before a query is fed anything -- so {@code CheckpointStore.latest()}
  * and {@code QueryExecution.restore()} *are* reachable from shipped code, through {@code register()}.
  * Where a case's authored "Expected" section rests on the older facts, this is recorded case by case
- * in {@code docs/qa/logs/STATE.md} rather than silently reconciled here.
+ * in {@code docs/project/qa/logs/STATE.md} rather than silently reconciled here.
  *
  * <p>Cases whose harness is described as "a direct checkpointer" over an embedded execution are
  * built the way {@code PeriodicCheckpointerTest} and {@code CheckpointRecoveryTest} already do: a

@@ -31,7 +31,7 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * {@code docs/qa/FINDINGS.md} as a register rather than a narrative.
+ * {@code docs/project/qa/FINDINGS.md} as a register rather than a narrative.
  *
  * <p>It was a narrative, and that made it useless as a status report. Findings were appended, some
  * were re-confirmed under new identifiers in later rounds, and whether a fix was recorded depended
@@ -103,7 +103,7 @@ class FindingsRegisterTest {
     private record Finding(String id, String status, String disposition, String severity) {}
 
     private static List<Finding> findings() throws IOException {
-        String text = Files.readString(repoRoot().resolve("docs/qa/FINDINGS.md"), StandardCharsets.UTF_8);
+        String text = Files.readString(repoRoot().resolve("docs/project/qa/FINDINGS.md"), StandardCharsets.UTF_8);
         String[] lines = text.split("\n", -1);
         List<Finding> found = new ArrayList<>();
         for (int i = 0; i < lines.length; i++) {
@@ -198,7 +198,7 @@ class FindingsRegisterTest {
         //
         // So the header states the numbers and this derives them. Update the sentence when the
         // register changes; the build will say when it needs updating.
-        String text = Files.readString(repoRoot().resolve("docs/qa/FINDINGS.md"), StandardCharsets.UTF_8);
+        String text = Files.readString(repoRoot().resolve("docs/project/qa/FINDINGS.md"), StandardCharsets.UTF_8);
         Matcher header = Pattern.compile("\\*\\*(\\d+) findings carrying a\\s+status \u2014 (\\d+) FIXED, "
                         + "(\\d+) OPEN, (\\d+) BY DESIGN, (\\d+) SUPERSEDED\\.\\*\\*")
                 .matcher(text);
@@ -226,7 +226,7 @@ class FindingsRegisterTest {
 
     private static Path repoRoot() {
         Path path = Path.of("").toAbsolutePath();
-        while (path != null && !Files.exists(path.resolve("docs/adr"))) {
+        while (path != null && !Files.exists(path.resolve("docs/design/adr"))) {
             path = path.getParent();
         }
         return path == null ? Path.of("").toAbsolutePath() : path;
@@ -259,7 +259,7 @@ class FindingsRegisterTest {
         //
         // A loose pattern cannot decide what a finding is, but it can say "this heading names
         // something-dash-something and the strict pattern ignored it", which is enough.
-        String text = Files.readString(repoRoot().resolve("docs/qa/FINDINGS.md"), StandardCharsets.UTF_8);
+        String text = Files.readString(repoRoot().resolve("docs/project/qa/FINDINGS.md"), StandardCharsets.UTF_8);
         List<String> uncaptured = new ArrayList<>();
         for (String line : text.split("\n", -1)) {
             if (LOOKS_LIKE_A_FINDING.matcher(line).matches()
@@ -332,7 +332,7 @@ class FindingsRegisterTest {
     void theHeaderTriageCountsMatchTheDispositionsBeneathIt() throws IOException {
         // The same ratchet the status counts already have. A triage summary that drifts from the
         // register is worse than none, because it is the part a release argument would quote.
-        String text = Files.readString(repoRoot().resolve("docs/qa/FINDINGS.md"), StandardCharsets.UTF_8);
+        String text = Files.readString(repoRoot().resolve("docs/project/qa/FINDINGS.md"), StandardCharsets.UTF_8);
         Matcher header = Pattern.compile(
                         "\\*\\*(\\d+) (?:are|is)\\s+GA-BLOCKER, (\\d+) GA-REQUIRED, (\\d+) POST-GA and (\\d+) are not defects")
                 .matcher(text);

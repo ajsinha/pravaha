@@ -38,7 +38,7 @@ import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Shared fixtures and harnesses for {@code docs/qa/cases/WIN.md}'s executable form.
+ * Shared fixtures and harnesses for {@code docs/project/qa/cases/WIN.md}'s executable form.
  *
  * <p>Split out of the test classes themselves so that neither exceeds the project's 1500-line
  * source file limit -- {@link WindowAnswerTest} covers sections 1-8 of WIN.md and
@@ -270,7 +270,8 @@ abstract class WindowTestSupport {
     /** The repository root, found by walking up from the working directory to a file it owns. */
     protected static java.nio.file.Path repoRoot() {
         java.nio.file.Path root = java.nio.file.Path.of("").toAbsolutePath();
-        while (!java.nio.file.Files.exists(root.resolve("docs/CONTINUOUS_QUERIES.md")) && root.getParent() != null) {
+        while (!java.nio.file.Files.exists(root.resolve("docs/guides/CONTINUOUS_QUERIES.md"))
+                && root.getParent() != null) {
             root = root.getParent();
         }
         return root;

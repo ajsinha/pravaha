@@ -48,7 +48,7 @@ dev = [
   "build>=1.2",
 ]
 
-# The command line (docs/CLI.md). Standard library plus this package; the Flight commands need
+# The command line (docs/guides/CLI.md). Standard library plus this package; the Flight commands need
 # the "flight" extra and say so by name when it is missing, the HTTP ones never do.
 [project.scripts]
 pravaha = "pravaha.cli:run"

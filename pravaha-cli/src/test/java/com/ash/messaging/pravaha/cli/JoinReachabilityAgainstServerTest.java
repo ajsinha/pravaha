@@ -41,7 +41,7 @@ import com.ash.messaging.pravaha.serving.ViewCatalog;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The three {@code docs/qa/cases/JOIN.md} cases that need a real node: {@code pravaha-engine run}
+ * The three {@code docs/project/qa/cases/JOIN.md} cases that need a real node: {@code pravaha-engine run}
  * cannot run a join at all (JOIN-001), a two-stream join registered on a node does run (JOIN-002),
  * and a self-join registers (JOIN-060(c)).
  *

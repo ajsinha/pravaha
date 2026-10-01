@@ -14,7 +14,7 @@ all of `03-embedded-java` are **not** covered (DOCX-049).
 | [02 — aggregate](02-aggregate/) | A global aggregate, and a keyed one the engine refuses |
 | [03 — embedded Java](03-embedded-java/) | The engine inside an ordinary application |
 
-Start with [`../docs/QUICKSTART.md`](../docs/QUICKSTART.md).
+Start with [`../docs/guides/QUICKSTART.md`](../docs/guides/QUICKSTART.md).
 
 ## Case studies
 

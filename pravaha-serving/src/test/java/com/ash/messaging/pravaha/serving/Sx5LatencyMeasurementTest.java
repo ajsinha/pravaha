@@ -32,7 +32,7 @@ import com.ash.messaging.pravaha.security.Principal;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * SX-5's third channel, re-measured (docs/qa/FINDINGS.md, docs/qa/logs/SECX.md SECX-091).
+ * SX-5's third channel, re-measured (docs/project/qa/FINDINGS.md, docs/project/qa/logs/SECX.md SECX-091).
  *
  * <p>The finding's own numbers -- denied median 23.8ms, absent median 13.4ms, 100 iterations --
  * predate the fix that closed the refusal-code channel ({@link ViewQuery#execute(String,
@@ -43,7 +43,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * prediction held.
  *
  * <p><strong>The threat model measured is the one the finding itself states</strong>: "an oracle
- * usable without ever being authorized for anything" (docs/qa/FINDINGS.md). That is a principal
+ * usable without ever being authorized for anything" (docs/project/qa/FINDINGS.md). That is a principal
  * denied every view, which is exactly what {@code
  * ViewQueryAuthorizationTest.sx5_aDeniedCallerCannotTellARealViewFromAnAbsentOneByTheCode} already
  * seed-proves the *codes* agree for. This test asks the remaining question: do the two refusals

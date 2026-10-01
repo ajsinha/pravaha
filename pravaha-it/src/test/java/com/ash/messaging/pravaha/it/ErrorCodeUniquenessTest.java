@@ -148,7 +148,7 @@ class ErrorCodeUniquenessTest {
 
     private static Path repoRoot() {
         Path path = Path.of("").toAbsolutePath();
-        while (path != null && !Files.exists(path.resolve("docs/adr"))) {
+        while (path != null && !Files.exists(path.resolve("docs/design/adr"))) {
             path = path.getParent();
         }
         return path;

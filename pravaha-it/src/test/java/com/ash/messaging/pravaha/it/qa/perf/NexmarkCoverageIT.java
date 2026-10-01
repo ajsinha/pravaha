@@ -370,7 +370,7 @@ final class NexmarkCoverageIT {
                         .map(Verdict::id)
                         .toList())
                 .as("the queries measured to run; a change to this list is a change to the coverage figure "
-                        + "docs/gates/measured-2026-09-20/README.md reports, and both move together")
+                        + "docs/project/gates/measured-2026-09-20/README.md reports, and both move together")
                 .containsExactlyInAnyOrderElementsOf(EXPECTED_TO_RUN);
         assertThat(runnable)
                 .as("no Nexmark query runs at all, which would mean the harness never planned one")

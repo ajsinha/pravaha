@@ -13,7 +13,7 @@ works.
   registered query it also gives what the engine reports about it -- keys, retention, sink.
 * :meth:`Assistant.explain_refusal` gives the model the engine's own words -- the diagnostics of
   ``POST /api/v1/queries/validate`` when a statement is given, else the guide's line for the code
-  -- and the sections of docs/CONTINUOUS_QUERIES.md about that code, from the packaged dialect
+  -- and the sections of docs/guides/CONTINUOUS_QUERIES.md about that code, from the packaged dialect
   card. A rewrite the model proposes is validated by the engine and reported with its verdict;
   it is never presented as working on the model's say-so.
 

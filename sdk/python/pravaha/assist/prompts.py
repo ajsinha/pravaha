@@ -1,5 +1,5 @@
 """The assistant's packaged resources: versioned prompts, their answer schemas, and the dialect
-card generated from docs/CONTINUOUS_QUERIES.md.
+card generated from docs/guides/CONTINUOUS_QUERIES.md.
 
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 PROPRIETARY AND CONFIDENTIAL. See the LICENSE file for the full terms.
@@ -122,7 +122,7 @@ class Excerpt:
 
 
 class DialectCard:
-    """What docs/CONTINUOUS_QUERIES.md says about each ``PRV-nnnn`` code."""
+    """What docs/guides/CONTINUOUS_QUERIES.md says about each ``PRV-nnnn`` code."""
 
     def __init__(self, document: Mapping[str, Any]) -> None:
         self._document = document

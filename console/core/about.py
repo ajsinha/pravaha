@@ -15,8 +15,8 @@ rather than retyped:
 * **What is built, and what is not, in full** -- the README's "What works" list and its "What is
   not built" section, the ones the build's DocumentationFreshnessTest keeps honest.
 * **Provenance and legal** -- the README's "Legal" section and the LICENSE, verbatim.
-* **In this release** -- the newest entry of docs/RELEASE_NOTES.md, read on each request.
-* **The competitive summary** -- the scored table and its rows, from docs/COMPETITIVE_LANDSCAPE.md
+* **In this release** -- the newest entry of docs/project/RELEASE_NOTES.md, read on each request.
+* **The competitive summary** -- the scored table and its rows, from docs/publications/COMPETITIVE_LANDSCAPE.md
   through core/competitive.py, which also draws the whole of it at /about/competitive.
 
 What is written here is what no document states in a form the page can use, each item naming
@@ -364,17 +364,17 @@ READING: list[Reading] = [
     Reading("file-earmark-pdf", "Continuous Queries as Maintained Answers",
             "The research paper: exact cuts, exact seams and lossless cutover, stated and proved under "
             "listed assumptions, with a ledger of what is tested and what is argued.",
-            "docs/research/continuous-queries-as-maintained-answers.pdf",
+            "docs/publications/research/continuous-queries-as-maintained-answers.pdf",
             "continuous-queries-as-maintained-answers.pdf"),
     Reading("file-earmark-slides", "A continuous SQL engine: design and evidence",
             "The deck, 91 slides: why ask once, the vocabulary, a query's life, correctness, scale on one "
             "node, connectors, security, operating it, and what is measured.",
-            "docs/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx",
+            "docs/publications/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx",
             "pravaha-design-and-evidence.pptx"),
     Reading("journal-text", "Keeping the Answer: Inside Pravaha",
             "The Medium post: the design decisions, what each one costs, and the alternatives turned "
             "down, from the retail stock case outwards.",
-            "docs/medium/pravaha-medium-post.md"),
+            "docs/publications/medium/pravaha-medium-post.md"),
 ]
 
 _MEDIA = {"pdf": "application/pdf",
@@ -454,12 +454,12 @@ class AboutSource:
         return self.renderer.render(text)[0]
 
     def release(self) -> dict[str, str]:
-        """The newest entry of docs/RELEASE_NOTES.md -- its heading and its body, rendered.
+        """The newest entry of docs/project/RELEASE_NOTES.md -- its heading and its body, rendered.
 
         Read on every request, so the page says what the notes say the moment they change; an
         empty dict when the notes are missing, and the template then says nothing about a release.
         """
-        text = self._read("docs/RELEASE_NOTES.md")
+        text = self._read("docs/project/RELEASE_NOTES.md")
         match = re.search(r"^## (.+?)\n(.*?)(?=^## |^---\s*$|\Z)", text, re.MULTILINE | re.DOTALL)
         if not match:
             return {}
@@ -495,7 +495,7 @@ class AboutSource:
         return (path, entry[1]) if path.is_file() else None
 
     def landscape(self):
-        """The competitive landscape, from docs/COMPETITIVE_LANDSCAPE.md (core/competitive.py)."""
+        """The competitive landscape, from docs/publications/COMPETITIVE_LANDSCAPE.md (core/competitive.py)."""
         from core.competitive import Landscape
 
         return Landscape(self.root, self.renderer)

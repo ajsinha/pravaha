@@ -38,7 +38,7 @@ import com.ash.messaging.pravaha.testkit.CapturingRowWriter;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The authored QA cases of {@code docs/qa/cases/SQLX.md} and {@code TYPE.md}, made executable.
+ * The authored QA cases of {@code docs/project/qa/cases/SQLX.md} and {@code TYPE.md}, made executable.
  *
  * <p>Those files hold 2711 and 3384 lines of prose describing what this engine should answer. Prose
  * is read once by one person. Everything here whose expected value is a concrete number or string

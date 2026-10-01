@@ -29,7 +29,7 @@ keywords:
 annotations:
   # A chart repository reads this; the licence is the one in the root LICENSE (LIC-1).
   artifacthub.io/license: LicenseRef-Proprietary
-  # Said here as well as in docs/DEPLOYMENT.md, because a chart found on its own is a chart whose
+  # Said here as well as in docs/operations/DEPLOYMENT.md, because a chart found on its own is a chart whose
   # documentation was not read. Multi-node execution is on hold (ADR-045); this chart runs ONE
   # node and refuses to render more.
   pravaha.io/clustering: "none -- replicas is 1 by design, ADR-034 / ADR-045"

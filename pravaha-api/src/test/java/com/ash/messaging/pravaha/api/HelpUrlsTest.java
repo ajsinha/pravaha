@@ -48,7 +48,7 @@ class HelpUrlsTest {
     @Test
     void withNoBaseTheLineSaysWhereToLookTheCodeUpInstead() {
         assertThat(HelpUrls.helpLine("PRV-2002"))
-                .isEqualTo("look PRV-2002 up in the console's help under Errors, or in docs/TROUBLESHOOTING.md");
+                .isEqualTo("look PRV-2002 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md");
         assertThat(HelpUrls.helpLine("PRV-2002")).doesNotContain("http");
     }
 
@@ -89,7 +89,7 @@ class HelpUrlsTest {
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-1029")
                 .hasMessageContaining("pravaha.docs.base-url is '" + written + "'")
-                .hasMessageContaining("docs/TROUBLESHOOTING.md");
+                .hasMessageContaining("docs/guides/TROUBLESHOOTING.md");
     }
 
     /** A refused value must not become the base: half-applied configuration is its own defect. */

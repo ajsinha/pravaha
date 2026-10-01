@@ -4,7 +4,7 @@
 Geometry audit for the generated deck.
 
     tools/deck/.venv/bin/python tools/deck/audit.py \
-        docs/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx
+        docs/publications/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx
 
 It re-derives the geometry of every shape on every slide and reports:
 

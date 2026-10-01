@@ -27,7 +27,7 @@ import com.ash.messaging.pravaha.sql.plan.PhysicalPlanBuilder;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The `docs/qa/cases/SQLX.md` cases that need a second or third stream registered
+ * The `docs/project/qa/cases/SQLX.md` cases that need a second or third stream registered
  * (H-MTX in that document's harness table) rather than one the CLI can express: an alias shadowing
  * another stream's name, duplicate columns from a join, and every set-operation / CTE / subquery
  * refusal, which SQLX.md builds against {@code TXN}, {@code OTHER} and {@code THIRD}.

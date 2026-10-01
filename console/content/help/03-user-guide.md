@@ -6,5 +6,5 @@ order: 30
 icon: book
 summary: Registering, subscribing, parameters, retention and security, from a client's point of view.
 audience: Engineers
-include: docs/USER_GUIDE.md
+include: docs/guides/USER_GUIDE.md
 ---

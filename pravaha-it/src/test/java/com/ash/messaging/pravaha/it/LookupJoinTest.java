@@ -248,7 +248,7 @@ class LookupJoinTest {
         assertThat(run(OUTER + " WHERE u.segment = 'gold'", users, List.of(1L, 2L, 99L, 1L)))
                 .containsExactly("1:gold", "4:gold");
 
-        String doc = java.nio.file.Files.readString(repoRoot().resolve("docs/CONTINUOUS_QUERIES.md"));
+        String doc = java.nio.file.Files.readString(repoRoot().resolve("docs/guides/CONTINUOUS_QUERIES.md"));
         assertThat(doc)
                 .contains("A filter on a looked-up column, over an inner lookup join")
                 .contains("Write the same join as `LEFT JOIN … WHERE u.tier = 'gold'`");
@@ -256,7 +256,7 @@ class LookupJoinTest {
 
     private static java.nio.file.Path repoRoot() {
         java.nio.file.Path path = java.nio.file.Path.of("").toAbsolutePath();
-        while (path != null && !java.nio.file.Files.exists(path.resolve("docs/adr"))) {
+        while (path != null && !java.nio.file.Files.exists(path.resolve("docs/design/adr"))) {
             path = path.getParent();
         }
         if (path == null) {

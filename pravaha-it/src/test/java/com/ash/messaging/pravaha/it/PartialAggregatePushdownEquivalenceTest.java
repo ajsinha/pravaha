@@ -52,7 +52,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * except that here, unlike those two, the property is not free. A filter or a projected column the
  * engine keeps its own copy of regardless of what a source does; a partial aggregate replaces the
  * rows entirely, so if the source computed it wrong there is nothing downstream left to notice.
- * That is exactly the trade {@code docs/CONNECTORS.md} section 6 names: the capability is the
+ * That is exactly the trade {@code docs/guides/CONNECTORS.md} section 6 names: the capability is the
  * contract, and a source that claims {@code PARTIAL_AGGREGATE} must get it right. This test plays
  * the honest source -- one that computes its partial correctly over what it decided to include --
  * and proves the engine folds it in exactly as it would have folded in the rows.
@@ -305,7 +305,7 @@ class PartialAggregatePushdownEquivalenceTest {
     }
 
     /**
-     * The retraction {@code docs/adr/039}'s own restriction to {@code COUNT}/{@code SUM} exists to
+     * The retraction {@code docs/design/adr/039}'s own restriction to {@code COUNT}/{@code SUM} exists to
      * preserve: a whole partial withdrawn must undo exactly what it added, with no separate code
      * path, the same property the row-at-a-time accumulator already has.
      */

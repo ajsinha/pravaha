@@ -153,7 +153,7 @@ pravaha query --sql "SELECT user_id, SUM(amount) FROM txn GROUP BY user_id"
 
 ```text
 PRV-2050  GROUP BY user_id has no bound on its key space, so its state grows with the number of ...
-  look PRV-2050 up in the console's help under Errors, or in docs/TROUBLESHOOTING.md
+  look PRV-2050 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md
 ```
 
 ```bash

@@ -516,7 +516,7 @@ public final class ApiDtos {
             description = "The one error shape this API returns. Every non-2xx response is one of these.")
     public record ApiError(
             @io.swagger.v3.oas.annotations.media.Schema(
-                    description = "The stable PRV- code. Look it up in docs/TROUBLESHOOTING.md.",
+                    description = "The stable PRV- code. Look it up in docs/guides/TROUBLESHOOTING.md.",
                     example = "PRV-2003")
             String code,
 

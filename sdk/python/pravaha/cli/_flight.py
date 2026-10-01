@@ -129,7 +129,7 @@ def _code_lookup_sentence() -> str:
     base = docs_base_url()
     if base:
         return f"Each code has a help page: {base}<code>"
-    return "Look each code up in the console's help under Errors, or in docs/TROUBLESHOOTING.md."
+    return "Look each code up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md."
 
 
 def queries(ctx: Context) -> int:

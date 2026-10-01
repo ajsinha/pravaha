@@ -54,7 +54,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * ERRC-089 .. ERRC-093 -- PRV-6xxx, the Flight gateway, which {@code ErrorCode.Category} calls
  * {@code CLUSTER} (fact 5's own claim) -- reconfirmed stale below: since commit e0b6395 the category
- * is named {@code FLIGHT}, not {@code CLUSTER} (see {@code docs/qa/logs/ERRC.md}).
+ * is named {@code FLIGHT}, not {@code CLUSTER} (see {@code docs/project/qa/logs/ERRC.md}).
  *
  * <p>Surface: a real, in-process {@link PravahaFlightServer}, driven mostly by a raw {@link
  * FlightClient}/{@link FlightSqlClient} rather than the CLI, because several of these cases (a

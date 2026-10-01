@@ -66,7 +66,7 @@ public final class NativeCodecs {
                 + "Parquet file compressed with them cannot be read or written here. They are built for glibc "
                 + "Linux (x86_64, aarch64 and others), macOS and Windows, and unpack into java.io.tmpdir ("
                 + System.getProperty("java.io.tmpdir") + "), which must allow executing files: a tmpfs mounted "
-                + "noexec is the usual cause on a supported platform (docs/DEPLOYMENT.md, 'Native code')");
+                + "noexec is the usual cause on a supported platform (docs/operations/DEPLOYMENT.md, 'Native code')");
     }
 
     private static Status roundTrip(String codec, String type, String compress, String uncompress) {

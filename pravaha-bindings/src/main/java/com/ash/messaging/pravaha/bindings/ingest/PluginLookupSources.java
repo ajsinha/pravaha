@@ -93,7 +93,7 @@ public final class PluginLookupSources implements AutoCloseable {
         // means, because a one-entry list read beside a document naming seven plugins looks like a
         // contradiction rather than an answer. This one was left as the bare list, and it has a
         // second trap of its own: both shipped lookup plugins report a name ending in `-lookup`,
-        // while docs/CONNECTORS.md's table called them "aerospike, jdbc" -- so the likeliest way
+        // while docs/guides/CONNECTORS.md's table called them "aerospike, jdbc" -- so the likeliest way
         // to arrive here is to have copied the name out of the documentation.
         throw new PravahaException(
                 IngestErrors.NO_SUCH_PLUGIN,
@@ -106,7 +106,7 @@ public final class PluginLookupSources implements AutoCloseable {
                         + "'aerospike-lookup' in pravaha-plugin-aerospike and 'jdbc-lookup' in "
                         + "pravaha-plugin-jdbc -- are separate modules that have to be added to it. Both names "
                         + "end in '-lookup': 'aerospike' and 'jdbc' without the suffix are the source plugins, "
-                        + "and naming one of those here finds nothing. docs/CONNECTORS.md says which module "
+                        + "and naming one of those here finds nothing. docs/guides/CONNECTORS.md says which module "
                         + "ships which name.");
     }
 

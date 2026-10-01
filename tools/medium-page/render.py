@@ -1,11 +1,11 @@
 # Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 # Proprietary and confidential; see the LICENSE file in the root of this repository.
-"""Render docs/medium/pravaha-medium-post.md as one self-contained page in the console's crimson identity.
+"""Render docs/publications/medium/pravaha-medium-post.md as one self-contained page in the console's crimson identity.
 
-    console/.venv/bin/python tools/medium-page/render.py            # docs/medium/pravaha-medium-post.html
+    console/.venv/bin/python tools/medium-page/render.py            # docs/publications/medium/pravaha-medium-post.html
     console/.venv/bin/python tools/medium-page/render.py OUT.html
 
-Every diagram is inlined as a data URI -- the SVG, which is the source (docs/medium/README.md) -- so the
+Every diagram is inlined as a data URI -- the SVG, which is the source (docs/publications/medium/README.md) -- so the
 page is one file that can be sent, attached or opened offline. The page is generated, never edited:
 the markdown is the source of truth. Needs the `markdown` package, which the console's venv has.
 """
@@ -18,7 +18,7 @@ import sys
 import markdown
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-SRC = ROOT / "docs" / "medium" / "pravaha-medium-post.md"
+SRC = ROOT / "docs" / "publications" / "medium" / "pravaha-medium-post.md"
 IMAGES = SRC.parent / "images"
 TEMPLATE = pathlib.Path(__file__).resolve().parent / "template.html"
 OUT = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else SRC.with_suffix(".html")
@@ -40,7 +40,7 @@ def relink(md):
         label, target = m.group(1), m.group(2)
         if target.startswith(("#", "http", "images/")):
             return m.group(0)
-        return f"[{label}]({REPO}docs/medium/{target})"
+        return f"[{label}]({REPO}docs/publications/medium/{target})"
     return re.sub(r"(?<!!)\[([^\]]+)\]\(([^)\s]+)\)", fix, md)
 
 

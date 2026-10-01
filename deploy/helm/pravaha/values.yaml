@@ -3,7 +3,7 @@
 # Proprietary and confidential; see the LICENSE file in the root of this repository.
 #
 # Every value, one line of documentation each. A value whose comment is longer than a line is a
-# value that needs docs/DEPLOYMENT.md, and says which section.
+# value that needs docs/operations/DEPLOYMENT.md, and says which section.
 
 # -- Name overrides -------------------------------------------------------------------------
 
@@ -54,7 +54,7 @@ config:
       enabled: true
       host: 0.0.0.0
       port: 19090
-    # The security block ships refusing to start, on purpose; pick one of the three ways in docs/DEPLOYMENT.md.
+    # The security block ships refusing to start, on purpose; pick one of the three ways in docs/operations/DEPLOYMENT.md.
     security:
       authentication: token
       policy: authenticated
@@ -143,7 +143,7 @@ service:
 
 resources:
   requests:
-    # CPU: one core per lane the node will really run, plus one for the control plane; see docs/DEPLOYMENT.md.
+    # CPU: one core per lane the node will really run, plus one for the control plane; see docs/operations/DEPLOYMENT.md.
     cpu: "2"
     # Memory: the measured floor for one spilling query was ~480 MiB; 2Gi is a node with room to hold a few.
     memory: 2Gi

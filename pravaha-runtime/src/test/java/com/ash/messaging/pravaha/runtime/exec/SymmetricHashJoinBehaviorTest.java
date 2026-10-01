@@ -39,7 +39,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * {@code SymmetricHashJoin}'s row, key and time-window arithmetic, exercised directly against the
- * operator (harness HJ5 of {@code docs/qa/cases/JOIN.md}) rather than through SQL.
+ * operator (harness HJ5 of {@code docs/project/qa/cases/JOIN.md}) rather than through SQL.
  *
  * <p>Every test here is one or more numbered cases from that file: {@code pairsEmitted()},
  * {@code outsideWindow()}, {@code evicted()}, {@code rowsHeldLeft/Right()} and

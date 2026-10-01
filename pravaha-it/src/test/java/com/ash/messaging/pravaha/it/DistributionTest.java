@@ -31,7 +31,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 /**
  * The quickstart names binaries; this checks the build produces them.
  *
- * <p>{@code docs/QUICKSTART.md} has told readers to run {@code pravaha-server} and {@code pravaha}
+ * <p>{@code docs/guides/QUICKSTART.md} has told readers to run {@code pravaha-server} and {@code pravaha}
  * since the first version of it, and for just as long the build produced plain jars with no manifest
  * main class and no dependencies inside. There was no way to start this software except to assemble
  * a classpath by hand -- which is the difference between something that can be installed and
@@ -94,7 +94,7 @@ class DistributionTest {
         // The rot this guards is specific and already happened once: the quickstart named
         // pravaha-server for months while nothing built it. A command in the documentation is a
         // promise, and this is the test that keeps it checkable.
-        String quickstart = Files.readString(repoRoot().resolve("docs/QUICKSTART.md"), StandardCharsets.UTF_8);
+        String quickstart = Files.readString(repoRoot().resolve("docs/guides/QUICKSTART.md"), StandardCharsets.UTF_8);
         for (String binary : List.of("pravaha-server", "pravaha-engine ")) {
             assertThat(quickstart).contains(binary);
         }

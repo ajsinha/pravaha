@@ -42,7 +42,7 @@ import java.util.Locale;
  * empty string, the REST and Flight contracts carry {@code helpUrl} as an empty field, and every
  * line that would have printed a link prints {@link #lookupHint(String)} instead -- which names the
  * two places a code can be resolved offline, the console's help and
- * {@code docs/TROUBLESHOOTING.md}.
+ * {@code docs/guides/TROUBLESHOOTING.md}.
  *
  * <p>A base that is not an absolute {@code http} or {@code https} URL is refused where it is
  * configured, with {@link #BASE_URL_INVALID}, rather than concatenated with a code into something
@@ -125,7 +125,7 @@ public final class HelpUrls {
     /** What a message says instead of a link: the two places the code can be looked up offline. */
     public static String lookupHint(String renderedCode) {
         String what = renderedCode == null || renderedCode.isBlank() ? "this code" : renderedCode.strip();
-        return "look " + what + " up in the console's help under Errors, or in docs/TROUBLESHOOTING.md";
+        return "look " + what + " up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md";
     }
 
     /**

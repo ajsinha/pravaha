@@ -15,14 +15,14 @@
  */
 /**
  * ERRC: every error code the engine declares -- reachable, documented, meaning one thing, message
- * actionable. {@code docs/qa/cases/ERRC.md} authors 118 cases against the 110 {@code ErrorCode}
+ * actionable. {@code docs/project/qa/cases/ERRC.md} authors 118 cases against the 110 {@code ErrorCode}
  * declarations across 16 modules, plus eight cross-cutting properties of the code set as a whole.
  *
  * <p>Every case shares one method (the case file's "Standing setup and method"): S1 reach the code on
  * a real product surface (the CLI, the embedded engine's own configuration/SQL entry points, a real
  * server process over HTTP or Flight -- never the throwing Java method called directly), S2 capture it
  * exactly as the surface renders it, then four assertions -- E1 the rendered number, E2 the rendered
- * name, E3 an actionable message, E4 {@code docs/TROUBLESHOOTING.md} documents it correctly. The 8xxx
+ * name, E3 an actionable message, E4 {@code docs/guides/TROUBLESHOOTING.md} documents it correctly. The 8xxx
  * family adds E5 ({@code category()} has no entry for it, so a controller that lets it escape trips
  * {@code ApiExceptionHandler} itself) and the 9xxx family adds E6 (the ranges table omits {@code
  * PRV-9xxx} entirely).
@@ -35,7 +35,7 @@
  * BearerTokenFilter.refuse}'s body now has exactly {@code ApiDtos.ApiError}'s five fields with no
  * {@code PRV-0400}. Where a case's expected finding turned out to already be fixed, the test asserts
  * the current, correct behaviour and the log says so explicitly rather than the case silently passing
- * for a reason nobody wrote down -- the same convention {@code docs/qa/FINDINGS.md}'s L-2 entry uses
+ * for a reason nobody wrote down -- the same convention {@code docs/project/qa/FINDINGS.md}'s L-2 entry uses
  * for LIFE.
  *
  * <p>{@code ErrcTestSupport} is the shared harness: a CLI runner ({@code PravahaCli} driven the way

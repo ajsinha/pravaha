@@ -77,7 +77,7 @@ final class KafkaCodecs {
                         + "set the topic's compression.type to producer or one of those; records already "
                         + "written in lz4 stay unreadable here"
                 : where + ", and the native " + codec + " library does not load on this platform: " + loadFailure(codec)
-                        + ". See docs/DEPLOYMENT.md, 'Native code' (ADR-053)";
+                        + ". See docs/operations/DEPLOYMENT.md, 'Native code' (ADR-053)";
         return new PravahaException(KafkaErrors.READ_FAILED, message, failure);
     }
 

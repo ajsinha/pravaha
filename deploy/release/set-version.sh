@@ -22,7 +22,7 @@
 #   sdk/python/pyproject.toml          the Python SDK wheel
 #   console/pyproject.toml             the console wheel
 #   deploy/helm/pravaha/Chart.yaml     appVersion (the chart's OWN version is separate; see below)
-#   README.md, docs/USER_GUIDE.md and five console help pages: the versions they show
+#   README.md, docs/guides/USER_GUIDE.md and five console help pages: the versions they show
 #
 # PYTHON AND -SNAPSHOT. PEP 440 has no snapshot, so a Python version is the Maven one with
 # -SNAPSHOT removed: 0.2.0-SNAPSHOT and 0.2.0 both give 0.2.0. That is why a snapshot wheel is
@@ -153,7 +153,7 @@ fi
 # these shapes, in these files, are rewritten: history -- the release notes, the findings -- is left
 # as it was written.
 
-doc_pages=(README.md docs/USER_GUIDE.md console/content/topics/clients.md
+doc_pages=(README.md docs/guides/USER_GUIDE.md console/content/topics/clients.md
            console/content/topics/spring-boot-starter.md console/content/topics/embedded-engine.md
            console/content/topics/http-api.md console/content/topics/cli-reference.md)
 if [[ "$check_only" == 0 && "$current" != "$target" ]]; then

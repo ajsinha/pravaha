@@ -193,7 +193,7 @@ public interface PravahaEngine extends AutoCloseable {
      * <p>Also runs the continuous-query statements -- {@code CREATE CONTINUOUS QUERY name KEYED BY
      * (...) AS SELECT ...}, {@code DROP}/{@code PAUSE}/{@code RESUME CONTINUOUS QUERY name} and
      * {@code SHOW CONTINUOUS QUERIES} -- answering with the registration, the new state or the
-     * listing as rows. {@code docs/CONTINUOUS_QUERIES.md} section 3 has the grammar.
+     * listing as rows. {@code docs/guides/CONTINUOUS_QUERIES.md} section 3 has the grammar.
      *
      * @param parameters values for the query's {@code ?} placeholders, in order
      */

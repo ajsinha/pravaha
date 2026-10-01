@@ -45,7 +45,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * {@code docs/qa/cases/WIN.md}, sections 1-8: TUMBLE, HOP, SESSION, CUMULATE, size, hop
+ * {@code docs/project/qa/cases/WIN.md}, sections 1-8: TUMBLE, HOP, SESSION, CUMULATE, size, hop
  * slide-versus-size, open windows, and key cardinality.
  *
  * <p>See {@link WindowClosingAnswerTest} for sections 9-14 (volume, boundaries, close triggers,
@@ -123,7 +123,7 @@ class WindowAnswerTest extends WindowTestSupport {
 
     @Test
     void win004_quickstartSection4sRegistrationRunsAsWrittenAndAgreesWithWin001(@TempDir Path dir) throws Exception {
-        // WIN-004. docs/QUICKSTART.md section 4, verbatim but for txn -> s0 and the status filter
+        // WIN-004. docs/guides/QUICKSTART.md section 4, verbatim but for txn -> s0 and the status filter
         // dropped (its own schema has no event_time, per DOC-011). The case predicted TUMBLE_END in
         // the projection would hit the PRV-2020 refusal WIN-003 also predicted; per WIN-003 that
         // refusal does not fire for the grouped form, so this registers and runs, keyed on user_id
@@ -509,10 +509,11 @@ class WindowAnswerTest extends WindowTestSupport {
         // WIN-045. The Aggregation table lists TUMBLE, HOP and SESSION; CUMULATE parses (WIN-043)
         // and has no row at all, so "not listed" and "refused" are not the same set.
         java.nio.file.Path root = java.nio.file.Path.of("").toAbsolutePath();
-        while (!java.nio.file.Files.exists(root.resolve("docs/CONTINUOUS_QUERIES.md")) && root.getParent() != null) {
+        while (!java.nio.file.Files.exists(root.resolve("docs/guides/CONTINUOUS_QUERIES.md"))
+                && root.getParent() != null) {
             root = root.getParent();
         }
-        String doc = java.nio.file.Files.readString(root.resolve("docs/CONTINUOUS_QUERIES.md"));
+        String doc = java.nio.file.Files.readString(root.resolve("docs/guides/CONTINUOUS_QUERIES.md"));
         assertThat(doc.toLowerCase(java.util.Locale.ROOT)).doesNotContain("cumulate");
     }
 

@@ -1,16 +1,16 @@
 # Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 # Proprietary and confidential; see the LICENSE file in the root of this repository.
-"""Render docs/PYTHON_API_GUIDE.md as one self-contained page in the console's crimson identity.
+"""Render docs/guides/PYTHON_API_GUIDE.md as one self-contained page in the console's crimson identity.
 
     console/.venv/bin/python tools/guide-page/render.py OUT.html tools/guide-page/template.html
 
-The published page is generated, never edited: docs/PYTHON_API_GUIDE.md is the source of truth, and
+The published page is generated, never edited: docs/guides/PYTHON_API_GUIDE.md is the source of truth, and
 the console serves the same file at /help/python-api-guide.
 """
-import html, re, sys
+import html, posixpath, re, sys
 import markdown
 
-SRC = str(__import__("pathlib").Path(__file__).resolve().parents[2] / "docs" / "PYTHON_API_GUIDE.md")
+SRC = str(__import__("pathlib").Path(__file__).resolve().parents[2] / "docs" / "guides" / "PYTHON_API_GUIDE.md")
 OUT = sys.argv[1]
 REPO = "https://github.com/ajsinha/pravaha/blob/main/"
 
@@ -28,11 +28,8 @@ def relink(md):
         label, target = m.group(1), m.group(2)
         if target.startswith(("#", "http")):
             return m.group(0)
-        path = target
-        if path.startswith("../"):
-            path = path[3:]
-        elif not path.startswith(("deploy/", "sdk/", "docs/")):
-            path = "docs/" + path
+        # Resolved from where the guide sits in the repository, docs/guides/.
+        path = posixpath.normpath(posixpath.join("docs/guides", target))
         return f"[{label}]({REPO}{path})"
     return re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)", fix, md)
 

@@ -346,7 +346,7 @@ ok "flightless node: readiness $code, not 200 (no client can reach it)"
 # /opt/pravaha/logs. There is no cluster on this machine to prove that on, and `docker run
 # --read-only` with a tmpfs at /opt/pravaha/tmp and nothing at /tmp is the same constraint and a
 # stricter one: NOTHING outside /opt/pravaha may be written -- the PRAVAHA_HOME rule
-# (docs/RUNNING_IN_DOCKER.md). logs/ is the image's VOLUME, so it gets an anonymous one. If the JVM
+# (docs/operations/RUNNING_IN_DOCKER.md). logs/ is the image's VOLUME, so it gets an anonymous one. If the JVM
 # or the engine needs to write anywhere else, it fails here rather than in somebody's cluster.
 # `exec` because Docker's tmpfs is noexec by default and the Parquet codecs load their native
 # library from java.io.tmpdir; a Kubernetes emptyDir allows it (ADR-053). mode=1777 because a

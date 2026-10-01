@@ -320,7 +320,7 @@ def _models(ctx: Context) -> int:
         return EXIT_OK
     ctx.out.note(f"{store.path} (version {config.version})")
     if not rows:
-        ctx.out.note("no models are configured; docs/ASSIST.md shows the file")
+        ctx.out.note("no models are configured; docs/guides/ASSIST.md shows the file")
         return EXIT_OK
     table = []
     for row in rows:

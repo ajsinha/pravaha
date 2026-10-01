@@ -37,7 +37,7 @@ import com.ash.messaging.pravaha.testkit.CapturingRowWriter;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Authored QA cases from {@code docs/qa/cases/AGG.md}, {@code JOIN.md} and the windowed and
+ * Authored QA cases from {@code docs/project/qa/cases/AGG.md}, {@code JOIN.md} and the windowed and
  * bounded-read halves of {@code SQLX.md}, made executable.
  *
  * <p>Three shapes of query live here that a single-stream expression harness cannot reach.

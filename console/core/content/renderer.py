@@ -63,7 +63,7 @@ class MarkdownRenderer:
         "CONNECTOR_TLS.md": "/help/connector-tls",
         "system_design.md": "/help/system-design",
         "PYTHON_API_GUIDE.md": "/help/python-api-guide",
-        # The four lessons in docs/tutorials/, which link to each other and are linked from the
+        # The four lessons in docs/guides/tutorials/, which link to each other and are linked from the
         # case studies by file name.
         "01-your-first-maintained-view.md": "/tutorials/first-maintained-view",
         "02-following-a-view.md": "/tutorials/following-a-view",
@@ -81,7 +81,7 @@ class MarkdownRenderer:
     _TOPIC = re.compile(r"(?:^|/)content/topics/([a-z0-9-]+)\.md$")
 
     #: An ADR, linked as ``adr/043-how-a-continuous-query-names-its-sink.md`` from docs/ or
-    #: as ``043-....md`` from inside docs/adr/, is served at /help/decisions/<its stem>.
+    #: as ``043-....md`` from inside docs/design/adr/, is served at /help/decisions/<its stem>.
     _ADR = re.compile(r"^(\d{3}-[a-z0-9-]+)\.md$")
     _CODE = re.compile(r"\bPRV-\d{4}\b")
     _TAG = re.compile(r"(<[^>]+>)")

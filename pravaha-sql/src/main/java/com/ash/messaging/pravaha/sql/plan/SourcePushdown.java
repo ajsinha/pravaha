@@ -50,7 +50,7 @@ import com.ash.messaging.pravaha.runtime.plan.ScanOperator;
  * method here returns "push nothing" the moment it is not certain, rather than guess. Neither
  * dropping a used column nor over-claiming an aggregate can be detected downstream -- the engine has
  * no way to tell a column it never asked to see from one a source silently withheld, and the same is
- * true of a group a source pre-combined wrongly. See {@code docs/CONNECTORS.md} section 6.
+ * true of a group a source pre-combined wrongly. See {@code docs/guides/CONNECTORS.md} section 6.
  */
 public final class SourcePushdown {
 

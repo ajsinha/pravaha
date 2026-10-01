@@ -44,7 +44,7 @@ import com.ash.messaging.pravaha.api.data.TypeName;
  * is arbitrary precision at the far end too. Nothing is rounded, so there is nothing to decide.
  *
  * <p><strong>{@code BYTES} and {@code TIME} are refused here and accepted there</strong> -- and
- * "accepted there" is exactly the problem. {@code docs/CONTINUOUS_QUERIES.md} section 16 records
+ * "accepted there" is exactly the problem. {@code docs/guides/CONTINUOUS_QUERIES.md} section 16 records
  * that both are declarable, both compute correctly, and both <em>crash on serialisation of a
  * non-null value</em> to a real client (findings TY-17 and TY-18). Claiming them here would be
  * claiming support this gateway has never once delivered. When the serving path is proven to hand
@@ -116,14 +116,14 @@ final class PgTypes {
                         PgWireErrors.UNSUPPORTED_TYPE,
                         "BYTES is not something Pravaha puts on a client wire yet. It is declarable "
                                 + "and it computes, but serialising a non-null value to a real client has "
-                                + "never worked (docs/CONTINUOUS_QUERIES.md section 16, finding TY-17), so "
+                                + "never worked (docs/guides/CONTINUOUS_QUERIES.md section 16, finding TY-17), so "
                                 + "this gateway refuses the column rather than claim a bytea it cannot fill.");
             case TIME ->
                 throw new PravahaException(
                         PgWireErrors.UNSUPPORTED_TYPE,
                         "TIME is not something Pravaha puts on a client wire yet. It is declarable "
                                 + "and it computes, but serialising a non-null value to a real client has "
-                                + "never worked (docs/CONTINUOUS_QUERIES.md section 16, finding TY-18), so "
+                                + "never worked (docs/guides/CONTINUOUS_QUERIES.md section 16, finding TY-18), so "
                                 + "this gateway refuses the column rather than claim a time it cannot fill.");
             default ->
                 throw new PravahaException(

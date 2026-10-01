@@ -417,7 +417,7 @@ def test_a_guide_links_to_other_guides_inside_the_console(client):
     assert "/help/concepts" in page
     # No LINK may point at a .md file. Checked on hrefs rather than on the whole page,
     # because the documents legitimately mention filenames in prose -- the quick start
-    # explains the `include: docs/CONCEPTS.md` mechanism itself, and that is not a broken
+    # explains the `include: docs/guides/CONCEPTS.md` mechanism itself, and that is not a broken
     # link, it is the sentence describing why there are none.
     assert 'href="' not in page or ".md\"" not in page
 

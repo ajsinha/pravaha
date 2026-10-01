@@ -259,7 +259,7 @@ public final class SqlPlanner {
                 SqlErrors.UNSUPPORTED_OPERATOR,
                 verb + " is not built: this engine answers questions and maintains views, and it has no DML "
                         + "surface -- there is nothing here whose rows a statement may edit in place." + how
-                        + " See docs/CONTINUOUS_QUERIES.md for what this engine executes and what it refuses.");
+                        + " See docs/guides/CONTINUOUS_QUERIES.md for what this engine executes and what it refuses.");
     }
 
     /**
@@ -455,7 +455,7 @@ public final class SqlPlanner {
     private static String guidanceFor(String message) {
         String functions = " Pravaha evaluates + - * / %, ABS, FLOOR, CEIL, ROUND, CASE WHEN, UPPER, LOWER, "
                 + "TRIM, SUBSTRING, ||, DATE_FORMAT, REGEXP_EXTRACT and SPLIT_INDEX, and the aggregates COUNT, SUM, MIN, MAX and AVG; each of the "
-                + "one-argument functions takes exactly one argument. See docs/CONTINUOUS_QUERIES.md.";
+                + "one-argument functions takes exactly one argument. See docs/guides/CONTINUOUS_QUERIES.md.";
         if (message.contains("No match found for function signature")
                 || message.contains("Invalid number of arguments to function")) {
             return functions;
@@ -463,7 +463,7 @@ public final class SqlPlanner {
         if (message.contains("Cast function cannot convert value of type")) {
             return " Pravaha evaluates conversions between numbers; a boolean is not a number here and text "
                     + "is not either. Write CASE WHEN <condition> THEN 1 ELSE 0 END for a boolean read as a "
-                    + "number, and assemble text where the text is assembled. See docs/CONTINUOUS_QUERIES.md.";
+                    + "number, and assemble text where the text is assembled. See docs/guides/CONTINUOUS_QUERIES.md.";
         }
         return "";
     }

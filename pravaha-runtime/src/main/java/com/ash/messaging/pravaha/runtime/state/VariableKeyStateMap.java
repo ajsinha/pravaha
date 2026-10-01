@@ -29,7 +29,7 @@ import com.ash.messaging.pravaha.state.StateErrors;
  * <p>ADR-039 item 4 (W8-12). {@code L0StateMap} was deleted in Wave 8 because its key width was a
  * constructor argument -- one fixed size for every key, which is what let a slot be a contiguous
  * {@code [key | value]} pair with no indirection -- and a {@code GROUP BY} column that is a
- * {@code STRING} has no fixed width (see {@code docs/adr/006-tiered-state.md}, "Implementation
+ * {@code STRING} has no fixed width (see {@code docs/design/adr/006-tiered-state.md}, "Implementation
  * status"). This is the replacement, and it does not resurrect that shape unchanged: the fixed-width
  * assumption is the thing that has to go, so the indirection it existed to avoid is exactly what this
  * class accepts.

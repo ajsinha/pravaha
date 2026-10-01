@@ -1,5 +1,5 @@
 """
-Pravaha console — the competitive landscape, read from docs/COMPETITIVE_LANDSCAPE.md.
+Pravaha console — the competitive landscape, read from docs/publications/COMPETITIVE_LANDSCAPE.md.
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 Proprietary and confidential. See LICENSE at the repository root.
 
@@ -29,7 +29,7 @@ from pathlib import Path
 
 from markdown.extensions.toc import slugify
 
-SOURCE = "docs/COMPETITIVE_LANDSCAPE.md"
+SOURCE = "docs/publications/COMPETITIVE_LANDSCAPE.md"
 
 LANDSCAPE = "The landscape"
 TABLE = "The scored table"

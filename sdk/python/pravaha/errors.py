@@ -99,7 +99,7 @@ def help_hint(rendered_code: str) -> str:
     """What to say instead of a link: where the code is written down offline."""
     return (
         f"look {rendered_code} up in the console's help under Errors, "
-        "or in docs/TROUBLESHOOTING.md"
+        "or in docs/guides/TROUBLESHOOTING.md"
     )
 
 

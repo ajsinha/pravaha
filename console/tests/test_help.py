@@ -661,7 +661,7 @@ def _landscape():
 
 
 def test_every_row_of_the_competitive_table_has_its_card_and_every_card_its_row():
-    # docs/COMPETITIVE_LANDSCAPE.md is the one source for the table, the cards and the About
+    # docs/publications/COMPETITIVE_LANDSCAPE.md is the one source for the table, the cards and the About
     # page's condensed version. A row with no card is a score nobody explains; a card with no
     # row, or under the wrong heading for its score, is a claim the table does not make.
     land, shine, behind = _landscape()

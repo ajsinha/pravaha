@@ -95,7 +95,7 @@ That builds the parent POM, `pravaha-api` and the two SDK modules and nothing el
 refuses to continue if Maven's reactor holds more. The SDK's own tests start a real server
 in-process, so they run in the normal reactor build (`tools/worktree-build.sh -pl
 sdk/pravaha-sdk-java-flight -am test`) and not in this one. See
-[`docs/TESTING.md`](../../docs/TESTING.md#the-sdks-on-their-own).
+[`docs/development/TESTING.md`](../../docs/development/TESTING.md#the-sdks-on-their-own).
 
 `SdkIndependenceTest` (in `pravaha-it`) keeps it this way: it fails if either SDK module reaches a
 Pravaha module other than `pravaha-api` at compile or runtime scope, if a server module depends on

@@ -7,7 +7,7 @@ Thirteen worked systems, each one a template you can copy into a real applicatio
 business problem, a data model, the data to load, the continuous queries, and the SQL an application
 uses to read the answers — in **both Java and Python**.
 
-New to Pravaha? The four lessons in [`docs/tutorials/`](../../docs/tutorials/) teach the product
+New to Pravaha? The four lessons in [`docs/guides/tutorials/`](../../docs/guides/tutorials/) teach the product
 itself — registering, following, replacing and debugging a query — against a fresh install's
 demonstration stream. These studies assume you have seen that much.
 
@@ -107,7 +107,7 @@ broken.
 ## What you will not find here
 
 Stated up front so you can decide before investing an afternoon. The complete list is
-[`docs/CONTINUOUS_QUERIES.md`](../../docs/CONTINUOUS_QUERIES.md).
+[`docs/guides/CONTINUOUS_QUERIES.md`](../../docs/guides/CONTINUOUS_QUERIES.md).
 
 - **No `CASE`**, so conditional aggregation is two registrations, or rows the reader divides. The
   trading and checkout-funnel studies show both shapes.

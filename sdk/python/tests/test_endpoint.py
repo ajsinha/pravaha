@@ -81,7 +81,7 @@ def test_error_carries_no_help_url_until_a_deployment_configures_one() -> None:
         Endpoint.parse("nope://x")
     assert excinfo.value.help_url == ""
     assert _errors.help_line("PRV-1030") == (
-        "look PRV-1030 up in the console's help under Errors, or in docs/TROUBLESHOOTING.md"
+        "look PRV-1030 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md"
     )
 
     try:

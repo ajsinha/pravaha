@@ -1,4 +1,4 @@
-"""Builds the assistant's dialect card from docs/CONTINUOUS_QUERIES.md.
+"""Builds the assistant's dialect card from docs/guides/CONTINUOUS_QUERIES.md.
 
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 PROPRIETARY AND CONFIDENTIAL. See the LICENSE file for the full terms.
@@ -29,9 +29,9 @@ from typing import Any, Optional
 
 HERE = pathlib.Path(__file__).resolve().parent
 SDK = HERE.parent
-SOURCE = SDK.parent.parent / "docs" / "CONTINUOUS_QUERIES.md"
+SOURCE = SDK.parent.parent / "docs" / "guides" / "CONTINUOUS_QUERIES.md"
 CARD = SDK / "pravaha" / "assist" / "resources" / "dialect-card.json"
-SOURCE_NAME = "docs/CONTINUOUS_QUERIES.md"
+SOURCE_NAME = "docs/guides/CONTINUOUS_QUERIES.md"
 #: The error-code table's section, and the general advice every refusal explanation gets.
 CODES_SECTION = "19"
 GENERAL_SECTION = "17"

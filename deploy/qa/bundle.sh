@@ -18,6 +18,7 @@
 #               console wheels, the Helm chart
 #   tutorials/  the tutorials' scripts and configuration (examples/tutorials/)
 #   docs/       RELEASE_NOTES.md, DEPLOYMENT.md, QUICKSTART.md, USER_GUIDE.md, PYTHON_API_GUIDE.md
+#               (flat: copied out of docs/project, docs/operations and docs/guides)
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -105,7 +106,9 @@ fi
 label="helm chart";  take "$root"/target/pravaha-"$version".tgz
 # The tutorials' own scripts and configuration, which the tutorials tell a reader to run.
 mkdir -p "$out/tutorials" && cp -r "$root/examples/tutorials/." "$out/tutorials/"
-for doc in RELEASE_NOTES.md DEPLOYMENT.md QUICKSTART.md USER_GUIDE.md PYTHON_API_GUIDE.md; do cp "$root/docs/$doc" "$out/docs/"; done
+# Flat in the bundle: docs/<name>, whichever folder of the repository's docs/ it lives in.
+for doc in project/RELEASE_NOTES.md operations/DEPLOYMENT.md guides/QUICKSTART.md guides/USER_GUIDE.md \
+           guides/PYTHON_API_GUIDE.md; do cp "$root/docs/$doc" "$out/docs/"; done
 
 (cd "$out" && sha256sum VERSION install.sh docker-compose.yml *.yaml images/* dist/* > SHA256SUMS)
 tar -C "$(dirname "$out")" -czf "$out.tar.gz" "$(basename "$out")"

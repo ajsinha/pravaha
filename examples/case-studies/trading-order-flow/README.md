@@ -301,7 +301,7 @@ at the time, not what it is called when somebody opens the report.
 
 ## Limits you will meet
 
-Full list: [`docs/CONTINUOUS_QUERIES.md`](../../../docs/CONTINUOUS_QUERIES.md).
+Full list: [`docs/guides/CONTINUOUS_QUERIES.md`](../../../docs/guides/CONTINUOUS_QUERIES.md).
 
 - **No `CASE`** — the reason this study has two queries.
 - **No joining two views**, so the ratio is computed client-side rather than in SQL.

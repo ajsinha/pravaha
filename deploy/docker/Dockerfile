@@ -17,7 +17,7 @@
 #     no .dockerignore at the repository root required.
 #
 # The root `Dockerfile` remains the from-source convenience build (clone, `docker build .`, wait).
-# This one is what a release publishes. docs/DEPLOYMENT.md says which to reach for.
+# This one is what a release publishes. docs/operations/DEPLOYMENT.md says which to reach for.
 
 # glibc, not Alpine (ADR-053, superseding ADR-047's choice of base). Alpine saved 172 MB and cost
 # musl, and ADR-047 said what would end it: "if a connector ever brings a glibc-only native library,
@@ -41,7 +41,7 @@ LABEL org.opencontainers.image.title="Pravaha engine node" \
 
 WORKDIR /opt/pravaha
 
-# The PRAVAHA_HOME layout (docs/RUNNING_IN_DOCKER.md, "The layout"), the same one an unpacked
+# The PRAVAHA_HOME layout (docs/operations/RUNNING_IN_DOCKER.md, "The layout"), the same one an unpacked
 # distribution has, rooted at /opt/pravaha:
 #
 #   bin/ lib/          the launcher and the jar                       (the image's, read-only)
@@ -55,7 +55,7 @@ WORKDIR /opt/pravaha
 # Nothing is written anywhere else: bin/pravaha-server sees PRAVAHA_HOME and points the JVM's temp
 # directory, user.home, heap dumps and error files under it, and names the jar's pravaha-home.yaml,
 # which places the journal, checkpoints, identity store and audit trail. Proved with --read-only and
-# only /opt/pravaha writable (docs/RUNNING_IN_DOCKER.md, "Nothing outside /opt/pravaha").
+# only /opt/pravaha writable (docs/operations/RUNNING_IN_DOCKER.md, "Nothing outside /opt/pravaha").
 #
 # ANY UID. The default user is 10001, and the image does not depend on it: run it as
 # `--user $(id -u):$(id -g)` over bind-mounted directories and everything it creates belongs to you,
@@ -95,7 +95,7 @@ ENV PRAVAHA_HOME=/opt/pravaha
 # JDK 21 reads the cgroup limit, so the only question is what share of it the HEAP may take. 50%,
 # not the 75% a mostly-heap service would use: this engine's state is off-heap (inboxes, arenas,
 # row stores), Arrow and Netty allocate direct buffers for every Flight call, and the spill tier
-# is only fast while the page cache holds its index (docs/OPERATIONS.md, "Disk"). A heap sized at
+# is only fast while the page cache holds its index (docs/operations/OPERATIONS.md, "Disk"). A heap sized at
 # three quarters of the limit leaves that nothing, and the kernel -- not the JVM -- decides what
 # gives way.
 #
@@ -112,7 +112,7 @@ ENV PRAVAHA_JAVA_OPTS="-XX:MaxRAMPercentage=50.0 -XX:+ExitOnOutOfMemoryError"
 # on the exec line, before PRAVAHA_JAVA_OPTS, so they cannot be lost by someone setting that
 # variable -- which is exactly how they would be lost if they lived in it. Without them a Flight
 # server fails inside putNext and the client sees RST_STREAM with nothing explaining why
-# (docs/OPERATIONS.md, "JVM flags").
+# (docs/operations/OPERATIONS.md, "JVM flags").
 
 USER 10001:10001
 
@@ -141,7 +141,7 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=45s --retries=3 \
 # The base image's own entrypoint is kept in front of the launcher rather than replaced. It is a
 # no-op unless USE_SYSTEM_CA_CERTS is set, and when it is set it imports /certificates into the
 # JVM truststore -- which is how a deployment whose connectors or Flight clients present a private
-# CA gets that CA trusted (docs/CONNECTOR_TLS.md). Dropping it, as replacing the entrypoint does,
+# CA gets that CA trusted (docs/guides/CONNECTOR_TLS.md). Dropping it, as replacing the entrypoint does,
 # would leave that with no route but rebuilding the image. It execs what follows, so
 # bin/pravaha-server still receives every argument.
 ENTRYPOINT ["/__cacert_entrypoint.sh", "bin/pravaha-server"]

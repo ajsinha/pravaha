@@ -168,7 +168,7 @@ class PersistencePropertiesTest {
 
     @Test
     void theCheckpointTimeoutIsBoundForwardedAndReadable_CFG17() {
-        // CFG-17. docs/qa/cases/CFG.md's assumed fact 9 says pravaha.checkpoint.timeout is a key
+        // CFG-17. docs/project/qa/cases/CFG.md's assumed fact 9 says pravaha.checkpoint.timeout is a key
         // with a reader and no writer, and that PersistenceProperties.Checkpoint has no timeout
         // field so the key is not even bound. Both halves are false against this build, and this
         // is what stops the case going stale in the other direction: the field exists with a 30s

@@ -12,7 +12,7 @@
 #
 # PRAVAHA_HOME. When it is set -- or when this script runs from an unpacked distribution, where
 # ../lib/pravaha-server.jar sits beside it, which is also the container image -- the node runs from
-# that one root and writes nothing outside it (docs/RUNNING_IN_DOCKER.md, "The layout"):
+# that one root and writes nothing outside it (docs/operations/RUNNING_IN_DOCKER.md, "The layout"):
 #
 #     conf/      application.yaml, read after the layout, so it wins      (created if missing)
 #     data/      journal, checkpoints, identity store, catalogue, alerts  (created if missing)
@@ -77,7 +77,7 @@ if [[ -n "$home" ]]; then
   for dir in data logs tmp; do
     if [[ ! -w "$home/$dir" ]]; then
       echo "pravaha-server: WARNING $home/$dir is not writable by uid $(id -u) --" \
-           "give it to the user the node runs as (docs/RUNNING_IN_DOCKER.md, \"Ownership\")." >&2
+           "give it to the user the node runs as (docs/operations/RUNNING_IN_DOCKER.md, \"Ownership\")." >&2
     fi
   done
 

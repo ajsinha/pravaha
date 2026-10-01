@@ -4,10 +4,10 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../LICENSE`](../LICENSE).
 
 Everything a deployment needs and nothing the engine needs. **The page to read is
-[`../docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md)**; this is the map of the directory.
+[`../docs/operations/DEPLOYMENT.md`](../docs/operations/DEPLOYMENT.md)**; this is the map of the directory.
 
 ```
-docker/     the container images and the compose stack (docs/RUNNING_IN_DOCKER.md)
+docker/     the container images and the compose stack (docs/operations/RUNNING_IN_DOCKER.md)
   Dockerfile          the engine: glibc JRE 21 (ADR-053), PRAVAHA_HOME=/opt/pravaha, any uid, over
                       artefacts the reactor already built (ADR-047)
   build.sh            stage the launcher and the jar and build.   --tag, --push

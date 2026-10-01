@@ -49,8 +49,8 @@ CONTENT = CONSOLE_ROOT / "content"
 
 #: Documents a guide includes that record what was or what is not yet: history and plans may name
 #: a command that was retired or a metric that is designed, and say so. Everything else is checked.
-HISTORICAL = {"docs/RELEASE_NOTES.md", "docs/REMAINING.md", "docs/system_design.md", "docs/adr/README.md",
-              "docs/LIMITS.md"}
+HISTORICAL = {"docs/project/RELEASE_NOTES.md", "docs/development/REMAINING.md", "docs/design/system_design.md",
+              "docs/design/adr/README.md", "docs/guides/LIMITS.md"}
 
 
 def _front(path: pathlib.Path) -> tuple[dict, str]:

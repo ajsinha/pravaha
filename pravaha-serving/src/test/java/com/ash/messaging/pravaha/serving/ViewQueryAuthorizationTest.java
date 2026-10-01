@@ -106,7 +106,7 @@ class ViewQueryAuthorizationTest {
      * against a one-entry catalogue holding the view's own schema, which is named after the
      * primary registration — so the alias was a table that statement's catalogue did not contain.
      * It failed closed, which is why this is not a disclosure; what it broke is the promise
-     * {@code docs/SECURITY.md} makes that sharing is invisible to the reader.
+     * {@code docs/operations/SECURITY.md} makes that sharing is invisible to the reader.
      */
     @Test
     void sx13_aFilteredReadUnderAnAliasOfASharedViewReturnsTheSameRowsAsUnderItsPrimaryName() {

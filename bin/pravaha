@@ -3,7 +3,7 @@
 # Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 # Proprietary and confidential; see the LICENSE file in the root of this repository.
 #
-# The command line for a running engine: the Python CLI in sdk/python/pravaha/cli (docs/CLI.md).
+# The command line for a running engine: the Python CLI in sdk/python/pravaha/cli (docs/guides/CLI.md).
 # Every example in the documentation types `pravaha`, so this is what makes them true from a
 # checkout. The offline Java tool (validate/explain/run with no server) is bin/pravaha-engine.
 #

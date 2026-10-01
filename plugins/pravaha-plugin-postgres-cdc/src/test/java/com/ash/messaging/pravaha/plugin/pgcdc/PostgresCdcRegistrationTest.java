@@ -46,7 +46,7 @@ import com.ash.messaging.pravaha.state.checkpoint.Checkpoint;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The worked example of {@code docs/CONNECTORS.md} section 5, run through the path a node runs.
+ * The worked example of {@code docs/guides/CONNECTORS.md} section 5, run through the path a node runs.
  *
  * <p>A {@code postgres-cdc} binding feeds a registered {@code GROUP BY tier} through {@link
  * PluginSourceFeeds} -- plugin discovery by name, the pump, the registry's checkpoints -- and a

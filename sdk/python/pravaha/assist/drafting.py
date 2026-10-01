@@ -299,7 +299,7 @@ class Draft:
         return ordinals
 
     def statement(self, name: Optional[str] = None) -> str:
-        """The draft as one ``CREATE CONTINUOUS QUERY`` statement (docs/CONTINUOUS_QUERIES.md
+        """The draft as one ``CREATE CONTINUOUS QUERY`` statement (docs/guides/CONTINUOUS_QUERIES.md
         §10.1): what a person would paste into ``pravaha query`` or the workbench."""
         return create_statement(name or self.name, self.keys, self.options, self.sql)
 

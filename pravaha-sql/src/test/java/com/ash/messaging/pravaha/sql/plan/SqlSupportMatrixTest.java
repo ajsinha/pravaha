@@ -37,7 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Every SQL construct this engine does and does not support, asserted.
  *
- * <p>This is the executable half of {@code docs/CONTINUOUS_QUERIES.md}. That document exists because "what
+ * <p>This is the executable half of {@code docs/guides/CONTINUOUS_QUERIES.md}. That document exists because "what
  * can I write?" is the first question anybody adopting a SQL engine asks, and the worst answer is a
  * list somebody wrote once. Here the list is run: if a construct starts working, or stops, this test
  * fails and names the document that needs the edit.
@@ -125,7 +125,7 @@ class SqlSupportMatrixTest {
     private static final List<Case> MATRIX = List.of(
             // --- Projection -------------------------------------------------------------------
             // Answers, not plans. Every entry below that names its rows was a Case.ok until the
-            // conversion of docs/qa/cases/SQLX.md: "supported" meant "plans and compiles", and a
+            // conversion of docs/project/qa/cases/SQLX.md: "supported" meant "plans and compiles", and a
             // construct could return the wrong number with this matrix green. That is finding Q-8.
             Case.answers("columns", "SELECT txn_id, amount FROM txn", "t1|100", "t2|250", "t3|50", "t4|400"),
             Case.answers(
@@ -474,7 +474,7 @@ class SqlSupportMatrixTest {
             Case.refused("UPDATE", "UPDATE txn SET amount = 1 WHERE amount > 1", "PRV-2020"),
             Case.refused("DELETE", "DELETE FROM txn WHERE amount > 1", "PRV-2020"),
 
-            // --- Constructs the document does not list, converted from docs/qa/cases ----------
+            // --- Constructs the document does not list, converted from docs/project/qa/cases ----------
             // SQLX-112: the three GROUP BY extensions, each refused by name.
             Case.refused(
                     "GROUPING SETS",
@@ -544,7 +544,7 @@ class SqlSupportMatrixTest {
         }
         assertThat(drifted.toString())
                 .as(
-                        "SQL support has changed. Update docs/CONTINUOUS_QUERIES.md to match, then this matrix. "
+                        "SQL support has changed. Update docs/guides/CONTINUOUS_QUERIES.md to match, then this matrix. "
                                 + "A construct that quietly starts or stops working is how a user finds out by "
                                 + "trying it in production.%s",
                         drifted)

@@ -32,7 +32,7 @@ import java.util.Arrays;
  * changelog carries a replaced row no {@code -1} (KEYEDWT-1); a consumer that must sum to exactly
  * what a reader sees follows the answer instead ({@link ViewSink#onAnswer}, a query over the view).
  *
- * <p><strong>A weight of zero is not a change</strong> (STRM-1). {@code docs/CONCEPTS.md} §4 states
+ * <p><strong>A weight of zero is not a change</strong> (STRM-1). {@code docs/guides/CONCEPTS.md} §4 states
  * the Z-set rule the view implements: a row is present exactly while its weights sum positive, so
  * adding zero to that sum moves nothing and {@link ServedView} correctly applies nothing. What was
  * wrong was that such a row was still <em>delivered</em>, and {@link #isRetraction()} being
