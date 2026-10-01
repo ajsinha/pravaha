@@ -219,7 +219,7 @@ The console is then at <http://localhost:17070>. Step by step, test suites inclu
 [`docs/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md`](docs/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md); the reference:
 [`docs/RUNNING_IN_DOCKER.md`](docs/RUNNING_IN_DOCKER.md).
 
-**Without Docker** (JDK 21, and Python 3.11+ for the CLI and console) — from a checkout, as below, or
+**Without Docker** (JDK 21 or 25, and Python 3.11+ for the CLI and console) — from a checkout, as below, or
 from a distribution unpacked anywhere (`deploy/release/dist.sh`; [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md),
 "Without Docker: the same layout"). The walkthrough is [docs/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md](docs/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md).
 
@@ -351,7 +351,7 @@ short.
 <version>1.0.1-SNAPSHOT</version>
 ```
 
-Base package `com.ash.messaging.pravaha`. Requires **JDK 21+**; the Maven wrapper is vendored.
+Base package `com.ash.messaging.pravaha`. Requires **JDK 21+**; supported and tested on **JDK 21 and 25**, building and running on either (the classes target Java 21). The Maven wrapper is vendored.
 
 ```bash
 ./mvnw clean verify                                  # full build

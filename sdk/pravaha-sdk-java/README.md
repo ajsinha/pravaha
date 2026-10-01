@@ -80,7 +80,9 @@ It bundles `slf4j-api` but no binding, so the SDK logs nowhere until the applica
 Arrow, underneath Flight, reads direct buffers' addresses. On Java 17 and later it needs
 `--add-opens=java.base/java.nio=ALL-UNNAMED` on the `java` command line (or in
 `JDK_JAVA_OPTIONS`), with either kind of jar. Java 24 and later also print a warning that Netty
-calls a deprecated `sun.misc.Unsafe` method; it is a warning.
+calls a deprecated `sun.misc.Unsafe` method; it is a warning, and
+`--sun-misc-unsafe-memory-access=allow` silences it -- on Java 24 and later only, since Java 21
+does not know the option and refuses to start. The client is tested on Java 21 and 25.
 
 ## Building it
 

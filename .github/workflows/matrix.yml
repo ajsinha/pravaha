@@ -1,13 +1,18 @@
 name: matrix
 
 # HAS THIS EVER RUN? Not as a GitHub Actions workflow. Its commands have run on the development
-# machine, all but the JDK 25 leg (there is no 25 there): the four Spring Boot legs, 3.2 to 3.5, ran
-# green on 2026-09-27 (41 tests each). They are written so that a leg CANNOT pass by testing
-# something else -- see BootVersionTest below.
+# machine: the four Spring Boot legs, 3.2 to 3.5, ran green on 2026-09-27 (41 tests each), and the
+# four JDK legs below on 2026-10-01 (JDK 21.0.12 and 25.0.4). They are written so that a leg CANNOT
+# pass by testing something else -- see BootVersionTest, and the recompile check, below.
 #
-# Java 21 is the baseline and the only JDK we compile with (design section 4.5). The 25 leg is a
-# *runtime* compatibility check: it runs the tests against artifacts compiled on 21, which is what
-# a customer on a newer JVM actually does. Recompiling on 25 would test something nobody ships.
+# Supported JDKs: 21 and 25. Releases are built on 21 (design section 4.5), but the classes are Java
+# 21 class files whichever JDK compiles them (maven.compiler.release=21; the API and the Java SDK,
+# 17), so a jar built on either runs on both. Each leg compiles on one JDK and runs the whole
+# reactor's tests on the same one or the other: the two a developer has, and the two crossings a
+# deployment meets -- a release built on 21 run on a newer JVM, and a build made on 25 run where
+# only 21 is installed. There is no toolchain: the JDK on JAVA_HOME compiles. (This file used to say
+# compilation was pinned to 21 by one; maven-toolchains-plugin is declared but never bound, so the
+# old 25 leg, `clean verify` on 25, recompiled on 25.)
 on:
   pull_request:
     branches: [develop, main]
@@ -15,42 +20,45 @@ on:
     - cron: '0 3 * * *'
 
 jobs:
-  build-on-baseline:
-    name: build (JDK 21)
+  jdk:
+    name: built with JDK ${{ matrix.build }}, tests on JDK ${{ matrix.run }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: temurin
-          cache: maven
-      - run: ./mvnw -B clean install -DskipTests
-      - uses: actions/upload-artifact@v4
-        with:
-          name: classes-jdk21
-          path: '**/target/*.jar'
-          retention-days: 1
-
-  run-on-newer-jvm:
-    name: run tests (JDK ${{ matrix.jdk }})
-    needs: build-on-baseline
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        jdk: ['21', '25']
+        include:
+          - { build: '21', run: '21' }
+          - { build: '25', run: '25' }
+          - { build: '21', run: '25' }
+          - { build: '25', run: '21' }
     steps:
       - uses: actions/checkout@v4
+      # Both JDKs; each step names its own through the JAVA_HOME_<n>_X64 setup-java exports.
       - uses: actions/setup-java@v4
         with:
-          java-version: ${{ matrix.jdk }}
+          java-version: |
+            21
+            25
           distribution: temurin
           cache: maven
-      # Compilation is pinned to 21 by the toolchain; only test execution varies.
-      - run: ./mvnw -B clean verify -DskipITs
+      - name: compile and install on JDK ${{ matrix.build }}
+        env:
+          JAVA_HOME: ${{ env[format('JAVA_HOME_{0}_X64', matrix.build)] }}
+        run: ./mvnw -B clean install -DskipTests
+      # No `clean`: the classes compiled above are the ones under test, and the compiler plugin,
+      # finding nothing stale, compiles nothing. If it ever recompiled, the leg would no longer cross
+      # JDKs and would pass for the wrong reason, so a recompile fails it.
+      - name: run the tests on JDK ${{ matrix.run }}
+        env:
+          JAVA_HOME: ${{ env[format('JAVA_HOME_{0}_X64', matrix.run)] }}
+        run: |
+          set -o pipefail
+          ./mvnw -B install -DskipITs | tee test-run.log
+          if grep -E 'Compiling [0-9]+ source file' test-run.log; then
+            echo "the test run recompiled: these are not the classes JDK ${{ matrix.build }} built" >&2
+            exit 1
+          fi
 
   agrona-flagged:
     name: agrona memory path (flagged)
