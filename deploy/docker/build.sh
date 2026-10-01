@@ -8,6 +8,7 @@
 #   ./mvnw -o -pl pravaha-server -am package -DskipTests
 #   deploy/docker/build.sh                       # -> pravaha/pravaha-server:<project version>
 #   deploy/docker/build.sh --tag pravaha:local   # an explicit tag instead
+#   deploy/docker/build.sh --java 25             # on a Java 25 JRE -> ...:<project version>-jre25
 #
 # It does NOT run Maven. A missing jar is an error naming the command that produces it, because a
 # script that quietly rebuilds turns "the image is stale" into "the image is a different build".
@@ -21,13 +22,16 @@ root="$(cd "$here/../.." && pwd)"
 
 image=""
 push=0
+# The JRE the image runs on: 21 (the default, untagged) or 25. The jar is the same either way.
+java_version=21
 docker_bin="${DOCKER:-docker}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --tag|-t) image="$2"; shift 2 ;;
     --push)   push=1; shift ;;
-    -h|--help) sed -n '5,17p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    --java)   java_version="$2"; shift 2 ;;
+    -h|--help) sed -n '5,18p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "build.sh: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -35,7 +39,12 @@ done
 # The version is the reactor's, read from the root pom rather than passed in: an image tagged with
 # a version the artefact inside it does not carry is worse than an untagged one.
 version="$("$root/deploy/release/version.sh" "$root")"
-image="${image:-pravaha/pravaha-server:$version}"
+case "$java_version" in
+  21) default_tag="$version" ;;
+  25) default_tag="$version-jre25" ;;
+  *) echo "build.sh: --java $java_version: the supported JREs are 21 and 25" >&2; exit 2 ;;
+esac
+image="${image:-pravaha/pravaha-server:$default_tag}"
 
 jar="$(ls -1 "$root"/pravaha-server/target/pravaha-server-*-app.jar 2>/dev/null | head -1 || true)"
 if [[ -z "$jar" ]]; then
@@ -70,9 +79,11 @@ build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "build.sh: $image"
 echo "  jar      $(basename "$jar") ($(du -h "$jar" | cut -f1))"
 echo "  revision $vcs_ref"
+echo "  java     $java_version (eclipse-temurin:$java_version-jre)"
 
 "$docker_bin" build \
   --tag "$image" \
+  --build-arg "JAVA_VERSION=$java_version" \
   --build-arg "PRAVAHA_VERSION=$version" \
   --build-arg "VCS_REF=$vcs_ref" \
   --build-arg "BUILD_DATE=$build_date" \
