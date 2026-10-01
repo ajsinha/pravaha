@@ -3,9 +3,9 @@
 """
 Build the deck.
 
-    tools/deck/.venv/bin/python tools/deck/build.py        # into docs/
+    tools/deck/.venv/bin/python tools/deck/build.py        # into docs/publications/
     tools/deck/.venv/bin/python tools/deck/audit.py \
-        docs/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx
+        docs/publications/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx
 
 The deck is a list of slide specs across ``pravaha_deck`` and its part modules;
 ``layouts`` draws them with the ``theme``. The document properties are set
@@ -31,7 +31,7 @@ import pravaha_deck  # noqa: E402
 import theme  # noqa: E402
 
 ROOT = HERE.parents[1]
-DOCS = ROOT / "docs"
+DOCS = ROOT / "docs" / "publications"
 NAME = "Pravaha-Continuous-SQL-Engine-Design-and-Evidence"
 AUTHOR = "Ashutosh Sinha"
 

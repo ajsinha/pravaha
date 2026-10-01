@@ -43,7 +43,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * on the row path, and the only honest way to set a default is to measure it on the machine the
  * project has. That is this development machine, which the owner named the reference machine on
  * 2026-09-19; the numbers it prints belong to it and to no other hardware, and
- * {@code docs/OPERATIONS.md} records them with the machine named.
+ * {@code docs/operations/OPERATIONS.md} records them with the machine named.
  *
  * <p><strong>Not part of the default build.</strong> Named {@code *IT}, which the root POM's
  * surefire configuration excludes, because it is a throughput measurement and a throughput

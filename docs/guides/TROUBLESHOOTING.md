@@ -1,7 +1,7 @@
 # Troubleshooting
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../LICENSE`](../LICENSE).
+**Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
 
 Every failure in Pravaha carries a `PRV-nnnn` code. The code is the stable part — the message may
 improve, the code does not change — so it is what belongs in a runbook, a log filter or a support
@@ -280,7 +280,7 @@ the query off (`pravaha.lane.multiplex.max-queries-per-lane`) or add lanes.
 counters are compiled into a query's stages, so a running query does not gain them), and read
 `GET /api/v1/queries/{name}/plan`. Each node carries its own rows in, rows out, state bytes and a
 sampled self time, and `bottleneck` names the node most of the query's own time went into. It
-costs about 12 % of a narrow query's throughput, which is why it is off by default; `docs/OPERATIONS.md` has the
+costs about 12 % of a narrow query's throughput, which is why it is off by default; `docs/operations/OPERATIONS.md` has the
 measurement and what the sampling error is.
 
 **Common answers once the operator is named.** A join holding megabytes of state and most of the
@@ -367,7 +367,7 @@ rise in `pravaha_query_checkpoint_failures_total`; both name what was refused.
 | `PRV-3025` a total left the 64-bit range | A `SUM`, `COUNT` or `AVG` total passed `±9223372036854775807` — of a `BIGINT`, or of a `DECIMAL`'s unscaled value. The message names the aggregate. It used to wrap round and be served as a large negative number (SUMWRAP-1); it is now refused, the query `FAILED` or the read refused. Every total is checked, a retraction and a window's combined slices included; a batch is netted in 128 bits first, so a total that passes the range inside one batch and comes back is answered (TRANSOVF-1). Aggregate a smaller quantity (scale the column down), split the total by a key, or filter out the rows carrying it |
 | `PRV-3001` arena exhausted | Off-heap arena full — usually a batch far larger than expected, or a slab sized for narrower rows than the query produces. The message names the setting to change: `pravaha.lane.arena.slab-bytes`, or `pravaha.lane.batch-size` to make each batch smaller. The rule is `batch-size × widest output row` must fit one slab. A *row* that does not fit an inbox cell is the same code from the ingest side and names `pravaha.lane.inbox.cell-bytes` instead. These are real settings as of ADR-036; until then eleven messages named `arena.slab.size` and `lane.inbox.cell.size`, neither of which existed (PF-3) |
 | Too many open files | One bound source costs about one descriptor. The node logs its descriptor ceiling at startup, and a source that fails to open near that ceiling gets a sentence naming `ulimit -n` and `LimitNOFILE`. Two codes still name the wrong thing when descriptors are the real cause: `PRV-5040 FILESYSTEM_DECODE_FAILED` (a decode code for a resource exhaustion) and `PRV-5080 AEROSPIKE_CONNECT_FAILED`, whose every suggested remedy is wrong in that case — the Aerospike client's exception carries no cause, so it cannot be told apart by catching it (SRC-4) |
-| Disk growing | **Not checkpoints, unless you configured it that way.** `PeriodicCheckpointer` prunes after every checkpoint, keeping the newest `pravaha.checkpoint.keep` (default 3) per query; this row used to say nothing called `prune`, and something does. Check `pravaha.checkpoint.keep`, and then the registry journal, which grows until it is compacted. See [`OPERATIONS.md`](OPERATIONS.md) |
+| Disk growing | **Not checkpoints, unless you configured it that way.** `PeriodicCheckpointer` prunes after every checkpoint, keeping the newest `pravaha.checkpoint.keep` (default 3) per query; this row used to say nothing called `prune`, and something does. Check `pravaha.checkpoint.keep`, and then the registry journal, which grows until it is compacted. See [`../operations/OPERATIONS.md`](../operations/OPERATIONS.md) |
 
 ## `PRV-1028` — a schema string that will not parse
 
@@ -579,7 +579,7 @@ fell back to an older one, or the slot was recreated — and PostgreSQL has rele
 between. `PRV-5117` is the replication stream failing in a way no reconnect can fix: the slot
 dropped, invalidated, or the role's privileges revoked. For all three the recovery is the same:
 stop the registration, delete its checkpoint directory, drop the slot, register again
-([`OPERATIONS.md`](OPERATIONS.md), *Change data capture: the replication slot*).
+([`../operations/OPERATIONS.md`](../operations/OPERATIONS.md), *Change data capture: the replication slot*).
 
 **A second query over a `postgres-cdc` or `mysql-cdc` stream is refused with `PRV-8028`.** The
 binding names one replication slot (or replica `server.id`), and another query — named in the
@@ -766,7 +766,7 @@ way it was registered.
 ## Replacing a query: `CREATE OR REPLACE`, cutover and rollback
 
 A blue/green replacement ([`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §8.1,
-[`OPERATIONS.md`](OPERATIONS.md)) refuses seven things by name, and each refusal is the engine
+[`../operations/OPERATIONS.md`](../operations/OPERATIONS.md)) refuses seven things by name, and each refusal is the engine
 declining to make an answer quietly wrong.
 
 | Code | What happened | What to do |
@@ -811,7 +811,7 @@ cause; end it and read `pravaha queries`.
 ## A tenant's quota refuses a registration (`PRV-8020` … `PRV-8023`)
 
 Quotas are set in `pravaha.tenancy` and checked only at registration (ADR-050,
-[`OPERATIONS.md`](OPERATIONS.md#tenant-quotas)). A refusal never means that a running query
+[`OPERATIONS.md`](../operations/OPERATIONS.md#tenant-quotas)). A refusal never means that a running query
 changed.
 
 | Code | What happened | What to do |
@@ -828,7 +828,7 @@ limit is raised.
 ## A query over another query is refused (`PRV-2075`, `PRV-8024` … `PRV-8027`)
 
 A continuous query whose `FROM` names a registered query follows that query's answer
-([ADR-056](adr/056-queries-on-queries.md), [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §3.1). What
+([ADR-056](../design/adr/056-queries-on-queries.md), [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §3.1). What
 cannot be kept exact over an input that retracts is refused rather than approximated.
 
 | Code | What happened | What to do |
@@ -845,7 +845,7 @@ answering at the frontier it reached: its feed is reported stopped, as any sourc
 ## An alert is refused, silent, or not delivered (`PRV-8040` … `PRV-8047`)
 
 An alert follows a view's answer and notifies when a key's row enters it and when it leaves
-([ADR-057](adr/057-alerts.md), [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §3.2).
+([ADR-057](../design/adr/057-alerts.md), [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §3.2).
 
 | Code | What happened | What to do |
 |---|---|---|

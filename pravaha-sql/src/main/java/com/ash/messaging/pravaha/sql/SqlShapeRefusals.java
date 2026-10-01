@@ -135,7 +135,7 @@ final class SqlShapeRefusals {
                         + "before anybody read it. Sort the rows in whatever reads the view. Refused on the SQL "
                         + "rather than on the plan because the optimiser deletes a sort it can prove harmless -- "
                         + "one inside a derived table with no FETCH -- and the query then ran as though the "
-                        + "clause had never been written. See docs/CONTINUOUS_QUERIES.md for what this engine "
+                        + "clause had never been written. See docs/guides/CONTINUOUS_QUERIES.md for what this engine "
                         + "executes and what it refuses.");
     }
 
@@ -157,7 +157,7 @@ final class SqlShapeRefusals {
                         + "'the first five' is whichever five happened to be held at the instant of the read "
                         + "and a different five a moment later. There is no sort operator either, so nothing "
                         + "even decides which five. Take the rows you want in whatever reads the view. "
-                        + "See docs/CONTINUOUS_QUERIES.md for what this engine executes and what it refuses.");
+                        + "See docs/guides/CONTINUOUS_QUERIES.md for what this engine executes and what it refuses.");
     }
 
     /**
@@ -181,7 +181,7 @@ final class SqlShapeRefusals {
                         "CUMULATE is a SQL:2016 windowing function this engine does not implement: its windows "
                                 + "share a start and grow to a maximum, so a row belongs to every step from its "
                                 + "own to the last and the slice grid that makes TUMBLE and HOP O(1) per row does "
-                                + "not describe it. Use TUMBLE or HOP. See docs/CONTINUOUS_QUERIES.md for what "
+                                + "not describe it. Use TUMBLE or HOP. See docs/guides/CONTINUOUS_QUERIES.md for what "
                                 + "this engine executes and what it refuses.");
             }
             call.getOperandList().forEach(SqlShapeRefusals::refuseUnbuiltWindowFunctions);

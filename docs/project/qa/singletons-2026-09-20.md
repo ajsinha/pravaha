@@ -1,7 +1,7 @@
 # The singleton findings, worked one at a time — 2026-09-20
 
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
-Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
+Proprietary and confidential; see [`../../../LICENSE`](../../../LICENSE).
 
 > Every open finding in [`FINDINGS.md`](FINDINGS.md) that is not in the `CFG`, `TY`, `STRM` or
 > `TIME` clusters — those four were closed on 2026-09-19 and have their own files. `CASE-1`,
@@ -85,7 +85,7 @@ looked at.
 view is maintained rather than returned, so "the first five" is whichever five were held at the
 instant of the read. The `SqlSelect` arm gained the same check for the spelling that carries
 `fetch`/`offset` without an `SqlOrderBy` wrapper. The code is unchanged at `PRV-2020`, which is
-what `docs/CONTINUOUS_QUERIES.md`'s `LIMIT` / `OFFSET` row already promised.
+what `docs/guides/CONTINUOUS_QUERIES.md`'s `LIMIT` / `OFFSET` row already promised.
 
 **Test.** `SingletonRefusalsTest#x6_aRowLimitIsRefusedAsItselfAndNotAsAnEmptyOrderBy` and
 `#x6_orderByAPlaceholderIsTheOrderByRefusalAndNotARawClassName`.
@@ -122,7 +122,7 @@ a separate question they can register as its own continuous query and join.
 **The code changes for the correlated shapes**, from `PRV-2021` to `PRV-2020`: a subquery that
 reads the outer row is a plan shape this engine does not build, not an expression it cannot
 evaluate, and `PRV-2020` is what `buildLookupJoin` already answered. The uncorrelated forms stay
-`PRV-2021`. `docs/CONTINUOUS_QUERIES.md`'s table, `SqlSupportMatrixTest` and the console's
+`PRV-2021`. `docs/guides/CONTINUOUS_QUERIES.md`'s table, `SqlSupportMatrixTest` and the console's
 `sql-refusals.md` are updated, and the matrix gains a correlated-scalar-subquery row it did not
 have.
 
@@ -320,7 +320,7 @@ is still not equal to NULL, and the right side still keeps none of them.
 **Seed-proof.** Passing `false` instead of `plan.leftOuter()` fails both (30 tests, 2 failures);
 restored, all 30 pass.
 
-**Docs.** `docs/CONTINUOUS_QUERIES.md`'s `LEFT` join section and the console's `joins.md` both say
+**Docs.** `docs/guides/CONTINUOUS_QUERIES.md`'s `LEFT` join section and the console's `joins.md` both say
 what happens to a null-keyed left row, which neither did.
 
 **Commit.** Same commit as C-5.
@@ -413,7 +413,7 @@ which reads the same entitlement under both names and requires the same rows.
 **Seed-proof.** Naming a table the one-entry catalogue does not hold fails it (1 test, 1 error);
 restored, it passes.
 
-**Docs.** `docs/SECURITY.md`, under row filters and the fingerprint, which is where the promise
+**Docs.** `docs/operations/SECURITY.md`, under row filters and the fingerprint, which is where the promise
 that sharing is invisible to the reader is made.
 
 **Commit.** `Refusals that name the right layer: L-3, API-F6, SX-9, SX-13, SX-14, SX-16, SX-17, E-15, PF-11, CKPT-3, CKPT-5, SINK-3`.
@@ -474,7 +474,7 @@ authenticate, or did not, in which case saying so costs one restart.
 **Seed-proof.** Removing the `refuseAnUnusableCredentialKey` call fails
 `sx14_aTokenKeyYamlDidNotHandOverVerbatimIsRefused`; restored, it passes.
 
-**Docs.** `docs/SECURITY.md` and the console's `authentication.md`.
+**Docs.** `docs/operations/SECURITY.md` and the console's `authentication.md`.
 
 **Commit.** `Refusals that name the right layer: L-3, API-F6, SX-9, SX-13, SX-14, SX-16, SX-17, E-15, PF-11, CKPT-3, CKPT-5, SINK-3`.
 
@@ -571,7 +571,7 @@ is the right one; what changes is that the description is the engine's.
 
 **Test.** `FlightSqlMetadataTest#e15_theTransactionVerbsRefuseWithACodeRatherThanTheFrameworksDefault`.
 
-**Docs.** `docs/qa/cases/ERRC.md`'s ERRC-090 is rewritten: the right throw sites, the right list of
+**Docs.** `docs/project/qa/cases/ERRC.md`'s ERRC-090 is rewritten: the right throw sites, the right list of
 unimplemented verbs, and a note that the "empty result" it named as the finding to watch for never
 happened — the risk was the opposite, a refusal carrying nothing.
 
@@ -663,7 +663,7 @@ with `PRV-7005` for a policy that allows the write but carries a row filter).**
 
 The merged version is a superset of what was written here: it covers the replacement path as well
 as registration, and it has a refusal this one did not think of. My `mayWriteTo`, the registry's
-call site, the two tests and the `docs/SECURITY.md` section are reverted to the branch point, so
+call site, the two tests and the `docs/operations/SECURITY.md` section are reverted to the branch point, so
 this branch's diff does not touch `SecurityPolicy` or that part of `QueryRegistry` and the merged
 fix stands alone.
 
@@ -888,7 +888,7 @@ pinned the raw stamp, which was the defect.
 **Seed-proof.** Restoring `.eventTimestampNanos(watermark)` fails all three (3 tests, 3 failures);
 restored, all pass.
 
-**Docs.** `docs/CONNECTORS.md`'s jdbc binding example and the console's `source-jdbc.md` option
+**Docs.** `docs/guides/CONNECTORS.md`'s jdbc binding example and the console's `source-jdbc.md` option
 table.
 
 **Commit.** `Event time that is a time: T-5, T-6, DOCX-6, and a feed that stops polling an empty file`.

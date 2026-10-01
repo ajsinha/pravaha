@@ -13,7 +13,7 @@ It is written by QA, kept in the repository, and meant to be read by whoever tak
 ## `SQL_SUPPORT.md` is now `CONTINUOUS_QUERIES.md`
 
 Every case and log in this directory cites `docs/SQL_SUPPORT.md`, often by line number. That file was
-merged into [`../CONTINUOUS_QUERIES.md`](../CONTINUOUS_QUERIES.md) on 2026-09-16, which now carries
+merged into [`../../guides/CONTINUOUS_QUERIES.md`](../../guides/CONTINUOUS_QUERIES.md) on 2026-09-16, which now carries
 the support matrix row for row alongside the streams-to-views narrative (ADR-040's sibling work, see
 `1b242f3`).
 

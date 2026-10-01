@@ -48,7 +48,7 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  * to a {@code cdc_raw} directory on every node, meant to be read locally; there is no server-side
  * decoding and streaming the way Postgres's logical replication or MySQL's binlog work. A CDC reader
  * for Cassandra is a per-node agent with no ordering across nodes -- a different project from a
- * connector, as {@code docs/CONNECTORS.md} section 5 explains. This plugin is the connector: a full,
+ * connector, as {@code docs/guides/CONNECTORS.md} section 5 explains. This plugin is the connector: a full,
  * periodic, partition-parallel scan of a table, paged by {@code token()} so no partition is read
  * through {@code ALLOW FILTERING}.
  *
@@ -66,7 +66,7 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  * anyway and buys none of the bandwidth an incremental scan exists for; and {@code writetime()} is
  * per-<em>column</em>, so a key-only write or a write to a column outside the tracked set moves no
  * watermark at all and would be missed in silence. A full scan that says what it is beats an
- * incremental one that quietly drops rows, which is the choice {@code docs/CONNECTORS.md} section 6
+ * incremental one that quietly drops rows, which is the choice {@code docs/guides/CONNECTORS.md} section 6
  * asks every connector to make explicitly. {@code commitlog-cdc} is the different, unbuilt project
  * above.
  *

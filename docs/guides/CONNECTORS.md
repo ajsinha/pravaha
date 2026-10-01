@@ -1,9 +1,9 @@
 # The connector framework
 
-Copyright © 2026 Ashutosh Sinha. Proprietary and confidential; see [`../LICENSE`](../LICENSE).
+Copyright © 2026 Ashutosh Sinha. Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
-> **The single source of truth for writing a connector.** [`ARCHITECTURE.md`](ARCHITECTURE.md) and
-> [`EXECUTION_MODEL.md`](EXECUTION_MODEL.md) link here rather than repeating it. If they and this
+> **The single source of truth for writing a connector.** [`../design/ARCHITECTURE.md`](../design/ARCHITECTURE.md) and
+> [`../design/EXECUTION_MODEL.md`](../design/EXECUTION_MODEL.md) link here rather than repeating it. If they and this
 > disagree, this one wins — it is the one kept beside the SPI.
 
 Read this if you are adding a source, a sink or a lookup, or deciding whether a store can be one.
@@ -47,7 +47,7 @@ Three kinds, and a connector may be more than one:
 | Interface | What it does | Shipped examples |
 |---|---|---|
 | `StreamSourcePlugin` | Rows in. The thing a `FROM` clause reads | filesystem, feedfile, aerospike, delta, jdbc, cassandra, `postgres-cdc` (a changelog: deletes and before-images), `kafka` (a topic, one reader per partition, exactly once from the checkpoint's offsets) |
-| `StreamSinkPlugin` | Rows out — every commit of a query that names the sink at registration ([ADR-043](adr/043-how-a-continuous-query-names-its-sink.md)). A sink with a configured schema or key reports it through `schema()` and `keyColumns()`, and a registration that does not match is refused | filesystem (append-only), `aerospike-sink` (upsert and delete by key, composite keys), `jdbc-sink` (upsert and delete by key or append, into a table you create; transactional through a staging table, or on PostgreSQL through `PREPARE TRANSACTION` with `commit.mode: prepared`, so exactly once on a checkpointed node), `kafka-sink` (keyed upserts with a tombstone for a retraction, the value JSON, Avro or Protobuf, or an explicit JSON changelog, to a topic you create; transactional through a staging topic, so exactly once to a `read_committed` consumer on a checkpointed node), `delta-sink` (a Delta Lake table kept equal to the view by key, or a changelog of every change; one Delta commit per checkpoint, so exactly once on a checkpointed node) |
+| `StreamSinkPlugin` | Rows out — every commit of a query that names the sink at registration ([ADR-043](../design/adr/043-how-a-continuous-query-names-its-sink.md)). A sink with a configured schema or key reports it through `schema()` and `keyColumns()`, and a registration that does not match is refused | filesystem (append-only), `aerospike-sink` (upsert and delete by key, composite keys), `jdbc-sink` (upsert and delete by key or append, into a table you create; transactional through a staging table, or on PostgreSQL through `PREPARE TRANSACTION` with `commit.mode: prepared`, so exactly once on a checkpointed node), `kafka-sink` (keyed upserts with a tombstone for a retraction, the value JSON, Avro or Protobuf, or an explicit JSON changelog, to a topic you create; transactional through a staging topic, so exactly once to a `read_committed` consumer on a checkpointed node), `delta-sink` (a Delta Lake table kept equal to the view by key, or a changelog of every change; one Delta commit per checkpoint, so exactly once on a checkpointed node) |
 | `LookupSourcePlugin` | Point lookups for a temporal join's right side | `aerospike-lookup`, `jdbc-lookup` — **with the suffix**: a plugin answers to the name it reports for itself, and these two report `aerospike-lookup` and `jdbc-lookup`. This row said "aerospike, jdbc" until CFG-4, so `pravaha.lookups.<n>.plugin: jdbc` copied from it was refused at startup with `PRV-5090` |
 
 ---
@@ -104,7 +104,7 @@ void        close();
 `poll` returning `0` means *nothing right now*, not *nothing ever*. The engine will ask again. Write
 rows through `sink.beginRow()` and `commit()`; never buffer a batch of your own, because the row you
 are given is a cell in the lane's inbox and copying defeats the whole memory design
-([`EXECUTION_MODEL.md`](EXECUTION_MODEL.md) §4).
+([`../design/EXECUTION_MODEL.md`](../design/EXECUTION_MODEL.md) §4).
 
 `checkpointed` is for a source that holds something on the store's side until told it may let go.
 The engine calls it, from the checkpointing thread, once the checkpoint recording that offset is
@@ -152,7 +152,7 @@ So **a connector that overstates its guarantee gets different engine behaviour, 
 silent duplication.** Claim the weakest thing that is true. `SourceCapabilities.minimal()` is
 at-least-once with no pushdown and is the right starting point.
 
-### Ordered positions: one reader for many queries, even exactly-once ([ADR-054](adr/054-an-ordered-source-is-shared-at-an-exact-seam.md))
+### Ordered positions: one reader for many queries, even exactly-once ([ADR-054](../design/adr/054-an-ordered-source-is-shared-at-an-exact-seam.md))
 
 By default a source that promises exactly-once or order gets **a reader per query**. Sharing one
 reader means a query joining late must be caught up, and without more information the catch-up
@@ -379,7 +379,7 @@ The correspondence is exact:
 | `u` (update) | **two** rows: `before` at `-1`, `after` at `+1` |
 
 That is a Z-set stream with no translation. **`postgres-cdc` is that correspondence, built** — natively
-on PostgreSQL's logical replication rather than through Debezium ([ADR-041](adr/041-change-data-capture-without-debezium.md)),
+on PostgreSQL's logical replication rather than through Debezium ([ADR-041](../design/adr/041-change-data-capture-without-debezium.md)),
 decoding `pgoutput`'s `Insert`, `Update` and `Delete` into exactly the rows in this table. It is the
 first source to set `emitsDeletes = true` and `emitsBeforeImage = true`, **two `SourceCapabilities`
 fields that existed since the SPI was written and that no connector used until it.** Debezium stays
@@ -640,13 +640,13 @@ goes down.
 
 **And notice the shape of `xdr-http`.** XDR *pushes* — Aerospike connects out to a destination
 rather than being read by a client. That is not the Postgres shape at all; it is
-[ADR-040](adr/040-the-remote-connector.md)'s shape with Aerospike as the sender. Whoever builds the
+[ADR-040](../design/adr/040-the-remote-connector.md)'s shape with Aerospike as the sender. Whoever builds the
 remote connector's inbound endpoint gets most of an Aerospike XDR source with it, which is an
 argument for building that endpoint before writing a second store-specific reader.
 
 **Cassandra is the one case where the log really is a file.** Its CDC writes commitlog segments to a
 `cdc_raw` directory **on every node**, to be read locally — so it needs an agent per node and gives
-no ordering across them. That is why a Cassandra *table scan* source ([ADR-039](adr/039-ga-includes-the-known-gaps-and-clustering.md)
+no ordering across them. That is why a Cassandra *table scan* source ([ADR-039](../design/adr/039-ga-includes-the-known-gaps-and-clustering.md)
 item 6) is tractable and Cassandra *CDC* is a different, unbuilt project. It is also the exception
 behind the rule above: for the stores worth capturing first, change capture is a network conversation.
 
@@ -662,7 +662,7 @@ declares `repeatsRows` and an aggregate, a join or an append-only sink over it i
 detect` the same passes become an exact changelog: each is merged, in token order, with the rows
 already emitted, and only the difference is emitted. `ignore` stays the default because `detect`
 needs a durable state directory and memory for every emitted row; for Cassandra it costs no extra
-reads. See `docs/CONTINUOUS_QUERIES.md` §2.1 for the configuration.
+reads. See `docs/guides/CONTINUOUS_QUERIES.md` §2.1 for the configuration.
 
 #### Where does it run? The database is on another machine
 
@@ -679,7 +679,7 @@ the changes back over that socket. Pravaha is a client, exactly as the `jdbc` so
 |---|---|---|
 | `jdbc` source | a database on another host | polls with `SELECT`, over the network |
 | **CDC source** | that same database's write-ahead log | **streams over the same network port; the server does the decoding** |
-| Remote connector ([ADR-040](adr/040-the-remote-connector.md)) | inside somebody else's application, never in a database | that application pushes rows to Pravaha |
+| Remote connector ([ADR-040](../design/adr/040-the-remote-connector.md)) | inside somebody else's application, never in a database | that application pushes rows to Pravaha |
 
 The same holds for the others, which is worth knowing before choosing one: **MySQL** streams binlog
 events to a client that registers as a *replica*; **MongoDB**'s oplog is a collection read through
@@ -722,7 +722,7 @@ pravaha:
 ```
 
 Every option, with its default, is in [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §2.1; the
-slot's care and feeding is in [`OPERATIONS.md`](OPERATIONS.md). For comparison, what a Debezium
+slot's care and feeding is in [`../operations/OPERATIONS.md`](../operations/OPERATIONS.md). For comparison, what a Debezium
 binding would have looked like — **not built**, and by ADR-041 not the first thing to build; it is
 the route for a *second* database:
 
@@ -936,7 +936,7 @@ plugins' container ITs against Postgres, Aerospike and Cassandra).
 | Connector | Kind | Proves |
 |---|---|---|
 | **Kafka** | streaming | replayable offsets and real exactly-once resumption — **built, both ways**, `plugins/pravaha-plugin-kafka`: the source `kafka` (one reader per partition, its offsets in the checkpoint; below) and the sink `kafka-sink` (its transactional mapping is below) |
-| **Debezium CDC** | changelog | deletes, before-images, Z-sets end to end — the engine's own model. **Proved for PostgreSQL by `postgres-cdc` and for MySQL by `mysql-cdc`**, both built natively ([ADR-041](adr/041-change-data-capture-without-debezium.md)); Debezium is the route for a third database |
+| **Debezium CDC** | changelog | deletes, before-images, Z-sets end to end — the engine's own model. **Proved for PostgreSQL by `postgres-cdc` and for MySQL by `mysql-cdc`**, both built natively ([ADR-041](../design/adr/041-change-data-capture-without-debezium.md)); Debezium is the route for a third database |
 | **Cassandra** | table scan | the scan path generalises beyond Aerospike — **built**, ADR-039 item 6: a full `token()`-range scan with projection pushdown, `plugins/pravaha-plugin-cassandra` |
 | **ScyllaDB** | table scan | speaks the same CQL wire protocol as Cassandra; not built or tested against — the `cassandra` plugin has not been run against it |
 | **MySQL / Postgres** | table or CDC | direct; CDC is the better form. Both are built: `postgres-cdc`, and `mysql-cdc` from the row-based binlog (changes only; no initial snapshot yet) |
@@ -958,7 +958,7 @@ readers behind the engine's back. A reader's position is the next Kafka offset t
 `topic/partition@next` (`orders/3@42`), and **it lives in the engine's checkpoint and nowhere else**:
 a restore seeks each partition to the offset the checkpoint recorded, the log replays
 deterministically from there, and the engine receives exactly the records the checkpoint does not
-hold. That is the whole of the exactly-once argument ([ADR-008](adr/008-aligned-checkpoints.md)), so
+hold. That is the whole of the exactly-once argument ([ADR-008](../design/adr/008-aligned-checkpoints.md)), so
 the source declares `EXACTLY_ONCE` — and is therefore never shared between queries.
 
 What it deliberately does not do:
@@ -1051,9 +1051,9 @@ Both sides read and write `none`, `gzip`, `snappy` and `zstd` batches: the sourc
 producer or the broker chose, `kafka-sink` through `kafka.compression.type`. `gzip` is the JDK's.
 `snappy` and `zstd` are snappy-java and zstd-jni, native code, and the only two native families the
 build allows, because Parquet has no other way to read its files
-([ADR-053](adr/053-native-code-only-where-java-cannot.md)); one version of each serves Parquet and
+([ADR-053](../design/adr/053-native-code-only-where-java-cannot.md)); one version of each serves Parquet and
 Kafka. They load on glibc Linux, macOS, Windows and FreeBSD, from a library unpacked into
-`java.io.tmpdir`, which must allow executing files ([`DEPLOYMENT.md`](DEPLOYMENT.md), "Native code").
+`java.io.tmpdir`, which must allow executing files ([`../operations/DEPLOYMENT.md`](../operations/DEPLOYMENT.md), "Native code").
 `kafka-sink` loads the codec once at configuration, so a platform it does not load on is `PRV-5100`
 before the sink opens.
 
@@ -1250,7 +1250,7 @@ stops being the set somebody wrote a plugin for.
 It is designed and not built. The design — why Flight rather than a bespoke socket, why at-least-once
 delivery **requires** server-side deduplication in an engine where a duplicate row is a real `+1`,
 why an idle agent must not freeze a watermark, and what an inbound write path has to enforce before
-it is opened — is [ADR-040](adr/040-the-remote-connector.md). Scheduled after cluster mode, before GA.
+it is opened — is [ADR-040](../design/adr/040-the-remote-connector.md). Scheduled after cluster mode, before GA.
 
 ---
 
@@ -1272,8 +1272,8 @@ Stated so nobody discovers it mid-build:
 
 | You want | Read |
 |---|---|
-| How a lane consumes what you produce | [`EXECUTION_MODEL.md`](EXECUTION_MODEL.md) |
-| Where connectors sit in the whole | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
-| Configuring a source on a node | [`OPERATIONS.md`](OPERATIONS.md) |
+| How a lane consumes what you produce | [`../design/EXECUTION_MODEL.md`](../design/EXECUTION_MODEL.md) |
+| Where connectors sit in the whole | [`../design/ARCHITECTURE.md`](../design/ARCHITECTURE.md) |
+| Configuring a source on a node | [`../operations/OPERATIONS.md`](../operations/OPERATIONS.md) |
 | Z-sets and incremental computation | [`CONCEPTS.md`](CONCEPTS.md) |
-| The snapshot/CDC splice as built | `pravaha-backfill`, [ADR-036](adr/036-one-node-thousands-of-queries.md) §3 |
+| The snapshot/CDC splice as built | `pravaha-backfill`, [ADR-036](../design/adr/036-one-node-thousands-of-queries.md) §3 |

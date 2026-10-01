@@ -455,7 +455,7 @@ PAGES: list[tuple[str, str, bool, str]] = [
     ("case-studies", "/help/case-studies", False, "true"),
     ("case-study", "/help/case-studies/trade-processing", False, "true"),
     ("help-code", "/help/codes/PRV-2050", False, "true"),
-    # The competitive landscape, drawn whole from docs/COMPETITIVE_LANDSCAPE.md in MAYA's form:
+    # The competitive landscape, drawn whole from docs/publications/COMPETITIVE_LANDSCAPE.md in MAYA's form:
     # photographed like About, first screen only (the hero and the landscape's opening), because
     # its layout is the console's. The FAQ is audited in every theme and not photographed: its
     # pixels move with the prose.

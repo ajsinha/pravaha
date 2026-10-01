@@ -159,23 +159,23 @@ class DocumentedLimitsTest {
 
     private static String troubleshooting() {
         try {
-            return Files.readString(repoRoot().resolve("docs/TROUBLESHOOTING.md"), StandardCharsets.UTF_8);
+            return Files.readString(repoRoot().resolve("docs/guides/TROUBLESHOOTING.md"), StandardCharsets.UTF_8);
         } catch (IOException e) {
-            throw new IllegalStateException("cannot read docs/TROUBLESHOOTING.md", e);
+            throw new IllegalStateException("cannot read docs/guides/TROUBLESHOOTING.md", e);
         }
     }
 
     private static String continuousQueries() {
         try {
-            return Files.readString(repoRoot().resolve("docs/CONTINUOUS_QUERIES.md"), StandardCharsets.UTF_8);
+            return Files.readString(repoRoot().resolve("docs/guides/CONTINUOUS_QUERIES.md"), StandardCharsets.UTF_8);
         } catch (IOException e) {
-            throw new IllegalStateException("cannot read docs/CONTINUOUS_QUERIES.md", e);
+            throw new IllegalStateException("cannot read docs/guides/CONTINUOUS_QUERIES.md", e);
         }
     }
 
     private static Path repoRoot() {
         Path path = Path.of("").toAbsolutePath();
-        while (path != null && !Files.exists(path.resolve("docs/adr"))) {
+        while (path != null && !Files.exists(path.resolve("docs/design/adr"))) {
             path = path.getParent();
         }
         if (path == null) {

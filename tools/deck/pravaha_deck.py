@@ -11,8 +11,8 @@ life, correctness, scale on one node, changing a running query, answers built on
 answers, connectors, security, identity and governance, operating it, thirteen
 worked systems, and the evidence, what 1.0 promises and where to start.
 
-Every figure comes from the repository -- the code, README.md, docs/*.md, the
-ADRs in docs/adr, docs/RELEASE_NOTES.md, the gate packs and the case-study
+Every figure comes from the repository -- the code, README.md, docs/**/*.md, the
+ADRs in docs/design/adr, docs/project/RELEASE_NOTES.md, the gate packs and the case-study
 READMEs -- and each slide's speaker notes name the file.
 
 Project Pravaha -- Ask once. Answer always.
@@ -59,7 +59,7 @@ OPENING: list[dict[str, Any]] = [
             "Evidence, 1.0, and where to start",
         ],
         "source": "Source: README.md (name, slogan, Java 21, release badge 1.0.0); brand/README.md (the "
-        "name and slogan); docs/RELEASE_NOTES.md '1.0.0 — 2026-09-30'; docs/COMPATIBILITY.md (one-node "
+        "name and slogan); docs/project/RELEASE_NOTES.md '1.0.0 — 2026-09-30'; docs/operations/COMPATIBILITY.md (one-node "
         "release).",
     },
     {
@@ -83,9 +83,9 @@ OPENING: list[dict[str, Any]] = [
              "the judge — works and is tested, and may still change in a minor release."),
         ],
         "size": 15,
-        "source": "Source: docs/RELEASE_NOTES.md '1.0.0 — 2026-09-30' (opening, upgrade notes, register "
-        "line); docs/COMPATIBILITY.md; docs/qa/FINDINGS.md (482 findings — 464 FIXED, 0 OPEN, 9 BY "
-        "DESIGN, 9 SUPERSEDED); docs/HANDOVER.md §1 (ADRs 60; wave 11 on hold).",
+        "source": "Source: docs/project/RELEASE_NOTES.md '1.0.0 — 2026-09-30' (opening, upgrade notes, register "
+        "line); docs/operations/COMPATIBILITY.md; docs/project/qa/FINDINGS.md (482 findings — 464 FIXED, 0 OPEN, 9 BY "
+        "DESIGN, 9 SUPERSEDED); docs/development/HANDOVER.md §1 (ADRs 60; wave 11 on hold).",
     },
 ]
 

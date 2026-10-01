@@ -1,7 +1,7 @@
 # SDKX — execution log
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Cases: [`../cases/SDKX.md`](../cases/SDKX.md). Executed 2026-09-14 on branch `develop`, worktree
 `.claude/worktrees/qa-api-sdkx`, against sources built with

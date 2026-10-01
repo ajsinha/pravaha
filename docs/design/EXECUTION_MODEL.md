@@ -1,9 +1,9 @@
 # The execution model: lanes, inboxes, arenas
 
-Copyright © 2026 Ashutosh Sinha. Proprietary and confidential; see [`../LICENSE`](../LICENSE).
+Copyright © 2026 Ashutosh Sinha. Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 > **This is the single source of truth for how Pravaha executes.** [`ARCHITECTURE.md`](ARCHITECTURE.md)
-> links here rather than repeating it, [`OPERATIONS.md`](OPERATIONS.md) owns the settings and their
+> links here rather than repeating it, [`../operations/OPERATIONS.md`](../operations/OPERATIONS.md) owns the settings and their
 > values, and [`system_design.md`](system_design.md) holds the design-stage reasoning. If those and
 > this disagree, this one is wrong until proven otherwise — it is the one kept next to the code.
 
@@ -162,7 +162,7 @@ cells right now.
 On a lane a query owns there is one writer and the attribution is trivial. On a **shared** lane
 there are many, and an episode is recorded against the query whose writer it was — which is the
 number that separates *this query is the limit* from *this query is queued behind a neighbour*.
-`docs/OPERATIONS.md` has the table and the error bars; the short version is that an episode's ends
+`docs/operations/OPERATIONS.md` has the table and the error bars; the short version is that an episode's ends
 are each rounded to the poll that found them, and concurrent writers' episodes overlap and add.
 
 ### What each operator is doing
@@ -233,7 +233,7 @@ naming `pravaha.lane.arena.slab-bytes`.
 **Memory, and it did not used to be.** Before ADR-027 the ceiling was the scheduler. Measured on 24
 cores with a thousand registered queries:
 
-| | Default sizing | Sized as [`OPERATIONS.md`](OPERATIONS.md) advises |
+| | Default sizing | Sized as [`../operations/OPERATIONS.md`](../operations/OPERATIONS.md) advises |
 |---|---|---|
 | Platform threads added | **+24** | +24 |
 | Off-heap total | 1,000 MiB | **61 MiB** |
@@ -255,7 +255,7 @@ memory-mapped overflow tier ([ADR-037](adr/037-state-that-degrades-instead-of-dy
 further slabs are carved from mapped files under `pravaha.state.spill.directory`, and the query slows
 down instead of being refused. **It is off by default.** Without it, state that outgrows its ceiling
 is refused with `PRV-4001`, not degraded; with it, the refusal moves out to the tier's own limits
-(`max-overflow-slabs` per store, `max-bytes` per node). [`OPERATIONS.md`](OPERATIONS.md) has the
+(`max-overflow-slabs` per store, `max-bytes` per node). [`../operations/OPERATIONS.md`](../operations/OPERATIONS.md) has the
 settings and what the tier costs.
 
 **A key index spills with its state, including its slot table.** A join side and a windowed
@@ -300,8 +300,8 @@ asymmetry is the design being built on.
 
 | You want | Read |
 |---|---|
-| The settings and their values | [`OPERATIONS.md`](OPERATIONS.md) |
+| The settings and their values | [`../operations/OPERATIONS.md`](../operations/OPERATIONS.md) |
 | How this fits the rest of the engine | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
 | Why it was designed this way | [`system_design.md`](system_design.md) §5, §8, §13, §21 |
-| What an error code means | [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) |
+| What an error code means | [`../guides/TROUBLESHOOTING.md`](../guides/TROUBLESHOOTING.md) |
 | The measurements behind §6 | [ADR-036](adr/036-one-node-thousands-of-queries.md), `ThousandQueryTest` |

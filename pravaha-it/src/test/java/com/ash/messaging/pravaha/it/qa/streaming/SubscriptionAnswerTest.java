@@ -50,7 +50,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * {@code docs/qa/cases/STRM.md}, executed.
+ * {@code docs/project/qa/cases/STRM.md}, executed.
  *
  * <p>A subscription is how an answer leaves the engine as it changes rather than as a snapshot, and
  * the contract it makes is narrow and load-bearing: changes arrive per commit and never per row, so

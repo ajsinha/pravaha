@@ -5040,7 +5040,7 @@ its own thread and the checkpointer runs on another.
 Numbered from 11 so that items 1, 2 and 3 can keep numbering sequentially from 1 without
 colliding with this block; item 1 already holds W8-1.
 
-[ADR-035](../adr/035-wave-8-is-survival-not-distribution.md) §4 ends the wave with each of
+[ADR-035](../../design/adr/035-wave-8-is-survival-not-distribution.md) §4 ends the wave with each of
 `DeadLetterQueue`/`FileDeadLetterQueue`, `L0StateMap` and `ChangelogAnalysis` either reachable from a
 supported path or deleted. Three mechanisms, three different verdicts, and the difference between
 them is the point: one was never wired, one could never have been wired to what its own javadoc said
@@ -5095,7 +5095,7 @@ report-a-bug notice about inbox cells instead of `PRV-5040 line 2, column 'amoun
 message.
 
 **What is deliberately not done.** `pravaha.dlq.directory` on the server, so `PumpingFeed` survives
-a bad record too, is the larger half and belongs with [ADR-035](../adr/035-wave-8-is-survival-not-distribution.md)
+a bad record too, is the larger half and belongs with [ADR-035](../../design/adr/035-wave-8-is-survival-not-distribution.md)
 §1 — a per-query DLQ file is durable state a node owns, and adding one before the ownership rules
 exist inherits CFG-13's hole. `DeadLetterRate` stays unreachable: it reports `isDegraded()` and there
 is no `DEGRADED` value in `QueryState` for anything to do with it. The lane-level poison row
@@ -5721,7 +5721,7 @@ quoted with confidence is worse than no number.
 
 ## Wave 9 — one node, thousands of continuous queries (W9), 10 findings, 8 fixed
 
-[ADR-036](../adr/036-one-node-thousands-of-queries.md) scoped the wave; these are what it found and
+[ADR-036](../../design/adr/036-one-node-thousands-of-queries.md) scoped the wave; these are what it found and
 what it did about it. They were appended under the Wave 8 documentation-rot heading above, which is
 not where anybody would look for them.
 

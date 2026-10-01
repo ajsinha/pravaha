@@ -19,8 +19,10 @@ from pathlib import Path
 
 CODE = re.compile(r"^PRV-\d{4}$")
 
-#: Where a code is discussed, in reading order. Each is a document shipped in docs/.
-SOURCES = ("TROUBLESHOOTING.md", "CONTINUOUS_QUERIES.md", "OPERATIONS.md", "USER_GUIDE.md")
+#: Where a code is discussed, in reading order. Each is a document shipped in docs/, named by its
+#: path under docs/; a page shows the file name alone.
+SOURCES = ("guides/TROUBLESHOOTING.md", "guides/CONTINUOUS_QUERIES.md", "operations/OPERATIONS.md",
+           "guides/USER_GUIDE.md")
 
 
 @dataclass
@@ -59,8 +61,9 @@ def lookup(code: str, docs_root: Path) -> CodeEntry | None:
     if not CODE.match(code):
         return None
     entry = CodeEntry(code)
-    for name in SOURCES:
-        path = docs_root / name
+    for source in SOURCES:
+        path = docs_root / source
+        name = Path(source).name
         if not path.exists():
             continue
         text = path.read_text(encoding="utf-8")
@@ -90,7 +93,7 @@ def every_code(docs_root: Path) -> list[dict[str, str]]:
     That table is written from the source's own error-code constants, so a code the engine can
     raise is a row there; the browser at /help/codes lists exactly these, each linking to its page.
     """
-    path = docs_root / "TROUBLESHOOTING.md"
+    path = docs_root / "guides" / "TROUBLESHOOTING.md"
     if not path.exists():
         return []
     text = path.read_text(encoding="utf-8")

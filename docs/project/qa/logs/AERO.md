@@ -1,7 +1,7 @@
 # AERO — execution log
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Cases: [`../cases/AERO.md`](../cases/AERO.md). 60 written, 60 executed.
 
@@ -334,7 +334,7 @@ $ javap com.aerospike.client.policy.ClientPolicy | grep -i "tls|authMode"
 `failIfNotConnected` and nothing else. There is no way to configure TLS, and no way to set
 `authMode` (so Aerospike Enterprise with external/LDAP auth is also unreachable). Every byte between
 Pravaha and Aerospike — including the password on the login exchange — is in clear text, with no
-option to change that. No documentation admits the gap; `docs/SECURITY.md` discusses Aerospike twice
+option to change that. No documentation admits the gap; `docs/operations/SECURITY.md` discusses Aerospike twice
 and never mentions transport. For a product aimed at trade and card data this is HIGH.
 
 ---
@@ -916,7 +916,7 @@ in any of them is there a step that starts a Pravaha server, and nowhere is ther
 the `trade` stream to the Aerospike set.** A reader following the page exactly reaches "Step 3 —
 load some trades", registers a query against a server they were never told to start, and — had they
 started one and bound the source themselves — would hit `no source plugin named 'aerospike' is on
-the classpath`. Combined with `docs/QUICKSTART.md` line 325 ("Filesystem, JDBC and Aerospike work
+the classpath`. Combined with `docs/guides/QUICKSTART.md` line 325 ("Filesystem, JDBC and Aerospike work
 now") against `application.yaml`'s own comment ("filesystem, feedfile, jdbc and delta ship in this
 repository"), the documentation is internally inconsistent about the flagship connector. HIGH as a
 documentation defect.

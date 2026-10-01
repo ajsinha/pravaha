@@ -27,7 +27,7 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
 /**
  * Turns decoded {@code pgoutput} messages into whole transactions of weighted rows.
  *
- * <p>The translation is the one {@code docs/CONNECTORS.md} section 5 works through, and it is exact:
+ * <p>The translation is the one {@code docs/guides/CONNECTORS.md} section 5 works through, and it is exact:
  *
  * <ul>
  *   <li>an {@code Insert} is the new row at {@code +1};

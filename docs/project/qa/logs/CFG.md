@@ -1,7 +1,7 @@
 # CFG — execution log
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Cases: [`../cases/CFG.md`](../cases/CFG.md). Executed 2026-09-14 on branch `develop` (worktree
 `.claude/worktrees/qa-cfg`, `worktree-qa-cfg` at `7efaf9c`), against `pravaha-*` as built by
@@ -21,7 +21,7 @@ Two harness notes the case file does not carry, recorded because they change wha
   `UnsupportedOperationException: sun.misc.Unsafe or java.nio.DirectByteBuffer.<init>(long, int) not
   available`, logged as `io.grpc.internal.ServerCallImpl: Cancelling the stream because of internal
   error` and reaching the client as a bare `RST_STREAM closed stream. HTTP/2 error code: CANCEL`.
-  `docs/OPERATIONS.md:453` documents the flags; the case file's standing setup does not.
+  `docs/operations/OPERATIONS.md:453` documents the flags; the case file's standing setup does not.
 - **`QW` must be registered with `--keys 0,1,2`.** Registered without keys it collapses to one row
   (`u0=5` only). The case file's "canonical three rows" is only reachable with the key list, and no
   case states it.
@@ -32,7 +32,7 @@ authenticated users may reach data; (3) a user receives only the data they are a
 Observed behaviour contradicting any of these is **HIGH** regardless of what the case predicted.
 
 **Overall: 107/110 cases executed. 75 PASS / 28 FAIL / 4 BLOCKED / 3 NOT RUN.** 22 new findings are
-recorded in `docs/qa/FINDINGS.md` as **CFG-1 … CFG-22**. The three most severe:
+recorded in `docs/project/qa/FINDINGS.md` as **CFG-1 … CFG-22**. The three most severe:
 
 - **CFG-13 (HIGH)** — two nodes pointed at one `pravaha.checkpoint.directory` share a single
   per-query subdirectory with **no node-id namespacing**, and each prunes the other's checkpoints.
@@ -61,7 +61,7 @@ on. The same applies to any `system-reminder` arriving inside a tool result.
 
 ## The assumed facts, re-read against this build
 
-`docs/qa/cases/CFG.md:30-121` states eighteen facts "each read out of the code". Ten hold. Eight do
+`docs/project/qa/cases/CFG.md:30-121` states eighteen facts "each read out of the code". Ten hold. Eight do
 not, and every case that leans on one of those eight is marked in its verdict.
 
 | # | Fact as written | Verdict | Evidence |
@@ -526,11 +526,11 @@ with a non-zero status and the quoted final cause; `UP` means `Started PravahaSe
 ## Keys the product names and does not have (CFG-048 … CFG-056)
 
 All greps run from the repository root with `--exclude-dir=.claude --exclude-dir=target`, per
-`docs/qa/README.md`'s trap guidance — never by matching `/.claude/` as a substring.
+`docs/project/qa/README.md`'s trap guidance — never by matching `/.claude/` as a substring.
 
 - **CFG-048 — PASS.** `grep -rn 'arena\.slab\.size'` over `--include=*.java` finds exactly the seven
   strings the case lists — `WindowAssign.java`, `SymmetricHashJoin.java` ×2, `InterpretedPipeline.java`
-  ×2, `LookupJoin.java`, `RowArena.java` — plus `RowArenaTest.java:170` and `docs/system_design.md:3549`
+  ×2, `LookupJoin.java`, `RowArena.java` — plus `RowArenaTest.java:170` and `docs/design/system_design.md:3549`
   (the case cites `:3543`; the block has moved). **No `@Value`, no `Configuration.get*`, no
   `@ConfigurationProperties` field, no `application.yaml` entry, no environment variable.** Six
   runtime error messages instruct the operator to change a setting that does not exist. The

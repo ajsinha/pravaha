@@ -1,7 +1,7 @@
 # STRM — execution log
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Cases: [`../cases/STRM.md`](../cases/STRM.md). Executed 2026-09-14 on branch `develop` (worktree
 `.claude/worktrees/qa-strm`, branch `worktree-qa-strm`, at `e6eb69a`), against `pravaha-*` as built
@@ -13,7 +13,7 @@ produced; nothing is inferred from a neighbouring case.
 
 **Overall: 109/120 cases executed. 83 PASS / 23 FAIL / 3 BLOCKED / 11 NOT RUN.**
 
-Nineteen new findings are recorded in `docs/qa/FINDINGS.md` as **STRM-1 … STRM-19**. The three most
+Nineteen new findings are recorded in `docs/project/qa/FINDINGS.md` as **STRM-1 … STRM-19**. The three most
 severe:
 
 - **STRM-2 (HIGH)** — one subscriber's `FAIL` overflow policy **terminates the whole computation**.
@@ -164,7 +164,7 @@ Two further facts the case file does not state, recorded because they change wha
 
 - **`subscriberCount()` is unreachable from every remote surface.** It is not a field of the SDK's
   `RegisteredQueryInfo` record, there is no `ControlWire` verb for it, and `GET
-  /api/v1/queries` on the HTTP port is **404**. `docs/OPERATIONS.md` presents it as the operator's
+  /api/v1/queries` on the HTTP port is **404**. `docs/operations/OPERATIONS.md` presents it as the operator's
   signal that a query nobody is watching is a clue. STRM-051 is BLOCKED on this; STRM-062 and
   STRM-076 were re-pointed at observables that exist.
 - **`pravaha.security.policy` has two values, not three.** `permissive` and `authenticated`. There is

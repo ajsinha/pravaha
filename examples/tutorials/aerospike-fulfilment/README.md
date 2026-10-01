@@ -3,7 +3,7 @@
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
 
-The files for [Joining two Aerospike sets and a CSV file](../../../docs/tutorials/aerospike-fulfilment.md).
+The files for [Joining two Aerospike sets and a CSV file](../../../docs/guides/tutorials/aerospike-fulfilment.md).
 Read the tutorial first; it says when to run each.
 
 | File | What it is |

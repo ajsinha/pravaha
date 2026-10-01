@@ -43,8 +43,8 @@ Copyright © 2026 Ashutosh Sinha. Proprietary and confidential.
 | **The lane runtime joined to the SQL path** | `QueryExecution` |
 
 > **Amended by Wave 8.** Three rows above shipped as classes and never as capabilities: nothing in
-> production referenced them. [ADR-035](../../adr/035-wave-8-is-survival-not-distribution.md) §4 gave
-> each a verdict, recorded as W8-11..W8-13 in [`docs/qa/FINDINGS.md`](../../qa/FINDINGS.md). The
+> production referenced them. [ADR-035](../../../design/adr/035-wave-8-is-survival-not-distribution.md) §4 gave
+> each a verdict, recorded as W8-11..W8-13 in [`docs/project/qa/FINDINGS.md`](../../qa/FINDINGS.md). The
 > dead-letter queue is now reachable (`pravaha run --dlq`); `DeadLetterRate` still is not.
 > `L0StateMap` is deleted — its keys are a fixed width and the state it was written for has variable
 > ones. `ChangelogAnalysis` is kept and deliberately unwired: nothing in the product binds a query to

@@ -30,7 +30,7 @@ import com.ash.messaging.pravaha.api.data.StreamSchema;
  *
  * <p>These are control statements, not questions: nothing here is planned by Calcite except the
  * {@code SELECT} a {@link Create} carries, which is planned exactly as a registration argument would
- * be. The grammar, and why it is the one it is, is in {@code docs/CONTINUOUS_QUERIES.md} section 3.
+ * be. The grammar, and why it is the one it is, is in {@code docs/guides/CONTINUOUS_QUERIES.md} section 3.
  */
 public sealed interface ContinuousStatement
         permits ContinuousStatement.Create,

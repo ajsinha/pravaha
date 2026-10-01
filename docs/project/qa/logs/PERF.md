@@ -1,7 +1,7 @@
 # PERF — execution log
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Cases: [`../cases/PERF.md`](../cases/PERF.md). Executed 2026-09-14 on branch `develop` at
 `7efaf9c`, Java 21.
@@ -25,7 +25,7 @@ JVM flags      -Xss4m --add-opens=java.base/java.nio=ALL-UNNAMED
 ```
 
 **This machine cannot produce a scaling number, and that is already on the record.**
-`docs/gates/wave-3/README.md:27`–`:40` states it precisely and this round confirms every part of it
+`docs/project/gates/wave-3/README.md:27`–`:40` states it precisely and this round confirms every part of it
 by measurement conditions: 12 physical cores against a 16-physical-homogeneous reference, two core
 designs (Zen 5 and Zen 5c) so two lanes on two cores are not two equivalent lanes, and an all-core
 clock far below single-core boost so a 1-lane and an 8-lane figure are taken at different speeds.

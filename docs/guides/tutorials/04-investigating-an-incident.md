@@ -1,7 +1,7 @@
 # Tutorial 4 — Investigating an incident
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
+**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
 
 A customer says u5 paid acme twice in the minute from 09:04, 155.47 in all, and one of the two
 payments is missing. In this tutorial you find out why. A malformed payment went to the
@@ -319,5 +319,5 @@ and debugger call.
 ## Next
 
 You have registered, followed, replaced and debugged a query. The
-[case studies](../../examples/case-studies/README.md) are thirteen complete systems built from the same
+[case studies](../../../examples/case-studies/README.md) are thirteen complete systems built from the same
 moves — start with one in your own domain.

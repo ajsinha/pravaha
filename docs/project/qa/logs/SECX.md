@@ -1,7 +1,7 @@
 # SECX — execution log
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Cases: [`../cases/SECX.md`](../cases/SECX.md). Executed 2026-09-14 on branch `develop`, against
 `pravaha-*` sources as built by `./mvnw -o -T1C install -DskipTests` (Java 21). Four sub-rounds ran
@@ -27,13 +27,13 @@ case's *prediction* is what the override responds to), 4 FAIL, 0 fully BLOCKED (
 partial block: SECX-021e, SECX-067a, both the same unrelated `PRV-2050` unbounded-`GROUP BY` engine
 guard blocking a fixture view rather than anything security-specific), 1 fully NOT RUN
 (SECX-068 — no evidence was returned for this specific case ID, recorded honestly rather than
-inferred from a neighboring case). 17 new findings were recorded in `docs/qa/FINDINGS.md` as SX-1
+inferred from a neighboring case). 17 new findings were recorded in `docs/project/qa/FINDINGS.md` as SX-1
 through SX-17. The two most severe: **SX-15**, a row filter that plans to no `FilterOperator` (e.g.
 a tautological predicate) fails open and serves an unrestricted read with no error, defeating
 ADR-031's central claim; and **SX-3**, the entire HTTP REST surface consults no `SecurityPolicy` or
 `AuditSink` at all, including on `POST /api/v1/streams`, which accepts an arbitrary new stream
 declaration from any authenticated caller regardless of what that caller may read or register on
-Flight. `docs/SECURITY.md` was corrected in five places over the course of this round; see the
+Flight. `docs/operations/SECURITY.md` was corrected in five places over the course of this round; see the
 per-batch commits for the exact diffs.
 
 **A note on a third-party string.** As in prior rounds, the jqwik dependency's own console output

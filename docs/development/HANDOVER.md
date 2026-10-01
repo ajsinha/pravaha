@@ -1,12 +1,18 @@
 # Handover
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-Proprietary and confidential; see [`LICENSE`](../LICENSE).
+Proprietary and confidential; see [`LICENSE`](../../LICENSE).
 
 **Written 2026-09-09; last swept 2026-09-29.** Everything the design says lives in
-[`system_design.md`](system_design.md) and the [ADRs](adr/) — this file deliberately does *not*
+[`../design/system_design.md`](../design/system_design.md) and the [ADRs](../design/adr/) — this file deliberately does *not*
 repeat it. What is here is the state, the working practices, and the things a fresh session would
 otherwise have to rediscover the hard way.
+
+**Where the documents are (since 2026-10-01).** `docs/` is in six folders — `guides/`, `operations/`,
+`development/` (this file), `design/` (the ADRs are `docs/design/adr/`), `publications/` and
+`project/` (release notes, `qa/` with the findings register, `gates/`) — and
+[`docs/README.md`](../README.md) is the index. `MarkdownLinksTest` fails the build on a link left
+pointing at an old path.
 
 ---
 
@@ -15,7 +21,7 @@ otherwise have to rediscover the hard way.
 | | |
 |---|---|
 | `main` | Fast-forwarded to `develop` after every gated change ("drill"), so normally equal to it |
-| `develop` | Pushed after every verified change. Releases are tagged `v0.1.0` to `v0.2.0` (QA builds) and `v1.0.0` (2026-09-30, the first with a compatibility promise, [COMPATIBILITY.md](COMPATIBILITY.md)); `develop` is 1.0.1-SNAPSHOT |
+| `develop` | Pushed after every verified change. Releases are tagged `v0.1.0` to `v0.2.0` (QA builds) and `v1.0.0` (2026-09-30, the first with a compatibility promise, [../operations/COMPATIBILITY.md](../operations/COMPATIBILITY.md)); `develop` is 1.0.1-SNAPSHOT |
 | Modules | **37** Maven modules (38 reactor projects with the root), plus `sdk/python` and `console`, which are not Maven |
 | Java tests | **4,688** tests, 0 failures, 211 skipped (Docker-only broker and database tests among them) -- `tools/verify-clean.sh`, 2026-09-29 |
 | Python tests | **424** in `sdk/python`, and about **1,926** in `console` (browser suites included), all passing on 2026-09-29 |
@@ -70,7 +76,7 @@ transactional (a staging table, applied in one database transaction per checkpoi
 exactly once; `aerospike-sink` is effectively once and `filesystem` at least once. The registry logs
 which at registration.
 **The time-travel debugger's engine is built** (2026-09-19,
-[ADR-048](adr/048-a-debug-fork-is-a-second-computation-nothing-can-read.md), batch B4). A query is
+[ADR-048](../design/adr/048-a-debug-fork-is-a-second-computation-nothing-can-read.md), batch B4). A query is
 forked from one of its retained checkpoints into a second computation on lanes of its own, reading
 the same sources from that checkpoint's offsets — with no sink attached, its view in no catalogue
 and the live query untouched — and stepped by hand: one row, N rows, to the next commit, to a
@@ -93,7 +99,7 @@ journeys that stop at it are how people would come to.
 `FindingsRegisterTest` holds it to them. What is left is ADR-039's road — its progress note says
 item by item what is closed and what remains — and then cluster mode, whose third slice (a runtime
 consumer of partition ownership) is not built. `docs/SQL_SUPPORT.md` no longer exists: it was merged
-into [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md). [`ADR-040`](adr/040-the-remote-connector.md)
+into [`../guides/CONTINUOUS_QUERIES.md`](../guides/CONTINUOUS_QUERIES.md). [`ADR-040`](../design/adr/040-the-remote-connector.md)
 designs the remote connector and no code for it is started. `RESUME.txt` at the root is the
 pick-up-here note for whoever starts the next session.
 
@@ -103,14 +109,14 @@ authorization and the lookup. There may be more of these.
 
 **Where the waves stand.** Waves 3, 4 and 5 (E4) are **complete** in scope, Wave 6 (E5) and Wave 7
 (E6) are complete in scope as well, **Wave 8 is built** — rescoped by
-[ADR-035](adr/035-wave-8-is-survival-not-distribution.md) from E7's cluster to survival on one node —
-and **Wave 9 is built**, a wave [ADR-036](adr/036-one-node-thousands-of-queries.md) inserted ahead of
+[ADR-035](../design/adr/035-wave-8-is-survival-not-distribution.md) from E7's cluster to survival on one node —
+and **Wave 9 is built**, a wave [ADR-036](../design/adr/036-one-node-thousands-of-queries.md) inserted ahead of
 the control-plane and GA waves: one node holding thousands of continuous queries. Both have sections
 below. The control-plane and GA waves keep their content and move down one, so the roadmap is now
 eleven waves rather than ten. Gates P2, P3 and P6 are unpassed for want of
 reference hardware rather than code. This header said "Wave 6 has started" for two waves after it
 had finished, which is what a session note becomes when it is not dated out of the way; the
-wave-by-wave detail below is the part to trust. `docs/gates/` holds a pack for every wave from 1 to
+wave-by-wave detail below is the part to trust. `docs/project/gates/` holds a pack for every wave from 1 to
 9; the packs for waves 5, 6, 8 and 9 were written retrospectively on 2026-09-15 from the evidence in
 the repository.
 
@@ -130,7 +136,7 @@ Two pre-existing bugs surfaced along the way and are fixed: `WHERE NOT (nullable
 says to drop, and a null text column threw in the JDBC decoder — which the polling source shared,
 and which no test had ever fed a null string.
 
-**Gate P2 is blocked on hardware, not on code** — see [`gates/wave-3`](gates/wave-3/), read that
+**Gate P2 is blocked on hardware, not on code** — see [`gates/wave-3`](../project/gates/wave-3/), read that
 first. Three connectors were also built out of wave, at the owner's request: Delta Lake, feed files
 (CSV + Parquet drop directories) and JDBC. The JDBC source, its filter pushdown and its dimension
 table are now also proven against a real PostgreSQL rather than only H2, which folds identifiers the
@@ -140,12 +146,12 @@ other way and hides dialect assumptions.
 allowed at all — every one before this was refused for unbounded state.
 
 **Waves 1 and 2 are done and gated.** Evidence packs and retrospectives are in
-[`docs/gates/wave-1`](gates/wave-1/), [`docs/gates/wave-2`](gates/wave-2/) and
-[`docs/gates/wave-3`](gates/wave-3/) — read the retrospectives, they are the honest part.
+[`docs/project/gates/wave-1`](../project/gates/wave-1/), [`docs/project/gates/wave-2`](../project/gates/wave-2/) and
+[`docs/project/gates/wave-3`](../project/gates/wave-3/) — read the retrospectives, they are the honest part.
 
 ### What actually works today
 
-SQL runs end to end. `docs/QUICKSTART.md` **is** covered now: `QuickstartCommandsTest` reads the
+SQL runs end to end. `docs/guides/QUICKSTART.md` **is** covered now: `QuickstartCommandsTest` reads the
 document, runs every fenced `bash` block that needs no server — four of them, `cd`, `printf`, `cat`
 and `pravaha-engine run` — and checks what each prints against the fenced output block underneath it. The
 blocks that need a server (`pravaha-server`, `register`, `query`, `subscribe`, `drop`) and the
@@ -198,7 +204,7 @@ Four things a fresh session should know about that work, because each cost a deb
 and nothing else, which is below the floor for production SQL. It now has `CASE WHEN`, the numeric
 functions (`ABS`, `FLOOR`, `CEIL`, `ROUND`), text — `UPPER`, `LOWER`, `TRIM`, `SUBSTRING`, `||`,
 string literals and `CASE` over strings — and `LIKE`/`NOT LIKE` in `WHERE`. What is still refused is
-listed in `docs/CONTINUOUS_QUERIES.md`, and that list is enforced by `SqlSupportMatrixTest` rather than
+listed in `docs/guides/CONTINUOUS_QUERIES.md`, and that list is enforced by `SqlSupportMatrixTest` rather than
 maintained by hand.
 
 Two things about it a fresh session should not have to rediscover. Evaluating text allocates a
@@ -319,12 +325,12 @@ It blocks Gate P3's Profile B figure too, so it is overdue rather than upcoming.
 | Changelog analysis, emit-mode negotiation | `ChangelogAnalysis` — called by `QueryRegistry` whenever a registration names a sink, before the sink or the feed is opened (ADR-043, W8-13) |
 | L0 off-heap state map | deleted in Wave 8 (W8-12) |
 
-Gate P3 evidence is in [`gates/wave-4`](gates/wave-4/). **All eight correctness invariants are now
+Gate P3 evidence is in [`gates/wave-4`](../project/gates/wave-4/). **All eight correctness invariants are now
 green** — the eighth went green with checkpointing, at the start of Wave 5.
 
 ### Wave 5 (E4) — where it is
 
-**Gate pack:** [`gates/wave-5`](gates/wave-5/). **Gate P4 partly passed** — exact recovery is proven
+**Gate pack:** [`gates/wave-5`](../project/gates/wave-5/). **Gate P4 partly passed** — exact recovery is proven
 in-process and has never been proven by killing an OS process; no chaos test exists; `W4 >= 5x` is
 unmeasured on this hardware.
 
@@ -340,7 +346,7 @@ unmeasured on this hardware.
 | Join on the lane runtime, two sources | ✅ lanes have one inbox per input; `JoinOnLanesTest` |
 | Join across lanes | ✅ `pumpPartitionedInto` hashes each row's join key and routes it to the lane that owns it, with the same hash the join looks it up with. A plain pump on a multi-lane join is refused, naming the right one |
 | Expressions in `WHERE` (`amount * 2 > 100`) | ✅ `Predicate.CompareExpressions` |
-| Aligned barriers | ⚠️ **built for every input, not for the exchange** (Wave 8, W8-2/3/4). A checkpoint is one cut: `freezeIngest` holds every source between rows while each lane is handed a marker, so the offsets and the state name the same rows. A row in flight *between* lanes is not cut — `QueryExecution.refuseWhileRowsCrossTheExchange` refuses rather than dropping it, and no pipeline this engine compiles sends on the exchange. See [ADR-008](adr/008-aligned-checkpoints.md) |
+| Aligned barriers | ⚠️ **built for every input, not for the exchange** (Wave 8, W8-2/3/4). A checkpoint is one cut: `freezeIngest` holds every source between rows while each lane is handed a marker, so the offsets and the state name the same rows. A row in flight *between* lanes is not cut — `QueryExecution.refuseWhileRowsCrossTheExchange` refuses rather than dropping it, and no pipeline this engine compiles sends on the exchange. See [ADR-008](../design/adr/008-aligned-checkpoints.md) |
 | Windowed / time-versioned joins | ⚠️ a default match window bounds join state in event time (`JoinOperator.DEFAULT_MATCH_WITHIN_NANOS`), which is what made the join survivable. A *stated* temporal predicate in SQL — `BETWEEN b.t - INTERVAL '1' HOUR AND b.t` — is still not parsed, so the window cannot yet be chosen per query. Previously: the unwindowed join was bounded only by a row ceiling, which fails the query rather than the node |
 | Outer joins | ✅ `LEFT` **with a time bound** — the null-padded row is emitted when the watermark passes the window, once, never retracted. Without a bound it is still refused, because there is no moment at which a row can be declared unmatched. `RIGHT`/`FULL` would need the same on the other side and are not built |
 | Self-joins | ❌ — both sides would read one stream and a stream name cannot say which side a row is for. Refused when the pipeline is built, and the one refusal reachable from SQL that carries no `PRV-` code |
@@ -359,7 +365,7 @@ right numbers — which is how that distinction was discovered.
 
 ### Wave 6 (E5) — complete in scope
 
-**Gate pack:** [`gates/wave-6`](gates/wave-6/). **Gate M6 not passed** — it is an external demo and
+**Gate pack:** [`gates/wave-6`](../project/gates/wave-6/). **Gate M6 not passed** — it is an external demo and
 the demo has never been performed; "3 years backfilled" and "point queries in microseconds" are both
 undemonstrated.
 
@@ -400,7 +406,7 @@ undemonstrated.
 | The console (ADR-024) | ✅ `console/` — a separate FastAPI process reaching the engine only through the published Python SDK. Server-rendered, no build step, ~400 lines. **Functional admin scope on purpose**, which the implementation plan names as a legitimate trade to make deliberately. Surfaces two things nothing else does: which computations are *shared*, and a live tail rather than a poll |
 | Column masking, per-column policy | ❌ — deliberately out of ADR-031 until a deployment asks (ADR-028) |
 
-**`docs/CONTINUOUS_QUERIES.md` is backed by a test.** `SqlSupportMatrixTest` runs every statement in that
+**`docs/guides/CONTINUOUS_QUERIES.md` is backed by a test.** `SqlSupportMatrixTest` runs every statement in that
 page against the real planner and asserts the outcome, so a construct that starts or stops working
 fails the build and names the file to edit. It also asserts that every refusal carries a `PRV-` code
 and more than a token of explanation. Adding SQL support means updating both, which is the point.
@@ -440,8 +446,8 @@ built (Cassandra as a periodic `token()`-range scan); Redis remains for the GA w
 
 ### Wave 8 — survival on one node; Gate P7 passed
 
-Rescoped by [ADR-035](adr/035-wave-8-is-survival-not-distribution.md): E7's cluster is still
-deferred with [ADR-034](adr/034-distribution-deferred.md), and this wave was about one node
+Rescoped by [ADR-035](../design/adr/035-wave-8-is-survival-not-distribution.md): E7's cluster is still
+deferred with [ADR-034](../design/adr/034-distribution-deferred.md), and this wave was about one node
 surviving its own restart, its own operator's mistakes, and its own half-finished mechanisms.
 
 | Piece | State |
@@ -461,14 +467,14 @@ a barrier. `DeduplicatingSink` is still not wired (and, since, found to have no 
 from; see the table above). The windowed aggregate still keys state by a digest — 128 bits
 now, the 64-bit fold is gone (W8-14, narrowed and open).
 
-**Gate pack:** [`gates/wave-8`](gates/wave-8/). Written retrospectively on 2026-09-15. **Gate P7
+**Gate pack:** [`gates/wave-8`](../project/gates/wave-8/). Written retrospectively on 2026-09-15. **Gate P7
 passed**: the restart criterion was demonstrated against a real `SIGKILL`ed process, and
 demonstrating it found a defect that made it false until fixed (W8-15). The standby criterion
 remains unit-level.
 
 ### Wave 9 — one node, thousands of continuous queries
 
-Inserted by [ADR-036](adr/036-one-node-thousands-of-queries.md) ahead of the control-plane wave,
+Inserted by [ADR-036](../design/adr/036-one-node-thousands-of-queries.md) ahead of the control-plane wave,
 because building a time-travel debugger on an unmeasured foundation puts a floor above a hole. The
 target is stated as a number so it can be missed: **one instance holding thousands of
 Aerospike-backed continuous queries, on the hardware that exists.** `NodeScaleTest` and
@@ -510,7 +516,7 @@ and admission control.
 So: **the wave's goal is closed; one of its tasks is still open.** That is not the same
 as "done", and the register says so rather than rounding it up.
 
-**Gate pack:** [`gates/wave-9`](gates/wave-9/). Waves 5, 6, 8 and 9 all have packs now, written
+**Gate pack:** [`gates/wave-9`](../project/gates/wave-9/). Waves 5, 6, 8 and 9 all have packs now, written
 retrospectively on 2026-09-15 from evidence in the repository. They record what the evidence
 supports; they are not records of decisions taken at the time, because no such decisions were
 written down. **The sign-off is still the owner's** — a pack states the verdict the evidence
@@ -522,22 +528,22 @@ Rewritten and extended in Wave 7. What exists now:
 
 | | |
 |---|---|
-| [`docs/README.md`](README.md) | The index: which page to read when |
-| [`CONCEPTS.md`](CONCEPTS.md) | **The highest-value page.** Eight ideas; most surprises are one of them working correctly |
-| [`QUICKSTART.md`](QUICKSTART.md) | Clone to a running continuous query |
-| [`USER_GUIDE.md`](USER_GUIDE.md) | The whole surface, task by task, three clients |
-| [`OPERATIONS.md`](OPERATIONS.md) | Bounds, what to watch, and what is not solved |
-| [`SECURITY.md`](SECURITY.md) | The three seams, row filters, the soundness rule |
-| [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) | Every `PRV-` code. The table is **hand-maintained**; `ErrcCrossCuttingTest` fails the build if it and the `ErrorCode` declarations disagree in either direction |
-| [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) | Every construct, planned and compiled by a test |
-| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Restructured around the life of a query |
+| [`docs/README.md`](../README.md) | The index: which page to read when |
+| [`../guides/CONCEPTS.md`](../guides/CONCEPTS.md) | **The highest-value page.** Eight ideas; most surprises are one of them working correctly |
+| [`../guides/QUICKSTART.md`](../guides/QUICKSTART.md) | Clone to a running continuous query |
+| [`../guides/USER_GUIDE.md`](../guides/USER_GUIDE.md) | The whole surface, task by task, three clients |
+| [`../operations/OPERATIONS.md`](../operations/OPERATIONS.md) | Bounds, what to watch, and what is not solved |
+| [`../operations/SECURITY.md`](../operations/SECURITY.md) | The three seams, row filters, the soundness rule |
+| [`../guides/TROUBLESHOOTING.md`](../guides/TROUBLESHOOTING.md) | Every `PRV-` code. The table is **hand-maintained**; `ErrcCrossCuttingTest` fails the build if it and the `ErrorCode` declarations disagree in either direction |
+| [`../guides/CONTINUOUS_QUERIES.md`](../guides/CONTINUOUS_QUERIES.md) | Every construct, planned and compiled by a test |
+| [`../design/ARCHITECTURE.md`](../design/ARCHITECTURE.md) | Restructured around the life of a query |
 
 **Checked by the build, not by memory:** every SQL statement in `CONTINUOUS_QUERIES.md` and in the case
 studies is planned, built and compiled against the real engine; `ErrcCrossCuttingTest` holds the
 error-code table against the `ErrorCode` declarations in both directions;
 `DocumentationFreshnessTest` verifies every module is described and every decision a document cites
 has an ADR. Its link check is **narrower than it sounds** — thirteen files, and only targets carrying
-a file extension, so roughly a third of the repository's internal links; `docs/adr/`, `examples/`,
+a file extension, so roughly a third of the repository's internal links; `docs/design/adr/`, `examples/`,
 `console/` and `sdk/` are outside it and anchors are checked by nothing (DOCX-034, DOCX-050).
 
 **All of it is readable in the console**, with contextual help cards on each page and the five case
@@ -571,7 +577,7 @@ there is nothing to keep in step.
 - **Branches:** work happens on `develop`, pushed after every verified change ("drill to develop").
   `main` is merged from it when the owner says so ("drill to main"; a bare "drill" is both), so
   between drills it is behind `develop`.
-  **Suspended for waves 3–7** — see [`docs/gates/wave-7`](gates/wave-7/), which is now Wave 7's gate
+  **Suspended for waves 3–7** — see [`docs/project/gates/wave-7`](../project/gates/wave-7/), which is now Wave 7's gate
   record rather than the interim merge note it started as. The
   gates it would have waited for are hardware-blocked rather than code-blocked, and holding `main`
   81 commits stale was protecting nothing. The debt is recorded there, not forgiven.

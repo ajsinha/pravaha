@@ -268,9 +268,9 @@ PART11: list[dict[str, Any]] = [
             "What is not built; boundaries",
             "Where to start",
         ],
-        "source": "Source: docs/gates/measured-2026-09-20/README.md; benchmarks/README.md; "
-        "docs/adr/042-the-throughput-bar-is-the-requirement.md; docs/TESTING.md; docs/qa/FINDINGS.md; "
-        "docs/COMPATIBILITY.md; README.md 'Performance', 'What is not built'.",
+        "source": "Source: docs/project/gates/measured-2026-09-20/README.md; benchmarks/README.md; "
+        "docs/design/adr/042-the-throughput-bar-is-the-requirement.md; docs/development/TESTING.md; docs/project/qa/FINDINGS.md; "
+        "docs/operations/COMPATIBILITY.md; README.md 'Performance', 'What is not built'.",
     },
     {
         "kind": "bullets",
@@ -288,7 +288,7 @@ PART11: list[dict[str, Any]] = [
              "A number from this laptop is “this machine sustained that, under this load” — a floor, "
              "never the engine's ceiling."),
         ],
-        "source": "Source: docs/adr/042-the-throughput-bar-is-the-requirement.md (Decision; 'Why this "
+        "source": "Source: docs/design/adr/042-the-throughput-bar-is-the-requirement.md (Decision; 'Why this "
         "is not the thing this project forbids'; 'What this decision does NOT license'); README.md "
         "'Performance'.",
     },
@@ -313,9 +313,9 @@ PART11: list[dict[str, Any]] = [
         "size": 14.5,
         "note": "The machine: an AMD Ryzen AI 9 HX 370 laptop — 12 physical cores of two designs, SMT2 "
         "— running other build agents throughout, at load averages from 5.8 to 77.8.",
-        "source": "Source: docs/gates/measured-2026-09-20/README.md (verdict line; 'The machine, named'; "
+        "source": "Source: docs/project/gates/measured-2026-09-20/README.md (verdict line; 'The machine, named'; "
         "Gate P2 throughput and scaling; re-measured 2026-09-26 incl. machineScalingReference; Gate "
-        "P3; W5); docs/RELEASE_NOTES.md '1.0.0' PERF-1 and commit 75e9fc9e (30–31 % at load 3.1–5.2).",
+        "P3; W5); docs/project/RELEASE_NOTES.md '1.0.0' PERF-1 and commit 75e9fc9e (30–31 % at load 3.1–5.2).",
     },
     {
         "kind": "table",
@@ -337,7 +337,7 @@ PART11: list[dict[str, Any]] = [
         "size": 14.5,
         "note": "The head-to-head against Flink has not been run. Running it on a subset and "
         "publishing that is the selective benchmarking the design says this audience punishes.",
-        "source": "Source: docs/gates/measured-2026-09-20/README.md 'Coverage re-measured on "
+        "source": "Source: docs/project/gates/measured-2026-09-20/README.md 'Coverage re-measured on "
         "2026-09-26 — 12 of 23' and 'The head-to-head cannot be run here'; README.md 'Performance'.",
     },
     {
@@ -359,12 +359,12 @@ PART11: list[dict[str, Any]] = [
         "note": "No build compares a run with the committed baselines, and the page says so: a claim "
         "about a gate that does not exist is worth less than no claim.",
         "source": "Source: benchmarks/README.md (Profile A generated vs interpreted; lane scaling; "
-        "false sharing; PF-2); docs/gates/measured-2026-09-20/README.md 'C-7: generated against "
+        "false sharing; PF-2); docs/project/gates/measured-2026-09-20/README.md 'C-7: generated against "
         "interpreted, end to end'.",
     },
     {
         "kind": "table",
-        "kicker": "How it is tested · docs/TESTING.md, 2026-09-29/30",
+        "kicker": "How it is tested · docs/development/TESTING.md, 2026-09-29/30",
         "title": "Tiers, what each needs, and what each ran",
         "rows": [
             ["Tier", "Needs", "Recorded"],
@@ -383,13 +383,13 @@ PART11: list[dict[str, Any]] = [
         "size": 13.5,
         "note": "A green build without Docker has not tested any connector against its store: the "
         "container tests skip, by name, and the report has to be read.",
-        "source": "Source: docs/TESTING.md 'The tiers at a glance', 'With Docker' measured table, "
-        "'Without Docker'; docs/HANDOVER.md §1 (4,688 Java tests, 211 skipped, verify-clean "
-        "2026-09-29); docs/RELEASE_NOTES.md '1.0.0' (PERF-1).",
+        "source": "Source: docs/development/TESTING.md 'The tiers at a glance', 'With Docker' measured table, "
+        "'Without Docker'; docs/development/HANDOVER.md §1 (4,688 Java tests, 211 skipped, verify-clean "
+        "2026-09-29); docs/project/RELEASE_NOTES.md '1.0.0' (PERF-1).",
     },
     {
         "kind": "table",
-        "kicker": "The findings register · docs/qa/FINDINGS.md",
+        "kicker": "The findings register · docs/project/qa/FINDINGS.md",
         "title": "482 findings, none open — and each found one step outside the last test",
         "rows": [
             ["Finding", "Found by", "What it was"],
@@ -408,13 +408,13 @@ PART11: list[dict[str, Any]] = [
         "size": 13.5,
         "note": "464 fixed, 9 closed by design, 9 superseded, 0 open; a finding is fixed only when the "
         "case that found it has been re-run. The commonest defect: built, correct, connected to nothing.",
-        "source": "Source: docs/qa/FINDINGS.md (header counts; SINKKEYROWS-2, PGWIRETX-1, SDKNETTYMIX-1, "
-        "VIEWW-1, TESTNAME-1; 'The commonest defect'); docs/TESTING.md 'What this pass found'; "
-        "docs/RELEASE_NOTES.md '1.0.0'.",
+        "source": "Source: docs/project/qa/FINDINGS.md (header counts; SINKKEYROWS-2, PGWIRETX-1, SDKNETTYMIX-1, "
+        "VIEWW-1, TESTNAME-1; 'The commonest defect'); docs/development/TESTING.md 'What this pass found'; "
+        "docs/project/RELEASE_NOTES.md '1.0.0'.",
     },
     {
         "kind": "split",
-        "kicker": "Release 1.0.0 · docs/COMPATIBILITY.md",
+        "kicker": "Release 1.0.0 · docs/operations/COMPATIBILITY.md",
         "title": "What 1.x keeps stable, and what may still move",
         "left": {
             "head": "Stable in 1.x",
@@ -443,7 +443,7 @@ PART11: list[dict[str, Any]] = [
             ],
             "size": 14,
         },
-        "source": "Source: docs/COMPATIBILITY.md (Stable in 1.x table; Experimental in 1.0; Clients and "
+        "source": "Source: docs/operations/COMPATIBILITY.md (Stable in 1.x table; Experimental in 1.0; Clients and "
         "servers; Upgrading from 0.2.x).",
     },
     {
@@ -477,8 +477,8 @@ PART11: list[dict[str, Any]] = [
             "size": 13.5,
         },
         "source": "Source: README.md 'What is not built, or not finished' (deferred by decision; first "
-        "versions table; not yet proven); docs/adr/039; docs/adr/052 status line; docs/adr/056 "
-        "'Consequences'; docs/adr/057 status line; docs/RELEASE_NOTES.md '1.0.0' (MYC-2 GTID positions; "
+        "versions table; not yet proven); docs/design/adr/039; docs/design/adr/052 status line; docs/design/adr/056 "
+        "'Consequences'; docs/design/adr/057 status line; docs/project/RELEASE_NOTES.md '1.0.0' (MYC-2 GTID positions; "
         "IDXVIS-1 access paths visible; CDCREPL-2).",
     },
     {
@@ -500,7 +500,7 @@ PART11: list[dict[str, Any]] = [
              "Each read sees the last commit; the gateway says so rather than promise repeatable reads."),
         ],
         "source": "Source: README.md 'Boundaries: limits of a store, a format or a recorded decision'; "
-        "docs/RELEASE_NOTES.md '1.0.0' (PGWIRE-TX-1: READ COMMITTED, REPEATABLE READ with a NOTICE).",
+        "docs/project/RELEASE_NOTES.md '1.0.0' (PGWIRE-TX-1: READ COMMITTED, REPEATABLE READ with a NOTICE).",
     },
     {
         "kind": "table",
@@ -508,24 +508,24 @@ PART11: list[dict[str, Any]] = [
         "title": "From a clone to a changing view, then the whole surface",
         "rows": [
             ["Read", "For"],
-            ["docs/QUICKSTART.md", "Clone to a running, changing view in about ten minutes"],
-            ["docs/RUNNING_IN_DOCKER.md", "Images, the compose stack and its profiles, /opt/pravaha"],
-            ["docs/COMPATIBILITY.md", "What 1.x keeps stable, and what is experimental"],
-            ["docs/CONCEPTS.md", "The eight ideas; most surprises are one of them working correctly"],
-            ["docs/tutorials/", "Four lessons: registering, following, replacing and debugging a query"],
+            ["docs/guides/QUICKSTART.md", "Clone to a running, changing view in about ten minutes"],
+            ["docs/operations/RUNNING_IN_DOCKER.md", "Images, the compose stack and its profiles, /opt/pravaha"],
+            ["docs/operations/COMPATIBILITY.md", "What 1.x keeps stable, and what is experimental"],
+            ["docs/guides/CONCEPTS.md", "The eight ideas; most surprises are one of them working correctly"],
+            ["docs/guides/tutorials/", "Four lessons: registering, following, replacing and debugging a query"],
             ["examples/case-studies/", "Thirteen worked systems to copy, each checked by the build"],
-            ["docs/CONTINUOUS_QUERIES.md", "Streams, sources, registration, reading, and every SQL "
+            ["docs/guides/CONTINUOUS_QUERIES.md", "Streams, sources, registration, reading, and every SQL "
              "construct that works or is refused"],
-            ["docs/OPERATIONS.md · SECURITY.md", "Sizing, lanes, recovery, what to watch; authentication, "
+            ["docs/operations/OPERATIONS.md · SECURITY.md", "Sizing, lanes, recovery, what to watch; authentication, "
              "authorization, audit"],
-            ["docs/adr/", "Every architectural decision, including the ones later reversed"],
+            ["docs/design/adr/", "Every architectural decision, including the ones later reversed"],
         ],
         "col_w": [1.7, 3.6],
         "size": 15.5,
         "note": "Ask once. Answer always.",
-        "source": "Source: README.md 'Try it' and 'Documentation'; docs/CONCEPTS.md opening; "
-        "examples/case-studies/README.md (docs/tutorials/, four lessons); docs/RUNNING_IN_DOCKER.md; "
-        "docs/COMPATIBILITY.md.",
+        "source": "Source: README.md 'Try it' and 'Documentation'; docs/guides/CONCEPTS.md opening; "
+        "examples/case-studies/README.md (docs/guides/tutorials/, four lessons); docs/operations/RUNNING_IN_DOCKER.md; "
+        "docs/operations/COMPATIBILITY.md.",
     },
 ]
 

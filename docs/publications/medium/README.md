@@ -1,7 +1,7 @@
 # The Medium post
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
+**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
 
 [`pravaha-medium-post.md`](pravaha-medium-post.md) is a long-form article about Pravaha 1.0.0's
 design: the maintained answer, weighted rows, one-cut checkpoints, lanes, the exact seam, blue/green at
@@ -21,8 +21,8 @@ console/.venv/bin/python tools/medium-page/render.py     # any Python with the m
 ```
 
 Every number, name and code sample in the post comes from this repository: the root README,
-`docs/*.md`, `docs/adr/*.md`, `docs/RELEASE_NOTES.md`, `docs/CLI.md`, `sdk/python/README.md` and the
-case studies' READMEs. If one of those changes, check the post against it before you publish.
+`docs/**/*.md` (the ADRs in `docs/design/adr/`, `docs/project/RELEASE_NOTES.md` and
+`docs/guides/CLI.md` among them), `sdk/python/README.md` and the case studies' READMEs. If one of those changes, check the post against it before you publish.
 
 ## Publishing on Medium
 
@@ -57,7 +57,7 @@ fonts fall back to Inter or another sans, and a serif such as Charis SIL or Geor
 800 px wide, so a 2x export is 1600 px.
 
 Export with whichever of these tools you have, in this order of preference. Run from
-`docs/medium/images`:
+`docs/publications/medium/images`:
 
 ```bash
 # rsvg-convert (librsvg)

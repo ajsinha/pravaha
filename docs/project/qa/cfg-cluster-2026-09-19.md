@@ -1,9 +1,9 @@
 # The CFG cluster — the sixteen open configuration findings, closed
 
-Batch B14. Every `CFG-` finding that `docs/qa/FINDINGS.md` still had open on 2026-09-19, worked in
+Batch B14. Every `CFG-` finding that `docs/project/qa/FINDINGS.md` still had open on 2026-09-19, worked in
 id order, each reproduced against today's code before anything was changed.
 
-`docs/qa/FINDINGS.md` is the lead's file and is not edited here. This is the input to it: one
+`docs/project/qa/FINDINGS.md` is the lead's file and is not edited here. This is the input to it: one
 section per finding, with a verdict, the cause, the fix, the test, the seed-proof result and the
 commit. One finding raised out of CFG-16, which the lead has since filed as `CKPT-5`, is at
 the end.
@@ -79,7 +79,7 @@ whole job happens in its `@PostConstruct` and nothing references it, so it is in
 `REACHABLE_OTHERWISE` with the mechanism named.
 
 Three error codes are new — `PRV-1027 CONFIG_KEY_UNREACHABLE`, `PRV-1052 API_UNHANDLED_REQUEST`,
-`PRV-4093 STATE_CHECKPOINT_DIRECTORY_UNUSABLE` — all three in `docs/TROUBLESHOOTING.md`'s table and
+`PRV-4093 STATE_CHECKPOINT_DIRECTORY_UNUSABLE` — all three in `docs/guides/TROUBLESHOOTING.md`'s table and
 in the console's error topics. **Both of them moved once, for the same reason and caught the same
 way.** `PRV-1027` is not 1030 because the Java SDK already holds 1030 for
 `CLIENT_MALFORMED_ENDPOINT`; `PRV-4093` is not 4091 because the dead-letter batch took 4091 and
@@ -218,7 +218,7 @@ whether the jar is simply absent.
 **Fix.** The message now says which of the two it is: a plugin answers to the name it reports for
 itself, is found by `ServiceLoader`, and therefore resolves only when its jar is on **this
 process's** classpath — the server jar carries `filesystem` alone and the rest are separate modules.
-`docs/CONNECTORS.md` section 1 says the same where somebody choosing a connector reads it, and
+`docs/guides/CONNECTORS.md` section 1 says the same where somebody choosing a connector reads it, and
 section 8 records the absence of a drop-a-jar-in mechanism as a gap rather than leaving it implied
 by a one-item list.
 
@@ -448,7 +448,7 @@ All three facts hold exactly as the finding states them, checked against the cod
 `checkpointConfiguration()` emits `pravaha.checkpoint.timeout` in nanoseconds beside `interval` and
 `keep`; and `PeriodicCheckpointer.from` reads it.
 
-**What was done.** Assumed fact 9 in `docs/qa/cases/CFG.md` is struck through and withdrawn, and
+**What was done.** Assumed fact 9 in `docs/project/qa/cases/CFG.md` is struck through and withdrawn, and
 CFG-024 is rewritten to ask what it should now ask — whether the timeout is **enforced** — with the
 previous run's own evidence recorded against it: three checkpoint files and zero timeout log lines
 from a twelve-row view, which checkpoints well inside a millisecond and is therefore evidence of
@@ -715,7 +715,7 @@ is why this is a new finding rather than part of CFG-16.
 
 - **`I-7`, a way to add a connector to a shipped node.** CFG-4's real remedy. It is a packaging
   change — executable-jar layout, Dockerfile, release artefacts — and belongs with whoever owns
-  `deploy/`. Written down as a gap in `docs/CONNECTORS.md` section 8 rather than implied by a
+  `deploy/`. Written down as a gap in `docs/guides/CONNECTORS.md` section 8 rather than implied by a
   one-item list.
 - **CFG-10(a)'s empty mapping.** `x: {}` produces no property, so no code in this process can see
   it. Measured, not assumed. Documented in three places; requiring `id` removes the reason to write
@@ -728,6 +728,6 @@ is why this is a new finding rather than part of CFG-16.
   nothing in either direction. That is a measurement on a quiet machine, not a unit test — the
   result is a timing claim, and a timing claim taken on a box running four other agents' builds is
   not evidence. **It belongs with the benchmark batch.** The rewritten case in
-  `docs/qa/cases/CFG.md` states the setup and requires the state size and the measured checkpoint
+  `docs/project/qa/cases/CFG.md` states the setup and requires the state size and the measured checkpoint
   duration to be recorded alongside the result, so that whoever runs it cannot record a pass
   without the numbers that make it one.

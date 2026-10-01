@@ -1,7 +1,7 @@
 # The STRM and TIME clusters, closed against the code of 2026-09-19
 
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
-Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
+Proprietary and confidential; see [`../../../LICENSE`](../../../LICENSE).
 
 > **What this is.** Batch B14's streams-and-event-time slice: the ten open `STRM-` findings and the
 > six open `TIME-` findings in [`FINDINGS.md`](FINDINGS.md), each reproduced before it was touched
@@ -611,9 +611,9 @@ never did". Restored, 4 run, 0 failures.
 
 **Verdict: CONFIRMED — the case file is wrong, not the code. FIXED in the case file.**
 
-**Cause.** `docs/qa/cases/STRM.md` was written against a build that did not exist.
+**Cause.** `docs/project/qa/cases/STRM.md` was written against a build that did not exist.
 
-**Fix.** Four corrections in `docs/qa/cases/STRM.md`, each with a note saying what was there and
+**Fix.** Four corrections in `docs/project/qa/cases/STRM.md`, each with a note saying what was there and
 what it cost:
 
 * **`H-EA`** was `SELECT user_id, SUM(amount) AS total FROM txn GROUP BY user_id`, refused with

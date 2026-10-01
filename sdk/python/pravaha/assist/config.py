@@ -261,7 +261,7 @@ class AssistConfig:
             return self.profiles[self.default_profile]
         if not self.models:
             raise AssistConfigError(
-                "no model is configured for the assistant; see docs/ASSIST.md for the file "
+                "no model is configured for the assistant; see docs/guides/ASSIST.md for the file "
                 "(~/.config/pravaha/assist.json, or $PRAVAHA_ASSIST_CONFIG)"
             )
         raise AssistConfigError(

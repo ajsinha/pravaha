@@ -101,8 +101,8 @@ class ErrcCrossCuttingTest {
         byCode.keySet().forEach(n -> declaredCodes.add("PRV-" + n));
 
         Set<String> documentedCodes = new TreeSet<>();
-        Matcher docMatcher =
-                Pattern.compile("PRV-[0-9]{4}").matcher(Files.readString(root.resolve("docs/TROUBLESHOOTING.md")));
+        Matcher docMatcher = Pattern.compile("PRV-[0-9]{4}")
+                .matcher(Files.readString(root.resolve("docs/guides/TROUBLESHOOTING.md")));
         while (docMatcher.find()) {
             documentedCodes.add(docMatcher.group());
         }
@@ -125,7 +125,7 @@ class ErrcCrossCuttingTest {
         // ErrorCode without a row here fails the build, which is the only thing that stops the
         // table drifting from the declarations again.
         assertThat(undocumented)
-                .as("every ErrorCode declared in src/main must have a row in docs/TROUBLESHOOTING.md")
+                .as("every ErrorCode declared in src/main must have a row in docs/guides/TROUBLESHOOTING.md")
                 .isEmpty();
         assertThat(spurious)
                 .as("nothing documented that does not exist -- the case's own one-directional claim")
@@ -155,7 +155,7 @@ class ErrcCrossCuttingTest {
         assertThat(new ErrorCode(8001, "X").category()).isEqualTo(ErrorCode.Category.REGISTRY);
         // E6 (still true, not fixed by the same commit): TROUBLESHOOTING.md's ranges table lists
         // eight ranges (1xxx-8xxx) and omits 9xxx entirely, confirmed by reading the table directly
-        // (docs/TROUBLESHOOTING.md:14-26) -- not re-grepped here since it is a simple visual fact
+        // (docs/guides/TROUBLESHOOTING.md:14-26) -- not re-grepped here since it is a simple visual fact
         // already quoted verbatim in the case file and unchanged by any commit this round found.
     }
 
@@ -191,7 +191,7 @@ class ErrcCrossCuttingTest {
             // all, which is what the resolution probe was really asking after.
             assertThat(HelpUrls.helpLine("PRV-2050"))
                     .contains("the console's help")
-                    .contains("docs/TROUBLESHOOTING.md")
+                    .contains("docs/guides/TROUBLESHOOTING.md")
                     .doesNotContain("http");
 
             HelpUrls.configure("http://localhost:17070/help/codes/");
@@ -317,7 +317,7 @@ class ErrcCrossCuttingTest {
 
     private static Path repoRoot() {
         Path path = Path.of("").toAbsolutePath();
-        while (path != null && !Files.exists(path.resolve("docs/adr"))) {
+        while (path != null && !Files.exists(path.resolve("docs/design/adr"))) {
             path = path.getParent();
         }
         return path;

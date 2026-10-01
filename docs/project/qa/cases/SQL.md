@@ -1,10 +1,10 @@
 # SQL surface and query semantics — test cases
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Area code `SQL`. Written before execution. The contract under test is
-[`docs/SQL_SUPPORT.md`](../../SQL_SUPPORT.md); the question is not whether each construct *plans*
+[`docs/SQL_SUPPORT.md`](../../../guides/CONTINUOUS_QUERIES.md) (since folded into `CONTINUOUS_QUERIES.md`); the question is not whether each construct *plans*
 (`SqlSupportMatrixTest` already asserts that) but whether the engine **computes the right answer**
 and **refuses honestly** what it cannot do.
 
@@ -541,7 +541,7 @@ refusal must not have executed either statement.
 ## SQL-061 — the QUICKSTART example reproduces exactly
 **Intent:** the documentation's first runnable command is what every new user types. If it does not
 work as printed, nothing after it is trusted.
-**Steps:** run `docs/QUICKSTART.md` §2 verbatim and compare against the printed output.
+**Steps:** run `docs/guides/QUICKSTART.md` §2 verbatim and compare against the printed output.
 **Expected:** the command as written succeeds and prints the three lines the document shows.
 
 ## SQL-062 — the support matrix is a plan check, not an answer check

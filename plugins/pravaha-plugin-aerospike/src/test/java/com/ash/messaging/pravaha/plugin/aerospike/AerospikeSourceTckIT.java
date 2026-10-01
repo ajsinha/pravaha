@@ -37,7 +37,7 @@ import static org.assertj.core.api.Assumptions.assumeThat;
 
 /**
  * The Aerospike source, run against the conformance suite every source plugin is supposed to pass --
- * closing the gap that this connector, the one {@code docs/CONNECTORS.md} holds up as the model, had
+ * closing the gap that this connector, the one {@code docs/guides/CONNECTORS.md} holds up as the model, had
  * never actually been run against {@link SourcePluginTck}.
  *
  * <p><strong>It does not pass. {@code replayableOffsetsActuallyReplay} fails, confirmed against a

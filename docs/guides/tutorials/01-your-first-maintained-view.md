@@ -1,7 +1,7 @@
 # Tutorial 1 — Your first maintained view
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
+**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
 
 In this tutorial you ask Pravaha one question, once, and watch it keep the answer current. You
 register a query, read its answer, append a row to the source and see the answer move, then write a

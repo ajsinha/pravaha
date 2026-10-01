@@ -1,7 +1,7 @@
 # Tutorial 2 — Following a view
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
+**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
 
 In [Tutorial 1](01-your-first-maintained-view.md) you asked for the answer each time you wanted it.
 Here you have every change pushed to you instead: a subscription that starts with a snapshot of the
@@ -114,7 +114,7 @@ echo "10,u2,globex,9500,USD,OK,2026-09-26T09:02:30Z" | sudo tee -a /opt/pravaha/
 The copy that sums weights holds exactly the view: u2's top payment is now 9500. A consumer that
 treated each row as an insert would now hold two "top" payments for u2. That is the whole reason to
 apply weights — and a commit can contain a row that appears and disappears within it, as the
-[telecom study](../../examples/case-studies/telecom-cdr-fraud/README.md) shows, which only a sum
+[telecom study](../../../examples/case-studies/telecom-cdr-fraud/README.md) shows, which only a sum
 gets right.
 
 > A top-N holds every row of each partition, because withdrawing the top row needs the next one.

@@ -104,14 +104,14 @@ this becomes another documented capability that does not exist — which is the 
 exists to close.
 
 The P2 and P3 performance gates stay unmet and unaffected; they need homogeneous reference hardware
-(`docs/gates/wave-3/README.md`), and nothing in this wave changes that.
+(`docs/project/gates/wave-3/README.md`), and nothing in this wave changes that.
 
 Wave 8 gets a gate pack, which waves 5 and 6 never got.
 
 ## Implementation status — as of 2026-09-14
 
 **Built.** All four items, on `develop`. The consequence this ADR predicted came true and was
-repaired in the same sweep: `README.md`'s roadmap, `docs/QUICKSTART.md` and `docs/OPERATIONS.md` all
+repaired in the same sweep: `README.md`'s roadmap, `docs/guides/QUICKSTART.md` and `docs/operations/OPERATIONS.md` all
 still described Wave 8 as unstarted clustering after it had shipped as something else.
 
 | Item | Where | Finding |
@@ -129,5 +129,5 @@ it to refuse. `ErrcSqlTest#noProductionPathBindsAQueryToASinkThatCouldReceiveARe
 that precondition, so it fails at the moment a sink binding appears, which is the moment to wire the
 check (W8-13).
 
-**The gate pack this ADR promises does not exist.** `docs/gates/` holds waves 1–4 and 7; there is no
+**The gate pack this ADR promises does not exist.** `docs/project/gates/` holds waves 1–4 and 7; there is no
 `wave-8`, as there is none for waves 5 or 6. Gate P7 is unrecorded.

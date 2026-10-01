@@ -4,7 +4,7 @@ Copyright © 2026 Ashutosh Sinha. Proprietary and confidential.
 
 | | |
 |---|---|
-| Wave | 8 of 11 — E7, rescoped by [ADR-035](../../adr/035-wave-8-is-survival-not-distribution.md) |
+| Wave | 8 of 11 — E7, rescoped by [ADR-035](../../../design/adr/035-wave-8-is-survival-not-distribution.md) |
 | Gate | P7, for milestone **M8 "It survives itself"** |
 | Written | 2026-09-15, retrospectively |
 | Verdict | **Wave complete. Gate P7 passed** — as of 2026-09-15 the first criterion is demonstrated against a real `SIGKILL`ed process, and demonstrating it found a defect that made it false (W8-15). The standby criterion remains unit-level |
@@ -41,7 +41,7 @@ are correctness properties, which is why this gate is closable on the machine th
 ## What it did not do
 
 Membership, assignment, rebalance, elastic rescale, multi-tenancy, Ratis, any multi-node execution —
-all still E7's and still deferred by [ADR-034](../../adr/034-distribution-deferred.md).
+all still E7's and still deferred by [ADR-034](../../../design/adr/034-distribution-deferred.md).
 `DeduplicatingSink` is not wired, so output is effectively-once rather than exactly-once. The
 windowed aggregate still keys state by a 64-bit digest (W8-14, open, and no test can prove a fix).
 *Since this pack was written:* the 64-bit fold is gone and the key is a 128-bit digest (W8-14,

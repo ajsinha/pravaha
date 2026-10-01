@@ -71,7 +71,7 @@ import com.ash.messaging.pravaha.api.plugin.Version;
  * <p><strong>The slot is the operational story.</strong> It retains WAL until confirmed, so a node
  * that stops reading fills the database's disk. {@link #health()} reports the retained WAL and goes
  * {@code DEGRADED} past {@code slot.lag.warn.bytes}; a heartbeat keeps the slot moving on a quiet
- * table; {@code docs/OPERATIONS.md} says how to drop a slot nobody will read again.
+ * table; {@code docs/operations/OPERATIONS.md} says how to drop a slot nobody will read again.
  *
  * <p>One partition, one slot, one reader at a time: a replication slot has one consumer. Not shared
  * between queries ({@code EXACTLY_ONCE} and ordered sources never are), and the slot is the
@@ -266,7 +266,7 @@ public final class PostgresCdcSourcePlugin implements StreamSourcePlugin {
      *
      * <p>Asked of the database rather than remembered, because the number that matters is the one on
      * the database's disk: how much WAL the slot is holding. A Pravaha node that has stopped reading
-     * cannot report that, so {@code docs/OPERATIONS.md} also gives the query to alert on from the
+     * cannot report that, so {@code docs/operations/OPERATIONS.md} also gives the query to alert on from the
      * database side. Cached for a second; the engine polls this often.
      */
     @Override

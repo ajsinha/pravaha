@@ -272,4 +272,4 @@ live feed it arrives as a commit, at 10:10 plus the ten seconds of out-of-ordern
   never shrink. The same `GROUP BY` over the view, as in `03`, is fine.
 
 The full list of what runs and what is refused is
-[`docs/CONTINUOUS_QUERIES.md`](../../../docs/CONTINUOUS_QUERIES.md).
+[`docs/guides/CONTINUOUS_QUERIES.md`](../../../docs/guides/CONTINUOUS_QUERIES.md).

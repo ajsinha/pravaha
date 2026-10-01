@@ -12,7 +12,7 @@
 # -- because the profile did not activate, because Docker was not reachable and the tests
 # assumed themselves away, because a module was excluded. The job goes green. Nobody looks at a
 # green job. This repository has had exactly that: the integration leg and the Spring Boot 3.2
-# through 3.4 legs are listed in docs/REMAINING.md as never having run.
+# through 3.4 legs are listed in docs/development/REMAINING.md as never having run.
 #
 # So the job asserts a floor. A number, not "more than zero", because one test running out of
 # four hundred is the same lie in a smaller font.

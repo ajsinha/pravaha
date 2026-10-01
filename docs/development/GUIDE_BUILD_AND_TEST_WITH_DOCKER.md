@@ -1,7 +1,7 @@
 # Building and testing Pravaha with Docker, step by step
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../LICENSE`](../LICENSE).
+**Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
 
 From a fresh clone on a machine with **only Docker and git**, to the engine, the console and Kafka
 running, a continuous query answering, every test suite run in containers, and everything cleaned up
@@ -9,7 +9,7 @@ again. Each step has the command and what you should see; the outputs are the on
 printed on 2026-09-29, trimmed only where marked `...`.
 
 This is the walkthrough. The reference — every path, variable, port and profile — is
-[`RUNNING_IN_DOCKER.md`](RUNNING_IN_DOCKER.md). The same journey without Docker is
+[`../operations/RUNNING_IN_DOCKER.md`](../operations/RUNNING_IN_DOCKER.md). The same journey without Docker is
 [`GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md`](GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md).
 
 **One rule runs through it:** everything the engine and the console create lives under one directory,
@@ -65,7 +65,7 @@ Everything after this runs from the repository root.
 Two images: the **engine** and the **console**. The console image is always built from source, inside
 Docker. The engine has two routes; pick by what your machine has.
 
-**Route A — nothing but Docker.** The root [`Dockerfile`](../Dockerfile) builds `pravaha-server` and
+**Route A — nothing but Docker.** The root [`Dockerfile`](../../Dockerfile) builds `pravaha-server` and
 `pravaha-cli` inside a `maven:3.9-eclipse-temurin-21` stage, with no JDK on the host:
 
 ```text
@@ -86,7 +86,7 @@ pravaha-engine 0.2.1-SNAPSHOT
 ```
 
 **Route B — a JDK 21 on the host too.** Build the jar yourself and put the release image over it
-([`deploy/docker/Dockerfile`](../deploy/docker/Dockerfile), [ADR-047](adr/047-the-image-is-a-dockerfile-over-built-artefacts.md)):
+([`deploy/docker/Dockerfile`](../../deploy/docker/Dockerfile), [ADR-047](../design/adr/047-the-image-is-a-dockerfile-over-built-artefacts.md)):
 
 ```text
 $ ./mvnw -pl pravaha-server -am package -DskipTests
@@ -293,7 +293,7 @@ $C run --rm cli query --sql "SELECT window_start, customer, spend FROM spend_per
 
 ## 8. Run the test suites in Docker
 
-[`tools/docker-test.sh`](../tools/docker-test.sh) runs each suite in a throwaway container **as you**,
+[`tools/docker-test.sh`](../../tools/docker-test.sh) runs each suite in a throwaway container **as you**,
 from one image it builds on first use (`pravaha/test-runner:local`: Maven, JDK 21 and Python 3), with
 its caches in `~/.cache/pravaha-docker` (yours too):
 
@@ -356,7 +356,7 @@ What that says, honestly:
   expects three records and sees a tombstone between an upsert pair; it fails the same way run on the
   host, outside any container, on the same commit.
 - **The four SDK failures are not Docker's either**: `test_the_packaged_card_is_current_with_the_guide`
-  (the packaged dialect card is older than `docs/CONTINUOUS_QUERIES.md`) and three in
+  (the packaged dialect card is older than `docs/guides/CONTINUOUS_QUERIES.md`) and three in
   `test_authentication.py` (`PRV-4023 no views are registered`) fail identically on the host. The
   cross-language tests that start the real Flight server — in the same container, which is why the
   runner has a JDK — pass.
@@ -451,7 +451,7 @@ shipped rules loaded (3 groups, 15 rules here). Grafana (<http://localhost:23030
 `orders_live` and `spend_per_minute` queries are on it.
 
 The `cdc` and `stores` profiles, the `plugins/` directory and backup and restore are walked through in
-[`RUNNING_IN_DOCKER.md`](RUNNING_IN_DOCKER.md).
+[`../operations/RUNNING_IN_DOCKER.md`](../operations/RUNNING_IN_DOCKER.md).
 
 ## 11. Tear down — only what this made
 
@@ -480,4 +480,4 @@ pravaha/test-runner:local`; the test caches are `~/.cache/pravaha-docker`.
 | `PRV-1031` from the host CLI | set `PRAVAHA_INSECURE_TOKEN=true` (plaintext Flight on loopback) |
 | `docker-test.sh` fails at *Can not write to /root/.m2* | harmless on an old test-runner image; `docker rmi pravaha/test-runner:local` and run again |
 
-More, with causes: [`RUNNING_IN_DOCKER.md`](RUNNING_IN_DOCKER.md), "Troubleshooting".
+More, with causes: [`../operations/RUNNING_IN_DOCKER.md`](../operations/RUNNING_IN_DOCKER.md), "Troubleshooting".

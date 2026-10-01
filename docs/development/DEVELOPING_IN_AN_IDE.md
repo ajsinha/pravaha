@@ -1,11 +1,11 @@
 # Running Pravaha from an IDE
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../LICENSE`](../LICENSE).
+**Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
 
 How to run the **engine** from IntelliJ IDEA and the **console** from PyCharm, with breakpoints in
 both, and how to run their tests there. It is the developer's loop, not a deployment: a deployment
-is a container or the release jar ([`DEPLOYMENT.md`](DEPLOYMENT.md)).
+is a container or the release jar ([`../operations/DEPLOYMENT.md`](../operations/DEPLOYMENT.md)).
 
 The launch settings below were checked by starting both processes exactly as the run configurations
 describe: the engine from compiled classes with these VM options and the `dev` profile, and the
@@ -84,7 +84,7 @@ Put a local file anywhere outside the repository and add it to the program argum
 --spring.profiles.active=dev --spring.config.additional-location=file:/home/you/pravaha-local.yaml
 ```
 
-Streams, sources, sinks, checkpoints: every key in [`../pravaha-server/src/main/resources/application.yaml`](../pravaha-server/src/main/resources/application.yaml)
+Streams, sources, sinks, checkpoints: every key in [`../../pravaha-server/src/main/resources/application.yaml`](../../pravaha-server/src/main/resources/application.yaml)
 can go there, and the file wins over the jar's defaults. Two things are worth setting for a
 development loop:
 

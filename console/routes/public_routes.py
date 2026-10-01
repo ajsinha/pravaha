@@ -74,7 +74,7 @@ class PublicRoutes(Routes):
         def competitive(request: Request):
             """Where Pravaha stands against the product categories that do part of its job.
 
-            Drawn whole from docs/COMPETITIVE_LANDSCAPE.md, which is canonical, in MAYA's form: the
+            Drawn whole from docs/publications/COMPETITIVE_LANDSCAPE.md, which is canonical, in MAYA's form: the
             landscape, the scored table, a note per row -- where Pravaha shines, where it is partial
             or behind -- what the rows have in common, and the sections after. Public, like About.
             """
@@ -207,7 +207,7 @@ class PublicRoutes(Routes):
         def help_decision(request: Request, record: str):
             """One architecture decision record, rendered in place. Allow-listed by the directory's
             own listing, so the name never reaches a path join."""
-            adr_dir = content.include_root / "docs" / "adr"
+            adr_dir = content.include_root / "docs" / "design" / "adr"
             known = {p.stem: p for p in adr_dir.glob("[0-9][0-9][0-9]-*.md")} if adr_dir.is_dir() else {}
             path = known.get(record)
             if path is None:
@@ -219,7 +219,7 @@ class PublicRoutes(Routes):
 
             title = next((h["name"] for h in headings if h["level"] == 1), record)
             decision = Topic(slug=record, title=title, section=self.t("help.decision_records"), html=html,
-                             headings=headings, source=f"docs/adr/{path.name}")
+                             headings=headings, source=f"docs/design/adr/{path.name}")
             return self.page(request, "help_topic.html", current="/help", topic=decision,
                              related=[], **area_context("help"))
 

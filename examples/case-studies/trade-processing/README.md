@@ -369,7 +369,7 @@ and one copy of the state.
 
 That is the whole reason registration and subscription are separate things (ADR-025), and a
 pass-through feed is where it is most visible. The rule itself is
-[ADR-031](../../../docs/adr/031-authorization-at-the-pravaha-layer.md); the same rule decides how a
+[ADR-031](../../../docs/design/adr/031-authorization-at-the-pravaha-layer.md); the same rule decides how a
 security row filter and a continuous-query parameter are handled.
 
 ## Step 6 — query it with SQL
@@ -493,7 +493,7 @@ view scans a finite set of rows and stops.
 
 ## Limits you will meet
 
-Full list: [`docs/CONTINUOUS_QUERIES.md`](../../../docs/CONTINUOUS_QUERIES.md).
+Full list: [`docs/guides/CONTINUOUS_QUERIES.md`](../../../docs/guides/CONTINUOUS_QUERIES.md).
 
 - **No JSON functions.** `trade_json` is an opaque string. Promote anything you filter on into a
   column. This is the limit that shapes the design, so it is first.

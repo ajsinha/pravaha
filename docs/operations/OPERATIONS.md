@@ -1,7 +1,7 @@
 # Operations
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../LICENSE`](../LICENSE).
+**Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
 
 Running Pravaha: what bounds what, what to watch, and what is honestly not solved yet.
 
@@ -60,7 +60,7 @@ a dashboard exists.
 registration when `pravaha.checkpoint.directory` is set. Nothing has to be pruned by hand, and this
 section used to say the opposite.
 
-There is **no RocksDB**, by decision ([ADR-044](adr/044-no-rocksdb-the-mapped-tier-is-l1.md)): a
+There is **no RocksDB**, by decision ([ADR-044](../design/adr/044-no-rocksdb-the-mapped-tier-is-l1.md)): a
 native library is the one dependency this bundle refuses. State is off-heap plus checkpoint files,
 and optionally a memory-mapped overflow tier, which is the on-disk tier:
 
@@ -196,7 +196,7 @@ pravaha:
       max-slabs: 8
 ```
 
-> **What these settings are settings *for*: [`EXECUTION_MODEL.md`](EXECUTION_MODEL.md).** It explains
+> **What these settings are settings *for*: [`../design/EXECUTION_MODEL.md`](../design/EXECUTION_MODEL.md).** It explains
 > why a claim is one cell whatever the row's size, why `cell-bytes` is a hard ceiling rather than a
 > hint, and why a full inbox backpressures instead of spilling.
 
@@ -412,7 +412,7 @@ Refusals reach clients as `RESOURCE_EXHAUSTED`, which drivers retry with backoff
 
 Read admission shares out reads. Tenant quotas share out registrations: how many queries a tenant
 may hold, and how much view state it may already hold when it asks for another computation
-([ADR-050](adr/050-a-tenant-owns-names-and-state-and-shares-only-with-itself.md)).
+([ADR-050](../design/adr/050-a-tenant-owns-names-and-state-and-shares-only-with-itself.md)).
 
 ```yaml
 pravaha:
@@ -788,7 +788,7 @@ more rows as late corrections.
 *Allowed lateness* is what happens to a row later than that. At zero, the default, a window is
 final when the watermark passes it and a later row is dropped. Above zero the window's state is
 kept that much longer, and a late row within it corrects the published answer: a retraction of the
-old result and the corrected one (see [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §6). That
+old result and the corrected one (see [`../guides/CONTINUOUS_QUERIES.md`](../guides/CONTINUOUS_QUERIES.md) §6). That
 makes every windowed query over the stream one that revises, so it can no longer write to an
 append-only sink (`PRV-2041`), and it holds each window's state for the extra time. Until HLP-7 no
 server setting reached it — `pravaha.streams.<name>.allowed-lateness` and `POST /api/v1/streams`'s
@@ -950,7 +950,7 @@ evict, and views never forget. Correct over a file; fatal over a stream.
 
 ## Change data capture: the replication slot
 
-A `postgres-cdc` source ([`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §2.1) leaves state on the
+A `postgres-cdc` source ([`../guides/CONTINUOUS_QUERIES.md`](../guides/CONTINUOUS_QUERIES.md) §2.1) leaves state on the
 **database** server: a logical replication slot. The slot retains write-ahead log from the last
 position it was confirmed at, and **nothing else ever deletes that WAL**. A Pravaha node that stops
 reading — dead, partitioned, or simply never checkpointing — does not fail; the database's disk
@@ -1096,7 +1096,7 @@ resumes from.
 
 ## Kafka as a source
 
-A `kafka` source ([`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md) §2.1) leaves nothing on the
+A `kafka` source ([`../guides/CONTINUOUS_QUERIES.md`](../guides/CONTINUOUS_QUERIES.md) §2.1) leaves nothing on the
 brokers: its position is each partition's next offset, and that lives in the query's checkpoint.
 So there is no slot to drop and nothing to clean up after a registration is gone — and, the other
 side of the same fact, **checkpointing is what makes it exactly once**. Without
@@ -1216,7 +1216,7 @@ pravaha:
 
 A single key column becomes the record's key as itself; several become one blob key, and the key
 columns are then also written as bins so a reader can see them. The connection takes the same
-`tls.*` options as the Aerospike source ([`CONNECTOR_TLS.md`](CONNECTOR_TLS.md)).
+`tls.*` options as the Aerospike source ([`../guides/CONNECTOR_TLS.md`](../guides/CONNECTOR_TLS.md)).
 
 `jdbc-sink` maintains the query's answer in a relational table — PostgreSQL, H2, or anything else
 with a JDBC driver the deployment supplies — and is **transactional**, as `kafka-sink` below is:
@@ -1325,7 +1325,7 @@ pravaha:
   (`enable.idempotence=false`, `acks` other than `all`) or that the sink owns (`transactional.id`,
   serializers, `security.protocol`, `ssl.*`) are refused with `PRV-5100`, as is a misspelled one.
   The target topic must exist (`PRV-5101`); an upsert sink on a topic that is not compacted is
-  logged, not refused. TLS is the shared `tls.*` options ([`CONNECTOR_TLS.md`](CONNECTOR_TLS.md)).
+  logged, not refused. TLS is the shared `tls.*` options ([`../guides/CONNECTOR_TLS.md`](../guides/CONNECTOR_TLS.md)).
 - **Compression:** `none` (the default), `gzip`, `snappy` and `zstd`, and the `kafka` source reads
   the same four. `snappy` and `zstd` are native code (ADR-053): the sink loads the codec at
   configuration and refuses with `PRV-5100` on a platform where it does not load, or where
@@ -1398,7 +1398,7 @@ pravaha:
   that cannot be honoured as written.
 
 `iceberg-sink` keeps an Apache Iceberg table on the local filesystem equal to the view, one snapshot
-per checkpoint ([the help page](../console/content/topics/sink-iceberg.md) has every option). Two
+per checkpoint ([the help page](../../console/content/topics/sink-iceberg.md) has every option). Two
 things to size and to know:
 
 - **Upsert mode holds a checkpoint interval's changes in memory**, collapsed by key, until the
@@ -1565,7 +1565,7 @@ with no internet connection at all.
 **There is no default, and unset is a supported state.** With no base the engine emits **no** URL:
 `helpUrl` is present and empty in the REST and Flight contracts, and every printed line that would
 have carried a link says to look the code up in the console's help under Errors, or in
-[`TROUBLESHOOTING.md`](TROUBLESHOOTING.md), which is the code index. Until DOCX-21 the base was the
+[`../guides/TROUBLESHOOTING.md`](../guides/TROUBLESHOOTING.md), which is the code index. Until DOCX-21 the base was the
 constant `https://docs.pravaha.io/errors/`, on a host that has never been registered — a link that
 failed to connect rather than 404ing, which reads like a network problem at exactly the moment
 somebody is diagnosing one.
@@ -2013,7 +2013,7 @@ the replication slot*). A debug fork of such a query is refused for the same rea
 ## Debugging a live query: the operator's side
 
 A query is answering wrongly and nothing in the log says why. Fork it (ADR-048, and
-[`USER_GUIDE.md`](USER_GUIDE.md#11-the-time-travel-debugger) for the walk-through).
+[`USER_GUIDE.md`](../guides/USER_GUIDE.md#11-the-time-travel-debugger) for the walk-through).
 
 A debug session is a **second copy of the query**, restored from one of its retained checkpoints
 and reading the same sources from the offsets that checkpoint recorded. What matters operationally
@@ -2244,7 +2244,7 @@ No consensus, no membership protocol, no Ratis (ADR-035, ADR-034). Two processes
 |---|---|---|
 | Embedded | `pravaha-embedded` | Inside a Java application. A lifecycle seam only: it starts, stops and reports state, and cannot register or read a query. The CLI does **not** use it |
 | Server | `pravaha-server` + `pravaha-flight` | Standard deployment |
-| Container | `deploy/docker/` | The same server, packaged: a non-root image on a JDK 21 glibc base, built from artefacts the reactor already produced ([ADR-047](adr/047-the-image-is-a-dockerfile-over-built-artefacts.md)) |
+| Container | `deploy/docker/` | The same server, packaged: a non-root image on a JDK 21 glibc base, built from artefacts the reactor already produced ([ADR-047](../design/adr/047-the-image-is-a-dockerfile-over-built-artefacts.md)) |
 | Kubernetes | `deploy/helm/pravaha/` | **One** node as a StatefulSet, because of the state claim below. More replicas are refused at render time |
 | Console | `console/`, separate process | Operator UI, talks only to the public API |
 
@@ -2260,7 +2260,7 @@ Clustering has its coordination layer — membership, leadership, the guarantee 
 assignment, handoff and rebalancing machinery, all tested against mocks. It has no engine wiring:
 nothing implements `PartitionOwner` against real lane state.
 
-**Multi-node execution is deferred** ([ADR-034](adr/034-distribution-deferred.md)), and not because
+**Multi-node execution is deferred** ([ADR-034](../design/adr/034-distribution-deferred.md)), and not because
 the wiring is hard. The rung below it is missing: keyed aggregates are single-lane, because nothing
 routes a row to the lane owning its group. Distribution would build a multi-node story on top of a
 single-node one that is not finished. The engine targets **one node, scaled to its cores**, and the
@@ -2389,8 +2389,8 @@ Listed because you will meet them, not to be thorough:
   Sources declaring exactly-once or ordering within a partition — filesystem, Delta, JDBC — are never
   shared
 - **No clustering, no rebalance, no multi-node execution.** Deferred under
-  [ADR-034](adr/034-distribution-deferred.md); Wave 8 bought survival on one node, not
-  distribution across several ([ADR-035](adr/035-wave-8-is-survival-not-distribution.md)). The
+  [ADR-034](../design/adr/034-distribution-deferred.md); Wave 8 bought survival on one node, not
+  distribution across several ([ADR-035](../design/adr/035-wave-8-is-survival-not-distribution.md)). The
   HA that exists is a standby that takes over from the newest checkpoint — recovery time, not
   continuity
 - **Aligned checkpoint barriers stop at the exchange.** A checkpoint is one cut across every input a

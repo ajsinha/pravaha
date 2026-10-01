@@ -1467,7 +1467,7 @@ public final class PhysicalPlanBuilder {
     private static PravahaException unsupported(String detail) {
         return new PravahaException(
                 SqlErrors.UNSUPPORTED_OPERATOR,
-                detail + " See docs/CONTINUOUS_QUERIES.md for what this engine executes and what it refuses.");
+                detail + " See docs/guides/CONTINUOUS_QUERIES.md for what this engine executes and what it refuses.");
     }
 
     /** Renders a plan as an indented tree, for EXPLAIN and for golden-plan tests. */

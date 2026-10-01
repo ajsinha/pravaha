@@ -1,7 +1,7 @@
 # SQLX — the documented SQL surface, checked against answers rather than plans — execution log
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Cases: [`../cases/SQLX.md`](../cases/SQLX.md). Executed starting 2026-09-14 on branch `develop`,
 against a build of the working tree (`./mvnw -q -o -T1C install -DskipTests`, exit 0). The tree at
@@ -439,7 +439,7 @@ SQLX-084 — **PASS**. A 19-term `IN` list (`u1` plus 18 non-matches) plans and 
 SQLX-085 — **PASS, with a correction to the case's own predicted mechanism.** 20 terms already
 refuses: `PRV-2021  cannot compile the expression 'IN($1, {LogicalValues(tuples=[[...]])})' (IN) yet`
 — **not** `(SEARCH)` as the case's Intent predicts (Calcite builds a `LogicalValues`/`IN` subplan at
-this arity, not a `Sarg`). This matches round 1's own recorded finding (`SQL-054`, `docs/qa/logs/SQL.md`
+this arity, not a `Sarg`). This matches round 1's own recorded finding (`SQL-054`, `docs/project/qa/logs/SQL.md`
 line 1011) precisely, including the `(IN)` wording — the case file's "SEARCH" text is itself the
 inaccuracy, not the engine. Message length grows with term count: 465 bytes at 20 terms, 2546 bytes at
 200 — the whole value list is interpolated into the error, confirming round 1's finding still holds.

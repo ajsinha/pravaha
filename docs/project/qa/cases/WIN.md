@@ -258,11 +258,11 @@ window expressed differently". Two syntaxes that produce different answers is wo
 **Falsifier:** `explain` showing a different operator tree, or any result row differing from WIN-001.
 **Setup:** `qt10g.sql`: `SELECT TUMBLE_START(event_time, INTERVAL '10' SECOND), user_id, COUNT(*), SUM(amount) FROM s0 GROUP BY TUMBLE(event_time, INTERVAL '10' SECOND), user_id`.
 **Steps:** `pravaha explain --sql-file qt10g.sql --schema "txn_id:INT64,user_id:INT64,amount:INT64,event_time:TIMESTAMP" --level physical`; then register as `v_t10g --keys 0,1` and read it.
-**Expected:** Either (a) a physical plan containing `WindowAssign(TUMBLING size=10000ms slide=10000ms on event_time)` above `WindowedAggregate(TUMBLING 10000ms, …)` and the same four rows as WIN-001, or (b) a refusal. Record which. `buildGroupedWindow` rejects any projected expression that is not a `RexInputRef` beside the window call with `PRV-2020` and the text "sits beside a windowing function in the same projection" — `TUMBLE_START(...)` is such an expression, so (b) is the likely outcome and is the same shape `docs/QUICKSTART.md` §4 tells a first-time reader to type.
+**Expected:** Either (a) a physical plan containing `WindowAssign(TUMBLING size=10000ms slide=10000ms on event_time)` above `WindowedAggregate(TUMBLING 10000ms, …)` and the same four rows as WIN-001, or (b) a refusal. Record which. `buildGroupedWindow` rejects any projected expression that is not a `RexInputRef` beside the window call with `PRV-2020` and the text "sits beside a windowing function in the same projection" — `TUMBLE_START(...)` is such an expression, so (b) is the likely outcome and is the same shape `docs/guides/QUICKSTART.md` §4 tells a first-time reader to type.
 **Vacuity:** Not stateful. The falsifier is the plan text, which exists whether or not any row flows.
 
 ### WIN-004 — QUICKSTART §4's windowed registration, executed literally
-**Intent:** `docs/QUICKSTART.md` §4 is the first windowed query a new operator writes. It uses
+**Intent:** `docs/guides/QUICKSTART.md` §4 is the first windowed query a new operator writes. It uses
 `SELECT STREAM`, `TUMBLE_END(...)` in the select list, `GROUP BY TUMBLE(...)`, and registers with
 `--keys 1`. Every one of those four is a separate hazard and the document ships them together.
 **Falsifier:** The command succeeding and `user_volume` holding one row per (window, user).
@@ -880,7 +880,7 @@ reader concludes those are the three window kinds that exist. CUMULATE is a SQL:
 function that Calcite accepts, so a user can type it, and the document has no row for it.
 **Falsifier:** Finding a CUMULATE row.
 **Setup:** The checked-out tree at `develop`; no server.
-**Steps:** `grep -ni cumulate docs/SQL_SUPPORT.md docs/USER_GUIDE.md docs/CONCEPTS.md docs/system_design.md`.
+**Steps:** `grep -ni cumulate docs/SQL_SUPPORT.md docs/guides/USER_GUIDE.md docs/guides/CONCEPTS.md docs/design/system_design.md`.
 **Expected:** No matches. Defect: the supported-construct table is not closed over what the parser
 accepts, so "not listed" and "refused" are not the same set. Recommend a `CUMULATE ❌ PRV-2020` row
 beside the SESSION one.
@@ -1086,7 +1086,7 @@ COUNT(*) FROM v_dense1s` must read 11 while `SUM(n)` reads 10,000. Both assertio
 either alone is passable with the feature broken.
 
 ### WIN-059 — TUMBLE 1 m assigns and totals correctly
-**Intent:** The 1 m scale — the size `docs/QUICKSTART.md` and every case study use, so the one an operator is most likely to run first.
+**Intent:** The 1 m scale — the size `docs/guides/QUICKSTART.md` and every case study use, so the one an operator is most likely to run first.
 **Falsifier:** Any total other than 3, 12, 16; any width ≠ 60,000,000,000 ns.
 **Setup:** `s0` bound to `s1m.csv` = S(1 m): rows at 0, 30 s, 60 s, 119.999999999 s, 120 s; pusher at
 600 s.
@@ -3084,8 +3084,8 @@ is not attributable to the window count.
 to the person who needs a zero in a time series.
 **Falsifier:** Finding it stated anywhere.
 **Setup:** The checked-out tree; no server.
-**Steps:** `grep -ni "empty window" docs/*.md docs/adr/*.md`; read `docs/SQL_SUPPORT.md` §Aggregation
-and `docs/CONCEPTS.md`.
+**Steps:** `grep -ni "empty window" docs/*.md docs/design/adr/*.md`; read `docs/SQL_SUPPORT.md` §Aggregation
+and `docs/guides/CONCEPTS.md`.
 **Expected:** No statement. Record the gap and the remedy a user needs: to see zeros they must
 generate the window grid themselves and outer-join to it, which this engine cannot do — there is no
 `LEFT JOIN` without a time bound and no way to materialise a calendar table. So "emit nothing" is

@@ -10,7 +10,7 @@
 #   tools/docker-env.sh --home ~/pravaha-home    # anywhere else
 #   tools/docker-env.sh --print                  # show what .env holds, secrets masked
 #
-# What it lays down, every path the engine and the console write (docs/RUNNING_IN_DOCKER.md):
+# What it lays down, every path the engine and the console write (docs/operations/RUNNING_IN_DOCKER.md):
 #
 #   <home>/conf/application.yaml     the engine's configuration      (0600, from compose/templates)
 #   <home>/conf/console.yaml         the console's configuration     (0600, from compose/templates)

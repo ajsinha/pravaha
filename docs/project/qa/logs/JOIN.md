@@ -1,7 +1,7 @@
 # JOIN — execution log
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Cases: [`../cases/JOIN.md`](../cases/JOIN.md). Executed 2026-09-14 on branch `develop`, against the
 `pravaha-runtime`/`pravaha-sql` sources as built by `./mvnw install -DskipTests`.

@@ -348,7 +348,7 @@ class StateCheckpointScheduleTest extends StateTestSupport {
         // INVERTED for CFG-17. This asserted the documentation gap as a fact: application.yaml's
         // checkpoint: block documented directory, interval and keep and never mentioned
         // pravaha.checkpoint.timeout, which PeriodicCheckpointer.from reads -- and that absence is
-        // how docs/qa/cases/CFG.md came to record the key as one with a reader and no writer, which
+        // how docs/project/qa/cases/CFG.md came to record the key as one with a reader and no writer, which
         // it is not. The key is now in the file with the other three, and this asserts the closure
         // rather than the gap: all four names, in the block an operator reads.
         Path yaml = Path.of("").toAbsolutePath();

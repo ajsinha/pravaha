@@ -79,7 +79,7 @@ def test_a_name_the_index_does_not_list_is_not_found(anonymous):
 def test_links_go_to_the_study_the_setup_page_the_console_or_the_repository():
     readme = (
         "[sql](sql/01-a.sql) [next](../trade-processing/) [setup](../SETUP.md) [all](../README.md)\n"
-        "[guide](../../../docs/CONTINUOUS_QUERIES.md) [licence](../../../LICENSE) [web](https://x.example/)\n"
+        "[guide](../../../docs/guides/CONTINUOUS_QUERIES.md) [licence](../../../LICENSE) [web](https://x.example/)\n"
         "```\n[in a fence](sql/untouched.sql)\n```"
     )
     out = case_studies.relink(readme, "banking-card-velocity", REPO_ROOT)
@@ -87,7 +87,7 @@ def test_links_go_to_the_study_the_setup_page_the_console_or_the_repository():
     assert "](/help/case-studies/trade-processing)" in out
     assert "](/tutorials/setup)" in out
     assert "](/help/case-studies)" in out
-    assert "](../../../docs/CONTINUOUS_QUERIES.md)" in out  # the renderer's own route for it
+    assert "](../../../docs/guides/CONTINUOUS_QUERIES.md)" in out  # the renderer's own route for it
     assert "](https://github.com/ajsinha/pravaha/blob/main/LICENSE)" in out
     assert "](https://x.example/)" in out
     assert "[in a fence](sql/untouched.sql)" in out

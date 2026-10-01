@@ -1,7 +1,7 @@
 # Deployment
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../LICENSE`](../LICENSE).
+**Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
 
 How to ship a node: the image, the chart, the volumes, the ports, the environment, an upgrade,
 a release — and the things this deliberately does not do.
@@ -64,7 +64,7 @@ at the same path it has inside the container, so a path in a log line is a path 
 
 ## A QA host: two images, two files
 
-[`deploy/qa/`](../deploy/qa) runs one engine and one console on one Linux machine with Docker, from
+[`deploy/qa/`](../../deploy/qa) runs one engine and one console on one Linux machine with Docker, from
 files, with no registry:
 
 ```bash
@@ -85,7 +85,7 @@ by key, so the deployment's file names only what it changes and cannot pin a sta
 secret, and a legacy engine token for the CLI and SDKs (mode 0600, uid 10001). It prints them once and
 never overwrites a file on a re-run. The engine keeps people, passwords and API keys itself (ADR-052),
 so the console holds no credential: people sign in as themselves.
-[`deploy/qa/README.md`](../deploy/qa/README.md) is the page to hand the QA team.
+[`deploy/qa/README.md`](../../deploy/qa/README.md) is the page to hand the QA team.
 
 ---
 
@@ -93,8 +93,8 @@ so the console holds no credential: people sign in as themselves.
 
 | | |
 |---|---|
-| Built by | [`deploy/docker/Dockerfile`](../deploy/docker/Dockerfile), staged by [`deploy/docker/build.sh`](../deploy/docker/build.sh) |
-| Base | `eclipse-temurin:21-jre` (Ubuntu, glibc, 459 MB). Not Alpine: Parquet's Snappy codec is glibc-only ([ADR-053](adr/053-native-code-only-where-java-cannot.md)) |
+| Built by | [`deploy/docker/Dockerfile`](../../deploy/docker/Dockerfile), staged by [`deploy/docker/build.sh`](../../deploy/docker/build.sh) |
+| Base | `eclipse-temurin:21-jre` (Ubuntu, glibc, 459 MB). Not Alpine: Parquet's Snappy codec is glibc-only ([ADR-053](../design/adr/053-native-code-only-where-java-cannot.md)) |
 | Size | **803 MB** on disk as `docker images` reports it on 2026-09-29 (280 MB content); 176 MB of that is the application jar |
 | User | uid **10001** by default, non-root, numeric; **any** `--user` works over bind mounts ([`RUNNING_IN_DOCKER.md`](RUNNING_IN_DOCKER.md), "Any uid") |
 | Entrypoint | `/__cacert_entrypoint.sh bin/pravaha-server` |
@@ -104,7 +104,7 @@ so the console holds no credential: people sign in as themselves.
 
 It does **not** build the project. `build.sh` stages a context of the launcher and the jar (~190
 MB), so the daemon is never sent `.git`, `target/` or the worktrees. Why not Jib, why not distroless, why not a Maven stage:
-[ADR-047](adr/047-the-image-is-a-dockerfile-over-built-artefacts.md).
+[ADR-047](../design/adr/047-the-image-is-a-dockerfile-over-built-artefacts.md).
 
 The **root `Dockerfile` is a different thing** and is kept: clone the repository, `docker build .`,
 wait while Maven resolves the world inside the daemon. It is the convenience build for someone who
@@ -143,7 +143,7 @@ Neither the image nor the layout sets these, although the layout has a place for
 | Key | Why the image will not decide it |
 |---|---|
 | `pravaha.dlq.directory` | Set, a record the engine cannot decode is written there and the source keeps reading. Unset, the source stops, loudly. Which is right is the deployment's call — and if it is set and unwritable the node refuses to start (`PRV-4090`) |
-| `pravaha.state.spill.directory` | A directory alone switches the overflow tier on ([ADR-044](adr/044-no-rocksdb-the-mapped-tier-is-l1.md)). On, a query past its ceiling slows down; off, it dies with `PRV-4001`. And spilling onto whatever the volume happens to be — a tmpfs, say — only moves the out-of-memory to the kernel |
+| `pravaha.state.spill.directory` | A directory alone switches the overflow tier on ([ADR-044](../design/adr/044-no-rocksdb-the-mapped-tier-is-l1.md)). On, a query past its ceiling slows down; off, it dies with `PRV-4001`. And spilling onto whatever the volume happens to be — a tmpfs, say — only moves the out-of-memory to the kernel |
 | `pravaha.node.id` | Defaults to `pravaha-node-01` from the jar. Two containers on one volume under one id is the case `PRV-4003` refuses. The chart sets it from the pod name |
 | `pravaha.security.*` | The shipped defaults **refuse to start**, on purpose. No credential is in this image and none will be |
 
@@ -181,7 +181,7 @@ docker run -d --name pravaha --user "$(id -u):$(id -g)" --read-only \
 `--read-only` works and is tested: the node needs nothing writable outside `/opt/pravaha`
 (`deploy/docker/smoke.sh` runs it with only a tmpfs at `/opt/pravaha/tmp`, and the compose stack runs
 that way every time). For the whole stack — console, Kafka, databases, monitoring — use
-[`deploy/docker/compose`](../deploy/docker/compose); [`RUNNING_IN_DOCKER.md`](RUNNING_IN_DOCKER.md)
+[`deploy/docker/compose`](../../deploy/docker/compose); [`RUNNING_IN_DOCKER.md`](RUNNING_IN_DOCKER.md)
 is its reference.
 
 The CLI is **not** in the engine image — 49 MB, a second copy of the whole engine, to run a client
@@ -249,7 +249,7 @@ with the jar in `pravaha-server/target`: see [`OPERATIONS.md`](OPERATIONS.md), "
 files: PRAVAHA_HOME". With `PRAVAHA_HOME` unset, a checkout behaves as it always has.
 
 **systemd.** The distribution carries
-[`conf/pravaha-server.service`](../deploy/release/distribution/pravaha-server.service), for a home at
+[`conf/pravaha-server.service`](../../deploy/release/distribution/pravaha-server.service), for a home at
 `/opt/pravaha` owned by a `pravaha` system user: `PRAVAHA_HOME=/opt/pravaha`, a 60-second stop
 timeout for the last checkpoint, and `ProtectSystem=strict` with only `data/`, `logs/` and `tmp/`
 writable, so the kernel enforces the layout too. Its header has the four commands that install it.
@@ -259,7 +259,7 @@ above); it has not been run under systemd on this machine.
 **The console without Docker** runs from a checkout (`console/`, `make run`) or its wheel, with the
 same convention if you want it: `--config console/config/application.yaml,$PRAVAHA_HOME/conf/console.yaml`,
 `CONSOLE_LOG_FILE=$PRAVAHA_HOME/logs/pravaha-console.log` and `PRAVAHA_CONFIG_DIR=$PRAVAHA_HOME/data/console`.
-[`GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md`](GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) walks the whole
+[`../development/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md`](../development/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md) walks the whole
 no-Docker route, build and tests included.
 ---
 
@@ -267,7 +267,7 @@ no-Docker route, build and tests included.
 
 Pravaha is Java, and runs wherever a JDK 21 does, TLS included: TLS uses the JDK's own engine, not
 BoringSSL. The build refuses native libraries on any compile or runtime path
-([ADR-053](adr/053-native-code-only-where-java-cannot.md), `enforce-portable-native-code` in the root
+([ADR-053](../design/adr/053-native-code-only-where-java-cannot.md), `enforce-portable-native-code` in the root
 POM), with one exception. Parquet's Snappy and zstd codecs have no Java implementation Parquet can
 use, so they stay:
 
@@ -302,13 +302,13 @@ Pod (helm test)      readiness, /api/v1/status, and the Flight port accepting a 
 ```
 
 Every value is documented one line each in
-[`deploy/helm/pravaha/values.yaml`](../deploy/helm/pravaha/values.yaml).
+[`deploy/helm/pravaha/values.yaml`](../../deploy/helm/pravaha/values.yaml).
 
 ### Why a StatefulSet and not a Deployment
 
 Not convention — the engine's own behaviour. A node **claims** the directories it writes durable
 state into, by writing a `.pravaha-owner` marker naming its node id and refreshing it on a
-30-second lease ([ADR-035](adr/035-wave-8-is-survival-not-distribution.md),
+30-second lease ([ADR-035](../design/adr/035-wave-8-is-survival-not-distribution.md),
 [`OPERATIONS.md`](OPERATIONS.md) "Who owns the state, and the standby"). Two things follow:
 
 - **The identity has to be stable.** The state directory is namespaced by `pravaha.node.id`, *not*
@@ -458,7 +458,7 @@ node would go on running the old one — an upgrade reporting success and changi
 ### What the chart deliberately does not do
 
 - **No clustering.** One replica, and more is refused at render time naming
-  [ADR-045](adr/045-cluster-mode-assigns-queries-not-rows.md). Multi-node execution is on hold: a
+  [ADR-045](../design/adr/045-cluster-mode-assigns-queries-not-rows.md). Multi-node execution is on hold: a
   node owns whole computations, not rows, and nothing consumes partition ownership yet, so a node
   refuses to serve `PARTITIONED` with `PRV-9002`. If you need several nodes, run several releases,
   each with its own storage and its own queries.
@@ -472,8 +472,8 @@ node would go on running the old one — an upgrade reporting success and changi
 - **No Ingress.** Neither port belongs on the internet, and Flight is gRPC — an HTTP/1 ingress in
   front of it silently does not work. Use a Gateway or a mesh that speaks HTTP/2 end to end.
 - **No console.** It is a separate process and its own artefact
-  ([ADR-024](adr/024-console-as-a-separate-process.md),
-  [ADR-033](adr/033-the-ui-ships-as-its-own-artefact.md)), and it reaches the engine only through
+  ([ADR-024](../design/adr/024-console-as-a-separate-process.md),
+  [ADR-033](../design/adr/033-the-ui-ships-as-its-own-artefact.md)), and it reaches the engine only through
   the public API. It is not in this chart and not in this image.
 - **No PodDisruptionBudget by default.** On one replica `minAvailable: 1` is unsatisfiable by
   definition and `kubectl drain` blocks for ever; the chart refuses that setting outright.
@@ -560,7 +560,7 @@ the shape a release tag takes from here.
 | Workflow | Job | Has it ever run? |
 |---|---|---|
 | `fast` | build, format, unit and property tests | Its **command** runs constantly on the development machine. Never as a GitHub Actions workflow |
-| `verify` | integration tests under `-Pit` | **No.** Listed in [`REMAINING.md`](REMAINING.md) B12 as never run |
+| `verify` | integration tests under `-Pit` | **No.** Listed in [`../development/REMAINING.md`](../development/REMAINING.md) B12 as never run |
 | `matrix` | JDK 21 | Command yes, workflow no |
 | `matrix` | JDK 25 | **No** — there is no 25 on the development machine |
 | `matrix` | Spring Boot 3.5 | Command yes |
@@ -613,9 +613,9 @@ including the `/opt/pravaha` layout in `_pod.tpl`.
 |---|---|
 | [Operations](OPERATIONS.md) | What bounds a node, what to watch, what a restart costs, what is not solved |
 | [Security](SECURITY.md) | Authentication, authorization, row filters, audit |
-| [TLS](CONNECTOR_TLS.md) | Every encrypted connection Pravaha makes or accepts |
-| [Troubleshooting](TROUBLESHOOTING.md) | Every `PRV-` code, including the ones this page names |
-| [ADR-047](adr/047-the-image-is-a-dockerfile-over-built-artefacts.md) | Why the image is a Dockerfile over built artefacts |
-| [ADR-053](adr/053-native-code-only-where-java-cannot.md) | Native code only where Java cannot do the job; why the base is glibc |
-| [ADR-035](adr/035-wave-8-is-survival-not-distribution.md) | Node ownership of state, and the standby the chart deploys |
-| [ADR-045](adr/045-cluster-mode-assigns-queries-not-rows.md) | The clustering this chart does not do |
+| [TLS](../guides/CONNECTOR_TLS.md) | Every encrypted connection Pravaha makes or accepts |
+| [Troubleshooting](../guides/TROUBLESHOOTING.md) | Every `PRV-` code, including the ones this page names |
+| [ADR-047](../design/adr/047-the-image-is-a-dockerfile-over-built-artefacts.md) | Why the image is a Dockerfile over built artefacts |
+| [ADR-053](../design/adr/053-native-code-only-where-java-cannot.md) | Native code only where Java cannot do the job; why the base is glibc |
+| [ADR-035](../design/adr/035-wave-8-is-survival-not-distribution.md) | Node ownership of state, and the standby the chart deploys |
+| [ADR-045](../design/adr/045-cluster-mode-assigns-queries-not-rows.md) | The clustering this chart does not do |

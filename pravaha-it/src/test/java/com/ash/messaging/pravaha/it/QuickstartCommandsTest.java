@@ -103,7 +103,7 @@ class QuickstartCommandsTest {
         }
 
         assertThat(failures).as("""
-                        docs/QUICKSTART.md prints output its own commands do not produce.
+                        docs/guides/QUICKSTART.md prints output its own commands do not produce.
 
                         The quickstart is the first thing an evaluator runs, and for a closed-source
                         product they cannot fall back to reading the code. Fix the document against a
@@ -127,7 +127,7 @@ class QuickstartCommandsTest {
     private record Block(int line, List<List<String>> commands, String expectedOutput) {
 
         String where() {
-            return "docs/QUICKSTART.md:" + line;
+            return "docs/guides/QUICKSTART.md:" + line;
         }
     }
 
@@ -313,7 +313,7 @@ class QuickstartCommandsTest {
     }
 
     private static Path quickstart() {
-        return repoRoot().resolve("docs/QUICKSTART.md");
+        return repoRoot().resolve("docs/guides/QUICKSTART.md");
     }
 
     private static Path repoRoot() {

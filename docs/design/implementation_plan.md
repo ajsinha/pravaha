@@ -6,8 +6,8 @@
 > “validated in CI” claims describe what was intended, and several were never built: there is no
 > cross-reference validation script, no benchmark regression gate, no cold-start assertion, and no
 > `pravaha-sql/src/test/resources/plans/` golden-plan directory. Gate evidence packs live under
-> `docs/gates/wave-N/`, not `docs/gates/PN/`. For what is actually built and actually enforced,
-> read [`HANDOVER.md`](HANDOVER.md) and `docs/qa/`.
+> `docs/project/gates/wave-N/`, not `docs/project/gates/PN/`. For what is actually built and actually enforced,
+> read [`../development/HANDOVER.md`](../development/HANDOVER.md) and `docs/project/qa/`.
 
 | Field | Value |
 |---|---|
@@ -228,7 +228,7 @@ estimated, which is why its Sprints cell is a dash rather than a guess.
 Epic **EU** (the console) runs across waves 3–11 rather than owning one, because it ships a surface
 alongside each engine capability (§6.2).
 
-Each wave ends with an evidence pack under `docs/gates/` — benchmark output, test reports, and a
+Each wave ends with an evidence pack under `docs/project/gates/` — benchmark output, test reports, and a
 one-page retrospective on what the wave got wrong. The retrospective feeds the next wave's estimate.
 
 ### 4.1 Branching
@@ -339,7 +339,7 @@ WS-D         │         │      ════════════╪══�
 ### 6.3 Coordination
 
 - Daily 15-minute standup per workstream; twice-weekly 30-minute cross-workstream sync.
-- **Design review before implementation** for any story touching `pravaha-api`, the algebra, or checkpoint semantics — a one-page RFC in `docs/rfc/`, reviewed within 48 h.
+- **Design review before implementation** for any story touching `pravaha-api`, the algebra, or checkpoint semantics — a one-page RFC in `docs/design/rfc/`, reviewed within 48 h.
 - ADRs are amended, never rewritten; a superseded ADR keeps its number and gains a "superseded by NNN" header.
 
 ---
@@ -363,7 +363,7 @@ Epics map 1:1 to the design's phases and to the **waves** of §4.0 — one epic,
 | P0-09 | `pravaha-testkit`: virtual clock, deterministic scheduler, `TestHarness` | 5 d | P0-06 | A two-operator pipeline produces byte-identical output across 1 000 runs with randomised interleavings |
 | P0-10 | JMH harness + `benchmarks/baselines/` + CI Bench stage | 3 d | P0-03 | A seeded 15 % regression fails the build |
 | P0-11 | ArchUnit rule set (no `Serializable`, no unbounded collections, module deps, **no Spring in core**, no `Thread.sleep` in tests) | 2 d | P0-01 | Each rule has a deliberately-violating fixture that fails |
-| P0-12 | `docs/adr/` seeded with ADRs 001–018 from the design doc | 1 d | — | Each ADR is one file with context/decision/consequences |
+| P0-12 | `docs/design/adr/` seeded with ADRs 001–018 from the design doc | 1 d | — | Each ADR is one file with context/decision/consequences |
 
 **Gate P0:** clean clone → `./mvnw clean verify` green on JDK 21 and 25 in under 25 minutes; deterministic harness demonstrated; JMH baselines recorded.
 
@@ -746,7 +746,7 @@ Each epic is one **wave** (§4.0). Epics are decomposed into stories at the star
 
 ## 12. Risk-Driven Spikes
 
-Time-boxed investigations that run *before* the story that depends on them, on `spike/*` branches that are never merged. Each produces a written finding in `docs/rfc/`.
+Time-boxed investigations that run *before* the story that depends on them, on `spike/*` branches that are never merged. Each produces a written finding in `docs/design/rfc/`.
 
 | Spike | When | Time box | Question it answers |
 |---|---|---|---|
@@ -805,7 +805,7 @@ Story-point velocity as a productivity measure, and lines of code. Both reward t
 
 ### 14.3 Phase-boundary artefact
 
-Each gate produces a committed evidence pack under `docs/gates/PN/`: benchmark output, test reports, the demo recording, and a one-page retrospective on what the phase got wrong. The retrospective is the input to re-estimating the next phase.
+Each gate produces a committed evidence pack under `docs/project/gates/PN/`: benchmark output, test reports, the demo recording, and a one-page retrospective on what the phase got wrong. The retrospective is the input to re-estimating the next phase.
 
 ---
 
@@ -1011,7 +1011,7 @@ Copy into the tracker. Owner column filled at planning.
 - [ ] **P0-06a** `RowLayout`: null bitmap, fixed region, var-len pointers, alignment
 - [ ] **P0-06b** `BinaryRowView` / `BinaryRowWriter` over `MemoryAccess`
 - [ ] **P0-06c** jqwik round-trip property over generated schemas, all types
-- [ ] **P0-12** 18 ADR files under `docs/adr/`, one per design §33 row
+- [ ] **P0-12** 18 ADR files under `docs/design/adr/`, one per design §33 row
 
 **Sprint 1 exit:** a clean clone of `develop` runs `./mvnw clean verify` green on JDK 21 and 25, with no system Maven installed.
 

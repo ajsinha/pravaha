@@ -363,7 +363,7 @@ moment the row changed.
 ## Limits you will meet
 
 Stated so you do not find them in a demo. The complete list is
-[`docs/CONTINUOUS_QUERIES.md`](../../../docs/CONTINUOUS_QUERIES.md).
+[`docs/guides/CONTINUOUS_QUERIES.md`](../../../docs/guides/CONTINUOUS_QUERIES.md).
 
 - **No `CASE`.** You cannot write `SUM(CASE WHEN status = 'DECLINED' THEN 1 ELSE 0 END)`. Register a
   second query filtered to declines — see the [trading study](../trading-order-flow/), which needs

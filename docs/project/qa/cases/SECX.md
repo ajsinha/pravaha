@@ -1,7 +1,7 @@
 # SECX — Security, round 2
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Area: **policy × authentication × TLS × row filter × principal × verb × transport**, plus lineage,
 ownership, the lifetime of an authorization decision, audit completeness, and disclosure through
@@ -1124,7 +1124,7 @@ what the operator sees, what they can do about it, and what the path of least re
 (b) the same with `-Djavax.net.ssl.trustStore` pointing at a JKS containing `good.pem`;
 (c) the same with `good.pem` imported into the JVM's `cacerts`;
 (d) `grep -rn "trustedCertificates\|--tls-ca\|--cacert" pravaha-cli/src/main/java sdk/`;
-(e) search `docs/SECURITY.md`, `docs/OPERATIONS.md` and `docs/QUICKSTART.md` for any instruction.
+(e) search `docs/operations/SECURITY.md`, `docs/operations/OPERATIONS.md` and `docs/guides/QUICKSTART.md` for any instruction.
 **Expected:** (a) fails with `PRV-1041 io exception` and a netty pipeline dump naming
 `ProtocolNegotiators$ClientTlsHandler` — a message from which no operator can deduce "certificate not
 trusted". (b) records whether the JVM system properties reach the Flight client at all (they are the

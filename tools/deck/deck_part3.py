@@ -32,8 +32,8 @@ PART6: list[dict[str, Any]] = [
             "What readers, subscribers and sinks see",
             "The statement, its options and its refusals",
         ],
-        "source": "Source: docs/adr/046-a-replacement-meets-the-running-version-at-a-position.md; "
-        "docs/CONTINUOUS_QUERIES.md §8.1.",
+        "source": "Source: docs/design/adr/046-a-replacement-meets-the-running-version-at-a-position.md; "
+        "docs/guides/CONTINUOUS_QUERIES.md §8.1.",
     },
     {
         "kind": "table",
@@ -57,7 +57,7 @@ PART6: list[dict[str, Any]] = [
         ],
         "col_w": [1.6, 3.4],
         "size": 15.5,
-        "source": "Source: docs/adr/046-a-replacement-meets-the-running-version-at-a-position.md "
+        "source": "Source: docs/design/adr/046-a-replacement-meets-the-running-version-at-a-position.md "
         "'Decision' and 'Alternatives considered' (paraphrased closely).",
     },
     {
@@ -82,8 +82,8 @@ PART6: list[dict[str, Any]] = [
              "the name (E); the candidate resumes from its own checkpoints."),
         ],
         "size": 16,
-        "source": "Source: docs/CONTINUOUS_QUERIES.md §8.1 ('What happens, in order'; PRV-4013, "
-        "PRV-4014); docs/adr/046 §1 (OffsetSplicedReader), §4 (P, C, E records).",
+        "source": "Source: docs/guides/CONTINUOUS_QUERIES.md §8.1 ('What happens, in order'; PRV-4013, "
+        "PRV-4014); docs/design/adr/046 §1 (OffsetSplicedReader), §4 (P, C, E records).",
     },
     {
         "kind": "table",
@@ -104,7 +104,7 @@ PART6: list[dict[str, Any]] = [
         ],
         "col_w": [1.3, 3.8],
         "size": 15.5,
-        "source": "Source: docs/adr/046 §2–§3 and 'Consequences'; docs/CONTINUOUS_QUERIES.md §8.1 "
+        "source": "Source: docs/design/adr/046 §2–§3 and 'Consequences'; docs/guides/CONTINUOUS_QUERIES.md §8.1 "
         "('What a reader / subscriber / sink sees'); README.md 'The console' (backfill and cutover).",
     },
     {
@@ -137,8 +137,8 @@ PART6: list[dict[str, Any]] = [
         "size": 14.5,
         "note": "backfill.rate.limit is a ceiling: an operator may lower it while it runs (pravaha "
         "throttle) and may not raise it. Eight gauges watch every query, replaced or not.",
-        "source": "Source: docs/CONTINUOUS_QUERIES.md §8.1 (the statement verbatim, reflowed; options "
-        "table; refusals table); docs/adr/050 §3 / docs/SECURITY.md 'A replacement stays in its tenant' "
+        "source": "Source: docs/guides/CONTINUOUS_QUERIES.md §8.1 (the statement verbatim, reflowed; options "
+        "table; refusals table); docs/design/adr/050 §3 / docs/operations/SECURITY.md 'A replacement stays in its tenant' "
         "(PRV-8022); README.md 'Blue/green replacement' (eight gauges).",
     },
 ]
@@ -156,8 +156,8 @@ CHAINS: list[dict[str, Any]] = [
             "Alerts that fire and clear (ADR-057)",
             "Exactly-once state, at-least-once delivery",
         ],
-        "source": "Source: docs/adr/056-queries-on-queries.md; docs/adr/057-alerts.md; "
-        "docs/RELEASE_NOTES.md '1.0.0'.",
+        "source": "Source: docs/design/adr/056-queries-on-queries.md; docs/design/adr/057-alerts.md; "
+        "docs/project/RELEASE_NOTES.md '1.0.0'.",
     },
     {
         "kind": "code",
@@ -194,8 +194,8 @@ CHAINS: list[dict[str, Any]] = [
              "member (PRV-8026), deeper than eight (PRV-8027)."),
         ],
         "size": 15,
-        "source": "Source: docs/CONTINUOUS_QUERIES.md §3.1 (the three statements, verbatim, reflowed); "
-        "docs/adr/056-queries-on-queries.md §1, §4, §5; docs/RELEASE_NOTES.md '1.0.0' (Queries on "
+        "source": "Source: docs/guides/CONTINUOUS_QUERIES.md §3.1 (the three statements, verbatim, reflowed); "
+        "docs/design/adr/056-queries-on-queries.md §1, §4, §5; docs/project/RELEASE_NOTES.md '1.0.0' (Queries on "
         "queries).",
     },
     {
@@ -222,9 +222,9 @@ CHAINS: list[dict[str, Any]] = [
              "Drops its queue, re-snapshots and is fed the difference: conflation without loss."),
         ],
         "size": 15,
-        "source": "Source: docs/adr/056-queries-on-queries.md §2 (the image, the freeze, restore by "
+        "source": "Source: docs/design/adr/056-queries-on-queries.md §2 (the image, the freeze, restore by "
         "difference, the 65,536-change queue); QueryChainsTest, UpstreamReaderTest; "
-        "docs/research/continuous-queries-as-maintained-answers.tex §8 (Theorem: a chain is exact).",
+        "docs/publications/research/continuous-queries-as-maintained-answers.tex §8 (Theorem: a chain is exact).",
     },
     {
         "kind": "code",
@@ -257,8 +257,8 @@ CHAINS: list[dict[str, Any]] = [
              "and PagerDuty are designed, not built."),
         ],
         "size": 15,
-        "source": "Source: docs/adr/057-alerts.md §1–§3, §5 (statement shape and options from §2; "
-        "channels built and designed); docs/RELEASE_NOTES.md '1.0.0' (Alerts).",
+        "source": "Source: docs/design/adr/057-alerts.md §1–§3, §5 (statement shape and options from §2; "
+        "channels built and designed); docs/project/RELEASE_NOTES.md '1.0.0' (Alerts).",
     },
     {
         "kind": "table",
@@ -280,8 +280,8 @@ CHAINS: list[dict[str, Any]] = [
         "size": 14.5,
         "note": "Tested end to end: the retail study's low-stock alert on a real node with a signed "
         "webhook and a restart (RetailLowStockAlertEndToEndTest).",
-        "source": "Source: docs/adr/057-alerts.md §4 (journal, restart, redelivery, idempotency key) and "
-        "§6 (PRV-8024); docs/RELEASE_NOTES.md '1.0.0' (Alerts, RetailLowStockAlertEndToEndTest).",
+        "source": "Source: docs/design/adr/057-alerts.md §4 (journal, restart, redelivery, idempotency key) and "
+        "§6 (PRV-8024); docs/project/RELEASE_NOTES.md '1.0.0' (Alerts, RetailLowStockAlertEndToEndTest).",
     },
 ]
 
@@ -300,7 +300,7 @@ PART7: list[dict[str, Any]] = [
             "What a connector must earn",
         ],
         "source": "Source: plugins/ (ten connector plugins and pravaha-cluster-zookeeper); "
-        "docs/CONNECTORS.md; README.md 'Sources', 'Sinks'.",
+        "docs/guides/CONNECTORS.md; README.md 'Sources', 'Sinks'.",
     },
     {
         "kind": "table",
@@ -324,9 +324,9 @@ PART7: list[dict[str, Any]] = [
         ],
         "col_w": [1.2, 2.3, 2.3],
         "size": 14,
-        "source": "Source: README.md 'Sources'; docs/CONNECTORS.md §1 (kinds and shipped examples, "
+        "source": "Source: README.md 'Sources'; docs/guides/CONNECTORS.md §1 (kinds and shipped examples, "
         "lookup names with suffix); plugins/*/src/main/resources/META-INF/services/ (which plugin "
-        "declares which kind); docs/adr/054 ('Which sources').",
+        "declares which kind); docs/design/adr/054 ('Which sources').",
     },
     {
         "kind": "table",
@@ -349,8 +349,8 @@ PART7: list[dict[str, Any]] = [
         "size": 14.5,
         "note": "A sink with a configured schema or key reports it, and a registration that does not "
         "match is refused before the sink opens (PRV-8010).",
-        "source": "Source: README.md 'Sinks'; docs/CONNECTORS.md §1 (StreamSinkPlugin row); "
-        "docs/RELEASE_NOTES.md 0.2.0 (Avro/Protobuf, commit.mode: prepared) and '1.0.0' "
+        "source": "Source: README.md 'Sinks'; docs/guides/CONNECTORS.md §1 (StreamSinkPlugin row); "
+        "docs/project/RELEASE_NOTES.md 0.2.0 (Avro/Protobuf, commit.mode: prepared) and '1.0.0' "
         "(iceberg-sink).",
     },
     {
@@ -381,8 +381,8 @@ PART7: list[dict[str, Any]] = [
             ],
             "size": 16,
         },
-        "source": "Source: docs/adr/041-change-data-capture-without-debezium.md; README.md 'Sources' "
-        "(postgres-cdc, mysql-cdc); docs/RELEASE_NOTES.md '1.0.0' (mysql-cdc, PRV-5152).",
+        "source": "Source: docs/design/adr/041-change-data-capture-without-debezium.md; README.md 'Sources' "
+        "(postgres-cdc, mysql-cdc); docs/project/RELEASE_NOTES.md '1.0.0' (mysql-cdc, PRV-5152).",
     },
     {
         "kind": "bullets",
@@ -403,8 +403,8 @@ PART7: list[dict[str, Any]] = [
              "JDBC, PostgreSQL CDC, Aerospike, Cassandra and Kafka (CONNECTOR_TLS.md). Kafka's lz4 "
              "is refused: it needs native code the build refuses (ADR-053)."),
         ],
-        "source": "Source: docs/CONNECTORS.md §1 (PRV-5090, CFG-4); docs/system_design.md §33 ADR-028 "
-        "row; docs/CONTINUOUS_QUERIES.md §2.1 (PRV-2042, deletes: detect); README.md 'Sources' and "
+        "source": "Source: docs/guides/CONNECTORS.md §1 (PRV-5090, CFG-4); docs/design/system_design.md §33 ADR-028 "
+        "row; docs/guides/CONTINUOUS_QUERIES.md §2.1 (PRV-2042, deletes: detect); README.md 'Sources' and "
         "'Boundaries' (TLS; lz4).",
     },
 ]
@@ -426,8 +426,8 @@ PART8: list[dict[str, Any]] = [
             "Tenancy and ownership (ADR-050, ADR-060)",
             "What is not built",
         ],
-        "source": "Source: docs/adr/031-authorization-at-the-pravaha-layer.md; docs/adr/052; "
-        "docs/adr/050; docs/adr/059; docs/adr/060; docs/SECURITY.md.",
+        "source": "Source: docs/design/adr/031-authorization-at-the-pravaha-layer.md; docs/design/adr/052; "
+        "docs/design/adr/050; docs/design/adr/059; docs/design/adr/060; docs/operations/SECURITY.md.",
     },
     {
         "kind": "cards",
@@ -446,7 +446,7 @@ PART8: list[dict[str, Any]] = [
             ("4", "A continuous query has no caller",
              "It runs for months while nobody is connected; there is no session to carry down."),
         ],
-        "source": "Source: docs/adr/031-authorization-at-the-pravaha-layer.md 'Why it cannot be "
+        "source": "Source: docs/design/adr/031-authorization-at-the-pravaha-layer.md 'Why it cannot be "
         "delegated to the store'.",
     },
     {
@@ -481,7 +481,7 @@ PART8: list[dict[str, Any]] = [
             ],
             "size": 15,
         },
-        "source": "Source: docs/adr/031 (three pieces; soundness rule); docs/SECURITY.md 'What a "
+        "source": "Source: docs/design/adr/031 (three pieces; soundness rule); docs/operations/SECURITY.md 'What a "
         "registration is allowed to read / write', 'A conditional entitlement cannot subscribe' "
         "(STRM-13; catalogue filters enforced per change).",
     },
@@ -503,8 +503,8 @@ PART8: list[dict[str, Any]] = [
         "Grants are allow-only, to roles and users, inherited down namespaces; tenants are walls.",
         "note": "GRANT, REVOKE, SHOW EFFECTIVE ACCESS run wherever CREATE CONTINUOUS QUERY does; "
         "pravaha grant | revoke | access why; the console's Catalog and Admin → Grants.",
-        "source": "Source: docs/RELEASE_NOTES.md '1.0.0' (The Pravaha Catalog, phase 1); "
-        "docs/adr/059-the-pravaha-catalog-governs-live-answers.md 'Phase 1, as built' (mid-stream "
+        "source": "Source: docs/project/RELEASE_NOTES.md '1.0.0' (The Pravaha Catalog, phase 1); "
+        "docs/design/adr/059-the-pravaha-catalog-governs-live-answers.md 'Phase 1, as built' (mid-stream "
         "revocation every two seconds); README.md 'Governed catalogue'.",
     },
     {
@@ -538,9 +538,9 @@ PART8: list[dict[str, Any]] = [
              "carries the mask into its own answer."),
         ],
         "size": 15,
-        "source": "Source: docs/SECURITY.md 'Row filters and masks as catalogue objects (ADR-059 §4)' "
-        "(the statements, verbatim, reflowed); docs/RELEASE_NOTES.md '1.0.0' (phase 2: where it is "
-        "enforced; PRV-7006; the fingerprint); docs/adr/059 'Phase 2, as built'.",
+        "source": "Source: docs/operations/SECURITY.md 'Row filters and masks as catalogue objects (ADR-059 §4)' "
+        "(the statements, verbatim, reflowed); docs/project/RELEASE_NOTES.md '1.0.0' (phase 2: where it is "
+        "enforced; PRV-7006; the fingerprint); docs/design/adr/059 'Phase 2, as built'.",
     },
     {
         "kind": "split",
@@ -573,8 +573,8 @@ PART8: list[dict[str, Any]] = [
             ],
             "size": 14.5,
         },
-        "source": "Source: docs/RELEASE_NOTES.md '1.0.0' (TAUTOFILTER-1: the listed filters, PRV-7003, "
-        "PRV-7038); commit af5ee635 (VACUITYGAP-1: a < 5 OR a > 2, regions); docs/adr/059 'Vacuity'; "
+        "source": "Source: docs/project/RELEASE_NOTES.md '1.0.0' (TAUTOFILTER-1: the listed filters, PRV-7003, "
+        "PRV-7038); commit af5ee635 (VACUITYGAP-1: a < 5 OR a > 2, regions); docs/design/adr/059 'Vacuity'; "
         "FilterVacuityTest.",
     },
     {
@@ -597,7 +597,7 @@ PART8: list[dict[str, Any]] = [
         "size": 14.5,
         "note": "An append-only, fsync'd journal holds it — no database to run. The console signs "
         "each person in against the engine and acts as them. MFA and SSO were dropped by the owner.",
-        "source": "Source: docs/adr/052-the-engine-is-the-identity-authority.md (secrets table, policy, "
+        "source": "Source: docs/design/adr/052-the-engine-is-the-identity-authority.md (secrets table, policy, "
         "lockout, API keys, sessions, store; status line: stages 4 and 5 dropped 2026-09-27); README.md "
         "'Security'.",
     },
@@ -632,9 +632,9 @@ PART8: list[dict[str, Any]] = [
             ],
             "size": 15,
         },
-        "source": "Source: docs/adr/050-a-tenant-owns-names-and-state-and-shares-only-with-itself.md "
-        "§1–§2; docs/adr/060-view-names-are-unique-per-tenant.md; docs/SECURITY.md 'Tenants'; "
-        "docs/RELEASE_NOTES.md '1.0.0' (upgrade notes; LIFE-040, SX-6 ownership; one-way upgrade).",
+        "source": "Source: docs/design/adr/050-a-tenant-owns-names-and-state-and-shares-only-with-itself.md "
+        "§1–§2; docs/design/adr/060-view-names-are-unique-per-tenant.md; docs/operations/SECURITY.md 'Tenants'; "
+        "docs/project/RELEASE_NOTES.md '1.0.0' (upgrade notes; LIFE-040, SX-6 ownership; one-way upgrade).",
     },
     {
         "kind": "bullets",
@@ -651,8 +651,8 @@ PART8: list[dict[str, Any]] = [
             ("MFA and single sign-on",
              "Dropped by the owner: users, passwords, API keys and sessions are what Pravaha keeps."),
         ],
-        "source": "Source: docs/SECURITY.md 'Transport', 'What is not built'; docs/adr/059 status line "
-        "(phases 3 and 4 not built); docs/adr/052 status line.",
+        "source": "Source: docs/operations/SECURITY.md 'Transport', 'What is not built'; docs/design/adr/059 status line "
+        "(phases 3 and 4 not built); docs/design/adr/052 status line.",
     },
 ]
 
@@ -732,7 +732,7 @@ PART9: list[dict[str, Any]] = [
              "(Prometheus, Grafana), tools."),
         ],
         "size": 14,
-        "source": "Source: docs/RUNNING_IN_DOCKER.md 'The short version' (commands, ports) and 'One root: "
+        "source": "Source: docs/operations/RUNNING_IN_DOCKER.md 'The short version' (commands, ports) and 'One root: "
         "PRAVAHA_HOME' (layout); commit 36d766f8 (compose stack: profiles, uid:gid, read-only roots); "
         "commit c2af8cfb (PRAVAHA_HOME, PravahaHomeLayoutTest).",
     },
@@ -757,9 +757,9 @@ PART9: list[dict[str, Any]] = [
         "note": "FastAPI, server-rendered, every asset vendored so it runs air-gapped; four themes, "
         "crimson by default. 1,937 console tests pass with the browser suites, zero axe violations in "
         "every theme; the manual WCAG 2.2 AA audit is not done.",
-        "source": "Source: README.md 'The console'; docs/RELEASE_NOTES.md '1.0.0' (Admin → Lanes, Admin · "
+        "source": "Source: README.md 'The console'; docs/project/RELEASE_NOTES.md '1.0.0' (Admin → Lanes, Admin · "
         "AI models, Catalog and Admin → Grants/Policies, Alerts screens, MAYA design and four themes); "
-        "docs/TESTING.md tiers table (console 1,937 passed); commit ff9fae5d.",
+        "docs/development/TESTING.md tiers table (console 1,937 passed); commit ff9fae5d.",
     },
     {
         "kind": "split",
@@ -787,8 +787,8 @@ PART9: list[dict[str, Any]] = [
             ],
             "size": 16,
         },
-        "source": "Source: docs/RELEASE_NOTES.md '1.0.0' (the Java CLI is now pravaha-engine; "
-        "commands moved to the Python CLI); docs/QUICKSTART.md (pip install); docs/ARCHITECTURE.md "
+        "source": "Source: docs/project/RELEASE_NOTES.md '1.0.0' (the Java CLI is now pravaha-engine; "
+        "commands moved to the Python CLI); docs/guides/QUICKSTART.md (pip install); docs/design/ARCHITECTURE.md "
         "module table (pravaha-cli). Commit 90b14871.",
     },
     {
@@ -823,8 +823,8 @@ PART9: list[dict[str, Any]] = [
              "Other calls fail with PRV-1040, retryable, and work as soon as the node is back."),
         ],
         "size": 16,
-        "source": "Source: docs/USER_GUIDE.md 'Surviving a restart: reconnect' (both snippets, "
-        "reflowed); docs/RELEASE_NOTES.md '1.0.0' (JavaSdkReconnectTest, test_reconnect.py).",
+        "source": "Source: docs/guides/USER_GUIDE.md 'Surviving a restart: reconnect' (both snippets, "
+        "reflowed); docs/project/RELEASE_NOTES.md '1.0.0' (JavaSdkReconnectTest, test_reconnect.py).",
     },
     {
         "kind": "cards",
@@ -845,8 +845,8 @@ PART9: list[dict[str, Any]] = [
         "note": "SdkIndependenceTest fails the build if an SDK reaches a server module or the server's "
         "jar carries SDK classes. The standalone check found SDKNETTYMIX-1: a Maven client resolved two "
         "Netty lines and failed on its first call — invisible to tests inside the build.",
-        "source": "Source: docs/RELEASE_NOTES.md '1.0.0' (SDKSTANDALONE-1, SDKNETTYMIX-1); "
-        "docs/TESTING.md 'The SDKs on their own'; commit bc971c6b (sources and javadoc jars).",
+        "source": "Source: docs/project/RELEASE_NOTES.md '1.0.0' (SDKSTANDALONE-1, SDKNETTYMIX-1); "
+        "docs/development/TESTING.md 'The SDKs on their own'; commit bc971c6b (sources and javadoc jars).",
     },
     {
         "kind": "split",
@@ -881,7 +881,7 @@ PART9: list[dict[str, Any]] = [
         },
         "note": "Tested with the real Npgsql 4.0.17, pgjdbc, psycopg 3 and psql. Power BI Desktop itself "
         "was not run.",
-        "source": "Source: docs/RELEASE_NOTES.md '1.0.0' (Power BI through the gateway; PGWIRE-TX-1; "
+        "source": "Source: docs/project/RELEASE_NOTES.md '1.0.0' (Power BI through the gateway; PGWIRE-TX-1; "
         "AVGINT-1; PGWIREPASS-1); commit 2a77768a (psql 18's \\d); README.md 'BI tools'.",
     },
     {
@@ -904,8 +904,8 @@ PART9: list[dict[str, Any]] = [
         "note": "Shipped beside them: four Grafana dashboards, Prometheus rules (and a Helm "
         "PrometheusRule), JSON logs with correlation and trace ids, OpenTelemetry tracing (off by "
         "default). Per-operator metrics cost about 12 % of throughput, so they are off by default.",
-        "source": "Source: docs/OPERATIONS.md 'Watching a running node' (per-query and per-node tables; "
-        "FEED-1; ADR-037 B1); docs/RELEASE_NOTES.md '1.0.0' (Observability, built out; PERF-1: about "
+        "source": "Source: docs/operations/OPERATIONS.md 'Watching a running node' (per-query and per-node tables; "
+        "FEED-1; ADR-037 B1); docs/project/RELEASE_NOTES.md '1.0.0' (Observability, built out; PERF-1: about "
         "12 %, re-taken without the coverage agent).",
     },
     {
@@ -936,9 +936,9 @@ PART9: list[dict[str, Any]] = [
              "here."),
         ],
         "size": 14.5,
-        "source": "Source: docs/adr/058-plain-english-to-continuous-sql.md (status; §1, §2, §3); "
-        "docs/RELEASE_NOTES.md '1.0.0' (the assistant, phases 1–3; 27 + 3 golden cases); "
-        "docs/COMPATIBILITY.md 'Experimental in 1.0'; docs/ASSIST.md.",
+        "source": "Source: docs/design/adr/058-plain-english-to-continuous-sql.md (status; §1, §2, §3); "
+        "docs/project/RELEASE_NOTES.md '1.0.0' (the assistant, phases 1–3; 27 + 3 golden cases); "
+        "docs/operations/COMPATIBILITY.md 'Experimental in 1.0'; docs/guides/ASSIST.md.",
     },
     {
         "kind": "bullets",
@@ -958,7 +958,7 @@ PART9: list[dict[str, Any]] = [
              "exports as a self-contained JUnit test that compiles and passes."),
         ],
         "source": "Source: README.md 'Time-travel debugger'; "
-        "docs/adr/048-a-debug-fork-is-a-second-computation-nothing-can-read.md.",
+        "docs/design/adr/048-a-debug-fork-is-a-second-computation-nothing-can-read.md.",
     },
 ]
 

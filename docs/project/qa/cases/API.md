@@ -730,7 +730,7 @@ Exactly one of six rows throws, so a run that swallowed the failure would report
 look entirely healthy. Assert the absence of that line, not merely the presence of an error.
 
 ## API-053 — the QUICKSTART invocation of `run` does not work as printed
-**Intent:** `docs/QUICKSTART.md` §2 tells a first-time user to run `pravaha run` with `--sql`,
+**Intent:** `docs/guides/QUICKSTART.md` §2 tells a first-time user to run `pravaha run` with `--sql`,
 `--schema`, `--stream`, `--in` and `--out` — and no `--out-schema`, which `RunCommand` requires.
 The schema it gives is also two columns for a four-column file. The documentation and the code
 disagree, and this pins the disagreement rather than describing it.

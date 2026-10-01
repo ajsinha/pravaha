@@ -38,7 +38,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * most of that loading Calcite. The number had been *plausible*, which is exactly what makes this
  * kind of rot survive review.
  *
- * <p>So the outputs in {@code examples/} and {@code docs/QUICKSTART.md} are produced here and
+ * <p>So the outputs in {@code examples/} and {@code docs/guides/QUICKSTART.md} are produced here and
  * compared. An example that stops working fails the build rather than quietly misleading whoever
  * tries it next -- and for a closed-source product they cannot fall back to reading the code
  * (design section 30.4), which makes a wrong example unusually expensive.
@@ -155,7 +155,7 @@ class ExamplesTest {
         assertThat(result.err())
                 .contains("PRV-2002")
                 .doesNotContain("docs.pravaha.io")
-                .contains("look PRV-2002 up in the console's help under Errors, or in docs/TROUBLESHOOTING.md");
+                .contains("look PRV-2002 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md");
     }
 
     @Test

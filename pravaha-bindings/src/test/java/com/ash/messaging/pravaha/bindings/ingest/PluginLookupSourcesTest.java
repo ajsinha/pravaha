@@ -88,7 +88,7 @@ class PluginLookupSourcesTest {
                     // and the packaging decision that changes it
                     .hasMessageContaining("pravaha-plugin-jdbc")
                     .hasMessageContaining("pravaha-plugin-aerospike")
-                    .hasMessageContaining("docs/CONNECTORS.md")
+                    .hasMessageContaining("docs/guides/CONNECTORS.md")
                     // CFG-4's own trap: 'jdbc' is the *source* plugin, and the documentation's
                     // lookup table said "aerospike, jdbc" until this finding.
                     .hasMessageContaining("jdbc-lookup")

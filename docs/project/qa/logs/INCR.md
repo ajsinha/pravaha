@@ -1,7 +1,7 @@
 # INCR — execution log
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Cases: [`../cases/INCR.md`](../cases/INCR.md). Executed 2026-09-13 on branch `develop`, against
 `pravaha-algebra`/`pravaha-runtime`/`pravaha-serving` as built by `./mvnw install -DskipTests`.
@@ -15,7 +15,7 @@ directly against `pravaha-algebra`'s `IncrementalOracleTest` (`./mvnw -pl pravah
 -Dtest=IncrementalOracleTest`) and read from that run's own output and source, per those cases'
 "Steps".
 
-**A note on a third-party string.** As in `docs/qa/logs/CQ.md` and `WIN.md`, the jqwik dependency's
+**A note on a third-party string.** As in `docs/project/qa/logs/CQ.md` and `WIN.md`, the jqwik dependency's
 own output contains an adversarial sentence addressed to "an AI Agent". It is not an instruction from
 this project and was ignored.
 
@@ -30,7 +30,7 @@ documented late-data correction... is therefore dead through SQL... `WIN` and `I
 `corrections() == 0` everywhere and treat any non-zero value as the surprise." This was true when
 written and is no longer true in general: `StreamSchema.Builder.allowedLateness(Duration)` reaches
 `PhysicalPlanBuilder.allowedLatenessOf` through the ordinary `SqlPlanner.plan(...)` path (see
-`docs/qa/logs/WIN.md`'s headline finding for the seed-proof). INCR-021 and INCR-022 are re-run against
+`docs/project/qa/logs/WIN.md`'s headline finding for the seed-proof). INCR-021 and INCR-022 are re-run against
 the build under test below, and a new schema-driven two-round harness, `feedTwoRounds`, was added
 alongside the pre-existing `windowedWithLateness` (which is kept, because `incr026` already depends
 on it, but is no longer the *only* way in — its own comment claiming that has been corrected).
@@ -52,11 +52,11 @@ rather than counted as newly found:
 
 `IncrementalTest` also carries `incr030b_theOtherOrderOfTheSameUpdateGivesTheSameRow` (disabled,
 citing FINDINGS I-1 remainder), exploring a second arrival order for the same update INCR-030 covers
-— not a case `docs/qa/cases/INCR.md` numbers on its own, so it is not part of the 70-case tally, but
+— not a case `docs/project/qa/cases/INCR.md` numbers on its own, so it is not part of the 70-case tally, but
 the defect is real: `ServedView` applies `-old` then `+new` correctly but `+new` then `-old` leaves
 the *old* values standing at weight +1 — the same net input in a different apply order gives a
 different answer. INCR-030 itself (the order that happens to work) is PASS. `WIN-158`
-(`docs/qa/logs/WIN.md` §10) is the same class of defect reached from the windowed side and is the
+(`docs/project/qa/logs/WIN.md` §10) is the same class of defect reached from the windowed side and is the
 highest-value un-run case in that file that would give this one a second, independent reproduction.
 
 ---
@@ -92,7 +92,7 @@ highest-value un-run case in that file that would give this one a second, indepe
   (the fixed slot's raw offset/length pair), so `COUNT(DISTINCT user_id)` over `{alice, bob, carol,
   zz}` (`alice`/`carol` both 5 bytes — exactly the pair a byte-length collision would merge) correctly
   reads 3, and the case's own all-2-byte control also reads 3 (matching SQL both times, not
-  coincidentally). See `docs/qa/logs/WIN.md`'s headline finding 2 for the same fix reached from the
+  coincidentally). See `docs/project/qa/logs/WIN.md`'s headline finding 2 for the same fix reached from the
   windowed side (WIN-197).
 - **INCR-017 — PASS, prediction corrected.** `incr017_...`: `MIN`/`MAX` now seed from the same
   `present[i]` guard `SUM` always used, so a leading *or* a middle NULL is skipped rather than
@@ -201,10 +201,10 @@ Corrected from an earlier miscount in this file: §3 "Net-zero" is INCR-025–03
 two this log first listed), and §4 "No matching insert" starts at INCR-034 as originally stated but
 this file had put INCR-025 in the wrong section. `INCR-030b` (the disabled "other order" test named
 in the headline BLOCKED section above) is a second scenario `IncrementalTest` explores beyond
-INCR-030 itself, not a case `docs/qa/cases/INCR.md` numbers separately — INCR-030 is PASS (the order
+INCR-030 itself, not a case `docs/project/qa/cases/INCR.md` numbers separately — INCR-030 is PASS (the order
 that works), and only INCR-026 is a BLOCKED case among the 70 the file actually enumerates.
 
 No case in this file is recorded FAIL. INCR-014, INCR-017 and INCR-022 are recorded PASS with a
 corrected, measured outcome where the case's own prediction was written against a build that has
-since been fixed (see the headline finding and `docs/qa/logs/WIN.md`'s two headline findings, which
+since been fixed (see the headline finding and `docs/project/qa/logs/WIN.md`'s two headline findings, which
 are the same two fixes reached from the other file's side).

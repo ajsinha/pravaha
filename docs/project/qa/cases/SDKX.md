@@ -53,7 +53,7 @@ on `grpc://localhost:19090`. A query `q` is registered as
 `SELECT user_id, amount, product_type FROM txn` with key columns `[0]`. Rows reach `txn` through a
 bound source -- `pravaha.sources.txn` with the `filesystem` plugin and `follow: true`, appended to --
 unless a case says otherwise: a real node has no Flight `DoPut` (or REST) path that pushes rows into
-a declared stream (API-F5; `docs/qa/cases/API.md`'s `H-SRV` has the binding).
+a declared stream (API-F5; `docs/project/qa/cases/API.md`'s `H-SRV` has the binding).
 
 **`H-AUTH`** — `H-OPEN` with
 
@@ -1106,7 +1106,7 @@ warning. 4. Read the CLI's default URL when `--url` is omitted.
 **Expected:** step 1 **succeeds**. Step 2 — the token is visible in cleartext in the gRPC metadata on
 the wire; extract it from the capture and show it matches. Step 3 — **no warning**, on either stream.
 Step 4 — the default is `grpc://localhost:19090`, plaintext (`ServerCommand.java:194`), which is the
-opposite default from the SDK's (SDKX-002 row 6). Cross-reference `docs/qa/logs/SEC.md:1557`, where
+opposite default from the SDK's (SDKX-002 row 6). Cross-reference `docs/project/qa/logs/SEC.md:1557`, where
 this was already recorded. The finding is not that loopback is exempted — it is that nothing checks
 whether the connection is loopback, so the exemption applies to every host.
 **Vacuity:** using a non-loopback address is essential; on `127.0.0.1` the behaviour would be
@@ -1124,7 +1124,7 @@ missingFile)`. 4. `encryptedWith(directory, key)`.
 (`PravahaFlightServer.java:222`), i.e. it reports `grpc://` **even under TLS**. Anything advertising
 this location to another node or writing it into a log tells a lie. Step 2 — **`NullPointerException`**,
 because `privateKey` is dereferenced by `privateKey.isFile()` without a null check (`:119`–`:127`);
-already recorded at `docs/qa/logs/SEC.md:1487`. Steps 3 and 4 — `PravahaException`
+already recorded at `docs/project/qa/logs/SEC.md:1487`. Steps 3 and 4 — `PravahaException`
 `FlightErrors.TLS_UNREADABLE` with
 `the TLS certificate <absolute path> is not a readable file` or
 `the TLS private key <absolute path> is not a readable file`. Also assert: `verifyClient` /

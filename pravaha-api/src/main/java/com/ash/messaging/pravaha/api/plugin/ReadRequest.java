@@ -180,7 +180,7 @@ public record ReadRequest(
      * exactly the value it cannot retract from -- so this type does not let one be built.
      *
      * <p><strong>What a source that honours one must do</strong>, because nothing downstream can
-     * check it (see {@code docs/CONNECTORS.md} section 6):
+     * check it (see {@code docs/guides/CONNECTORS.md} section 6):
      *
      * <ul>
      *   <li>Apply <em>every</em> filter in the request, exactly. A partial replaces the rows, so the

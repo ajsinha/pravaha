@@ -141,7 +141,7 @@ A refusal prints the engine's own words:
 
 ```text
 PRV-8002  no continuous query is registered under 'spend_by_hour'
-  look PRV-8002 up in the console's help under Errors, or in docs/TROUBLESHOOTING.md
+  look PRV-8002 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md
 ```
 
 With `PRAVAHA_DOCS_BASE_URL` set, the second line is that base followed by the code.

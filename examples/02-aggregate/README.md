@@ -38,4 +38,4 @@ where it costs a developer a minute — rather than at 3 a.m. when it costs an o
 
 Windowing gives the bound, and it is built: `GROUP BY TUMBLE(event_time, INTERVAL '1' MINUTE), user_id`
 plans and runs, and tumbling, hopping and session windows all work. See
-[the quickstart's step 4](../../docs/QUICKSTART.md).
+[the quickstart's step 4](../../docs/guides/QUICKSTART.md).

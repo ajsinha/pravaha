@@ -19,8 +19,8 @@ Where the numbers, the knobs and the ceilings live:
 | The 20 ms commit cadence | `pravaha-server/.../ingest/PumpingFeed.java:61`, `:158`–`:165` |
 | Bounded polls, hysteresis, `BACKPRESSURED` | `pravaha-runtime/.../ingest/IngestPump.java:118`–`:163`, `BackpressurePolicy.java` |
 | Subscriber buffer and overflow | `pravaha-registry/.../SubscriptionOptions.java:34`, `Subscription.java:51`, `:119`–`:136` |
-| Round 1's measurements | `docs/qa/logs/INGEST.md:1199`, `:1213`, `:1651`; `docs/qa/FINDINGS.md:156` |
-| Prior unexecuted cases this file supersedes | `docs/qa/cases/INGEST.md` INGEST-047/048/055; `docs/qa/cases/STRM.md` STRM-103/104 |
+| Round 1's measurements | `docs/project/qa/logs/INGEST.md:1199`, `:1213`, `:1651`; `docs/project/qa/FINDINGS.md:156` |
+| Prior unexecuted cases this file supersedes | `docs/project/qa/cases/INGEST.md` INGEST-047/048/055; `docs/project/qa/cases/STRM.md` STRM-103/104 |
 
 ## Five facts this file is built on
 
@@ -204,7 +204,7 @@ and only the former silently produces the wrong deployment.
 core, nine at 92 %, with the source dry and no rows arriving. A two-core container saturates at about
 twenty idle registrations."* The fix is
 `LaneConfig.defaults().withWaitStrategy(BACKOFF_PARK).withThreads("pravaha-query", true)`, and
-`docs/qa/FINDINGS.md:156` claims "Fixed and measured at 0 % since." These eight cases measure it, and
+`docs/project/qa/FINDINGS.md:156` claims "Fixed and measured at 0 % since." These eight cases measure it, and
 measure what else an idle query still costs.
 
 ## PERF-005 — nine idle registered queries cost approximately no CPU
@@ -543,7 +543,7 @@ over the run hides both the degradation and the recovery.
 
 `scan()` is `synchronized` and its body is `new ArrayList<>(visible.values())` — a copy of the whole
 committed map while holding the view's own monitor. `commit()` needs the same monitor and runs on the
-feed thread every 20 ms. Round 1 measured the consequence at `docs/qa/logs/INGEST.md:1651`:
+feed thread every 20 ms. Round 1 measured the consequence at `docs/project/qa/logs/INGEST.md:1651`:
 
 > `ServedView.scan()` copies the whole committed map under the view's monitor — **347 ms mean,
 > 1 015 ms max on a 500 000-row view** — and `commit` on the feed thread waits behind it. **Eight
@@ -1351,7 +1351,7 @@ currently state anywhere.
 **Budget: 60. Written: 60.** IDs `PERF-001`–`PERF-060`, contiguous.
 
 **Four cases before any measurement (PERF-001–004), and they are not overhead.** Round 1's
-performance findings are recorded in prose in `docs/qa/logs/INGEST.md` and `benchmarks/README.md`,
+performance findings are recorded in prose in `docs/project/qa/logs/INGEST.md` and `benchmarks/README.md`,
 and two of those recorded results cannot currently be reproduced: `-Pbench` is inert (PERF-002) and
 `benchmarks/results/lane-scaling.json` names a benchmark method the source no longer has (PERF-003).
 A performance area that starts by quoting numbers it cannot regenerate is a performance area that

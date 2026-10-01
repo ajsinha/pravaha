@@ -35,7 +35,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * The half of {@code docs/qa/cases/WIN.md} that no configured server can reach.
+ * The half of {@code docs/project/qa/cases/WIN.md} that no configured server can reach.
  *
  * <p>WIN.md section 0.6 names three of them. SESSION windows are implemented in
  * {@link SessionWindows} and reachable from no plan node, so section 3 of the file is written

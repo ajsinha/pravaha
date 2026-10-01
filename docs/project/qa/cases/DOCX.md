@@ -1,7 +1,7 @@
 # DOCX — Documentation, round 2: the audit method
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Area: **every documented instruction executed literally; every config key audited in both
 directions; every error code, link, path, ADR and test-coverage claim checked against the thing it
@@ -37,8 +37,8 @@ writes a two-column TSV to `$QA/report/` so the whole area's output is diffable.
 ```
 README.md
 docs/*.md                       (13 files)
-docs/adr/*.md                   (34 ADRs + README)
-docs/gates/wave-*/              (5 gate packs)
+docs/design/adr/*.md                   (34 ADRs + README)
+docs/project/gates/wave-*/              (5 gate packs)
 examples/README.md
 examples/*/README.md            (3)
 examples/case-studies/**/*.md
@@ -81,7 +81,7 @@ make its output the contract, and prove it is not blind.
 **Falsifier:** the extractor returning fewer commands than a hand count of QUICKSTART alone, or
 missing any of the five shapes below.
 **Setup:** `$QA/extract/commands.py` reading `$QA/corpus.txt`.
-**Steps:** extract every shell command from: (a) fenced ```` ```bash ```` / ```` ```sh ```` / ```` ```console ```` blocks; (b) fenced blocks with no language that begin with `$ `; (c) indented four-space blocks beginning with `$ `; (d) inline backticks matching `^(pravaha|\./mvnw|mvn|docker|make|curl|python3?|pip|export|openssl|java|git) `; (e) `ENTRYPOINT`/`CMD` lines in `Dockerfile`. Emit one TSV row per command: `file<TAB>line<TAB>command`. Then hand-count the commands in `docs/QUICKSTART.md` and compare.
+**Steps:** extract every shell command from: (a) fenced ```` ```bash ```` / ```` ```sh ```` / ```` ```console ```` blocks; (b) fenced blocks with no language that begin with `$ `; (c) indented four-space blocks beginning with `$ `; (d) inline backticks matching `^(pravaha|\./mvnw|mvn|docker|make|curl|python3?|pip|export|openssl|java|git) `; (e) `ENTRYPOINT`/`CMD` lines in `Dockerfile`. Emit one TSV row per command: `file<TAB>line<TAB>command`. Then hand-count the commands in `docs/guides/QUICKSTART.md` and compare.
 **Expected:** the hand count of QUICKSTART's commands equals the extractor's count for that file, exactly. Across the corpus the total is recorded as the area's denominator and printed at the top of every later report. A command spanning lines with `\` continuations is **one** row, not three.
 **Vacuity:** the case cannot pass with a broken extractor, because the hand count is done independently and the two must agree on a file with no ambiguity in it. Deliberately insert one extra `pravaha version` line into a copy of QUICKSTART in `$QA` and confirm the count rises by exactly one.
 **Re-run:** any document added, removed or renamed; any new fence style introduced.
@@ -108,7 +108,7 @@ count 104 instead of 110.
 **Steps:** **declared** — every `new ErrorCode(<n>, "<NAME>")` in every `src/main` tree in the
 repository, **including `sdk/`**, with its file and line. **thrown** — every construction site of a
 `PravahaException` (or equivalent) naming each code, so a code with zero throw sites is visible.
-**documented** — every `PRV-\d{4}` in `docs/TROUBLESHOOTING.md`, split into the ranges table and the
+**documented** — every `PRV-\d{4}` in `docs/guides/TROUBLESHOOTING.md`, split into the ranges table and the
 detail table. Emit a four-column TSV: `code, declared-at, throw-sites, documented(y/n)`.
 **Expected:** 110 declared. 100 documented. **10 undocumented**: `PRV-1030`, `1031`, `1040`, `1041`,
 `1042`, `1043`, `5090`, `5091`, `5092`, `6104`. **9 with zero throw sites**: `1043`, `4002`, `4013`,
@@ -122,7 +122,7 @@ a regex that silently matched nothing would produce zeroes rather than 110/100/1
 **Intent:** three classes of reference, one extractor, because they rot the same way and a reader
 cannot tell them apart.
 **Falsifier:** the extractor not distinguishing the three classes, or resolving a relative link from
-the wrong base directory — which would make every `../` link in `docs/adr/` report falsely.
+the wrong base directory — which would make every `../` link in `docs/design/adr/` report falsely.
 **Setup:** `$QA/extract/links.py`.
 **Steps:** for every corpus file extract (a) markdown links `[text](target)` where the target is not
 `http(s):`; (b) the `#anchor` part of any target, including bare `#anchor` links; (c) backticked
@@ -131,7 +131,7 @@ existing directory prefix (`docs/`, `pravaha-`, `plugins/`, `sdk/`, `examples/`,
 Resolve (a) and (c) against the repository; resolve (b) against the GitHub anchor slug of every
 heading in the target file. Emit `file, line, class, target, resolves(y/n)`.
 **Expected:** the extractor reports a non-zero count in each of the three classes, and its base-path
-handling is proven by a link in `docs/adr/` resolving to a file in `docs/`.
+handling is proven by a link in `docs/design/adr/` resolving to a file in `docs/`.
 **Vacuity:** seed one broken link, one broken anchor and one broken backticked path into `$QA` copies
 and confirm exactly three new failures appear, one per class.
 **Re-run:** any file moved or renamed; any heading text changed.
@@ -167,7 +167,7 @@ directory, and produces `$QA/report/<file>.tsv` with one row per command:
 `RAN-AS-SHOWN`, `RAN-DIFFERENT-OUTPUT`, `FAILED`, `NEEDS-INVENTION` (the reader must supply something
 the document did not give), `NOT-EXECUTABLE` (needs infrastructure the document declares).
 
-## DOCX-006 — `docs/QUICKSTART.md` step 1: build, `PATH`, and the container alternative
+## DOCX-006 — `docs/guides/QUICKSTART.md` step 1: build, `PATH`, and the container alternative
 **Intent:** the entry point. Everything below it is decoration if this does not work.
 **Falsifier:** any of the four commands failing, or producing artefacts at paths other than the two
 the document names.
@@ -267,7 +267,7 @@ needs and does not show.
 would pass again on a snippet that no longer compiles.
 **Re-run:** any SDK signature change, any edit to the snippets.
 
-## DOCX-012 — `docs/USER_GUIDE.md`, every command
+## DOCX-012 — `docs/guides/USER_GUIDE.md`, every command
 **Intent:** the document a user reads after the quickstart, and the one that prints
 `pravaha explain --sql "…"` without the `--schema` the command requires.
 **Falsifier:** any command that runs as printed but is recorded here as failing, or the reverse.
@@ -279,7 +279,7 @@ the verdict is `NEEDS-INVENTION` even if it runs in this harness.
 **Vacuity:** at least one command must run as shown, or the environment is wrong.
 **Re-run:** any edit to `USER_GUIDE.md` or to the CLI's arguments.
 
-## DOCX-013 — `docs/OPERATIONS.md` and `docs/SECURITY.md`, every command and every YAML block
+## DOCX-013 — `docs/operations/OPERATIONS.md` and `docs/operations/SECURITY.md`, every command and every YAML block
 **Intent:** the two documents an operator acts on. A wrong command here is a production action.
 **Falsifier:** a YAML block that a server refuses to bind, or a command that names a path or endpoint
 that does not exist.
@@ -636,7 +636,7 @@ already checks some of this; the case establishes exactly which and closes the r
 `DocumentationFreshnessTest.documentsLinkToFilesThatExist` and determine its corpus and its link
 pattern; compute the set of links the test does **not** cover.
 **Expected:** zero broken links, and the uncovered set named. The test's corpus is a fixed list of
-fourteen files; `docs/adr/*`, `examples/*`, `console/` and `sdk/` are outside it, so a broken link
+fourteen files; `docs/design/adr/*`, `examples/*`, `console/` and `sdk/` are outside it, so a broken link
 there fails nothing.
 **Vacuity:** the seeded broken link from DOCX-004 must appear.
 **Re-run:** any file move; any link added.
@@ -670,7 +670,7 @@ that no longer exists, and nothing fails.
 **Intent:** 34 ADRs, one index, and citations scattered through the corpus and the source.
 **Falsifier:** an ADR in the directory and not the index, an index row pointing at a missing file, or
 an `ADR-nnn` citation anywhere naming a number that does not exist.
-**Setup:** `docs/adr/`, `docs/adr/README.md`, and every `ADR-\d{3}` occurrence in the corpus **and in
+**Setup:** `docs/design/adr/`, `docs/design/adr/README.md`, and every `ADR-\d{3}` occurrence in the corpus **and in
 `src/main` javadoc** — the source cites ADRs constantly and no test checks those.
 **Steps:** three-way diff.
 **Expected:** complete in all directions. Note the index is not in numeric order (018 and 021 sit
@@ -851,7 +851,7 @@ checking, which makes it worse than the thing it conceals.
 
 ## DOCX-047 — `HANDOVER.md`: "every command in QUICKSTART is executed by `ExamplesTest`"
 **Intent:** the owner's stated safety net. If it is not there, nobody is looking.
-**Falsifier:** `ExamplesTest` reading `docs/QUICKSTART.md`.
+**Falsifier:** `ExamplesTest` reading `docs/guides/QUICKSTART.md`.
 **Setup:** `pravaha-it/src/test/java/.../ExamplesTest.java`; `HANDOVER.md:57-58`.
 **Steps:** grep `ExamplesTest` for `QUICKSTART`; list every file it opens; list every command it runs
 and match each against QUICKSTART's extracted command list from DOCX-001.
@@ -957,7 +957,7 @@ Four cases, `DOCX-053`–`DOCX-056`.
 describing the product's central capability as absent. Round 1 called it the highest-leverage single
 edit available in the repository; it is still there.
 **Falsifier:** any of the three claims being true of the current build.
-**Setup:** `README.md:12-16`; `docs/HANDOVER.md:394`; a node on 18670/19670 with a configured source.
+**Setup:** `README.md:12-16`; `docs/development/HANDOVER.md:394`; a node on 18670/19670 with a configured source.
 **Steps:** test each claim by experiment. (a) "nothing generates watermarks" — start a node and grep
 the log for the watermark line and `registry.generatingWatermarks`; (b) "over an unbounded stream, no
 window would close" — run a windowed query over a source appended to continuously and count closed
@@ -995,7 +995,7 @@ the difference between this case and a consistency checker.
 **Intent:** "arrives in Wave 4" in a document about a feature that shipped is a specific and
 correctable kind of rot, and it is invisible to every mechanical check because nothing is broken.
 **Falsifier:** a wave or roadmap claim matching the current state.
-**Setup:** the corpus and `docs/gates/`.
+**Setup:** the corpus and `docs/project/gates/`.
 **Steps:** extract every sentence matching `Wave \d`, `arrives in`, `not yet`, `will be`, `is planned`,
 `coming in`, `deferred`, `unsolved`, `not built`, with file and line; classify each as `STILL-TRUE`,
 `SHIPPED-SINCE` or `ABANDONED`.
@@ -1037,7 +1037,7 @@ printed, inventing nothing.
 finding.
 **Setup:** a clean clone into `$QA/walk/`, ports 18672/19672. The walker records every keystroke and
 every moment of doubt.
-**Steps:** README → `docs/QUICKSTART.md` → the first question answered. At each step record:
+**Steps:** README → `docs/guides/QUICKSTART.md` → the first question answered. At each step record:
 `step, document, line, command, outcome, invention-required(y/n), what-had-to-be-invented`.
 **Expected:** the log. As of the last pass the walker must invent, in order: the config file's name
 and location (§4), the CSV's contents and its timestamp wire format, the `event-time` key, and a
@@ -1050,7 +1050,7 @@ indistinguishable from "the engine does not work", and the two need different fi
 
 ## DOCX-058 — the same walk, from the README's other entry points
 **Intent:** the README offers more than one door — the container, the embedded snippet, the console,
-`docs/USER_GUIDE.md`. A reader picks one.
+`docs/guides/USER_GUIDE.md`. A reader picks one.
 **Falsifier:** all four doors leading to a working query.
 **Setup:** `$QA/walk2/`, four independent attempts.
 **Steps:** walk each door to a running query or to a stop; record the stop.
@@ -1117,7 +1117,7 @@ Where this area is still thin, named so it is a choice:
 3. **Translation of the corpus into a link/anchor checker that runs in CI is proposed and not built.**
    DOCX-060 hands over the extractors; wiring them into the build is a remediation, not a QA case, and
    this file deliberately does not do remediation.
-4. **The gate packs** (`docs/gates/wave-*`) are checked for existence by
+4. **The gate packs** (`docs/project/gates/wave-*`) are checked for existence by
    `DocumentationFreshnessTest` and for content by nobody, here included. Five packs recording why
    waves merged — including one that merged without a passing performance gate — are exactly the
    documents a later reader will trust most.

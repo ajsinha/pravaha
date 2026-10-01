@@ -16,7 +16,7 @@
 /**
  * LIFE: the lifecycle of a continuous query, as code.
  *
- * <p>{@code docs/qa/cases/LIFE.md} authors 130 cases against register, pause, resume, drop,
+ * <p>{@code docs/project/qa/cases/LIFE.md} authors 130 cases against register, pause, resume, drop,
  * re-register, share, read and fail. Three of the file's own six standing facts decide how most of
  * this package is written: lifecycle is Flight-only so there is no REST surface to drive here, the
  * read path is always {@code CONSISTENT} so the four-mode matrix in {@code LifeReadConsistencyTest}

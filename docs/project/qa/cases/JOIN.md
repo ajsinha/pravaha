@@ -13,7 +13,7 @@ Surface under test: `pravaha-runtime/.../exec/SymmetricHashJoin.java`, `JoinSide
 `collectEquiKeys`, `collectTimeBound`, `buildLookupJoin`, `collectLookupKeys`;
 `QueryExecution.pumpPartitionedInto`, `joinKeyOrdinalsFor`, `mapDownToScan`,
 `refuseUnpartitionedJoin`; `InterpretedPipeline`'s self-join check.
-Documentation under test: `docs/SQL_SUPPORT.md` §Joins (lines 169–199) and `docs/USER_GUIDE.md:212`.
+Documentation under test: `docs/SQL_SUPPORT.md` §Joins (lines 169–199) and `docs/guides/USER_GUIDE.md:212`.
 
 ---
 
@@ -956,7 +956,7 @@ does not stop every row being a candidate for every other inside it…". Actiona
 
 ### JOIN-060 — A self-join is refused late, and without a code
 **Intent:** The one refusal reachable from SQL that carries no `PRV-` code
-(`docs/HANDOVER.md:244`, `SQL_SUPPORT.md:196`). It plans perfectly and fails when the pipeline is
+(`docs/development/HANDOVER.md:244`, `SQL_SUPPORT.md:196`). It plans perfectly and fails when the pipeline is
 built, which is a different moment from every other refusal in this file and a different moment
 again from where a user expects one.
 **Falsifier:** It is refused at plan time, or carries a code of its own, or runs.

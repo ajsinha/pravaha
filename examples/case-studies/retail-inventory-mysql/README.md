@@ -252,7 +252,7 @@ for rows arriving would page the buyer about toasters for ever.
 
 ## Step 7 — let the engine page the buyers, and clear the page
 
-Step 6 is a program you run and keep running. An **alert** ([ADR-057](../../../docs/adr/057-alerts.md))
+Step 6 is a program you run and keep running. An **alert** ([ADR-057](../../../docs/design/adr/057-alerts.md))
 is the engine doing it: it follows `low_stock`'s answer, and for each line says when its row
 **enters** — the update that takes it to its reorder point — and when it **leaves** — the delivery
 that tops it up, or the `DELETE`. The node's configuration binds a channel called `buyers` that writes
@@ -308,7 +308,7 @@ replays this morning on a real node through a signed webhook, restarting the nod
 
 Each notification is then a signed JSON `POST` (`X-Pravaha-Signature: sha256=` HMAC of
 `<timestamp>.<body>`), retried with backoff. How a receiver verifies it is in
-[`OPERATIONS.md`](../../../docs/OPERATIONS.md), *Alerts and notifier channels*.
+[`OPERATIONS.md`](../../../docs/operations/OPERATIONS.md), *Alerts and notifier channels*.
 
 ## Making this yours
 
@@ -336,5 +336,5 @@ Each notification is then a signed JSON `POST` (`X-Pravaha-Signature: sha256=` H
 - **`DATETIME` has no zone.** It is read as UTC. Write UTC, or use `TIMESTAMP`.
 
 The full list of what runs and what is refused is
-[`docs/CONTINUOUS_QUERIES.md`](../../../docs/CONTINUOUS_QUERIES.md); the connector's options are in
-[`docs/CONNECTORS.md`](../../../docs/CONNECTORS.md).
+[`docs/guides/CONTINUOUS_QUERIES.md`](../../../docs/guides/CONTINUOUS_QUERIES.md); the connector's options are in
+[`docs/guides/CONNECTORS.md`](../../../docs/guides/CONNECTORS.md).

@@ -50,7 +50,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * The SQL-planning-dependent slice of {@code docs/qa/cases/JOIN.md}: multi-key equi-joins, the
+ * The SQL-planning-dependent slice of {@code docs/project/qa/cases/JOIN.md}: multi-key equi-joins, the
  * plan-time/run-time discrepancy for refused key types, lane routing through a projection, and the
  * five refusals that need Calcite's plan shapes (CROSS JOIN, self-join, RIGHT/FULL, an inequality on
  * a non-timestamp column). Everything here needs {@code pravaha-sql}, which is why it is not in the

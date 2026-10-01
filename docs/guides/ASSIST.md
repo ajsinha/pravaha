@@ -1,18 +1,18 @@
 # The assistant: plain English to and from continuous SQL, with the engine as the judge
 
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
-Proprietary and confidential; see [`../LICENSE`](../LICENSE).
+Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 > **Experimental in 1.0.** The assistant works and is tested, and may still change in a minor
 > release — its configuration file included; the release notes will say so. See
-> [what 1.x promises](COMPATIBILITY.md).
+> [what 1.x promises](../operations/COMPATIBILITY.md).
 
 The assistant drafts a continuous query from a plain-English description, explains a continuous
 query in plain English, and explains a refusal — what `PRV-2050` means for *this* statement and
 what to change. It asks a language model you configure,
 any provider, several at once, and it never trusts what the model says on its own: the model is
 given the engine's own plan and the engine's own words, and any SQL the model proposes goes back to
-the engine before you are told it works. The design is [ADR-058](adr/058-plain-english-to-continuous-sql.md).
+the engine before you are told it works. The design is [ADR-058](../design/adr/058-plain-english-to-continuous-sql.md).
 
 **What is built (phases 1 to 3):** the `pravaha.assist` package in the Python SDK — the provider
 protocol, five built-in providers, the router with fallback chains, budgets and runtime
@@ -635,7 +635,7 @@ when it is used. A plugin that raises something other than the four errors is tr
 ```bash
 cd sdk/python
 .venv/bin/python -m pytest -q tests/test_assist_*.py     # no network: fake provider, local HTTP
-.venv/bin/python tools/build_dialect_card.py             # after editing docs/CONTINUOUS_QUERIES.md
+.venv/bin/python tools/build_dialect_card.py             # after editing docs/guides/CONTINUOUS_QUERIES.md
 .venv/bin/python tools/build_examples.py                 # after editing a case study
 ```
 

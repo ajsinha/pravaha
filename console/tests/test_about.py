@@ -4,7 +4,7 @@ Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 Proprietary and confidential. See LICENSE at the repository root.
 
 The pages follow MAYA's About and comparison section for section, and these tests hold the
-structure rather than the prose: every section of About is there; docs/COMPETITIVE_LANDSCAPE.md
+structure rather than the prose: every section of About is there; docs/publications/COMPETITIVE_LANDSCAPE.md
 has MAYA's parts (the landscape naming families and examples, the table, a note per row with
 "the problem elsewhere" and a list of how Pravaha does it, what the rows have in common, the
 practical reading, the dated disclaimer); the table names categories and never a vendor; the
@@ -231,6 +231,6 @@ def test_the_paper_and_the_deck_are_served_and_nothing_else(anonymous):
         else:
             assert entry["href"] == ""
     about = anonymous.get("/about").text
-    assert "docs/medium/pravaha-medium-post.md" in about, "the post is named by its repository path"
+    assert "docs/publications/medium/pravaha-medium-post.md" in about, "the post is named by its repository path"
     for name in ("README.md", "..%2F..%2FLICENSE", "pravaha-medium-post.md", "nothing.pdf"):
         assert anonymous.get(f"/about/papers/{name}").status_code == 404, name

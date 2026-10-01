@@ -57,7 +57,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * {@code docs/qa/cases/INCR.md}, executed.
+ * {@code docs/project/qa/cases/INCR.md}, executed.
  *
  * <p>The property under test is the one the whole engine rests on: maintaining an answer
  * incrementally must give the same answer as recomputing it from scratch. INCR.md states it as

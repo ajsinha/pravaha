@@ -17,7 +17,7 @@ Surface under test: `pravaha-runtime/.../exec/GlobalAggregate.java`, `KeyedAggre
 `pravaha-sql/.../plan/PhysicalPlanBuilder.buildAggregate`, `refuseFloatingPointAggregate`, `kindOf`;
 `pravaha-common/.../row/BinaryRowWriter.setLong` and `RowLayout.checkType`;
 `QueryExecution.refuseUnpartitionedAggregate`. Documentation under test: `docs/SQL_SUPPORT.md`
-§Aggregation (lines 105–167) and `docs/USER_GUIDE.md`.
+§Aggregation (lines 105–167) and `docs/guides/USER_GUIDE.md`.
 
 ---
 

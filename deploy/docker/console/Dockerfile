@@ -9,7 +9,7 @@
 #   deploy/docker/console/build.sh                 # -> pravaha/pravaha-console:<console version>
 #
 # The same PRAVAHA_HOME layout as the engine's image, rooted at /opt/pravaha
-# (docs/RUNNING_IN_DOCKER.md, "The layout"):
+# (docs/operations/RUNNING_IN_DOCKER.md, "The layout"):
 #
 #   console/ docs/ examples/     the console's code and the documentation it serves (the image's)
 #   conf/console.yaml            the deployment's configuration: any key, and it wins (mounted)

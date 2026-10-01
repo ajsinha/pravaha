@@ -5,7 +5,7 @@ the session kept working for another nine. Before trusting this file, run
     git log --oneline -15
 
 and compare. Commit bodies in this repository are detailed and are the most reliable record of
-what changed and why. docs/qa/FINDINGS.md status lines come next. This file and HANDOVER come last.
+what changed and why. docs/project/qa/FINDINGS.md status lines come next. This file and HANDOVER come last.
 
 ====================================================================
 1. WHERE THINGS ARE
@@ -18,7 +18,7 @@ what changed and why. docs/qa/FINDINGS.md status lines come next. This file and 
   Findings register: 0 GA-BLOCKER; 1 GA-REQUIRED, CASE-1 (the case
   studies window with no declared event time and say the silence is
   correct) -- scheduled with TIME-6's refusal. The header of
-  docs/qa/FINDINGS.md has the exact counts and FindingsRegisterTest holds it
+  docs/project/qa/FINDINGS.md has the exact counts and FindingsRegisterTest holds it
   to them.
 
   S-3 was reopened and re-fixed on 2026-09-19. 21bbb95 had removed
@@ -84,7 +84,7 @@ what changed and why. docs/qa/FINDINGS.md status lines come next. This file and 
   actuator endpoint, listener error handler and Boot profiles.
 
   The whole remaining scope, in batches that can be built at once, is
-  docs/REMAINING.md. Queue, in order (owner: build every "not built" item
+  docs/development/REMAINING.md. Queue, in order (owner: build every "not built" item
   except multi-node):
   - E4: LANE-2, one ingest per stream per shared lane, fanned out.
   - E5: blue/green query replacement with backfill splicing wired.
@@ -114,7 +114,7 @@ what changed and why. docs/qa/FINDINGS.md status lines come next. This file and 
   * Verify, THEN commit, THEN push. "Drill to develop" = commit and push
     develop. "Drill to main" = merge develop into main and push main. A bare
     "drill" = both. Work happens on develop; main moves only on a drill.
-  * docs/qa/FINDINGS.md is owned by the lead session. Agents never edit it.
+  * docs/project/qa/FINDINGS.md is owned by the lead session. Agents never edit it.
   * Documentation rot is a build failure. After doc edits:
         ./mvnw -o -pl pravaha-it test \
           -Dtest='DocumentationFreshnessTest,FindingsRegisterTest' \

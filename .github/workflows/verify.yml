@@ -2,7 +2,7 @@ name: verify
 
 # Integration tests and coverage gates. Slower, so it runs on pull requests rather than on push.
 #
-# HAS THIS EVER RUN? No. This machine's CI is not exercised; docs/REMAINING.md B12 lists the
+# HAS THIS EVER RUN? No. This machine's CI is not exercised; docs/development/REMAINING.md B12 lists the
 # Docker integration leg as one that has never run. The gate below exists because of that:
 # `./mvnw verify -Pit` exits 0 when it runs zero integration tests, and a leg that has never run
 # is indistinguishable from one that runs nothing.

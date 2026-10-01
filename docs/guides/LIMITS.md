@@ -1,12 +1,12 @@
 # Known limits, and what could still be built
 
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
-Proprietary and confidential; see [`../LICENSE`](../LICENSE).
+Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 > The full text of what the README summarises under "What is not built". Each entry says what is true
 > now, and then, in bold, whether it is **deferred**, **buildable** or a **boundary**. A boundary is a
 > property of a store, a format or a recorded decision, and building more code would not remove it.
-> The order in which the buildable entries get built is in [`REMAINING.md`](REMAINING.md).
+> The order in which the buildable entries get built is in [`../development/REMAINING.md`](../development/REMAINING.md).
 
 
 ## Deferred by decision
@@ -15,7 +15,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   is a fenced lease proved against a real ZooKeeper ensemble — but no node consumes it yet, so
   execution is single-node and a node refuses `PARTITIONED` mode (`PRV-9002`) rather than serve every
   partition while claiming to own some. Rebalance and handoff are built as a library and wired to
-  nothing ([ADR-039](adr/039-ga-includes-the-known-gaps-and-clustering.md) item 8).
+  nothing ([ADR-039](../design/adr/039-ga-includes-the-known-gaps-and-clustering.md) item 8).
 
   **Deferred by the owner's decision** (2026-09-26: build every gap except multi-node). The lease, assignment and handoff libraries stay tested; wiring them is ADR-039 item 8.
 
@@ -31,14 +31,14 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   A JDBC, CDC or Delta source, or a followed file, still keeps a reader per query, each writing its own
   copy into the shared inbox, so a thousand queries over one such source read it a thousand times.
 
-  **Built for Kafka and for files read once through** ([ADR-054](adr/054-an-ordered-source-is-shared-at-an-exact-seam.md)): one reader per binding, each record to each query once and in order, and partitions a topic gains joined by every query sharing its reader. **Buildable:** Delta and JDBC, once their positions are shown to be totally ordered. postgres-cdc stays per query: its slot can be confirmed only up to the slowest member's checkpoint.
+  **Built for Kafka and for files read once through** ([ADR-054](../design/adr/054-an-ordered-source-is-shared-at-an-exact-seam.md)): one reader per binding, each record to each query once and in order, and partitions a topic gains joined by every query sharing its reader. **Buildable:** Delta and JDBC, once their positions are shown to be totally ordered. postgres-cdc stays per query: its slot can be confirmed only up to the slowest member's checkpoint.
 
 - **A secondary predicate is a probe only on a declared column, by equality.** The design's
   `CREATE CONTINUOUS QUERY` grammar is built: `RANGE (column)` keeps an ordered index over the key's
   last column, a lookup by the whole key is a hash probe on any view, and `INDEX (column)` (or `WITH
   (index = 'column')`) keeps an equality index over one column outside the key, kept in the view's
   own commit and journalled with the registration, so `WHERE column = literal` or `column IN (...)`
-  probes it ([ADR-055](adr/055-an-equality-index-over-a-column-outside-the-key.md)). What is still a
+  probes it ([ADR-055](../design/adr/055-an-equality-index-over-a-column-outside-the-key.md)). What is still a
   scan and a filter: a column nobody declared, a range on a non-key column, `<>`, an `OR` across
   columns, and a partial key with no index. At most four equality indexes per view, on the heap and
   bounded by the view's key ceiling; they do not spill, because the view does not. Refused at
@@ -47,14 +47,14 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   not exist (`PRV-8017`), `EMIT CHANGES WITH (...)` (`PRV-2072`), and `INSERT INTO <sink> SELECT`
   (`PRV-2020`) — which carries neither the query's name nor its key, so the refusal names `WRITING
   TO`, `WITH (sink = ...)` and `--sink` instead
-  ([ADR-049](adr/049-an-ordered-index-over-the-keys-last-column.md)).
+  ([ADR-049](../design/adr/049-an-ordered-index-over-the-keys-last-column.md)).
 
   **Buildable:** design §17.2's warning at registration that suggests an index, and a plan a user can
   ask for that shows which access path a view read took (today the view's counters say it).
 
 - **Queries over queries follow an answer; not every operator can.** A continuous query whose `FROM`
   names a registered query follows that query's answer, exactly once across restarts
-  ([ADR-056](adr/056-queries-on-queries.md)). Over such an input filters, projections and unwindowed
+  ([ADR-056](../design/adr/056-queries-on-queries.md)). Over such an input filters, projections and unwindowed
   `COUNT`/`SUM`/`AVG` run; windows, joins, top-N, `MIN`, `MAX` and `COUNT(DISTINCT)` are refused
   (`PRV-2075`), and so are replacing a member of a chain and `RETAIN FOR` on a query over a view
   (`PRV-8026`). A chain is at most **eight** levels deep (`PRV-8027`), and a downstream holds one
@@ -76,7 +76,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   does `postgres-cdc` need it: its `snapshot.mode: initial` is already exact, at one consistent LSN,
   with no deduplication at all, and it has no per-row version comparable with its feed. A
   replacement's backfill meets the running version at an offset
-  ([ADR-046](adr/046-a-replacement-meets-the-running-version-at-a-position.md)) instead.
+  ([ADR-046](../design/adr/046-a-replacement-meets-the-running-version-at-a-position.md)) instead.
   The design's `backfill.parallelism`, `backfill.window` and `backfill.adaptive` are refused by name
   (`PRV-4018`): a backfill reads each partition once, from the beginning, at the rate an operator
   sets, and nothing probes the store's own latency to adapt to.
@@ -116,7 +116,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   Hive catalog, and partitioned Iceberg tables. Compaction stays with the table's own engine.
 
 - **Change data capture, beyond one PostgreSQL table's changes.** `postgres-cdc`
-  ([ADR-041](adr/041-change-data-capture-without-debezium.md)) streams one table per binding
+  ([ADR-041](../design/adr/041-change-data-capture-without-debezium.md)) streams one table per binding
   from PostgreSQL 14 or later, one slot per binding and one query per binding: a second, different
   query over a binding is refused at registration (`PRV-8028`, CDCREPL-2) rather than left to fail on
   the slot 15 seconds later; bind the table a second time, with a slot of its own, for a second query. Rows already in the table are delivered
@@ -128,7 +128,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   gone: a delete arrives up to a scan interval late, two writes between passes are still one, and
   every emitted row is held in memory (about 150 bytes plus the row), bounded by `deletes.max.keys`.
   Its replication slot retains WAL on the database until a checkpoint confirms it
-  ([`OPERATIONS.md`](OPERATIONS.md)).
+  ([`../operations/OPERATIONS.md`](../operations/OPERATIONS.md)).
   Without it (the default) a scan repeats rows — Cassandra every pass, Aerospike on an update — and
   so, where a `jdbc` update moves the watermark column, does a poll: a keyed view of the rows is
   right, and an aggregate, a join or an append-only sink over such a stream is refused at
@@ -169,7 +169,7 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   declared order; anything else would need `ALLOW FILTERING`, which reads every partition anyway.
   `EXPLAIN` shows the plan, not what a source was asked for; a query's feed description does
   (`feed.description` on `GET /api/v1/queries/{name}`), including what Cassandra was asked for
-  ([ADR-039](adr/039-ga-includes-the-known-gaps-and-clustering.md) item 6).
+  ([ADR-039](../design/adr/039-ga-includes-the-known-gaps-and-clustering.md) item 6).
 
   **A boundary of the stores.** `MIN`/`MAX` cannot be retracted incrementally, an Aerospike partial needs UDFs installed on the cluster, and a Cassandra filter off the key needs `ALLOW FILTERING`.
 
@@ -222,10 +222,10 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   lz4` is refused at configuration (`PRV-5100`) and an lz4 batch stops the source's reader (`PRV-5107`),
   both naming the ADR ([`CONNECTORS.md`](CONNECTORS.md), "Compressed topics").
 
-  **Decided, not missing** ([ADR-053](adr/053-native-code-only-where-java-cannot.md)): allowing a third native family takes an ADR.
+  **Decided, not missing** ([ADR-053](../design/adr/053-native-code-only-where-java-cannot.md)): allowing a third native family takes an ADR.
 
 - **The spill tier is survival, not capacity.** There is no RocksDB, by decision
-  ([ADR-044](adr/044-no-rocksdb-the-mapped-tier-is-l1.md)): the memory-mapped overflow tier is
+  ([ADR-044](../design/adr/044-no-rocksdb-the-mapped-tier-is-l1.md)): the memory-mapped overflow tier is
   the on-disk tier, and it is finished — `COUNT(DISTINCT)` spills, churned slabs are compacted away,
   the disk is budgeted in bytes (`max-bytes`, refusing by code before it fills), and a key index
   spills whole, its slot table included, so a spilled query's memory no longer grows with its keys.
@@ -235,4 +235,4 @@ Proprietary and confidential; see [`../LICENSE`](../LICENSE).
   three page faults each, and 124 KiB read per fault from the kernel's read-around — with a tail of
   seconds while the kernel reclaims. Size the page cache for the index.
 
-  **Decided, not missing** ([ADR-044](adr/044-no-rocksdb-the-mapped-tier-is-l1.md)).
+  **Decided, not missing** ([ADR-044](../design/adr/044-no-rocksdb-the-mapped-tier-is-l1.md)).

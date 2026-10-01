@@ -36,7 +36,7 @@ behind a decision that was later reversed is usually the most useful thing in th
 **Built, for every input the query reads. Not built for the exchange.**
 
 A checkpoint is one cut across the query's input rather than one snapshot per lane. Three things make
-it that, and each was a separate defect (`docs/qa/FINDINGS.md` W8-2, W8-3, W8-4):
+it that, and each was a separate defect (`docs/project/qa/FINDINGS.md` W8-2, W8-3, W8-4):
 
 * **Every source is held between rows for the length of the cut.** `IngestPump.pumpOnce` and
   `PartitionedIngestPump.pumpOnce` take a lock for the length of their poll, and

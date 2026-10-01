@@ -1,7 +1,7 @@
 # Concepts
 
 > **How any of this actually runs — lanes, inboxes, arenas, and what bounds a node:**
-> [`EXECUTION_MODEL.md`](EXECUTION_MODEL.md).
+> [`../design/EXECUTION_MODEL.md`](../design/EXECUTION_MODEL.md).
 >
 > **These ideas applied end to end — declaring a stream, registering a query, reading the view,
 > and which SQL runs:** [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md).
@@ -9,7 +9,7 @@
 > **Where the data comes from, and how to add a source:** [`CONNECTORS.md`](CONNECTORS.md).
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../LICENSE`](../LICENSE).
+**Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
 
 The eight ideas everything else follows from. If you read one page before using Pravaha, this is it —
 most surprises people hit are one of these working correctly.
@@ -37,14 +37,14 @@ What it costs, measured rather than asserted: about **1 MiB of off-heap while id
 once rows are moving**, ~65 KiB of heap, ~16 ms to register (mostly planning), and — since the lanes
 were multiplexed onto a shared runner pool — **no platform thread of its own**. A node's thread count
 follows its cores, not its query count. Sizing is under `pravaha.lane.*`; see
-[Operations](OPERATIONS.md#sizing-a-node-for-many-queries).
+[Operations](../operations/OPERATIONS.md#sizing-a-node-for-many-queries).
 
 **An answer can be the input of another question.** A continuous query whose `FROM` names a
 registered query does not read that query's view once; it *follows its answer* — the rows it holds,
 then every change to them as a row leaving (−1) and a row entering (+1) — so `cleaned` →
 `by_region` → `big_regions` is three computations, each current, each exactly once across a restart,
 because each carries what it has consumed of the one before it (§4 is why the retractions matter;
-[ADR-056](adr/056-queries-on-queries.md) and
+[ADR-056](../design/adr/056-queries-on-queries.md) and
 [CONTINUOUS_QUERIES.md §3.1](CONTINUOUS_QUERIES.md#31-a-query-over-another-querys-answer) say what runs
 over an answer and what is refused). A query other queries read cannot be dropped until they are.
 
@@ -150,7 +150,7 @@ what a reader sees:
 - **Follow the answer.** Register a continuous query over the view — `CREATE CONTINUOUS QUERY
   latest_copy KEYED BY (id) AS SELECT id, status FROM latest` — and subscribe to that. A query over a query is
   fed the upstream's answer as it changes, the rows that left it (`-1`) and the rows that entered it
-  (`+1`) per commit, evictions included (§1, [ADR-056](adr/056-queries-on-queries.md)), so its
+  (`+1`) per commit, evictions included (§1, [ADR-056](../design/adr/056-queries-on-queries.md)), so its
   changelog is exactly the upstream's answer and weights summed over it are the view. Or subscribe to
   the view's answer directly: `changes="answer"` in the Python SDK, `subscribeToAnswer` in the Java
   SDK, `pravaha subscribe --answer`, `SubscriptionOptions.followingTheAnswer()` embedded — the same
@@ -338,4 +338,4 @@ alert follows cannot be dropped from under it.
 | [User guide](USER_GUIDE.md) | The whole surface, task by task |
 | [Streams, queries and SQL](CONTINUOUS_QUERIES.md) | What you write, end to end, and every construct checked by a test |
 | [Troubleshooting](TROUBLESHOOTING.md) | Every `PRV-` code and what to do |
-| [Case studies](../examples/case-studies/) | Five worked systems you can copy |
+| [Case studies](../../examples/case-studies/) | Five worked systems you can copy |

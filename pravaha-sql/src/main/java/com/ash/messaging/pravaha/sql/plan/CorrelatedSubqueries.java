@@ -62,7 +62,7 @@ final class CorrelatedSubqueries {
                         + "'JOIN dim FOR SYSTEM_TIME AS OF <time>'. An uncorrelated subquery -- one that names "
                         + "no column of the outer row -- is a separate question with its own answer; register "
                         + "it as its own continuous query and join the two. "
-                        + "See docs/CONTINUOUS_QUERIES.md for what this engine executes and what it refuses.");
+                        + "See docs/guides/CONTINUOUS_QUERIES.md for what this engine executes and what it refuses.");
     }
 
     /** One line, so a refusal about a clause does not print a whole relational tree. */

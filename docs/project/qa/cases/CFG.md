@@ -64,7 +64,7 @@ more interesting than the case that referenced it.
    `PravahaNode.withEventTime` — **and only when `event-time` is also declared**, because
    `withEventTime` returns the unmodified schema when it is not
    (`PravahaNode.java:232-236`). Round 1 proved the inertness by experiment
-   (`docs/qa/logs/DOC.md:1362-1385`).
+   (`docs/project/qa/logs/DOC.md:1362-1385`).
 8. `pravaha.watermark.idle-after` is validated **once, at startup**, by constructing a throwaway
    `WatermarkTracker` (`PravahaNode.java:376-386`); bounds are `MINIMUM_IDLE_TIMEOUT = 1s` and
    `MAXIMUM_IDLE_TIMEOUT = 10m`, **refused rather than clamped**. `pravaha.watermark.tick` is
@@ -95,7 +95,7 @@ more interesting than the case that referenced it.
     configuration key anywhere in the repository.** `WindowAssign.java:68`,
     `SymmetricHashJoin.java:170` and `:205`, `InterpretedPipeline.java:644` and `:706`,
     `LookupJoin.java:308`. `grep -rn` finds it in those six strings, in
-    `RowArenaTest.java:170`, and in `docs/system_design.md:3543`. `state.slab.size` is the same
+    `RowArenaTest.java:170`, and in `docs/design/system_design.md:3543`. `state.slab.size` is the same
     story with one message (`RowStore.java:119`) and one test.
 14. `QueryRegistry.executingWith(LaneConfig, MemoryAccess)` exists
     (`QueryRegistry.java:136`) and **nothing in `pravaha-server` calls it**. `LaneConfig.defaults()`
@@ -1110,13 +1110,13 @@ of 70 000 characters per row does it.
 1. Confirm the failure: run the query, capture `PRV-3001` and the exact message.
 2. `grep -rn "arena.slab.size" --include=*.java --include=*.yaml --include=*.yml --include=*.md .`
    and record every hit. Expect: the six messages above, `RowArena.java:87`, `RowArenaTest.java:170`,
-   `docs/system_design.md:3543`, and `docs/qa/logs/*`. **No `@Value`, no
+   `docs/design/system_design.md:3543`, and `docs/project/qa/logs/*`. **No `@Value`, no
    `@ConfigurationProperties` field, no `Configuration.get*` call, no `application.yaml` entry.**
 3. Try each of the four spellings above and re-run. Confirm the failure is byte-for-byte identical.
 4. Confirm `pravaha-server` never calls `QueryRegistry.executingWith` (fact 14), so there is no
    code path by which any value could reach `LaneConfig.arenaSlabBytes` on a server node.
 **Expected:** the only remedy the engine offers cannot be applied, by any spelling, from any source.
-`docs/system_design.md:3543` places `arena.slab.size: 4MB` inside a `pravaha.runtime:` block, which
+`docs/design/system_design.md:3543` places `arena.slab.size: 4MB` inside a `pravaha.runtime:` block, which
 is where an operator will try first and where it does the least.
 **Vacuity:** step 1 establishes the failure is real and reachable before step 3 claims the remedy is
 not; without step 1 the case would pass on a query that never exhausted anything.

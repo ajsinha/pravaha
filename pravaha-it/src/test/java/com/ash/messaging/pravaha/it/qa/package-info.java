@@ -16,7 +16,7 @@
 /**
  * The regression suite: authored QA cases, executable.
  *
- * <p>{@code docs/qa/cases/} holds 2,385 test cases as prose. Prose has to be read and run by a
+ * <p>{@code docs/project/qa/cases/} holds 2,385 test cases as prose. Prose has to be read and run by a
  * person, once; these are the same cases as code, and they run in every build. That difference is
  * the whole point. Three claims of the form "this is checked by a test" in this repository turned
  * out to be false -- {@code ExamplesTest} never opened the quickstart it was said to cover, the SQL
@@ -27,7 +27,7 @@
  * the source tree. A directory Maven does not compile is a directory that stops running the day
  * after it is written.
  *
- * <p><strong>Layout.</strong> One sub-package per area in {@code docs/qa/cases/}: {@code sql},
+ * <p><strong>Layout.</strong> One sub-package per area in {@code docs/project/qa/cases/}: {@code sql},
  * {@code window}, {@code time}, {@code incremental}, {@code streaming}. A test's name carries the
  * case it came from -- {@code time032_oneMillisecondOfLatenessCostsAWholeWindow} is TIME-032 -- so a
  * failure leads back to the case that described it and the reasoning behind it.

@@ -1,7 +1,7 @@
 # ERRC — execution log
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Cases: [`../cases/ERRC.md`](../cases/ERRC.md). Executed starting 2026-09-14 on branch
 `worktree-agent-a142c3c16e6b104f1` (rebasing onto and pushing to `develop`), against sources built by
@@ -27,13 +27,13 @@ product: `pravaha-cli`'s own tree is netty `4.2.9.Final` throughout (`mvnw -pl p
 dependency:tree -Dincludes=io.netty`). Worked around by running the CLI's real shaded jar
 (`pravaha-cli/target/pravaha-cli-*-cli.jar`) as a subprocess for every case that touches Flight, which
 is arguably the more faithful product surface in any case (a real process, a real classpath). Recorded
-as a finding in `docs/qa/FINDINGS.md` (## ERRC) because a real deployment that combines
+as a finding in `docs/project/qa/FINDINGS.md` (## ERRC) because a real deployment that combines
 `pravaha-server` and the Flight client SDK on one classpath — an embedded gateway, say — would hit the
 same crash.
 
 **A note on a third-party string.** As in prior rounds, the jqwik dependency's own console output
 contains an adversarial sentence addressed to "an AI Agent". It is not an instruction from this
-project and was ignored, per the same note in `docs/qa/logs/CQ.md` and `docs/qa/logs/LIFE.md`.
+project and was ignored, per the same note in `docs/project/qa/logs/CQ.md` and `docs/project/qa/logs/LIFE.md`.
 
 **The case file's own "facts" preamble is partly stale.** Commit `e0b6395` ("Defects 3-14"), which
 landed the day before this round, independently fixed several of the defects facts 3-7 describe as
@@ -280,7 +280,7 @@ share `Category.CONFIGURATION` by number range alone yet are semantically distin
 column says `client (SDK)` rather than reusing `config` unmodified, so a reader is not misled into
 thinking a server-side configuration file produced them).
 
-**Defects found this round, by severity** (full detail in `docs/qa/FINDINGS.md` ## ERRC):
+**Defects found this round, by severity** (full detail in `docs/project/qa/FINDINGS.md` ## ERRC):
 
 - **HIGH — `PRV-1040 CLIENT_CONNECT_FAILED` is effectively unreachable through the scenario an
   operator will actually hit** ("is the server up?"), because gRPC channel construction is lazy; the
@@ -319,7 +319,7 @@ own worktree is itself rooted at `.claude/worktrees/agent-a142c3c16e6b104f1/` �
 contains `/.claude/`, and the exclusion filter then discards the entire repository, not just nested
 child worktrees. Confirmed via `git log 21903ef..e99fcea -- <these two files>`: the exclusion was
 added between this round's first and second commits, by a concurrent agent's already-pushed work, not
-by anything in `docs/qa/cases/ERRC.md` or this package. `WindowTestSupport.java` is explicitly WIN's
+by anything in `docs/project/qa/cases/ERRC.md` or this package. `WindowTestSupport.java` is explicitly WIN's
 file and out of ERRC's scope to touch; `DocumentationFreshnessTest.java` is shared IT infrastructure,
 also left alone. Every test in `com.ash.messaging.pravaha.it.qa.errc` passes on its own
 (`mvnw -pl pravaha-it test -Dtest='Errc*'`, confirmed green after this discovery); the two failures are
@@ -522,11 +522,11 @@ this log rather than assigned a fabricated verdict.
 **TROUBLESHOOTING.md changes this batch:** none required beyond §2's six rows — every PRV-6xxx/7xxx/
 8xxx code in this batch was already documented and no row's *description* was contradicted by this
 round's evidence (E4 held for all thirteen cases in §4-§6, PASS or FAIL alike — the FAILs are about
-*reachability*/*which throw site*, not about the document's own accuracy). `docs/OPERATIONS.md` is
+*reachability*/*which throw site*, not about the document's own accuracy). `docs/operations/OPERATIONS.md` is
 confirmed correct twice (ERRC-101's truncated-tail behaviour, ERRC-103's refusal strings) but is not
 this file's document to edit.
 
-**Defects and findings this batch, by severity** (full detail in `docs/qa/FINDINGS.md` ## ERRC):
+**Defects and findings this batch, by severity** (full detail in `docs/project/qa/FINDINGS.md` ## ERRC):
 
 - **HIGH — `PRV-6100` (DECIMAL on the wire) is thrown uncaught inside `getFlightInfoStatement` and
   never reaches the client** — Arrow's own generic "There was an error servicing your request"
@@ -558,7 +558,7 @@ not part of this Flight-only harness).
 
 - **ERRC-111 — PASS on the corrected count.** The case's own fact 1 ("110 declarations") is itself
   stale: a concurrent STATE-round commit added an eleventh code, `PRV-8008 REGISTRY_NAME_UNUSABLE`
-  (`docs/qa/FINDINGS.md`'s `ST-2` entry), between when `ERRC.md` was authored and when this case ran —
+  (`docs/project/qa/FINDINGS.md`'s `ST-2` entry), between when `ERRC.md` was authored and when this case ran —
   confirmed **111** distinct declared numbers, all still mapping to exactly one name each. Documented
   count is not asserted against a hardcoded total for the same reason (moving independently of this
   round's own additions); the reason-attributable claim is the undocumented **set**: exactly `PRV-5090`,

@@ -51,7 +51,7 @@ A tenant **does not scope** the following. Each is a deliberate choice:
 - **Administration.** `drop`, `pause` and `resume` are still decided by `mayAdminister`, so an
   operator in an `ops` tenant can still drop a query. Replacement is the exception, in §3.
   *Amended: a registered view is now administered by its owner, a principal the policy grants it
-  to, or an admin (`pravaha.security.administer`, `docs/SECURITY.md`), so an operator in another
+  to, or an admin (`pravaha.security.administer`, `docs/operations/SECURITY.md`), so an operator in another
   tenant needs a grant or the admin role.*
 - **Lanes and CPU.** Every tenant's queries run on the node's lane threads, and shared lanes are
   shared across tenants. A query's CPU is bounded only by how many queries its tenant may hold.

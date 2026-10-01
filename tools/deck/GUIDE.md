@@ -8,8 +8,8 @@ nobody can edit safely.
 uv venv tools/deck/.venv --python 3.12
 uv pip install -p tools/deck/.venv -r tools/deck/requirements.txt
 
-tools/deck/.venv/bin/python tools/deck/build.py                   # the deck, into docs/
-tools/deck/.venv/bin/python tools/deck/audit.py docs/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx
+tools/deck/.venv/bin/python tools/deck/build.py                   # the deck, into docs/publications/
+tools/deck/.venv/bin/python tools/deck/audit.py docs/publications/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx
 tools/deck/.venv/bin/python -m pytest -q tests/deck               # the audit, as a test
 ```
 
@@ -19,7 +19,7 @@ tools/deck/.venv/bin/python -m pytest -q tests/deck               # the audit, a
 
 | Deck | Slides | Source |
 |---|---|---|
-| `docs/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx` | 91 | `pravaha_deck.py`, then `deck_part1.py` to `deck_part4.py` |
+| `docs/publications/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx` | 91 | `pravaha_deck.py`, then `deck_part1.py` to `deck_part4.py` |
 
 **Who it is for.** The people who have to trust the engine's answers: an architect
 deciding whether it belongs in a design, an SRE who will be paged for it, a
@@ -65,8 +65,8 @@ the machine they were taken on and the gate they were measured against, and a ta
 that was not reached is shown as not reached.
 
 **Where every claim comes from.** Each slide's speaker notes begin `Source:` and name
-the files — `README.md`, `docs/*.md`, the ADRs in `docs/adr/`, `docs/RELEASE_NOTES.md`,
-the gate packs in `docs/gates/`, `benchmarks/README.md`, and the case-study READMEs. A
+the files — `README.md`, `docs/**/*.md`, the ADRs in `docs/design/adr/`, `docs/project/RELEASE_NOTES.md`,
+the gate packs in `docs/project/gates/`, `benchmarks/README.md`, and the case-study READMEs. A
 test fails if a slide has no source. Case-study numbers are quoted from their READMEs,
 where they are either the output of a real run or answers the build checks
 (`CaseStudyRunTest`).
@@ -110,7 +110,7 @@ is deliberately pessimistic; it is an estimate, and a deck should still be looke
 after a large change:
 
 ```bash
-soffice --headless --convert-to pdf --outdir /tmp/deck docs/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx
+soffice --headless --convert-to pdf --outdir /tmp/deck docs/publications/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx
 pdftoppm -r 50 -png /tmp/deck/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pdf /tmp/deck/p
 ```
 

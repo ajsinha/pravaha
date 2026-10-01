@@ -1,11 +1,11 @@
 # AGG — five aggregate kinds × three operators × sixteen types × seven input shapes — execution log
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Cases: [`../cases/AGG.md`](../cases/AGG.md). Executed 2026-09-14 on branch `develop`, against a build
 of the working tree (`./mvnw -q -o -T1C install -DskipTests -DskipITs`, exit 0), in the same session
-as `docs/qa/logs/SQLX.md` and sharing its harness set and build.
+as `docs/project/qa/logs/SQLX.md` and sharing its harness set and build.
 
 **Scope note, stated plainly.** This area's full budget is 110 cases across six sections; SQLX's 190
 cases were run to completion first, leaving a materially smaller share of the session for AGG. What
@@ -117,7 +117,7 @@ executor to "record the exit code and whether the failure is reported at all —
 hanging". On this build the refusal is clean, immediate, plan-time, and carries the unbounded-state
 code rather than a runtime one. Either `buildAggregate` grew a plan-time check for this shape since
 the case was authored, or the case's premise was already stale when written. Recorded as a probable
-correction alongside the SQLX-107/108 corrections to Q-6 (`docs/qa/logs/SQLX.md`).
+correction alongside the SQLX-107/108 corrections to Q-6 (`docs/project/qa/logs/SQLX.md`).
 
 ### AGG-013 — **PASS against "Expected (correct)"; the defect does not reproduce — major finding, see below**
 HC, `v_txn` at 5 rows:
@@ -196,7 +196,7 @@ Not reached this session (COUNT(DISTINCT) over further type/shape combinations, 
 Not executed this session. This section is the 16-type × {SUM, MIN, MAX, AVG} matrix over `narrow`,
 `floaty` and `temporal` streams (facts 4-6 of the preamble: float exemption for COUNT(DISTINCT),
 narrow-integer emit-time death, DECIMAL's unestablished refusal site). SQLX-113/114 (this session,
-`docs/qa/logs/SQLX.md`) cover the FLOAT64 and narrow-integer refusal shapes directly and are the
+`docs/project/qa/logs/SQLX.md`) cover the FLOAT64 and narrow-integer refusal shapes directly and are the
 closest evidence available; they are cited there, not duplicated here as AGG verdicts, because they
 were run against SQLX's own fixture rather than AGG's `narrow`/`floaty` streams.
 

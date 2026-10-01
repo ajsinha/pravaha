@@ -154,4 +154,4 @@ The owner asked that Pravaha run the same in a container and out of one, with ev
   after its defaults (and the QA layout's `console/conf/application.yaml`), logs to
   `/opt/pravaha/logs`, and keeps `HOME`, `TMPDIR` and the assistant's files under `/opt/pravaha`.
 
-docs/RUNNING_IN_DOCKER.md is the reference for all of it.
+docs/operations/RUNNING_IN_DOCKER.md is the reference for all of it.

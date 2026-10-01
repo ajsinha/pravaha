@@ -4,7 +4,7 @@ Copyright © 2026 Ashutosh Sinha. Proprietary and confidential.
 
 | | |
 |---|---|
-| Wave | 9 of 11 — inserted by [ADR-036](../../adr/036-one-node-thousands-of-queries.md) |
+| Wave | 9 of 11 — inserted by [ADR-036](../../../design/adr/036-one-node-thousands-of-queries.md) |
 | Gate | **None in the plan.** See "the numbering desynced" below |
 | Written | 2026-09-15 |
 | Verdict | **Wave goal met and measured. Two of its eleven items deferred by decision.** This is the first gate in the project whose criterion was both stated as a number and reached |

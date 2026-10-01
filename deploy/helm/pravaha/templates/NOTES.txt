@@ -42,4 +42,4 @@ What it buys is RECOVERY TIME, NOT CONTINUITY: it resumes from the newest checkp
 whatever the primary processed after that is replayed from the source offsets that checkpoint
 carries. Anything the source can no longer supply is gone.
 {{- end }}
-What this chart deliberately does not do: docs/DEPLOYMENT.md, "What the chart does not do".
+What this chart deliberately does not do: docs/operations/DEPLOYMENT.md, "What the chart does not do".

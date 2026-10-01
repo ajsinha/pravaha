@@ -1,7 +1,7 @@
 # SQL surface and query semantics — execution log
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Cases: [`../cases/SQL.md`](../cases/SQL.md). Executed 2026-09-12 on branch `develop`, commit
 `2c287dd`, against the pre-built artefacts.

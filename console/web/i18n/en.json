@@ -2798,7 +2798,7 @@
     "caption": "How the product categories compare. Each capability links to how Pravaha does it.",
     "capability": "Capability",
     "scores": "How each category scores",
-    "missing": "The comparison is read from docs/COMPETITIVE_LANDSCAPE.md, which this installation does not carry.",
+    "missing": "The comparison is read from docs/publications/COMPETITIVE_LANDSCAPE.md, which this installation does not carry.",
     "note": {
       "problem": "The problem elsewhere.",
       "how": "How Pravaha does it.",

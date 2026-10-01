@@ -1,12 +1,12 @@
 # Types and expressions — test cases
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Area code `TYPE`, IDs `TYPE-001`–`TYPE-150`. **Written before execution. Nothing here has been run.**
 
 The grid this file is built from is *type × position*. The sixteen types are the constants of
-[`TypeName`](../../../pravaha-api/src/main/java/com/ash/messaging/pravaha/api/data/TypeName.java):
+[`TypeName`](../../../../pravaha-api/src/main/java/com/ash/messaging/pravaha/api/data/TypeName.java):
 `BOOLEAN INT8 INT16 INT32 INT64 FLOAT32 FLOAT64 DECIMAL DATE TIME TIMESTAMP_LTZ STRING BYTES ARRAY
 MAP ROW`. The positions are: **declaration**, **projection**, **WHERE predicate**, **aggregate
 argument**, **join key**, **GROUP BY key**, **window boundary**, **ORDER (refused — verified, not

@@ -1,7 +1,7 @@
 # DOC — Documentation QA execution log
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Cases: [`../cases/DOC.md`](../cases/DOC.md). 50 written, 50 executed.
 
@@ -26,11 +26,11 @@ were killed by number; the one container built was removed along with its image.
 
 ---
 
-## Group A — `docs/QUICKSTART.md`, executed literally
+## Group A — `docs/guides/QUICKSTART.md`, executed literally
 
 ### DOC-001 — Prerequisites sufficient for a naive reader — **FAIL**
 ```
-$ grep -n 'docker\|make \|git clone' docs/QUICKSTART.md
+$ grep -n 'docker\|make \|git clone' docs/guides/QUICKSTART.md
 28:git clone <this repository> && cd pravaha
 49:docker build -t pravaha:local .
 50:docker run --rm -p 8080:8080 -p 9090:9090 pravaha:local ...
@@ -442,7 +442,7 @@ Extracted across `README.md`, `docs/*.md`, `examples/**`, `console/README.md`:
 `PravahaCli.run`'s dispatch (lines 65-86). No user-facing document names a command that does not
 exist.
 
-Six that do not exist appear only in `docs/system_design.md` and `docs/implementation_plan.md`:
+Six that do not exist appear only in `docs/design/system_design.md` and `docs/design/implementation_plan.md`:
 `pravaha dev`, `pravaha bench`, `pravaha diff`, `pravaha replay`, `pravaha test`, `pravaha import`
 (`system_design.md:3343-3349`, `:678`).
 
@@ -553,7 +553,7 @@ so the yaml and the javadoc disagree about the same key.
 | `pravaha.checkpoint.timeout` | undocumented, **and not settable from server YAML** — `PersistenceProperties.checkpointConfiguration()` forwards only `interval` and `keep` |
 
 **Verdict:** FAIL, high severity, and the finding is not really "some keys are undocumented" — it is
-**`docs/SECURITY.md` does not document a single `pravaha.security.*` key.** A 199-line document
+**`docs/operations/SECURITY.md` does not document a single `pravaha.security.*` key.** A 199-line document
 called Security, linked from the reference table of both `README.md` and `docs/README.md` as
 "Authentication, authorization, row filters, audit", never names the configuration that turns any of
 it on. The only place a reader can find it is a quickstart aside and the comments inside a file that
@@ -563,7 +563,7 @@ artefact.
 
 ### DOC-026 — `OPERATIONS.md` "Starting a node" YAML is safe to copy — **FAIL**
 ```
-docs/OPERATIONS.md:318-326
+docs/operations/OPERATIONS.md:318-326
 pravaha:
   flight:
     port: 8815
@@ -599,7 +599,7 @@ called out as the thing to stop.
 install`, `make run`" and stops. A reader who follows *only* the console README gets a console they
 cannot sign into, with no indication why, because the safe-failure design means an unset password
 produces a refusal rather than a warning. The explanation — and it is a good one — lives in
-`docs/QUICKSTART.md:206-218`, two directories away, in a document a console developer has no reason
+`docs/guides/QUICKSTART.md:206-218`, two directories away, in a document a console developer has no reason
 to open.
 
 Also undocumented anywhere: `CONSOLE_SESSION_SECRET`, `CONSOLE_HOST`, `CONSOLE_PORT`,
@@ -709,9 +709,9 @@ Settled empirically by DOC-009: a stream declared under `pravaha.streams`, bound
 | Document | Says |
 |---|---|
 | `README.md:14-16` | "The `pravaha-server` process additionally has **no ingestion path at all**: a query registered against it never receives a row." |
-| `docs/OPERATIONS.md:298-301` | "**What is still missing: nothing feeds it.** No source plugin is connected to a registered query, so rows arrive only from whatever calls `accept`" |
-| `docs/QUICKSTART.md:133` | "With that file, the whole loop works from the command line" |
-| `docs/HANDOVER.md:80-86` | "The server became a server on 2026-09-12 … the whole loop is verified end to end" |
+| `docs/operations/OPERATIONS.md:298-301` | "**What is still missing: nothing feeds it.** No source plugin is connected to a registered query, so rows arrive only from whatever calls `accept`" |
+| `docs/guides/QUICKSTART.md:133` | "With that file, the whole loop works from the command line" |
+| `docs/development/HANDOVER.md:80-86` | "The server became a server on 2026-09-12 … the whole loop is verified end to end" |
 
 **Verdict:** FAIL. The first two are false and the second two are true.
 
@@ -792,7 +792,7 @@ is not built yet, when it is. The rest of that README is excellent and its refus
 engine's output exactly.
 
 ### DOC-038 — **HANDOVER's claim that the quickstart is test-enforced — FAIL**
-> `HANDOVER.md:40` — "`docs/QUICKSTART.md` is accurate and every command in it is executed by
+> `HANDOVER.md:40` — "`docs/guides/QUICKSTART.md` is accurate and every command in it is executed by
 > `ExamplesTest`, so it cannot silently rot."
 
 What the two tests actually do:
@@ -921,7 +921,7 @@ run. The one defect is the count: "Two stores cover all four" (line 7), and ther
 
 ### DOC-045 — Every markdown link resolves — **PASS**
 ```
-$ python3 <link checker over README.md, docs/**, docs/adr/**, examples/**, console/README.md>
+$ python3 <link checker over README.md, docs/**, docs/design/adr/**, examples/**, console/README.md>
 BROKEN LINKS: 0
 ```
 **Verdict:** PASS. Not vacuous — the checker resolved several hundred targets across 60+ files and
@@ -1040,7 +1040,7 @@ this run has typed the commands in a case-study README end to end.
 confirmed the keyboard paths in source, but did not run `make test` (it starts a real server from the
 Maven build, which would have collided) and did not exercise register/pause/drop through the UI.
 
-**`docs/system_design.md` and `docs/implementation_plan.md` were only spot-checked.** At 3959 and 996
+**`docs/design/system_design.md` and `docs/design/implementation_plan.md` were only spot-checked.** At 3959 and 996
 lines they are out of proportion to this area's time budget, and they are linked as specifications
 rather than instructions. What I found there (DOC-020) suggests a full pass would be worth somebody's
 day: they document a CLI, a configuration model and a config file that do not exist, and the
@@ -1069,7 +1069,7 @@ built (`7e0de33`); nothing rebuilt except one `dependency:build-classpath` for a
 
 ```
 $ git diff --stat b4ce5c8..HEAD -- docs/ README.md
- docs/qa/cases/*.md  docs/qa/logs/*.md   (10 files, the QA record itself)
+ docs/project/qa/cases/*.md  docs/project/qa/logs/*.md   (10 files, the QA record itself)
 ```
 
 **Not one line of prose changed.** `README.md`, `QUICKSTART.md`, `OPERATIONS.md`, `SECURITY.md`,
@@ -1165,7 +1165,7 @@ those files, or that they may drop the `flight.tls` block.
 | DOC-022 `explain` without `--schema` | STILL FAILING | re-run; `--schema is required. Supplied: [sql]` |
 | DOC-023 `/actuator/prometheus` | STILL FAILING | re-curled: `404` |
 | **DOC-024** documented keys that are inert | **PARTIALLY FIXED** | 2 of 3 watermark keys now read; the third is still inert **and is the only one any document names**. See DOC-052 |
-| DOC-025 `SECURITY.md` names no `pravaha.security.*` key | STILL FAILING | `grep -c 'pravaha.security' docs/SECURITY.md` → `0` |
+| DOC-025 `SECURITY.md` names no `pravaha.security.*` key | STILL FAILING | `grep -c 'pravaha.security' docs/operations/SECURITY.md` → `0` |
 | DOC-026 `OPERATIONS.md:325` port 8815 | STILL FAILING | unchanged |
 | DOC-027 javadoc names keys that do not exist | PARTIALLY FIXED | `StreamSchema.java:51` still names `pravaha.watermark.out-of-orderness`, which still has no reader |
 | DOC-028 `console/README.md` names no env var | STILL FAILING | `grep -c CONSOLE_PASSWORD console/README.md` → `0` |
@@ -1329,8 +1329,8 @@ Numbered continuing the original sequence.
 ### DOC-051 — **`pravaha.streams.<n>.event-time` is documented nowhere, and nothing works without it** — FAIL
 
 ```
-$ grep -rn 'event-time' README.md docs/QUICKSTART.md docs/OPERATIONS.md docs/CONCEPTS.md \
-        docs/USER_GUIDE.md docs/SECURITY.md docs/HANDOVER.md console/README.md \
+$ grep -rn 'event-time' README.md docs/guides/QUICKSTART.md docs/operations/OPERATIONS.md docs/guides/CONCEPTS.md \
+        docs/guides/USER_GUIDE.md docs/operations/SECURITY.md docs/development/HANDOVER.md console/README.md \
         pravaha-server/src/main/resources/application.yaml
 (no match — the only hits in docs/ are prose uses of the phrase "event-time streaming")
 ```
@@ -1472,8 +1472,8 @@ not authorized), the `requireOnePolicy` startup check, and this new startup chec
 covers only the first:
 
 ```
-docs/TROUBLESHOOTING.md:78  | PRV-7002 | Authenticated, not authorized | Ask for access — a new credential will not help |
-docs/SECURITY.md:119        | PRV-7002 | Authenticated, not authorized | Ask for access |
+docs/guides/TROUBLESHOOTING.md:78  | PRV-7002 | Authenticated, not authorized | Ask for access — a new credential will not help |
+docs/operations/SECURITY.md:119        | PRV-7002 | Authenticated, not authorized | Ask for access |
 ```
 
 **Severity: high.** An operator whose node will not start looks up `PRV-7002` and is told to ask
@@ -1525,7 +1525,7 @@ default AccessDecision mayAdminister(Principal principal, String view) {
 }
 ```
 
-`docs/SECURITY.md` documents a two-verb policy: `mayRead` and `mayRegisterQuery`. Line 38 defines
+`docs/operations/SECURITY.md` documents a two-verb policy: `mayRead` and `mayRegisterQuery`. Line 38 defines
 the authorization seam as answering "**What may they read?**", which is now incomplete — the policy
 also decides who may `DROP`, `PAUSE` and `RESUME`. `ARCHITECTURE.md:473` describes `SecurityPolicy`
 as "`(Principal, view)` in, an `AccessDecision` out" for reads only.

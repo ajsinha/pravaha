@@ -148,7 +148,7 @@ Every command takes `--url`/`--http`/`--token` (or `PRAVAHA_URL`/`PRAVAHA_HTTP`/
 `--json`, and the TLS options, and exits `0` done, `1` the engine refused (its `PRV` code on stderr),
 `2` a usage error, `3` nothing answered. Without the `flight` extra the HTTP commands still work.
 Planning or running SQL with no server is the Java tool `pravaha-engine`. The full reference is
-[`docs/CLI.md`](../../docs/CLI.md) and the console's *CLI reference* help page.
+[`docs/guides/CLI.md`](../../docs/guides/CLI.md) and the console's *CLI reference* help page.
 
 ## The assistant
 
@@ -197,7 +197,7 @@ pravaha assist eval --model claude         # score a model on the case studies' 
 - **Keys** by environment variable or secret file only; a key in the configuration is refused.
 
 The configuration, every provider, runtime reconfiguration, a complete provider plugin and the
-security notes are in [`docs/ASSIST.md`](../../docs/ASSIST.md).
+security notes are in [`docs/guides/ASSIST.md`](../../docs/guides/ASSIST.md).
 
 ## Install
 
@@ -274,7 +274,7 @@ sdk/python/
 ├── pyproject.toml      the build and the dependencies
 ├── Makefile            install, test, lint, typecheck, build
 ├── pravaha/            the package (pravaha/assist/: the assistant, its prompts and dialect card)
-├── tools/              build_dialect_card.py: regenerates the card from docs/CONTINUOUS_QUERIES.md
+├── tools/              build_dialect_card.py: regenerates the card from docs/guides/CONTINUOUS_QUERIES.md
 └── tests/
 ```
 

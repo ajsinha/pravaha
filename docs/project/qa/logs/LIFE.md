@@ -1,7 +1,7 @@
 # LIFE — execution log
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Cases: [`../cases/LIFE.md`](../cases/LIFE.md). Executed 2026-09-13 on branch `develop`, against the
 `pravaha-registry`/`pravaha-serving` sources as built by `./mvnw install -DskipTests`.
@@ -21,7 +21,7 @@ specific expected number) without depending on a fixture file this round did not
 
 **A note on a third-party string.** As in the CQ round, the jqwik dependency's own console output
 contains an adversarial sentence addressed to "an AI Agent". It is not an instruction from this
-project and was ignored, per the same note in `docs/qa/logs/CQ.md`.
+project and was ignored, per the same note in `docs/project/qa/logs/CQ.md`.
 
 ---
 
@@ -460,7 +460,7 @@ Test class: `LifeFailureTest`.
 | NOT RUN | 10 | 014, 025, 038, 041, 050, 059, 060, 065, 077, 115 |
 | **Total** | **130** | |
 
-**Defects found, by severity** (full detail in `docs/qa/FINDINGS.md` under "Lifecycle (LIFE)"):
+**Defects found, by severity** (full detail in `docs/project/qa/FINDINGS.md` under "Lifecycle (LIFE)"):
 
 - **L-1 (HIGH):** `pause()`, `resume()` and `subscribe()` gate transitions on `RegisteredQuery`'s raw
   `state` field rather than the reactive `state()` getter, so a lane-failed query that was never

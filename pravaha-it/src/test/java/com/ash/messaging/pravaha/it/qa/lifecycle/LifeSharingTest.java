@@ -122,7 +122,7 @@ class LifeSharingTest extends LifecycleTestSupport {
                 .fingerprint()
                 .equals(registry.require("reordered").fingerprint());
 
-        String concepts = Files.readString(repoRoot().resolve("docs/CONCEPTS.md"), StandardCharsets.UTF_8)
+        String concepts = Files.readString(repoRoot().resolve("docs/guides/CONCEPTS.md"), StandardCharsets.UTF_8)
                 .replaceAll("\\s+", " ");
         boolean promised = concepts.contains("reordered `AND` operands all land on the same computation");
 

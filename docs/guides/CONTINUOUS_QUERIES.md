@@ -1,16 +1,16 @@
 # Streams, continuous queries and SQL
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../LICENSE`](../LICENSE).
+**Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
 
 > **The single source of truth for what you write and what happens when you write it.** A stream
 > becomes a query becomes a view (§1–§9), and every SQL construct that runs or is refused is listed
 > with its reason (§10–§19). [`CONCEPTS.md`](CONCEPTS.md) holds the ideas underneath;
-> [`EXECUTION_MODEL.md`](EXECUTION_MODEL.md) holds how a query executes once registered. Neither is
+> [`../design/EXECUTION_MODEL.md`](../design/EXECUTION_MODEL.md) holds how a query executes once registered. Neither is
 > repeated here.
 
 Every construct in the reference half is **checked by a test**, not by someone's memory:
-[`SqlSupportMatrixTest`](../pravaha-sql/src/test/java/com/ash/messaging/pravaha/sql/plan/SqlSupportMatrixTest.java)
+[`SqlSupportMatrixTest`](../../pravaha-sql/src/test/java/com/ash/messaging/pravaha/sql/plan/SqlSupportMatrixTest.java)
 plans each statement on this page, builds it, **and compiles it into a runnable pipeline**. If a
 construct starts working, or stops, the build fails and names this file.
 
@@ -619,7 +619,7 @@ store with no change feed.
 
 #### `postgres-cdc` — a PostgreSQL table's changes, from its write-ahead log
 
-Change data capture through PostgreSQL's own logical replication ([ADR-041](adr/041-change-data-capture-without-debezium.md)):
+Change data capture through PostgreSQL's own logical replication ([ADR-041](../design/adr/041-change-data-capture-without-debezium.md)):
 a replication slot, a publication, and the `pgoutput` stream decoded by the plugin. Unlike every
 source above, it is a **changelog**: an `INSERT` arrives at `+1`, a `DELETE` as the whole old row at
 `−1`, and an `UPDATE` as both — the old row at `−1`, then the new one at `+1` — so a query's answer
@@ -710,7 +710,7 @@ larger than any batch the engine has asked for, in which case it arrives in orde
 confirmed only at checkpoints**, which makes checkpointing (`pravaha.checkpoint.*`) a requirement
 rather than an option: without it the slot never advances and the database keeps every byte of WAL
 since the slot was created. The operational side — slot lag, the heartbeat, dropping a slot — is
-[`OPERATIONS.md`](OPERATIONS.md), *Change data capture: the replication slot*.
+[`../operations/OPERATIONS.md`](../operations/OPERATIONS.md), *Change data capture: the replication slot*.
 
 `drop.slot.on.close: "true"` drops the slot when the source closes — a node shutdown included — so
 the next start has no position to resume from and a restored view would miss everything in between.
@@ -834,7 +834,7 @@ after the next restart or re-registration.
 down longer than the topic's `retention.ms` — the restore is refused (`PRV-5106`) rather than
 resumed from wherever the log now starts; so is a checkpoint whose offsets are past the end of a
 recreated topic (`PRV-5106`) or that belong to another topic (`PRV-5104`). Lag, the monitoring group
-and what to do about each are in [`OPERATIONS.md`](OPERATIONS.md), *Kafka as a source*.
+and what to do about each are in [`../operations/OPERATIONS.md`](../operations/OPERATIONS.md), *Kafka as a source*.
 
 ### 2.2 Lookup sources, for temporal joins
 
@@ -994,7 +994,7 @@ Step 4 is why a thousand dashboards asking the same question cost one computatio
 Answers are layered: a cleaned feed, an aggregate of it, an alert condition over the aggregate. A
 continuous query whose `FROM` names a **registered query** follows that query's answer — the rows its
 view holds now, then every change to them — instead of reading a stream
-([ADR-056](adr/056-queries-on-queries.md)):
+([ADR-056](../design/adr/056-queries-on-queries.md)):
 
 ```sql
 CREATE CONTINUOUS QUERY cleaned KEYED BY (user_id)
@@ -1063,7 +1063,7 @@ own row arrays.
 ### 3.2 Alerts: told when a row enters a view, and when it leaves
 
 An **alert** follows a view's answer the way a query over it does (§3.1) and, instead of computing
-another answer, tells somebody ([ADR-057](adr/057-alerts.md)). A key **fires** when its row enters the
+another answer, tells somebody ([ADR-057](../design/adr/057-alerts.md)). A key **fires** when its row enters the
 view — inserted, or updated across the view's `WHERE` — and **clears** when it leaves — deleted, or
 updated back:
 
@@ -1127,7 +1127,7 @@ The filter runs either way, so which path a read takes changes what it costs and
 `RANGE (column)` at registration is what tells you, *then*, that the column can be ordered at all
 (`PRV-2073`); the index itself is available on any view whose key ends in an orderable column, and
 is built the first time a range read needs one — see
-[ADR-049](adr/049-an-ordered-index-over-the-keys-last-column.md) for why the declaration is a check
+[ADR-049](../design/adr/049-an-ordered-index-over-the-keys-last-column.md) for why the declaration is a check
 rather than an allocation. The ordered index holds one entry per row — a reference, not a copy — so the view's key ceiling
 bounds it too; it is built the first time a range read needs it, maintained by every commit
 afterwards, and dropped and rebuilt on a restore. A row whose ordered column is `NULL` is in no
@@ -1135,7 +1135,7 @@ index entry, which is the same thing SQL says about it: `NULL > 1000` is UNKNOWN
 that as false. The equality index `INDEX (column)` declares is different in one respect: it is
 built at registration and kept from then on, in the same commit as the rows, rather than on first
 use, because it is declared and a read straight after a restore must find it
-([ADR-055](adr/055-an-equality-index-over-a-column-outside-the-key.md)). All of this is the same for Flight SQL and for
+([ADR-055](../design/adr/055-an-equality-index-over-a-column-outside-the-key.md)). All of this is the same for Flight SQL and for
 the PostgreSQL gateway, because both run the same reader; the HTTP API describes a view
 (`GET /api/v1/views/{name}`) but does not read one.
 
@@ -1161,7 +1161,7 @@ every commit after it, with nothing between. [`USER_GUIDE.md` §4](USER_GUIDE.md
 how it is kept gapless.
 
 Or have the node write every commit to a sink it binds under `pravaha.sinks.<name>`
-([`OPERATIONS.md`](OPERATIONS.md) has the binding), by naming it at registration:
+([`../operations/OPERATIONS.md`](../operations/OPERATIONS.md) has the binding), by naming it at registration:
 
 ```sql
 CREATE CONTINUOUS QUERY big_txn KEYED BY (user_id) WRITING TO audit_trail
@@ -1177,7 +1177,7 @@ pravaha register --name big_txn --sql "SELECT user_id, amount FROM txn WHERE amo
 
 The view is maintained exactly as without `--sink`; the sink receives the same commits a subscriber
 does, retractions included as rows with a negative weight. Three things to know
-([ADR-043](adr/043-how-a-continuous-query-names-its-sink.md)):
+([ADR-043](../design/adr/043-how-a-continuous-query-names-its-sink.md)):
 
 - **The query's output must be the sink's row shape.** A sink reads rows through the schema in its
   binding, so the `SELECT` list must match it column for column — order, name and type — and a keyed
@@ -1209,7 +1209,7 @@ does, retractions included as rows with a negative weight. Three things to know
   up to a checkpoint interval. So is `kafka-sink`, which writes the changes to a Kafka topic — keyed
   JSON upserts with a tombstone for each retraction, or an explicit changelog of every change and
   its weight — exactly once to a consumer reading with `isolation.level=read_committed`
-  ([`OPERATIONS.md`](OPERATIONS.md) has the binding). `delta-sink` is transactional too: it maintains
+  ([`../operations/OPERATIONS.md`](../operations/OPERATIONS.md) has the binding). `delta-sink` is transactional too: it maintains
   the answer in a Delta Lake table by key, or appends a changelog of every change and its weight, as
   one Delta commit per checkpoint — exactly once on a node that checkpoints, with the table trailing
   the view by up to a checkpoint interval. `aerospike-sink` is effectively once and
@@ -1445,7 +1445,7 @@ PostgreSQL streams to one connection at a time and which keeps nothing before it
 position; a `mysql-cdc` binding is one replica connection, and its beginning is where it opened. A
 backfill could neither start beside the running version nor replay what it has read. Drop the query
 and register the new version, or register it under another name on a binding with its own `slot`
-(or `server.id`) — see [`OPERATIONS.md`](OPERATIONS.md), *Change data capture: the replication slot*.
+(or `server.id`) — see [`../operations/OPERATIONS.md`](../operations/OPERATIONS.md), *Change data capture: the replication slot*.
 
 **What a reader sees.** A read of the name resolves to one version's view or the other's and never a
 mixture, and neither is behind the other, so the answer to the old question up to the seam is
@@ -1491,7 +1491,7 @@ is read-only and refuses it with `PRV-6211`.
 ## 9. Parameters
 
 `?` placeholders are supported in `WHERE` and `HAVING`, and nowhere else. See
-[ADR-032](adr/032-parameters-are-values-not-queries.md) for the full position table and the reasoning.
+[ADR-032](../design/adr/032-parameters-are-values-not-queries.md) for the full position table and the reasoning.
 
 ```java
 client.query("SELECT total FROM user_volume WHERE user_id = ?", "u1");
@@ -1602,7 +1602,7 @@ SHOW   CONTINUOUS QUERIES
   changes. The refusal shows both ways to say what was meant.
 - **`INDEX (column)`** keeps an equality index over one column outside the key — value to keys —
   so that `WHERE column = literal`, or `column IN (...)`, probes it rather than scanning the view
-  ([ADR-055](adr/055-an-equality-index-over-a-column-outside-the-key.md)). It is maintained in the
+  ([ADR-055](../design/adr/055-an-equality-index-over-a-column-outside-the-key.md)). It is maintained in the
   view's own commit, from the row the view held rather than from the retraction that replaced it,
   so it is never a step behind the view; it is written down with the registration and comes back
   with it after a restart, rebuilt over whatever a checkpoint restored. Names sharing one computation
@@ -1668,13 +1668,13 @@ a `SERVE AS VIEW` naming something other than the query, because here a query an
 name. `CREATE OR REPLACE` was on that list until ADR-046, and `INDEXED BY ... RANGE` and a
 `WITH (...)` list on a plain `CREATE` until B8 — what replaced them is not a looser refusal but a
 narrower one, with its own code and its own sentence
-([ADR-049](adr/049-an-ordered-index-over-the-keys-last-column.md)).
+([ADR-049](../design/adr/049-an-ordered-index-over-the-keys-last-column.md)).
 
 **Why this grammar.** `KEYED BY` says what the clause does — a second row with the same key replaces
 the first — where `INDEXED BY` reads as an index beside the view, which is not what it is: it names
 the key, and `RANGE` is what asks for the index. `WRITING TO` reads as what happens and cannot be
 mistaken for `INSERT INTO`, which stays refused (§15,
-[ADR-043](adr/043-how-a-continuous-query-names-its-sink.md)): it carries neither the name the query
+[ADR-043](../design/adr/043-how-a-continuous-query-names-its-sink.md)): it carries neither the name the query
 is managed and read by — which is not the sink's, and would collide the moment a second query wrote
 to the same sink — nor the key the view needs, and a view keyed on a guess conflates rows that were
 never the same row. The refusal names the three ways to say it instead. The statements are recognised before
@@ -1859,7 +1859,7 @@ Rewrite the filter as a range comparison, or join against a table of values inst
 | Aggregate over an expression — `SUM(amount * 2)` | ✅ | |
 | `HAVING` on an aggregate | ✅ | |
 | `GROUP BY key` **without** a window, over a stream | ❌ | `PRV-2050` — unbounded state |
-| `GROUP BY key` **without** a window, over a view | ✅ | Two different things, both bounded. A `SELECT` reading the view is a bounded read: the scan ends, and every aggregate runs. A **continuous query** over the view follows its answer (§3.1, [ADR-056](adr/056-queries-on-queries.md)), and its groups are bounded by the upstream's key ceiling; there `COUNT`, `SUM` and `AVG` run, re-published as a retraction and an insert whenever a group changes, and `MIN`, `MAX` and `COUNT(DISTINCT)` are `PRV-2075` |
+| `GROUP BY key` **without** a window, over a view | ✅ | Two different things, both bounded. A `SELECT` reading the view is a bounded read: the scan ends, and every aggregate runs. A **continuous query** over the view follows its answer (§3.1, [ADR-056](../design/adr/056-queries-on-queries.md)), and its groups are bounded by the upstream's key ceiling; there `COUNT`, `SUM` and `AVG` run, re-published as a retraction and an insert whenever a group changes, and `MIN`, `MAX` and `COUNT(DISTINCT)` are `PRV-2075` |
 | `SESSION` windows | ❌ | `PRV-2020`. The runtime has the session-merging bookkeeping (`SessionWindows`) and no operator: an aggregate over sessions that retracts the old windows' answers when two merge, and splits one when a retraction removes the row joining it, is not built (Nexmark q11) |
 
 ### Should a continuous query aggregate at all?
@@ -2066,7 +2066,7 @@ its checkpoints, one row at a time, reporting every operator's rows in and out b
 changes — which is what tells a filter that rejected the row apart from an aggregate that produced
 a zero delta. Every sink is disabled and nothing can read the fork, so the live query is
 untouched. See [`USER_GUIDE.md` §11](USER_GUIDE.md#11-the-time-travel-debugger) and
-[ADR-048](adr/048-a-debug-fork-is-a-second-computation-nothing-can-read.md); the incident exports
+[ADR-048](../design/adr/048-a-debug-fork-is-a-second-computation-nothing-can-read.md); the incident exports
 as a JUnit test that compiles and passes.
 
 ---
@@ -2087,7 +2087,7 @@ as a JUnit test that compiles and passes.
 | `PRV-2050` | The query's state would grow without bound |
 | `PRV-3024` | A top-N was handed a retraction of a row it does not hold — the input withdrew more than it inserted — §15 |
 | `PRV-3025` | A `SUM`, `COUNT` or `AVG` total left the 64-bit range it is added up in — of a `BIGINT`, or of a `DECIMAL`'s unscaled value — refused rather than wrapped; the query stops, a read is refused |
-| `PRV-2060`–`PRV-2063` | Parameter binding — see [ADR-032](adr/032-parameters-are-values-not-queries.md) |
+| `PRV-2060`–`PRV-2063` | Parameter binding — see [ADR-032](../design/adr/032-parameters-are-values-not-queries.md) |
 | `PRV-2070` | A `CREATE`/`DROP`/`PAUSE`/`RESUME CONTINUOUS QUERY` or `SHOW CONTINUOUS QUERIES` without that statement's shape — §10.1 |
 | `PRV-2071` | `KEYED BY` names a column the query does not produce, or one twice — §10.1 |
 | `PRV-2072` | A clause of the design's `CREATE CONTINUOUS QUERY` that is not built: `EMIT CHANGES WITH (...)`, a `SERVE AS VIEW` naming another view — §10.1 |
@@ -2124,7 +2124,7 @@ as a JUnit test that compiles and passes.
 |---|---|
 | The ideas underneath | [`CONCEPTS.md`](CONCEPTS.md) |
 | Getting a node running | [`QUICKSTART.md`](QUICKSTART.md) |
-| Operating one | [`OPERATIONS.md`](OPERATIONS.md) |
+| Operating one | [`../operations/OPERATIONS.md`](../operations/OPERATIONS.md) |
 | Adding a data source | [`CONNECTORS.md`](CONNECTORS.md) |
-| How a query executes | [`EXECUTION_MODEL.md`](EXECUTION_MODEL.md) |
+| How a query executes | [`../design/EXECUTION_MODEL.md`](../design/EXECUTION_MODEL.md) |
 | What an error code means | [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) |

@@ -1,13 +1,13 @@
 # Running Pravaha in Docker
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../LICENSE`](../LICENSE).
+**Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
 
 The reference for Pravaha in containers: the two images, the one directory everything lives under,
 the compose stack and its profiles, the ports, ownership, backup, upgrade and what goes wrong.
 For a numbered walk from a fresh clone to a running, tested stack, read
-[`GUIDE_BUILD_AND_TEST_WITH_DOCKER.md`](GUIDE_BUILD_AND_TEST_WITH_DOCKER.md); for the same without
-Docker, [`GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md`](GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md). Shipping a
+[`../development/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md`](../development/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md); for the same without
+Docker, [`../development/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md`](../development/GUIDE_BUILD_AND_TEST_WITHOUT_DOCKER.md). Shipping a
 node to Kubernetes, the image's design decisions and the release are in
 [`DEPLOYMENT.md`](DEPLOYMENT.md); running one, in [`OPERATIONS.md`](OPERATIONS.md).
 
@@ -82,7 +82,7 @@ home the working directory, and starts the JVM with:
 | `tmp/` | `java.io.tmpdir`, `user.home`, the console's `TMPDIR` and `HOME` | both | the launcher; the console image's environment |
 
 The layout itself — the second row of configuration, between the jar's defaults and yours — is
-[`pravaha-server/src/main/resources/pravaha-home.yaml`](../pravaha-server/src/main/resources/pravaha-home.yaml)
+[`pravaha-server/src/main/resources/pravaha-home.yaml`](../../pravaha-server/src/main/resources/pravaha-home.yaml)
 inside the server jar. It sets **only places**. A key whose value changes what the engine *does*
 (`dlq.directory`, `state.spill.directory`, anything under `security`) is left to your file, even
 though the layout has a directory ready for it. `PravahaHomeLayoutTest` fails the build if a new
@@ -99,8 +99,8 @@ arguments.
 
 | | Engine: `pravaha/pravaha-server` | Console: `pravaha/pravaha-console` |
 |---|---|---|
-| Dockerfile | [`deploy/docker/Dockerfile`](../deploy/docker/Dockerfile) (release, over a built jar); [`Dockerfile`](../Dockerfile) at the root builds from source | [`deploy/docker/console/Dockerfile`](../deploy/docker/console/Dockerfile) |
-| Built by | [`deploy/docker/build.sh`](../deploy/docker/build.sh) | [`deploy/docker/console/build.sh`](../deploy/docker/console/build.sh) |
+| Dockerfile | [`deploy/docker/Dockerfile`](../../deploy/docker/Dockerfile) (release, over a built jar); [`Dockerfile`](../../Dockerfile) at the root builds from source | [`deploy/docker/console/Dockerfile`](../../deploy/docker/console/Dockerfile) |
+| Built by | [`deploy/docker/build.sh`](../../deploy/docker/build.sh) | [`deploy/docker/console/build.sh`](../../deploy/docker/console/build.sh) |
 | Base | `eclipse-temurin:21-jre` (glibc, ADR-053) | `python:3.13-slim` |
 | Size, as built here | **803 MB** on disk, 280 MB content (the jar is 176 MB); **863 MB** / 308 MB from the root `Dockerfile`, which adds `pravaha-engine` | **519 MB** on disk, 124 MB content |
 | User | `10001:10001` by default; **any uid** works (below) | the same |
@@ -112,7 +112,7 @@ arguments.
 
 **Which engine Dockerfile.** `deploy/docker/build.sh` stages the launcher and a jar you already built
 (`./mvnw -pl pravaha-server -am package -DskipTests`) into an ~190 MB context and builds that: fast,
-and the image holds exactly the artefact you tested ([ADR-047](adr/047-the-image-is-a-dockerfile-over-built-artefacts.md)).
+and the image holds exactly the artefact you tested ([ADR-047](../design/adr/047-the-image-is-a-dockerfile-over-built-artefacts.md)).
 It needs a JDK on the host to produce the jar. The root `Dockerfile` needs **nothing but Docker**:
 it builds `pravaha-server` and `pravaha-cli` inside a `maven:3.9-eclipse-temurin-21` stage (with a
 BuildKit cache for `~/.m2`) and produces the same runtime layout, plus `bin/pravaha-engine`:
@@ -208,7 +208,7 @@ smoke.sh: PASSED
 
 ## The compose stack
 
-[`deploy/docker/compose/docker-compose.yml`](../deploy/docker/compose/docker-compose.yml), compose
+[`deploy/docker/compose/docker-compose.yml`](../../deploy/docker/compose/docker-compose.yml), compose
 project **`pravaha-stack`**. Its containers, network and volumes are all named `pravaha-stack-*`, so
 `docker compose ... down` touches nothing else on the machine — including any Kafka, PostgreSQL or
 other containers you already run.
@@ -237,8 +237,8 @@ New credentials -- shown this once (they are kept in <repo>/.../pravaha-home/sec
 
 | Written | What |
 |---|---|
-| `conf/application.yaml` | the engine: identity on (people sign in; `admin` from `secrets/initial-admin-password`), token authentication, audit to a file, two static tokens (`seed` for the seed job and the CLI, `prometheus` for scraping), pgwire on, a dead-letter queue and spill under `data/`, and three streams: `orders` (Kafka), `customers` (postgres-cdc), `payments` (mysql-cdc). From [`templates/application.yaml`](../deploy/docker/compose/templates/application.yaml) |
-| `conf/console.yaml` | the console: a generated session secret, the engine by its service name. From [`templates/console.yaml`](../deploy/docker/compose/templates/console.yaml) |
+| `conf/application.yaml` | the engine: identity on (people sign in; `admin` from `secrets/initial-admin-password`), token authentication, audit to a file, two static tokens (`seed` for the seed job and the CLI, `prometheus` for scraping), pgwire on, a dead-letter queue and spill under `data/`, and three streams: `orders` (Kafka), `customers` (postgres-cdc), `payments` (mysql-cdc). From [`templates/application.yaml`](../../deploy/docker/compose/templates/application.yaml) |
+| `conf/console.yaml` | the console: a generated session secret, the engine by its service name. From [`templates/console.yaml`](../../deploy/docker/compose/templates/console.yaml) |
 | `secrets/` (0700) | `initial-admin-password`, `seed.token`, `prometheus.token` (0644 inside the 0700 directory, because the Prometheus container reads it as its own user) |
 | `data/console/`, `logs/`, `plugins/`, `tmp/` | empty, yours |
 
@@ -292,14 +292,14 @@ $C --profile '*' down -v                         # ... and drop the named volume
 
 `--profile seed` adds two one-shot services. `seed-kafka` creates the topic `orders` (three
 partitions) and writes the twelve orders in
-[`seed/orders.jsonl`](../deploy/docker/compose/seed/orders.jsonl) — only when it created the topic,
+[`seed/orders.jsonl`](../../deploy/docker/compose/seed/orders.jsonl) — only when it created the topic,
 so running it again does not double every total. `seed-register` then uses the `pravaha` command line
 in the console image to register two continuous queries, and prints what they hold:
 
 | View | SQL | Keyed by |
 |---|---|---|
-| `orders_live` | [`seed/orders_live.sql`](../deploy/docker/compose/seed/orders_live.sql): every order | `order_id` |
-| `spend_per_minute` | [`seed/spend_per_minute.sql`](../deploy/docker/compose/seed/spend_per_minute.sql): orders and spend per customer per minute of event time (`TUMBLE`) | `window_start, window_end, customer` |
+| `orders_live` | [`seed/orders_live.sql`](../../deploy/docker/compose/seed/orders_live.sql): every order | `order_id` |
+| `spend_per_minute` | [`seed/spend_per_minute.sql`](../../deploy/docker/compose/seed/spend_per_minute.sql): orders and spend per customer per minute of event time (`TUMBLE`) | `window_start, window_end, customer` |
 
 What it printed:
 
@@ -401,7 +401,7 @@ the engine reads it only while it has no users.
 ## Change data capture: the `cdc` profile
 
 `--profile cdc` starts PostgreSQL and MySQL, each prepared by an init script in
-[`initdb/`](../deploy/docker/compose/initdb) on its first start: PostgreSQL gets
+[`initdb/`](../../deploy/docker/compose/initdb) on its first start: PostgreSQL gets
 `public.customers` (`REPLICA IDENTITY FULL`, three rows) and a role `pravaha_cdc` that may replicate,
 owns the table and may create in the database (the plugin creates its own publication); MySQL gets
 `shop.payments` and a `pravaha_cdc` user with `REPLICATION SLAVE, REPLICATION CLIENT, SELECT`. The
@@ -491,8 +491,8 @@ the jar.
 ## Observability: the `observability` profile
 
 Prometheus scrapes `pravaha-server:18080/actuator/prometheus` every 15s with the `prometheus` token
-([`observability/prometheus.yml`](../deploy/docker/compose/observability/prometheus.yml)) and loads
-the shipped rules, [`deploy/observability/prometheus/pravaha-rules.yaml`](../deploy/observability/prometheus/pravaha-rules.yaml).
+([`observability/prometheus.yml`](../../deploy/docker/compose/observability/prometheus.yml)) and loads
+the shipped rules, [`deploy/observability/prometheus/pravaha-rules.yaml`](../../deploy/observability/prometheus/pravaha-rules.yaml).
 Grafana (<http://localhost:23030>, `admin` and `GRAFANA_ADMIN_PASSWORD` from `.env`) has Prometheus
 as its default datasource and the four shipped dashboards in a folder called **Pravaha**. What they
 answered here:
@@ -609,7 +609,7 @@ id  name      tier
 ([`OPERATIONS.md`](OPERATIONS.md), "Upgrades", says what a version may change); take the backup
 above first. `tools/docker-env.sh` never rewrites your configuration on a re-run, so a template that
 gained a key in a new version is merged by hand — `diff` your `conf/application.yaml` against
-[`templates/application.yaml`](../deploy/docker/compose/templates/application.yaml).
+[`templates/application.yaml`](../../deploy/docker/compose/templates/application.yaml).
 
 ---
 
@@ -634,7 +634,7 @@ gained a key in a new version is merged by hand — `diff` your `conf/applicatio
 
 ## Where next
 
-- [`GUIDE_BUILD_AND_TEST_WITH_DOCKER.md`](GUIDE_BUILD_AND_TEST_WITH_DOCKER.md): the numbered
+- [`../development/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md`](../development/GUIDE_BUILD_AND_TEST_WITH_DOCKER.md): the numbered
   walkthrough, including the test suites in containers (`tools/docker-test.sh`).
 - [`DEPLOYMENT.md`](DEPLOYMENT.md): the Helm chart, the release, and the same layout without Docker.
 - [`OPERATIONS.md`](OPERATIONS.md): what a running node needs from you.

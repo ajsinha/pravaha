@@ -205,7 +205,7 @@ class PravahaCliTest {
                 .contains("PRV-2002")
                 .doesNotContain("http://")
                 .doesNotContain("https://")
-                .contains("look PRV-2002 up in the console's help under Errors, or in docs/TROUBLESHOOTING.md");
+                .contains("look PRV-2002 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md");
     }
 
     @Test

@@ -169,7 +169,7 @@ binding:
 > has read, so a payment *inserted* now with a value time older than one already read is not picked
 > up. Payments here are booked in value-time order, and the generator writes them that way. For a
 > ledger where they are not — where a payment can be booked hours after its value time — read the
-> table with [`postgres-cdc`](../../../docs/CONNECTORS.md) instead: it follows the write-ahead log
+> table with [`postgres-cdc`](../../../docs/guides/CONNECTORS.md) instead: it follows the write-ahead log
 > in commit order, sees every insert whenever it happens, and takes the event-time column by name.
 
 The node states what it is running on when it starts:
@@ -317,7 +317,7 @@ difference between a number you can defend and a number that changed under you.
 
 ## Limits you will meet
 
-The full list is [`docs/CONTINUOUS_QUERIES.md`](../../../docs/CONTINUOUS_QUERIES.md).
+The full list is [`docs/guides/CONTINUOUS_QUERIES.md`](../../../docs/guides/CONTINUOUS_QUERIES.md).
 
 - **No `CASE`**, so no `SUM(CASE WHEN direction = 'PAY' THEN ... END)`. Two registrations instead.
 - **No `ORDER BY` / `LIMIT`.** Sort the largest exposures in your application.

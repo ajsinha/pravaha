@@ -69,7 +69,7 @@ Offline -- planning or running SQL with no server -- is the Java tool `pravaha-e
 (validate --schema, explain --schema, run).
 
 The assistant (ask, explain-sql, why, assist) asks a configured model, with the engine as the
-judge; see docs/ASSIST.md. A model failure exits 1, a wrong assistant configuration 2; ask exits 1
+judge; see docs/guides/ASSIST.md. A model failure exits 1, a wrong assistant configuration 2; ask exits 1
 when the engine still refuses the draft after its repair turns. Only --register registers.
 
 pravaha <command> --help prints one command's flags without contacting anything.

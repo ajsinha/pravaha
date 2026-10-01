@@ -7,7 +7,7 @@ Executed 2026-09-12 on branch `develop`, against the artefacts already in the tr
 
 `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64`. Ports 18300–18319 (HTTP) and 19300–19319 (Flight).
 Scratch: `/tmp/claude-1000/.../scratchpad/qa-deploy`. Nothing was written into the repository except
-this file and `docs/qa/cases/DEPLOY.md`; `git status --short` at the end of the run showed only
+this file and `docs/project/qa/cases/DEPLOY.md`; `git status --short` at the end of the run showed only
 those two paths.
 
 Paths in the transcripts below are abbreviated to `$SD` for the scratch directory where they would
@@ -135,7 +135,7 @@ in both launchers does not resolve symlinks; the fix is one `readlink -f` (or a 
 loop).
 
 Severity **low**, and only low because the documented install is
-`export PATH="$PWD/bin:$PATH"` (docs/QUICKSTART.md:42), which works, and the container image puts
+`export PATH="$PWD/bin:$PATH"` (docs/guides/QUICKSTART.md:42), which works, and the container image puts
 `bin/` beside `lib/`, which also works. It is nevertheless the single most common way a CLI gets
 onto a PATH (`ln -s ... /usr/local/bin/pravaha`), and the error message is actively misleading — it
 tells the user to build a jar that is already built.
@@ -1156,7 +1156,7 @@ but the port assignment was not in fact exclusive.
 
 Every server started during this run was stopped by PID. At the end: `ss -ltn` showed none of
 18300–18319 or 19300–19319 bound by me, every recorded PID was gone, the test container was stopped
-and removed, and `git status --short` showed only `docs/qa/cases/` and `docs/qa/logs/`.
+and removed, and `git status --short` showed only `docs/project/qa/cases/` and `docs/project/qa/logs/`.
 
 ---
 
@@ -1444,7 +1444,7 @@ only fallback is a file belonging to the other one.
 This breaks an invariant the product states in two places, in the same words:
 `application.yaml:142` — *"Each query checkpoints into its own directory beneath this one: one
 shared store would make pruning global, so a busy query would evict a quiet one's only fallback"* —
-and `docs/OPERATIONS.md:408`. The reason given for the design is precisely the failure the fix
+and `docs/operations/OPERATIONS.md:408`. The reason given for the design is precisely the failure the fix
 introduced.
 
 **Severity medium today** (DEPLOY-037: nothing reads checkpoints, so nothing acts on a corrupt one)
@@ -1566,10 +1566,10 @@ docs are not merely stale, they contradict *each other*:
 | Where | What it says | True? |
 |---|---|---|
 | `application.yaml:135` | "What a query had accumulated, so a restart recovers answers and not only questions." | **No** |
-| `docs/OPERATIONS.md:405` | "**Checkpoints** remember what those queries had accumulated. A node with a journal and no checkpoint directory comes back knowing every question and none of the answers." | **No** — with a checkpoint directory it also comes back knowing none of the answers |
-| `docs/OPERATIONS.md:463` | "Checkpoints are files; recovery restores from the newest complete one. A join's state survives a crash — there is a test that an interrupted run equals an uninterrupted one." | **No.** The test is real and tests `QueryExecution.restore` directly; no product path calls it |
-| `docs/OPERATIONS.md:416` | "**What this means for you.** Plan restarts as warm-ups, not as resumptions." | **Yes** — and it flatly contradicts the three rows above it |
-| `docs/OPERATIONS.md:391` | "Registered continuous queries are checkpointed when `pravaha.checkpoint.directory` is set" | **Yes.** Written. Just never read |
+| `docs/operations/OPERATIONS.md:405` | "**Checkpoints** remember what those queries had accumulated. A node with a journal and no checkpoint directory comes back knowing every question and none of the answers." | **No** — with a checkpoint directory it also comes back knowing none of the answers |
+| `docs/operations/OPERATIONS.md:463` | "Checkpoints are files; recovery restores from the newest complete one. A join's state survives a crash — there is a test that an interrupted run equals an uninterrupted one." | **No.** The test is real and tests `QueryExecution.restore` directly; no product path calls it |
+| `docs/operations/OPERATIONS.md:416` | "**What this means for you.** Plan restarts as warm-ups, not as resumptions." | **Yes** — and it flatly contradicts the three rows above it |
+| `docs/operations/OPERATIONS.md:391` | "Registered continuous queries are checkpointed when `pravaha.checkpoint.directory` is set" | **Yes.** Written. Just never read |
 
 The section heading is "Checkpoints: what is actually true". The one sentence in it that is actually
 true is the one that contradicts the rest of the page and the configuration file. Severity stays

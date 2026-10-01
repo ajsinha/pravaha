@@ -1,7 +1,7 @@
 # Testing Pravaha
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../LICENSE`](../LICENSE).
+**Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
 
 Every test tier the repository has, what each needs, how to run it with and without Docker, and how
 long it took on the development machine. This is the reference; for a numbered walkthrough from a
@@ -285,7 +285,7 @@ with `JAVA_HOME`'s `java` — on a free port, once per module; `test_authenticat
 `--authenticated`. Build `pravaha-flight` (its test classes included) first, or those tests skip
 saying *"pravaha-flight is not built"*. The rest run against in-process fakes (`engine_support.py`).
 
-`test_the_packaged_card_is_current_with_the_guide` fails when `docs/CONTINUOUS_QUERIES.md` changed
+`test_the_packaged_card_is_current_with_the_guide` fails when `docs/guides/CONTINUOUS_QUERIES.md` changed
 and the assistant's packaged dialect card did not: rebuild it with
 `sdk/python/.venv/bin/python sdk/python/tools/build_dialect_card.py` and commit the card.
 
@@ -335,7 +335,7 @@ tools/deck/.venv/bin/python -m pytest -q tests/deck     # 5 passed, 1 s
 ```
 
 The audit asserts the slide count, that every slide has a source, and the geometry (nothing off the
-page, nothing overlapping). [`tools/deck/GUIDE.md`](../tools/deck/GUIDE.md) has the rest.
+page, nothing overlapping). [`tools/deck/GUIDE.md`](../../tools/deck/GUIDE.md) has the rest.
 
 ## Performance and measurement
 
@@ -348,12 +348,12 @@ page, nothing overlapping). [`tools/deck/GUIDE.md`](../tools/deck/GUIDE.md) has 
 
 They skip themselves when the JaCoCo agent is attached — a timing under the agent is the agent's
 (PERF-1) — and the build attaches it by default, so a normal `verify` skips them. Run them with
-coverage off on a quiet machine, and record the results as a gate in [`gates/`](gates/). **Not run in
+coverage off on a quiet machine, and record the results as a gate in [`../project/gates/`](../project/gates/). **Not run in
 this pass.**
 
 ## The findings register and the documents
 
-`FindingsRegisterTest` holds `docs/qa/FINDINGS.md` to its own rules (a recognised status with
+`FindingsRegisterTest` holds `docs/project/qa/FINDINGS.md` to its own rules (a recognised status with
 evidence on every finding, unique identifiers, header totals equal to the entries).
 `DocumentationFreshnessTest` checks that every module is described, every cited ADR exists, the
 README's status agrees with itself, the release notes' defect counts are the register's, and the
@@ -383,10 +383,10 @@ this step by step with the output it printed. In short:
 ### In Docker
 
 The compose stack, its `PRAVAHA_HOME` layout and a seeded walkthrough are described in
-[Running in Docker](RUNNING_IN_DOCKER.md) and [Build and test with Docker](GUIDE_BUILD_AND_TEST_WITH_DOCKER.md).
+[Running in Docker](../operations/RUNNING_IN_DOCKER.md) and [Build and test with Docker](GUIDE_BUILD_AND_TEST_WITH_DOCKER.md).
 Point the CLI, the SDK and a PostgreSQL client at the ports that stack publishes, exactly as above;
 nothing in the steps differs except the URLs. `deploy/docker/smoke.sh --image <tag>` is the image's
-own check ([Deployment](DEPLOYMENT.md#tests)).
+own check ([Deployment](../operations/DEPLOYMENT.md#tests)).
 
 ---
 
@@ -402,7 +402,7 @@ own check ([Deployment](DEPLOYMENT.md#tests)).
 | Before a release | the nightly set, `tools/qa-smoke.sh`, `deploy/docker/smoke.sh`, `deploy/helm/test.sh` | |
 | On reference hardware, by hand | the performance gates with coverage off | up to hours |
 
-The workflows in `.github/workflows` exist and parse; [Deployment](DEPLOYMENT.md#ci) says which of
+The workflows in `.github/workflows` exist and parse; [Deployment](../operations/DEPLOYMENT.md#ci) says which of
 them have ever run as workflows (none had, at the time of writing).
 
 ---

@@ -10,7 +10,7 @@
 > open now, read [`FINDINGS.md`](FINDINGS.md), which carries a
 > status line per finding and is enforced by `FindingsRegisterTest` — including the file's own header
 > totals, since those had drifted too (DOCS-10). For what is built, read
-> [`../HANDOVER.md`](../HANDOVER.md). Recorded as DOCR-21 and re-swept as DOCS-10.
+> [`../../development/HANDOVER.md`](../../development/HANDOVER.md). Recorded as DOCR-21 and re-swept as DOCS-10.
 
 **2,385 test cases written across 24 areas. 428 executed. ~200 distinct defects recorded.**
 The remaining ~1,950 cases are authored, reviewed and not yet run.

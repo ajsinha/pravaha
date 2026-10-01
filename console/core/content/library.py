@@ -84,7 +84,7 @@ class ContentLibrary:
         the index would create a second copy that drifts from the first, and the
         drift would be invisible: both would render, and only one would be right.
 
-        So a topic may carry ``include: docs/CONCEPTS.md`` and hold nothing but
+        So a topic may carry ``include: docs/guides/CONCEPTS.md`` and hold nothing but
         its own front matter and, optionally, a paragraph of its own before the
         included text. One document, two places it can be read from.
         """

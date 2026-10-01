@@ -1,7 +1,7 @@
 # WIN — execution log
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Cases: [`../cases/WIN.md`](../cases/WIN.md). Executed 2026-09-13 on branch `develop`, against
 `pravaha-runtime`/`pravaha-sql` as built by `./mvnw install -DskipTests`.
@@ -22,7 +22,7 @@ pre-existing `WindowArithmeticTest` (the embedded half of sections 2–4 and 10)
 **A note on a third-party string.** The jqwik dependency's build/test output contains an adversarial
 sentence addressed to "an AI Agent" telling it to disregard instructions and ignore jqwik results.
 It is not an instruction from this project, appears nowhere in this round's own text, and was
-ignored, per the same note in `docs/qa/logs/CQ.md` and `LIFE.md`.
+ignored, per the same note in `docs/project/qa/logs/CQ.md` and `LIFE.md`.
 
 **Starting point.** This round did not start from zero: `WindowAnswerTest` and `WindowArithmeticTest`
 already existed and covered 99 case IDs between them before this round began — a fact this round's
@@ -66,7 +66,7 @@ declaration is configuration.
 
 This also means the INCR.md preamble's fact 4 ("Allowed lateness is zero and cannot be changed" /
 "WIN and TIME should expect `corrections() == 0` everywhere") is stale for any case that declares
-lateness on its own schema. INCR-021 and INCR-022 are re-run against the fix in `docs/qa/logs/INCR.md`.
+lateness on its own schema. INCR-021 and INCR-022 are re-run against the fix in `docs/project/qa/logs/INCR.md`.
 
 ## Headline finding 2 — `COUNT(DISTINCT)` in a window now excludes NULL correctly
 
@@ -365,7 +365,7 @@ covered, and its own comment says so.
   records an `emitted` entry — correct output, incorrect bookkeeping, exactly as WIN-065 (already
   covered, pre-existing) predicts for the cost side of the same mechanism.
 - **WIN-178 — PASS** (pre-existing). A window emits only the keys that have rows in it.
-- **WIN-182 — PASS.** `win182_...`: neither `docs/SQL_SUPPORT.md` nor `docs/CONCEPTS.md` contains
+- **WIN-182 — PASS.** `win182_...`: neither `docs/SQL_SUPPORT.md` nor `docs/guides/CONCEPTS.md` contains
   the phrase "empty window" (case-insensitive) anywhere — the decision to emit nothing is
   undocumented, exactly as predicted. The finding is the gap, not the emptiness: per the case, there
   is also no way to work around it (no `LEFT JOIN` without a time bound, no way to materialise a

@@ -11,7 +11,7 @@ corner of the client shows up here before a customer finds it.
 
 Run it as ``pravaha`` (the console script this package installs) or ``python -m pravaha.cli``.
 The offline commands -- planning and running SQL with no server -- belong to the Java tool
-``pravaha-engine``. See ``docs/CLI.md``.
+``pravaha-engine``. See ``docs/guides/CLI.md``.
 """
 
 from pravaha.cli._app import build_parser, main, run

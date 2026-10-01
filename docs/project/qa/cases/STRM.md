@@ -222,7 +222,7 @@ a retraction. Fail = the key is upserted and the change reports `isRetraction() 
 **Expected (documented intent):** `u1` absent from the view; one change with `isRetraction() == true`.
 **Expected (code as written):** `u1` present with `amount = 300`; one change with `weight() == 0L`
 and `isRetraction() == false`. Record which occurred; the second is a defect against
-`docs/CONCEPTS.md` §4 and the "net-zero weight removes a key" invariant in the authoring brief.
+`docs/guides/CONCEPTS.md` §4 and the "net-zero weight removes a key" invariant in the authoring brief.
 **Vacuity:** the view read in step 4 is the independent check — the assertion cannot be satisfied by
 the delivery path alone.
 
@@ -354,8 +354,8 @@ the finding: `PravahaFlightSqlProducer.writeBatch` writes `change.values()` into
 Arrow field per view column and **no weight field**.
 
 ## STRM-017 — the weight reaches a Flight subscriber
-**Intent:** the load-bearing case of the whole area. `docs/CONCEPTS.md` §4 tells a subscriber to
-apply the `-1`/`+1` weights; `docs/TROUBLESHOOTING.md` "Are you ignoring weights?" assumes they are
+**Intent:** the load-bearing case of the whole area. `docs/guides/CONCEPTS.md` §4 tells a subscriber to
+apply the `-1`/`+1` weights; `docs/guides/TROUBLESHOOTING.md` "Are you ignoring weights?" assumes they are
 there. `writeBatch` never writes one and `toArrow` never declares one.
 **Falsifier:** — this case *is* the falsifier for the documentation. The feature is broken if the
 Arrow schema the client receives has no column carrying the weight, or if it has one that is always
@@ -642,7 +642,7 @@ lost and not duplicated into batch 1.
 window; without it the interleaving would not be produced and the case would pass trivially.
 
 ## STRM-035 — a subscriber attaching mid-stream receives no snapshot, only subsequent changes
-**Intent:** `docs/TROUBLESHOOTING.md` states it plainly: "A subscription starts from *now*, not from
+**Intent:** `docs/guides/TROUBLESHOOTING.md` states it plainly: "A subscription starts from *now*, not from
 the beginning of time. A change committed before the subscriber attached was published to nobody."
 `RegisteredQuery.subscribe` passes `sink.onCommit(...)` and nothing else — there is no snapshot
 path. This case pins the documented behaviour so a later "helpful" snapshot is caught.
@@ -776,7 +776,7 @@ starts.
 **Expected:** the subscribe call fails before `listener.start(root)`; the client sees a Pravaha error
 whose message contains "has no column" and lists the view's real columns
 `[user_id, amount, product_type]`. Zero rows delivered, non-zero CLI exit code. The `PRV-8002` code
-`docs/CONCEPTS.md` §6 associates with a refused subscription filter is the one reported — if the
+`docs/guides/CONCEPTS.md` §6 associates with a refused subscription filter is the one reported — if the
 code is `NO_SUCH_QUERY` instead (which is what `SubscriptionFilter` actually throws), record the
 mismatch: `NO_SUCH_QUERY` for a bad *column* is a code meaning two things, which `ERRC` owns.
 **Vacuity:** 5 rows are pushed so that "opened and delivered everything" is a distinguishable
@@ -1213,7 +1213,7 @@ hit the identical view ceiling, so the difference is attributable to the subscri
 ## STRM-071 — retention eviction is invisible to subscribers
 **Intent:** `ServedView.evict()` removes keys from `visible` and increments `evicted`, and emits
 **nothing**. A subscriber replaying the change stream therefore diverges from the view by exactly
-the number of evicted keys, permanently and silently. `docs/OPERATIONS.md` describes retention as a
+the number of evicted keys, permanently and silently. `docs/operations/OPERATIONS.md` describes retention as a
 cache policy for the view; nothing says the stream does not reflect it.
 **Falsifier:** — broken if `pravaha query --view` and a stream replay disagree with no signal to the
 subscriber.
@@ -2021,7 +2021,7 @@ SDK's `ChangeBatch`/`Row` expose no weight accessor. If that holds, then every r
 CLI, Java SDK, Python SDK, console — receives a stream in which a retraction is byte-identical to an
 insertion, while `CONCEPTS.md` §4, `TROUBLESHOOTING.md` and `USER_GUIDE.md` all instruct consumers
 to apply the weights. That would make the continuous-delivery path, which the index calls "the
-product", unable to express the one thing `docs/adr/013-zsets-and-dbsp.md` exists for. Nine cases
+product", unable to express the one thing `docs/design/adr/013-zsets-and-dbsp.md` exists for. Nine cases
 here depend on the answer (017–019, 046, 049, 082, 119, and the replay half of 036 and 071).
 
 **What is deliberately not here.** Windowing semantics belong to `WIN`, Z-set arithmetic per

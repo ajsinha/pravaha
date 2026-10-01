@@ -1,7 +1,7 @@
 # AERO — Aerospike plugin and the state tier
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Area under test: `plugins/pravaha-plugin-aerospike/` (source, sink, lookup, strategy, expression
 pushdown, schema mapping, host parsing, client construction), `pravaha-state/`

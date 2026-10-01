@@ -45,7 +45,7 @@ gate quietly redefined to match what was built is not a gate.
 ## What it did not do
 
 Range indexes and read replicas: not built. The gRPC/Avatica surface was superseded by
-[ADR-030](../../adr/030-flight-sql.md) — one Flight SQL surface replaces both, which is a scope
+[ADR-030](../../../design/adr/030-flight-sql-as-the-client-protocol.md) — one Flight SQL surface replaces both, which is a scope
 change rather than a shortfall.
 
 **Known open defect against this wave's serving path:** `I-6` (GA-BLOCKER) — three of the four

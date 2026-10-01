@@ -7,7 +7,7 @@ Off by default, because monitoring.coreos.com is a CRD that may not be installed
 that assumes it fails at install time with an error about an unknown kind rather than about a
 missing operator.
 
-What to alert on once it is scraping is in docs/OPERATIONS.md "Watching a running node". The
+What to alert on once it is scraping is in docs/operations/OPERATIONS.md "Watching a running node". The
 short version, because a ServiceMonitor with no alerts is a dashboard nobody looks at:
 pravaha_query_feed_stopped (the query still says RUNNING and its view has stopped moving),
 pravaha_query_state_fraction (the query at nine tenths of its ceiling, before PRV-4001), and the

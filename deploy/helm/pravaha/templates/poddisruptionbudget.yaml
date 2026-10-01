@@ -13,7 +13,7 @@ during a node drain at 2 a.m.
 
 maxUnavailable: 1 is what is left, and it is honest: it says nothing is protected, because with
 one node nothing can be. What a voluntary disruption costs is a restart, and what that costs is
-in docs/OPERATIONS.md "Restarts: what survives" -- with a checkpoint directory, a resumption.
+in docs/operations/OPERATIONS.md "Restarts: what survives" -- with a checkpoint directory, a resumption.
 */}}
 {{- if .Values.podDisruptionBudget.enabled }}
 apiVersion: policy/v1

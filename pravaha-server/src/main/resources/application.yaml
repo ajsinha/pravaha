@@ -65,7 +65,7 @@ pravaha:
   # failed to connect rather than 404ing, which reads like a network problem at exactly the moment
   # somebody is diagnosing one. With no base the engine emits no URL at all -- helpUrl is present
   # and empty in the REST and Flight contracts, and every printed line that would have carried a
-  # link says to look the code up in the console's help under Errors, or in docs/TROUBLESHOOTING.md,
+  # link says to look the code up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md,
   # which is the code index.
   #
   # Set it to the console's help and every code becomes a link to a page that resolves with no
@@ -334,9 +334,9 @@ pravaha:
   # untouched.
   #
   # postgres-cdc is the one that is a changelog: a delete arrives as a retraction of the whole old
-  # row and an update as a retraction and an insertion (docs/CONTINUOUS_QUERIES.md section 2.1). It
+  # row and an update as a retraction and an insertion (docs/guides/CONTINUOUS_QUERIES.md section 2.1). It
   # leaves a replication slot on the database that retains WAL until a checkpoint confirms it, so
-  # set pravaha.checkpoint.directory with it, and read docs/OPERATIONS.md before the first one.
+  # set pravaha.checkpoint.directory with it, and read docs/operations/OPERATIONS.md before the first one.
   #
   # A BINDING'S `schema` OPTION AND THE STREAM'S DECLARED SCHEMA MUST AGREE. The declaration is what
   # a query is planned against and the option is what the plugin decodes rows with, and nothing
@@ -522,7 +522,7 @@ pravaha:
   # The inbox is per query only because each query has a lane of its own -- unless multiplex is on,
   # below, and then queries share a fixed set of lanes and their inboxes (W9-8).
   #
-  # Documented for operators in docs/OPERATIONS.md, "Sizing a node for many queries".
+  # Documented for operators in docs/operations/OPERATIONS.md, "Sizing a node for many queries".
   lane:
     batch-size: 512
     wait-strategy: BACKOFF_PARK

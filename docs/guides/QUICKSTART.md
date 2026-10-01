@@ -1,7 +1,7 @@
 # Quickstart
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../LICENSE`](../LICENSE).
+**Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
 
 Ten minutes from a clone to a continuous query you can watch updating. No store to install, no
 cluster, no configuration file.
@@ -344,7 +344,7 @@ and tell them what is wrong.
 streaming engine usually lives.
 
 **The documentation is included, not copied.** A help topic is front matter plus
-`include: docs/CONCEPTS.md`, so what you read here is the file in this repository — one source of
+`include: docs/guides/CONCEPTS.md`, so what you read here is the file in this repository — one source of
 truth, and cross-references repointed at console routes when rendered.
 
 ### What is deliberately not there
@@ -398,7 +398,7 @@ with connect("grpc://localhost:19090") as client:
 |---|---|
 | [Concepts](CONCEPTS.md) | The eight ideas. Read this next |
 | [User guide](USER_GUIDE.md) | The whole surface, task by task |
-| [Case studies](../examples/case-studies/) | Five worked systems — trade processing, banking, finance, trading, biology — with a store to stand up and code to copy |
+| [Case studies](../../examples/case-studies/) | Five worked systems — trade processing, banking, finance, trading, biology — with a store to stand up and code to copy |
 | [Streams, queries and SQL](CONTINUOUS_QUERIES.md) | What you write, end to end, and every construct checked by a test |
 | [Troubleshooting](TROUBLESHOOTING.md) | Every `PRV-` code |
 
@@ -408,11 +408,11 @@ Stated so you do not go looking. Roughly wave 9 of 11:
 
 | | |
 |---|---|
-| Clustering, rebalance, multi-node execution | Deferred ([ADR-034](adr/034-distribution-deferred.md)) — **one node, scaled to its cores**. Wave 8 bought survival on that node, not distribution across several ([ADR-035](adr/035-wave-8-is-survival-not-distribution.md)) |
+| Clustering, rebalance, multi-node execution | Deferred ([ADR-034](../design/adr/034-distribution-deferred.md)) — **one node, scaled to its cores**. Wave 8 bought survival on that node, not distribution across several ([ADR-035](../design/adr/035-wave-8-is-survival-not-distribution.md)) |
 | Continuous failover | A standby (`pravaha.standby.enabled`) takes over from the newest checkpoint and says what that cost. It buys **recovery time, not continuity** |
-| Time-travel debugging | Not on the road to GA — [ADR-038](adr/038-one-node-ga.md) moved it to the roadmap, and [ADR-039](adr/039-ga-includes-the-known-gaps-and-clustering.md) kept it there. Prometheus metrics are live now, including per-query state against its ceiling — `/actuator/prometheus`, see [Operations](OPERATIONS.md#watching-a-running-node) |
+| Time-travel debugging | Not on the road to GA — [ADR-038](../design/adr/038-one-node-ga.md) moved it to the roadmap, and [ADR-039](../design/adr/039-ga-includes-the-known-gaps-and-clustering.md) kept it there. Prometheus metrics are live now, including per-query state against its ceiling — `/actuator/prometheus`, see [Operations](../operations/OPERATIONS.md#watching-a-running-node) |
 | Kafka and Redis plugins | Not built. Filesystem, feedfile, JDBC, Delta, Aerospike and Cassandra (a periodic `token()`-range scan) work now |
 | Spring Boot starter | ADR-020 planned it; not built |
-| State that spills instead of failing | Built, and **off by default**: set `pravaha.state.spill.directory` and join and windowed-aggregate state spill to disk rather than failing ([ADR-037](adr/037-state-that-degrades-instead-of-dying.md) B2). `COUNT(DISTINCT)` cannot spill. Without it a query that reaches its ceiling is refused, and you can *watch* it approach — `pravaha_query_state_fraction` (B1) |
+| State that spills instead of failing | Built, and **off by default**: set `pravaha.state.spill.directory` and join and windowed-aggregate state spill to disk rather than failing ([ADR-037](../design/adr/037-state-that-degrades-instead-of-dying.md) B2). `COUNT(DISTINCT)` cannot spill. Without it a query that reaches its ceiling is refused, and you can *watch* it approach — `pravaha_query_state_fraction` (B1) |
 | Column masking | Out of ADR-031 until a deployment asks |
 | Performance evidence | Gates P2/P3/P6 unmeasured — needs reference hardware |

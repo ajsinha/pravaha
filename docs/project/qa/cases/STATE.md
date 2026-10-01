@@ -1884,7 +1884,7 @@ neither 19090 nor the HTTP port is listening.
 different and much weaker guarantee, and the port check is what distinguishes them.
 
 ## STATE-103 — `PARTITIONED` × `zookeeper` starts
-**Intent:** the only production-supportable partitioned configuration, per `docs/OPERATIONS.md:113`.
+**Intent:** the only production-supportable partitioned configuration, per `docs/operations/OPERATIONS.md:113`.
 **Requires the plugin and a running ZooKeeper (`H-ZK`).**
 **Falsifier:** PRV-9002 or PRV-9001.
 **Setup:** as STATE-097 with `mode=PARTITIONED`.

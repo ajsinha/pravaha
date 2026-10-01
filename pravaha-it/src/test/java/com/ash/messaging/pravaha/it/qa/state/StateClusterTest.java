@@ -46,7 +46,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * STATE-095..109 (all `H-CFG`) -- the nine-cell mode-by-mechanism matrix, minus the three cells that
- * need a running ZooKeeper (STATE-097, 100, 103 -- see {@code docs/qa/logs/STATE.md} for why those
+ * need a running ZooKeeper (STATE-097, 100, 103 -- see {@code docs/project/qa/logs/STATE.md} for why those
  * are NOT RUN) and STATE-108, which needs the ZooKeeper plugin on the classpath and is therefore
  * exercised from {@code plugins/pravaha-cluster-zookeeper}'s own test module instead, where that
  * plugin already is. STATE-110 (two real nodes, a firewall-level partition) is also NOT RUN -- see

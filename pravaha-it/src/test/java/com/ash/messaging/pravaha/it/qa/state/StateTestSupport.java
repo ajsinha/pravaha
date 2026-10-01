@@ -43,7 +43,7 @@ import com.ash.messaging.pravaha.state.checkpoint.Checkpoint;
 import com.ash.messaging.pravaha.testkit.CapturingRowWriter;
 
 /**
- * Shared fixtures for the STATE cases: H-CS, H-PRJ, H-WIN and H-JOIN as {@code docs/qa/cases/STATE.md}
+ * Shared fixtures for the STATE cases: H-CS, H-PRJ, H-WIN and H-JOIN as {@code docs/project/qa/cases/STATE.md}
  * defines them, plus the "direct checkpointer" pattern (a raw {@link QueryExecution}, bypassing
  * {@link QueryRegistry} so {@code checkpointingViewWith} is never wired -- see the package Javadoc).
  */

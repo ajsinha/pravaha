@@ -1,7 +1,7 @@
 # The continuous query engine — test cases
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Area code `CQ`. Written before execution. The subject is the engine itself rather than the SQL
 surface: the incremental core (`pravaha-algebra`), the generated fast path (`pravaha-codegen`), the

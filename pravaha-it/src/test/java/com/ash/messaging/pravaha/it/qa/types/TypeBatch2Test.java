@@ -41,7 +41,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * TYPE-044 .. TYPE-059 ({@code docs/qa/cases/TYPE.md}, sections 5 "Join key" and 6 "GROUP BY key"),
+ * TYPE-044 .. TYPE-059 ({@code docs/project/qa/cases/TYPE.md}, sections 5 "Join key" and 6 "GROUP BY key"),
  * executed in-process against the real {@code SqlPlanner}/{@code PhysicalPlanBuilder}/
  * {@code InterpretedPipeline} path -- the same planner and runtime a registered query or {@code
  * pravaha run} goes through, without the server's HTTP/Flight layer.

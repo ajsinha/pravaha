@@ -1,11 +1,11 @@
 # Security
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../LICENSE`](../LICENSE).
+**Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
 
 Who is asking, what they may see, and what is written down about it.
 
-The decision behind all of this is [ADR-031](adr/031-authorization-at-the-pravaha-layer.md).
+The decision behind all of this is [ADR-031](../design/adr/031-authorization-at-the-pravaha-layer.md).
 
 ---
 
@@ -119,10 +119,10 @@ A principal's tenant (`Principal.tenant()`, `public` when the token does not nam
 names it registers, the computations behind those names, and the view keys those computations
 hold. It does not scope reads, sources or sinks, which the policy decides, and it does not scope
 lanes, which every tenant shares
-([ADR-050](adr/050-a-tenant-owns-names-and-state-and-shares-only-with-itself.md)).
+([ADR-050](../design/adr/050-a-tenant-owns-names-and-state-and-shares-only-with-itself.md)).
 
 - **A view name is unique within its tenant, and every name is resolved in the caller's tenant**
-  ([ADR-060](adr/060-view-names-are-unique-per-tenant.md)). Two tenants may each register `orders`,
+  ([ADR-060](../design/adr/060-view-names-are-unique-per-tenant.md)). Two tenants may each register `orders`,
   and each reads, subscribes to, lists, describes, drops and builds on its own. A name another tenant
   holds is, to the caller, a name nothing holds -- registering it succeeds, and every lookup of it
   (Flight, pgwire, REST, SQL statements, subscriptions, dead letters, debug sessions, replacements,
@@ -284,7 +284,7 @@ from **no production path** — it is API with tests and no caller. A policy tha
 broadly can still probe which names exist, because for them the allow/refuse distinction is
 legitimate; that is the residue, and under the default `permissive` policy it is everybody. A caller
 entitled to know what exists should use `LIST`, which is filtered by the policy rather than refused.
-See `docs/qa/logs/SECX.md` (SECX-028) and `docs/qa/FINDINGS.md`'s SX-1 and STRM-9.
+See `docs/project/qa/logs/SECX.md` (SECX-028) and `docs/project/qa/FINDINGS.md`'s SX-1 and STRM-9.
 
 **What `LIST` says about a view you may only partly read (SX-18).** A principal whose access is
 conditional on a row filter still sees the view — hiding it would be wrong, since they may
@@ -525,7 +525,7 @@ mTLS between nodes is in the design (§25) and not implemented, because there ar
 `PravahaFlightSqlProducer` (`PravahaFlightServer.java:229-234`) is built from the *requested* host
 and port, so a node started with `--pravaha.flight.port=0` advertises port `0` to `getFlightInfo`
 callers and a client following the endpoint it was just handed dials a dead port. The scheme half of
-`docs/qa/FINDINGS.md`'s SX-16 has since been fixed: that `Location` is `forGrpcTls` when a
+`docs/project/qa/FINDINGS.md`'s SX-16 has since been fixed: that `Location` is `forGrpcTls` when a
 certificate is configured and `forGrpcInsecure` otherwise, so the transport it reports is now
 correct. There is no `PravahaFlightServer.location()` method — `location` is a private field; the
 public accessors are `port()`, `uri()`, `catalog()` and `isEncrypted()`.
@@ -533,7 +533,7 @@ public accessors are `port()`, `uri()`, `catalog()` and `isEncrypted()`.
 **Several TLS certificate/key misconfigurations are not caught at startup.** A cert and key that are
 each individually valid but do not match each other lets the node start and report
 `flight transport=TLS`; the mismatch surfaces only at the first client handshake. See
-`docs/qa/FINDINGS.md`'s SX-17.
+`docs/project/qa/FINDINGS.md`'s SX-17.
 
 ## What is not built
 
@@ -541,8 +541,8 @@ each individually valid but do not match each other lets the node start and repo
   tagging columns themselves (and classification that follows lineage) is ADR-059 phase 3
 - **OIDC / JWT verification out of the box** — `TokenVerifier` is the seam; no implementation ships
 - **mTLS between nodes**, certificate rotation — deferred with multi-node execution
-  ([ADR-034](adr/034-distribution-deferred.md)). Wave 8 was survival on one node, not
-  clustering ([ADR-035](adr/035-wave-8-is-survival-not-distribution.md)), and a standby talks to
+  ([ADR-034](../design/adr/034-distribution-deferred.md)). Wave 8 was survival on one node, not
+  clustering ([ADR-035](../design/adr/035-wave-8-is-survival-not-distribution.md)), and a standby talks to
   a directory rather than to its primary, so there is no node-to-node channel to secure yet
 - **Secret management integration** (`SecretProvider` SPI in the design) — not built
 - **Security review and SBOM** — Wave 11 (the GA wave, which moved down one when ADR-036 inserted the scale wave)
@@ -649,7 +649,7 @@ names `via`, `session`, `key` and `mustChangePassword` are the engine's own clai
 at most 32 attributes, each value 1 to 256 characters with no control characters (`PRV-7020`).
 Restoring a registration now asks the identity store for its owner before the token table; before,
 a registration by a store user was refused at every restart.
-The codes are `PRV-7010` to `PRV-7021` ([`TROUBLESHOOTING.md`](TROUBLESHOOTING.md)). Forcing a change
+The codes are `PRV-7010` to `PRV-7021` ([`../guides/TROUBLESHOOTING.md`](../guides/TROUBLESHOOTING.md)). Forcing a change
 of password at first sign-in is configuration (`pravaha.identity.password.force-change`), off unless
 set. So is single sign-on, which is used only when a provider is configured. `admin` is created on
 first start, from `pravaha.identity.bootstrap-password-file` or with the published default, and a node

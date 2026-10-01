@@ -32,7 +32,7 @@ something more interesting than the case that referenced it.
    that check lives in `QueryExecution.generatingWatermarks` (`QueryExecution.java:339`) and
    therefore fires **per registration**.
 5. `pravaha.watermark.out-of-orderness` **has no reader anywhere in the repository.** Round 1 proved
-   this by experiment (`docs/qa/logs/DOC.md:1362-1385`, table row `DOC.md:1688`). The per-stream key
+   this by experiment (`docs/project/qa/logs/DOC.md:1362-1385`, table row `DOC.md:1688`). The per-stream key
    `pravaha.streams.<n>.out-of-orderness` is read by `StreamDeclarationProperties` and applied by
    `PravahaNode.withEventTime` — but **only when `event-time` is also declared**, because
    `withEventTime` returns early when it is not (`PravahaNode.java:232-235`).
@@ -1857,7 +1857,7 @@ distinguishes them.
 ## TIME-111 — The watermark thread exists, is named, and is a daemon [E2E]
 **Intent:** One thread per `QueryExecution` (`QueryExecution.java:348-352`), which is one per
 registered *computation*. Round 1 counted nine `pravaha-watermark` threads for nine queries
-(`docs/qa/logs/DEPLOY.md:1748`). Establish the count, the name and the daemon flag, because every
+(`docs/project/qa/logs/DEPLOY.md:1748`). Establish the count, the name and the daemon flag, because every
 other case in this section depends on being able to find the thread.
 **Falsifier:** No such thread on a node with registered queries; a non-daemon thread; or a count
 that does not match the number of distinct fingerprints.

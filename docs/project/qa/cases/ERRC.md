@@ -1,6 +1,6 @@
 # ERRC — every error code: reachable, documented, meaning one thing, message actionable
 
-The surface under test is **the promise `docs/TROUBLESHOOTING.md` makes in its last sentence**:
+The surface under test is **the promise `docs/guides/TROUBLESHOOTING.md` makes in its last sentence**:
 
 > Generated from the source, not from memory: every row above is an `ErrorCode` declared in a
 > module's main sources. **If a code is missing here it does not exist in the engine.**
@@ -13,7 +13,7 @@ The code under test is `pravaha-api/.../ErrorCode.java` (the record, the `Catego
 `category()`), every `*Errors.java` in every module, `pravaha-server/.../api/ApiExceptionHandler.java`
 (`statusFor`), `pravaha-server/.../security/BearerTokenFilter.java` (`refuse`),
 `pravaha-flight/.../FlightErrors.java` (`asFlightStatus`) and `PrincipalMiddleware.java`, and
-`docs/TROUBLESHOOTING.md`.
+`docs/guides/TROUBLESHOOTING.md`.
 
 **Ports:** HTTP 18900, Flight 19900. **Scratch:** `$QA = <scratchpad>/qa-errc`.
 
@@ -123,7 +123,7 @@ acted on and looked up. This case establishes those four for one code.
   file, the column, the plugin, the query, the principal — and (b) says what to do or what would
   have been accepted. A message that is a bare code, a Java exception `toString()`, or a restatement
   of the code's own name fails E3. Record the message verbatim.
-- **E4 — documented, and documented correctly.** `docs/TROUBLESHOOTING.md` has a row for the number;
+- **E4 — documented, and documented correctly.** `docs/guides/TROUBLESHOOTING.md` has a row for the number;
   the name in that row matches E2; and the cause the document gives matches **what this throw site
   actually throws for**. A row that exists but describes a different cause fails E4 as surely as a
   missing row does.
@@ -1379,7 +1379,7 @@ Eight cases. Each is a property of all 110 codes together, which no per-code cas
 2. Extract `(number, name)` from each; sort by number; assert **110 distinct numbers** and 110
    distinct names. Two declarations share a number only via the two documented aliases (fact 2), and
    those are assignments, not `new ErrorCode(...)` — so no number appears twice in step 1's output.
-3. `grep -o "PRV-[0-9]\{4\}" docs/TROUBLESHOOTING.md | sort -u` → **100**.
+3. `grep -o "PRV-[0-9]\{4\}" docs/guides/TROUBLESHOOTING.md | sort -u` → **100**.
 4. `comm` the two sets both ways.
 **Expected:** code-not-in-doc = exactly `{1030, 1031, 1040, 1041, 1042, 1043, 5090, 5091, 5092,
 6104}`, **ten**. doc-not-in-code = **empty**. Run `ErrorCodeUniquenessTest` and confirm it passes,
@@ -1462,7 +1462,7 @@ stderr (`PravahaCliTest.java:90` asserts it).
 `https://docs.pravaha.io/errors/` + the rendered code. Then resolve three of them.
 **Expected:** the field is present and correct on all three surfaces. **Then the honest part:**
 record whether `docs.pravaha.io` resolves at all. If it does not, every error in this product points
-the operator at a dead link, and `docs/TROUBLESHOOTING.md` — which does exist — is not mentioned by
+the operator at a dead link, and `docs/guides/TROUBLESHOOTING.md` — which does exist — is not mentioned by
 any message. **That is a one-line fix with a large effect and should be raised whatever the DNS
 answer is**, because the ten undocumented codes (ERRC-111) have a `helpUrl` that cannot help by
 construction.

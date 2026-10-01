@@ -4,7 +4,7 @@ Every finding in this batch is about the same thing seen from seven places: **wh
 back to somebody who got it slightly wrong.** Not one of them is a wrong answer. Each is a right
 answer given under the wrong name, at the wrong moment, or to a question the caller did not ask.
 
-`docs/qa/FINDINGS.md` is the lead's file and is not edited here. This is the input to it: one
+`docs/project/qa/FINDINGS.md` is the lead's file and is not edited here. This is the input to it: one
 section per finding, with a verdict, the cause, the fix, the test, the seed-proof result and the
 error codes taken.
 
@@ -240,7 +240,7 @@ copying bytes into the output row's variable-width region and rewriting its poin
 generator does not emit. So any projection carrying a `STRING` falls back with `PRV-3101`, and
 `API.md`'s shared `FILTERSQL` projects `user_id`. API-037 was therefore running API-038's case.
 
-`docs/qa/cases/API.md` gains a second constant, `FUSEDSQL` — the same filter over a numeric-only
+`docs/project/qa/cases/API.md` gains a second constant, `FUSEDSQL` — the same filter over a numeric-only
 projection — and API-037 uses it. The two differ **only** in the first projected column, on purpose:
 the filter, the schema, the input file and the row count are shared, so a difference between them is
 a difference in codegen and nothing else. The constants block carries the reason, so the next

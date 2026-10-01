@@ -53,7 +53,7 @@ The working directory is the home, so a relative path in your file — `data/dlq
 `secrets/initial-admin-password` — means the same thing in a container and on a host. The JVM's
 temporary directory is `tmp/`, heap dumps and `hs_err` files go to `logs/`, and jars in `plugins/`
 are on the classpath. Without `PRAVAHA_HOME`, from a source checkout, none of this applies.
-`docs/RUNNING_IN_DOCKER.md` has the whole layout, the images and the compose stack.
+`docs/operations/RUNNING_IN_DOCKER.md` has the whole layout, the images and the compose stack.
 
 ### The `dev` profile
 

@@ -1,7 +1,7 @@
 # The command line
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`LICENSE`](../LICENSE).
+**Proprietary and confidential** — see [`LICENSE`](../../LICENSE).
 
 Pravaha has two command-line tools, and which one you want depends on whether there is a node.
 
@@ -16,7 +16,7 @@ Pravaha has two command-line tools, and which one you want depends on whether th
 
 The full per-command reference — every flag, sample output, and the refusal codes each command
 meets — is the console's help page **CLI reference**, whose source is
-[`console/content/topics/cli-reference.md`](../console/content/topics/cli-reference.md). This page is
+[`console/content/topics/cli-reference.md`](../../console/content/topics/cli-reference.md). This page is
 the repository's guide to the same program: how it is configured, how it behaves, how it is built, and
 the command map.
 
@@ -207,7 +207,7 @@ stream, a join or a lookup join reports the other side as not found — validate
 
 ## Building and testing
 
-The CLI lives in [`sdk/python/pravaha/cli/`](../sdk/python/pravaha/cli/__init__.py): `_app.py` (the
+The CLI lives in [`sdk/python/pravaha/cli/`](../../sdk/python/pravaha/cli/__init__.py): `_app.py` (the
 parser, dispatch and exit codes), `_flight.py`, `_http.py` and `_identity.py` (the commands),
 `_output.py` (tables and JSON) and `_settings.py` (configuration and the token file). It is the
 `pravaha` console script of the SDK's `pyproject.toml`. Its tests are in `sdk/python/tests`:

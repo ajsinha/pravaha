@@ -7,7 +7,7 @@
 # access to Maven Central for the first build.
 #
 # deploy/docker/Dockerfile is the release image: the same runtime stage, over a jar the reactor has
-# already built (ADR-047). The two must produce the same layout; docs/RUNNING_IN_DOCKER.md says which
+# already built (ADR-047). The two must produce the same layout; docs/operations/RUNNING_IN_DOCKER.md says which
 # to reach for. This one additionally carries bin/pravaha-engine, the offline Java CLI.
 
 # ---- build ------------------------------------------------------------------

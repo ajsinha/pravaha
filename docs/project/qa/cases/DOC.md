@@ -1,7 +1,7 @@
 # DOC — Documentation QA cases
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Area: **documentation — completeness, accuracy and user-friendliness, A to Z.**
 
@@ -15,12 +15,12 @@ Scratch: `/tmp/.../scratchpad/qa-doc`.
 
 ---
 
-## Group A — `docs/QUICKSTART.md`, executed literally
+## Group A — `docs/guides/QUICKSTART.md`, executed literally
 
 ## DOC-001 — Prerequisites section is sufficient for a naive reader
 **Intent:** The "Before you start" table is the contract with someone who has nothing installed. If
 it omits a prerequisite that a later step needs, the reader discovers it as a crash.
-**Setup:** Read `docs/QUICKSTART.md` §"Before you start" and enumerate every tool any later step
+**Setup:** Read `docs/guides/QUICKSTART.md` §"Before you start" and enumerate every tool any later step
 invokes (`java`, `./mvnw`, `python3`, `docker`, `make`, `git`).
 **Steps:** Cross-check the table against the full set of invoked tools.
 **Expected:** Every tool invoked anywhere in the document appears in the prerequisite table, or is
@@ -196,7 +196,7 @@ documentation tells a reader to use.
 **Intent:** The owner's stated failure mode: `pravaha.streams` was named in a javadoc before it
 existed. A key in a document is an instruction; a key that binds nothing fails silently, which is the
 worst kind.
-**Steps:** Inventory every `pravaha.*` key across README, all of `docs/`, `docs/adr/`, `examples/` and
+**Steps:** Inventory every `pravaha.*` key across README, all of `docs/`, `docs/design/adr/`, `examples/` and
 `console/`, and compare against the keys actually bound in `pravaha-server` main sources.
 **Expected:** Empty set of documented-but-nonexistent keys.
 
@@ -291,7 +291,7 @@ Wave 4" while the rest of the documentation says windowing landed and the quicks
 **Expected:** No example promises as future a feature that shipped.
 
 ## DOC-038 — `HANDOVER.md`'s claim that the quickstart is test-enforced
-**Intent:** "`docs/QUICKSTART.md` is accurate and every command in it is executed by `ExamplesTest`,
+**Intent:** "`docs/guides/QUICKSTART.md` is accurate and every command in it is executed by `ExamplesTest`,
 so it cannot silently rot." If that is false, the owner's stated safety net is not there, and DOC-005
 predicts it is false.
 **Steps:** Read `ExamplesTest` and `DocumentationFreshnessTest` and establish exactly what they
@@ -339,7 +339,7 @@ stated plainly enough that they know to stop.
 ## Group G — links, paths, structure
 
 ## DOC-045 — Every markdown link in every document resolves
-**Steps:** Resolve every relative link target across README, `docs/`, `docs/adr/`, `examples/`,
+**Steps:** Resolve every relative link target across README, `docs/`, `docs/design/adr/`, `examples/`,
 `console/README.md`, `sdk/`.
 **Expected:** No broken target.
 
@@ -355,8 +355,8 @@ reader at the top of a long page.
 **Steps:** Resolve every `#anchor` against the target file's headings.
 **Expected:** All resolve.
 
-## DOC-048 — Every ADR in `docs/adr/` is indexed and every ADR a document cites exists
-**Steps:** Diff `docs/adr/README.md` against the directory; resolve every `ADR-nnn` citation.
+## DOC-048 — Every ADR in `docs/design/adr/` is indexed and every ADR a document cites exists
+**Steps:** Diff `docs/design/adr/README.md` against the directory; resolve every `ADR-nnn` citation.
 **Expected:** Complete in both directions.
 
 ---

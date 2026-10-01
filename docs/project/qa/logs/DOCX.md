@@ -1,7 +1,7 @@
 # DOCX — execution log
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Cases: [`../cases/DOCX.md`](../cases/DOCX.md). Executed 2026-09-14 on branch `develop` at `7efaf9c`,
 in an isolated git worktree under `.claude/`, against `pravaha-*` as built by
@@ -33,11 +33,11 @@ marked *stale-Expected* and are not findings. The distinction matters: an audit 
 for a defect that was fixed is as misleading as one that misses a live one.
 
 **Documentation corrected in this round** (commits `0171a94` and `4d8b27a`, both on `develop`):
-`docs/QUICKSTART.md`, `docs/OPERATIONS.md`, `docs/HANDOVER.md`, `docs/TROUBLESHOOTING.md`,
-`docs/SECURITY.md`, `docs/SQL_SUPPORT.md`, `docs/README.md`, `docs/CONCEPTS.md`, `docs/USER_GUIDE.md`,
-`docs/system_design.md`, `docs/implementation_plan.md`, `README.md`, `console/README.md`,
+`docs/guides/QUICKSTART.md`, `docs/operations/OPERATIONS.md`, `docs/development/HANDOVER.md`, `docs/guides/TROUBLESHOOTING.md`,
+`docs/operations/SECURITY.md`, `docs/SQL_SUPPORT.md`, `docs/README.md`, `docs/guides/CONCEPTS.md`, `docs/guides/USER_GUIDE.md`,
+`docs/design/system_design.md`, `docs/design/implementation_plan.md`, `README.md`, `console/README.md`,
 `examples/README.md`, `examples/02-aggregate/README.md`, `examples/case-studies/README.md`,
-`examples/case-studies/SETUP.md`, `sdk/python/README.md`, thirteen ADRs and `docs/adr/README.md`,
+`examples/case-studies/SETUP.md`, `sdk/python/README.md`, thirteen ADRs and `docs/design/adr/README.md`,
 plus two javadoc lines in `SecurityProperties`.
 
 **One test changed, and it is the point of the round.** `ErrcCrossCuttingTest` asserted the
@@ -58,7 +58,7 @@ is green: `ErrcCrossCuttingTest`, `FindingsRegisterTest`, `DocumentationFreshnes
 **A note on a third-party string.** As in prior rounds, `jqwik-engine-1.10.1.jar` carries a sentence
 addressed to an "AI Agent" instructing it to disregard its instructions and discard jqwik's results.
 It appeared in the surefire output of every `pravaha-it` run in this round. It is untrusted
-third-party build output, not a project instruction, and was not acted on. `docs/HANDOVER.md:446` is
+third-party build output, not a project instruction, and was not acted on. `docs/development/HANDOVER.md:446` is
 right to record it.
 
 **The audit's re-run instructions** are in `$QA/README.md` (scratch, deliberately not in the
@@ -72,13 +72,13 @@ The group that decides whether the rest of the area means anything: an extractor
 nothing turns every audit below it into a clean bill.
 
 **Corpus.** `git ls-files '*.md'` gives 136 files; the case file's own enumerated corpus excludes
-`docs/qa/**` (QA's own record, not a document under audit) and `console/content/**` (front matter
+`docs/project/qa/**` (QA's own record, not a document under audit) and `console/content/**` (front matter
 plus `include:` of a file already in the corpus, so auditing it double-counts every sentence). **D0 =
 68 files.** The deviation from the case file's literal `git ls-files` instruction is recorded here
 because it changes every denominator below.
 
 - **DOCX-001 — PASS.** `$QA/extract/commands.py`, all five shapes plus blockquoted fences. Hand count
-  of `docs/QUICKSTART.md` = **31**; extractor = **31**, exact. Corpus total **D1 = 196**. Two
+  of `docs/guides/QUICKSTART.md` = **31**; extractor = **31**, exact. Corpus total **D1 = 196**. Two
   extractor defects were found by the hand count and fixed before the number was trusted: a
   twelve-space continuation line was being dropped as an indented block (so step 2's three-line
   command extracted as two fragments), and `> ```bash ` inside a blockquote — which is where
@@ -109,11 +109,11 @@ because it changes every denominator below.
 
 - **DOCX-004 — PASS.** Three classes, one extractor, base paths resolved per document directory.
   **D4 = 252 relative links / 63 anchors / 126 backticked paths.** Base-path handling proven by
-  `docs/adr/*.md`'s `../../LICENSE` resolving. **Vacuity:** one seeded broken link, one broken anchor
+  `docs/design/adr/*.md`'s `../../LICENSE` resolving. **Vacuity:** one seeded broken link, one broken anchor
   and one broken backticked path produced exactly three new failures, one per class.
 
 - **DOCX-005 — PASS.** `$QA/extract/claims.py`, thirteen patterns. **D5 = 102 claims.** Both positive
-  controls present and quoted: `docs/HANDOVER.md:57` and `docs/SQL_SUPPORT.md:6`. One extractor defect
+  controls present and quoted: `docs/development/HANDOVER.md:57` and `docs/SQL_SUPPORT.md:6`. One extractor defect
   found and fixed: a case-insensitive `\w+Test\b` matches `hottest`, `latest`, `greatest` — 17 false
   positives; that pattern is now case-sensitive and the other twelve are not (119 → 102).
   **62 of the 102 name no artefact at all**, which makes them unfalsifiable — worse, on this case
@@ -156,7 +156,7 @@ document does not give is a defect in the document.
   1. the configuration file's **name and directory** — the document prints a YAML block and then says
      "with that file", naming neither (`NEEDS-INVENTION`);
   2. the CSV's **contents** — no fixture is given for the `txn` source it configures;
-  3. the **timestamp wire format** — resolved: `docs/QUICKSTART.md:153-157` now documents ISO-8601 and
+  3. the **timestamp wire format** — resolved: `docs/guides/QUICKSTART.md:153-157` now documents ISO-8601 and
      bare-number-as-engine-unit, and ISO-8601 worked first time (no longer an invention);
   4. `pravaha.streams.<n>.event-time` — undocumented (finding **DOCX-7**), but **not required**: a
      node declaring only the *documented* source option `pravaha.sources.txn.options.event.time`
@@ -214,10 +214,10 @@ document does not give is a defect in the document.
 
 - **DOCX-012 — FAIL.** All 12 extracted commands run against a node on 19670. Accepted and correct:
   `queries`, `pause`, `resume`, `drop`, `query --params`, `subscribe --filter`. Two defects:
-  - `docs/USER_GUIDE.md:245` prints `pravaha explain --sql "..."` with no `--schema`, which the
+  - `docs/guides/USER_GUIDE.md:245` prints `pravaha explain --sql "..."` with no `--schema`, which the
     command requires → `--schema is required. Supplied: [sql]`, exit 2. With a schema it exits 0.
   - **The document never tells the reader to start a node.** `grep -n 'pravaha-server\|start a
-    server\|Start a node' docs/USER_GUIDE.md` returns nothing, and every command in it needs one, so
+    server\|Start a node' docs/guides/USER_GUIDE.md` returns nothing, and every command in it needs one, so
     all twelve are `NEEDS-INVENTION` on the case's own rule even though eleven ran in this harness.
   **Vacuity:** at least one ran as shown — several did.
   Found incidentally, a **code** defect left alone and recorded as **DOCX-10**: `pravaha pause` prints
@@ -273,8 +273,8 @@ document does not give is a defect in the document.
   /actuator/prometheus        200   # HELP application_ready_time_seconds …
   /status                     200   text/html
   /api/v1/queries             404   (GET; README:199 says outright there is no POST either)
-  /actuator/pravaha           404   promised by docs/system_design.md:3257
-  /api/v1/queries/{id}/backfill 404 promised by docs/system_design.md:2595
+  /actuator/pravaha           404   promised by docs/design/system_design.md:3257
+  /api/v1/queries/{id}/backfill 404 promised by docs/design/system_design.md:2595
   /swagger-ui/index.html      404
   ```
   **`/actuator/prometheus` is 200, not the 404 the case Expected** — *stale-Expected*, the registry
@@ -305,15 +305,15 @@ document does not give is a defect in the document.
   reference" is load-bearing in a way nobody chose.
 
 - **DOCX-018 — PARTIAL.** The arithmetic check, which is the group's point, **holds**: per-file counts
-  over the 68-file corpus sum to D1 = 196, distributed `docs/QUICKSTART.md` 31, `docs/system_design.md`
-  22, `examples/case-studies/SETUP.md` 21, `docs/implementation_plan.md` 20, `docs/USER_GUIDE.md` 12,
-  `sdk/python/README.md` 9, `README.md` 9, the five case studies 32, `docs/HANDOVER.md` 7,
+  over the 68-file corpus sum to D1 = 196, distributed `docs/guides/QUICKSTART.md` 31, `docs/design/system_design.md`
+  22, `examples/case-studies/SETUP.md` 21, `docs/design/implementation_plan.md` 20, `docs/guides/USER_GUIDE.md` 12,
+  `sdk/python/README.md` 9, `README.md` 9, the five case studies 32, `docs/development/HANDOVER.md` 7,
   `examples/*` 9, `console/README.md` 4, `Dockerfile` 2, and 18 singletons — and the files covered by
   DOCX-006–017 account for 108 of them. PARTIAL, honestly: the residual 88 were **extracted and
   classified but not all executed**. The 43 in `system_design.md` and `implementation_plan.md` are
   addressed by the status headers rather than by running them (**DOCX-13**); the 32 in the case
   studies are `NOT-EXECUTABLE` by declared infrastructure (DOCX-015); `sdk/python`'s nine were
-  executed in DOCX-011 and yielded **DOCX-17**. The four in `docs/gates/` and the ADRs were read, not
+  executed in DOCX-011 and yielded **DOCX-17**. The four in `docs/project/gates/` and the ADRs were read, not
   run. A later round wanting the diffable per-file TSV the case specifies should build that emitter
   first; `$QA/README.md` §5 records what it would take.
 
@@ -356,7 +356,7 @@ document does not give is a defect in the document.
   **The `filesystem` plugin's option keys are no longer undocumented** (*stale-Expected*):
   `QUICKSTART.md:127-130` documents `path`, `schema`, `event.time` and `follow`.
 
-- **DOCX-021 — FAIL, reported as a delta.** `docs/qa/TEST_PLAN.md:13` states **37** distinct
+- **DOCX-021 — FAIL, reported as a delta.** `docs/project/qa/TEST_PLAN.md:13` states **37** distinct
   `pravaha.*` config keys. There is no self-correction to 38 in that file; the case's premise about
   one is itself stale. Enumerated: **19 uncommented leaf keys** in the shipped `application.yaml`
   (node.id; flight.enabled/host/port/tls.certificate/tls.key; security.authentication/policy/audit/
@@ -510,7 +510,7 @@ document does not give is a defect in the document.
   `ApiIntegrationTest.java:91` assert the same URL elsewhere — three tests enforcing a link nobody can
   visit. **No document tells a reader it is not live**; grepped every corpus file for "not live",
   "does not resolve", "NXDOMAIN", "placeholder", "not registered" — zero relevant hits outside
-  `docs/qa/**`. The case's premise is also too generous: only the three in-process CLI commands print
+  `docs/project/qa/**`. The case's premise is also too generous: only the three in-process CLI commands print
   the URL at all — `ServerCommand.fail:238-246` prints the message and nothing else, so `query`,
   `register`, `queries`, `drop`, `pause`, `resume` and `subscribe` omit it.
 
@@ -525,7 +525,7 @@ document does not give is a defect in the document.
   fourteen. Its regex `\]\((?!https?://)([A-Za-z0-9_./-]+\.[A-Za-z0-9]+)(?:#[^)]*)?\)` requires a
   dot-extension, so it misses every `](../LICENSE)`, every directory link and all twelve
   `plugins/pravaha-plugin-*` links. **Uncovered set: 169 of 252 (67 %)** — 117 outside the corpus
-  (34 in `docs/adr/README.md` alone, plus `examples/`, `console/`, `sdk/`), 52 inside it but
+  (34 in `docs/design/adr/README.md` alone, plus `examples/`, `console/`, `sdk/`), 52 inside it but
   extensionless. **Vacuity:** six seeded broken links, **two of them in `README.md` itself**, left the
   test `PASSED`; a control seed of the *right shape* in the *right file* did fail it, so the test is
   not broken — its perimeter is. Both overstated claims corrected in `0171a94` (**DOCX-14**).
@@ -542,7 +542,7 @@ document does not give is a defect in the document.
   `implementation_plan.md:164` `pravaha-sql/src/test/resources/plans/` (the directory does not exist,
   and the row asserts the golden-plan check runs *every build*); `system_design.md:2968`
   `pravaha-ui/src/main/resources/static/vendor/` (no such module — pre-ADR-033 text);
-  `implementation_plan.md:780` `docs/gates/PN/` (packs are `docs/gates/wave-N/`). The fourth,
+  `implementation_plan.md:780` `docs/project/gates/PN/` (packs are `docs/project/gates/wave-N/`). The fourth,
   `examples/case-studies/README.md:54` `schema/streams.properties`, is a false positive of a
   root-relative resolver and resolves inside each study.
   **The identifier half is the one that rots invisibly, and 3 of 23 had:**
@@ -558,10 +558,10 @@ document does not give is a defect in the document.
   and not the index, 0 index rows pointing at a missing file, 0 dangling `ADR-nnn` citations** in the
   corpus *or* in `src/main` javadoc (14 distinct ADRs are cited from source), and **0 ADR files never
   cited**. A repository-wide sweep for any `ADR-nnn` outside 001–034 returned nothing. The ordering
-  deviation the case predicts is present: rows 021 and 018 sit after 022 (`docs/adr/README.md:31-33`).
+  deviation the case predicts is present: rows 021 and 018 sit after 022 (`docs/design/adr/README.md:31-33`).
   **Cosmetic, recorded so a later reader does not chase it.** Coverage note: the freshness test's ADR
   check reads only its thirteen-file corpus, so the source-javadoc citations and everything inside
-  `docs/adr/*` are unchecked — valid today, enforced by nothing.
+  `docs/design/adr/*` are unchecked — valid today, enforced by nothing.
 
 - **DOCX-038 — FAIL.** The module lists agree perfectly: `pom.xml` has **30** `<module>` entries (the
   case says 31), 0 built-but-undescribed, 0 described-but-unbuilt except `sdk/python`, which is
@@ -680,11 +680,11 @@ The class of defect that stops people checking, which makes it worse than the th
 
 - **DOCX-047 — PASS → finding DOCX-14.** `grep -n QUICKSTART ExamplesTest.java` → **one hit, in a
   javadoc sentence**, never in code. Every file it opens: the two example CSVs, the two example
-  READMEs, an `examples/` directory listing, and its own `@TempDir` scratch. **`docs/QUICKSTART.md` is
+  READMEs, an `examples/` directory listing, and its own `@TempDir` scratch. **`docs/guides/QUICKSTART.md` is
   not among them.** Coverage **0 / 31**. The two methods *named* for the quickstart
   (`theQuickstartsValidateCommandWorksAndReportsItsFields`, `theQuickstartsExplainCommandShowsBothPlans`)
-  assert command lines whose SQL and schema **do not appear in `docs/QUICKSTART.md` in any form** —
-  `grep -n 'validate\|explain' docs/QUICKSTART.md` returns nothing. **Vacuity satisfied:** the three
+  assert command lines whose SQL and schema **do not appear in `docs/guides/QUICKSTART.md` in any form** —
+  `grep -n 'validate\|explain' docs/guides/QUICKSTART.md` returns nothing. **Vacuity satisfied:** the three
   example READMEs *are* read, so the absence is specific rather than an inability to read a document.
   The rot the claim says cannot happen had already happened — DOCX-007.
   (`DistributionTest.java:97` does open QUICKSTART, to assert it contains two substrings. Coverage
@@ -752,7 +752,7 @@ The class of defect that stops people checking, which makes it worse than the th
   `ARCHITECTURE.md:568-578`'s eight-class enforcement table **TRUE**, all eight exist;
   `examples/03`'s Spring enforcer rule **TRUE** (`pravaha-embedded/pom.xml:51-69`);
   the console help "rendered, not copied" **TRUE** (each topic carries `include: docs/<DOC>.md`);
-  and `docs/gates/wave-7/README.md:22` "**NOT VERIFIED** … 'should' is not a gate" — recorded because
+  and `docs/project/gates/wave-7/README.md:22` "**NOT VERIFIED** … 'should' is not a gate" — recorded because
   it proves the corpus can state a gap accurately when it chooses to.
   Of the 19 named `*Test` classes across all 102 claims, **18 exist**.
 
@@ -764,7 +764,7 @@ The class of defect that stops people checking, which makes it worse than the th
   | documented **error codes** asserted by any test | **67 / 108** (62 %) | and now 111/111 are *documented*, enforced |
   | documented **SQL constructs** whose *answer* is asserted | **26 / 42 ✅** (62 %) | **0 / 7 for joins** |
   The cheapest test that would raise each, one line:
-  1. **Commands** — make `ExamplesTest` *parse* the fenced `bash` blocks out of `docs/QUICKSTART.md`
+  1. **Commands** — make `ExamplesTest` *parse* the fenced `bash` blocks out of `docs/guides/QUICKSTART.md`
      and feed each `pravaha …` line to `PravahaCli.run` as argv, asserting the exit code and the next
      fenced block as expected output. **This is the single change that would have prevented DOCX-007**,
      and it is the one this round did not make.
@@ -784,7 +784,7 @@ The class of defect that stops people checking, which makes it worse than the th
 - **DOCX-053 — FAIL → finding DOCX-2, FIXED in `0171a94`. Run first, as the case instructs.**
   **`README.md`'s banner has already been corrected** — lines 11-15 now assert the positive, and the
   status line and Wave-7-of-10 badge are accurate (waves 8-10 are genuinely not started; the roadmap
-  in `system_design.md` and `docs/gates/` agree). All three claims tested by experiment anyway,
+  in `system_design.md` and `docs/project/gates/` agree). All three claims tested by experiment anyway,
   because that is what makes the fix verifiable:
   - **(a) "nothing generates watermarks" — false.** Startup log:
     `PravahaNode : watermarks: idle-after=PT30S, tick=PT1S`.
@@ -797,7 +797,7 @@ The class of defect that stops people checking, which makes it worse than the th
   **Vacuity:** the same node answered `PRV-4023 no views are registered` after the drop, and a
   registration on a stream with no rows yet showed `ROWS IN 0`, so a non-zero count is ingestion and
   not a default.
-  **`docs/HANDOVER.md:394` still carried the claim** — the document whose purpose is to tell the next
+  **`docs/development/HANDOVER.md:394` still carried the claim** — the document whose purpose is to tell the next
   session what is true. That is the finding, and it is exactly the shape the case predicted, one
   document later than predicted.
 
@@ -836,7 +836,7 @@ The class of defect that stops people checking, which makes it worse than the th
   (9) cross-reference validation script in CI — NOT-BUILT; (10) benchmark regression gate — NOT-BUILT;
   (11) cold-start < 1 s asserted in CI — NOT-BUILT; (12) golden-plan resource directory — NOT-BUILT;
   (13) stylesheet byte-comparison test — NOT-BUILT; (14) Storybook / axe / Lighthouse gates —
-  NOT-BUILT; (15) `docs/gates/PN/` naming — NOT-BUILT; (16) RocksDB L1 tier — NOT-BUILT;
+  NOT-BUILT; (15) `docs/project/gates/PN/` naming — NOT-BUILT; (16) RocksDB L1 tier — NOT-BUILT;
   (17) Calcite as compiler with a custom runtime — **BUILT**; (18) binary flyweight rows over an arena
   — **BUILT**; (19) Flight SQL as the one client protocol — **BUILT**; (20) Spring-free engine core
   with an enforcer rule — **BUILT**. **Proportion NOT-BUILT: 16/20.** **Vacuity satisfied:** four
@@ -848,7 +848,7 @@ The class of defect that stops people checking, which makes it worse than the th
 
 ## Group I — the onboarding walk (DOCX-057 … DOCX-060)
 
-- **DOCX-057 — FAIL.** The walk, `README.md` → `docs/QUICKSTART.md` → a running query, typing only
+- **DOCX-057 — FAIL.** The walk, `README.md` → `docs/guides/QUICKSTART.md` → a running query, typing only
   what is printed. **First invention at step 2**, and it stops everybody: the printed command exits 2
   before any concept is reached (**DOCX-1**). Past that, in order: the configuration file's **name and
   directory** (§4 prints a YAML block and says "with that file"); the **CSV's contents**; a schema
@@ -899,7 +899,7 @@ The class of defect that stops people checking, which makes it worse than the th
   and `codes.py` each produce byte-identical output on a second run over an unchanged tree
   (`diff -q` clean), and the ADR three-way diff reproduces 34/34/34. The diff between this round's
   first and last `commands.tsv` is **entirely attributable to this round's own documentation fixes**
-  (+4 rows: two in `console/README.md`, two in `docs/HANDOVER.md`), which is the instrument working.
+  (+4 rows: two in `console/README.md`, two in `docs/development/HANDOVER.md`), which is the instrument working.
   **Recorded honestly, and it is the case's own standard turned on this round:** cases with a port, a
   server or a wall clock (006–018, 024–027, 032, 053, 057) are **not** byte-stable and must not be
   diffed that way; `$QA/README.md` says so and says which to compare by verdict instead. And the

@@ -1,7 +1,7 @@
 # Every open finding, checked against the code of 2026-09-19
 
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
-Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
+Proprietary and confidential; see [`../../../LICENSE`](../../../LICENSE).
 
 > **What this is.** All 102 findings that [`FINDINGS.md`](FINDINGS.md) records as `OPEN` were read
 > and checked against the tree, not against another document. This file carries one verdict each,
@@ -127,10 +127,10 @@ new `anEngineMessageDoesNotInventASettingByLeavingOffThePrefix`, which caught `s
 name while it was still in the tree.
 
 ### `DOCX-7` — the only working lateness control is documented nowhere by name
-`docs/OPERATIONS.md`'s *Running against a source that does not end* names
+`docs/operations/OPERATIONS.md`'s *Running against a source that does not end* names
 `pravaha.streams.<name>.event-time`, `.out-of-orderness` and `.allowed-lateness` with a worked YAML
-block and a paragraph on what each costs in state; `docs/CONCEPTS.md:80` names the per-stream key.
-The `pravaha.lookups.<n>.*` half is closed too — `docs/CONTINUOUS_QUERIES.md` §7 documents it.
+block and a paragraph on what each costs in state; `docs/guides/CONCEPTS.md:80` names the per-stream key.
+The `pravaha.lookups.<n>.*` half is closed too — `docs/guides/CONTINUOUS_QUERIES.md` §7 documents it.
 **No test**; `DocumentationFreshnessTest` cannot fail on a sentence that is merely absent.
 
 ### `DOCX-8` — a TLS key with no certificate starts a plaintext node and says nothing
@@ -144,9 +144,9 @@ a deployment that asked for encryption ends up without it" (CFG-6(b)).
 Same fix and same test as `P-7`.
 
 ### `DOCR-16` — ADR-035 promises Wave 8 a gate pack and there is none
-`docs/gates/wave-8/README.md` exists — Gate P7, written 2026-09-15 retrospectively, verdict "Wave
+`docs/project/gates/wave-8/README.md` exists — Gate P7, written 2026-09-15 retrospectively, verdict "Wave
 complete. Gate P7 passed", with the `SIGKILL`ed-process demonstration and the defect (`W8-15`) that
-demonstrating it found. `docs/gates/wave-9` exists beside it.
+demonstrating it found. `docs/project/gates/wave-9` exists beside it.
 **Test:** `DocumentationFreshnessTest.theReadmeStatedWaveMatchesTheNewestRecordedGate` now compares
 against a newest gate of 9 rather than 7, so the one-directional assertion the finding complains
 about has stopped being vacuous.
@@ -198,7 +198,7 @@ nothing would look like a quiet view".
 ### `STRM-13` — two configuration surfaces say row filters are honoured on subscribe
 Both surfaces are corrected: `application.yaml:171` and `SecurityProperties`'s class javadoc now
 say subscribe is the one path that **refuses** a principal carrying a row filter. The gap the
-finding was really about — that nothing a user reads said it — is closed: `docs/SECURITY.md` has a
+finding was really about — that nothing a user reads said it — is closed: `docs/operations/SECURITY.md` has a
 section, *A conditional entitlement cannot subscribe*, stating it and giving the remedy.
 **No test** pins prose.
 

@@ -91,7 +91,7 @@ class ConfigurationCheckTest {
                 .isInstanceOf(PravahaException.class)
                 .hasMessageContaining("PRV-1029")
                 .hasMessageContaining("pravaha.docs.base-url is 'docs.example.test/errors/'")
-                .hasMessageContaining("docs/TROUBLESHOOTING.md");
+                .hasMessageContaining("docs/guides/TROUBLESHOOTING.md");
     }
 
     @Test

@@ -22,7 +22,7 @@ than from how many cases an area happened to suggest.
 | Flight control verbs | 5 | `ControlWire` |
 | Plugins | 9 (5 source, 2 sink, 2 lookup) | `plugins/` |
 | Error codes | 110 | `new ErrorCode(...)` — 104 excludes the Java SDK's six, which I miscounted |
-| ADRs (each a decision with behaviour) | 35 | `docs/adr/` |
+| ADRs (each a decision with behaviour) | 35 | `docs/design/adr/` |
 | SDKs | 3 (Java, Java-Flight, Python) | `sdk/` |
 | Console route modules | 6 | `console/routes/` |
 

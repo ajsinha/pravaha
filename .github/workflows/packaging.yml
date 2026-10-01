@@ -1,7 +1,7 @@
 name: packaging
 
 # Everything a deployment consumes: the version, the workflows themselves, the Helm chart and
-# the container image. Nothing here publishes; see docs/DEPLOYMENT.md, "Release", for why.
+# the container image. Nothing here publishes; see docs/operations/DEPLOYMENT.md, "Release", for why.
 #
 # HAS THIS EVER RUN? Not as a GitHub Actions workflow -- this repository's CI is not exercised.
 # Every job's command HAS been run on the development machine, and that is the distinction:
@@ -130,7 +130,7 @@ jobs:
             'size {{.Size}} user {{.Config.User}} entrypoint {{.Config.Entrypoint}}' || true
 
       # Nothing is pushed. There is no registry configured in this repository and no credential
-      # in it; adding either is a decision, not a workflow edit. docs/DEPLOYMENT.md, "Release".
+      # in it; adding either is a decision, not a workflow edit. docs/operations/DEPLOYMENT.md, "Release".
       - name: Clean up the image this job built
         if: always()
         run: docker image rm -f pravaha-ci:${{ github.sha }} || true

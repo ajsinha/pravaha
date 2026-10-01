@@ -665,4 +665,4 @@ accompanying paper,*
 
 Copyright © 2026 Ashutosh Sinha <ajsinha@gmail.com>.
 Licensed under [CC BY-NC-ND 4.0](LICENSE). The Pravaha software described here is proprietary and is not
-covered by that licence; see [`../../LICENSE`](../../LICENSE).
+covered by that licence; see [`../../../LICENSE`](../../../LICENSE).

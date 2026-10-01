@@ -5,7 +5,7 @@
 #
 # Assemble the engine as a DISTRIBUTION: a directory, and a tarball of it, that is a PRAVAHA_HOME
 # the moment it is unpacked -- the same layout the container image has under /opt/pravaha, for a
-# machine that runs the node without Docker (docs/DEPLOYMENT.md, "Without Docker").
+# machine that runs the node without Docker (docs/operations/DEPLOYMENT.md, "Without Docker").
 #
 #   ./mvnw -o -pl pravaha-server,pravaha-cli -am package -DskipTests
 #   deploy/release/dist.sh                   # -> target/dist/pravaha-<version>/ and .tar.gz

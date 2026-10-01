@@ -183,7 +183,7 @@ class SqlPlannerTest {
                 .hasMessageContaining("WRITING TO <sink>")
                 .hasMessageContaining("WITH (sink = '<sink>')")
                 .hasMessageContaining("--sink")
-                .hasMessageContaining("docs/CONTINUOUS_QUERIES.md");
+                .hasMessageContaining("docs/guides/CONTINUOUS_QUERIES.md");
     }
 
     @Test

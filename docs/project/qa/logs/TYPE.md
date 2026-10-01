@@ -1,7 +1,7 @@
 # TYPE — execution log
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Cases: [`../cases/TYPE.md`](../cases/TYPE.md). Executed 2026-09-14 on branch `develop`, against
 `pravaha-*` sources as built by `./mvnw -o -T1C install -DskipTests` (Java 21). Route matches the
@@ -16,7 +16,7 @@ each case's own literal steps split across a passing half and a blocked/failing 
 place). Of the 41 FAIL, roughly a third (TYPE-003, 004, 030, 051, 098, 130, 131, 132, and several
 message-routing nuances) are cases whose documented defect has since been fixed, or whose documented
 fact has since changed — recorded as FAIL because the case's literal Expected doesn't hold, but not
-regressions. 24 new defects were found and recorded in `docs/qa/FINDINGS.md` as TY-1 through TY-24;
+regressions. 24 new defects were found and recorded in `docs/project/qa/FINDINGS.md` as TY-1 through TY-24;
 the most severe (TY-15, TY-17, TY-18, TY-19) mean BYTES and TIME cannot reach a client on the wire at
 all, and a join crashes on any row carrying a BYTES/ARRAY/MAP/ROW column.
 
@@ -44,7 +44,7 @@ bare `IllegalArgumentException`, not a `PRV-` code" is also stale: `ARRAY`/`MAP`
 projection now throw a real `PravahaException`/`PRV-2021` (an improvement, though the message still
 does not name the offending type or column). Where a case's authored Expected rests on either stale
 fact, this is recorded case by case below rather than silently reconciled — following the precedent
-`docs/qa/FINDINGS.md`'s `ST-2`/STATE-round drift note sets.
+`docs/project/qa/FINDINGS.md`'s `ST-2`/STATE-round drift note sets.
 
 ---
 
@@ -86,7 +86,7 @@ programmatic `pravaha-it` JUnit fixture (built, exercised, then deleted) reached
   `UnsupportedOperationException: a plugin aborted a row mid-write... Report this -- it needs a
   cancel path on RowInbox, not a workaround here`, naming neither the line nor the column, and the
   whole batch (including the good row) is lost, not just the offending row — this is the pre-existing
-  OPEN defect tracked in `docs/qa/FINDINGS.md`'s summary table as **I-3**
+  OPEN defect tracked in `docs/project/qa/FINDINGS.md`'s summary table as **I-3**
   (`DelegatingRowWriter.abort()` throwing `UnsupportedOperationException`), now reconfirmed on a
   NOT-NULL violation as well as a genuine decode failure (TYPE-088/091). Vacuity control
   (`s:STRING?`) passes exactly.
@@ -386,7 +386,7 @@ silently reconciled.
   `UnsupportedOperationException: a plugin aborted a row mid-write ... Report this` instead —
   root-caused to `DelegatingRowWriter.abort()` unconditionally throwing when
   `FilesystemPartitionReader` catches the real decode exception. This is the pre-existing OPEN defect
-  tracked in `docs/qa/FINDINGS.md`'s summary table as **I-3** (`DelegatingRowWriter.abort()` throws
+  tracked in `docs/project/qa/FINDINGS.md`'s summary table as **I-3** (`DelegatingRowWriter.abort()` throws
   `UnsupportedOperationException`), reconfirmed here, not a new finding.
 - **TYPE-089 — FAIL.** Extremes and the overflow/underflow-to-zero decode both match. But
   `WHERE f > 0` returns 6 rows including the NaN row (Expected 5), and `WHERE f = f` returns all 10

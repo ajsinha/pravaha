@@ -998,7 +998,7 @@ def test_templates_are_written_against_the_chosen_streams_columns():
 
 def test_every_error_code_in_the_table_resolves():
     docs = REPO_ROOT / "docs"
-    table = (docs / "TROUBLESHOOTING.md").read_text(encoding="utf-8")
+    table = (docs / "guides" / "TROUBLESHOOTING.md").read_text(encoding="utf-8")
     codes = sorted(set(re.findall(r"^\|\s*`(PRV-\d{4})`", table, re.MULTILINE)))
     assert len(codes) > 50
     for code in codes:

@@ -1,7 +1,7 @@
 # Tutorial: joining two Aerospike sets and a CSV file
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
+**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
 
 You will run Aerospike beside a Pravaha QA host, point Pravaha at two of its sets and at a CSV file,
 register two continuous queries that join all three — once from Python and once from the console —
@@ -9,7 +9,7 @@ and then push live data into Aerospike and watch the answers move.
 
 **Every step was run on a QA host installed from the 0.1.1 bundle**, and every output shown is what
 it printed. The files it uses are in the QA bundle's `tutorials/aerospike-fulfilment/` directory and
-in the repository's [`examples/tutorials/aerospike-fulfilment/`](../../examples/tutorials/aerospike-fulfilment).
+in the repository's [`examples/tutorials/aerospike-fulfilment/`](../../../examples/tutorials/aerospike-fulfilment).
 
 ## What you are building
 

@@ -1,7 +1,7 @@
 # Tutorial 3 — Changing a running query safely
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
+**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
 
 `big_payments` answers "payments over 1000", and people are reading it. Now the threshold should be
 5000. Dropping the query and registering it again would take the answer away from every reader and

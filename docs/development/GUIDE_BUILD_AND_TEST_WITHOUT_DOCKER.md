@@ -1,7 +1,7 @@
 # Build and test Pravaha without Docker
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../LICENSE`](../LICENSE).
+**Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
 
 From a fresh clone to a running node, a continuous query read four ways, and a restart that keeps
 its answer — on a Linux machine with no Docker. Every command below was run on 2026-09-29 on the
@@ -164,7 +164,7 @@ over the DevTools protocol. Without one, the browser tests skip.
 
 A node needs a handful of directories: configuration, data (registry journal, checkpoints, identity
 store, incoming files), logs, plugins, secrets and a temporary directory. The container image lays
-the same things out under `/opt/pravaha`; [Running in Docker](RUNNING_IN_DOCKER.md) has that table,
+the same things out under `/opt/pravaha`; [Running in Docker](../operations/RUNNING_IN_DOCKER.md) has that table,
 and describes `bin/pravaha-server`'s home mode: with `PRAVAHA_HOME` set it places every path under
 it and reads `$PRAVAHA_HOME/conf/` by itself. This walkthrough was run before home mode existed,
 so it names every path explicitly — which still works, and shows what each one is for. Pick any
@@ -385,8 +385,8 @@ already run, and cannot harm one. What you can point at an existing store is a *
 a source or sink to it in `conf/application.yaml` and register a query, as in step 9. The Kafka,
 JDBC, CDC, Aerospike and Cassandra plugins are separate modules, and the server's executable jar
 carries `filesystem` alone: the plugin has to be on the node's classpath, and naming one that is not
-there stops the node with `PRV-5090` ([Connectors](CONNECTORS.md)). In home mode `bin/pravaha-server`
-puts `$PRAVAHA_HOME/plugins` on the classpath (`-Dloader.path`); [Running in Docker](RUNNING_IN_DOCKER.md)
+there stops the node with `PRV-5090` ([Connectors](../guides/CONNECTORS.md)). In home mode `bin/pravaha-server`
+puts `$PRAVAHA_HOME/plugins` on the classpath (`-Dloader.path`); [Running in Docker](../operations/RUNNING_IN_DOCKER.md)
 says how, in and out of a container — not exercised in this walkthrough. The options for each
 plugin are documented in `pravaha-server/src/main/resources/application.yaml`. Use a scratch topic,
 database or set: a CDC source creates a replication slot, and sinks write.
@@ -406,4 +406,4 @@ database or set: a CDC source creates a replication slot, and sinks write.
 | pgwire: `PRV-6212` / `25P02` *current transaction is aborted* | an earlier statement in the same transaction failed | roll back, as against PostgreSQL |
 | SDK tests skip: *pravaha-flight is not built* | test classes missing | step 3 without `-Dmaven.test.skip` |
 | Console browser tests skip | no Chrome found | install one, or `PRAVAHA_CHROME=/path/to/chrome` |
-| The view stays empty | the stream's schema or the file does not match, or a windowed query with no event-time | `bin/pravaha queries` (ROWS IN), `logs/server.log`, [Troubleshooting](TROUBLESHOOTING.md) |
+| The view stays empty | the stream's schema or the file does not match, or a windowed query with no event-time | `bin/pravaha queries` (ROWS IN), `logs/server.log`, [Troubleshooting](../guides/TROUBLESHOOTING.md) |

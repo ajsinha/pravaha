@@ -502,7 +502,7 @@ final class KafkaSourceOptions {
             }
             if (property.startsWith("ssl.")) {
                 throw refusal("'" + key + "' is not passed through: TLS is configured with the shared tls.* "
-                        + "options (docs/CONNECTOR_TLS.md), so it reads the same for every connector.");
+                        + "options (docs/guides/CONNECTOR_TLS.md), so it reads the same for every connector.");
             }
             if (!ConsumerConfig.configNames().contains(property)) {
                 throw refusal("'" + key + "' is not a Kafka consumer property, so it would be dropped without "

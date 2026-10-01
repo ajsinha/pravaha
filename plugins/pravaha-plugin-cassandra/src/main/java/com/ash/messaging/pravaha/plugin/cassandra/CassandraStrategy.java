@@ -25,7 +25,7 @@ import com.ash.messaging.pravaha.api.ConfigurationException;
  * a {@code cdc_raw} directory on <em>every node</em>, to be read locally -- there is no server that
  * streams them to a remote client the way Postgres streams its WAL or MySQL its binlog. A CDC reader
  * for Cassandra is a per-node agent with no ordering across nodes, which is a different project from
- * a plugin ({@code docs/CONNECTORS.md} section 5). So the strategy that is tractable here is a table
+ * a plugin ({@code docs/guides/CONNECTORS.md} section 5). So the strategy that is tractable here is a table
  * scan, and this enum says so rather than pretending otherwise.
  *
  * <p>A second question follows immediately: can a scan at least be incremental, the way the Aerospike
@@ -39,7 +39,7 @@ import com.ash.messaging.pravaha.api.ConfigurationException;
  * honestly answers "when was this row last touched." Building {@code writetime-incremental} anyway
  * would silently miss exactly the rows that changed only in their key or only in a column that
  * happened to be excluded from the tracked set -- the failure this framework exists to prevent
- * ({@code docs/CONNECTORS.md} section 6). So it stays refused.
+ * ({@code docs/guides/CONNECTORS.md} section 6). So it stays refused.
  *
  * <p>What remains is a full periodic scan: read the whole assigned token range every interval, paged
  * by {@code token()} so no partition is read through {@code ALLOW FILTERING}. It sees a row's current
@@ -77,7 +77,7 @@ public enum CassandraStrategy {
 
     /**
      * A per-node agent reading commitlog segments from {@code cdc_raw}. Designed and refused: this is
-     * the different project {@code docs/CONNECTORS.md} section 5
+     * the different project {@code docs/guides/CONNECTORS.md} section 5
      * describes -- an agent on every node, no cross-node ordering, and nothing a client-side plugin
      * can implement by connecting to the cluster the way it connects for a scan.
      */

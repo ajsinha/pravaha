@@ -1,7 +1,7 @@
 # LANE-6, STRM-4 and STRM-8, against the code of 2026-09-20
 
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
-Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
+Proprietary and confidential; see [`../../../LICENSE`](../../../LICENSE).
 
 > **What this is.** Three open findings from [`FINDINGS.md`](FINDINGS.md), worked in the order the
 > batch set them. It **does not edit `FINDINGS.md`**, which is the lead's; the verdicts here are
@@ -179,15 +179,15 @@ bound, and a test that asserted the bound stayed where it is would refuse an imp
 
 ### Documents corrected
 
-`docs/adr/026-*.md` (decision, alternatives, rationale), `docs/adr/README.md`,
-`docs/ARCHITECTURE.md`, `docs/system_design.md` (§20.3b's four rules and the ADR index row) and
-`docs/HANDOVER.md` all carried "encode once, write N times" as a capacity statement.
+`docs/design/adr/026-*.md` (decision, alternatives, rationale), `docs/design/adr/README.md`,
+`docs/design/ARCHITECTURE.md`, `docs/design/system_design.md` (§20.3b's four rules and the ADR index row) and
+`docs/development/HANDOVER.md` all carried "encode once, write N times" as a capacity statement.
 
-**Not touched, and the lead's:** `docs/qa/logs/STRM.md` rows STRM-028, STRM-087 and STRM-105 all
+**Not touched, and the lead's:** `docs/project/qa/logs/STRM.md` rows STRM-028, STRM-087 and STRM-105 all
 reason from the old wording and from the assumption that the two candidate causes were still open.
 STRM-028's verdict stands as written; STRM-087's attribution can now be narrowed to one cause.
 
-For STRM-8 the documents corrected are `docs/CONCEPTS.md` §8, `docs/USER_GUIDE.md` (twice),
+For STRM-8 the documents corrected are `docs/guides/CONCEPTS.md` §8, `docs/guides/USER_GUIDE.md` (twice),
 `console/content/topics/subscriptions.md`, `console/content/topics/embedded-engine.md` and
 `console/content/topics/sdk-reference.md` — the last of which also still said
 `subscriberBufferRows` and `conflateOnOverflow` were "not yet sent to the server", which STRM-16

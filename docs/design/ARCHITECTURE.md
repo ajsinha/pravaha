@@ -1,12 +1,12 @@
 # Architecture
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../LICENSE`](../LICENSE).
+**Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
 
 How Pravaha is put together, and why each part is shaped the way it is.
 
 This is the engineering view. If you want the *ideas* rather than the machinery, read
-[`CONCEPTS.md`](CONCEPTS.md) first — it is shorter and it is what most questions turn out to be
+[`../guides/CONCEPTS.md`](../guides/CONCEPTS.md) first — it is shorter and it is what most questions turn out to be
 about. The full specification is [`system_design.md`](system_design.md); every decision has an
 [ADR](adr/).
 
@@ -85,7 +85,7 @@ them.
 
 ## What a lane is
 
-> **Connectors: [`CONNECTORS.md`](CONNECTORS.md).** The SPI, a worked example and the TCK.
+> **Connectors: [`../guides/CONNECTORS.md`](../guides/CONNECTORS.md).** The SPI, a worked example and the TCK.
 
 > **Full treatment: [`EXECUTION_MODEL.md`](EXECUTION_MODEL.md).** This section is the summary a
 > reader of the architecture needs; that document is the one kept next to the code, and it wins if
@@ -638,20 +638,20 @@ parameter schema when a statement is prepared, so neither SDK guesses.
 | `pravaha-spring-boot-starter` | Mode B: an embedded engine as a bean from `pravaha.*`, `PravahaTemplate`, and `@PravahaListener` methods receiving a query's committed changes, with a `PravahaListenerErrorHandler` for the ones that throw. `@PravahaTest` and `PravahaTester` for applications' tests; a `pravaha` health indicator and read-only endpoint when Actuator is present. Depends on `pravaha-embedded`, never the reverse. |
 | `pravaha-cli` | The `pravaha-engine` command: `validate`, `explain` and `run` with the engine in-process. The `pravaha` command, which talks to a node, is the Python CLI in `sdk/python`. |
 | `pravaha-testkit` | Virtual clock, deterministic scheduler, plugin TCK. |
-| [`plugins/pravaha-plugin-filesystem`](../plugins/pravaha-plugin-filesystem) | The reference source and sink. Delimited files, no external dependency. |
-| [`plugins/pravaha-plugin-delta`](../plugins/pravaha-plugin-delta) | Delta Lake source, on Delta Kernel rather than Spark. Version diffs become Z-set weights. |
-| [`plugins/pravaha-plugin-iceberg`](../plugins/pravaha-plugin-iceberg) | `iceberg-sink`: a query's answer in an Apache Iceberg table on the local filesystem, on iceberg-core and iceberg-parquet rather than Spark. Upsert by key through equality deletes (format v2), or a changelog with the weight as a column. One snapshot per checkpoint, exactly once: files staged unreferenced at prepare, and the snapshot summary carries the transaction id and label so a repeated commit is skipped. |
-| [`plugins/pravaha-plugin-feedfile`](../plugins/pravaha-plugin-feedfile) | Drop-directory feeds. CSV and Parquet, completion detection, per-file replayable offsets. |
-| [`plugins/pravaha-plugin-jdbc`](../plugins/pravaha-plugin-jdbc) | Incremental-poll source and dimension table for any JDBC database. Keyset pagination, filter pushdown into `WHERE`, projection into the `SELECT` list, and a continuous `COUNT`/`SUM` pushed as one partial per page, driver supplied by the deployment. And `jdbc-sink`: a query's answer maintained in a table by key, transactional through a staging table. |
-| [`plugins/pravaha-plugin-aerospike`](../plugins/pravaha-plugin-aerospike) | The primary target. Scan-based source with server-side filter and projection (bin) pushdown, an idempotent upsert sink (`aerospike-sink`, composite keys, deletes on a retraction), and a lookup table. Tested against a real Aerospike server, not a mock. |
-| [`plugins/pravaha-plugin-cassandra`](../plugins/pravaha-plugin-cassandra) | A full periodic scan of a table's assigned `token()` range (ADR-039 item 6). Projection pushdown into the CQL `SELECT` list only; no client-pullable change log to follow -- Cassandra's CDC is a per-node agent problem, a different project ([`CONNECTORS.md`](CONNECTORS.md) section 5). Tested against a real Cassandra server, not a mock. |
-| [`plugins/pravaha-plugin-postgres-cdc`](../plugins/pravaha-plugin-postgres-cdc) | `postgres-cdc`: change data capture from one PostgreSQL table through native logical replication (ADR-041) — `pgoutput` decoded by hand, an insert at +1, a delete and an update's before-image at −1, whole transactions, `REPLICA IDENTITY FULL` required. Exactly once: the slot is confirmed only at durable checkpoints. Uses the deployment's PostgreSQL driver. An initial snapshot with `snapshot.mode: initial`, under an exported snapshot and exact across a restart half-way through it. Tested against a real PostgreSQL (Testcontainers). |
-| [`plugins/pravaha-plugin-mysql-cdc`](../plugins/pravaha-plugin-mysql-cdc) | `mysql-cdc`: change data capture from one MySQL table through the row-based binary log, on ADR-041's model without Debezium — the plugin registers as a replica (`mysql-binlog-connector-java`, no JDBC driver), an insert at +1, a delete and an update's before-image at −1, whole transactions, `binlog_format = ROW` and `binlog_row_image = FULL` required. Exactly once from a binlog file and offset at a transaction boundary; a purged file is refused. No initial snapshot yet. Tested against a real MySQL 8 (Testcontainers). |
-| [`plugins/pravaha-plugin-kafka`](../plugins/pravaha-plugin-kafka) | A source, `kafka`: a topic read as a stream, one reader per partition, each assigned its partition and seeked to the offset the checkpoint holds -- exactly once, `read_committed` by default, never positioned by a consumer group; JSON rows by column name, or `kafka-sink`'s changelog with its weights; a fetch thread per reader so `poll` never blocks. A sink, `kafka-sink`: a query's changes written to a topic as keyed JSON upserts with a tombstone for a retraction, or as an explicit changelog. Exactly once to a `read_committed` consumer through a staging topic and one Kafka transaction per checkpoint -- Kafka has no prepare a restarted producer could commit. Ships no native compression codec. Tested against a real broker (Testcontainers), not only Kafka's mocks. |
+| [`plugins/pravaha-plugin-filesystem`](../../plugins/pravaha-plugin-filesystem) | The reference source and sink. Delimited files, no external dependency. |
+| [`plugins/pravaha-plugin-delta`](../../plugins/pravaha-plugin-delta) | Delta Lake source, on Delta Kernel rather than Spark. Version diffs become Z-set weights. |
+| [`plugins/pravaha-plugin-iceberg`](../../plugins/pravaha-plugin-iceberg) | `iceberg-sink`: a query's answer in an Apache Iceberg table on the local filesystem, on iceberg-core and iceberg-parquet rather than Spark. Upsert by key through equality deletes (format v2), or a changelog with the weight as a column. One snapshot per checkpoint, exactly once: files staged unreferenced at prepare, and the snapshot summary carries the transaction id and label so a repeated commit is skipped. |
+| [`plugins/pravaha-plugin-feedfile`](../../plugins/pravaha-plugin-feedfile) | Drop-directory feeds. CSV and Parquet, completion detection, per-file replayable offsets. |
+| [`plugins/pravaha-plugin-jdbc`](../../plugins/pravaha-plugin-jdbc) | Incremental-poll source and dimension table for any JDBC database. Keyset pagination, filter pushdown into `WHERE`, projection into the `SELECT` list, and a continuous `COUNT`/`SUM` pushed as one partial per page, driver supplied by the deployment. And `jdbc-sink`: a query's answer maintained in a table by key, transactional through a staging table. |
+| [`plugins/pravaha-plugin-aerospike`](../../plugins/pravaha-plugin-aerospike) | The primary target. Scan-based source with server-side filter and projection (bin) pushdown, an idempotent upsert sink (`aerospike-sink`, composite keys, deletes on a retraction), and a lookup table. Tested against a real Aerospike server, not a mock. |
+| [`plugins/pravaha-plugin-cassandra`](../../plugins/pravaha-plugin-cassandra) | A full periodic scan of a table's assigned `token()` range (ADR-039 item 6). Projection pushdown into the CQL `SELECT` list only; no client-pullable change log to follow -- Cassandra's CDC is a per-node agent problem, a different project ([`../guides/CONNECTORS.md`](../guides/CONNECTORS.md) section 5). Tested against a real Cassandra server, not a mock. |
+| [`plugins/pravaha-plugin-postgres-cdc`](../../plugins/pravaha-plugin-postgres-cdc) | `postgres-cdc`: change data capture from one PostgreSQL table through native logical replication (ADR-041) — `pgoutput` decoded by hand, an insert at +1, a delete and an update's before-image at −1, whole transactions, `REPLICA IDENTITY FULL` required. Exactly once: the slot is confirmed only at durable checkpoints. Uses the deployment's PostgreSQL driver. An initial snapshot with `snapshot.mode: initial`, under an exported snapshot and exact across a restart half-way through it. Tested against a real PostgreSQL (Testcontainers). |
+| [`plugins/pravaha-plugin-mysql-cdc`](../../plugins/pravaha-plugin-mysql-cdc) | `mysql-cdc`: change data capture from one MySQL table through the row-based binary log, on ADR-041's model without Debezium — the plugin registers as a replica (`mysql-binlog-connector-java`, no JDBC driver), an insert at +1, a delete and an update's before-image at −1, whole transactions, `binlog_format = ROW` and `binlog_row_image = FULL` required. Exactly once from a binlog file and offset at a transaction boundary; a purged file is refused. No initial snapshot yet. Tested against a real MySQL 8 (Testcontainers). |
+| [`plugins/pravaha-plugin-kafka`](../../plugins/pravaha-plugin-kafka) | A source, `kafka`: a topic read as a stream, one reader per partition, each assigned its partition and seeked to the offset the checkpoint holds -- exactly once, `read_committed` by default, never positioned by a consumer group; JSON rows by column name, or `kafka-sink`'s changelog with its weights; a fetch thread per reader so `poll` never blocks. A sink, `kafka-sink`: a query's changes written to a topic as keyed JSON upserts with a tombstone for a retraction, or as an explicit changelog. Exactly once to a `read_committed` consumer through a staging topic and one Kafka transaction per checkpoint -- Kafka has no prepare a restarted producer could commit. Ships no native compression codec. Tested against a real broker (Testcontainers), not only Kafka's mocks. |
 | `pravaha-cluster` | Membership, leadership and assignment behind an SPI, so a deployment uses the mechanism it already runs. Each implementation **declares what it guarantees**, and the engine refuses the work a coordinator cannot safely do. |
-| [`plugins/pravaha-cluster-zookeeper`](../plugins/pravaha-cluster-zookeeper) | A ZooKeeper-backed coordinator. Its own artefact, so a deployment using sockets or a single node carries no ZooKeeper client. |
-| [`sdk/python`](../sdk/python) | Python client. The console is built on it. |
-| [`console`](../console) | The operator console: a separate Python process, its own artefact (ADR-033). `core/` holds configuration, the engine adapter and the services; `routes/` defines the pages and `/api/v1`; `web/` holds the Jinja templates and the vendored assets; `content/` holds help topics that **include** this documentation rather than copying it. |
+| [`plugins/pravaha-cluster-zookeeper`](../../plugins/pravaha-cluster-zookeeper) | A ZooKeeper-backed coordinator. Its own artefact, so a deployment using sockets or a single node carries no ZooKeeper client. |
+| [`sdk/python`](../../sdk/python) | Python client. The console is built on it. |
+| [`console`](../../console) | The operator console: a separate Python process, its own artefact (ADR-033). `core/` holds configuration, the engine adapter and the services; `routes/` defines the pages and `/api/v1`; `web/` holds the Jinja templates and the vendored assets; `content/` holds help topics that **include** this documentation rather than copying it. |
 | `pravaha-state` | Durable and off-heap state: the block store joins and aggregates hold state in, its memory-mapped overflow tier (`spill`) with slab compaction that gives churned-out files back and a node-wide byte quota that refuses by code before the disk fills (ADR-044), and checkpoints. The L0 off-heap map that was meant to be the first tier is **gone** — deleted in Wave 8 (W8-12), because its keys are a fixed width and a `GROUP BY` key containing a string is not. |
 | `pravaha-backfill` | Loading history without losing the present: the snapshot-to-changefeed splice, its throttle, and blue/green cutover. |
 | `pravaha-serving` | Reading a query's answer directly, with consistency declared per read and staleness returned with it. Also SQL over a maintained view, planned and executed by the same engine a continuous query uses. |
@@ -660,8 +660,8 @@ parameter schema when a statement is prepared, so neither SDK guesses.
 | `pravaha-security` | Who is asking, what they may read, and a record of both (ADR-031). Three SPIs: a verifier turns a credential into a principal, a policy decides, an audit sink records. |
 | `pravaha-identity` | Users, passwords, API keys and sessions kept by the engine (ADR-052), behind the same verifier SPI: Argon2id hashes, lockout, key scopes, rotation and revocation, all in an append-only journal holding nothing reversible. No Spring. Off unless `pravaha.identity.enabled`. |
 | `pravaha-registry` | Where SQL becomes a computation with a name, a state and an end (ADR-025). Sharing is by fingerprint, so the same question asked twice is one computation with two names. |
-| [`sdk/pravaha-sdk-java`](../sdk/pravaha-sdk-java) | The Java client's types and connection strings. Dependency-free by enforcer rule: it is embedded in somebody else's application. |
-| [`sdk/pravaha-sdk-java-flight`](../sdk/pravaha-sdk-java-flight) | The Java client's transport, kept separate so an application that only wants the types never sees Netty. |
+| [`sdk/pravaha-sdk-java`](../../sdk/pravaha-sdk-java) | The Java client's types and connection strings. Dependency-free by enforcer rule: it is embedded in somebody else's application. |
+| [`sdk/pravaha-sdk-java-flight`](../../sdk/pravaha-sdk-java-flight) | The Java client's transport, kept separate so an application that only wants the types never sees Netty. |
 
 `pravaha-catalog` is still a placeholder.
 
@@ -685,9 +685,9 @@ Not conventions — tests. Each one exists because the failure it prevents is si
 
 | | |
 |---|---|
-| **What are the ideas?** — [`CONCEPTS.md`](CONCEPTS.md), the eight this is all built on |
-| **How do I use it?** — [`USER_GUIDE.md`](USER_GUIDE.md), task by task |
-| **How do I run it?** — [`OPERATIONS.md`](OPERATIONS.md) |
-| **What SQL can I write?** — [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md), streams to views to every construct, with a test behind it |
+| **What are the ideas?** — [`../guides/CONCEPTS.md`](../guides/CONCEPTS.md), the eight this is all built on |
+| **How do I use it?** — [`../guides/USER_GUIDE.md`](../guides/USER_GUIDE.md), task by task |
+| **How do I run it?** — [`../operations/OPERATIONS.md`](../operations/OPERATIONS.md) |
+| **What SQL can I write?** — [`../guides/CONTINUOUS_QUERIES.md`](../guides/CONTINUOUS_QUERIES.md), streams to views to every construct, with a test behind it |
 | **Why is it like this?** — [`adr/`](adr/), every decision with its alternatives |
 | **The whole specification** — [`system_design.md`](system_design.md) |

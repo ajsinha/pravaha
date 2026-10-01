@@ -1,7 +1,7 @@
 # The documentation cluster, worked one finding at a time — 2026-09-20
 
 Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
-Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
+Proprietary and confidential; see [`../../../LICENSE`](../../../LICENSE).
 
 > The `DOCX` and `CFG` findings still open in [`FINDINGS.md`](FINDINGS.md) that are code fixes
 > rather than documentation edits. `DOCX-6` and `PF-11` are owned elsewhere this session and are
@@ -40,7 +40,7 @@ published is knowable from inside the jar, and the code guessed.
 - **Unset emits no URL.** `ErrorCode.helpUrl()` answers the empty string; `helpUrl` stays in the
   REST and Flight contracts and is empty, which is what the contract now says empty means; and
   every *printed* line that would have carried a link carries `HelpUrls.helpLine(code)` instead —
-  "look PRV-2002 up in the console's help under Errors, or in docs/TROUBLESHOOTING.md". The
+  "look PRV-2002 up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md". The
   console's help resolves every code offline and `TROUBLESHOOTING.md` is the code index, so the
   replacement names two references that exist, which the URL never did.
 - **A base that is not a URL is refused where it is set**, with the new `PRV-1029
@@ -95,10 +95,10 @@ than about the network under the test.
 | `HelpUrls.normalise` returns the value without checking scheme or host | **7 failures** — six parameterised `aBaseThatIsNotAnAbsoluteHttpUrlIsRefusedByName` cases and `aRefusedBaseLeavesThePreviousOneAlone`. Restored: 255/255 pass |
 | `PravahaCli` prints `forCode` rather than `helpLine`, and `ServerCommand` prints the sentence unconditionally | **2 failures** of 46 — `PravahaCliTest.withNoHelpBaseARefusalPrintsNoUrlAndSaysWhereToLookTheCodeUp` and `CliFeedStatusTest.aStoppedSourceIsMarkedAndExplainedAndAHealthyOneIsNot`. Restored: all pass |
 
-**Documents.** `docs/TROUBLESHOOTING.md` (the callout at the head rewritten; `PRV-1029` given a row
+**Documents.** `docs/guides/TROUBLESHOOTING.md` (the callout at the head rewritten; `PRV-1029` given a row
 in the startup-refusal table and in the code index; the `ApiError` paragraph now says `helpUrl` is
-always present and may be empty), `docs/OPERATIONS.md` (a new "Where a failure's help link points"
-section under *Starting a node*), `docs/system_design.md` §24.4, and
+always present and may be empty), `docs/operations/OPERATIONS.md` (a new "Where a failure's help link points"
+section under *Starting a node*), `docs/design/system_design.md` §24.4, and
 `pravaha-server/src/main/resources/application.yaml`, where the key is written out commented, with
 why it has no default.
 
@@ -176,7 +176,7 @@ the renumbering does not change), `ConfigurationCheckTest` (1:
 `oneStreamWithTwoDisagreeingSchemasIsRefused_CFG8`) and `ConfigurationRefusalCodesTest` (3: the
 missing schema, the standby, the schema version). Restored: 31/31 pass.
 
-**Documents.** `docs/TROUBLESHOOTING.md`: three rows in the startup-refusal table and three in the
+**Documents.** `docs/guides/TROUBLESHOOTING.md`: three rows in the startup-refusal table and three in the
 code index.
 
 **Commit.** `A node that will not boot says so in the configuration range, not the SQL one`.
@@ -190,9 +190,9 @@ documentation defect that produces the same refusal. Both fixed here.**
 
 The entry is about the *source* side, and `PluginSourceFeeds.discover` now says what "available"
 means — that it is this process's classpath, that the server jar carries `filesystem` alone, that
-the other seven live in their own modules under `plugins/`, and that `docs/CONNECTORS.md` says
+the other seven live in their own modules under `plugins/`, and that `docs/guides/CONNECTORS.md` says
 which module ships which name. Re-run on 2026-09-20: that message is in the tree and
-`docs/CONNECTORS.md` carries the same account. Nothing to do.
+`docs/guides/CONNECTORS.md` carries the same account. Nothing to do.
 
 **What was still open.** `PluginLookupSources.discover` raises the same `PRV-5090` and was left as
 the bare list: *"no lookup plugin named 'jdbc' is on the classpath, so dimension table 'users'
@@ -203,7 +203,7 @@ same defect the source side was repaired for, one method over.
 
 **And the trap underneath it.** Both shipped lookup plugins report names ending in `-lookup`:
 `AerospikeLookupPlugin.name()` is `aerospike-lookup` and `JdbcLookupPlugin.name()` is
-`jdbc-lookup`. `docs/CONNECTORS.md:51` listed them as "aerospike, jdbc" — the *source* plugins'
+`jdbc-lookup`. `docs/guides/CONNECTORS.md:51` listed them as "aerospike, jdbc" — the *source* plugins'
 names. An operator copying the table into `pravaha.lookups.<n>.plugin` got `PRV-5090` from a
 correct document, which is the exact shape CFG-4 is about: the remedy the error offers, and the
 remedy the document offers, both failing. `CONTINUOUS_QUERIES.md` and the console's `lookups.md`
@@ -212,17 +212,17 @@ had it right, so the table was the only wrong copy.
 **Fix.** The lookup refusal gains the source side's explanation, adapted: what "available" means,
 that the server jar carries no lookup plugin, which module ships each of the two names, that both
 end in `-lookup` and that `aerospike` and `jdbc` without the suffix are the source plugins and will
-not be found here. `docs/CONNECTORS.md`'s table now names them with the suffix and says why.
+not be found here. `docs/guides/CONNECTORS.md`'s table now names them with the suffix and says why.
 
 **Test.** `PluginLookupSourcesTest#theLookupRefusalSaysWhatAvailableMeansAndWhereTheTwoShippedNamesLive_CFG4`,
 which asks for `jdbc` — the documented spelling — and asserts the message names the classpath rule,
-both modules, both real names, the suffix trap and `docs/CONNECTORS.md`.
+both modules, both real names, the suffix trap and `docs/guides/CONNECTORS.md`.
 
 **Seed-proof.** The message reverted to the bare `Available: …` list fails that one case (1 test,
 1 failure) and leaves `anUnknownLookupPluginIsRefusedWithWhatIsAvailable` passing, which is the
 point: the old assertion could not tell a useful message from a useless one. Restored: 4/4 pass.
 
-**Documents.** `docs/CONNECTORS.md` §1's `LookupSourcePlugin` row.
+**Documents.** `docs/guides/CONNECTORS.md` §1's `LookupSourcePlugin` row.
 
 **Commit.** `The lookup refusal says what "available" means, and the lookup names gain their suffix`.
 
@@ -280,7 +280,7 @@ Refusing it would need the raw configuration file re-read outside Spring's resol
 source of truth for configuration, which is the defect this codebase spends the most effort
 avoiding. Recorded here so the next reader does not spend the same afternoon proving it.
 
-**Documents.** `docs/TROUBLESHOOTING.md`'s startup-refusal table gains a row for the credential
+**Documents.** `docs/guides/TROUBLESHOOTING.md`'s startup-refusal table gains a row for the credential
 that authenticates nobody; `application.yaml`'s `pravaha.security.tokens` comment, which already
 named the trap, now also names the count line as how you notice it.
 

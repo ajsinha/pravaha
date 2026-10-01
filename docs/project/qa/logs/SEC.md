@@ -1511,7 +1511,7 @@ $ grep -rn "@Bean" pravaha-server/.../PravahaServerApplication.java
 `AuthenticatedOnlyPolicy`, and **neither denies any authenticated principal anything.** There is no
 property that names a class, no bean an operator can contribute, no `ObjectProvider<SecurityPolicy>`.
 The error message above ends "or implement SecurityPolicy for rules of your own", and
-`docs/SECURITY.md`'s "Setting it up" shows `.authorizedBy(myPolicy, myAuditSink)` — both describe the
+`docs/operations/SECURITY.md`'s "Setting it up" shows `.authorizedBy(myPolicy, myAuditSink)` — both describe the
 **embedded** path only. An operator who follows either instruction on a server has nowhere to put the
 result.
 

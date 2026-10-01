@@ -295,6 +295,6 @@ final class TopNPlanner {
     private static PravahaException refusal(String detail) {
         return new PravahaException(
                 SqlErrors.UNSUPPORTED_EXPRESSION,
-                detail + " See docs/CONTINUOUS_QUERIES.md for what this engine executes and what it refuses.");
+                detail + " See docs/guides/CONTINUOUS_QUERIES.md for what this engine executes and what it refuses.");
     }
 }

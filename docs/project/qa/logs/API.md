@@ -1,7 +1,7 @@
 # API — execution log
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Cases: [`../cases/API.md`](../cases/API.md). Executed 2026-09-14 on branch `develop`, worktree
 `.claude/worktrees/qa-api-sdkx`, against sources built with

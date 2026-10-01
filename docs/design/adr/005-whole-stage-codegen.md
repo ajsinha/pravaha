@@ -46,7 +46,7 @@ queries compiles them serially.
 
 **What it is worth.** 1.7× for the pipeline alone on Profile A (106–118 against 60–66 million rows a
 second on one thread), and level end to end on the P2 harness, whose single producer thread is the
-bound for either path — `docs/gates/measured-2026-09-20/README.md`, 2026-09-26. The design's 5–10×
+bound for either path — `docs/project/gates/measured-2026-09-20/README.md`, 2026-09-26. The design's 5–10×
 was against an interpreter that decoded a String per text comparison, which it no longer does.
 
 ## Notes

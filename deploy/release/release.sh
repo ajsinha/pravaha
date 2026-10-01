@@ -31,7 +31,7 @@
 #     index configured and no credential in this repository.
 #   * sign anything. No GPG key, no keyless signing, no provenance attestation.
 #
-# Every one of those is a decision somebody has to make once, and docs/DEPLOYMENT.md's "Release"
+# Every one of those is a decision somebody has to make once, and docs/operations/DEPLOYMENT.md's "Release"
 # section records what each would need. A script that quietly skipped them would let a release
 # report success having shipped nothing.
 set -euo pipefail
@@ -127,14 +127,14 @@ if command -v "$helm" >/dev/null 2>&1; then
 else
   echo "  NO HELM. The chart is NOT packaged and NOT linted by this release."
   echo "  This is recorded rather than skipped: install helm and re-run, or the release ships"
-  echo "  an unvalidated chart. docs/DEPLOYMENT.md says how CI installs it."
+  echo "  an unvalidated chart. docs/operations/DEPLOYMENT.md says how CI installs it."
 fi
 
 # ---------------------------------------------------------------- 7. commit and tag
 
 step "commit and tag"
 run git -C "$root" add -A -- '*pom.xml' sdk/python/pyproject.toml console/pyproject.toml console/config/application.yaml \
-    deploy/helm/pravaha/Chart.yaml README.md docs/USER_GUIDE.md console/content/topics
+    deploy/helm/pravaha/Chart.yaml README.md docs/guides/USER_GUIDE.md console/content/topics
 run git -C "$root" commit -m "Release $version"
 run git -C "$root" tag -a "$tag" -m "Pravaha $version"
 
@@ -143,7 +143,7 @@ run git -C "$root" tag -a "$tag" -m "Pravaha $version"
 step "back to $next"
 run "$here/set-version.sh" "$next"
 run git -C "$root" add -A -- '*pom.xml' sdk/python/pyproject.toml console/pyproject.toml console/config/application.yaml \
-    deploy/helm/pravaha/Chart.yaml README.md docs/USER_GUIDE.md console/content/topics
+    deploy/helm/pravaha/Chart.yaml README.md docs/guides/USER_GUIDE.md console/content/topics
 run git -C "$root" commit -m "Back to $next"
 
 # ---------------------------------------------------------------- what is left for a person
@@ -169,5 +169,5 @@ What a person still has to do, and why this script will not:
   (cd console && python -m build)        likewise
 
 There is no \`mvn deploy\`: the root pom has no <distributionManagement>. Adding one is a
-decision with consequences beyond this script -- see docs/DEPLOYMENT.md, "Release".
+decision with consequences beyond this script -- see docs/operations/DEPLOYMENT.md, "Release".
 EOF

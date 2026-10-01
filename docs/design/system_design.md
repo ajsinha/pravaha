@@ -10,7 +10,7 @@
 > tree (the backfill of a blue/green replacement is read at `GET /api/v1/queries/{name}/backfill`
 > and started at `POST /api/v1/queries/{name}/replacement`, ADR-046), and §22.4's starter exists in
 > a smaller shape than it describes (see the status note there). For what is
-> actually built, read [`HANDOVER.md`](HANDOVER.md), [`ARCHITECTURE.md`](ARCHITECTURE.md) and the
+> actually built, read [`../development/HANDOVER.md`](../development/HANDOVER.md), [`ARCHITECTURE.md`](ARCHITECTURE.md) and the
 > [ADRs](adr/); this document is the record of intent behind them.
 
 | Field | Value |
@@ -29,7 +29,7 @@
 | Version | 3.10 |
 | Status | Proposed — for review |
 | Scope | Architecture, competitive position, and 62-week delivery plan |
-| Supersedes | `docs/initial_req.md` (SRS 1.0-DRAFT) |
+| Supersedes | `docs/design/initial_req.md` (SRS 1.0-DRAFT) |
 | Date | 2026-09-09 |
 | Author | Engineering / Architecture |
 | Audience | Engineering, SRE, Security, Product |
@@ -112,7 +112,7 @@ Everything is proprietary and wholly owned by Ashutosh Sinha (§30.4).
 
 ## 2. Competitive Landscape & Winning Strategy
 
-> **Current view:** [`COMPETITIVE_LANDSCAPE.md`](COMPETITIVE_LANDSCAPE.md) — scored, dated and sourced. This section is the design's original intent, kept as history; its claims about Pravaha are targets, not measurements.
+> **Current view:** [`../publications/COMPETITIVE_LANDSCAPE.md`](../publications/COMPETITIVE_LANDSCAPE.md) — scored, dated and sourced. This section is the design's original intent, kept as history; its claims about Pravaha are targets, not measurements.
 
 A design that only fixes the draft's engineering produces a competent Flink alternative — and "a slightly better Flink" is not a product, because Flink is free, entrenched, and has a decade of ecosystem. Beating commercial products requires being *structurally different* in ways the incumbents cannot copy without abandoning their own architecture. This section defines that difference and makes it measurable.
 
@@ -2685,7 +2685,7 @@ Note `@Configuration(proxyBeanMethods = false)` and `@Bean(destroyMethod = "")` 
 > its replacement. **Not built:** `@PravahaTest`, the actuator contributions, `errorHandler` and DLQ
 > routing on a listener, `pravaha.view(...).get(key)`, `spring-configuration-metadata.json`, and the
 > Boot 3.2–3.5 CI matrix — the starter is built and tested against Boot 3.5, the version
-> `pravaha-server` uses, and declares Boot at compile scope. See [USER_GUIDE.md](USER_GUIDE.md).
+> `pravaha-server` uses, and declares Boot at compile scope. See [../guides/USER_GUIDE.md](../guides/USER_GUIDE.md).
 
 This is the mode the question implies but that most engines never build properly, and it is worth real effort: it lets a customer add continuous SQL to a service they already have, in the framework they already use, without running a cluster.
 
@@ -3520,7 +3520,7 @@ PRV-2041  Query produces updates but sink 'alerts_http' is append-only.
 
 Every error code is stable, documented, and has a page with a runnable reproduction. This is boring work with a disproportionate effect on adoption.
 
-The base of that link is the deployment's — `pravaha.docs.base-url`, or `PRAVAHA_DOCS_BASE_URL` for the CLI and the SDKs — and there is no default. An unset base means the engine emits **no** URL at all and says to look the code up in the console's help or in [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md), which is the code index. The build once enforced a link to a host that had never been registered, on the reasoning that a help URL is obviously better than none; a URL that does not resolve is worse than none, because it spends the one line a reader acts on (DOCX-21).
+The base of that link is the deployment's — `pravaha.docs.base-url`, or `PRAVAHA_DOCS_BASE_URL` for the CLI and the SDKs — and there is no default. An unset base means the engine emits **no** URL at all and says to look the code up in the console's help or in [`../guides/TROUBLESHOOTING.md`](../guides/TROUBLESHOOTING.md), which is the code index. The build once enforced a link to a host that had never been registered, on the reasoning that a help URL is obviously better than none; a URL that does not resolve is worse than none, because it spends the one line a reader acts on (DOCX-21).
 
 ### 24.5 Catalog-typed clients
 
@@ -3972,7 +3972,7 @@ wave, and the gate for each, is in the implementation plan (section 4.0).
 
 ## 33. Architecture Decision Records
 
-Condensed ADRs; each will be expanded in `docs/adr/` with full context and consequences.
+Condensed ADRs; each will be expanded in `docs/design/adr/` with full context and consequences.
 
 | ADR | Decision | Alternatives rejected | Why |
 |---|---|---|---|

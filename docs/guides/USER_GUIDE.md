@@ -4,7 +4,7 @@
 > [`CONTINUOUS_QUERIES.md`](CONTINUOUS_QUERIES.md).
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../LICENSE`](../LICENSE).
+**Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
 
 Everything you can do with Pravaha, task by task, in Java, Python and the shell. Integrating from
 Python? [`PYTHON_API_GUIDE.md`](PYTHON_API_GUIDE.md) is every SDK call and REST endpoint, one by one,
@@ -110,7 +110,7 @@ up. The ordinals are into the query's *output* columns.
 ### Writing the answer to a sink as well
 
 A registration can also name a sink the server binds under `pravaha.sinks.<name>`
-([Operations](OPERATIONS.md) has the binding). The view is maintained exactly as without one, and
+([Operations](../operations/OPERATIONS.md) has the binding). The view is maintained exactly as without one, and
 every commit of it is written to the sink too, retractions included:
 
 ```java
@@ -187,7 +187,7 @@ nothing guesses. Pass an `int` where a `BIGINT` is wanted and it converts; pass 
 told which placeholder is wrong before the call leaves your process.
 
 `?` belongs in a `WHERE` or `HAVING` clause and nowhere else — see
-[ADR-032](adr/032-parameters-are-values-not-queries.md) for the full position table.
+[ADR-032](../design/adr/032-parameters-are-values-not-queries.md) for the full position table.
 
 Whole result to a dataframe, in Python:
 
@@ -445,7 +445,7 @@ drop through the other — and `SHOW` lists only what `pravaha queries` would sh
 it last — a principal granted `MODIFY` or `MANAGE` on it, or a holder of the `admin` role. Being able
 to read it is not enough: anyone else is refused `PRV-7002`. `pravaha describe` shows the owner.
 `pravaha.security.administer: legacy-read` restores the old rule (anyone who may read it unfiltered)
-for one release; see [Security](SECURITY.md#drop-pause-resume-and-replace-are-authorized-by-ownership-not-by-reading).
+for one release; see [Security](../operations/SECURITY.md#drop-pause-resume-and-replace-are-authorized-by-ownership-not-by-reading).
 
 ```bash
 pravaha queries                       # name, state, fingerprint, rows in, sink; a stopped source
@@ -531,16 +531,16 @@ the source is better: it then arrives in order.
 
 The bytes are a row of the source, so they are authorized like one: a caller reading the view through
 a row filter is given the count, the code and the offset and not the record, and replaying needs the
-same permission as `DROP`. See [Dead letters](../console/content/topics/dead-letters.md) and
-[OPERATIONS](OPERATIONS.md#running-with-a-dead-letter-queue).
+same permission as `DROP`. See [Dead letters](../../console/content/topics/dead-letters.md) and
+[OPERATIONS](../operations/OPERATIONS.md#running-with-a-dead-letter-queue).
 
-The [console](../console/) shows all of this in a browser, including which computations are shared.
+The [console](../../console/) shows all of this in a browser, including which computations are shared.
 
 ### Changing a running query: replace, cut over, roll back
 
 Dropping a query and registering it again takes the answer away from everybody reading it and gives
 them back an aggregate with no history. Replacing it does not
-([ADR-046](adr/046-a-replacement-meets-the-running-version-at-a-position.md),
+([ADR-046](../design/adr/046-a-replacement-meets-the-running-version-at-a-position.md),
 [CONTINUOUS_QUERIES §8.1](CONTINUOUS_QUERIES.md)):
 
 ```sql
@@ -645,7 +645,7 @@ cd console && make install && make run
 
 Then <http://127.0.0.1:17070>. (Not 18080 — that is the engine's own actuator port, and
 following this line to 18080 lands you on the wrong process.) It is a *functional admin* console on purpose — see
-[its README](../console/README.md) for what that means and what it does not do.
+[its README](../../console/README.md) for what that means and what it does not do.
 
 ## 9. Embed the engine in your application
 
@@ -1047,8 +1047,8 @@ and exported through a browser.
 
 | | |
 |---|---|
-| [Case studies](../examples/case-studies/) | Five worked systems: trade processing, banking, finance, trading, biology |
-| [Operations](OPERATIONS.md) | Running it: memory, disk, admission, what to watch |
-| [Security](SECURITY.md) | Authentication, authorization, audit |
+| [Case studies](../../examples/case-studies/) | Five worked systems: trade processing, banking, finance, trading, biology |
+| [Operations](../operations/OPERATIONS.md) | Running it: memory, disk, admission, what to watch |
+| [Security](../operations/SECURITY.md) | Authentication, authorization, audit |
 | [Troubleshooting](TROUBLESHOOTING.md) | Every `PRV-` code |
-| [Architecture](ARCHITECTURE.md) | How it works inside |
+| [Architecture](../design/ARCHITECTURE.md) | How it works inside |

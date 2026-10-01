@@ -1,7 +1,7 @@
 # TIME — execution log
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Cases: [`../cases/TIME.md`](../cases/TIME.md). Executed 2026-09-14 on branch `develop` (worktree
 `.claude/worktrees/qa-time`, branch `worktree-qa-time`, at `e6eb69a`), against `pravaha-*` as built
@@ -32,7 +32,7 @@ authenticated users may reach data; (3) a user receives only the data they are a
 Nothing in this surface touched any of the three; no finding below is judged against them.
 
 **Overall: 116/120 cases executed. 96 PASS / 9 FAIL / 11 BLOCKED / 4 NOT RUN.** Thirteen findings
-are recorded in `docs/qa/FINDINGS.md` as **TIME-1 … TIME-13**. The three most severe:
+are recorded in `docs/project/qa/FINDINGS.md` as **TIME-1 … TIME-13**. The three most severe:
 
 - **TIME-1 (HIGH)** — `SlicedWindows.windowsCompletedBetween` materialises one list entry per window
   boundary between two watermarks, with no bound. One row carrying an old timestamp (`evB.csv` plus a
@@ -381,7 +381,7 @@ only through overlapping windows.
 | TIME-098 | **PASS** on the mechanism, **case defect** on the count | `conf/t098.yaml` over `evFuture.csv` (unpaced). `ROWS IN` 122. The outlier does drag the clock: the view holds **13** windows — 45 … 1145 **plus** window 13 `(n = 1, total = 120)` — where the same configuration over `evB.csv` gives 11. So `T0+86400 − 10s` fired windows 12 and 13 that would otherwise have stayed open. But nothing was dropped (unpaced: every row was in before the first tick), where the case predicts 7 rows and 61 drops. **The outlier's own window `[T0+86400, T0+86410)` is absent** — its end is above the watermark and no later row exists to move it, so row 901 is ingested, counted in `ROWS IN`, and invisible. `Σ total = 7260` exactly, over the 121 rows that are not the outlier |
 | TIME-099 | **FAIL**, and not for the reason the case gives | `conf/t099.yaml` over `evPast.csv` (`evB.csv` + `902,u0,902,0`). The case predicts the epoch row is dropped and the normal **11** windows are served. Observed: the view holds **one row** — `window_start 0, window_end 10000000000, n 1, total 902` — and the eleven real windows are **gone**. The shutdown log then carries `PRV-3010  lane 0 did not stop within PT5S; its thread is still in the processor`. Root cause below; this is TIME-1 |
 | TIME-100 | **PASS** on the arithmetic, **case defect** on the vacuity | `evJitter.csv` = `evB.csv` with `event_time` shifted by `+(k mod 7)s` for even k and `−(k mod 7)s` for odd k. At `out-of-orderness: 10s`: **11** windows, `n` = 11, 8, 12, 8, 12, 9, 9, 12, 8, 12, 8 and totals 63, 109, 301, 276, 541, 483, 574, 901, 669, 1141, 836 — **identical, element for element, to a batch recomputation of the same file** and `Σ = 5894`. At `2s`: **12** windows, the same eleven plus `(n = 9, total = 1012)`, `Σ = 6906` — also matching the recomputation. The case's control predicts the 2s run *drops* rows and falls short; it gains a window instead, for the harness reason above |
-| TIME-101 | **FAIL** (documentation) | Half fixed, half not. `StreamSchema.java:129-137` now draws the distinction explicitly and even records that "that second sentence used to say a late row 'is still applied' without qualification". `docs/CONCEPTS.md:68-70` still says it without qualification — *"A row arriving after that is still applied — as a retraction and a correction — which is what the weights are for."* — and `CONCEPTS.md:65-66` still tells an operator the default is moved with `pravaha.watermark.out-of-orderness`, the key TIME-026 proves is inert. TIME-10 |
+| TIME-101 | **FAIL** (documentation) | Half fixed, half not. `StreamSchema.java:129-137` now draws the distinction explicitly and even records that "that second sentence used to say a late row 'is still applied' without qualification". `docs/guides/CONCEPTS.md:68-70` still says it without qualification — *"A row arriving after that is still applied — as a retraction and a correction — which is what the weights are for."* — and `CONCEPTS.md:65-66` still tells an operator the default is moved with `pravaha.watermark.out-of-orderness`, the key TIME-026 proves is inert. TIME-10 |
 | TIME-102 | **PASS**, and the case is half stale | The exhaustive search: `grep -rn "allowed.lateness\|allowedLateness" --include=*.java --include=*.yaml --include=*.md --include=*.py --exclude-dir=.claude --exclude-dir=target .` The `ChangelogAnalysis` branch at `:78-81` is **not** dead — `PhysicalPlanBuilder.allowedLatenessOf` (`:885-895`) reads `scanBeneath(input).outputSchema().allowedLateness()`, so `StreamSchema.Builder.allowedLateness(Duration)` reaches it (already recorded as T-3 FIXED and as the WIN round's headline). **But there is still no way to set it on a server**: `StreamDeclarationProperties.Declaration` has exactly three fields — `schema`, `eventTime`, `outOfOrderness` — and `POST /api/v1/streams` takes `RegisterStreamRequest(name, schema)` and nothing else (`StreamController.java:88-98`). No `application.yaml` key, no SQL clause, no REST field. TIME-11 |
 | TIME-104 | **PASS** [UNIT + E2E] | [UNIT] `boundedOutOfOrderness(10s).observe(Long.MIN_VALUE).watermark() = -9223372036854775808` — exactly `NOT_YET`, so the row is indistinguishable from no row at all. `boundedOutOfOrderness(0).observe(Long.MAX_VALUE).watermark() = 9223372036854775807`. [E2E] `conf/t104.yaml` over a one-row file at `event_time = -9223372036854775808`: `ROWS IN` **1**, view **0 rows**, held there. Also `EventTimeTest.time104_arowAtLongMinValueIsIndistinguishableFromNoRowAtAll` |
 
@@ -659,7 +659,7 @@ and is not a passing one.
 | **BLOCKED** | 11 | 018–025 (no plugin on any reachable classpath), **074** (an inner join with an empty side cannot express the question), **118** (feedfile), **120** (no ingest path exists) |
 | **NOT RUN** | 4 | **091**, **092** (wall-clock latency distributions on a machine carrying two other QA agents), **114** (a ten-minute soak on a manufactured permanent failure), **119** (a data race whose premise is a fixed defect) |
 
-Thirteen findings are recorded in `docs/qa/FINDINGS.md` as **TIME-1 … TIME-13**. The nine FAILs map
+Thirteen findings are recorded in `docs/project/qa/FINDINGS.md` as **TIME-1 … TIME-13**. The nine FAILs map
 to them as: TIME-014 → TIME-2; TIME-017 → TIME-4; TIME-037 and TIME-099 → TIME-1; TIME-040 → TIME-12;
 TIME-056 → TIME-5; TIME-080 → TIME-8; TIME-096 → TIME-13; TIME-101 → TIME-10. TIME-3, TIME-6, TIME-7,
 TIME-9 and TIME-11 are cross-cutting and are each supported by several PASSing cases whose *observed*

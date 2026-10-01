@@ -450,7 +450,7 @@ final class KafkaSinkOptions {
             }
             if (property.startsWith("ssl.")) {
                 throw refusal("'" + option.getKey() + "' is not passed through: TLS is configured with the shared "
-                        + "tls.* options (docs/CONNECTOR_TLS.md), so it reads the same for every connector.");
+                        + "tls.* options (docs/guides/CONNECTOR_TLS.md), so it reads the same for every connector.");
             }
             if (!anyClient.contains(property)) {
                 throw refusal("'" + option.getKey() + "' is not a Kafka client property, so it would be dropped "

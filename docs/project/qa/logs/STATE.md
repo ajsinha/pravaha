@@ -1,7 +1,7 @@
 # STATE — execution log
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
+**Proprietary and confidential** — see [`../../../../LICENSE`](../../../../LICENSE).
 
 Cases: [`../cases/STATE.md`](../cases/STATE.md). Executed 2026-09-14 on branch
 `worktree-agent-a0dbbd49480974959` (derived from `develop`), against `pravaha-state`,
@@ -28,7 +28,7 @@ distinct code, `PRV-8008`, from `NAME_IN_USE`'s `PRV-8001`; `requireSayableName`
 Unicode letters, so `café` is a valid, working view name; `requireName`'s blank/null check now runs
 before `requireSayableName`. Where a case's authored "Expected" rests on a fact that no longer holds,
 this is recorded case by case below rather than silently reconciled, following the precedent
-`docs/qa/FINDINGS.md`'s `L-2` sets for the identical `LIFE.md` drift. See `docs/qa/FINDINGS.md`'s
+`docs/project/qa/FINDINGS.md`'s `L-2` sets for the identical `LIFE.md` drift. See `docs/project/qa/FINDINGS.md`'s
 `ST-2` for the consolidated list, and `ST-1` for the one defect this drift uncovered along the way
 that is not itself drift: `QueryRegistry.drop` leaks every checkpoint directory it should delete.
 
@@ -241,7 +241,7 @@ failed immediately (`rw-r--r--` instead of `rw-------`). Reverted and reconfirme
 ## §E — A failed checkpoint is reported, every time (STATE-043 … STATE-049)
 
 Test class: `StateFailureReportingTest`. Writing STATE-044 surfaced two further findings, both
-recorded in `docs/qa/FINDINGS.md`: `ST-3` (chmod'ing a checkpoint directory read-only is silently
+recorded in `docs/project/qa/FINDINGS.md`: `ST-3` (chmod'ing a checkpoint directory read-only is silently
 undone by the very next checkpoint attempt, because `createOwnerOnly` unconditionally narrows the
 parent on every write) and `ST-4` (`checkpointFailures()`/`lastCheckpointFailure()` count every
 checkpoint log line, not only failures, because `QueryRegistry` wires the query's failure recorder as

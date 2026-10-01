@@ -45,7 +45,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * {@code docs/qa/cases/TIME.md}, executed.
+ * {@code docs/project/qa/cases/TIME.md}, executed.
  *
  * <p>120 prose cases about the one number that decides what a streaming answer contains: the
  * watermark. Everything else in the engine can be right and a query still serve nothing, or serve a

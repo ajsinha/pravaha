@@ -9,7 +9,7 @@ page and `pravaha-benchmarks/pom.xml` both said CI fails the build on a regressi
 byte-identical artefact with and without `-Pbench`. A claim about a gate is worth less than no
 claim: it stops the next person building the gate.
 
-What does exist, and is run: the measured gates in [`../docs/gates/`](../docs/gates), whose
+What does exist, and is run: the measured gates in [`../docs/project/gates/`](../docs/project/gates), whose
 harnesses live in `pravaha-it` under `qa/perf` and print the machine's state beside every number.
 They are run by hand, on this machine, and a target that is not reached is recorded as not reached.
 

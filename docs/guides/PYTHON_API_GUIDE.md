@@ -1,7 +1,7 @@
 # Pravaha — Python integration guide and API reference
 
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
-**Proprietary and confidential** — see [`../LICENSE`](../LICENSE).
+**Proprietary and confidential** — see [`../../LICENSE`](../../LICENSE).
 
 > **Who this is for.** A developer connecting a Python application to a Pravaha engine. Part I is
 > the user guide: what you are integrating with, how to connect, and the patterns that hold up in

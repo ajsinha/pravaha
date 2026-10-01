@@ -214,7 +214,7 @@ both: use it on a test node, never a production engine.
 | `fake` | scripted answers, for tests | none |
 
 All are standard-library HTTP in the SDK: nothing extra to install. Another provider is a Python
-package declaring an entry point in the SDK's provider group (docs/ASSIST.md shows a complete one); `pravaha assist providers`
+package declaring an entry point in the SDK's provider group (docs/guides/ASSIST.md shows a complete one); `pravaha assist providers`
 lists what is installed. A package cannot take a built-in's name.
 
 Every provider failure is one of four: *unavailable* (the next model is tried), *rate limited* (the
@@ -257,7 +257,7 @@ Both refusals are `BudgetExceeded`.
 - **Keys by environment variable or secret file only**; never in the configuration, an error
   message, `assist models` or an audit record.
 - The full reference — every field, the provider table, runtime reconfiguration from Python, and a
-  complete provider plugin — is `docs/ASSIST.md` in the repository.
+  complete provider plugin — is `docs/guides/ASSIST.md` in the repository.
 
 ## Admin · AI models {#admin-ai-models}
 

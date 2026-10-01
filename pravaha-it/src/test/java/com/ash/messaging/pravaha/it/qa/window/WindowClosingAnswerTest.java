@@ -41,7 +41,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * {@code docs/qa/cases/WIN.md}, sections 9-14: row volume and the 200k-230k blocker, boundaries,
+ * {@code docs/project/qa/cases/WIN.md}, sections 9-14: row volume and the 200k-230k blocker, boundaries,
  * close triggers, lateness, empty windows, and aggregates inside a window.
  *
  * <p>See {@link WindowAnswerTest} for sections 1-8 and {@link WindowTestSupport} for the shared
@@ -518,9 +518,9 @@ class WindowClosingAnswerTest extends WindowTestSupport {
         // WIN-182. The decision (§12's own heading) is defensible and undocumented, which makes it
         // indistinguishable from a bug to whoever needs a zero in a time series.
         String docs = java.nio.file.Files.readString(
-                repoRoot().resolve("docs/CONTINUOUS_QUERIES.md"), java.nio.charset.StandardCharsets.UTF_8);
+                repoRoot().resolve("docs/guides/CONTINUOUS_QUERIES.md"), java.nio.charset.StandardCharsets.UTF_8);
         String concepts = java.nio.file.Files.readString(
-                repoRoot().resolve("docs/CONCEPTS.md"), java.nio.charset.StandardCharsets.UTF_8);
+                repoRoot().resolve("docs/guides/CONCEPTS.md"), java.nio.charset.StandardCharsets.UTF_8);
         assertThat((docs + concepts).toLowerCase(java.util.Locale.ROOT))
                 .as("no statement anywhere that an empty window emits nothing")
                 .doesNotContain("empty window");
