@@ -6,9 +6,9 @@
 # Build the engine node image from artefacts the reactor has already produced.
 #
 #   ./mvnw -o -pl pravaha-server -am package -DskipTests
-#   deploy/docker/build.sh                       # -> pravaha/pravaha-server:<project version>
+#   deploy/docker/build.sh                       # Java 25 JRE -> pravaha/pravaha-server:<project version>
 #   deploy/docker/build.sh --tag pravaha:local   # an explicit tag instead
-#   deploy/docker/build.sh --java 25             # on a Java 25 JRE -> ...:<project version>-jre25
+#   deploy/docker/build.sh --java 21             # on a Java 21 JRE -> ...:<project version>-jre21
 #
 # It does NOT run Maven. A missing jar is an error naming the command that produces it, because a
 # script that quietly rebuilds turns "the image is stale" into "the image is a different build".
@@ -22,8 +22,9 @@ root="$(cd "$here/../.." && pwd)"
 
 image=""
 push=0
-# The JRE the image runs on: 21 (the default, untagged) or 25. The jar is the same either way.
-java_version=21
+# The JRE the image runs on: 25 (the default, untagged) or 21 (tagged -jre21). The jar is the same
+# either way: its classes target Java 21.
+java_version=25
 docker_bin="${DOCKER:-docker}"
 
 while [[ $# -gt 0 ]]; do
@@ -40,8 +41,8 @@ done
 # a version the artefact inside it does not carry is worse than an untagged one.
 version="$("$root/deploy/release/version.sh" "$root")"
 case "$java_version" in
-  21) default_tag="$version" ;;
-  25) default_tag="$version-jre25" ;;
+  25) default_tag="$version" ;;
+  21) default_tag="$version-jre21" ;;
   *) echo "build.sh: --java $java_version: the supported JREs are 21 and 25" >&2; exit 2 ;;
 esac
 image="${image:-pravaha/pravaha-server:$default_tag}"
@@ -67,6 +68,7 @@ trap 'rm -rf "$staging"' EXIT
 
 mkdir -p "$staging/bin" "$staging/lib"
 cp "$root/bin/pravaha-server" "$staging/bin/pravaha-server"
+cp "$root/bin/pravaha-health" "$staging/bin/pravaha-health"
 cp "$jar"                     "$staging/lib/pravaha-server.jar"
 cp "$here/Dockerfile"         "$staging/Dockerfile"
 

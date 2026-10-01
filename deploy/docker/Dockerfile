@@ -25,11 +25,14 @@
 # only, and failed to load on the Alpine image, so the commonest Parquet file could not be read in
 # the container (PORT-1). smoke.sh now loads both Parquet codecs on this image.
 #
-# The JRE: 21 by default, 25 by `build.sh --java 25` (or --build-arg JAVA_VERSION=25). Both are
-# supported; the jar is the same either way (compiled for 21), and bin/pravaha-server gives a 24+
-# JVM the options it needs. 21 stays the default because it is the floor every client and plugin
-# is held to; 25 is an image a deployment chooses.
-ARG JAVA_VERSION=21
+# The JRE: 25 by default (the owner's decision, 2026-10-01), 21 by `build.sh --java 21` (or
+# --build-arg JAVA_VERSION=21). Both are supported; the jar is the same either way -- its classes
+# target Java 21 (maven.compiler.release), the floor every client and plugin is held to -- and
+# bin/pravaha-server gives a 24+ JVM the options it needs (--sun-misc-unsafe-memory-access=allow,
+# --enable-native-access=ALL-UNNAMED), so the node starts on 25 without a warning. The image is
+# the one place the runtime is ours to choose, so it runs on the newer LTS; 21 is an image a
+# deployment chooses.
+ARG JAVA_VERSION=25
 FROM eclipse-temurin:${JAVA_VERSION}-jre
 ARG JAVA_VERSION
 
@@ -85,7 +88,7 @@ RUN groupadd --system --gid 10001 pravaha \
 # Owned by root and world-readable: code the node runs, not state it writes.
 # --chmod on the COPY, not a RUN chmod after it: a RUN that touches the jar copies all 180 MB of it
 # into a layer of its own.
-COPY --chmod=0755 bin/pravaha-server bin/pravaha-server
+COPY --chmod=0755 bin/pravaha-server bin/pravaha-health bin/
 COPY --chmod=0644 lib/pravaha-server.jar lib/pravaha-server.jar
 
 # Configuration, in layers, lowest precedence first (bin/pravaha-server passes the locations):
@@ -100,7 +103,7 @@ COPY --chmod=0644 lib/pravaha-server.jar lib/pravaha-server.jar
 # replaces 2 and 3 -- the chart sets it, naming both, plus its secret mount.
 ENV PRAVAHA_HOME=/opt/pravaha
 
-# JDK 21 reads the cgroup limit, so the only question is what share of it the HEAP may take. 50%,
+# The JVM (21 and 25 alike) reads the cgroup limit, so the only question is what share of it the HEAP may take. 50%,
 # not the 75% a mostly-heap service would use: this engine's state is off-heap (inboxes, arenas,
 # row stores), Arrow and Netty allocate direct buffers for every Flight call, and the spill tier
 # is only fast while the page cache holds its index (docs/operations/OPERATIONS.md, "Disk"). A heap sized at
@@ -139,9 +142,11 @@ VOLUME ["/opt/pravaha/data", "/opt/pravaha/logs"]
 
 # Liveness only, deliberately. Docker has one health state, and pointing it at readiness would make
 # a node that is merely still restoring state look broken; Kubernetes gets both probes separately
-# (deploy/helm/pravaha). --spider because wget writes the body to stdout otherwise.
+# (deploy/helm/pravaha). bin/pravaha-health, not wget: it needs bash and nothing else, and the
+# eclipse-temurin 25 JRE carries no wget (or curl) -- a wget probe there reports a serving node
+# unhealthy forever.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=45s --retries=3 \
-  CMD wget -q --spider http://127.0.0.1:18080/actuator/health/liveness || exit 1
+  CMD ["bin/pravaha-health", "/actuator/health/liveness"]
 
 # No --spring.profiles.active=dev. The server refuses to start open unless a deployment says so,
 # and an image that said so on everyone's behalf would put the default back where it was.

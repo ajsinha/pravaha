@@ -12,7 +12,8 @@
 #
 #   1. start it with a mounted /opt/pravaha/conf/application.yaml and a mounted /opt/pravaha/data
 #   2. wait for LIVENESS, then for READINESS -- and check readiness is not green before the
-#      engine is serving (a probe that is green early is worse than no probe)
+#      engine is serving (a probe that is green early is worse than no probe); then run the
+#      image's own HEALTHCHECK inside the container, which has tools the host has and it may not
 #   3. register a continuous query over the FLIGHT port, from outside the container
 #   4. read the view back and check the rows the source file actually contained
 #   5. append to the source file and check the view moves (the engine is running, not replaying)
@@ -195,6 +196,21 @@ ok "readiness 200  $(status readiness | head -c 200)"
 groups="$(curl -sf "http://127.0.0.1:$http_port/actuator/health" 2>/dev/null || true)"
 grep -q 'readiness' <<<"$groups" || fail "no readiness group on /actuator/health: $groups"
 ok "liveness and readiness are separate groups"
+
+# The image's own HEALTHCHECK, run now inside the container rather than waited for (its first run is
+# 30s away). Everything above probes from the HOST, which is how a HEALTHCHECK that called a wget the
+# JRE 25 base does not carry passed this script while Docker called the node unhealthy forever.
+mapfile -t health_cmd < <("$docker_bin" image inspect "$image" \
+  --format '{{join .Config.Healthcheck.Test "\n"}}')
+case "${health_cmd[0]:-}" in
+  CMD)       health_cmd=("${health_cmd[@]:1}") ;;
+  CMD-SHELL) health_cmd=(sh -c "${health_cmd[1]}") ;;
+  *) fail "the image declares no HEALTHCHECK: ${health_cmd[*]:-none}" ;;
+esac
+health_out="$("$docker_bin" exec "$name" "${health_cmd[@]}" 2>&1)" \
+  || fail "the image's HEALTHCHECK fails inside a serving container: ${health_cmd[*]}
+$health_out"
+ok "the image's HEALTHCHECK passes inside the container: ${health_cmd[*]}"
 
 # ---------------------------------------------------------------- 3. register, over Flight
 

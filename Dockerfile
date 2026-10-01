@@ -10,9 +10,10 @@
 # already built (ADR-047). The two must produce the same layout; docs/operations/RUNNING_IN_DOCKER.md says which
 # to reach for. This one additionally carries bin/pravaha-engine, the offline Java CLI.
 
-# JDK 21 by default; `--build-arg JAVA_VERSION=25` builds and runs on 25 instead. Either way the
-# classes target Java 21 (maven.compiler.release), so the jar is the same one a 21 user runs.
-ARG JAVA_VERSION=21
+# JDK 25 by default, as deploy/docker/Dockerfile; `--build-arg JAVA_VERSION=21` builds and runs on
+# 21 instead. Either way the classes target Java 21 (maven.compiler.release), so the jar is the
+# same one a 21 user runs, and bin/pravaha-server gives a 24+ JVM the options it needs.
+ARG JAVA_VERSION=25
 
 # ---- build ------------------------------------------------------------------
 FROM maven:3.9-eclipse-temurin-${JAVA_VERSION} AS build
@@ -28,12 +29,14 @@ RUN --mount=type=cache,target=/root/.m2 \
 # ---- run --------------------------------------------------------------------
 # Kept in step with deploy/docker/Dockerfile's runtime stage: same base, same uid, same layout.
 FROM eclipse-temurin:${JAVA_VERSION}-jre
+ARG JAVA_VERSION
 
 LABEL org.opencontainers.image.title="Pravaha engine node (source build)" \
       org.opencontainers.image.description="Continuous-query engine node: HTTP on 18080, Flight SQL on 19090." \
       org.opencontainers.image.authors="Ashutosh Sinha <ajsinha@gmail.com>" \
       org.opencontainers.image.licenses="LicenseRef-Proprietary" \
-      org.opencontainers.image.source="https://github.com/ajsinha/pravaha"
+      org.opencontainers.image.source="https://github.com/ajsinha/pravaha" \
+      com.ash.messaging.pravaha.java="${JAVA_VERSION}"
 
 WORKDIR /opt/pravaha
 
@@ -49,7 +52,7 @@ RUN groupadd --system --gid 10001 pravaha \
  && chmod 0770 /opt/pravaha/conf /opt/pravaha/plugins /opt/pravaha/data /opt/pravaha/logs /opt/pravaha/tmp \
  && chmod 0700 /opt/pravaha/secrets
 
-COPY --from=build --chmod=0755 /src/bin/pravaha-server /src/bin/pravaha-engine bin/
+COPY --from=build --chmod=0755 /src/bin/pravaha-server /src/bin/pravaha-engine /src/bin/pravaha-health bin/
 COPY --from=build --chmod=0644 /src/pravaha-server/target/pravaha-server-*-app.jar lib/pravaha-server.jar
 COPY --from=build --chmod=0644 /src/pravaha-cli/target/pravaha-cli-*-cli.jar       lib/pravaha-engine.jar
 
@@ -65,8 +68,9 @@ VOLUME ["/opt/pravaha/data", "/opt/pravaha/logs"]
 
 # Liveness only. Readiness is deliberately separate: conflating them makes an orchestrator restart
 # a node that is merely still restoring state.
+# bin/pravaha-health needs only bash: the 25 JRE base has no wget or curl.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=45s --retries=3 \
-  CMD wget -q --spider http://127.0.0.1:18080/actuator/health/liveness || exit 1
+  CMD ["bin/pravaha-health", "/actuator/health/liveness"]
 
 # No --spring.profiles.active=dev here. The server refuses to start open unless a deployment says
 # so, and an image that said so on everyone's behalf would put the default back where it was.

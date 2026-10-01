@@ -13,7 +13,8 @@ Three checks, each of which has been wrong in this project before:
      separately from HTTP because a node with Flight disabled answered UP on every HTTP probe and
      no client could reach it, which is the bug EngineHealthIndicator exists for.
 
-It uses the node's own image, so it pulls nothing extra.
+It uses the node's own image, so it pulls nothing extra, and that image's bin/pravaha-health, which
+needs only bash: the JRE 25 base carries no wget, and no JRE base carries nc.
 */}}
 apiVersion: v1
 kind: Pod
@@ -40,13 +41,11 @@ spec:
           set -e
           host={{ include "pravaha.fullname" . }}
           echo "readiness:"
-          wget -q -O - "http://$host:{{ .Values.service.httpPort }}/actuator/health/readiness"
-          echo
+          /opt/pravaha/bin/pravaha-health --host "$host" --port {{ .Values.service.httpPort }} --print /actuator/health/readiness
           echo "status:"
-          wget -q -O - "http://$host:{{ .Values.service.httpPort }}/api/v1/status"
-          echo
+          /opt/pravaha/bin/pravaha-health --host "$host" --port {{ .Values.service.httpPort }} --print /api/v1/status
           echo "flight port {{ .Values.service.flightPort }}:"
-          nc -z -w 5 "$host" {{ .Values.service.flightPort }}
+          /opt/pravaha/bin/pravaha-health --timeout 5 --tcp "$host" {{ .Values.service.flightPort }}
           echo "  open"
       volumeMounts:
         - name: tmp
