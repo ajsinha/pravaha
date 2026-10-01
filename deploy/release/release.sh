@@ -134,7 +134,7 @@ fi
 
 step "commit and tag"
 run git -C "$root" add -A -- '*pom.xml' sdk/python/pyproject.toml console/pyproject.toml console/config/application.yaml \
-    deploy/helm/pravaha/Chart.yaml README.md docs/guides/USER_GUIDE.md console/content/topics
+    deploy/helm/pravaha/Chart.yaml README.md docs/guides/USER_GUIDE.md console/content/topics docs/operations/DEPLOYMENT.md
 run git -C "$root" commit -m "Release $version"
 run git -C "$root" tag -a "$tag" -m "Pravaha $version"
 
@@ -143,7 +143,7 @@ run git -C "$root" tag -a "$tag" -m "Pravaha $version"
 step "back to $next"
 run "$here/set-version.sh" "$next"
 run git -C "$root" add -A -- '*pom.xml' sdk/python/pyproject.toml console/pyproject.toml console/config/application.yaml \
-    deploy/helm/pravaha/Chart.yaml README.md docs/guides/USER_GUIDE.md console/content/topics
+    deploy/helm/pravaha/Chart.yaml README.md docs/guides/USER_GUIDE.md console/content/topics docs/operations/DEPLOYMENT.md
 run git -C "$root" commit -m "Back to $next"
 
 # ---------------------------------------------------------------- what is left for a person

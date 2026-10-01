@@ -155,7 +155,8 @@ fi
 
 doc_pages=(README.md docs/guides/USER_GUIDE.md console/content/topics/clients.md
            console/content/topics/spring-boot-starter.md console/content/topics/embedded-engine.md
-           console/content/topics/http-api.md console/content/topics/cli-reference.md)
+           console/content/topics/http-api.md console/content/topics/cli-reference.md
+           docs/operations/DEPLOYMENT.md)
 if [[ "$check_only" == 0 && "$current" != "$target" ]]; then
   current_python="${current%-SNAPSHOT}"
   for page in "${doc_pages[@]}"; do
@@ -166,6 +167,8 @@ if [[ "$check_only" == 0 && "$current" != "$target" ]]; then
                   s|version \x60\Q$current\E\x60 in this repository|version \x60$target\x60 in this repository|g;
                   s|\"version\": \"\Q$current\E\"|\"version\": \"$target\"|g;
                   s|pravaha-server:\Q$current\E|pravaha-server:$target|g;
+                  s|image\.tag=\Q$current\E|image.tag=$target|g;
+                  s|pravaha-\Q$current\E(?![0-9A-Za-z-])|pravaha-$target|g;
                   s|^(version +)\Q$current_python\E(?![0-9A-Za-z.-])|\${1}$python_version|mg" -- "$file"
     if [[ "$(cksum < "$file")" != "$before" ]]; then
       changed=$((changed + 1))
