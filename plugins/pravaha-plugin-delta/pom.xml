@@ -19,8 +19,8 @@
          (ADR-010) exists for, and it is why this weight is acceptable here and nowhere else. -->
     <delta.kernel.version>4.0.0</delta.kernel.version>
     <!-- Kernel's default engine brings hadoop-client-runtime for execution; compiling against
-         Configuration needs the API jar as well. Both stay inside this plugin's classloader. -->
-    <hadoop.client.version>3.4.0</hadoop.client.version>
+         Configuration needs the API jar as well. Both stay inside this plugin's classloader; their
+         version, one for both, is hadoop.client.version in the root pom. -->
     <jacoco.line.coverage>0.55</jacoco.line.coverage>
   </properties>
 

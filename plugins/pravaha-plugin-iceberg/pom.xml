@@ -19,8 +19,8 @@
     <iceberg.version>1.2.1</iceberg.version>
     <parquet.version>1.12.3</parquet.version>
     <!-- Iceberg declares Hadoop compile-only. HadoopTables and Parquet's writer need it at runtime:
-         the shaded client, the same pair delta brings, so it adds nothing to the server. -->
-    <hadoop.client.version>3.4.0</hadoop.client.version>
+         the shaded client, the same pair delta brings, so it adds nothing to the server (version:
+         hadoop.client.version in the root pom). -->
     <!-- ICE-1: Caffeine 3, the version Spring Boot manages for pravaha-server, where this plugin runs.
          Iceberg 1.2.1 was built against 2.9.3 and asks for it; declaring 3 here makes every test of
          this module run on the combination the server ships. IcebergSinkFindingsTest resolves each
