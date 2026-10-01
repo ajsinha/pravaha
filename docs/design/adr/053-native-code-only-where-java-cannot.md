@@ -65,3 +65,11 @@ inside the container. Nothing noticed, because the smoke journey reads CSV.
 - The Kafka sink's codecs: lz4, snappy and zstd are refused by `kafka-sink` today. Enabling snappy
   and zstd there would reuse the two libraries already allowed, under the same platforms. lz4 would
   need `lz4-java`, which the rule refuses until an ADR allows it.
+
+## Amendment, 2026-10-01: the base is `eclipse-temurin:25-jre`
+
+The images now default to Java 25 (ADR-047's amendment of the same date), so the shipped base is
+`eclipse-temurin:25-jre`: the same Ubuntu, still glibc, 478 MB against 21's 459 MB. Both codecs load
+on it — `smoke.sh` step 11, read-only root, prints `snappy loaded 28 bytes zstd loaded 35 bytes` on
+25 and on the `--java 21` image alike — and with `--enable-native-access=ALL-UNNAMED`, which the
+launcher gives a 24+ JVM, loading them prints no JEP 472 warning.

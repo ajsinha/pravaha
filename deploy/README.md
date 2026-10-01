@@ -8,14 +8,14 @@ Everything a deployment needs and nothing the engine needs. **The page to read i
 
 ```
 docker/     the container images and the compose stack (docs/operations/RUNNING_IN_DOCKER.md)
-  Dockerfile          the engine: glibc JRE 21 (ADR-053), PRAVAHA_HOME=/opt/pravaha, any uid, over
+  Dockerfile          the engine: glibc JRE 25 (ADR-053; --java 21), PRAVAHA_HOME=/opt/pravaha, any uid, over
                       artefacts the reactor already built (ADR-047)
-  build.sh            stage the launcher and the jar and build.   --tag, --push
+  build.sh            stage the launcher and the jar and build.   --tag, --push, --java 21
   smoke.sh            eleven steps against a REAL container.     --image, --keep
   console/            the console's image (python:3.13-slim) and its build.sh
   compose/            engine + console + Kafka as the invoking user; profiles seed, cdc, stores,
                       observability, tools. tools/docker-env.sh prepares it
-  test/               the test runner image tools/docker-test.sh uses (Maven, JDK 21, Python 3)
+  test/               the test runner image tools/docker-test.sh uses (Maven, JDK 25, Python 3)
 
 helm/       the Kubernetes chart
   pravaha/            one node, as a StatefulSet. Values documented one line each in values.yaml

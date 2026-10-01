@@ -12,7 +12,9 @@ node to Kubernetes, the image's design decisions and the release are in
 [`DEPLOYMENT.md`](DEPLOYMENT.md); running one, in [`OPERATIONS.md`](OPERATIONS.md).
 
 Everything below was run on the development machine on 2026-09-29 (Docker 29.8.1, Compose 5.5.1,
-buildx 0.37.1) and the outputs are the ones it printed, trimmed only where marked.
+buildx 0.37.1), and again on 2026-10-01 on the Java 25 images (Docker 29.8.2) — the smoke run, the
+compose journey with the `seed`, `cdc` and `observability` profiles, the restart and recreate, and the
+ownership and `docker diff` checks all printed what is shown. Outputs are trimmed only where marked.
 
 ---
 
@@ -101,25 +103,41 @@ arguments.
 |---|---|---|
 | Dockerfile | [`deploy/docker/Dockerfile`](../../deploy/docker/Dockerfile) (release, over a built jar); [`Dockerfile`](../../Dockerfile) at the root builds from source | [`deploy/docker/console/Dockerfile`](../../deploy/docker/console/Dockerfile) |
 | Built by | [`deploy/docker/build.sh`](../../deploy/docker/build.sh) | [`deploy/docker/console/build.sh`](../../deploy/docker/console/build.sh) |
-| Base | `eclipse-temurin:21-jre` (glibc, ADR-053); `--java 25` for `eclipse-temurin:25-jre` | `python:3.13-slim` |
-| Size, as built here | **803 MB** on disk, 280 MB content (the jar is 176 MB); **863 MB** / 308 MB from the root `Dockerfile`, which adds `pravaha-engine` | **519 MB** on disk, 124 MB content |
+| Base | `eclipse-temurin:25-jre` (glibc, ADR-053); `--java 21` for `eclipse-temurin:21-jre` | `python:3.13-slim` |
+| Size, as built here | **822 MB** on disk, 282 MB content (the jar is 176 MB; 803 MB / 280 MB on the 21 JRE); **881 MB** / 310 MB from the root `Dockerfile`, which adds `pravaha-engine` | **497 MB** on disk, 122 MB content |
 | User | `10001:10001` by default; **any uid** works (below) | the same |
 | Entrypoint / command | `/__cacert_entrypoint.sh bin/pravaha-server` | `python run_pravaha_web.py --config <three files>` |
 | Ports | 18080 HTTP, 19090 Flight SQL, 5432 pgwire when enabled | 17070 |
 | Volumes | `/opt/pravaha/data`, `/opt/pravaha/logs` | `/opt/pravaha/data/console`, `/opt/pravaha/logs` |
-| Healthcheck | `wget --spider :18080/actuator/health/liveness` every 30s | `GET :17070/health/live` every 30s |
-| Labels | `org.opencontainers.image.{title,description,version,revision,created,authors,licenses,source}` | the same |
+| Healthcheck | `bin/pravaha-health /actuator/health/liveness` every 30s (bash only: the 25 JRE has no `wget` or `curl`) | `GET :17070/health/live` every 30s |
+| Labels | `org.opencontainers.image.{title,description,version,revision,created,authors,licenses,source}`, and `com.ash.messaging.pravaha.java` (the JRE: `25` or `21`) | the OCI ones |
 
-The engine image runs on a Java 21 JRE by default. `deploy/docker/build.sh --java 25` builds the same
-jar on `eclipse-temurin:25-jre`, tagged `<version>-jre25`; the root Dockerfile takes
-`--build-arg JAVA_VERSION=25`. The image's JRE is recorded in the label
-`com.ash.messaging.pravaha.java`. Both pass `deploy/docker/smoke.sh`.
+**The JRE is 25.** Every Docker build defaults to Java 25: the engine image runs on
+`eclipse-temurin:25-jre`, the root Dockerfile compiles in `maven:3.9-eclipse-temurin-25`, and the test
+runner (`tools/docker-test.sh`) is `maven:3.9-eclipse-temurin-25`. The jar is the one a JDK 21 user
+runs — its classes target Java 21 (`maven.compiler.release`; `pravaha-api` and the Java SDK target 17)
+— so 25 is the runtime, not a requirement. The launcher gives a 24+ JVM
+`--sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED` (Arrow's allocator, Netty
+and the Parquet codecs use exactly what those options permit), so the node starts with no JVM
+warning. **Java 21** stays supported and is one flag away: `deploy/docker/build.sh --java 21` builds
+the same jar on `eclipse-temurin:21-jre`, tagged `<version>-jre21` (the plain `<version>` tag is 25);
+the root Dockerfile takes `--build-arg JAVA_VERSION=21`. The image's JRE is recorded in the label
+`com.ash.messaging.pravaha.java`:
+
+```text
+$ docker image inspect pravaha/pravaha-server:1.0.1-SNAPSHOT --format '{{index .Config.Labels "com.ash.messaging.pravaha.java"}}'
+25
+$ docker logs pravaha-stack-pravaha-server-1 2>&1 | grep 'using Java'
+... Starting PravahaServerApplication v1.0.1-SNAPSHOT using Java 25.0.4.1 with PID 1 (/opt/pravaha/lib/pravaha-server.jar ...)
+```
+
+Both images pass `deploy/docker/smoke.sh`, every check, read-only root included.
 
 **Which engine Dockerfile.** `deploy/docker/build.sh` stages the launcher and a jar you already built
 (`./mvnw -pl pravaha-server -am package -DskipTests`) into an ~190 MB context and builds that: fast,
 and the image holds exactly the artefact you tested ([ADR-047](../design/adr/047-the-image-is-a-dockerfile-over-built-artefacts.md)).
 It needs a JDK on the host to produce the jar. The root `Dockerfile` needs **nothing but Docker**:
-it builds `pravaha-server` and `pravaha-cli` inside a `maven:3.9-eclipse-temurin-21` stage (with a
+it builds `pravaha-server` and `pravaha-cli` inside a `maven:3.9-eclipse-temurin-25` stage (with a
 BuildKit cache for `~/.m2`) and produces the same runtime layout, plus `bin/pravaha-engine`:
 
 ```bash
@@ -201,9 +219,13 @@ docker run -d --name my-pravaha --user "$(id -u):$(id -g)" --read-only \
 `--read-only` is how to see that nothing is written outside `/opt/pravaha`: the node starts and
 serves with only those mounts writable. Without bind mounts, give `tmp/` a tmpfs that allows
 execution (the native codecs load from it) and is writable by a non-root user:
-`--tmpfs /opt/pravaha/tmp:rw,exec,mode=1777`. `deploy/docker/smoke.sh` runs exactly that:
+`--tmpfs /opt/pravaha/tmp:rw,exec,mode=1777`. `deploy/docker/smoke.sh` runs exactly that, and also
+runs the image's own `HEALTHCHECK` inside a serving container — the host's `curl` proves nothing about
+what the image carries:
 
 ```text
+ok:   the image's HEALTHCHECK passes inside the container: bin/pravaha-health /actuator/health/liveness
+...
 ok:   ready, and serving, with --read-only and only /opt/pravaha/{data,logs,tmp} writable
 ok:   Parquet's native codecs load in the image: snappy loaded 28 bytes zstd loaded 35 bytes
 smoke.sh: PASSED

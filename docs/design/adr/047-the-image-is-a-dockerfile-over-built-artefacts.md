@@ -155,3 +155,21 @@ The owner asked that Pravaha run the same in a container and out of one, with ev
   `/opt/pravaha/logs`, and keeps `HOME`, `TMPDIR` and the assistant's files under `/opt/pravaha`.
 
 docs/operations/RUNNING_IN_DOCKER.md is the reference for all of it.
+
+## Amendment, 2026-10-01: the JRE is 25, and the probe is bash
+
+By the owner's decision the images default to **Java 25**: `deploy/docker/Dockerfile` and the root
+`Dockerfile` take `ARG JAVA_VERSION=25` (`eclipse-temurin:25-jre`; the root one's build stage is
+`maven:3.9-eclipse-temurin-25`), and the test runner is `maven:3.9-eclipse-temurin-25`. The jar does
+not change — its classes target Java 21 — and `deploy/docker/build.sh --java 21` still builds the
+image on 21, tagged `<version>-jre21`; the plain `<version>` tag, which the release publishes, is 25.
+The launcher is still the one place the JVM flags live: on a 24+ JVM it adds
+`--sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED`, so a 25 node starts with no
+JVM warning, and nothing went into `PRAVAHA_JAVA_OPTS`.
+
+The 25 JRE image carries no `wget` (nor `curl`), and the `HEALTHCHECK` above relied on one: a serving
+node was reported unhealthy indefinitely, and compose held back every service that waited on it. The
+probe is now `bin/pravaha-health`, HTTP/1.0 over bash's `/dev/tcp` — `bash`, which this ADR already
+keeps for the launcher, is all it needs — and the compose healthcheck and `helm test`'s probe pod use
+it too. `smoke.sh` runs the image's own `HEALTHCHECK` inside a serving container, because every other
+step probes from the host and so could not have seen this.

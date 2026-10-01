@@ -6,7 +6,13 @@ Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 From a fresh clone on a machine with **only Docker and git**, to the engine, the console and Kafka
 running, a continuous query answering, every test suite run in containers, and everything cleaned up
 again. Each step has the command and what you should see; the outputs are the ones this machine
-printed on 2026-09-29, trimmed only where marked `...`.
+printed on 2026-09-29, and on 2026-10-01 where the images moved to Java 25 (steps 3 and 8, and the
+checks re-run throughout), trimmed only where marked `...`.
+
+**Java 25 throughout.** Every image here is built on JDK 25 by default — the engine's JRE, the root
+`Dockerfile`'s Maven stage, the test runner — while the classes still target Java 21, so the jar is
+the one a JDK 21 user runs. `deploy/docker/build.sh --java 21` builds the engine on a 21 JRE instead
+(tag `<version>-jre21`); see [Running in Docker: the images](../operations/RUNNING_IN_DOCKER.md#the-images).
 
 This is the walkthrough. The reference — every path, variable, port and profile — is
 [`../operations/RUNNING_IN_DOCKER.md`](../operations/RUNNING_IN_DOCKER.md). The same journey without Docker is
@@ -66,10 +72,14 @@ Two images: the **engine** and the **console**. The console image is always buil
 Docker. The engine has two routes; pick by what your machine has.
 
 **Route A — nothing but Docker.** The root [`Dockerfile`](../../Dockerfile) builds `pravaha-server` and
-`pravaha-cli` inside a `maven:3.9-eclipse-temurin-21` stage, with no JDK on the host:
+`pravaha-cli` inside a `maven:3.9-eclipse-temurin-25` stage, with no JDK on the host, and runs them on
+`eclipse-temurin:25-jre` (`--build-arg JAVA_VERSION=21` for both on 21):
 
 ```text
 $ docker build -t pravaha/pravaha-server:local .
+...
+#5 [stage-1 1/6] FROM docker.io/library/eclipse-temurin:25-jre@sha256:8da0490f...
+#7 [build 1/4] FROM docker.io/library/maven:3.9-eclipse-temurin-25@sha256:93b8a14e...
 ...
 #12 [build 4/4] RUN --mount=type=cache,target=/root/.m2  ./mvnw -B -q -pl pravaha-server,pravaha-cli -am -DskipTests ...
 #12 DONE 83.2s
@@ -78,23 +88,26 @@ $ docker build -t pravaha/pravaha-server:local .
 ```
 
 About a minute and a half here, most of it Maven resolving and compiling; a second build reuses the
-cache mount. It also carries `bin/pravaha-engine`, the offline Java CLI:
+cache mount (18.7s for that step, with the cache warm). It also carries `bin/pravaha-engine`, the
+offline Java CLI:
 
 ```text
 $ docker run --rm --entrypoint bin/pravaha-engine pravaha/pravaha-server:local version
-pravaha-engine 0.2.1-SNAPSHOT
+pravaha-engine 1.0.1-SNAPSHOT
 ```
 
-**Route B — a JDK 21 on the host too.** Build the jar yourself and put the release image over it
+**Route B — a JDK (21 or 25) on the host too.** Build the jar yourself and put the release image over it
 ([`deploy/docker/Dockerfile`](../../deploy/docker/Dockerfile), [ADR-047](../design/adr/047-the-image-is-a-dockerfile-over-built-artefacts.md)):
 
 ```text
 $ ./mvnw -pl pravaha-server -am package -DskipTests
 $ deploy/docker/build.sh --tag pravaha/pravaha-server:local
 build.sh: pravaha/pravaha-server:local
-  jar      pravaha-server-0.2.1-SNAPSHOT-app.jar (176M)
+  jar      pravaha-server-1.0.1-SNAPSHOT-app.jar (176M)
+  revision <the short commit>
+  java     25 (eclipse-temurin:25-jre)
 ...
-  size  803177402 bytes
+  size  821915431 bytes
   user  10001:10001
   entry [/__cacert_entrypoint.sh bin/pravaha-server]
 ```
@@ -116,8 +129,8 @@ $ deploy/docker/console/build.sh --tag pravaha/pravaha-console:local
   built pravaha/pravaha-console:local
 $ docker images pravaha/pravaha-server:local; docker images pravaha/pravaha-console:local
 IMAGE                           DISK USAGE   CONTENT SIZE
-pravaha/pravaha-server:local         863MB          308MB      (Route A; Route B's is 803MB / 280MB, no pravaha-engine)
-pravaha/pravaha-console:local        519MB          124MB
+pravaha/pravaha-server:local         881MB          310MB      (Route A; Route B's is 822MB / 282MB, no pravaha-engine)
+pravaha/pravaha-console:local        497MB          122MB
 ```
 
 ## 4. Prepare `pravaha-home` — as you
@@ -294,7 +307,8 @@ $C run --rm cli query --sql "SELECT window_start, customer, spend FROM spend_per
 ## 8. Run the test suites in Docker
 
 [`tools/docker-test.sh`](../../tools/docker-test.sh) runs each suite in a throwaway container **as you**,
-from one image it builds on first use (`pravaha/test-runner:local`: Maven, JDK 21 and Python 3), with
+from one image it builds on first use (`pravaha/test-runner:local`: Maven 3.9, JDK 25 and Python 3.12;
+747 MB), with
 its caches in `~/.cache/pravaha-docker` (yours too):
 
 | Command | What runs |
@@ -316,11 +330,12 @@ repository, each using only those artefacts; the container is removed afterwards
 What each printed here:
 
 ```text
-$ tools/docker-test.sh unit -pl pravaha-common
+$ tools/docker-test.sh unit -pl pravaha-common -am
 docker-test.sh: Maven cache seeded from ~/.m2/repository (hard links)      (first run only)
-docker-test.sh: mvn test -pl pravaha-common
+docker-test.sh: mvn test -pl pravaha-common -am
 ...
-[INFO] Tests run: 258, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Tests run: 266, Failures: 0, Errors: 0, Skipped: 0                   (pravaha-api)
+[INFO] Tests run: 258, Failures: 0, Errors: 0, Skipped: 0                   (pravaha-common)
 [INFO] BUILD SUCCESS
 
 $ tools/docker-test.sh it --modules plugins/pravaha-plugin-kafka
@@ -333,18 +348,18 @@ docker-test.sh: mvn -pl plugins/pravaha-plugin-kafka test -Djacoco.skip=true
 [INFO] Tests run: 9, Failures: 0, Errors: 0, Skipped: 0, ... -- in ...KafkaSinkBrokerTest
 [INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, ... -- in ...KafkaCompressedBrokerTest
 ...
-[ERROR] Tests run: 232, Failures: 1, Errors: 0, Skipped: 0
-[INFO] BUILD FAILURE                                                        (2:33 min)
+[INFO] Tests run: 232, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS                                                        (2:29 min)
 
 $ tools/docker-test.sh sdk
 docker-test.sh: mvn -pl pravaha-flight -am test-compile ...
 docker-test.sh: the SDK's pytest suite
-...                                   422 passed, 4 failed
+...                                   426 passed
 
 $ tools/docker-test.sh console
 docker-test.sh: the console's pytest suite
 ...
-565 passed, 1374 skipped in 501.46s (0:08:21)
+565 passed, 1374 skipped in 352.74s (0:05:52)
 ```
 
 What that says, honestly:
@@ -352,16 +367,20 @@ What that says, honestly:
 - **The Testcontainers tests ran**, against brokers Testcontainers started through the mounted
   socket — `KafkaSourceBrokerTest`, `KafkaSinkBrokerTest` and the rest report their tests run, not
   skipped. That is what `it` is for.
-- **The one Kafka failure is not Docker's.** `KafkaSinkRegistrationTest.aCrashAfterTheCheckpointBeforeTheCommitLosesNothingAndRepeatsNothing`
-  expects three records and sees a tombstone between an upsert pair; it fails the same way run on the
-  host, outside any container, on the same commit.
-- **The four SDK failures are not Docker's either**: `test_the_packaged_card_is_current_with_the_guide`
-  (the packaged dialect card is older than `docs/guides/CONTINUOUS_QUERIES.md`) and three in
-  `test_authentication.py` (`PRV-4023 no views are registered`) fail identically on the host. The
-  cross-language tests that start the real Flight server — in the same container, which is why the
-  runner has a JDK — pass.
+- **Everything passes on the JDK 25 runner**: the Kafka module's 232 (the sink-registration failure
+  and the four SDK failures an earlier run of this guide recorded have since been fixed on the host),
+  and the SDK's cross-language tests that start the real Flight server — in the same container, which
+  is why the runner has a JDK.
 - **The console's 1374 skips are its browser suites**, switched off by `PRAVAHA_BROWSER_TESTS=0` (the
   runner has no Chrome). Its real-engine tests run and pass.
+
+The runner is JDK 25. To run any suite on JDK 21 instead, build a second runner and name it — the
+script then skips its own build:
+
+```bash
+docker build --build-arg JAVA_VERSION=21 -t pravaha/test-runner:jdk21 deploy/docker/test
+PRAVAHA_TEST_IMAGE=pravaha/test-runner:jdk21 tools/docker-test.sh unit -pl pravaha-common -am
+```
 
 Run `tools/docker-test.sh all` for everything; it takes a while — the `unit` step is the whole reactor.
 Single tests go through `mvn`, with `--docker` when they need Testcontainers:
@@ -442,6 +461,8 @@ caches as you too.
 $ $C --profile observability up -d
 $ curl -s http://127.0.0.1:29190/api/v1/targets | jq -r '.data.activeTargets[] | "\(.labels.job) \(.health)"'
 pravaha up
+$ curl -s 'http://127.0.0.1:29190/api/v1/query?query=jvm_info' | jq -r '.data.result[].metric | "\(.runtime) \(.version) \(.vendor)"'
+OpenJDK Runtime Environment 25.0.4.1+1-LTS Eclipse Adoptium
 ```
 
 Prometheus (<http://localhost:29190>) scrapes the engine with the `prometheus` token and has the

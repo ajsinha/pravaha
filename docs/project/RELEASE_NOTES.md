@@ -20,8 +20,16 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   commons-logging 1.2 → 1.3.0.
 - **Launchers** add `--sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED` on
   JDK 24 and later only.
-- **Docker:** a `JAVA_VERSION` build argument and `deploy/docker/build.sh --java 25` (tag
-  `<version>-jre25`); the default image stays on 21.
+- **Docker defaults to Java 25:** the engine image runs on `eclipse-temurin:25-jre` (822 MB, against
+  803 MB on 21), the root `Dockerfile` builds in `maven:3.9-eclipse-temurin-25`, and the test runner
+  is JDK 25. The jar is unchanged (classes target 21). `deploy/docker/build.sh --java 21` builds the
+  engine on 21, tagged `<version>-jre21`; the plain `<version>` tag is 25. Both pass
+  `deploy/docker/smoke.sh`, and the compose stack's seed, cdc and observability profiles run on 25.
+- **Fixed:** the engine image's `HEALTHCHECK` (and the compose stack's, and `helm test`'s probe pod)
+  called `wget`, which the 25 JRE base does not carry: Docker reported a serving node unhealthy and
+  compose held the console and seed back. The probe is now `bin/pravaha-health`, which needs only
+  bash; `helm test`'s Flight check, which called an `nc` no JRE base carries, uses it too.
+  `smoke.sh` now runs the image's own HEALTHCHECK inside the container.
 - **CI:** a four-leg JDK matrix that fails if shipped classes are recompiled on the run JDK.
 - **Docs** are in six folders under `docs/` (guides, operations, development, design, publications,
   project); `MarkdownLinksTest` checks every relative link in the repository.

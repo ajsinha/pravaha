@@ -18,7 +18,7 @@ bounds its memory, what to watch, what a restart costs, what is not solved — i
 # 1. build the artefacts (offline; drop -o on a machine with an empty ~/.m2)
 ./mvnw -o -pl pravaha-server -am package -DskipTests
 
-# 2. build the image from them
+# 2. build the image from them (Java 25; --java 21 for a 21 JRE, tagged 1.0.1-SNAPSHOT-jre21)
 deploy/docker/build.sh --tag pravaha/pravaha-server:1.0.1-SNAPSHOT
 
 # 3. prove it serves, end to end, against a real container
@@ -76,8 +76,8 @@ sudo ./install.sh --host qa-vm.example && cd /opt/pravaha && sudo docker compose
 
 | Image | Built by | Configured by |
 |---|---|---|
-| `pravaha/pravaha-server:<v>` | `deploy/docker/build.sh` | `/opt/pravaha/conf/application.yaml` |
-| `pravaha/pravaha-console:<v>` | `deploy/docker/console/build.sh` (python:3.13-slim, uid 10001 or any, 519 MB) | `/opt/pravaha/console/conf/application.yaml` |
+| `pravaha/pravaha-server:<v>` | `deploy/docker/build.sh` (`eclipse-temurin:25-jre`; `<v>-jre21` on 21) | `/opt/pravaha/conf/application.yaml` |
+| `pravaha/pravaha-console:<v>` | `deploy/docker/console/build.sh` (python:3.13-slim, uid 10001 or any, 497 MB) | `/opt/pravaha/console/conf/application.yaml` |
 
 The console reads its product defaults from the image first and the deployment's file second, key
 by key, so the deployment's file names only what it changes and cannot pin a stale version.
@@ -94,13 +94,13 @@ so the console holds no credential: people sign in as themselves.
 | | |
 |---|---|
 | Built by | [`deploy/docker/Dockerfile`](../../deploy/docker/Dockerfile), staged by [`deploy/docker/build.sh`](../../deploy/docker/build.sh) |
-| Base | `eclipse-temurin:21-jre` (Ubuntu, glibc, 459 MB). Not Alpine: Parquet's Snappy codec is glibc-only ([ADR-053](../design/adr/053-native-code-only-where-java-cannot.md)) |
-| Size | **803 MB** on disk as `docker images` reports it on 2026-09-29 (280 MB content); 176 MB of that is the application jar |
+| Base | `eclipse-temurin:25-jre` (Ubuntu, glibc, 478 MB); `build.sh --java 21` for `eclipse-temurin:21-jre` (459 MB), tagged `<version>-jre21`. The jar is the same on both: its classes target Java 21. Not Alpine: Parquet's Snappy codec is glibc-only ([ADR-053](../design/adr/053-native-code-only-where-java-cannot.md)) |
+| Size | **822 MB** on disk as `docker images` reports it on 2026-10-01 (282 MB content; 803 MB / 280 MB on the 21 JRE); 176 MB of that is the application jar |
 | User | uid **10001** by default, non-root, numeric; **any** `--user` works over bind mounts ([`RUNNING_IN_DOCKER.md`](RUNNING_IN_DOCKER.md), "Any uid") |
-| Entrypoint | `/__cacert_entrypoint.sh bin/pravaha-server` |
+| Entrypoint | `/__cacert_entrypoint.sh bin/pravaha-server`, which adds `--sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED` on a 24+ JVM, so a 25 node starts without a JVM warning |
 | Ports | 18080 HTTP, 19090 Flight SQL |
 | Volumes | `/opt/pravaha/data`, `/opt/pravaha/logs` |
-| Healthcheck | `wget --spider /actuator/health/liveness`, every 30s after a 45s start period |
+| Healthcheck | `bin/pravaha-health /actuator/health/liveness` (bash only; the 25 JRE carries no `wget` or `curl`), every 30s after a 45s start period |
 
 It does **not** build the project. `build.sh` stages a context of the launcher and the jar (~190
 MB), so the daemon is never sent `.git`, `target/` or the worktrees. Why not Jib, why not distroless, why not a Maven stage:
@@ -530,8 +530,9 @@ deploy/release/release.sh --version 0.2.0 --next 0.2.1-SNAPSHOT
    branch, or a tag that already exists.
 2. Set the version across all forty files.
 3. `./mvnw -o clean verify` — the whole reactor, offline, tests and all.
-4. Build the image and tag it with the release version.
-5. Run `deploy/docker/smoke.sh` against **the image it just built**.
+4. Build the engine image on Java 25 and tag it with the release version, and on Java 21 as
+   `<version>-jre21`; build the console image.
+5. Run `deploy/docker/smoke.sh` against **both engine images it just built**.
 6. `deploy/helm/test.sh`, then `helm package`.
 7. Commit, and write an **annotated tag** `v0.2.0`.
 8. Set the tree to `0.2.1-SNAPSHOT` and commit that.
@@ -545,7 +546,7 @@ in a script would let a release report success having shipped nothing.
 |---|---|
 | `mvn deploy` | No `<distributionManagement>` in the root pom, and no repository to deploy to. Adding one is a decision about where the jars live and who may publish them |
 | Push the tag and the commits | Deliberate. `release.sh` makes a release reproducible; the owner decides when it is public |
-| Push the image | No registry configured, no credential in the repository. One command once there is one: `deploy/docker/build.sh --push --tag <registry>/pravaha-server:0.2.0` |
+| Push the image | No registry configured, no credential in the repository. One command once there is one: `deploy/docker/build.sh --push --tag <registry>/pravaha-server:0.2.0` (and `--java 21 ... :0.2.0-jre21`) |
 | Push the chart | Likewise: `helm push target/pravaha-*.tgz oci://<registry>/charts` |
 | Publish the wheels | `python -m build` in `sdk/python` and `console` produces them. No index, no credential |
 | Sign anything | No GPG key, no keyless signing, no provenance attestation, no SBOM |
@@ -596,7 +597,7 @@ Everything here has one, and it can be run now.
 
 | | Command | What it proves |
 |---|---|---|
-| Image | `deploy/docker/smoke.sh --image <tag>` | Ten steps against a real container, two of them seeds: readiness goes red when Flight is taken away, and the node serves under `--read-only` |
+| Image | `deploy/docker/smoke.sh --image <tag>` | Eleven steps against a real container, two of them seeds: readiness goes red when Flight is taken away, and the node serves under `--read-only`; the image's own `HEALTHCHECK` passes inside it, and Parquet's native codecs load |
 | Chart | `deploy/helm/test.sh` | 19 checks; `helm lint` and `helm template` over three scenarios, six seeds that must be refused |
 | Release | `deploy/release/test.sh` | 8 checks on a throwaway copy of the tree; four seeds, including one pom left at another version |
 | CI helpers | `deploy/ci/test.sh` | 15 checks; eleven seeds, from malformed YAML to a suite that skipped every test |
