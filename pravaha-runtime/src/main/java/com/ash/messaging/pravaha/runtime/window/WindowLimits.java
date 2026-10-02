@@ -104,6 +104,14 @@ public final class WindowLimits {
         return spec.sizeNanos() / spec.sliceSizeNanos();
     }
 
+    /** {@code bound}, refused unless positive. */
+    public static long requirePositive(long bound) {
+        if (bound < 1) {
+            throw new IllegalArgumentException(SETTING + " must be a positive whole number, got " + bound);
+        }
+        return bound;
+    }
+
     /** The bound in {@code value}, or the default when it is blank; refuses one that is not a positive number. */
     public static long parse(String value) {
         if (value == null || value.isBlank()) {
@@ -115,9 +123,6 @@ public final class WindowLimits {
         } catch (NumberFormatException e) {
             throw new IllegalArgumentException(SETTING + " must be a positive whole number, got '" + value + "'");
         }
-        if (bound < 1) {
-            throw new IllegalArgumentException(SETTING + " must be a positive whole number, got " + bound);
-        }
-        return bound;
+        return requirePositive(bound);
     }
 }

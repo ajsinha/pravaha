@@ -603,10 +603,10 @@ class WindowClosingAnswerTest extends WindowTestSupport {
     }
 
     @Test
-    void win199_sumOverAWindowWhereEveryValueIsNullReturnsZeroNotNull(@TempDir Path dir) throws Exception {
-        // WIN-199. SQL says SUM over no non-null values is NULL; the accumulator is a long[] and
-        // writer.setLong always writes a value with the null bit clear, so it returns 0. The group
-        // is not skipped -- fire() only skips a key whose weight-count is zero, and here it is 2.
+    void win199_sumOverAWindowWhereEveryValueIsNullReturnsNull(@TempDir Path dir) throws Exception {
+        // WIN-199. SQL says SUM over no non-null values is NULL. The accumulator is a long[] and it
+        // returned 0 until ALLNULLAGG-1, which reads the non-null count the slices already keep. The
+        // group is not skipped -- fire() only skips a key whose weight-count is zero, and here it is 2.
         String data = csv("1,300,,1000000000\n", "2,300,,2000000000\n") + row(3, 999, 0, 40 * SECOND);
         List<String> rows = configured(
                 dir,
@@ -619,7 +619,7 @@ class WindowClosingAnswerTest extends WindowTestSupport {
                 List.of(0, 1, 2),
                 3,
                 1);
-        assertThat(rows).containsExactly("0|10000000000|300|2|0");
+        assertThat(rows).containsExactly("0|10000000000|300|2|null");
     }
 
     @Test

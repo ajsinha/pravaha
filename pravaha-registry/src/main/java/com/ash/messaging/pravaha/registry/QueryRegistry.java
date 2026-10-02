@@ -459,25 +459,13 @@ public final class QueryRegistry implements AutoCloseable {
         return this;
     }
 
-    /** {@code pravaha.lane.max-windows-per-row} (FINEHOP-1); the default until told. */
-    private long maxWindowsPerRow = com.ash.messaging.pravaha.runtime.window.WindowLimits.DEFAULT_MAX_WINDOWS_PER_ROW;
+    /** {@code pravaha.lane.max-windows-per-row} (FINEHOP-1), read by {@link RegistrationPlanning}. */
+    long maxWindowsPerRow = com.ash.messaging.pravaha.runtime.window.WindowLimits.DEFAULT_MAX_WINDOWS_PER_ROW;
 
-    /**
-     * The most windows a row may belong to, and slices a window may combine, in a query registered
-     * here from now on (FINEHOP-1); a finer window is refused {@code PRV-3026}. Given before recovery,
-     * so a journalled query finer than a lowered bound is refused by name at the start.
-     */
+    /** Refuses a finer window in what registers from now on, PRV-3026 (FINEHOP-1); given before recovery. */
     public QueryRegistry limitingWindowsPerRow(long maxWindowsPerRow) {
-        if (maxWindowsPerRow < 1) {
-            throw new IllegalArgumentException(com.ash.messaging.pravaha.runtime.window.WindowLimits.SETTING
-                    + " must be positive, got " + maxWindowsPerRow);
-        }
-        this.maxWindowsPerRow = maxWindowsPerRow;
+        this.maxWindowsPerRow = com.ash.messaging.pravaha.runtime.window.WindowLimits.requirePositive(maxWindowsPerRow);
         return this;
-    }
-
-    long maxWindowsPerRow() {
-        return maxWindowsPerRow;
     }
 
     /** Settings the debugger reads: {@code pravaha.debug.*} (ADR-048). Defaults until told. */
@@ -765,7 +753,9 @@ public final class QueryRegistry implements AutoCloseable {
                         prepared.placements(),
                         prepared.fingerprint(),
                         delivery,
-                        recoveringInto == null ? freeDirectoryFor(name) : recoveringInto);
+                        recoveringInto == null
+                                ? checkpoints.freeDirectoryFor(name, byFingerprint.values())
+                                : recoveringInto);
                 tenants.assign(name, principal.tenant());
                 return registered;
             } catch (RuntimeException e) {
@@ -960,22 +950,6 @@ public final class QueryRegistry implements AutoCloseable {
         }
         policy.registered(principal, name); // ADR-059: the catalogue records its owner
         owners.registered(principal, name);
-    }
-
-    /**
-     * The directory a new computation named {@code name} checkpoints into: the one its name implies,
-     * unless a running computation already checkpoints there -- another tenant's view registered before
-     * names were per tenant keeps the directory its bare name implied (ADR-060) -- and then one beside it.
-     */
-    private String freeDirectoryFor(String name) {
-        String wanted = QueryCheckpoints.directoryFor(name);
-        Set<java.nio.file.Path> taken = new java.util.HashSet<>();
-        byFingerprint.values().forEach(query -> query.checkpointDirectory().ifPresent(taken::add));
-        String directory = wanted;
-        for (int attempt = 1; checkpoints.enabled() && taken.contains(checkpoints.pathOf(directory)); attempt++) {
-            directory = wanted + "-" + attempt;
-        }
-        return directory;
     }
 
     /** Registration during recovery, of a name within its owner's tenant: nothing is written back to the journal. */
@@ -1442,25 +1416,7 @@ public final class QueryRegistry implements AutoCloseable {
         chains.refuseDrop(name);
         // Journal first: see the note below on why this order is the only honest one.
         if (journal != null) {
-            // SHAREDLOSS-1: a shared computation checkpoints into the directory of the name that
-            // started it, and each other name's record implies a directory of its own. Dropping the
-            // starting name used to leave the survivors pointing at their own, empty, directories, so a
-            // restart brought them back with none of the computation's state. The drop re-homes them.
-            java.util.Set<String> survivors = new java.util.TreeSet<>(query.names());
-            survivors.remove(name);
-            java.nio.file.Path directory = query.checkpointDirectory().orElse(null);
-            List<String> rehomed = new ArrayList<>();
-            for (String survivor : survivors) {
-                if (directory != null
-                        && !directory.equals(checkpoints.pathOf(QueryCheckpoints.directoryFor(survivor)))) {
-                    rehomed.add(survivor);
-                }
-            }
-            if (rehomed.isEmpty()) {
-                journal.recordDrop(name);
-            } else {
-                journal.recordDrop(name, rehomed, checkpoints.nameOf(directory));
-            }
+            checkpoints.journalDrop(journal, name, query); // SHAREDLOSS-1: survivors keep the state
         }
         policy.dropped(name);
         owners.dropped(name);

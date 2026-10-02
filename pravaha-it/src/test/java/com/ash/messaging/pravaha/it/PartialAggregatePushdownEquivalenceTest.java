@@ -317,10 +317,10 @@ class PartialAggregatePushdownEquivalenceTest {
         List<Long> sums = new ArrayList<>();
 
         try (RowArena arena = new RowArena(MemoryAccess.best(), 1 << 16, 4);
-                InterpretedPipeline pipeline = InterpretedPipeline.compile(plan(), (RowOutput)
-                        () -> new CapturingRowWriter(partialSchema, captured -> {
+                InterpretedPipeline pipeline = InterpretedPipeline.compile(plan(), (RowOutput) () ->
+                        new CapturingRowWriter(partialSchema, captured -> {
                             counts.add(captured.asLong(0));
-                            sums.add(captured.asLong(1));
+                            sums.add(captured.isNull(1) ? null : captured.asLong(1));
                         }))) {
             feedPartial(arena, partialLayout, pipeline, 10, 500, 1L);
             pipeline.finish();
@@ -332,7 +332,8 @@ class PartialAggregatePushdownEquivalenceTest {
             assertThat(counts.get(counts.size() - 1))
                     .as("the only partial ever added was just retracted in full")
                     .isEqualTo(0);
-            assertThat(sums.get(sums.size() - 1)).isEqualTo(0);
+            // SUM over nothing is NULL (ALLNULLAGG-1): the retracted partial left no value behind.
+            assertThat(sums.get(sums.size() - 1)).isNull();
         }
     }
 

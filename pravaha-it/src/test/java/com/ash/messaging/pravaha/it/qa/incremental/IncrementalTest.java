@@ -381,10 +381,11 @@ class IncrementalTest {
     }
 
     @Test
-    void incr020_globalSumOverAFullyRetractedInputReportsZeroWhereSqlSaysNull() {
+    void incr020_globalSumOverAFullyRetractedInputReportsNullAsSqlSays() {
         // INCR-020. GlobalAggregate.emit() is unconditional -- there is no rowCount == 0 guard the
-        // way KeyedAggregate has -- so a stream whose every row has been retracted still emits a row,
-        // and SUM/AVG over it read 0 from the accumulator where SQL says NULL.
+        // way KeyedAggregate has -- so a stream whose every row has been retracted still emits a row.
+        // SUM/AVG over it read 0 from the accumulator where SQL says NULL, until ALLNULLAGG-1: a SUM
+        // or AVG with no non-null value is NULL now, and COUNT(*) is still 0.
         ServedView before = global("SELECT SUM(amount) AS total, COUNT(*) AS n FROM txn", List.of(R1));
         assertThat(before.scan().get(0)[0])
                 .as("C3: the row exists before the retraction")
@@ -393,11 +394,9 @@ class IncrementalTest {
         ServedView after = global(
                 "SELECT SUM(amount) AS total, COUNT(*) AS n, AVG(amount) AS mean FROM txn", List.of(R1, retract(R1)));
         assertThat(after.scan()).as("one row is emitted, not none").hasSize(1);
-        assertThat(after.scan().get(0)[0]).as("100 - 100 = 0, not NULL").isEqualTo(0L);
+        assertThat(after.scan().get(0)[0]).as("no value left: NULL, not 0").isNull();
         assertThat(after.scan().get(0)[1]).isEqualTo(0L);
-        assertThat(after.scan().get(0)[2])
-                .as("AVG over a zero count reads 0, not NULL")
-                .isEqualTo(0L);
+        assertThat(after.scan().get(0)[2]).as("AVG over a zero count is NULL").isNull();
     }
 
     @Test

@@ -67,6 +67,46 @@ final class QueryCheckpoints {
     }
 
     /**
+     * The directory a new computation named {@code name} checkpoints into: the one its name implies,
+     * unless a running computation already checkpoints there -- another tenant's view registered before
+     * names were per tenant keeps the directory its bare name implied (ADR-060) -- and then one beside it.
+     */
+    String freeDirectoryFor(String name, java.util.Collection<RegisteredQuery> running) {
+        String wanted = directoryFor(name);
+        java.util.Set<Path> taken = new java.util.HashSet<>();
+        running.forEach(query -> query.checkpointDirectory().ifPresent(taken::add));
+        String directory = wanted;
+        for (int attempt = 1; enabled() && taken.contains(pathOf(directory)); attempt++) {
+            directory = wanted + "-" + attempt;
+        }
+        return directory;
+    }
+
+    /**
+     * Journals the drop of {@code name} from {@code query} (SHAREDLOSS-1). A shared computation
+     * checkpoints into the directory of the name that started it, and each other name's record implies
+     * a directory of its own; dropping the starting name used to leave the survivors pointing at their
+     * own, empty, directories, so a restart brought them back with none of the computation's state. So
+     * the drop re-homes every survivor whose name implies another directory, in the same append.
+     */
+    void journalDrop(RegistryJournal journal, String name, RegisteredQuery query) {
+        java.util.Set<String> survivors = new java.util.TreeSet<>(query.names());
+        survivors.remove(name);
+        Path directory = query.checkpointDirectory().orElse(null);
+        java.util.List<String> rehomed = new java.util.ArrayList<>();
+        for (String survivor : survivors) {
+            if (directory != null && !directory.equals(pathOf(directoryFor(survivor)))) {
+                rehomed.add(survivor);
+            }
+        }
+        if (rehomed.isEmpty()) {
+            journal.recordDrop(name);
+        } else {
+            journal.recordDrop(name, rehomed, nameOf(directory));
+        }
+    }
+
+    /**
      * Restores the newest readable checkpoint, returning the offsets its sources should resume from.
      *
      * <p>The newest checkpoint is the likeliest to be unreadable, because it is the one that was
