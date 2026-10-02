@@ -36,7 +36,7 @@ pravaha.security.allow-anonymous is TRUE. Every view on this node is served to e
 this release says that on purpose.
 {{- end }}
 {{ if .Values.standby.enabled }}
-A standby is deployed as {{ include "pravaha.fullname" . }}-standby, on node id {{ .Values.nodeId }} -- the
+A standby is deployed as {{ include "pravaha.suffixed" (dict "root" . "suffix" "-standby" "max" 52) }}, on node id {{ .Values.nodeId }} -- the
 primary's, deliberately. It serves nothing until the primary's ownership claim goes unrefreshed.
 What it buys is RECOVERY TIME, NOT CONTINUITY: it resumes from the newest checkpoint, and
 whatever the primary processed after that is replayed from the source offsets that checkpoint

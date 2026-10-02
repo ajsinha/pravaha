@@ -19,7 +19,7 @@ needs only bash: the JRE 25 base carries no wget, and no JRE base carries nc.
 apiVersion: v1
 kind: Pod
 metadata:
-  name: {{ include "pravaha.fullname" . }}-test-probes
+  name: {{ include "pravaha.suffixed" (dict "root" . "suffix" "-test-probes") }}
   labels:
     {{- include "pravaha.labels" . | nindent 4 }}
   annotations:

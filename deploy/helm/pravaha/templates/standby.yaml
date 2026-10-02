@@ -28,12 +28,12 @@ keeps it out of rotation until it is promoted, which is what a standby is for.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ include "pravaha.fullname" . }}-standby
+  name: {{ include "pravaha.suffixed" (dict "root" . "suffix" "-standby" "max" 52) }}
   labels:
     {{- include "pravaha.labels" . | nindent 4 }}
     pravaha.io/role: standby
 spec:
-  serviceName: {{ include "pravaha.fullname" . }}-headless
+  serviceName: {{ include "pravaha.suffixed" (dict "root" . "suffix" "-headless") }}
   replicas: 1
   podManagementPolicy: OrderedReady
   updateStrategy:

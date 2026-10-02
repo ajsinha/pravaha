@@ -34,7 +34,7 @@ metadata:
   labels:
     {{- include "pravaha.labels" . | nindent 4 }}
 spec:
-  serviceName: {{ include "pravaha.fullname" . }}-headless
+  serviceName: {{ include "pravaha.suffixed" (dict "root" . "suffix" "-headless") }}
   replicas: {{ .Values.replicaCount }}
   podManagementPolicy: OrderedReady
   updateStrategy:

@@ -9,7 +9,9 @@
 
 # Replaces the chart name in every generated resource name; leave empty to use "pravaha".
 nameOverride: ""
-# Replaces the whole "<release>-<chart>" prefix; leave empty to have it built for you.
+# Replaces the whole "<release>-<chart>" prefix; leave empty to have it built for you. Cut to 52
+# characters: the node is a StatefulSet, whose pods carry a revision label of the name plus 11 that
+# may not pass 63. Derived names (-headless, -standby, -test-probes) shorten the base, never the suffix.
 fullnameOverride: ""
 
 # -- The image ------------------------------------------------------------------------------

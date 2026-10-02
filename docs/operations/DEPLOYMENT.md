@@ -353,6 +353,12 @@ stays in rotation, on purpose. Alert on `pravaha_query_feed_stopped`, do not tak
 The chart **references** secrets and never creates one. There is no `Secret` template, and
 `tls.enabled` with no `tls.existingSecret` is refused at render time.
 
+Names: the release base name is cut to **52** characters (a StatefulSet's pods carry a
+`controller-revision-hash` label of its name plus 11, which may not pass 63), and every derived name
+— `-headless`, `-standby`, `-test-probes` — shortens the base and keeps its suffix, so a long
+`fullnameOverride` still renders names Kubernetes accepts (HELMNAME-1). An empty `image.repository`
+is refused at render time rather than rendered as `:<tag>`.
+
 ```bash
 kubectl create secret generic pravaha-tokens --from-file=tokens.yaml=./tokens.yaml
 kubectl create secret tls pravaha-flight-tls --cert=tls.crt --key=tls.key
@@ -598,11 +604,11 @@ Everything here has one, and it can be run now.
 | | Command | What it proves |
 |---|---|---|
 | Image | `deploy/docker/smoke.sh --image <tag>` | Eleven steps against a real container, two of them seeds: readiness goes red when Flight is taken away, and the node serves under `--read-only`; the image's own `HEALTHCHECK` passes inside it, and Parquet's native codecs load |
-| Chart | `deploy/helm/test.sh` | 19 checks; `helm lint` and `helm template` over three scenarios, six seeds that must be refused |
+| Chart | `deploy/helm/test.sh` | 22 checks; `helm lint` and `helm template` over three scenarios, eight seeds that must be refused, and the names a 78-character `fullnameOverride` renders |
 | Release | `deploy/release/test.sh` | 8 checks on a throwaway copy of the tree; four seeds, including one pom left at another version |
 | CI helpers | `deploy/ci/test.sh` | 15 checks; eleven seeds, from malformed YAML to a suite that skipped every test |
 
-The chart's 19 checks pass under helm 3.16.3 (the version the `packaging` workflow installs with
+The chart's 22 checks pass under helm 3.16.3 (the version the `packaging` workflow installs with
 `azure/setup-helm`) and, since 2026-09-30, under helm 4.3.0 installed on the development machine,
 including the `/opt/pravaha` layout in `_pod.tpl`.
 
