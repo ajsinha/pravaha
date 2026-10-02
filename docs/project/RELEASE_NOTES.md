@@ -21,6 +21,12 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   indistinguishable from a real total of zero. `COUNT(col)` is still 0 and `COUNT(*)` counts rows; a
   retraction that leaves only NULLs makes the answer NULL again, and checkpoints carry it (one
   written before still restores).
+- **Narrow-integer arithmetic is never published wrapped** (NARROWINT-1). An `INT`, `SMALLINT` or
+  `TINYINT` result outside its type's range — `+`, `-`, `*`, unary minus, `ABS`, a narrowing `CAST`
+  of an integer — is an overflow, handled as a `BIGINT` one is (the query stops, naming the
+  expression, value and range), and a filter on the expression meets the same overflow as its
+  projection. `2e9 * 2` was published `-294967296` while `WHERE i * 2 > 0` kept the row.
+  `CAST(i AS BIGINT) * 2` asks for the 64-bit answer.
 
 Register: **542 findings — 472 fixed, 51 open, 0 GA-BLOCKER, 19 GA-REQUIRED**.
 

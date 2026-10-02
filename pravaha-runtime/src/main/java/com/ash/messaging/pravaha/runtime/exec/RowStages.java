@@ -103,9 +103,13 @@ final class RowStages {
         }
         switch (schema.field(ordinal).type().typeName()) {
             case BOOLEAN -> writer.setBoolean(ordinal, expression.evaluateLong(row) != 0);
-            case INT8 -> writer.setByte(ordinal, (byte) expression.evaluateLong(row));
-            case INT16 -> writer.setShort(ordinal, (short) expression.evaluateLong(row));
-            case INT32, DATE -> writer.setInt(ordinal, (int) expression.evaluateLong(row));
+            // NARROWINT-1: the expression is evaluated in 64 bits and checked against its own type
+            // where it is computed (Expression.fitNarrow); the column is checked again here, so no
+            // expression the planner typed differently from its column can be written as its low
+            // bits. A wrapped value is never published.
+            case INT8 -> writer.setByte(ordinal, (byte) narrow(expression, row, TypeName.INT8));
+            case INT16 -> writer.setShort(ordinal, (short) narrow(expression, row, TypeName.INT16));
+            case INT32, DATE -> writer.setInt(ordinal, (int) narrow(expression, row, TypeName.INT32));
             case FLOAT32 -> writer.setFloat(ordinal, (float) expression.evaluateDouble(row));
             case FLOAT64 -> writer.setDouble(ordinal, expression.evaluateDouble(row));
             case STRING -> writer.setString(ordinal, expression.evaluateString(row));
@@ -123,6 +127,11 @@ final class RowStages {
             }
             default -> writer.setLong(ordinal, expression.evaluateLong(row));
         }
+    }
+
+    /** The expression's value, refused as an overflow if it does not fit a column of {@code type}. */
+    private static long narrow(Expression expression, RowView row, TypeName type) {
+        return Expression.fitNarrow(expression.evaluateLong(row), type, expression);
     }
 
     static RowProcessor projector(ProjectOperator project, RowArena arena, RowProcessor downstream) {

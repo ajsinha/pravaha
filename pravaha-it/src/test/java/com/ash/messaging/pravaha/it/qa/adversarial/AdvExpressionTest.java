@@ -98,22 +98,15 @@ class AdvExpressionTest {
     // ------------------------------------------------------------------ narrow-integer overflow
 
     @Test
-    @Disabled("QE-001: INT * INT past 2^31 is published wrapped (2e9 * 2 = -294967296), no refusal, no DLQ")
     void qe001_intProductPastTheRangeIsNeverPublishedWrapped() {
+        // NARROWINT-1, fixed: an INT result outside INT's range is an overflow, routed as a BIGINT
+        // one is (the query stops PRV-8003), never the wrapped -294967296.
         Outcome outcome = run("SELECT id, i * 2 AS x FROM s");
         assertThat(outcome.published("1|-294967296")).as(outcome.toString()).isFalse();
+        assertThat(outcome.state()).startsWith("FAILED PRV-8003").contains("INT overflow");
     }
 
     @Test
-    void qe001_observed_intProductIsPublishedWrapped() {
-        // The reproduction, as observed on e3ad67dc: the query stays RUNNING with the wrapped value.
-        Outcome outcome = run("SELECT id, i * 2 AS x FROM s");
-        assertThat(outcome.state()).isEqualTo("RUNNING");
-        assertThat(outcome.rows()).contains("1|-294967296", "2|0");
-    }
-
-    @Test
-    @Disabled("QE-002: INT + INT and INT * INT past 2^31 are published wrapped")
     void qe002_intSumAndSquarePastTheRangeAreNeverPublishedWrapped() {
         assertThat(run("SELECT id, i + i AS x FROM s").published("1|-294967296"))
                 .isFalse();
@@ -122,27 +115,23 @@ class AdvExpressionTest {
     }
 
     @Test
-    @Disabled("QE-003: -i at Integer.MIN_VALUE is published as Integer.MIN_VALUE")
     void qe003_negatingIntMinIsNeverPublishedAsItself() {
         assertThat(run("SELECT id, -i AS x FROM s").published("2|-2147483648")).isFalse();
     }
 
     @Test
-    @Disabled("QE-004: ABS(i) at Integer.MIN_VALUE is published negative; only the BIGINT case is refused (Q-12)")
     void qe004_absOfIntMinIsNeverNegative() {
         assertThat(run("SELECT id, ABS(i) AS x FROM s").published("2|-2147483648"))
                 .isFalse();
     }
 
     @Test
-    @Disabled("QE-005: SMALLINT + and * past 2^15 are published wrapped")
     void qe005_smallintArithmeticIsNeverPublishedWrapped() {
         assertThat(run("SELECT id, sm + sm AS x FROM s").published("1|-5536")).isFalse();
         assertThat(run("SELECT id, sm * sm AS x FROM s").published("1|-5888")).isFalse();
     }
 
     @Test
-    @Disabled("QE-006: TINYINT + past 2^7 is published wrapped")
     void qe006_tinyintArithmeticIsNeverPublishedWrapped() {
         Outcome outcome = run("SELECT id, ty + ty AS x FROM s");
         assertThat(outcome.published("1|-56")).as(outcome.toString()).isFalse();
@@ -199,11 +188,25 @@ class AdvExpressionTest {
     // ------------------------------------------------------------------ filters
 
     @Test
-    void qe013_aFilterOnAnIntProductDisagreesWithItsOwnProjection() {
-        // Recorded with QE-001: the filter evaluates in 64 bits (2e9*2 = 4e9 is not < 0) while the
-        // projection of the same expression publishes -294967296. Both halves asserted as observed.
-        assertThat(run("SELECT id FROM s WHERE i * 2 < 0").rows()).containsExactly("2", "5");
-        assertThat(run("SELECT id, i * 2 AS x FROM s WHERE i * 2 > 0").rows()).contains("1|-294967296");
+    void qe013_aFilterOnAnIntProductAgreesWithItsOwnProjection() {
+        // NARROWINT-1, fixed: the filter evaluated 2e9 * 2 in 64 bits (4e9, not < 0) while the
+        // projection of the same expression published -294967296. Both now meet the same INT
+        // overflow, on the same row, and neither answers with a value the other contradicts.
+        Outcome filtered = run("SELECT id FROM s WHERE i * 2 < 0");
+        assertThat(filtered.state())
+                .as(filtered.toString())
+                .startsWith("FAILED PRV-8003")
+                .contains("INT overflow");
+        Outcome projected = run("SELECT id, i * 2 AS x FROM s WHERE i * 2 > 0");
+        assertThat(projected.state())
+                .as(projected.toString())
+                .startsWith("FAILED PRV-8003")
+                .contains("INT overflow");
+        assertThat(projected.rows()).noneMatch(row -> row.startsWith("1|"));
+        // Within range the two agree as before: 5 * 2 and 1 * 2 pass a filter > 0 and project 10, 2.
+        Outcome inRange = run("SELECT id, i * 2 AS x FROM s WHERE i * 2 > 0", ROWS[2], ROWS[5]);
+        assertThat(inRange.state()).isEqualTo("RUNNING");
+        assertThat(inRange.rows()).containsExactly("3|10", "6|2");
     }
 
     @Test

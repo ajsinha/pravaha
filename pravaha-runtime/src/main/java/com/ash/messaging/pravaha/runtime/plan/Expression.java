@@ -125,15 +125,20 @@ public sealed interface Expression {
      * BIGINT amount arrives from Calcite with a CAST around the amount, and refusing it would refuse
      * the query for a reason that has nothing to do with what the user wrote.
      *
-     * <p>Only numeric conversions. Narrowing is allowed and truncates towards zero, which is what
-     * the SQL standard calls implementation-defined and what Java does anyway; what is not allowed
-     * is a conversion that would silently change a value's meaning rather than its width.
+     * <p>Only numeric conversions. A floating-point value narrowed to an integer truncates towards
+     * zero. An integer narrowed to {@code INT}, {@code SMALLINT} or {@code TINYINT} must fit: one
+     * that does not is an overflow (NARROWINT-1), because its low bits are a different number --
+     * a conversion that would silently change a value's meaning rather than its width.
      */
     record Cast(Expression source, TypeName type) implements Expression {
 
         @Override
         public long evaluateLong(RowView row) {
-            return source.isFloatingPoint() ? (long) source.evaluateDouble(row) : source.evaluateLong(row);
+            long value = source.isFloatingPoint() ? (long) source.evaluateDouble(row) : source.evaluateLong(row);
+            // A narrowing to INT, SMALLINT or TINYINT of a value outside the target's range has no
+            // answer, so it is an overflow like any other (NARROWINT-1) rather than the value's low
+            // bits written by the projection while a filter compared the whole of it.
+            return fitNarrow(value, type, this);
         }
 
         @Override
@@ -543,7 +548,9 @@ public sealed interface Expression {
                                         + "integer is asymmetric, so the magnitude of its smallest value is "
                                         + "one larger than its largest.");
                     }
-                    yield Math.abs(value);
+                    // The same asymmetry at every width (NARROWINT-1): ABS of an INT at
+                    // -2147483648 is 2147483648, which is not an INT.
+                    yield fitNarrow(Math.abs(value), type(), this);
                 }
                 // Already whole. Returning it unchanged rather than round-tripping through a double,
                 // which loses precision above 2^53 and would make FLOOR of a large id a different id.
@@ -628,16 +635,24 @@ public sealed interface Expression {
         public long evaluateLong(RowView row) {
             long l = left.evaluateLong(row);
             long r = right.evaluateLong(row);
-            return switch (operator) {
-                case ADD -> Math.addExact(l, r);
-                case SUBTRACT -> Math.subtractExact(l, r);
-                case MULTIPLY -> Math.multiplyExact(l, r);
-                // Integer division by zero is an exception in Java and NULL in SQL. Neither is
-                // obviously right for a stream, and throwing is the one that cannot be mistaken for
-                // an answer -- the record goes to the dead-letter queue with the reason.
-                case DIVIDE -> r == 0 ? divideByZero() : l / r;
-                case MODULO -> r == 0 ? divideByZero() : l % r;
-            };
+            long result =
+                    switch (operator) {
+                        case ADD -> Math.addExact(l, r);
+                        case SUBTRACT -> Math.subtractExact(l, r);
+                        case MULTIPLY -> Math.multiplyExact(l, r);
+                        // Integer division by zero is an exception in Java and NULL in SQL. Neither
+                        // is obviously right for a stream, and throwing is the one that cannot be
+                        // mistaken for an answer -- the record goes to the dead-letter queue with
+                        // the reason.
+                        case DIVIDE -> r == 0 ? divideByZero() : l / r;
+                        case MODULO -> r == 0 ? divideByZero() : l % r;
+                    };
+            // NARROWINT-1: the operands are evaluated in 64 bits, so an INT, SMALLINT or TINYINT
+            // result past its type's range used to be exact here and wrapped where the projection
+            // wrote it -- 2e9 * 2 published as -294967296 while a filter on the same expression
+            // compared 4e9. SQL types INT * INT as INT, so the result is checked against that range
+            // here, once, for every consumer: an overflow exactly as a BIGINT one is.
+            return fitNarrow(result, type, this);
         }
 
         private static long divideByZero() {
@@ -1171,5 +1186,50 @@ public sealed interface Expression {
     /** Whether this expression produces a floating-point value. */
     default boolean isFloatingPoint() {
         return type() == TypeName.FLOAT32 || type() == TypeName.FLOAT64;
+    }
+
+    /**
+     * {@code value}, if it is within {@code type}'s range; an {@link ArithmeticException} naming the
+     * expression and the range if {@code type} is {@code INT}, {@code SMALLINT} or {@code TINYINT}
+     * and it is not (NARROWINT-1). Every other type passes through: {@code BIGINT} is checked by the
+     * {@code *Exact} arithmetic that produced the value.
+     *
+     * <p>An overflow, not a wrap and not a silent widening: SQL gives {@code INT * INT} the type
+     * {@code INT}, and a value outside it has no answer of that type. It is routed as a {@code BIGINT}
+     * overflow is -- the query stops {@code PRV-8003}, or the row is dead-lettered where that applies
+     * -- and a filter on the expression meets the same exception as the projection of it, so the two
+     * cannot disagree. Widening the operands ({@code CAST(i AS BIGINT) * 2}) is how to ask for the
+     * 64-bit answer.
+     */
+    static long fitNarrow(long value, TypeName type, Expression where) {
+        long min;
+        long max;
+        String name;
+        switch (type) {
+            case INT32 -> {
+                min = Integer.MIN_VALUE;
+                max = Integer.MAX_VALUE;
+                name = "INT";
+            }
+            case INT16 -> {
+                min = Short.MIN_VALUE;
+                max = Short.MAX_VALUE;
+                name = "SMALLINT";
+            }
+            case INT8 -> {
+                min = Byte.MIN_VALUE;
+                max = Byte.MAX_VALUE;
+                name = "TINYINT";
+            }
+            default -> {
+                return value;
+            }
+        }
+        if (value < min || value > max) {
+            throw new ArithmeticException(name + " overflow: " + where.describe() + " is " + value
+                    + ", outside " + name + "'s range [" + min + ", " + max + "]. Refused rather than "
+                    + "wrapped; CAST an operand to BIGINT for the 64-bit answer.");
+        }
+        return value;
     }
 }

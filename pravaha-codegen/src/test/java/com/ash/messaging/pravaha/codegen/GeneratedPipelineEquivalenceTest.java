@@ -45,6 +45,8 @@ import com.ash.messaging.pravaha.runtime.exec.InterpretedPipeline;
 import com.ash.messaging.pravaha.runtime.exec.RowOutput;
 import com.ash.messaging.pravaha.runtime.exec.StageGenerator;
 import com.ash.messaging.pravaha.runtime.plan.AggregateOperator;
+import com.ash.messaging.pravaha.runtime.plan.ComputeOperator;
+import com.ash.messaging.pravaha.runtime.plan.Expression;
 import com.ash.messaging.pravaha.runtime.plan.FilterOperator;
 import com.ash.messaging.pravaha.runtime.plan.PhysicalOperator;
 import com.ash.messaging.pravaha.runtime.plan.Predicate;
@@ -231,6 +233,41 @@ class GeneratedPipelineEquivalenceTest {
 
         GeneratedChains.install(new FilterProjectStageGenerator());
         assertThat(compile(chain, true).executionPaths()).anyMatch(p -> p.startsWith("generated:"));
+    }
+
+    @Test
+    void aNarrowIntegerOverflowIsTheSameGeneratedAsInterpreted() {
+        // NARROWINT-1 behind a generated filter: the computed INT column above it is checked against
+        // INT's range on either path, so 2e9 * 2 is the same INT overflow generated and interpreted
+        // -- never -294967296 on one of them -- and 5 * 2 is 10 on both.
+        StreamSchema schema = StreamSchema.builder("s")
+                .field("i", Types.int32())
+                .field("keep", Types.bool())
+                .build();
+        Expression doubled = new Expression.Arithmetic(
+                new Expression.Column(0, "i", TypeName.INT32),
+                Expression.Operator.MULTIPLY,
+                Expression.Literal.ofLong(2),
+                TypeName.INT32);
+        PhysicalOperator chain = new ComputeOperator(
+                new FilterOperator(ScanOperator.of("s", schema), new Predicate.CompareBoolean(1, "keep", true)),
+                StreamSchema.builder("c").field("x", Types.int32()).build(),
+                List.of(doubled));
+        List<Object[]> rows = List.of(new Object[] {5, true}, new Object[] {2_000_000_000, true});
+
+        List<String> generated = rowsRun(chain, schema, rows, new FilterProjectStageGenerator());
+        assertThat(generated).isEqualTo(rowsRun(chain, schema, rows, null));
+        assertThat(generated.get(0)).endsWith("[i10]");
+        assertThat(generated.get(1)).contains("INT overflow").doesNotContain("-294967296");
+
+        // A filter on the same expression meets the same overflow. The generator refuses a
+        // comparison of computed expressions, so both paths interpret it -- and must agree.
+        PhysicalOperator filtered = new FilterOperator(
+                ScanOperator.of("s", schema),
+                new Predicate.CompareExpressions(doubled, Predicate.Op.LT, Expression.Literal.ofLong(0)));
+        List<String> generatedFilter = rowsRun(filtered, schema, rows, new FilterProjectStageGenerator());
+        assertThat(generatedFilter).isEqualTo(rowsRun(filtered, schema, rows, null));
+        assertThat(generatedFilter).singleElement().asString().contains("INT overflow");
     }
 
     @Test
