@@ -97,6 +97,21 @@ NullAway, about 600 from Error Prone's WARNING checks (`StringSplitter` 100, `Ar
 61, `NotJavadoc` 52, `MissingOverride` 42, `UnusedVariable` 39, …), and 148 from javac's own
 `-Xlint` (`try`, `deprecation`), which the default build prints too.
 
+**The client modules are gated (2.1).** `pravaha-api`, `pravaha-sdk-java` and
+`pravaha-sdk-java-flight` were brought to zero — NullAway, Error Prone's WARNING checks and javac's
+`-Xlint`, main and test code — and each module's own `ep` profile holds them there: NullAway at ERROR
+(`ep.nullaway.level`, which the parent sets to `WARN`) and `failOnWarning`, so any new warning in
+them fails `-Pep`. Before: 72, 6 and 61 warnings; after: 0. Nullness there is a contract, written
+with [JSpecify](https://jspecify.dev)'s `@Nullable` (`org.jspecify:jspecify`, the version in
+`jspecify.version`): a parameter, return or record component without it is never null, and the
+javadoc says what null means where one is allowed. `pravaha-api` and `pravaha-sdk-java` take the jar
+compile-only (`provided`), so they stay dependency-free — `pravaha-api`'s enforcer rule admits that
+one artifact in that scope and nothing else — and `pravaha-sdk-java-flight` takes it at compile scope,
+which adds nothing for a client because Guava, through Arrow, already depends on the same jar. A
+test that passes null on purpose, to pin a refusal or a tolerance, says so with
+`@SuppressWarnings("NullAway")` and a comment. To bring another module to zero, fix it under `-Pep`,
+then copy the `ep` profile from one of these three poms.
+
 ### Which Maven to call: stale jars (MAVENRACE-1)
 
 `./mvnw -pl <module> test` resolves the module's Pravaha dependencies from `~/.m2`, not from the

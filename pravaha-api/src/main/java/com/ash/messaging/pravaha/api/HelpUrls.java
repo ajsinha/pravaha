@@ -19,6 +19,8 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Locale;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * Where a deployment publishes the help page for a {@code PRV-nnnn} code, when it publishes one.
  *
@@ -67,7 +69,7 @@ public final class HelpUrls {
     public static final ErrorCode BASE_URL_INVALID = new ErrorCode(1029, "CONFIG_DOCS_BASE_URL_INVALID");
 
     /** Null when unset. Otherwise an absolute http/https URL ending in {@code /}. */
-    private static volatile String base;
+    private static volatile @Nullable String base;
 
     private HelpUrls() {}
 
@@ -77,7 +79,7 @@ public final class HelpUrls {
      * @throws PravahaException {@link #BASE_URL_INVALID} if the value is not an absolute http or
      *     https URL. The previously configured base is left alone when that happens.
      */
-    public static void configure(String raw) {
+    public static void configure(@Nullable String raw) {
         base = normalise(raw);
     }
 
@@ -91,7 +93,7 @@ public final class HelpUrls {
      *
      * <p>The two are one setting, so the explicit one wins and neither is merged with the other.
      */
-    public static void configureOrFromEnvironment(String configured) {
+    public static void configureOrFromEnvironment(@Nullable String configured) {
         if (configured != null && !configured.isBlank()) {
             configure(configured);
         } else {
@@ -114,7 +116,7 @@ public final class HelpUrls {
      * The help page for a rendered code such as {@code PRV-2002}, or the empty string when this
      * deployment publishes none.
      */
-    public static String forCode(String renderedCode) {
+    public static String forCode(@Nullable String renderedCode) {
         String current = base;
         if (current == null || renderedCode == null || renderedCode.isBlank()) {
             return "";
@@ -123,7 +125,7 @@ public final class HelpUrls {
     }
 
     /** What a message says instead of a link: the two places the code can be looked up offline. */
-    public static String lookupHint(String renderedCode) {
+    public static String lookupHint(@Nullable String renderedCode) {
         String what = renderedCode == null || renderedCode.isBlank() ? "this code" : renderedCode.strip();
         return "look " + what + " up in the console's help under Errors, or in docs/guides/TROUBLESHOOTING.md";
     }
@@ -132,11 +134,11 @@ public final class HelpUrls {
      * The one line a printed refusal adds under its message: the help URL when this deployment has
      * one, and otherwise how to resolve the code without a network.
      */
-    public static String helpLine(String renderedCode) {
+    public static String helpLine(@Nullable String renderedCode) {
         return configured() ? forCode(renderedCode) : lookupHint(renderedCode);
     }
 
-    private static String normalise(String raw) {
+    private static @Nullable String normalise(@Nullable String raw) {
         if (raw == null || raw.isBlank()) {
             return null;
         }

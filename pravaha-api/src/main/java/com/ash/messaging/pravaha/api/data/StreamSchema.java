@@ -23,6 +23,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.OptionalInt;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * The shape of a stream or table: an ordered, immutable list of fields plus the metadata the engine
  * needs to bind it -- which field carries event time, and what identifies a row.
@@ -115,8 +117,8 @@ public final class StreamSchema {
             int version,
             int eventTimeOrdinal,
             List<String> primaryKey,
-            Duration outOfOrderness,
-            Duration allowedLateness) {
+            @Nullable Duration outOfOrderness,
+            @Nullable Duration allowedLateness) {
         this(
                 name,
                 fields,
@@ -134,8 +136,8 @@ public final class StreamSchema {
             int version,
             int eventTimeOrdinal,
             List<String> primaryKey,
-            Duration outOfOrderness,
-            Duration allowedLateness,
+            @Nullable Duration outOfOrderness,
+            @Nullable Duration allowedLateness,
             int streamId) {
         this.streamId = streamId;
         this.outOfOrderness = outOfOrderness == null ? DEFAULT_OUT_OF_ORDERNESS : outOfOrderness;
@@ -193,7 +195,6 @@ public final class StreamSchema {
                 name, fields, version, eventTimeOrdinal, primaryKey, outOfOrderness, allowedLateness, id);
     }
 
-    /** Ordinal of the event-time field, or empty when the stream has no declared event time. */
     /**
      * How far behind the highest event time seen this stream's watermark should sit.
      *
@@ -228,6 +229,7 @@ public final class StreamSchema {
         return allowedLateness;
     }
 
+    /** Ordinal of the event-time field, or empty when the stream has no declared event time. */
     public OptionalInt eventTimeOrdinal() {
         return eventTimeOrdinal < 0 ? OptionalInt.empty() : OptionalInt.of(eventTimeOrdinal);
     }
@@ -339,10 +341,10 @@ public final class StreamSchema {
         private final List<Field> fields = new ArrayList<>();
         private final List<String> primaryKey = new ArrayList<>();
         private int version = 1;
-        private String eventTimeField;
-        private Duration outOfOrderness;
+        private @Nullable String eventTimeField;
+        private @Nullable Duration outOfOrderness;
 
-        private Duration allowedLateness;
+        private @Nullable Duration allowedLateness;
 
         private Builder(String name) {
             this.name = Objects.requireNonNull(name, "name");

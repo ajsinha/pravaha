@@ -20,6 +20,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.ErrorCode;
 import com.ash.messaging.pravaha.api.PravahaException;
 
@@ -278,8 +280,8 @@ public final class ControlWire {
         return encode(List.of(fields));
     }
 
-    /** True if these bytes are ours, without attempting to parse them as anything else. */
-    public static boolean isOurs(byte[] bytes) {
+    /** True if these bytes are ours, without attempting to parse them as anything else; false for null. */
+    public static boolean isOurs(byte @Nullable [] bytes) {
         return bytes != null && bytes.length >= 5 && ByteBuffer.wrap(bytes).getInt() == MAGIC;
     }
 
@@ -420,10 +422,15 @@ public final class ControlWire {
 
     /**
      * A subscription ticket of any kind: {@code answer} for the answer rather than the changelog,
-     * {@code snapshot} to start from the view's state; {@code preference} may be null.
+     * {@code snapshot} to start from the view's state; {@code preference} may be null, for the
+     * server's defaults.
      */
     public static byte[] subscribeTicket(
-            String view, List<String> filterPairs, SubscriberPreference preference, boolean snapshot, boolean answer) {
+            String view,
+            List<String> filterPairs,
+            @Nullable SubscriberPreference preference,
+            boolean snapshot,
+            boolean answer) {
         String verb = answer
                 ? (snapshot ? SUBSCRIBE_ANSWER_FROM_SNAPSHOT : SUBSCRIBE_ANSWER)
                 : (snapshot ? SUBSCRIBE_FROM_SNAPSHOT : SUBSCRIBE);
@@ -435,8 +442,12 @@ public final class ControlWire {
         return ticket(SUBSCRIBE, view, filterPairs, null);
     }
 
-    /** {@link #subscribeTicket}, carrying what this subscriber asked its buffer to do (STRM-16). */
-    public static byte[] subscribeTicket(String view, List<String> filterPairs, SubscriberPreference preference) {
+    /**
+     * {@link #subscribeTicket}, carrying what this subscriber asked its buffer to do (STRM-16); null for
+     * the server's defaults.
+     */
+    public static byte[] subscribeTicket(
+            String view, List<String> filterPairs, @Nullable SubscriberPreference preference) {
         return ticket(SUBSCRIBE, view, filterPairs, preference);
     }
 
@@ -445,7 +456,8 @@ public final class ControlWire {
         return ticket(SUBSCRIBE_FROM_SNAPSHOT, view, filterPairs, null);
     }
 
-    private static byte[] ticket(String verb, String view, List<String> filterPairs, SubscriberPreference preference) {
+    private static byte[] ticket(
+            String verb, String view, List<String> filterPairs, @Nullable SubscriberPreference preference) {
         List<String> fields = new ArrayList<>();
         fields.add(verb);
         fields.add(view);
@@ -500,13 +512,13 @@ public final class ControlWire {
          * these is an odd trailing field from a client that meant something else, and reading it as
          * a policy would be the guess this format exists to avoid.
          */
-        public static SubscriberPreference decode(String text) {
+        public static @Nullable SubscriberPreference decode(@Nullable String text) {
             if (text == null || !text.startsWith("rows=")) {
                 return null;
             }
             int rows = -1;
             String overflow = "";
-            for (String part : text.split(";")) {
+            for (String part : text.split(";", -1)) {
                 int split = part.indexOf('=');
                 if (split < 0) {
                     continue;
@@ -573,7 +585,7 @@ public final class ControlWire {
         }
 
         /** The mark in {@code metadata}, or null when there is none or it is not one of ours. */
-        public static BatchMark decode(byte[] metadata) {
+        public static @Nullable BatchMark decode(byte @Nullable [] metadata) {
             if (metadata == null || metadata.length == 0) {
                 return null;
             }
@@ -581,7 +593,8 @@ public final class ControlWire {
             if (!text.startsWith(PREFIX)) {
                 return null;
             }
-            String[] parts = text.substring(PREFIX.length()).split(":");
+            // Limit 0, spelled out: a trailing colon is dropped rather than read as an empty count.
+            String[] parts = text.substring(PREFIX.length()).split(":", 0);
             if (parts.length < 2 || parts[0].isEmpty()) {
                 return null;
             }

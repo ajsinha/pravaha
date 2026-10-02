@@ -19,6 +19,8 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.ErrorCode;
 import com.ash.messaging.pravaha.api.PravahaException;
 
@@ -74,10 +76,11 @@ public final class ErrorWire {
      * the caller has to say something different about those. Guessing one here is how
      * {@code PRV-1041} came to mean "the server refused this" and "there was no server".
      *
-     * @param description the failure text as it arrived, usually {@code PravahaException.getMessage()}
+     * @param description the failure text as it arrived, usually {@code PravahaException.getMessage()};
+     *     null reads as no code
      * @param name the {@link #NAME_HEADER} trailer, or null if the transport carried none
      */
-    public static Optional<ErrorCode> recover(String description, String name) {
+    public static Optional<ErrorCode> recover(@Nullable String description, @Nullable String name) {
         if (description == null) {
             return Optional.empty();
         }

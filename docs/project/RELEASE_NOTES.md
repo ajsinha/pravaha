@@ -404,6 +404,25 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   start, naming the setting and the value it takes, whether `pravaha.identity.enabled` is on or off.
   **Upgrade note:** a node configured with `sso` or `hybrid` must remove the setting or set it to
   `password`; it signed people in with passwords either way, so nothing else changes. `NodeIdentityTest`.
+- **The client modules are clean under `-Pep`, and held there.** `pravaha-api`, `pravaha-sdk-java`
+  and `pravaha-sdk-java-flight` had 72, 6 and 61 static-analysis warnings (NullAway, Error Prone's
+  WARNING checks, one `-Xlint`); they have none, and each module's `ep` profile now runs NullAway at
+  ERROR and fails on any warning, so they stay at none. Their nullness is a contract written with
+  JSpecify's `@Nullable` — compile-only in `pravaha-api` and `pravaha-sdk-java`, which stay
+  dependency-free, and at compile scope in `pravaha-sdk-java-flight`, where Guava already brought the
+  same jar. What a caller can now see in the types: `Row.get`, `getString` and `getBigDecimal`
+  return null for a null column; `RegisteredQueryInfo`'s and `ReplacementInfo`'s optional fields,
+  `DeadLetterInfo.at`/`replayedAt`, `DebugStatePage.key`, `DebugStepReport.watermarkNanos`,
+  `DebugSessionInfo.watermarkNanos` and `ReconnectingSubscription.Reconnect.giveUpAfter` may be
+  null, as their javadoc said; `register`'s sink and retention, `replace`'s options,
+  `debugFork`'s checkpoint and `ClientOptions.Builder.token` accept null. In `pravaha-api`:
+  `ReadRequest.Filter.value` (null for `IS [NOT] NULL`), `PartialAggregate.AggregateCall.column`
+  (null for `COUNT(*)`), `Notification`'s `view`, `tenant`, `severity`, `since` and `at`,
+  `StreamSourcePlugin.orderedPositions()`, and the `ControlWire` and `HelpUrls` helpers that took
+  null already. Behaviour changes: `DeadLetterInfo.equals`/`hashCode` compare the record's bytes by
+  content (they compared the array's identity, so two equal dead letters were unequal), and a
+  failure the server gave no description reads "the server sent no description" rather than
+  "null". See TESTING.md, *Static analysis*.
 
 Register: **546 findings — 525 fixed, 2 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 

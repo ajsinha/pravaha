@@ -17,6 +17,8 @@ package com.ash.messaging.pravaha.api.plugin;
 
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.data.StreamSchema;
 
 /**
@@ -106,7 +108,7 @@ public interface StreamSourcePlugin extends PravahaPlugin {
      * positions, each receiving each record once and in order, even from a source that promises
      * exactly-once or order. {@code null}, the default, keeps each such query on a reader of its own.
      */
-    default OrderedPositions orderedPositions() {
+    default @Nullable OrderedPositions orderedPositions() {
         return null;
     }
 

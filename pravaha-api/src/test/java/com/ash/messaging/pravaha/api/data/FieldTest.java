@@ -37,6 +37,8 @@ class FieldTest {
     }
 
     @Test
+    // Nulls on purpose: what is tested is the refusal a caller outside NullAway meets.
+    @SuppressWarnings("NullAway")
     void rejectsNulls() {
         assertThatThrownBy(() -> new Field(null, Types.int32(), 0)).isInstanceOf(NullPointerException.class);
         assertThatThrownBy(() -> new Field("a", null, 0)).isInstanceOf(NullPointerException.class);

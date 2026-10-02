@@ -17,6 +17,8 @@ package com.ash.messaging.pravaha.api.plugin;
 
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * What the engine would like a source to do on its behalf.
  *
@@ -144,7 +146,8 @@ public record ReadRequest(
      * @param value a boxed Java value matching the column's type; {@code null} only for
      *     {@link Comparison#IS_NULL} and {@link Comparison#IS_NOT_NULL}, where it is ignored
      */
-    public record Filter(String column, Comparison comparison, Object value) {
+    public record Filter(
+            String column, Comparison comparison, @Nullable Object value) {
 
         public Filter {
             if (column == null || column.isBlank()) {
@@ -224,7 +227,7 @@ public record ReadRequest(
          * @param outputName the name this partial's value is returned under, matching the engine's
          *     own aggregate output naming so the source need not invent one
          */
-        public record AggregateCall(Kind kind, String column, String outputName) {
+        public record AggregateCall(Kind kind, @Nullable String column, String outputName) {
 
             public AggregateCall {
                 if (outputName == null || outputName.isBlank()) {
