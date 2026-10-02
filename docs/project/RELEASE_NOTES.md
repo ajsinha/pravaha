@@ -139,6 +139,15 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   `PRAVAHA_BIND` and lines the script does not write (`COMPOSE_PROFILES`, …) are kept too. New
   `tools/docker-env-test.sh` (run twice with edited values, then a third time byte-for-byte; no
   Docker), wired into the packaging workflow.
+- **A windowed query over a burst into one partition of several closes its windows (SEEDWINDOW-1).**
+  The Docker `seed` profile writes twelve orders, all into one partition of the three-partition
+  `orders` topic; the other two never produce. All three crossed `idle-after` on the same tick, and
+  with every partition idle the watermark "stays where it is" — which was nowhere, so
+  `spend_per_minute` stayed empty for good (the guide shows ten rows). With every partition idle the
+  watermark now catches up to the lowest watermark among the partitions that delivered rows — what
+  they themselves said, never past it, never backwards — so the windows the burst has passed close
+  `idle-after` after it. The idle-exclusion rule is unchanged otherwise. `WatermarkTrackerTest`;
+  proved on the compose stack (`--profile seed`: `spend_per_minute` 10 rows, 10:00 to 10:04).
 
 Register: **543 findings — 482 fixed, 42 open, 0 GA-BLOCKER, 9 GA-REQUIRED**.
 
