@@ -172,6 +172,39 @@ class AdvResourceTest {
     }
 
     @Test
+    void qe155_aSubscriberThatNeverKeepsUpWithFailOverflow() throws Exception {
+        try (PravahaEngine engine = engine()) {
+            engine.register("sub", "SELECT k, v, ts FROM w", "k", "ts");
+            java.util.concurrent.atomic.AtomicInteger delivered = new java.util.concurrent.atomic.AtomicInteger();
+            var subscription = engine.subscribe("sub",
+                    com.ash.messaging.pravaha.registry.SubscriptionOptions.of(
+                            10, com.ash.messaging.pravaha.registry.SubscriptionOptions.Overflow.FAIL),
+                    changes -> {
+                        delivered.addAndGet(changes.size());
+                        try {
+                            Thread.sleep(200);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    });
+            long start = System.nanoTime();
+            String pushes = "OK";
+            for (int i = 0; i < 200 && "OK".equals(pushes); i++) {
+                int n = i;
+                pushes = AdvSupport.attempt(() -> engine.push("w", new Object[] {"k" + n, 1L, "", Instant.ofEpochSecond(BASE + n)}));
+            }
+            long millis = (System.nanoTime() - start) / 1_000_000;
+            Thread.sleep(500);
+            String ended = AdvSupport.attempt(() -> {
+                throw new IllegalStateException(String.valueOf(subscription));
+            });
+            System.out.println("NOTE QE-155 200 pushes took " + millis + " ms, last=" + pushes.lines().findFirst().orElse("")
+                    + ", delivered=" + delivered.get() + ", subscription=" + ended.lines().findFirst().orElse(""));
+            assertThat(millis).as("a slow subscriber must not hold up the engine").isLessThan(20_000);
+        }
+    }
+
+    @Test
     void qe150_aTenMegabyteString() {
         try (PravahaEngine engine = engine()) {
             engine.register("big", "SELECT k, t, ts FROM w", "k", "ts");

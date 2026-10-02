@@ -412,6 +412,34 @@ class AdvDurabilityTest {
         }
     }
 
+    @Test
+    void qe090_aRestartWithAReplacementInFlight(@TempDir Path dir) throws Exception {
+        Workload workload = new Workload(90, 30, 40);
+        Path csv = writeWorkload(dir, workload);
+        Path state = dir.resolve("state");
+        String replaced;
+        try (PravahaEngine engine = fileEngine(state, csv, Map.of())) {
+            assertThat(converge(engine, workload, Duration.ofSeconds(30))).isNull();
+            replaced = AdvSupport.attempt(() -> engine.query("CREATE OR REPLACE CONTINUOUS QUERY win KEYED BY "
+                    + "(window_start, window_end, g) WITH (backfill = 'history', cutover = 'manual', "
+                    + "backfill.rate.limit = 50) AS " + AdvCrashChildMain.WINDOW + " HAVING COUNT(*) > 0"));
+            Thread.sleep(300);
+        }
+        String after = AdvSupport.attempt(() -> {
+            try (PravahaEngine engine = fileEngine(state, csv, Map.of())) {
+                String difference = converge(engine, workload, Duration.ofSeconds(30));
+                throw new IllegalStateException((difference == null ? "EQUAL" : "DIFFERENT " + difference)
+                        + " | " + AdvSupport.rows(engine, "SHOW CONTINUOUS QUERIES").stream()
+                                .map(r -> r.split("\\|")[0] + "=" + r.split("\\|")[1]).toList());
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }).replace("UNCODED java.lang.IllegalStateException: ", "");
+        System.out.println("NOTE QE-090 replace=" + replaced.lines().findFirst().orElse("") + " | after restart: "
+                + after.lines().findFirst().orElse(""));
+        assertThat(after).doesNotContain("DIFFERENT").doesNotStartWith("UNCODED");
+    }
+
     // ------------------------------------------------------------------ QE-076, QE-089, QE-091, QE-092
 
     static final StreamSchema W = StreamSchema.builder("w")

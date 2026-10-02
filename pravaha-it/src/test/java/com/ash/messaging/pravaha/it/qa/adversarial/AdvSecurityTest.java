@@ -741,6 +741,22 @@ class AdvSecurityTest {
     // ------------------------------------------------------------------ quotas
 
     @Test
+    void qe154_aTenantQuotaOnStateKeys() throws Exception {
+        TenancyProperties tenancy = new TenancyProperties();
+        tenancy.getDefaults().setMaxStateKeys(2L);
+        start(tenancy);
+        String one = as("ops", "CREATE CONTINUOUS QUERY q1 KEYED BY (id) AS SELECT id, amount FROM txn");
+        pay("acme.default.q1");
+        Thread.sleep(500);
+        String two = as("ops", "CREATE CONTINUOUS QUERY q2 KEYED BY (id) AS SELECT id, card FROM txn");
+        String q1 = node.registry().orElseThrow().find("acme.default.q1").map(q -> q.state() + " size=" + q.view().size())
+                .orElse("-");
+        System.out.println("NOTE QE-154 first=" + one + " | second after 3 keys held=" + two + " | q1 " + q1);
+        assertThat(two).startsWith("PRV-8021");
+        assertThat(q1).startsWith("RUNNING");
+    }
+
+    @Test
     void qe153_aTenantQuotaOnQueries() throws Exception {
         TenancyProperties tenancy = new TenancyProperties();
         tenancy.getDefaults().setMaxQueries(2L);
