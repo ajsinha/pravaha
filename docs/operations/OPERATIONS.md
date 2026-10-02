@@ -2088,6 +2088,8 @@ disabling an account ends its sessions and keys, not the queries it registered. 
 | You see | It means |
 |---|---|
 | `PRV-8005 ... this version does not understand` | A journal record from a newer version. Refused, not skipped — skipping would silently drop a registration |
+| `PRV-8005 ... has a damaged length ..., and a complete record follows at byte offset N` | Damage in the middle of the journal, not a crash: the node refuses to start rather than replay up to it and drop every registration after it (JOURNALMID-1). Nothing is changed. Restore the journal from a backup, or move it aside and re-register; the records before the named offset are intact |
+| `WARN ... ends in a half-written record` | A crash cut the last append short. The complete records before it are replayed, and the torn bytes are cut off before the next append so it lands on a record boundary |
 | `PRV-8006` on register | The journal could not be written. The registration is **refused**, because acknowledging one that will not survive a restart tells the client something untrue |
 | `refused: ... contract ended` | The owner lost the permission they registered under. Working as intended |
 | `refused: ... not a principal this deployment knows` | The owner no longer resolves — in neither the identity store nor the token table. Recovering it as nobody would run a query under an authority it was never granted |

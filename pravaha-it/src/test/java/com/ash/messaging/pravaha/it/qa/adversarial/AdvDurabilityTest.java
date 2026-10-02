@@ -593,25 +593,39 @@ class AdvDurabilityTest {
     }
 
     @Test
-    @Disabled("QE-082: a damaged length prefix in the middle of the registry journal is read as a torn final record: "
-            + "every later registration is silently dropped at start, and every registration made afterwards is "
-            + "appended past the damage and dropped at the next start")
     void qe082_aDamagedRecordInTheMiddleOfTheJournalRefusesTheStart(@TempDir Path dir) {
+        // JOURNALMID-1, fixed: the start is refused PRV-8005 naming the offset, not replayed as [alpha].
         String outcome = AdvSupport.attempt(() -> {
             try {
                 damagedMiddleRecord(dir);
+            } catch (RuntimeException e) {
+                throw e;
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
         });
-        assertThat(outcome).startsWith("PRV-8005");
+        assertThat(outcome).startsWith("PRV-8005").contains("byte offset").contains("a complete record follows");
     }
 
     @Test
-    void qe082_observed(@TempDir Path dir) throws Exception {
-        List<String> seen = damagedMiddleRecord(dir);
-        System.out.println("NOTE QE-082 " + seen);
-        assertThat(seen).containsExactly("after damage: [alpha]", "after registering delta and restarting: [alpha]");
+    void qe082_aRegistrationAfterATornTailSurvivesTheNextStart(@TempDir Path dir) throws Exception {
+        // The other half of JOURNALMID-1: a registration appended after a genuinely torn final record
+        // used to land behind the torn bytes and be lost at the next start. The tail is cut first now.
+        Map<String, String> settings = AdvSupport.durable(dir);
+        try (PravahaEngine engine = AdvSupport.engine(settings, e -> e.declareStream(W))) {
+            engine.register("alpha", "SELECT k, v, ts FROM w", "k", "ts");
+            engine.register("beta", "SELECT k, v, ts FROM w WHERE v > 1", "k", "ts");
+        }
+        Path journal = dir.resolve("registry.journal");
+        byte[] whole = Files.readAllBytes(journal);
+        Files.write(journal, java.util.Arrays.copyOf(whole, whole.length - 7));
+        try (PravahaEngine engine = AdvSupport.engine(settings, e -> e.declareStream(W))) {
+            assertThat(engine.queries().toString()).isEqualTo("[alpha]");
+            engine.register("gamma", "SELECT k, v, ts FROM w WHERE v > 3", "k", "ts");
+        }
+        try (PravahaEngine engine = AdvSupport.engine(settings, e -> e.declareStream(W))) {
+            assertThat(engine.queries().toString()).isEqualTo("[alpha, gamma]");
+        }
     }
 
     // ------------------------------------------------------------------ ownership, permissions, full disk

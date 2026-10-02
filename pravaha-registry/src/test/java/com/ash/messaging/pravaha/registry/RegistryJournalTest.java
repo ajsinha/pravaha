@@ -320,6 +320,74 @@ class RegistryJournalTest {
         assertThat(replayed.get(0).name()).isEqualTo("one_view");
     }
 
+    /** Three records, one, two and three, written as three appends. */
+    private static Path threeRecords(Path directory) {
+        Path journal = directory.resolve("registry.journal");
+        RegistryJournal writer = new RegistryJournal(journal);
+        for (String name : List.of("one", "two", "three")) {
+            writer.recordRegistration(
+                    name, "SELECT user_id FROM txn", List.of(0), "dana", Retention.DEFAULT, List.of());
+        }
+        return journal;
+    }
+
+    @Test
+    void aDamagedLengthInTheMiddleIsRefusedNamingTheOffsetAndNotReadAsATornTail(@TempDir Path directory)
+            throws Exception {
+        // JOURNALMID-1: the second record's length prefix overwritten with one that runs past the end.
+        // It used to read as a torn final record: [one] came back, and two and three were gone at
+        // every start without a word.
+        Path journal = threeRecords(directory);
+        byte[] bytes = Files.readAllBytes(journal);
+        java.nio.ByteBuffer buffer = java.nio.ByteBuffer.wrap(bytes);
+        int second = 4 + buffer.getInt(0);
+        buffer.putInt(second, 0x7fffff00);
+        Files.write(journal, bytes);
+
+        assertThatThrownBy(() -> new RegistryJournal(journal).replay())
+                .isInstanceOf(PravahaException.class)
+                .hasMessageContaining("PRV-8005")
+                .hasMessageContaining("record 2")
+                .hasMessageContaining("byte offset " + second)
+                .hasMessageContaining("a complete record follows at byte offset")
+                .hasMessageContaining("restore the journal from a backup");
+        // Nor can anything be appended behind the damage, where it would be lost too.
+        assertThatThrownBy(() -> new RegistryJournal(journal).recordDrop("one")).hasMessageContaining("PRV-8005");
+        assertThat(Files.readAllBytes(journal)).as("nothing is changed").isEqualTo(bytes);
+    }
+
+    @Test
+    void aNegativeLengthInTheMiddleIsRefusedToo(@TempDir Path directory) throws Exception {
+        Path journal = threeRecords(directory);
+        byte[] bytes = Files.readAllBytes(journal);
+        java.nio.ByteBuffer.wrap(bytes).putInt(0, -5);
+        Files.write(journal, bytes);
+        assertThatThrownBy(() -> new RegistryJournal(journal).replay())
+                .hasMessageContaining("PRV-8005")
+                .hasMessageContaining("byte offset 0");
+    }
+
+    @Test
+    void anAppendAfterATornTailLandsOnARecordBoundaryAndSurvives(@TempDir Path directory) throws Exception {
+        // The torn tail itself stays harmless; what was not was appending behind it, where the next
+        // replay read the new record as the rest of the torn one.
+        Path journal = threeRecords(directory);
+        byte[] whole = Files.readAllBytes(journal);
+        for (int cut : new int[] {1, 3, 7, 30}) {
+            Files.write(journal, java.util.Arrays.copyOf(whole, whole.length - cut));
+            RegistryJournal reopened = new RegistryJournal(journal);
+            assertThat(reopened.replay())
+                    .extracting(RegistryJournal.Entry::name)
+                    .containsExactly("one", "two");
+            reopened.recordRegistration(
+                    "four", "SELECT user_id FROM txn", List.of(0), "dana", Retention.DEFAULT, List.of());
+            assertThat(new RegistryJournal(journal).replay())
+                    .as("cut %d bytes", cut)
+                    .extracting(RegistryJournal.Entry::name)
+                    .containsExactly("one", "two", "four");
+        }
+    }
+
     @Test
     void aRecordThisVersionCannotUnderstandIsRefusedRatherThanSkipped(@TempDir Path directory) throws Exception {
         Path journal = directory.resolve("registry.journal");

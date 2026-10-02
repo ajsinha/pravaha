@@ -32,6 +32,11 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   passes the new `pravaha.lane.max-windows-per-row` (100,000 by default; server and embedded), the
   registration is refused naming the size, the slide and both counts. `HOP(INTERVAL '0.001' SECOND,
   INTERVAL '1' DAY)` used to register, and one row of it held its lane and every push to the stream.
+- **Damage in the middle of the registry journal refuses the start, `PRV-8005`** (JOURNALMID-1),
+  naming the byte offset of the damaged length and of the complete record after it. Any length that
+  ran past the end used to be read as a torn final record, so one damaged prefix silently dropped
+  every later registration at every start. A genuinely torn tail is still replayed up to, and is now
+  cut off before the next append — a registration appended behind it used to be lost at the next start.
 
 Register: **542 findings — 472 fixed, 51 open, 0 GA-BLOCKER, 19 GA-REQUIRED**.
 

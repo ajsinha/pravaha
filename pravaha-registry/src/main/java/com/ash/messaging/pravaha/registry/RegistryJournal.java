@@ -144,6 +144,13 @@ public final class RegistryJournal {
 
     private final Path file;
 
+    /**
+     * Whether this instance has made sure the file ends on a record boundary before appending to it
+     * (JOURNALMID-1). An append after a torn final record used to land behind the torn bytes, where
+     * the next start read it as part of them and lost it -- and every registration after it.
+     */
+    private boolean tailChecked;
+
     public RegistryJournal(Path file) {
         this.file = file;
     }
@@ -557,32 +564,138 @@ public final class RegistryJournal {
         } catch (IOException failure) {
             throw new UncheckedIOException("cannot read the registry journal at " + file, failure);
         }
+        Scan scan = scan(all);
+        for (int i = 0; i < scan.records().size(); i++) {
+            apply(live, pending, scan.records().get(i), i + 1);
+        }
+        if (scan.tornAt() >= 0) {
+            LOG.log(
+                    System.Logger.Level.WARNING,
+                    "the registry journal at " + file + " ends in a half-written record ("
+                            + (all.length - scan.tornAt())
+                            + " bytes from offset " + scan.tornAt() + "), the trace of a crash during an append; the "
+                            + scan.records().size() + " complete records before it are replayed, and the next append "
+                            + "cuts the torn bytes off first");
+        }
+        return new Replayed(List.copyOf(live.values()), List.copyOf(pending.values()));
+    }
+
+    /**
+     * The journal's complete records, and where a torn final record begins ({@code -1} for none).
+     *
+     * @param tornAt the offset of a final record a crash left half-written, which is everything from
+     *     there to the end of the file
+     */
+    private record Scan(List<List<String>> records, long tornAt) {}
+
+    /**
+     * Reads every record, telling a torn tail from damage in the middle (JOURNALMID-1).
+     *
+     * <p>A record is a four-byte length and that many bytes of {@link ControlWire}. A crash during an
+     * append leaves a prefix of the last write: a length with too few bytes behind it, or a few bytes
+     * of a length. That is expected and harmless -- everything before it is intact. But a length
+     * damaged in the middle of the file reads exactly the same way, as one that runs past the end,
+     * and treating it as a torn tail dropped every record after it at every start, silently, along
+     * with every registration appended after it since. So a bad length is a torn tail only when no
+     * complete record follows it: the bytes after it are searched for one, recognised by a plausible
+     * length followed by {@link ControlWire}'s four-byte magic and a payload that decodes. Finding
+     * one means valid records follow the damage, and the start is refused, naming both offsets,
+     * rather than replaying a journal with a hole in it.
+     */
+    private Scan scan(byte[] all) {
         ByteBuffer buffer = ByteBuffer.wrap(all);
+        List<List<String>> records = new ArrayList<>();
         int record = 0;
-        while (buffer.remaining() > 4) {
+        while (buffer.hasRemaining()) {
             record++;
-            int length = buffer.getInt();
+            int start = buffer.position();
+            boolean partialHeader = buffer.remaining() < 4;
+            int length = partialHeader ? -1 : buffer.getInt();
             if (length < 0 || length > buffer.remaining()) {
-                // A half-written final record is the expected result of a crash during an append,
-                // not a corrupt journal. Everything before it is intact and is what we keep.
-                break;
+                int resumes = nextRecordAfter(all, start + 1);
+                if (resumes < 0) {
+                    return new Scan(records, start);
+                }
+                throw new PravahaException(
+                        RegistryErrors.JOURNAL_UNREADABLE,
+                        "record " + record + " of the registry journal at " + file + ", at byte offset " + start
+                                + ", has a damaged length (" + (partialHeader ? "cut short" : String.valueOf(length))
+                                + ", with " + Math.max(0, all.length - start - 4)
+                                + " bytes after it), and a complete record "
+                                + "follows at byte offset " + resumes + ". This is damage in the middle of the "
+                                + "journal, not a write a crash cut short, and replaying up to it would silently "
+                                + "drop every registration after it. Nothing has been changed. To recover, restore "
+                                + "the journal from a backup, or move it aside and re-register the queries -- the "
+                                + "records before offset " + start + " are intact and readable");
             }
             byte[] bytes = new byte[length];
             buffer.get(bytes);
-            List<String> fields;
             try {
-                fields = ControlWire.decode(bytes);
+                records.add(ControlWire.decode(bytes));
             } catch (RuntimeException unreadable) {
                 throw new PravahaException(
                         RegistryErrors.JOURNAL_UNREADABLE,
-                        "record " + record + " of the registry journal at " + file + " cannot be decoded. "
-                                + "Earlier records are fine; this one is not, and replaying past it would "
-                                + "silently drop whatever it said",
+                        "record " + record + " of the registry journal at " + file + " (byte offset " + start
+                                + ") cannot be decoded. Earlier records are fine; this one is not, and replaying "
+                                + "past it would silently drop whatever it said",
                         unreadable);
             }
-            apply(live, pending, fields, record);
         }
-        return new Replayed(List.copyOf(live.values()), List.copyOf(pending.values()));
+        return new Scan(records, -1);
+    }
+
+    /**
+     * The offset of the first complete record starting at or after {@code from}, or {@code -1}.
+     *
+     * <p>A candidate is a non-negative length that fits the file, followed by {@link ControlWire}'s
+     * magic and a payload that decodes. A torn tail is a prefix of one write, so the only record
+     * boundaries inside it are its own -- none of which can be complete, or the tail would not be
+     * torn.
+     */
+    private static int nextRecordAfter(byte[] all, int from) {
+        ByteBuffer buffer = ByteBuffer.wrap(all);
+        for (int at = from; at + 4 + 9 <= all.length; at++) {
+            int length = buffer.getInt(at);
+            if (length < 9 || length > all.length - at - 4) {
+                continue;
+            }
+            byte[] payload = java.util.Arrays.copyOfRange(all, at + 4, at + 4 + length);
+            if (!ControlWire.isOurs(payload)) {
+                continue;
+            }
+            try {
+                if (!ControlWire.decode(payload).isEmpty()) {
+                    return at;
+                }
+            } catch (RuntimeException notARecord) {
+                // The magic by chance; keep looking.
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Cuts a torn final record off before the first append (JOURNALMID-1), so what is appended
+     * starts on a record boundary; refuses to append to a journal damaged in the middle.
+     */
+    private void cutTornTail() throws IOException {
+        if (tailChecked) {
+            return;
+        }
+        if (Files.exists(file)) {
+            Scan scan = scan(Files.readAllBytes(file));
+            if (scan.tornAt() >= 0) {
+                try (FileChannel channel = FileChannel.open(file, StandardOpenOption.WRITE)) {
+                    channel.truncate(scan.tornAt());
+                    channel.force(true);
+                }
+                LOG.log(
+                        System.Logger.Level.WARNING,
+                        "cut the half-written final record off the registry journal at " + file + " (from byte offset "
+                                + scan.tornAt() + ") before appending to it");
+            }
+        }
+        tailChecked = true;
     }
 
     private void apply(Map<String, Entry> live, Map<String, Pending> pending, List<String> fields, int record) {
@@ -734,6 +847,7 @@ public final class RegistryJournal {
             // code created it at whatever the umask happened to be, which on most systems is
             // world-readable. An instruction to the operator is not a control; this is.
             SensitiveFiles.createOwnerOnly(file);
+            cutTornTail();
             try (FileChannel channel = FileChannel.open(
                     file, StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND)) {
                 while (buffer.hasRemaining()) {

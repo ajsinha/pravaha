@@ -173,6 +173,15 @@ will not, failing at subscribe time with "no such view" — a long way from the 
 caused it. Earlier records are fine; the message names the record and the file. Restore the journal
 from backup, or remove the damaged record deliberately.
 
+**A damaged length in the middle** is refused the same way, naming the byte offset of the damage and
+of the complete record that follows it: `record 2 ... at byte offset 84, has a damaged length
+(2147483392, with 187 bytes after it), and a complete record follows at byte offset 179`. A length
+that runs past the end of the file is a torn tail only when nothing complete follows it — the trace of
+a crash during an append, which is replayed up to and cut off before the next append. Until
+JOURNALMID-1 every such length read as a torn tail, so damage in the middle silently dropped every
+later registration at every start, and every one registered afterwards too. Nothing is changed when
+the start is refused: restore the journal from a backup, or move it aside and re-register.
+
 ### PRV-8006 — journal unwritable
 
 The journal cannot be appended to (or compacted). The registration is **refused**: acknowledging one
