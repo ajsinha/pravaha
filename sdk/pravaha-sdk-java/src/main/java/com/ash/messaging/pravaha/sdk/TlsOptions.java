@@ -20,6 +20,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 import com.ash.messaging.pravaha.api.ErrorCode;
 
 /**
@@ -71,17 +73,17 @@ public final class TlsOptions {
 
     private static final ErrorCode INVALID = new ErrorCode(1032, "CLIENT_INVALID_TLS_OPTIONS");
 
-    private final Path caCertificate;
-    private final Path clientCertificate;
-    private final Path clientKey;
-    private final Path trustStore;
-    private final String trustStorePassword;
+    private final @Nullable Path caCertificate;
+    private final @Nullable Path clientCertificate;
+    private final @Nullable Path clientKey;
+    private final @Nullable Path trustStore;
+    private final @Nullable String trustStorePassword;
     private final String trustStoreType;
-    private final Path keyStore;
-    private final String keyStorePassword;
+    private final @Nullable Path keyStore;
+    private final @Nullable String keyStorePassword;
     private final String keyStoreType;
     private final boolean verifyHostname;
-    private final String overrideHostname;
+    private final @Nullable String overrideHostname;
 
     private TlsOptions(Builder b) {
         this.caCertificate = b.caCertificate;
@@ -182,17 +184,17 @@ public final class TlsOptions {
     }
 
     public static final class Builder {
-        private Path caCertificate;
-        private Path clientCertificate;
-        private Path clientKey;
-        private Path trustStore;
-        private String trustStorePassword;
+        private @Nullable Path caCertificate;
+        private @Nullable Path clientCertificate;
+        private @Nullable Path clientKey;
+        private @Nullable Path trustStore;
+        private @Nullable String trustStorePassword;
         private String trustStoreType = "JKS";
-        private Path keyStore;
-        private String keyStorePassword;
+        private @Nullable Path keyStore;
+        private @Nullable String keyStorePassword;
         private String keyStoreType = "JKS";
         private boolean verifyHostname = true;
-        private String overrideHostname;
+        private @Nullable String overrideHostname;
 
         private Builder() {}
 
@@ -221,9 +223,10 @@ public final class TlsOptions {
          * without the file it opens -- the same discipline the refusals below enforce for the pieces
          * that cannot be bundled into one call.
          *
+         * @param password the store's password, or null for a store that has none
          * @param type {@code "JKS"} or {@code "PKCS12"}, case-insensitive
          */
-        public Builder trustStore(Path path, String password, String type) {
+        public Builder trustStore(Path path, @Nullable String password, String type) {
             this.trustStore = Objects.requireNonNull(path, "trustStore");
             this.trustStorePassword = password;
             this.trustStoreType = requireStoreType(type);
@@ -234,9 +237,10 @@ public final class TlsOptions {
          * A JKS or PKCS12 keystore holding the client's own certificate and private key, for mutual
          * TLS.
          *
+         * @param password the store's password, or null for a store that has none
          * @param type {@code "JKS"} or {@code "PKCS12"}, case-insensitive
          */
-        public Builder keyStore(Path path, String password, String type) {
+        public Builder keyStore(Path path, @Nullable String password, String type) {
             this.keyStore = Objects.requireNonNull(path, "keyStore");
             this.keyStorePassword = password;
             this.keyStoreType = requireStoreType(type);

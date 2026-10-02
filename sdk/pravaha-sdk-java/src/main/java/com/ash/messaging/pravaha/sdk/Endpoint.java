@@ -102,7 +102,9 @@ public final class Endpoint {
         }
 
         List<HostPort> nodes = new ArrayList<>();
-        for (String part : remainder.split(",")) {
+        // Limit 0, spelled out: a trailing comma is dropped, as it always was, rather than read as an
+        // empty host.
+        for (String part : remainder.split(",", 0)) {
             nodes.add(parseHostPort(connectionString, part.strip()));
         }
         return new Endpoint(nodes, tls);
