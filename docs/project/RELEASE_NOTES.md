@@ -102,6 +102,16 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   restored into its new `VARCHAR` column. A checkpoint now records the output schema, and one of
   another schema is not restored: the query rebuilds from its sources, its last checkpoint failure
   saying `PRV-4095` (new) with both schemas. A 2.0.0 checkpoint records none and is restored as before.
+- **A GROUP BY on a DOUBLE counts every row once** (NANGROUP-1). A window grouped a `DOUBLE` by its
+  bits, so `-0.0` and `0.0` were two groups and two `NaN` payloads two more, which the view then showed
+  as one row — five rows in, counts summing to four. Every grouping path (windowed and unwindowed
+  aggregates, `COUNT(DISTINCT)`, a read's `GROUP BY`, a view's key) now follows SQL equality: either
+  zero is one group, published `0.0`, and every `NaN` is one, published `NaN`. A windowed `GROUP BY`
+  on a `REAL` also hashed the next column's bytes with the key, so equal keys could split; it hashes
+  the float alone now. **Answers change:** a query grouping on a column that holds both zeros or
+  several `NaN` payloads publishes fewer, merged groups. **Upgrade:** a 2.0.0 checkpoint holding a
+  `-0.0` or a non-standard `NaN` as a key or distinct value is not restored — restored, it would stay a
+  group apart — and that query rebuilds from its sources; any other checkpoint restores as before.
 - **A window too fine for its size is refused at registration, `PRV-3026`** (FINEHOP-1). Each row of
   a `HOP` is published in `size / slide` windows of `size / gcd(size, slide)` slices; where either
   passes the new `pravaha.lane.max-windows-per-row` (100,000 by default; server and embedded), the

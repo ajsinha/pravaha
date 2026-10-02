@@ -171,10 +171,9 @@ class AdvAggregateTest {
     // ------------------------------------------------------------------ DOUBLE group keys
 
     @Test
-    @Disabled(
-            "QE-045/QE-046: a windowed GROUP BY on a DOUBLE splits -0.0 from 0.0, and splits NaN payloads into groups "
-                    + "the view then collapses, so a row's count is lost")
     void qe045_046_windowedGroupsOnADoubleCountEveryRowOnce() {
+        // NANGROUP-1, fixed: -0.0 and 0.0 are one group (SQL equality), every NaN is one group, and
+        // the view gets one row per group -- five rows in, counts summing to five.
         try (PravahaEngine engine = windowed(
                 0,
                 "gd",
@@ -190,25 +189,7 @@ class AdvAggregateTest {
                     .sum();
             assertThat(counted).as(rows.toString()).isEqualTo(5);
             assertThat(rows).as("-0.0 and 0.0 compare equal (TY-3)").hasSize(3);
-        }
-    }
-
-    @Test
-    void qe045_046_observed() {
-        try (PravahaEngine engine = windowed(
-                0,
-                "gd",
-                "SELECT window_start, window_end, d, COUNT(*) AS c " + TUMBLE + " GROUP BY window_start, window_end, d",
-                "window_start",
-                "window_end",
-                "d")) {
-            pushDoubles(engine);
-            engine.advanceEventTime("w", t(10));
-            // Five rows in; four groups out, summing to four: -0.0 and 0.0 apart, two NaN groups
-            // (by bit pattern) collapsed into one view row by the view's key, which compares NaN
-            // payloads equal -- one row's count gone.
-            assertThat(AdvSupport.rows(engine, "SELECT * FROM gd"))
-                    .containsExactly(w(0) + "|-0.0|1", w(0) + "|0.0|1", w(0) + "|1.0|1", w(0) + "|NaN|1");
+            assertThat(rows).containsExactly(w(0) + "|0.0|2", w(0) + "|1.0|1", w(0) + "|NaN|2");
         }
     }
 
@@ -229,10 +210,11 @@ class AdvAggregateTest {
             List<String> readDistinct = AdvSupport.rows(engine, "SELECT COUNT(DISTINCT d) AS c FROM raw");
             System.out.println("NOTE QE-047 windowed distinct " + distinct + " QE-048 read grouping " + grouped
                     + " QE-049 read distinct " + readDistinct);
-            // Recorded as observed: each path's own notion of equality.
-            assertThat(grouped).hasSize(4).contains("NaN|2");
-            assertThat(readDistinct).containsExactly("4");
-            assertThat(distinct).containsExactly(w(0) + "|4");
+            // NANGROUP-1, fixed: every path groups as SQL equality does -- either zero one value, every
+            // NaN one -- so the windowed distinct, the read's GROUP BY and the read's distinct agree.
+            assertThat(grouped).containsExactly("0.0|2", "1.0|1", "NaN|2");
+            assertThat(readDistinct).containsExactly("3");
+            assertThat(distinct).containsExactly(w(0) + "|3");
         }
     }
 
