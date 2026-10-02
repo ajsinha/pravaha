@@ -81,6 +81,18 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   delivered, naming the row, its size and the cell; a row handed to a registered query directly is
   refused `PRV-3002` without failing the query; and a source's writer is bounded to its inbox cell, so
   a wide row is never written into the cells after it.
+- **Flight SQL `GetTables` lists the views a non-admin may read under the catalogue (GETTABLES-1).**
+  The table list asked each stream behind a view for the caller's own `SELECT`, which the catalogue
+  does not require to read a view (ADR-059 §2), so every ordinary user's BI catalogue was empty —
+  even of views they owned. It now asks what `pravaha.list` asks (`mayReadThrough`), so a view the
+  caller owns or was granted is listed, and nothing of another tenant's. `FlightSqlMetadataTest`,
+  `AdvSecurityTest` QE-168 enabled.
+- **A catalogue row filter withholds the view's row count from the reader it narrows (LISTCOUNT-1).**
+  SX-18 withheld `ROWS IN` (`-1`) only for a filter carried by `pravaha.security.policy`; a reader
+  narrowed by `CREATE ROW FILTER` was told the whole view's count by `pravaha.list`,
+  `SHOW CONTINUOUS QUERIES` and `GET /api/v1/queries`. The listing now consults the catalogue's
+  narrowing too (and withholds when it cannot be bound to the caller). `QueryListingNarrowingTest`,
+  `AdvSecurityTest` QE-111 enabled.
 
 Register: **543 findings — 482 fixed, 42 open, 0 GA-BLOCKER, 9 GA-REQUIRED**.
 

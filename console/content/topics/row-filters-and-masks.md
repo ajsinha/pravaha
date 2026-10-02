@@ -250,7 +250,7 @@ state, with the read path the only thing standing between them.
 | Read the view (point read, `SELECT`, psql) | allowed; the filter applies |
 | Subscribe to the view | **refused** — a subscription is handed each change as the view commits it, with no plan to put the predicate into, so it fails closed rather than over-serve. Read instead, or use a catalogue row filter, which a subscription does apply |
 | Drop, pause, resume | **refused** — a slice is not a claim on the whole view, which every other reader depends on |
-| List queries | the view is listed; its row count is withheld and sent as `-1` (the CLI prints `-`) |
+| List queries | the view is listed; its row count is withheld and sent as `-1` (the CLI prints `-`) — for a policy filter and a catalogue `CREATE ROW FILTER` alike |
 | `GET /api/v1/me/permissions` | `"read": "filtered"`, without the predicate |
 | Audit | recorded as `allowed with a row filter` |
 

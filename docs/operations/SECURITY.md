@@ -293,7 +293,17 @@ cardinality is data about rows the caller is not entitled to: a filtered princip
 `sales_view` holds 4 rows while their own read of it returns 2. `-1` rather than an empty field or
 `0`, deliberately: the field stays a decimal long that both SDKs already parse, no counter can ever
 equal it, and an empty field is turned into `0` by both — a lie rather than a refusal. The CLI prints
-it as `-` with a line saying why.
+it as `-` with a line saying why. The same holds under the catalogue (ADR-059): a reader narrowed by a
+`CREATE ROW FILTER` that applies to them is withheld the count exactly as a policy filter withholds it
+(LISTCOUNT-1, where the catalogue's filters were not consulted and a reader cut to two rows of three
+was told `3`).
+
+**What `GetTables` lists.** Flight SQL `GetTables` lists the views of the caller's own tenant that they
+may read, by the same rules as `LIST`: the view's own read right, and whatever may be read *through*
+it. Under the catalogue a view's grant is enough — reading a view does not need `SELECT` on the
+stream behind it (ADR-059 §2) — so an analyst granted `SELECT` on a view, or owning one, sees it in a
+BI tool's table tree (GETTABLES-1, where every non-admin was listed nothing). Nothing of another
+tenant is listed, except to an admin, by catalogue name (ADR-060).
 
 **`LIST` is audited (SX-8).** Every per-view decision the listing makes is recorded, allows as well
 as refusals, under the action `list`. A view hidden because of what it *reads* is recorded against

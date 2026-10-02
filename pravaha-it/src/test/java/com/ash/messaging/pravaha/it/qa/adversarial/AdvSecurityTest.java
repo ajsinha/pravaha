@@ -503,23 +503,17 @@ class AdvSecurityTest {
     }
 
     @Test
-    @Disabled(
-            "QE-111: under the catalogue, a reader narrowed by a ROW FILTER is told the view's whole cardinality in "
-                    + "pravaha.list (3 rows, while their read returns 2); SX-18 withholds it (-1) only for a SecurityPolicy filter")
     void qe111_listWithholdsAFilteredReadersCount() throws Exception {
+        // LISTCOUNT-1, fixed: the catalogue's row filter withholds the count as SX-18's policy filter does.
         baseline();
         assertThat(rowsIn("ana")).containsExactly("payments=-1");
     }
 
     @Test
-    void qe111_observed() throws Exception {
+    void qe111_anUnfilteredReaderIsStillToldTheCount() throws Exception {
         baseline();
-        List<String> ana = rowsIn("ana");
-        List<String> ops = rowsIn("ops");
-        String read = as("ana", "SELECT COUNT(*) AS n FROM payments");
-        System.out.println("NOTE QE-111 ana " + ana + " ops " + ops + " ana's own count " + read);
-        assertThat(ana).containsExactly("payments=3");
-        assertThat(read).isEqualTo("[2]");
+        assertThat(rowsIn("ops")).containsExactly("payments=3");
+        assertThat(as("ana", "SELECT COUNT(*) AS n FROM payments")).isEqualTo("[2]");
     }
 
     @Test
@@ -634,25 +628,24 @@ class AdvSecurityTest {
     }
 
     @Test
-    @Disabled(
-            "QE-168: under the catalogue, Flight SQL GetTables lists nothing to a non-admin principal -- not the views "
-                    + "they own, not the views they are granted SELECT on -- while an admin sees every tenant's")
     void qe168_getTablesListsTheViewsACallerMayRead() throws Exception {
+        // GETTABLES-1, fixed: the streams behind a view are asked mayReadThrough, as pravaha.list asks them.
         baseline();
         assertThat(tables("ana")).contains("payments");
     }
 
     @Test
-    void qe168_observed() throws Exception {
+    void qe168_getTablesListsOwnViewsAndNothingOfAnotherTenant() throws Exception {
         baseline();
+        run("gops", "GRANT USE, CREATE ON NAMESPACE default TO ROLE analyst");
+        run("gops", "GRANT BUILD_ON ON STREAM txn TO ROLE analyst");
+        as("eve", "CREATE CONTINUOUS QUERY payments KEYED BY (id) AS SELECT id, amount FROM txn");
+        String eve = tables("eve");
         String ana = tables("ana");
-        String read = as("ana", "SELECT id FROM payments");
-        String ops = tables("ops");
-        System.out.println(
-                "NOTE QE-168 ana GetTables " + ana + " while her read returns " + read + "; ops GetTables " + ops);
-        assertThat(ana).isEqualTo("[]");
-        assertThat(read).isEqualTo("[p1, p3]");
-        assertThat(ops).contains("payments");
+        System.out.println("NOTE QE-168 eve GetTables " + eve + "; ana GetTables " + ana + "; ops " + tables("ops"));
+        assertThat(eve).contains("payments").doesNotContain("acme");
+        assertThat(ana).contains("payments").doesNotContain("globex");
+        assertThat(as("ana", "SELECT id FROM payments")).isEqualTo("[p1, p3]");
     }
 
     /** Flight SQL GetTables as {@code who}: every catalog.schema.table it lists. */
