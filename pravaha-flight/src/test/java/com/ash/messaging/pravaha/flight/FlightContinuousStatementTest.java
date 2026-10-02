@@ -141,6 +141,7 @@ class FlightContinuousStatementTest {
     }
 
     /** Executes and fetches, as an SDK's {@code query()} does. */
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     private List<List<String>> query(String text, String token) {
         FlightInfo info = sql.execute(text, bearing(token));
         List<List<String>> rows = new ArrayList<>();
@@ -314,6 +315,7 @@ class FlightContinuousStatementTest {
         assertThat(registry.names()).isEmpty();
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void aPreparedStatementRunsItToo() throws Exception {
         // Every prepared statement a JDBC driver runs takes this path, a DDL statement included.
@@ -381,6 +383,7 @@ class FlightContinuousStatementTest {
         assertThat(registry.names()).isEmpty();
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void aServerWithoutARegistryRefusesTheStatementByName() throws Exception {
         try (PravahaFlightServer bare = new PravahaFlightServer(new ViewCatalog(), allocator).start("localhost", 0);

@@ -138,6 +138,7 @@ class ErrcFlightTest extends ErrcServerSupport {
 
     // ------------------------------------------------------------ ERRC-090 -- PRV-6101
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void flightSqlMetadataCallsNowAnswerRatherThanFallingThroughToArrowsUnimplemented() throws Exception {
         // INVERTED (P-6). This case recorded the gap rather than asserting it was right: the Flight
@@ -184,6 +185,7 @@ class ErrcFlightTest extends ErrcServerSupport {
         }
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void anUnrecognisedActionAndARegistrylessServerAreTheRealPrv6101Sites() throws Exception {
         try (RootAllocator allocator = new RootAllocator(Long.MAX_VALUE);
@@ -230,6 +232,7 @@ class ErrcFlightTest extends ErrcServerSupport {
 
     // ------------------------------------------------------------ ERRC-091 -- PRV-6102
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void aHandBuiltActionThatIsNotAPravahaRequestIsRefusedAsAFlightBadHandle() throws Exception {
         try (RootAllocator allocator = new RootAllocator(Long.MAX_VALUE);

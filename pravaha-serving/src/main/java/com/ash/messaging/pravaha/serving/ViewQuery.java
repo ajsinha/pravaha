@@ -249,7 +249,7 @@ public final class ViewQuery {
         // Taken *after* the policy check, so a refused read never occupies a permit somebody
         // authorized could have used, and before any planning work that would otherwise be done on
         // behalf of a read this node has no capacity for.
-        try (ReadAdmission.Lease lease = admission.acquire(principal)) {
+        try (ReadAdmission.Lease _ = admission.acquire(principal)) {
             return run(plan, view, narrowing);
         }
     }
@@ -394,7 +394,7 @@ public final class ViewQuery {
         // metadata call that skipped admission would be an unmetered way in: a client asking only
         // for schemas, in a loop, would consume the same planner and the same CPU as the reads this
         // limit exists to bound, while the counter the operator watches stayed flat.
-        try (ReadAdmission.Lease lease = admission.acquire(principal)) {
+        try (ReadAdmission.Lease _ = admission.acquire(principal)) {
             return plan.outputSchema();
         }
     }
@@ -724,7 +724,7 @@ public final class ViewQuery {
         }
         plan = authorizeProvenance(plan, view, principal, "query", prepared.sql());
         RowNarrowing narrowing = narrowed(prepared.rel(), view, sourceViewOf(plan), prepared.view(), principal);
-        try (ReadAdmission.Lease lease = admission.acquire(principal)) {
+        try (ReadAdmission.Lease _ = admission.acquire(principal)) {
             return run(plan, view, narrowing);
         }
     }

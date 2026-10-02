@@ -351,7 +351,7 @@ class ErrcConfigParsingTest extends ErrcTestSupport {
     }
 
     private static RuntimeException catchRuntime(Runnable r, Class<? extends RuntimeException> type) {
-        RuntimeException caught = org.assertj.core.api.Assertions.catchThrowableOfType(r::run, type);
+        RuntimeException caught = org.assertj.core.api.Assertions.catchThrowableOfType(type, r::run);
         assertThat(caught)
                 .as("expected a " + type.getSimpleName() + " to be thrown")
                 .isNotNull();

@@ -283,7 +283,7 @@ class AerospikeContinuousQueryIT {
                                 // A node always turns these on; a registry constructed by hand does
                                 // not, and without them no window ever closes.
                                 .generatingWatermarks(Duration.ofSeconds(1), Duration.ofMillis(50));
-                AerospikeLookupPlugin closing = profiles) {
+                AerospikeLookupPlugin _ = profiles) {
             com.ash.messaging.pravaha.registry.RegisteredQuery query = registry.register(
                     "user_volume", SQL, List.of(1), com.ash.messaging.pravaha.security.Principal.ANONYMOUS);
 

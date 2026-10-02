@@ -258,6 +258,9 @@ final class DetectingScanReader implements PartitionReader {
     }
 
     /** One full scan, compared against the held rows. Emits nothing itself; fills {@link #pending}. */
+    @SuppressWarnings(
+            "deprecation") // Aerospike deprecates scans for query(); moving is a reader rewrite, proven only against a
+    // server
     private void scan() {
         int thisPass = ++pass;
         scanStartedNanos = System.currentTimeMillis() * 1_000_000L;

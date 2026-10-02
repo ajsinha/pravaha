@@ -176,6 +176,9 @@ class AerospikeDeleteDetectionIT {
     }
 
     /** The set as the Z-set of rows a view over it must hold. */
+    @SuppressWarnings(
+            "deprecation") // Aerospike deprecates scans for query(); moving is a reader rewrite, proven only against a
+    // server
     private Map<List<Object>, Long> setAsView() {
         Map<List<Object>, Long> view = new HashMap<>();
         admin.scanAll(null, AerospikeContainer.NAMESPACE, set, (key, record) -> {

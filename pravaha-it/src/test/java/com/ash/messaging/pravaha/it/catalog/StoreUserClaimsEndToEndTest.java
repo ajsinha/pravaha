@@ -227,6 +227,7 @@ class StoreUserClaimsEndToEndTest {
         return new HeaderCallOption(headers);
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     private List<List<String>> run(String token, String statement) throws Exception {
         CallOption auth = bearer(token);
         FlightInfo info = sql.execute(statement, auth);

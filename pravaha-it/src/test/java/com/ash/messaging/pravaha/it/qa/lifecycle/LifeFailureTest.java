@@ -125,7 +125,7 @@ class LifeFailureTest extends LifecycleTestSupport {
                 .hasMessageContaining("it is FAILED");
 
         // Control: a healthy query establishes normally.
-        try (var subscription = registry.require("healthy").subscribe(changes -> {})) {
+        try (var _ = registry.require("healthy").subscribe(changes -> {})) {
             assertThat(registry.require("healthy").subscriberCount()).isEqualTo(1);
         }
     }

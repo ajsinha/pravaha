@@ -166,7 +166,7 @@ class KeyedWeightsSubscriptionTest {
         RegisteredQuery copy =
                 registry.register("latest_copy", "SELECT user_id, amount FROM latest", List.of(0), Principal.ANONYMOUS);
         List<ViewChange> heard = new CopyOnWriteArrayList<>();
-        try (Subscription subscription = copy.subscribe(heard::addAll)) {
+        try (Subscription _ = copy.subscribe(heard::addAll)) {
             feed("u1", 10, 1);
             latest.commit();
             feed("u1", 20, 1);

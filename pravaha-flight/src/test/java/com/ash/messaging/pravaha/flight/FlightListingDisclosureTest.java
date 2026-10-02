@@ -308,6 +308,7 @@ class FlightListingDisclosureTest {
     }
 
     /** What a subscription attempt reports, or {@link #NOT_REFUSED} when it was allowed. */
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     private String subscribeRefusal(String token, String view) {
         try (org.apache.arrow.flight.FlightStream stream = client.getStream(
                 new org.apache.arrow.flight.Ticket(ControlWire.subscribeTicket(view, List.of())), bearing(token))) {

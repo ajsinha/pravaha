@@ -426,7 +426,7 @@ class StateCheckpointScheduleTest extends StateTestSupport {
         }
 
         @Override
-        public void close() throws Exception {
+        public void close() throws java.io.IOException {
             try (Stream<Path> walk = Files.walk(path)) {
                 walk.sorted(java.util.Comparator.reverseOrder())
                         .forEach(p -> p.toFile().delete());

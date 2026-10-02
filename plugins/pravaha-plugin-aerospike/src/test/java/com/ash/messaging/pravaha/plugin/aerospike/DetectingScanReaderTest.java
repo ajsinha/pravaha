@@ -61,6 +61,9 @@ class DetectingScanReaderTest {
 
     private boolean failNextScan;
 
+    @SuppressWarnings(
+            "deprecation") // Aerospike deprecates scans for query(); moving is a reader rewrite, proven only against a
+    // server
     private final IAerospikeClient client = (IAerospikeClient) Proxy.newProxyInstance(
             getClass().getClassLoader(), new Class<?>[] {IAerospikeClient.class}, (proxy, method, args) -> {
                 if (!method.getName().equals("scanPartitions")) {

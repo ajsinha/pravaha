@@ -83,6 +83,7 @@ class FlightAddressAndTlsPairTest {
      * dialled a dead port. The server's own {@code uri()} is asserted above; this asserts what goes
      * on the wire, which is a different field set in a different place.
      */
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void sx16_theEndpointAClientIsHandedCarriesThePortThatWasBound() throws Exception {
         try (BufferAllocator allocator = new RootAllocator(Long.MAX_VALUE);

@@ -230,7 +230,7 @@ class PravahaMetricsTest {
                         .gauge()
                         .value())
                 .isZero();
-        try (var subscription = registry.require("acme.default.watched").subscribe(batch -> {})) {
+        try (var _ = registry.require("acme.default.watched").subscribe(batch -> {})) {
             assertThat(meters.find("pravaha.query.subscribers")
                             .tag("query", "acme.default.watched")
                             .gauge()

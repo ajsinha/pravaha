@@ -279,19 +279,27 @@ public class PravahaServerApplication {
                     .values()
                     .forEach(path -> path.readOperations().forEach(operation -> {
                         if (operation.getResponses() == null
-                                || operation.getResponses().getDefault() != null) {
+                                || operation.getResponses().get(io.swagger.v3.oas.models.responses.ApiResponses.DEFAULT)
+                                        != null) {
                             return;
                         }
                         operation
                                 .getResponses()
-                                .setDefault(new io.swagger.v3.oas.models.responses.ApiResponse()
-                                        .description("An ApiError. Every non-2xx response on this API is one.")
-                                        .content(new io.swagger.v3.oas.models.media.Content()
-                                                .addMediaType(
-                                                        "application/json",
-                                                        new io.swagger.v3.oas.models.media.MediaType()
-                                                                .schema(new io.swagger.v3.oas.models.media.Schema<>()
-                                                                        .$ref("#/components/schemas/ApiError")))));
+                                .addApiResponse(
+                                        io.swagger.v3.oas.models.responses.ApiResponses.DEFAULT,
+                                        new io.swagger.v3.oas.models.responses.ApiResponse()
+                                                .description("An ApiError. Every non-2xx response on this API is one.")
+                                                .content(
+                                                        new io.swagger.v3.oas.models.media.Content()
+                                                                .addMediaType(
+                                                                        "application/json",
+                                                                        new io.swagger.v3.oas.models.media.MediaType()
+                                                                                .schema(
+                                                                                        new io.swagger.v3.oas.models
+                                                                                                        .media
+                                                                                                        .Schema<>()
+                                                                                                .$ref(
+                                                                                                        "#/components/schemas/ApiError")))));
                     }));
         };
     }

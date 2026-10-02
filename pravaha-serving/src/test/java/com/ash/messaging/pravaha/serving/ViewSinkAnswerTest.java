@@ -47,8 +47,8 @@ class ViewSinkAnswerTest {
         ViewSink sink = new ViewSink(view, SCHEMA);
         List<ViewChange> answer = new CopyOnWriteArrayList<>();
         List<ViewChange> changelog = new CopyOnWriteArrayList<>();
-        try (AutoCloseable a = sink.onAnswer((changes, frontier) -> answer.addAll(changes));
-                AutoCloseable c = sink.onCommit((changes, frontier) -> changelog.addAll(changes))) {
+        try (AutoCloseable _ = sink.onAnswer((changes, frontier) -> answer.addAll(changes));
+                AutoCloseable _ = sink.onCommit((changes, frontier) -> changelog.addAll(changes))) {
             sink.begin().setLong(0, 1).setString(1, "one").weight(1).sequence(0).commit();
             sink.commit(0);
             sink.begin()

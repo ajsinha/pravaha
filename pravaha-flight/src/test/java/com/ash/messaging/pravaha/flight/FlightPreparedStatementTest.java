@@ -108,6 +108,7 @@ class FlightPreparedStatementTest {
         }
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     private List<String> userIds(FlightInfo info) throws Exception {
         List<String> users = new ArrayList<>();
         try (FlightStream stream = client.getStream(info.getEndpoints().get(0).getTicket())) {

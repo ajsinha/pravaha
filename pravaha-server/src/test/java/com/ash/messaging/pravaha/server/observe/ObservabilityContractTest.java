@@ -122,6 +122,7 @@ class ObservabilityContractTest {
 
     private String scrape;
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @BeforeAll
     void exerciseEverySurfaceAndScrape() throws Exception {
         QueryRegistry registry = node.registry().orElseThrow();

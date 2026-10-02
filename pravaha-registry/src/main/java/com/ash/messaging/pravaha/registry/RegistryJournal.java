@@ -455,7 +455,7 @@ public final class RegistryJournal {
                 records.add(List.of(MOVED, survivor, directory));
             }
         }
-        @SuppressWarnings("unchecked")
+        @SuppressWarnings({"unchecked", "rawtypes"}) // Java makes no generic array: a raw one, cast
         List<String>[] all = records.toArray(new List[0]);
         append(all);
     }

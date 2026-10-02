@@ -313,6 +313,7 @@ class FlightSqlMetadataTest {
     // Authorization
     // ------------------------------------------------------------------------------------------
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void aTableListDoesNotTellAPrincipalWhatTheyMayNotRead() throws Exception {
         // The same rule as the control-plane LIST (S-4, SX-11). A table list is how a client finds
@@ -360,6 +361,7 @@ class FlightSqlMetadataTest {
         }
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void aViewIsListedWhenItsStreamsMayBeReadThroughIt() throws Exception {
         // GETTABLES-1. The catalogue (ADR-059 §2) grants SELECT on a view without SELECT on the stream
@@ -419,6 +421,7 @@ class FlightSqlMetadataTest {
         return rows(client, info);
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     private static List<List<String>> rows(
             FlightSqlClient from, FlightInfo info, org.apache.arrow.flight.CallOption... options) {
         List<List<String>> out = new ArrayList<>();
@@ -445,6 +448,7 @@ class FlightSqlMetadataTest {
         return rows(info).stream().map(row -> row.get(2)).toList();
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     private byte[] tableSchemaBytes(FlightInfo info) {
         try (FlightStream stream = client.getStream(info.getEndpoints().get(0).getTicket())) {
             while (stream.next()) {

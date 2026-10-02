@@ -153,6 +153,7 @@ class FlightObservationTest {
                 .isEqualTo("sql.action");
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void aSubscriptionIsOneCallAboutItsViewAndAWithdrawalIsReported() throws Exception {
         AtomicBoolean allowed = new AtomicBoolean(true);

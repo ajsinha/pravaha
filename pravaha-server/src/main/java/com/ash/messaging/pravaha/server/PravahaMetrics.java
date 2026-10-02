@@ -61,7 +61,7 @@ import com.ash.messaging.pravaha.registry.RegisteredQuery;
  * actually asks -- is it running, is it keeping up, and is it growing.
  */
 @Component
-public class PravahaMetrics implements AutoCloseable {
+public final class PravahaMetrics implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(PravahaMetrics.class);
 

@@ -64,7 +64,7 @@ public class ContainerErrorReport {
      * Tomcat's error report, as an {@code ApiError}. Public with a no-argument constructor because
      * the host instantiates it by class name.
      */
-    public static class JsonErrorReportValve extends ErrorReportValve {
+    public static final class JsonErrorReportValve extends ErrorReportValve {
 
         public JsonErrorReportValve() {
             setShowReport(false);

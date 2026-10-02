@@ -693,7 +693,7 @@ class SqlSupportMatrixTest {
                 testCase.lookup() ? SqlPlanner.withLookups(TXN, DIM) : SqlPlanner.withStreams(TXN, OTHER, THIRD);
         try {
             PhysicalOperator plan = new PhysicalPlanBuilder().build(planner.plan(testCase.sql()));
-            try (InterpretedPipeline pipeline = InterpretedPipeline.compile(plan, () -> {
+            try (InterpretedPipeline _ = InterpretedPipeline.compile(plan, () -> {
                 throw new UnsupportedOperationException("the matrix builds pipelines but never runs rows through them");
             })) {
                 return null;

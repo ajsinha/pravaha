@@ -72,6 +72,7 @@ class PravahaNodeTlsEndToEndTest {
         return persistence;
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void aNodeConfiguredWithTlsCertificateAndKeyActuallyServesTlsToARealClient() throws Exception {
         try (SelfSignedTestCertificate certificate = SelfSignedTestCertificate.generate()) {

@@ -209,6 +209,7 @@ class AdvSecurityTest {
         return new HeaderCallOption(headers);
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     List<List<String>> run(String who, String statement) throws Exception {
         CallOption auth = bearer(who);
         FlightInfo info = sql.execute(statement, auth);
@@ -325,6 +326,7 @@ class AdvSecurityTest {
         assertThat(shown).isEqualTo("[p?|10, p?|30]");
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void qe103_133_aSubscriptionIsMaskedAndEndsWhenItsPolicyChanges() throws Exception {
         baseline();
@@ -345,6 +347,7 @@ class AdvSecurityTest {
         }
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void qe128_aRevokedSubscribeEndsAnOpenSubscription() throws Exception {
         baseline();
@@ -641,6 +644,7 @@ class AdvSecurityTest {
     }
 
     /** Flight SQL GetTables as {@code who}: every catalog.schema.table it lists. */
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     String tables(String who) {
         try {
             FlightInfo info = sql.getTables(null, null, null, null, false, bearer(who));
@@ -787,6 +791,7 @@ class AdvSecurityTest {
 
     // ------------------------------------------------------------------ prepared statements, debug fork
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void qe134_aPreparedStatementHandleIsNotAPermission() throws Exception {
         baseline();

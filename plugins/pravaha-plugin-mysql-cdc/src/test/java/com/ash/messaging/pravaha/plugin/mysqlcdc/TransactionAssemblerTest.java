@@ -255,7 +255,7 @@ class TransactionAssemblerTest {
                 .singleElement()
                 .satisfies(t -> assertThat(t.failure())
                         .hasMessageContaining("TRUNCATE of shop.customers")
-                        .extracting(e -> ((PravahaException) e).errorCode())
+                        .extracting(e -> e.errorCode())
                         .isEqualTo(MySqlCdcErrors.UNREPRESENTABLE_CHANGE));
     }
 
@@ -285,7 +285,7 @@ class TransactionAssemblerTest {
                     assertThat(t.changes()).isEmpty();
                     assertThat(t.failure())
                             .hasMessageContaining("column 'id' (bigint) arrives in the binlog as MySQL type 3 (INT)")
-                            .extracting(e -> ((PravahaException) e).errorCode())
+                            .extracting(e -> e.errorCode())
                             .isEqualTo(MySqlCdcErrors.UNREPRESENTABLE_CHANGE);
                 });
         assertThat(feed(

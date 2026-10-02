@@ -105,6 +105,7 @@ class SubscriptionEndingTest {
     }
 
     /** Subscribes on its own thread and records how the stream ended. */
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     private AtomicReference<String> subscribeUntilItEnds(String view) {
         AtomicReference<String> ended = new AtomicReference<>();
         Thread.ofVirtual().start(() -> {

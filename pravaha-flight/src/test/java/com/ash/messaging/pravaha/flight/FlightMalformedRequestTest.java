@@ -102,6 +102,7 @@ class FlightMalformedRequestTest {
         allocator.close();
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @ParameterizedTest
     @ValueSource(strings = {"\u0000ÿ garbage", "NOPE:x", "LIST", "pravaha.list", ""})
     void anUnreadableTicketIsInvalidArgumentWithACode(String bytes) {

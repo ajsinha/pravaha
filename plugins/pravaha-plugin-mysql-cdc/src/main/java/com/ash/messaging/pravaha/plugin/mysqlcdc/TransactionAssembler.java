@@ -131,7 +131,7 @@ final class TransactionAssembler {
         }
         if (type == EventType.GTID) {
             if (executed != null) {
-                currentGtid = ((GtidEventData) event.getData()).getGtid();
+                currentGtid = ((GtidEventData) event.getData()).getMySqlGtid().toString();
             }
             return null;
         }

@@ -176,6 +176,7 @@ final class SubscriptionIngestCostTest {
     }
 
     /** Opens {@code count} subscriptions to {@code name} that read nothing until {@code stop}. */
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     private void attach(RegisteredQuery query, String name, int count, AtomicBoolean stop) throws Exception {
         if (count == 0) {
             return;

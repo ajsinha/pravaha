@@ -86,6 +86,7 @@ final class SubscriptionThreadCostTest {
         }
     }
 
+    @SuppressWarnings("try") // Arrow's close() declares InterruptedException; a test has nothing to restore
     @Test
     void platformThreadsDoNotGrowWithTheNumberOfSubscribers() throws Exception {
         allocator = new RootAllocator(Long.MAX_VALUE);
