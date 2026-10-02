@@ -980,6 +980,8 @@ public class PravahaNode implements SmartLifecycle {
         com.ash.messaging.pravaha.common.memory.MemoryAccess memory =
                 com.ash.messaging.pravaha.common.memory.MemoryAccess.best();
         registry.executingWith(lanes.toLaneConfig(), memory);
+        // FINEHOP-1. Before recovery, so a journalled query finer than the bound is refused by name.
+        registry.limitingWindowsPerRow(lanes.getMaxWindowsPerRow());
         // CFG-22. -Dpravaha.memory and -Dpravaha.ffm were the two settings that chose an
         // implementation and recorded the choice nowhere: a deployment setting -Dpravaha.ffm=true
         // in its launcher, or upgrading a JDK expecting the switch to take effect, had no way to

@@ -55,6 +55,17 @@ public final class RuntimeErrors {
      */
     public static final ErrorCode AGGREGATE_OVERFLOW = new ErrorCode(3025, "RUNTIME_AGGREGATE_OVERFLOW");
 
+    /**
+     * A window so fine against its own size that one row belongs to more windows, or one window to
+     * more slices, than {@code pravaha.lane.max-windows-per-row} allows; refused at registration.
+     *
+     * <p>FINEHOP-1. {@code HOP(INTERVAL '0.001' SECOND, INTERVAL '1' DAY)} puts every row in 86.4
+     * million windows of 86.4 million slices each. It registered, and one row and a minute of
+     * watermark held its lane for good and gigabytes of heap; every push to the stream then timed
+     * out. See {@link com.ash.messaging.pravaha.runtime.window.WindowLimits}.
+     */
+    public static final ErrorCode WINDOW_TOO_FINE = new ErrorCode(3026, "RUNTIME_WINDOW_TOO_FINE");
+
     // 3023 is retired, not free. It was RUNTIME_COUNT_DISTINCT_CANNOT_SPILL: an aggregate containing
     // COUNT(DISTINCT) kept its distinct sets on the heap and was refused when the overflow tier was
     // configured. ADR-044 moved those sets into RowStore, so they spill like every other state and

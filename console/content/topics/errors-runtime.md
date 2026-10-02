@@ -7,7 +7,7 @@ icon: cpu
 summary: "PRV-3001 to PRV-3102: a query that planned and could not keep running — memory too small, a lane that died, an aggregate or join the runtime will not do, a total past 64 bits, a bad event time, a 65th column, codegen."
 badge: PRV-3XXX
 audience: Operators
-keywords: [arena, slab, inbox, cell, lane, backpressure, window span, epoch, 64 columns, codegen, generated code, lane failed, min max retraction, overflow, sum overflow, PRV-3025]
+keywords: [arena, slab, inbox, cell, lane, backpressure, window span, epoch, 64 columns, codegen, generated code, lane failed, min max retraction, overflow, sum overflow, PRV-3025, hop, window too fine, PRV-3026, max-windows-per-row]
 guide: troubleshooting#it-ran-out-of-memory-the-disk-filled
 related: [lanes, errors-state, event-time-watermarks, query-lifecycle, errors-overview]
 listed_on: errors-overview
@@ -32,6 +32,7 @@ console shows the code that stopped it.
 | PRV-3022 | RUNTIME_WINDOW_SPAN_IMPLAUSIBLE | One row's event time is far from the rest |
 | PRV-3024 | RUNTIME_RETRACTED_UNHELD_ROW | A top-N was asked to retract a row it does not hold |
 | PRV-3025 | RUNTIME_AGGREGATE_OVERFLOW | A `SUM`, `COUNT` or `AVG` total left the 64-bit range |
+| PRV-3026 | RUNTIME_WINDOW_TOO_FINE | A hop so fine each row lands in too many windows; refused at registration |
 | PRV-3030 | ROW_FIELD_LIMIT_EXCEEDED | A row with more than 64 columns |
 | PRV-3100 | CODEGEN_COMPILATION_FAILED | Generated code did not compile |
 | PRV-3101 | CODEGEN_UNSUPPORTED_OPERATOR | A stage the generator does not emit; the interpreter runs it |
@@ -166,6 +167,34 @@ unset field read as the epoch, a value in the wrong unit (seconds read as millis
 that silently produced zero. With `pravaha.dlq.directory` set, a record that cannot be decoded is
 kept rather than read as a zero; see [Dead letters](/help/topics/dead-letters). If the span really is
 intended, the window is too fine for it.
+
+### PRV-3026 — window too fine
+
+A row updates one slice of a window, so a fine `HOP` costs nothing on the way in and everything on the
+way out: each row is published in `size / slide` windows, and each window that closes is combined from
+`size / gcd(size, slide)` slices. `HOP(INTERVAL '0.001' SECOND, INTERVAL '1' DAY)` is 86.4 million of
+each — one row and a minute of watermark held its lane for good and took gigabytes of heap, and every
+later push to the stream timed out (FINEHOP-1). So a window where either count passes
+`pravaha.lane.max-windows-per-row` is refused when it is registered, and never reaches a lane:
+
+```text
+PRV-3026  a window of PT24H sliding every PT0.001S puts each row in 86400000 windows of 86400000
+slices each, past this node's bound of 100000 (pravaha.lane.max-windows-per-row). ...
+```
+
+The default, **100,000**, admits a day of one-second hops (86,400) and a week of one-minute ones
+(10,080). **Do:** slide by more — a slide that divides the size keeps the slices equal to the windows
+(`HOP(7 s, 1 day)` is 12,343 windows of 86,400 one-second slices; `HOP(10 s, 1 day)` is 8,640 of each).
+If the work is intended and the node sized for it, raise the setting:
+
+```yaml
+pravaha:
+  lane:
+    max-windows-per-row: 500000
+```
+
+On an embedded engine it is the same key in the engine's configuration. A query already journalled is
+checked at the start too, so lowering the bound refuses a recovered one by name.
 
 ### PRV-3030 — row field limit exceeded
 

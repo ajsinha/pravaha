@@ -27,6 +27,11 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   expression, value and range), and a filter on the expression meets the same overflow as its
   projection. `2e9 * 2` was published `-294967296` while `WHERE i * 2 > 0` kept the row.
   `CAST(i AS BIGINT) * 2` asks for the 64-bit answer.
+- **A window too fine for its size is refused at registration, `PRV-3026`** (FINEHOP-1). Each row of
+  a `HOP` is published in `size / slide` windows of `size / gcd(size, slide)` slices; where either
+  passes the new `pravaha.lane.max-windows-per-row` (100,000 by default; server and embedded), the
+  registration is refused naming the size, the slide and both counts. `HOP(INTERVAL '0.001' SECOND,
+  INTERVAL '1' DAY)` used to register, and one row of it held its lane and every push to the stream.
 
 Register: **542 findings — 472 fixed, 51 open, 0 GA-BLOCKER, 19 GA-REQUIRED**.
 

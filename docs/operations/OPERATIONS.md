@@ -209,6 +209,7 @@ pravaha:
 | `pravaha.lane.inbox.cell-bytes` | 512 | The widest row that can be ingested at all |
 | `pravaha.lane.arena.slab-bytes` | 4194304 | Off-heap slab size, and the largest single output row |
 | `pravaha.lane.arena.max-slabs` | 8 | The lane arena's ceiling, `slab-bytes × max-slabs` |
+| `pravaha.lane.max-windows-per-row` | 100000 | The finest window a registration may ask for: a `HOP` whose rows each land in, or whose windows each combine, more windows or slices than this is refused `PRV-3026` (FINEHOP-1) |
 | `pravaha.lane.backpressure.high-watermark` | 0.8 | Inbox fill at which the source feeding a query is paused |
 | `pravaha.lane.backpressure.low-watermark` | 0.5 | Fill at which it is let go again; must be below the high one, or the node refuses to start naming both keys |
 | `pravaha.lane.multiplex.enabled` | `auto` | Whether registered queries share lanes, and so share inboxes (below): `auto` once `auto-from` are hosted, `true` always, `false` never |

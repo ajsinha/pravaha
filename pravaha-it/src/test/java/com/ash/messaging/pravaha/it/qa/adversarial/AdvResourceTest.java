@@ -405,23 +405,25 @@ class AdvResourceTest {
     }
 
     @Test
-    @org.junit.jupiter.api.Disabled(
-            "QE-159: HOP(slide 1 ms, size 1 day) is accepted; one row and a minute of watermark "
-                    + "occupy the lane for tens of seconds and gigabytes of heap, publish nothing, and stall every push to the stream")
     void qe159_aHopWithMillionsOfWindowsPerRowIsRefusedOrBounded() throws Exception {
+        // FINEHOP-1, fixed: refused at registration (PRV-3026), so it never reaches a lane -- the
+        // day variant no longer needs the 8 GB heap it took to reproduce.
         List<String> seen = fineHop("'1' DAY");
         assertThat(seen.get(0))
                 .satisfiesAnyOf(
                         r -> assertThat(r).startsWith("register PRV-"),
                         r -> assertThat(seen).contains("advance OK", "plain has b: true"));
+        assertThat(seen).containsExactly(seen.get(0));
+        assertThat(seen.get(0))
+                .startsWith("register PRV-3026")
+                .contains("86400000 windows")
+                .contains("pravaha.lane.max-windows-per-row");
     }
 
     @Test
-    void qe159_observed() throws Exception {
-        // An hour rather than the day of the reproduction: the same stall, a fraction of the heap.
-        List<String> seen = fineHop("'1' HOUR");
-        seen.forEach(line -> System.out.println("NOTE QE-159 " + line));
-        assertThat(seen.get(0)).isEqualTo("register OK");
+    void qe159_anHourOfMillisecondHopsIsRefusedToo() throws Exception {
+        // The hour the observation used (3.6 million windows a row, 1.3 GB of heap) is refused alike.
+        assertThat(fineHop("'1' HOUR")).singleElement().asString().startsWith("register PRV-3026");
     }
 
     @Test

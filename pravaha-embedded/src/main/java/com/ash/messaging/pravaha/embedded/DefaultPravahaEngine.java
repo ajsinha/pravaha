@@ -263,6 +263,10 @@ final class DefaultPravahaEngine implements PravahaEngine {
                 .administering(com.ash.messaging.pravaha.security.Administration.Rule.parse(configuration
                         .getString(com.ash.messaging.pravaha.security.Administration.SETTING)
                         .orElse("")));
+        // FINEHOP-1: the finest window a registration may ask for, read as a server reads it.
+        built.limitingWindowsPerRow(com.ash.messaging.pravaha.runtime.window.WindowLimits.parse(configuration
+                .getString(com.ash.messaging.pravaha.runtime.window.WindowLimits.SETTING)
+                .orElse(null)));
         registry = built;
         reads = new ViewQuery(views);
 

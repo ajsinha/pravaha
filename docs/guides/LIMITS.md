@@ -160,6 +160,15 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ## Boundaries: limits of the stores, the formats or a decision
 
+- **How fine a window may be.** A row updates one slice, and every window that closes is combined
+  from its slices and published, so the work a row makes is `size / slide` windows of
+  `size / gcd(size, slide)` slices each. A window where either passes `pravaha.lane.max-windows-per-row`
+  (100,000 by default; a day of one-second hops is 86,400) is refused at registration, `PRV-3026`
+  (FINEHOP-1). Before the bound, `HOP(INTERVAL '0.001' SECOND, INTERVAL '1' DAY)` registered and one
+  row of it held its lane and the stream's pushes for good.
+
+  **A decision:** nothing at run time makes 86 million windows a row cheap; the bound is per node and can be raised.
+
 - **Pushdown past what the stores can say exactly.** Projection is pushed into JDBC, Aerospike and
   Cassandra, and a continuous `COUNT`/`SUM` into JDBC as one partial per polled page — but only
   there: Aerospike would need Lua UDFs on the cluster and Cassandra re-reads its whole table each

@@ -459,6 +459,27 @@ public final class QueryRegistry implements AutoCloseable {
         return this;
     }
 
+    /** {@code pravaha.lane.max-windows-per-row} (FINEHOP-1); the default until told. */
+    private long maxWindowsPerRow = com.ash.messaging.pravaha.runtime.window.WindowLimits.DEFAULT_MAX_WINDOWS_PER_ROW;
+
+    /**
+     * The most windows a row may belong to, and slices a window may combine, in a query registered
+     * here from now on (FINEHOP-1); a finer window is refused {@code PRV-3026}. Given before recovery,
+     * so a journalled query finer than a lowered bound is refused by name at the start.
+     */
+    public QueryRegistry limitingWindowsPerRow(long maxWindowsPerRow) {
+        if (maxWindowsPerRow < 1) {
+            throw new IllegalArgumentException(com.ash.messaging.pravaha.runtime.window.WindowLimits.SETTING
+                    + " must be positive, got " + maxWindowsPerRow);
+        }
+        this.maxWindowsPerRow = maxWindowsPerRow;
+        return this;
+    }
+
+    long maxWindowsPerRow() {
+        return maxWindowsPerRow;
+    }
+
     /** Settings the debugger reads: {@code pravaha.debug.*} (ADR-048). Defaults until told. */
     private Configuration configuration = Configuration.builder().build();
 

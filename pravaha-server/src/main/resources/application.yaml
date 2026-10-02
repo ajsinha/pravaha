@@ -532,6 +532,12 @@ pravaha:
     arena:
       slab-bytes: 4194304
       max-slabs: 8
+    # The most windows one row may land in, and slices one window may be combined from, in a
+    # windowed query (FINEHOP-1). A HOP finer than this -- HOP(INTERVAL '0.001' SECOND, INTERVAL
+    # '1' DAY) is 86.4 million of each -- is refused at registration, PRV-3026, because once running
+    # one row of it holds the lane and every push to the stream behind it. 100,000 admits a day of
+    # one-second hops and a week of one-minute ones.
+    max-windows-per-row: 100000
     # When a source feeding a query is paused, and when it is let go again, as a fraction of the
     # query's inbox. Pausing at 0.8 and resuming at 0.5 is the design's pair; the gap is what stops
     # a saturated source pausing and resuming on alternate polls.

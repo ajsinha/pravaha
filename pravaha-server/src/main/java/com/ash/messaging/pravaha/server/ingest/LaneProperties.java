@@ -70,6 +70,9 @@ public class LaneProperties {
      */
     private WaitStrategy.Kind waitStrategy = WaitStrategy.Kind.BACKOFF_PARK;
 
+    /** {@code pravaha.lane.max-windows-per-row} (FINEHOP-1): the finest window a registration may ask for. */
+    private long maxWindowsPerRow = com.ash.messaging.pravaha.runtime.window.WindowLimits.DEFAULT_MAX_WINDOWS_PER_ROW;
+
     public Inbox getInbox() {
         return inbox;
     }
@@ -103,6 +106,14 @@ public class LaneProperties {
     }
 
     /** The configured shape, as the engine wants it. */
+    public long getMaxWindowsPerRow() {
+        return maxWindowsPerRow;
+    }
+
+    public void setMaxWindowsPerRow(long maxWindowsPerRow) {
+        this.maxWindowsPerRow = maxWindowsPerRow;
+    }
+
     public LaneConfig toLaneConfig() {
         return LaneConfig.defaults()
                 .withBatchSize(batchSize)
