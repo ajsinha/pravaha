@@ -85,10 +85,15 @@ public final class PrincipalMiddleware implements FlightServerMiddleware {
     }
 
     /**
-     * Whether the credential this call opened with is still accepted.
+     * Whether the credential this call opened with is still accepted, as the same principal.
      *
      * <p>For anything long-lived to ask periodically. A call with no retained credential -- a server
      * that does not authenticate -- answers true: there is nothing to revoke.
+     *
+     * <p>FLIGHTPRINCIPAL-1: a credential that still verifies, but now as somebody else, is not the
+     * credential this call was authorised with, and ends it -- the same rule the PostgreSQL gateway
+     * applies at every statement (PGREVOKE-1). A verifier that fails in any way, not only by refusing,
+     * is treated the same: closed rather than open.
      */
     public boolean credentialStillValid() {
         if (verifier == null || credential == null) {
@@ -96,8 +101,8 @@ public final class PrincipalMiddleware implements FlightServerMiddleware {
         }
         try {
             Principal again = verifier.verify(credential);
-            return again != null && !again.isAnonymous();
-        } catch (PravahaException refused) {
+            return again != null && !again.isAnonymous() && again.id().equals(principal.id());
+        } catch (RuntimeException refused) {
             return false;
         }
     }
