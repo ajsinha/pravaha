@@ -10,6 +10,15 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
 
 ---
 
+## Unreleased
+
+- **Adversarial QA of 2.0.0** (2026-10-01): 322 cases over the engine, data and security
+  ([cases](qa/cases/ADV-ENGINE.md), [log](qa/logs/ADV-ENGINE.md)) and the surfaces, operations and
+  packaging ([cases](qa/cases/ADV-SURFACE.md), [log](qa/logs/ADV-SURFACE.md)); 244 pass, 66 fail,
+  46 defects opened, 10 of them HIGH. None is fixed yet.
+
+Register: **538 findings — 472 fixed, 47 open, 0 GA-BLOCKER, 19 GA-REQUIRED**.
+
 ## 2.0.0 — 2026-10-01
 
 **2.0.0 — breaking: Java 25 required.** Pravaha is built, tested, run and released on JDK 25 only,

@@ -1,5 +1,36 @@
 # QA summary — read this one first
 
+## Adversarial QA of 2.0.0 — 2026-10-01 (current)
+
+Two adversarial passes against `e3ad67dc` (v2.0.0 plus the snapshot bump), on JDK 25, each with its
+cases written before execution and every case logged with evidence:
+
+| Pass | Cases | Pass | Fail | Blocked / not run | Defects (HIGH / MEDIUM / LOW) | Files |
+|---|---|---|---|---|---|---|
+| Engine, data and security (`QE-`) | 168 | 124 | 36 | 8 | 24 (6 / 11 / 7) | [cases](cases/ADV-ENGINE.md), [log](logs/ADV-ENGINE.md) |
+| Surfaces, operations and packaging (`QI-`) | 154 | 120 | 30 | 4 | 22 (4 / 6 / 12) | [cases](cases/ADV-SURFACE.md), [log](logs/ADV-SURFACE.md) |
+| **Total** | **322** | **244** | **66** | **12** | **46 (10 / 17 / 19)** | |
+
+**HIGH:** FINEHOP-1 (a fine HOP wedges a lane and its stream), ALLNULLAGG-1 (SUM/AVG/MIN/MAX of an
+all-NULL group are 0, not NULL), NARROWINT-1 (narrow-integer arithmetic published wrapped),
+JOURNALMID-1 (mid-journal damage silently drops later registrations), SHAREDLOSS-1 (a shared
+computation's surviving name loses state at restart), CELLBYTES-1 (the embedded engine cannot carry a
+row over 512 bytes), PGPREAUTH-1 and HTTPBODY-1 (unauthenticated clients can exhaust the heap),
+PGREVOKE-1 (an open pgwire connection outlives its revoked credential), CDCSLOT-1 (a dropped CDC slot
+goes unnoticed while changes are lost).
+
+**What held:** 420 seeded window runs and 40 query-chain runs matched an independent oracle; 19
+SIGKILLs lost and doubled nothing; 9,800 random predicates agreed between the interpreted and
+generated paths (apart from NANNOT-1); masks and row filters held on every read path tried; tenant
+names were indistinguishable on every surface tried; every grant and ownership escalation was refused.
+
+The reproductions are kept: `pravaha-it/.../it/qa/adversarial/` (opt-in, `-Dpravaha.qa.adversarial=true`,
+28 `@Disabled("QE-…")` reproductions) and `tests/qa/adv_surface/` (opt-in against a running node,
+nine reproductions behind `PRAVAHA_QI_REPRODUCE=1`). Every defect's status is in
+[`FINDINGS.md`](FINDINGS.md).
+
+---
+
 > **This page stopped being current on 2026-09-12 and is kept as the record of that round, not as a
 > description of the product.** Everything below it — the counts, the blockers, and especially *The
 > state of the product, in one paragraph* — describes the tree as it stood when the first four rounds

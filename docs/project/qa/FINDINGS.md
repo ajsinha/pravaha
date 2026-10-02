@@ -4,9 +4,9 @@
 they were written; the file has since grown by sixteen more rounds and two waves, and the sections
 are in the order they were run rather than in any order of importance. For what is open *now*, read
 the `> **Status:**` line on each finding — that is the part `FindingsRegisterTest` enforces, and the
-only part that is kept current. Counting the register as it stands: **492 findings carrying a
-status — 472 FIXED, 1 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 1 open, **0 are
-GA-BLOCKER, 0 GA-REQUIRED, 1 POST-GA and 0 are not defects at all** — see the triage below. Counted by the same pattern
+only part that is kept current. Counting the register as it stands: **538 findings carrying a
+status — 472 FIXED, 47 OPEN, 10 BY DESIGN, 9 SUPERSEDED.** Of the 47 open, **0 are
+GA-BLOCKER, 19 GA-REQUIRED, 26 POST-GA and 2 are not defects at all** — see the triage below. Counted by the same pattern
 `FindingsRegisterTest` uses, so the number here and the number the build enforces are the same
 number.
 
@@ -7413,3 +7413,286 @@ the lead.
 
 > **Status:** FIXED — `pravaha.security.administer=legacy-read`, deprecated in 1.0.0 and announced for removal in 2.0, is removed: the key accepts only `ownership`, and `legacy-read` is refused at start with PRV-7004 naming the removal and the way off it ("grant MODIFY/MANAGE or use the admin role"), on the server and in the embedded engine. `QueryOwnershipTest`, `LifeAuthorizationTest`, `ViewOwnershipHttpTest`, `EmbeddedLoopTest`.
 
+## Found by the adversarial QA of 2.0.0, engine, data and security (2026-10-01), 24 findings
+
+Cases and evidence: [cases/ADV-ENGINE.md](cases/ADV-ENGINE.md), [logs/ADV-ENGINE.md](logs/ADV-ENGINE.md).
+
+### FINEHOP-1 (HIGH) — a HOP with millions of windows per row is accepted, and one row wedges its lane and the stream
+> **Status:** OPEN — `HOP(TABLE w, DESCRIPTOR(ts), INTERVAL '0.001' SECOND, INTERVAL '1' DAY)` registers (86.4 M windows per row, 86.4 M slices per window). One pushed row and a watermark advance of 60 s: the advance returns after ~10 s, the lane then never finishes (0 of the 60,000 closed windows published after 45 s), heap reaches 8.3 GB (1.3 GB with a one-hour size), and the next push to the stream fails `PRV-8103` after the push timeout while an unrelated query on the same stream never sees it. Any principal who may register can do this with one row. Reproduction: `AdvResourceTest#qe159_aHopWithMillionsOfWindowsPerRowIsRefusedOrBounded` (disabled; ~8 GB heap) / `#qe159_observed`.
+> **Disposition:** GA-REQUIRED — refuse at registration a window whose slices per window (size ÷ gcd(size, slide)) or windows per row (size ÷ slide) pass a ceiling, as TIME-1 bounds windows per watermark advance.
+
+### ALLNULLAGG-1 (HIGH) — SUM, AVG, MIN and MAX of an all-NULL group are 0, not NULL
+> **Status:** OPEN — two rows with `v = NULL` in one window: `SUM(v)`, `AVG(v)`, `MIN(v)`, `MAX(v)` are published `0|0|0|0` (`COUNT(v)` is correctly 0). The same on a bounded read of a view (`KeyedAggregate`: `x|0|0|0|0`) and in a continuous query over a view (`x|0|0|0`). SQL says NULL; a total of 0 is indistinguishable from a real zero. Found by the window differential (QE-041–043 fail on every seed that has an all-NULL group unless the oracle copies this). Reproduction: `AdvAggregateTest#qe163_aggregatesOfAnAllNullWindowGroupAreNull`, `#qe163_allNullGroupOnAViewReadAndOverAViewIsNull`.
+> **Disposition:** GA-REQUIRED — the accumulators already track presence (`present[]`, COUNT(col)); emit NULL when a group's non-null count is 0.
+
+### NARROWINT-1 (HIGH) — narrow-integer arithmetic is published wrapped
+> **Status:** OPEN — `RowStages.writeComputed` writes an `INT32`/`INT16`/`INT8` result with `(int)`/`(short)`/`(byte)` of a 64-bit evaluation, so `i * 2` (i = 2,000,000,000) is published `-294967296`, `i + i` likewise, `i * i` = `-1651507200`, `-i` and `ABS(i)` at `Integer.MIN_VALUE` = `-2147483648`, `sm + sm` (30000) = `-5536`, `ty + ty` (100) = `-56`; constant expressions too (`2147483647 + 1`, `65536 * 65536 = 0`). The query stays RUNNING. A filter on the same expression evaluates in 64 bits and disagrees with the projection (`WHERE i * 2 > 0` keeps the row whose projected `i * 2` is negative). Reproduction: `AdvExpressionTest#qe001…qe006` (disabled) and `#qe001_observed`, `#qe013_…`.
+> **Disposition:** GA-REQUIRED — check the narrow result's range (`Math.toIntExact` and the short/byte equivalents) and route the row as a 64-bit overflow is routed.
+
+### JOURNALMID-1 (HIGH) — damage in the middle of the registry journal silently drops every later registration, at every start
+> **Status:** OPEN — `RegistryJournal.replayAll` treats any length prefix that runs past the end of the file as "a half-written final record" and stops. Registrations `alpha`, `beta`, `gamma`; the second record's length prefix overwritten: the next start recovers `[alpha]` with no error. `delta` registered on that start is appended after the damage and is lost at the next start too (`[alpha]` again). state086 covers an undecodable record whose length is plausible; a damaged length is the case it does not. Reproduction: `AdvDurabilityTest#qe082_aDamagedRecordInTheMiddleOfTheJournalRefusesTheStart` (disabled) / `#qe082_observed`.
+> **Disposition:** GA-REQUIRED — treat a bad length as torn only when it is the final record (nothing decodable follows); otherwise refuse with `PRV-8005` naming the record, as for an undecodable one. A per-record checksum would make the distinction exact.
+
+### SHAREDLOSS-1 (HIGH) — the surviving name of a shared computation loses its state at a restart
+> **Status:** OPEN — `alias_a` and `alias_b` register the same SQL (one computation), two rows pushed, `alias_a` dropped, checkpoints taken, restart: `alias_b` comes back RUNNING and empty. Dropping `alias_b` instead, or dropping nothing, keeps both rows. The checkpoint (or its directory) appears to belong to the first registrant and to go with its drop. Reproduction: `AdvDurabilityTest#qe091_theSurvivorOfASharedComputationKeepsItsStateAcrossARestart` (disabled) / `#qe091_observed`.
+> **Disposition:** GA-REQUIRED — a computation's state must outlive any one of its names; re-home the recorded checkpoint directory to the next name on drop.
+
+### CELLBYTES-1 (HIGH) — the embedded engine cannot carry a row wider than 512 bytes
+> **Status:** OPEN — `DefaultPravahaEngine` reads no `pravaha.lane.*` setting, so the inbox cell is 512 bytes whatever is configured. Pushing a 600-character string stops the query (`PRV-8004 … row of 656 bytes exceeds the cell size of 512; raise pravaha.lane.inbox.cell-bytes for this node`) with `pravaha.lane.inbox.cell-bytes: 65536` set; the remedy the message names cannot be applied. On a server the setting exists (TROUBLESHOOTING `PRV-3001`) but an oversize row still stops the query rather than being dead-lettered. Reproduction: `AdvResourceTest#qe167_aRowWithinTheConfiguredCellIsAccepted` (disabled) / `#qe167_observed`.
+> **Disposition:** GA-REQUIRED — honour the lane settings in the embedded engine; consider refusing an oversize row per row (DLQ) instead of stopping the query.
+
+### NARROWCAST-1 (MEDIUM) — narrowing casts truncate, and NaN/Infinity cast to BIGINT become numbers
+> **Status:** OPEN — `CAST(a AS INT)` publishes `Long.MIN_VALUE → 0`, `Long.MAX_VALUE → -1`; `CAST(i AS SMALLINT)` publishes `2e9 → -27648`; `CAST(d AS BIGINT)` publishes NaN → 0 and +Inf/1e300 → `Long.MAX_VALUE` (so `WHERE CAST(d AS BIGINT) = 0` keeps NaN rows); literals too (`CAST(9223372036854775808 AS BIGINT)` → `Long.MIN_VALUE`). CQ §11 refuses a narrowing `DECIMAL` cast because "rows that do not fit have no answer"; the integer and double casts answer anyway. Reproduction: `AdvExpressionTest#qe007…qe009` (disabled).
+> **Disposition:** POST-GA — range-check narrowing casts and refuse NaN/Infinity, routing the row as an overflow.
+
+### DIVMIN-1 (MEDIUM) — Long.MIN_VALUE / -1 is published as Long.MIN_VALUE
+> **Status:** OPEN — `Expression.Arithmetic.evaluateLong`'s `DIVIDE` is `l / r`; `+ - *` use `*Exact`. Reproduction: `AdvExpressionTest#qe010_longMinDividedByMinusOneIsNeverPublished` (disabled) / `#qe010_observed`.
+> **Disposition:** POST-GA — one guard (`l == Long.MIN_VALUE && r == -1`).
+
+### CKPTSUM-1 (MEDIUM) — a checkpoint has no checksum, so a flipped bit is restored as an answer
+> **Status:** OPEN — `FileCheckpointStore` checks magic, version, counts and trailer, not content. Flipping one bit at 16 evenly spaced offsets of the newest `win` checkpoint (2,021 bytes) and restarting over a replayable file source: 8–10 of 16 restarts publish a corrupted window (e.g. `window_end` `1700000020000000001`, `window_start` `1627942485962072064`) with RUNNING and no complaint, for ever. Truncation is detected (QE-079 PASS). Reproduction: `AdvDurabilityTest#qe080_aFlippedBitInACheckpointIsNeverRestoredAsAnAnswer` (disabled) / `#qe080_observed`.
+> **Disposition:** POST-GA — CRC32C over the body, verified on load; a mismatch falls back to the previous checkpoint as a truncated one does.
+
+### PUSHPARTIAL-1 (MEDIUM) — a push one query cannot apply leaves the others applied but unpublished
+> **Status:** OPEN — `DefaultPravahaEngine.deliver` offers every row to every target, then commits target by target; the first target whose lane died throws `PRV-3010` and the remaining targets are never committed. Their views hide the row until some later push commits it, and a caller who retries the push it was told failed gets it twice (`COUNT(*)` of one row = 2). The javadoc promises the push "returns once every running query … has applied and committed them". Reproduction: `AdvChainTest#qe162_aPushOneQueryRefusesIsAllOrNothingForTheOthers` (disabled) / `#qe162_observed`.
+> **Disposition:** POST-GA — commit every healthy target before reporting the failed one, and say in the exception which targets applied the rows.
+
+### NANGROUP-1 (MEDIUM) — a windowed GROUP BY on a DOUBLE can lose a row
+> **Status:** OPEN — the windowed aggregate keys groups by a hash of the value's bits, the view keys rows by `Double.equals`. Five rows in one window, `d` = −0.0, 0.0, NaN, NaN (payload 0x7ff8000000000001), 1.0: four view rows whose counts sum to **4** — the two NaN groups collapse into one view row. −0.0 and 0.0 are separate groups everywhere (windowed, view-read `GROUP BY`, `COUNT(DISTINCT)`) although `d = 0` keeps both (TY-3). Reproduction: `AdvAggregateTest#qe045_046_windowedGroupsOnADoubleCountEveryRowOnce` (disabled) / `#qe045_046_observed`, `#qe047_048_049_…`.
+> **Disposition:** POST-GA — canonicalise NaN (and decide ±0.0) before hashing a group key, the same way on every path.
+
+### HOPALIGN-1 (MEDIUM) — HOP windows are aligned by their end when the size is not a multiple of the slide
+> **Status:** OPEN — `HOP(..., INTERVAL '10' SECOND, INTERVAL '25' SECOND)`, one row at t = 12 s: windows `[-5, 20)` and `[5, 30)`. SQL's HOP (Calcite's `HopEnumerator`, Flink) starts windows at multiples of the slide: `[-10, 15)`, `[0, 25)`, `[10, 35)`. `SlicedWindows.windowEndsContaining` aligns ends; `lastWindowEndFor` assumes starts are aligned, so the two disagree about a row's last window. Reproduction: `AdvAggregateTest#qe065_hopWindowsStartOnMultiplesOfTheSlide` (disabled) / `#qe065_observed`.
+> **Disposition:** POST-GA — align starts, or refuse a size that is not a multiple of the slide and say so in CQ §5.
+
+### RETYPERESTORE-1 (MEDIUM) — a checkpoint of another output schema is restored into the view
+> **Status:** OPEN — `q = SELECT id, v FROM s` with `v INT64`, a row, a checkpoint; restart with `v` declared `STRING`: `q` recovers RUNNING, its schema says `v VARCHAR`, and its view holds the old `Long` 10 beside new `String`s. A column added elsewhere restores correctly. Reproduction: `AdvDurabilityTest#qe088_aCheckpointOfAnotherOutputSchemaIsNotRestored` (disabled) / `#qe088_observed`.
+> **Disposition:** POST-GA — record the output schema with the checkpoint and refuse (or re-derive) a restore whose schema differs.
+
+### SAMEPIDCLAIM-1 (MEDIUM) — two engines in one process share a state directory, and the second's close unclaims the first's
+> **Status:** OPEN — `StateOwnership.refuseIfHeldByAnother` returns early for "our own claim, being re-made" when the pid matches, so a second embedded engine in the same JVM with the default node id (`pravaha-embedded`) on the same directories starts, journals and checkpoints beside the first; when it closes it deletes the ownership markers while the first runs, after which an engine with another node id is accepted. A different node id is refused (`PRV-4003`) while the markers stand. Reproduction: `AdvDurabilityTest#qe083_aSecondEngineOnARunningEnginesDirectoryIsRefused` (disabled) / `#qe083_observed`.
+> **Disposition:** POST-GA — track live claims per process (an in-JVM registry), not only per pid.
+
+### GETTABLES-1 (MEDIUM) — GetTables lists nothing to a non-admin under the catalogue
+> **Status:** OPEN — with `pravaha.catalog.enabled` and `authority: catalog`, `FlightSqlClient.getTables` returns no rows to `ana` (granted `SELECT` on `payments`, whose read returns her two rows) and none to `eve` (who registered her own `payments` in `globex`); `ops` and `gops` (role `admin`) are listed every tenant's views. Nothing leaks, but a BI tool's catalogue is empty for every ordinary user. Reproduction: `AdvSecurityTest#qe168_getTablesListsTheViewsACallerMayRead` (disabled) / `#qe168_observed`.
+> **Disposition:** GA-REQUIRED — list what `SELECT` (or ownership) reaches, resolved in the caller's tenant, as `SHOW CONTINUOUS QUERIES` does.
+
+### LISTCOUNT-1 (MEDIUM) — LIST tells a catalogue-filtered reader the view's whole cardinality
+> **Status:** OPEN — `ana`, narrowed by `CREATE ROW FILTER region_scope AS region = session_attribute('region')`, reads 2 of 3 rows of `payments` and is told `ROWS IN = 3` by `pravaha.list`. SX-18 withholds the count (`-1`) for a principal whose `SecurityPolicy` decision carries a row filter; the catalogue's row filters are not consulted. Reproduction: `AdvSecurityTest#qe111_listWithholdsAFilteredReadersCount` (disabled) / `#qe111_observed`.
+> **Disposition:** GA-REQUIRED — the catalogue's narrowing must withhold the count as SX-18 does.
+
+### DLQPROJ-1 (MEDIUM) — a row that fails evaluation stops the query even with a dead-letter queue
+> **Status:** OPEN — embedded engine with `pravaha.dlq.directory`, `filesystem` source, `SELECT id, a / b FROM z` over `1,10,2 / 2,10,0 / 3,10,5`: the query stops (`PRV-8003 … division by zero in a projection; the record is routed to the DLQ …`) and the DLQ holds 0 entries. CQ §11 says such a row "goes to the dead-letter queue, as a 64-bit overflow does". W8-11 recorded the lane-level poison row as deliberately not done; the guide was not changed with it. Reproduction: `AdvDurabilityTest#qe012_aRowThatDividesByZeroGoesToTheDeadLetterQueue` (disabled) / `#qe012_observed`.
+> **Disposition:** GA-REQUIRED — either dead-letter the row from the lane or correct CQ §11 and the `PRV-3010`/`ArithmeticException` texts.
+
+### NANNOT-1 (LOW) — the negation of a DOUBLE comparison is not its IEEE complement
+> **Status:** OPEN — `PredicateCompiler.negate` turns `NOT (d > 5)` into `d <= 5`, false for NaN, so a NaN row is in neither `d > 5` nor `NOT (d > 5)`; `IS FALSE` and `IS NOT FALSE` over such a comparison go wrong the same way (rows dropped and added). TY-3 chose IEEE 754, under which `NaN > 5` is FALSE and its negation TRUE. 26–33 of 1,500 random predicates per seed differ only on NaN rows for this reason, interpreted and generated alike. Reproduction: `AdvExpressionTest#qe014_notOfAComparisonKeepsANanRowAsIeeeSays` (disabled).
+> **Disposition:** POST-GA — negate a floating-point comparison as `NOT(cmp) AND col IS NOT NULL`, not the opposite operator.
+
+### FARTIME-1 (LOW) — a CSV timestamp after 2262 wraps into 1677
+> **Status:** OPEN — `DelimitedCodec.temporal` computes `getEpochSecond() * 1_000_000_000L + getNano()` unchecked; `3000-01-01T00:00:00Z` is stored as `-4389808147419103232` ns. Reproduction: `AdvDurabilityTest#qe164_aTimestampPastTheNanosecondRangeIsRefusedNotWrapped` (disabled) / `#qe164_observed`.
+> **Disposition:** POST-GA — `Math.multiplyExact`/`addExact` and a decode error with the line.
+
+### MINRETRACT-1 (LOW) — windowed MIN/MAX stop the query on the first retraction
+> **Status:** OPEN — documented only in LIMITS' pushdown paragraph and LIFE-126's path; CQ §13 marks `MIN`/`MAX` ✅ in windows and nothing refuses them over a stream that can carry deletes (an `op.column` file, `postgres-cdc`). Reproduction: `AdvAggregateTest#qe044_windowedMinGivenARetractionStopsTheQuery` (passes as observed).
+> **Disposition:** NOTE — say it in CQ §13, or refuse at registration when a source can retract (as `PRV-2042` does for repeating sources).
+
+### MASKALERT-1 (LOW) — an alert comparing a masked column is accepted, then broken
+> **Status:** OPEN — `ana` (card masked): `CREATE ALERT raw_guess ON payments WHERE card = '4111-1111' NOTIFY ops_log` answers `ACTIVE`; the alert then shows `following=BROKEN` and never fires (fails closed). SECURITY.md lists "an alert's WHERE" among the plan-time `PRV-7006` refusals. Reproduction: `AdvSecurityTest#qe105_anAlertComparingAMaskedColumnIsRefusedWhenCreated` (disabled) / `#qe105_observed`.
+> **Disposition:** POST-GA — run `AlertAccess.narrowingFor` in `create` so the refusal reaches the person creating it.
+
+### EMITROOM-1 (LOW) — a window of ~836 k groups stops its query below the view ceiling
+> **Status:** OPEN — 800,000 groups in one tumbling window are answered; 1,000,050 stop the query at the 836,416th emitted group with `PRV-3001 no room to emit a window result`, not the view's `PRV-4022` ceiling (1,000,000) that names the limit. Reproduction: `AdvResourceTest#qe144_145_146_aMillionGroupsKeysAndDistinctValues` (observed).
+> **Disposition:** NOTE — size the emission buffer to the view ceiling, or refuse with the ceiling's own code and message.
+
+### QOQAPI-1 (LOW) — the embedded register call cannot build on a view
+> **Status:** OPEN — `engine.register("down", "SELECT g, SUM(v) AS s FROM up GROUP BY g", "g")` → `PRV-2002 Object 'up' not found`; the same SQL as `CREATE CONTINUOUS QUERY` works. Reproduction: `AdvChainTest#qe068_theEmbeddedRegisterCallCannotBuildOnAView`.
+> **Disposition:** POST-GA — route `register` through the path the statement uses.
+
+### UNCODEDAPI-1 (LOW) — failures without a code, or without a message
+> **Status:** OPEN — `PravahaEngine.register(name, sql)` with no key → `IllegalArgumentException`; `push` of an `Instant` past 2262 → `ArithmeticException: long overflow`; `register` when the checkpoint directory cannot be created → `UncheckedIOException`; 3,000 nested parentheses and a 1.2 MiB `OR` chain → `PRV-2001  null` (the second after 30.5 s of planning); and a lane failure from `Math.subtractExact` reads `java.lang.ArithmeticException` with no "long overflow" once the JIT has compiled it (OmitStackTraceInFastThrow). Reproductions: `AdvAggregateTest#qe062_…`, `#qe063_064_…`, `AdvDurabilityTest#qe084_085_…`, `AdvResourceTest#qe139_…`, `AdvChainTest#qe162_observed`.
+> **Disposition:** POST-GA.
+```
+
+### Design concerns recorded as NOTE (behaving as documented)
+
+- **QE-113** — six tautologies pass the vacuity analysis and are bound: `amount * 0 = 0`, `ABS(amount) >= 0`,
+  `region || '' = region`, `amount + 0 = amount`, `SUBSTRING(region FROM 1) = region`, `amount * amount >= 0`.
+  SECURITY.md says the analysis is "sound, not complete" and names expression-vs-expression comparisons as
+  missed; the six all reach that clause. Worth a rule for "an arithmetic identity on a NOT NULL column".
+- **QE-130** — an exempt owner (`admin`) can register `SELECT id, card FROM payments` and grant it; analysts
+  then read raw cards. SECURITY.md: building on a view needs `BUILD_ON`, and the owner of the new view decides.
+- **QE-129** — `SHOW GRANTS ON VIEW payments` is answered for a principal holding only `SELECT`, including who
+  granted what to whom.
+- **QE-122** — the `admin` role is global: `gops`, an admin of `globex`, is listed (and may address) `acme`'s
+  views, as `ops` of `acme` is `globex`'s. SECURITY.md: "Only an admin reaches another tenant's view". A
+  deployment that gives each tenant its own administrator has made each of them every tenant's.
+- **QE-118** — reading another tenant's qualified name answers `PRV-4023` in identical words whether it exists
+  or not (no leak); SECURITY.md says `PRV-7002`.
+- **QE-024** — `SUBSTRING(t FROM 2 FOR -1)` answers `''`; SQL raises "negative substring length".
+- **QE-040** — the planner simplifies away sub-expressions whose value is not needed (`CASE` with equal branches,
+  `-(-x)`), and the error SQL would raise with them (`ABS(Long.MIN)`, `-(-MIN)`, a division by zero in a dead
+  condition). Common in engines; recorded so nobody reads it as a guard.
+- **QE-155** — an embedded subscription with `FAIL` overflow closes silently: the `Consumer` is not told.
+- **QE-161** — one-millisecond tumbling windows stop their query (`PRV-3022`, TIME-1) after an event-time gap
+  of ~2.8 hours, which an idle stream reaches without any bad timestamp.
+- **QE-167 (server half)** — a row wider than `cell-bytes` stops the query rather than being dead-lettered.
+- **QE-086** — with the journal path a symlink to `/dev/full`, `RegistryJournal.replayAll`'s `readAllBytes`
+  runs out of heap (`Requested array size exceeds VM limit`): the journal is read whole into one array.
+- Embedded `push` is not replayable: rows pushed after the last checkpoint are not there after a restart.
+  By design (a host that pushes owns its replay); QE-067 and QE-076 wait a checkpoint before restarting.
+
+### What could not be tested
+
+- **QE-086 disk full** — BLOCKED: making a full filesystem needs root (a loop or tmpfs mount); the `/dev/full`
+  surrogate tests a device, not ENOSPC on a real file.
+- **QE-093 spill + restart** — NOT RUN: the embedded engine has no spill setting
+  (`InterpretedPipeline.configureSpill` is wired by `PravahaNode` only).
+- **QE-106 dead letters of a narrowed reader's query**, **QE-132 audit of a denied read**, **QE-138 metrics
+  labels across tenants**, **QE-156 lane rebalance** — NOT RUN: each is read or driven only over HTTP/CLI,
+  the companion round's surfaces.
+- **QE-131 the assistant registering without confirmation** — NOT RUN: drafting lives in the Python SDK and
+  the console (ADR-058); the engine only fingerprints drafts.
+- Two nodes on one data directory across *processes* is covered by `NodeCrashRestartTest`; QE-083 covers
+  the in-process case it does not.
+- Cluster mode is out of scope (single-node GA, LIMITS).
+
+---
+
+## Found by the adversarial QA of 2.0.0, surfaces, operations and packaging (2026-10-01), 22 findings
+
+Cases and evidence: [cases/ADV-SURFACE.md](cases/ADV-SURFACE.md), [logs/ADV-SURFACE.md](logs/ADV-SURFACE.md).
+
+### PGPREAUTH-1 (HIGH) — the PostgreSQL gateway allocates an unauthenticated client's declared message size
+
+> **Status:** OPEN — `PgFrontend.readMessage` does `new byte[length - 4]` for any declared length up to 16 MiB before reading a byte of it, and `PgWireConnection.authenticate` reads the `PasswordMessage` through it, so a client that has sent only a startup packet makes the node hold 16 MiB per socket for the 10 s handshake deadline, with no connection limit (a cached thread pool). Against `pravaha/pravaha-server:2.0.0` in a 1 GiB container (image defaults `-XX:MaxRAMPercentage=50 -XX:+ExitOnOutOfMemoryError`, `dev,users`, `pravaha.pgwire.enabled: true`) **60 such sockets ended the JVM: `Terminating due to java.lang.OutOfMemoryError: Java heap space`, container exit 3**. On a `-Xmx1g` node without `ExitOnOutOfMemoryError` 100 sockets filled the heap to 1 043 804 K and produced 42 `OutOfMemoryError`s in `pravaha-pgwire-session` threads; the engine survived by luck. TLS does not help (authentication follows the handshake). Repro: QI-012, `test_qi012_*` in `tests/qa/adv_surface` (gated `PRAVAHA_QI_DESTRUCTIVE=1`). Fix direction: cap pre-authentication messages at a few KiB (a password/token is small), read before allocating, and bound concurrent unauthenticated connections.
+> **Disposition:** GA-REQUIRED — an unauthenticated network peer can stop the node; the gateway is documented as fit to expose with TLS.
+
+### HTTPBODY-1 (HIGH) — anonymous request bodies are buffered whole before authentication
+
+> **Status:** OPEN — `POST /api/v1/auth/login` (open by nature) parses any JSON body up to Jackson's 20 M-character string limit. 30 concurrent anonymous requests carrying a 19 MB `username` killed `pravaha/pravaha-server:2.0.0` in a 1 GiB container (`OutOfMemoryError`, exit 3); on the `-Xmx1g` QI node the same burst produced 38 `OutOfMemoryError`s, 17 answers `500`, and an OOM in the engine's own `pravaha-clock` thread. A single 50 MiB body is refused in 21 ms (Jackson's cap), so the gap is the size below it and the concurrency. Repro: QI-045, `test_qi045_*` (destructive-gated). Fix direction: a request-size limit far below 20 MB on every endpoint (and especially the unauthenticated ones), enforced before the body is read.
+> **Disposition:** GA-REQUIRED — the HTTP port is the one every deployment exposes.
+
+### PGREVOKE-1 (HIGH) — revoking a credential does not stop a pgwire connection it opened
+
+> **Status:** OPEN — the gateway checks the password once, at sign-in, and never again; the connection has no idle timeout (`setSoTimeout(0)` after the handshake). After (a) `DELETE /api/v1/keys/{id}`, (b) `POST /api/v1/auth/logout` of the session token, or (c) `PATCH /api/v1/users/bob {"status":"disabled"}`, the already-open connection kept answering `SELECT … FROM by_user` with rows, while the same credential got `401` on HTTP and `28P01` on a new connection. SECURITY.md promises "revocation is immediate" for keys and that disabling a user ends their sessions; a BI tool's pooled connection (Power BI, Grafana) can stay open indefinitely. Repro: QI-004, `test_qi004_*` (`PRAVAHA_QI_REPRODUCE=1` makes it a strict xfail). Fix direction: re-verify the credential per statement (as Flight does per call), or at least on a short interval, and close the connection with `28P01`/`57P01` when it no longer verifies.
+> **Disposition:** GA-REQUIRED — incident response (disable the user, revoke the key) does not take effect on this door.
+
+### CDCSLOT-1 (HIGH) — a dropped PostgreSQL replication slot goes unnoticed while the node runs
+
+> **Status:** OPEN — in the compose `cdc` profile, with `customers_live` registered and streaming, terminating the walsender and dropping the slot (`pg_terminate_backend` + `pg_drop_replication_slot('pravaha_customers')`, looped until the drop wins) left the plugin's connection idle with no walsender and no slot. For the following four minutes `pravaha describe customers_live` said `state RUNNING`, `feed RUNNING`, `/actuator/health` said `UP`, nothing was logged above INFO, and rows inserted after the drop (`6 pied piper`, `7 aviato`) never reached the view. The source-postgres-cdc help topic promises PRV-5117 "while running: the slot dropped or invalidated" and "detected and refused, never skipped over". (On the next restart the gap *was* detected — PRV-5115 — and the registration was refused and disappeared from `pravaha queries`, with health still UP; see RECOVERYHEALTH-1.) Repro: QI-172 (transcript in this log), `adv-surface-evidence/cdc1.txt`, `cdc2.txt`.
+> **Disposition:** GA-REQUIRED — silent loss of every change after the event, which the connector's documentation says cannot happen.
+
+### PGINTPARAM-1 (MEDIUM) — a 4-byte integer parameter against a BIGINT column is a protocol violation
+
+> **Status:** OPEN — the gateway types a parameter by the column it is compared with and demands 8 bytes, ignoring the type OID the client declared in `Parse`. pgjdbc 42.7.11 `PreparedStatement.setInt(1, 600)` on `… WHERE amount > ?` (amount `BIGINT`) gets `PSQLException 08P01 PRV-6202 a binary parameter declared 4 bytes; this server expected 8`, and so does psycopg with `%b` and a small int. PostgreSQL coerces `int4` to `int8`; the pgwire topic says binary parameters "are decoded for the fixed-width types". Npgsql (Power BI) sends `int` parameters as binary `int4`. Repro: QI-031 (pgjdbc transcript in the log entry), `test_qi031_*`.
+> **Disposition:** GA-REQUIRED — the commonest JDBC call on a numeric filter fails.
+
+### DECLSTREAM-1 (MEDIUM) — a stream declared over HTTP cannot be registered over
+
+> **Status:** OPEN — on a fresh `pravaha/pravaha-server:2.0.0` (`dev`, catalogue on or off): `pravaha streams declare s2 --schema "k:INT64,v:INT64"` → `declared s2`; `pravaha streams` lists it; `pravaha validate --sql "SELECT k FROM s2"` → `valid`; `pravaha register --name s2v --sql "SELECT k, v FROM s2" --keys 0` → `PRV-2002 Object 's2' not found. This server has 0 stream(s) declared`. The HTTP catalogue and the Flight planner disagree about what exists. Documented as a working path (streams help topic, `Client.declare_stream`, CLI.md). Repro: QI-059, `test_qi059_*`.
+> **Disposition:** GA-REQUIRED — a documented way to create a stream produces one nothing can use.
+
+### LOCKENUM-1 (MEDIUM) — account lockout reveals which user names exist
+
+> **Status:** OPEN — sign-in failures are uniform (401 `PRV-7010`, equal timing within noise: 241/232, 305/244, 225/217 ms medians), but after five failures an existing account answers `423 PRV-7011 this account is locked until <instant>` while a name that does not exist keeps answering `401 PRV-7010` — through the engine and through the console's `/login`. Anyone can therefore confirm a user name with six requests, and lock any known account (the bootstrap `admin` included) for 30 minutes. SECURITY.md: messages "say only that the credential was not accepted". Repro: QI-054, QI-123, `test_qi054_*`.
+> **Disposition:** GA-REQUIRED — the enumeration half; the lock-out-anyone half is the usual trade-off and may be a NOTE once the oracle is closed (answer locked and unknown alike, record the lock server-side).
+
+### BIGREAD-1 (MEDIUM) — reads over a view near the row ceiling fail with internal errors
+
+> **Status:** OPEN — with `allrows` holding 1 009 786 rows (stopped at its 1 M-key ceiling, PRV-4022, as designed): `SELECT * FROM allrows` over pgwire and Flight → `PRV-3001 the projection's arena is full; raise pravaha.lane.arena.slab-bytes …` (`42000`), where the pgwire topic promises `PRV-4024` / `54000` for more than 1 000 000 result rows; `SELECT COUNT(*) FROM allrows` (and any aggregate over it) → `ERROR: Index -1 out of bounds for length 64`, SQLSTATE `XX000`, `PRV-1041` from the CLI — an unhandled `IndexOutOfBoundsException` text, nothing logged. The same reads over 1 008-row views work. Repro: QI-027 (append 850 000 rows to a followed CSV under an unkeyed view, then read it).
+> **Disposition:** GA-REQUIRED — a count over a large view is a dashboard's first query; the error is not a PRV code at all.
+
+### SEEDWINDOW-1 (MEDIUM) — the compose seed's windowed view never fills
+
+> **Status:** OPEN — `--profile seed up` on a fresh stack: `orders_live` answers as in GUIDE_WITH_DOCKER §7, but `spend_per_minute` printed `0 rows` in the seed log and still had 0 rows minutes later and after a container recreate (`pravaha_query_watermark_lag_seconds{query="spend_per_minute"} NaN`). All twelve seed orders land in partition 0 of the 3-partition topic; partitions 1 and 2 go idle (`watermark_partitions_idle 2`) yet the watermark does not advance until another record arrives — one extra order (event time 10:07) produced all twelve windows at once. The guide, the seed SQL's own comment ("10:00 to 10:04 close") and RUNNING_IN_DOCKER show 10 rows. Repro: QI-151, `adv-surface-evidence/stack1.txt`, `stack3.txt`.
+> **Disposition:** GA-REQUIRED — the first thing the Docker walkthrough shows is an empty view; whether the fix is the watermark (idle exclusion should advance it) or the seed (spread the orders), the promise is wrong today.
+
+### ENVRERUN-1 (MEDIUM) — `tools/docker-env.sh` resets the settings it says are yours
+
+> **Status:** OPEN — the script's header says "SAFE TO RE-RUN … Nothing that exists is overwritten" and the `.env` it writes says "the ports and the image tag below are yours to change". After editing `PRAVAHA_TAG` and every `PRAVAHA_*_PORT`, a re-run put them all back to the defaults (`PRAVAHA_TAG=local`, `18080`, `19090`, `17070`, …) — except `PRAVAHA_PGWIRE_PORT`. Cause: `cat > "$env_file" <<EOF` truncates the file before the heredoc's `$(port …)` substitutions read it, and only `pgwire_port` is computed beforehand. The next `compose up` then binds the default ports (a clash, or another stack's ports). Repro: QI-155.
+> **Disposition:** GA-REQUIRED — small fix, and the failure is silent until something else breaks.
+
+### PGCOPY-1 (LOW) — `COPY` is refused with the wrong code
+
+> **Status:** OPEN — `COPY by_user TO STDOUT` → `42000 PRV-2001 Non-query expression encountered in illegal context`; `DECLARE`/`FETCH` → `42000 PRV-2001 Incorrect syntax`. The pgwire topic's refusal table promises `PRV-6201` / `0A000` for both. Also: `SELECT STREAM …` is `PRV-4023` (no such view), not the documented `PRV-6211` for continuous-query statements. Repro: QI-021, `test_qi021_*`.
+> **Disposition:** POST-GA
+
+### TOMCATHTML-1 (LOW) — some errors are Tomcat HTML pages, not ApiErrors
+
+> **Status:** OPEN — `GET /api/v1/queries/..%2f..%2fetc%2fpasswd`, `/api/v1/streams/a%00b`, `/api/v1/queries/..%5c..%5cx`, a 10 000-character `Authorization` header, a 64 KiB header, and 500 headers are all answered `400` with Tomcat's `<!doctype html>… HTTP Status 400 – Bad Request` page. application.yaml: "every non-2xx response is an ApiError". Nothing leaks (no version, no stack). Repro: QI-046, `test_qi046_*`.
+> **Disposition:** POST-GA
+
+### FLIGHTTICKET-1 (LOW) — malformed Flight requests are INTERNAL without a code
+
+> **Status:** OPEN — `do_get(Ticket(b"\x00\xff garbage"))`, `Ticket(b"NOPE:x")`, `Ticket(b"LIST")`, `get_flight_info(for_path("by_user"))`, and `do_put` with a path descriptor → `FlightInternalError: There was an error servicing your request` (gRPC 13), no PRV code; an empty or 1 MiB ticket is `INVALID_ARGUMENT`. COMPATIBILITY.md: an unknown verb is "refused by name". Repro: QI-071, QI-077, `test_qi071_*`.
+> **Disposition:** POST-GA
+
+### CONSOLEHDR-1 (LOW) — the console can be framed
+
+> **Status:** OPEN — no response from the console carries `Content-Security-Policy`, `X-Frame-Options` or `frame-ancestors`, `X-Content-Type-Options`, `Referrer-Policy`. Its forms are CSRF-protected and its cookie is `SameSite=Lax`, but a signed-in operator can be shown the console inside another site's frame (clickjacking the pause/drop/revoke buttons). Repro: QI-124.
+> **Disposition:** POST-GA
+
+### LOGOUTREPLAY-1 (LOW) — a signed-out cookie still renders as signed in
+
+> **Status:** OPEN — the console's session is a signed (not server-side) cookie holding the engine session token (readable: base64 JSON with `token`, `user`, `roles`, `csrf`). After `POST /logout` a copy of the cookie still opens `/queries` with the signed-in chrome ("admin", Sign out) and `PRV-1041 PRV-7001 this server requires a credential` instead of the documented "a session that ends sends them to sign in again". No data is exposed — the engine refuses the ended token. Repro: QI-117.
+> **Disposition:** POST-GA
+
+### PLUGINLATE-1 (LOW) — an unknown plugin is not refused at startup, and the refusal contradicts itself
+
+> **Status:** OPEN — a source with `plugin: redis` starts the node (`sources bound: [t <- redis[key]]`, health UP); `PRV-5090 no source plugin named 'redis' …` arrives only at `register`. CONNECTORS.md and GUIDE_WITHOUT_DOCKER §11 say "refused at startup with PRV-5090". The message then says "the server jar carries filesystem alone, and feedfile, jdbc, …" right after `Available: [aerospike, cassandra, delta, feedfile, filesystem, jdbc, kafka, mysql-cdc, postgres-cdc]`: the 2.0 server jar bundles ten plugin modules, and CONNECTORS.md, QUICKSTART's YAML comment and the guide still say filesystem only. Repro: QI-143.
+> **Disposition:** POST-GA
+
+### HELMNAME-1 (LOW) — the chart renders names Kubernetes refuses
+
+> **Status:** OPEN — `helm template qi deploy/helm/pravaha --set fullnameOverride=<78 a's>` truncates the base to 63 characters and appends `-headless` (72) and `-test-probes`: an invalid Service name, rendered without complaint; `--set image.repository=""` renders `image: ":2.0.1-SNAPSHOT"`. The chart's own `fail` guards (replicas, TLS secret, standby, spill, PDB) are good. Repro: QI-160.
+> **Disposition:** POST-GA
+
+### CDCPRIVCODE-1 (LOW) — a role without REPLICATION gets the wrong code and the wrong advice
+
+> **Status:** OPEN — `ALTER ROLE pravaha_cdc NOREPLICATION`, then register over `customers`: `PRV-5118 … cannot start the initial snapshot … FATAL: permission denied to start WAL sender … Only roles with the REPLICATION attribute may …` followed by advice about transactions left idle and `max_replication_slots`. The PostgreSQL detail is right; the code (PRV-5112 is the prerequisite code, PGCDCPRIV-1) and the remedy are not. Repro: QI-170.
+> **Disposition:** POST-GA
+
+### TOPICGONE-1 (LOW) — a deleted Kafka topic is not a stopped feed
+
+> **Status:** OPEN — after `kafka-topics --delete --topic orders` the queries over it stayed `RUNNING`, `feed RUNNING`, health `UP` for as long as the topic was absent, with only the Kafka client's `unknown topic or partition` WARNs. Once the topic was recreated the source correctly stopped with `PRV-5106 offset 214 of orders-0 is no longer in the log` and health went `DEGRADED`. Repro: QI-177.
+> **Disposition:** POST-GA
+
+### SNAPDOC-1 (LOW) — `pravaha subscribe` flags do not do what their help says
+
+> **Status:** OPEN — `--limit N` is "stop after N rows" in `--help` but counts commits (`--limit 2` printed a 1 009-row snapshot); `--limit 0` and `--limit -5` are accepted and never end. `--snapshot` is "print the view's rows first", but on a keyed view it prints the changelog Z-set — `alice 500` and `alice 250` both at `+1`, `u7 7` at `+200` — while a read shows one row per key (KEYEDWT-1 documents this for the SDK and the `--answer` flag exists, but CLI.md lists neither `--answer` nor the caveat). Repro: QI-088, QI-099.
+> **Disposition:** POST-GA
+
+### CONSOLEREADY-1 (LOW) — the console is never "ready" in front of an authenticating engine
+
+> **Status:** OPEN — `/health/ready` answers `503 {"status":"not-ready","engine":{"reachable":false,…"PRV-7001 this server requires a credential"}}` whenever the engine wants a credential, because the console holds none of its own (by design). That includes the compose stack, where RUNNING_IN_DOCKER and GUIDE_WITH_DOCKER §6 show `200 {"status":"ready","engine":{"reachable":true,…"queries":2}}`. The image's healthcheck uses `/health/live`, so compose is unaffected; an orchestrator probing `/health/ready` never routes to the console. Repro: QI-147.
+> **Disposition:** POST-GA
+
+### STALEDOC-1 (LOW) — guides out of step with 2.0
+
+> **Status:** OPEN — (a) GUIDE_WITHOUT_DOCKER §3 lists `pravaha-server-0.2.1-SNAPSHOT-app.jar` (it is `2.0.1-SNAPSHOT`); GUIDE_WITH_DOCKER §3 shows `pravaha-engine 1.0.1-SNAPSHOT` / `pravaha-server-1.0.1-SNAPSHOT-app.jar`. (b) QUICKSTART "What is not built" says the Kafka plugin and the Spring Boot starter are not built and clustering is deferred; `plugins/pravaha-plugin-kafka` and `pravaha-spring-boot-starter` build and ship, and COMPATIBILITY.md documents the starter's Boot 3.4+ requirement. (c) QUICKSTART §4's `pravaha-server --spring.config.additional-location=file:./application.yaml &` (no profile) refuses to start with PRV-7004; the YAML shown has no security block. (d) QUICKSTART §7 `make install` fails on Ubuntu without `python3.X-venv` (the workaround is only in GUIDE_WITHOUT_DOCKER). (e) CLI.md's command map lacks `explain-sql` and `subscribe --answer`. (f) QUICKSTART's Java and Python snippets register then query at once; the Java one printed nothing (the view had not filled yet). Repro: QI-190, QI-193, QI-195, QI-197, QI-200, QI-201.
+> **Disposition:** POST-GA
+
+### PGVALIDATE-1 (NOTE) — `SELECT 1` is not answered by the gateway
+
+> **Status:** NOTE — `SELECT 1`, `SELECT now()`, `SELECT 'a'::text`, `SHOW search_path` and `SET search_path` are refused (PRV-2020 LogicalValues, PRV-2002, PRV-2001, PRV-6204). Empty queries, `;`, `-- ping` and pgjdbc `isValid()` work, so most pools are fine, but `SELECT 1` is the default validation query of HikariCP's `connectionTestQuery`, DBeaver's "Test connection", SQLAlchemy's pre-ping on some dialects and Grafana's health check. `COUNT(*)` columns are named `EXPR$0`. Also pgjdbc `getSchemas()` and `getPrimaryKeys()` are PRV-6205 (DBeaver's navigator calls the first). Behaviour matches "refuses anything else by name". Cases QI-029, QI-031.
+> **Disposition:** NOTE
+
+### PERMISSIVEUSERS-1 (NOTE) — `dev,users`, the documented console profile, makes every user an administrator of every view
+
+> **Status:** NOTE — with `dev,users` and the catalogue on, `permissive` is imported whole: user `bob` (role `guest`) paused admin's `by_user`, read the audit endpoint and saw every tenant's counts. SECURITY.md documents exactly this; the guides present `dev,users` as the way to run the console without saying so. Cases QI-042, QI-050.
+> **Disposition:** NOTE
+
+### RECOVERYHEALTH-1 (NOTE) — a registration refused at recovery leaves the node UP and the query gone
+
+> **Status:** NOTE — PRV-5115 (Postgres slot overtaken) and PRV-5155 (MySQL binlog purged) were detected correctly at restart, but each refused registration simply vanished from `pravaha queries`, with one WARN line and health `UP`. OPERATIONS.md documents "the refused list is the one to read"; a metric or a DEGRADED health for refused recoveries would make it visible. Cases QI-172, QI-174.
+> **Disposition:** NOTE
+
+### COOKIETOKEN-1 (NOTE) — the console cookie carries a usable engine bearer token
+
+> **Status:** NOTE — the signed cookie's payload is readable base64 JSON including the engine session token (`prv_s_…`), which works directly against Flight, HTTP and pgwire. HttpOnly and SameSite=Lax limit theft to the same channels a session id has; encrypting the cookie or keeping the token server-side would keep a leaked cookie from becoming a credential for the other doors. Case QI-114.
+> **Disposition:** NOTE
+
+Smaller observations, recorded in the cases rather than registered: `PATCH /api/v1/users/{u}` ignores unknown fields with 200 (`{"enabled": false}` does nothing); `POST /api/v1/queries/validate` accepts `{"sql": 5}` and `"str"` as SQL; anonymous `/api/v1/openapi.json` and `/actuator/info` (version); a 16 MiB simple query takes 21 s to refuse; doubled codes in `pravaha-engine` messages (`PRV-1028  stream 't', column 'a': PRV-1028 …`); `ConfigurationException:` class names inside PRV-5091 messages; Java-SDK clients print JEP 498 `sun.misc.Unsafe` warnings unless they add the launcher's two options; the compose Prometheus never scrapes the console, so the Assistant dashboard and the `pravaha-console` rule group are always empty there; Kafka dead letters show `CODE -`; every `pravaha register` prints "a query with the same fingerprint is the same computation, shared" even when nothing is shared; sink failure text (PRV-8009) carries the failed row's values to every reader of the query listing.
+
+---
