@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="480" viewBox="0 0 800 480">
+  <title>A SUM over only NULLs: 0 in 2.0.0, NULL now</title>
+  <style>
+    text { font-family: 'Source Sans 3', 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; fill: #1A1A1A; }
+    .title { font-family: 'Source Serif 4', 'Charis SIL', Georgia, serif; font-size: 23px; font-weight: 700; }
+    .head { font-size: 15px; font-weight: 600; }
+    .body { font-size: 14px; }
+    .small { font-size: 13px; fill: #4A5058; }
+    .mono { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 13px; }
+    .badge { font-family: 'Source Code Pro', 'DejaVu Sans Mono', Consolas, Menlo, monospace; font-size: 13px; font-weight: 700; fill: #FFFFFF; }
+    .ok { font-size: 13.5px; fill: #1B6B3A; font-weight: 600; }
+    .bad { font-size: 13.5px; fill: #CC2200; font-weight: 600; }
+  </style>
+  <defs>
+    <marker id="ai" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6B7480"/></marker>
+  </defs>
+  <rect width="800" height="480" fill="#F7F5F2"/>
+  <text x="40" y="44" class="title">Nothing to add up is not zero</text>
+  <text x="40" y="68" class="small">SELECT region, SUM(refund) AS refunds, COUNT(refund) AS n, COUNT(*) AS rows ... GROUP BY region</text>
+
+  <!-- Input -->
+  <rect x="24" y="88" width="236" height="200" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="42" y="114" class="head">Rows in</text>
+  <text x="42" y="134" class="small">region, refund</text>
+  <rect x="42" y="148" width="34" height="22" rx="4" fill="#A51C30"/>
+  <text x="59" y="164" class="badge" text-anchor="middle">+1</text>
+  <text x="86" y="164" class="mono">EU, NULL</text>
+  <rect x="42" y="178" width="34" height="22" rx="4" fill="#A51C30"/>
+  <text x="59" y="194" class="badge" text-anchor="middle">+1</text>
+  <text x="86" y="194" class="mono">EU, NULL</text>
+  <rect x="42" y="208" width="34" height="22" rx="4" fill="#A51C30"/>
+  <text x="59" y="224" class="badge" text-anchor="middle">+1</text>
+  <text x="86" y="224" class="mono">US, 5</text>
+  <rect x="42" y="238" width="34" height="22" rx="4" fill="#A51C30"/>
+  <text x="59" y="254" class="badge" text-anchor="middle">+1</text>
+  <text x="86" y="254" class="mono">US, -5</text>
+
+  <line x1="264" y1="188" x2="290" y2="188" stroke="#6B7480" stroke-width="1.6" marker-end="url(#ai)"/>
+
+  <!-- 2.0.0 -->
+  <rect x="296" y="88" width="230" height="200" rx="10" fill="#FFFFFF" stroke="#E3DED7"/>
+  <text x="314" y="114" class="head">2.0.0 published</text>
+  <text x="314" y="134" class="small">region · refunds · n · rows</text>
+  <text x="314" y="166" class="mono" xml:space="preserve">EU   0     0   2</text>
+  <text x="314" y="190" class="mono" xml:space="preserve">US   0     2   2</text>
+  <text x="314" y="226" class="bad">Two different facts,</text>
+  <text x="314" y="246" class="bad">one indistinguishable 0</text>
+  <text x="314" y="270" class="small">ALLNULLAGG-1, high severity</text>
+
+  <line x1="530" y1="188" x2="556" y2="188" stroke="#6B7480" stroke-width="1.6" marker-end="url(#ai)"/>
+
+  <!-- Now -->
+  <rect x="562" y="88" width="214" height="200" rx="10" fill="#FFFFFF" stroke="#1B6B3A" stroke-width="1.5"/>
+  <text x="580" y="114" class="head">Now, as SQL says</text>
+  <text x="580" y="134" class="small">region · refunds · n · rows</text>
+  <text x="580" y="166" class="mono" xml:space="preserve">EU   NULL  0   2</text>
+  <text x="580" y="190" class="mono" xml:space="preserve">US   0     2   2</text>
+  <text x="580" y="226" class="ok">No value: NULL.</text>
+  <text x="580" y="246" class="ok">Values that sum to 0: 0.</text>
+  <text x="580" y="270" class="small">Same for AVG, MIN and MAX</text>
+
+  <!-- Retraction -->
+  <rect x="24" y="308" width="752" height="154" rx="10" fill="#F6E6E9"/>
+  <text x="42" y="334" class="head">And under retraction, which a maintained answer has to survive</text>
+  <rect x="42" y="350" width="34" height="22" rx="4" fill="#A51C30"/>
+  <text x="59" y="366" class="badge" text-anchor="middle">+1</text>
+  <text x="86" y="366" class="mono">EU, 7</text>
+  <text x="200" y="366" class="body">EU's refunds become 7, n becomes 1</text>
+  <rect x="42" y="382" width="34" height="22" rx="4" fill="#293352"/>
+  <text x="59" y="398" class="badge" text-anchor="middle">−1</text>
+  <text x="86" y="398" class="mono">EU, 7</text>
+  <text x="200" y="398" class="body">only NULLs are left, so refunds is NULL again, not 0</text>
+  <text x="42" y="430" class="small">The accumulators already counted non-null values; the fix reads that count.</text>
+  <text x="42" y="448" class="small">Checkpoints carry the answer, and a checkpoint written by 2.0.0 still restores.</text>
+</svg>

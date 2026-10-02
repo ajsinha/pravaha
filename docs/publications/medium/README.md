@@ -3,13 +3,15 @@
 Copyright © 2026 Ashutosh Sinha \<ajsinha@gmail.com\>. All rights reserved.
 **Proprietary and confidential** — see [`../../../LICENSE`](../../../LICENSE).
 
-[`pravaha-medium-post.md`](pravaha-medium-post.md) is a long-form article about Pravaha 1.0.0's
+[`pravaha-medium-post.md`](pravaha-medium-post.md) is a long-form article about Pravaha 2.0's
 design: the maintained answer, weighted rows, one-cut checkpoints, lanes, the exact seam, blue/green at
-a position, the equality index, identity, the connectors, operating it; then what is new in 1.0
-(queries on queries, alerts, the governed catalogue, Power BI and psql over the PostgreSQL gateway, one
-`/opt/pravaha` in and out of Docker, standalone SDKs, the assistant, how it was tested, what 1.x
-promises); and three case studies worked end to end. Its seventeen diagrams are in
-[`images/`](images/). Each one is a hand-written SVG, which is the source, with a PNG exported from it
+a position, the equality index, identity, the connectors, operating it; then what 1.0 added and 2.0
+keeps (queries on queries, alerts, the governed catalogue, Power BI and psql over the PostgreSQL
+gateway, one `/opt/pravaha` in and out of Docker, standalone SDKs, the assistant, how it is tested,
+what 2.x promises); then 2.0 itself: Java 25, and the adversarial QA round run against the release
+(its method and numbers, what held, two worked examples — the all-NULL `SUM` and the PostgreSQL
+gateway's pre-authentication allocation — and the three waves of fixes); and three case studies
+worked end to end. Its twenty diagrams are in [`images/`](images/). Each one is a hand-written SVG, which is the source, with a PNG exported from it
 at 2x, which is what gets published on Medium.
 
 [`pravaha-medium-post.html`](pravaha-medium-post.html) is the same post as one self-contained page in

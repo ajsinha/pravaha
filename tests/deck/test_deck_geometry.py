@@ -28,7 +28,7 @@ import pytest
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 AUDIT = ROOT / "tools" / "deck" / "audit.py"
 DECK = ROOT / "docs" / "publications" / "Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx"
-SLIDES = 91
+SLIDES = 99
 
 # Anywhere in the file: no tool or assistant credited as a maker of the deck.
 FORBIDDEN = (
