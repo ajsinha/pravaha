@@ -242,6 +242,12 @@ public interface PravahaEngine extends AutoCloseable {
      * delivers nothing. A paused query drops what it is pushed -- a pause promises the view keeps
      * answering where it stopped, not that nothing is missed.
      *
+     * <p>Each running query takes the push independently (PUSHPARTIAL-1). When one cannot -- its lane
+     * failed on a row, its inbox stayed full -- every other one still applies and commits it, and
+     * the push then throws: the failure itself when no query took the rows (retrying is right), or
+     * {@code PRV-8105} naming the queries that committed them when some did (retrying would count
+     * them twice there).
+     *
      * @return how many computations the rows reached; zero means no running query reads the stream
      */
     int push(String stream, Object[]... rows);

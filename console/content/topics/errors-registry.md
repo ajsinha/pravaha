@@ -4,10 +4,10 @@ slug: errors-registry
 category: errors
 order: 90
 icon: journal-x
-summary: "PRV-8001 to PRV-8104: a query's name and lifecycle, its journal and replay, sinks that fail or do not fit, unknown options, the debugger's six refusals, tenant quotas, queries over queries, alerts, and the embedded engine's four."
+summary: "PRV-8001 to PRV-8105: a query's name and lifecycle, its journal and replay, sinks that fail or do not fit, unknown options, the debugger's six refusals, tenant quotas, queries over queries, alerts, and the embedded engine's five."
 badge: PRV-8XXX
 audience: Analysts, operators, developers
-keywords: [registry, dependants, cycle, chain, queries on queries, name in use, reserved word, no such query, drop, pause, resume, failed, journal, replay, sink detached, sink shape, keyed by, embedded, push, backpressure, row rejected, debug, debugger, debug session, fork, step, fixture, checkpoint, with, option, unknown option, tenant, tenancy, quota, max-queries, max-state-keys, 409]
+keywords: [registry, dependants, cycle, chain, queries on queries, name in use, reserved word, no such query, drop, pause, resume, failed, journal, replay, sink detached, sink shape, keyed by, embedded, push, backpressure, row rejected, partly applied, retry, PRV-8105, debug, debugger, debug session, fork, step, fixture, checkpoint, with, option, unknown option, tenant, tenancy, quota, max-queries, max-state-keys, 409]
 guide: continuous-queries#8-the-life-of-a-query
 related: [query-lifecycle, create-continuous-query, sinks-overview, time-travel-debugger, embedded-engine, errors-overview]
 listed_on: errors-overview
@@ -59,6 +59,7 @@ inside an application's own process and adds the ways an application can push ro
 | PRV-8102 | EMBEDDED_ROW_REJECTED | A pushed row does not fit its stream |
 | PRV-8103 | EMBEDDED_BACKPRESSURE | A push waited too long for room |
 | PRV-8104 | EMBEDDED_MISCONFIGURED | The embedded configuration says something impossible |
+| PRV-8105 | EMBEDDED_PUSH_PARTLY_APPLIED | A push some queries committed and one could not take; do not retry it |
 
 Over REST the registry codes are `400` — the request was the caller's to fix — except PRV-8002 and
 PRV-8040, which are `404`, PRV-8041 and PRV-8047, which are `409`, and PRV-8044 and PRV-8046, which
@@ -295,6 +296,17 @@ the query consumes: slow the producer, or size the lane larger.
 
 The engine's configuration says something it cannot do — a stream declared twice, an
 `out-of-orderness` that is not a duration — found **at start** rather than at first use.
+
+### PRV-8105 — push partly applied
+
+A push reaches every running query on the stream, and each takes it independently. One could not —
+its lane failed on the row (an overflow with no dead-letter queue, say), or its inbox stayed full past
+`pravaha.embedded.push-timeout` — and the others **have applied and committed it**: the message names
+both. **Do not retry the push**: the queries that took it would count it twice. Look at the query that
+could not (it has usually stopped, `FAILED`) and fix or re-register it. When no query took the push,
+you get that query's own failure (`PRV-3010`, `PRV-8103`) instead, and retrying is right. Until
+PUSHPARTIAL-1 the others were applied but left unpublished until some later push committed them, so a
+caller retrying the push it was told failed counted the row twice.
 
 ## The time-travel debugger
 

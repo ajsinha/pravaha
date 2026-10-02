@@ -28,7 +28,6 @@ import java.util.Random;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.io.TempDir;
@@ -338,8 +337,6 @@ class AdvChainTest {
             + "DESCRIPTOR(ts), INTERVAL '10' SECOND)) GROUP BY window_start, window_end";
 
     @Test
-    @Disabled("QE-162: a push that one query cannot apply throws after the other queries applied it but before they "
-            + "committed; their views hide the row until some later push, and the caller's retry counts it twice")
     void qe162_aPushOneQueryRefusesIsAllOrNothingForTheOthers() {
         try (PravahaEngine engine = AdvSupport.engine(e -> e.declareStream(W))) {
             engine.register("bad", "SELECT id, x - 1 AS y FROM w", "id"); // fails on Long.MIN_VALUE
@@ -361,24 +358,24 @@ class AdvChainTest {
     }
 
     @Test
-    void qe162_observed() {
+    void qe162_aPartlyAppliedPushNamesWhoHasTheRows() {
+        // PUSHPARTIAL-1, fixed: the healthy queries commit the push before it reports the one that
+        // could not; the report is PRV-8105, naming both and saying a retry would count twice.
         try (PravahaEngine engine = AdvSupport.engine(e -> e.declareStream(W))) {
             engine.register("bad", "SELECT id, x - 1 AS y FROM w", "id");
             engine.register("good", "SELECT id, x FROM w", "id");
             engine.register("cnt", COUNT, "window_start", "window_end");
             Instant ts = Instant.ofEpochSecond(1_700_000_001L);
             String first = AdvSupport.attempt(() -> engine.push("w", new Object[] {1L, Long.MIN_VALUE, ts}));
-            // "long overflow" is not asserted: once the JIT compiles Math.subtractExact the JVM may throw it without a
-            // message.
-            assertThat(first).startsWith("PRV-3010").contains("ArithmeticException");
-            assertThat(AdvSupport.rows(engine, "SELECT * FROM good"))
-                    .as("applied, never committed")
-                    .isEmpty();
-            engine.push("w", new Object[] {1L, Long.MIN_VALUE, ts});
+            assertThat(first)
+                    .startsWith("PRV-8105")
+                    .contains("'bad'")
+                    .contains("good")
+                    .contains("cnt")
+                    .contains("Do not retry");
+            assertThat(AdvSupport.rows(engine, "SELECT * FROM good")).containsExactly("1|-9223372036854775808");
             engine.advanceEventTime("w", Instant.ofEpochSecond(1_700_000_100L));
-            assertThat(AdvSupport.rows(engine, "SELECT c FROM cnt"))
-                    .as("one row, counted twice")
-                    .containsExactly("2");
+            assertThat(AdvSupport.rows(engine, "SELECT c FROM cnt")).containsExactly("1");
         }
     }
 

@@ -1185,6 +1185,7 @@ client models the error rather than an empty object.
 | `PRV-8102` | EMBEDDED_ROW_REJECTED | registry (embedded engine) |
 | `PRV-8103` | EMBEDDED_BACKPRESSURE | registry (embedded engine) |
 | `PRV-8104` | EMBEDDED_MISCONFIGURED | registry (embedded engine) |
+| `PRV-8105` | EMBEDDED_PUSH_PARTLY_APPLIED | registry (embedded engine) |
 | `PRV-9001` | CLUSTER_UNKNOWN_MECHANISM | cluster |
 | `PRV-9002` | CLUSTER_INSUFFICIENT_GUARANTEE | cluster |
 | `PRV-9003` | CLUSTER_COORDINATOR_UNAVAILABLE | cluster |

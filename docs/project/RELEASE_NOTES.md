@@ -76,6 +76,13 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   Such an entry is not replayable (`PRV-4092`). A failure above an aggregate, window, join or top-N
   still stops the query, and without a queue every one does, as before. **Upgrade:** a query that
   used to stop on such a row now keeps running with the row in its queue — watch the queue's depth.
+- **A push one query cannot take is committed by the others, and says so** (PUSHPARTIAL-1). The
+  embedded engine applied a push to every query on the stream and committed them one by one, so the
+  first query whose lane had died threw `PRV-3010` and left the rest applied and unpublished until some
+  later push; a caller retrying the push it was told failed counted the row twice. Each query now takes
+  a push independently: the healthy ones commit it, and the push throws `PRV-8105` (new) naming the
+  queries that have the rows and the ones that do not — do not retry it. When no query took it, the
+  failure is reported unchanged and a retry is right.
 - **A window too fine for its size is refused at registration, `PRV-3026`** (FINEHOP-1). Each row of
   a `HOP` is published in `size / slide` windows of `size / gcd(size, slide)` slices; where either
   passes the new `pravaha.lane.max-windows-per-row` (100,000 by default; server and embedded), the
