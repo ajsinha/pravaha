@@ -20,7 +20,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
@@ -232,16 +231,12 @@ class AdvExpressionTest {
     }
 
     @Test
-    @Disabled("QE-014/QE-015: NOT (d > 5) and NOT (d < 5) drop a NaN row; IEEE says NaN > 5 is FALSE, so NOT is TRUE")
     void qe014_notOfAComparisonKeepsANanRowAsIeeeSays() {
+        // NANNOT-1, fixed: NaN > 5 is FALSE, so NOT (NaN > 5) is TRUE and the NaN row (1) is kept.
         assertThat(run("SELECT id FROM s WHERE NOT (d > 5)").rows()).contains("1");
         assertThat(run("SELECT id FROM s WHERE NOT (d < 5)").rows()).contains("1");
-    }
-
-    @Test
-    void qe014_observed_aNanRowIsInNeitherAPredicateNorItsNegation() {
         assertThat(run("SELECT id FROM s WHERE d > 5").rows()).containsExactly("4", "5");
-        assertThat(run("SELECT id FROM s WHERE NOT (d > 5)").rows()).containsExactly("2", "3", "6", "7");
+        assertThat(run("SELECT id FROM s WHERE NOT (d > 5)").rows()).containsExactly("1", "2", "3", "6", "7");
     }
 
     @Test

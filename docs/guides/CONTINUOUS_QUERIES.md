@@ -1815,7 +1815,7 @@ worst time to meet it. If a query is this wide, split it into several narrower o
 | | | |
 |---|---|---|
 | `=`, `<>`, `<`, `<=`, `>`, `>=` | ✅ | |
-| `AND`, `OR`, `NOT` | ✅ | `NOT` is pushed down at compile time by De Morgan |
+| `AND`, `OR`, `NOT` | ✅ | `NOT` is pushed down at compile time by De Morgan. Over a `DOUBLE` or `REAL` comparison it is the IEEE complement, as TY-3 chose: `NaN > 5` is FALSE, so `NOT (d > 5)` and `(d > 5) IS FALSE` keep a `NaN` row and `(d > 5) IS NOT FALSE` drops it, while a NULL `d` stays out of both `d > 5` and `NOT (d > 5)`. Until NANNOT-1 the negation was the opposite operator (`d <= 5`), also FALSE for `NaN`, so a `NaN` row was in neither a predicate nor its negation |
 | `IN (a, b, c)` | ✅ | Expanded to a chain of equalities |
 | `BETWEEN a AND b` | ✅ | Expanded to `>= AND <=` |
 | `IS NULL`, `IS NOT NULL` | ✅ | Over a column, and over any expression — `(CASE WHEN … END) IS NULL`, `(amount * 2) IS NULL`. Only the column form was compiled until TY-5 |

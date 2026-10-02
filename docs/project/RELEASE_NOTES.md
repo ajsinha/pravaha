@@ -208,6 +208,12 @@ Proprietary and confidential; see [`../../LICENSE`](../../LICENSE).
   they themselves said, never past it, never backwards — so the windows the burst has passed close
   `idle-after` after it. The idle-exclusion rule is unchanged otherwise. `WatermarkTrackerTest`;
   proved on the compose stack (`--profile seed`: `spend_per_minute` 10 rows, 10:00 to 10:04).
+- **The negation of a floating-point comparison is its IEEE complement (NANNOT-1).** `NOT (d > 5)`
+  was compiled as `d <= 5`, which is FALSE for `NaN` as `d > 5` is, so a `NaN` row was in neither a
+  predicate nor its negation, and `IS FALSE` / `IS NOT FALSE` over such a comparison dropped and added
+  rows the same way. A negated `DOUBLE`/`REAL` comparison is now the total complement restricted to
+  rows where both sides are present, interpreted and generated alike; a NULL stays out of both.
+  `NegatedFloatingComparisonTest`, QE-014.
 
 Register: **544 findings — 499 fixed, 26 open, 0 GA-BLOCKER, 0 GA-REQUIRED**.
 
