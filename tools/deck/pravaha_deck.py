@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Ashutosh Sinha <ajsinha@gmail.com>. All rights reserved.
 # Proprietary and confidential; see LICENSE at the repository root.
 """
-The one Pravaha deck, as data: the title slide and the 1.0.0 slide here, and the
+The one Pravaha deck, as data: the title slide and the 2.x release slide here, and the
 twelve parts in order in ``deck_part1`` to ``deck_part4``.
 
 It is written for the people who have to trust the engine's answers -- an
@@ -9,7 +9,7 @@ architect, an SRE, a data-platform lead -- and it answers their questions in the
 order they ask them: why ask once and answer always, the vocabulary, a query's
 life, correctness, scale on one node, changing a running query, answers built on
 answers, connectors, security, identity and governance, operating it, thirteen
-worked systems, and the evidence, what 1.0 promises and where to start.
+worked systems, and the evidence, what 2.x promises and where to start.
 
 Every figure comes from the repository -- the code, README.md, docs/**/*.md, the
 ADRs in docs/design/adr, docs/project/RELEASE_NOTES.md, the gate packs and the case-study
@@ -42,8 +42,8 @@ OPENING: list[dict[str, Any]] = [
         "kicker": "PRAVAHA · प्रवाह · CONTINUOUS, UNINTERRUPTED FLOW",
         "title": ["A continuous SQL engine:", "design and evidence"],
         "sub": "Ask once. Answer always.",
-        "date": "30 September 2026",
-        "version": "Pravaha 1.0.0 · one node · Java 21",
+        "date": "2 October 2026",
+        "version": "Pravaha 2.x · one node · Java 25",
         "agenda": [
             "Why ask once, answer always",
             "The vocabulary, from nothing",
@@ -56,36 +56,40 @@ OPENING: list[dict[str, Any]] = [
             "Security, identity and governance",
             "Operating it",
             "Thirteen worked systems",
-            "Evidence, 1.0, and where to start",
+            "Evidence, 2.x, and where to start",
         ],
-        "source": "Source: README.md (name, slogan, Java 21, release badge 1.0.0); brand/README.md (the "
-        "name and slogan); docs/project/RELEASE_NOTES.md '1.0.0 — 2026-09-30'; docs/operations/COMPATIBILITY.md (one-node "
-        "release).",
+        "source": "Source: README.md (name, slogan, Java 25); brand/README.md (the name and slogan); "
+        "docs/project/RELEASE_NOTES.md '2.0.0 — 2026-10-01' and 'Unreleased'; docs/operations/COMPATIBILITY.md "
+        "(2.0 is a one-node release); docs/design/adr/061-jdk-25-is-the-baseline-from-2-0.md.",
     },
     {
         "kind": "stats",
-        "kicker": "Release 1.0.0 · 30 September 2026",
-        "title": "The first release with a compatibility promise",
+        "kicker": "Release 2.0.0 · 1 October 2026 · now 2.0.1-SNAPSHOT",
+        "title": "Java 25 through and through; everything else 1.x promised, kept",
         "stats": [
-            ("1.0.0", "Semantic versioning from here: 1.x adds, never breaks what is marked stable"),
-            ("1 node", "Cluster mode (wave 11) is on hold and not in 1.0; a node refuses PARTITIONED"),
-            ("0 open", "Findings in the register: 482 recorded, 464 fixed, 9 by design, 9 superseded"),
-            ("60 ADRs", "Every decision recorded, including the ones later reversed"),
+            ("Java 25", "Every module, the API and the Java SDKs included, is Java 25 class files"),
+            ("Boot 3.4+", "The Spring Boot starter: 3.2 and 3.3 cannot read Java 25 classes"),
+            ("2 breaks", "The Java baseline, and legacy-read removed as 1.0 announced"),
+            ("0 open", "544 findings: 525 fixed, 10 by design, 9 superseded"),
         ],
         "items": [
-            ("New since 0.2.0",
-             "Queries on queries, alerts that fire and clear, a governed catalogue with grants, row "
-             "filters and masks, per-tenant names, ownership-based administration, BI tools over the "
-             "PostgreSQL protocol, observability, one /opt/pravaha layout in and out of Docker, and "
-             "SDKs that ship on their own."),
-            ("Experimental in 1.0",
-             "The assistant — plain English to continuous SQL through any model, with the engine as "
-             "the judge — works and is tested, and may still change in a minor release."),
+            ("Who it breaks",
+             "Embedders, plugins and Java SDK clients: the JVM must be 25 (class-file version 69). "
+             "Launchers on 21 stop at once naming Java 25. A node still setting legacy-read refuses "
+             "to start (PRV-7004): grant MODIFY or MANAGE instead."),
+            ("What stays",
+             "The SQL, the wire protocols, the HTTP API, the Python SDK, every other key and the state "
+             "on disk. The image was already on Java 25; the -jre21 tag is gone."),
+            ("Since 2.0.0",
+             "An adversarial QA round, 46 defects and 4 design notes, all fixed in three waves; some "
+             "answers change, and the release notes say which."),
         ],
-        "size": 15,
-        "source": "Source: docs/project/RELEASE_NOTES.md '1.0.0 — 2026-09-30' (opening, upgrade notes, register "
-        "line); docs/operations/COMPATIBILITY.md; docs/project/qa/FINDINGS.md (482 findings — 464 FIXED, 0 OPEN, 9 BY "
-        "DESIGN, 9 SUPERSEDED); docs/development/HANDOVER.md §1 (ADRs 60; wave 11 on hold).",
+        "size": 14,
+        "source": "Source: docs/project/RELEASE_NOTES.md '2.0.0 — 2026-10-01' (who it breaks, Docker, proved "
+        "on 25) and 'Unreleased' (register line: 544 findings — 525 fixed, 0 open); "
+        "docs/operations/COMPATIBILITY.md '2.0: what breaks'; docs/design/adr/061-jdk-25-is-the-baseline-from-2-0.md "
+        "(Consequences: Boot 3.4 and 3.5 pass 41 tests on 25); docs/project/qa/FINDINGS.md header "
+        "(10 BY DESIGN, 9 SUPERSEDED); docs/project/qa/SUMMARY.md 'Outcome'.",
     },
 ]
 

@@ -32,6 +32,7 @@ PART4: list[dict[str, Any]] = [
             "Late data: two settings, two meanings",
             "Survival, and state that degrades",
             "A bound that changes the answer",
+            "Answers SQL defines, and recovery that refuses aloud (2.0.1)",
         ],
         "source": "Source: docs/design/adr/008-aligned-checkpoints.md; README.md 'Corrections', 'Recovery', "
         "'Survival', 'How it is built'; docs/guides/CONCEPTS.md §4, §7.",
@@ -172,8 +173,9 @@ PART4: list[dict[str, Any]] = [
             ("A node claims the directories it writes",
              "Two nodes cannot silently share state (PRV-4003). A standby takes over when the claim "
              "goes stale and reports what the takeover cost."),
-            ("Undecodable input goes to a dead-letter directory",
-             "Instead of ending the query."),
+            ("Bad rows go to a dead-letter directory",
+             "Undecodable input, and a row whose WHERE or projection fails (PRV-3027), instead of "
+             "ending the query."),
             ("State past its ceiling can spill instead of stopping",
              "With pravaha.state.spill.* set, state beyond its memory ceiling moves to memory-mapped "
              "files and the query slows. There is no RocksDB, by decision (ADR-044)."),
@@ -184,7 +186,8 @@ PART4: list[dict[str, Any]] = [
              "A throwing pipeline drops its lane; sibling lanes never learn of it."),
         ],
         "source": "Source: README.md 'Survival', 'State', 'Boundaries' (ADR-044); docs/guides/CONCEPTS.md §7 "
-        "(state_held, _ceiling, _fraction; PRV-4001); docs/design/EXECUTION_MODEL.md §2 'A lane fails alone'.",
+        "(state_held, _ceiling, _fraction; PRV-4001); docs/design/EXECUTION_MODEL.md §2 'A lane fails alone'; "
+        "docs/project/RELEASE_NOTES.md 'Unreleased' (DLQPROJ-1: PRV-3027).",
     },
     {
         "kind": "table",
@@ -209,6 +212,61 @@ PART4: list[dict[str, Any]] = [
         "to fit would silently lose matches the query asked for.",
         "source": "Source: docs/operations/OPERATIONS.md 'What holds memory, and what bounds it' (rows "
         "abridged); docs/guides/CONCEPTS.md §7.",
+    },
+    {
+        "kind": "table",
+        "kicker": "Semantics fixed in 2.0.1 · the adversarial round",
+        "title": "Answers now say what SQL says — and some answers change",
+        "rows": [
+            ["Case", "2.0.0 published", "Now"],
+            ["SUM, AVG, MIN, MAX of a group with only NULLs", "0 — a real total of zero, to a reader",
+             "NULL; COUNT(col) is 0; a retraction back to all-NULL is NULL again (ALLNULLAGG-1)"],
+            ["INT, SMALLINT, TINYINT out of range", "2e9 * 2 as −294,967,296; WHERE i * 2 > 0 kept the row",
+             "An overflow, as BIGINT's is; filter and projection agree (NARROWINT-1)"],
+            ["GROUP BY a DOUBLE holding −0.0, 0.0, NaNs", "Five rows in, counts summing to four",
+             "Either zero is one group, every NaN one (NANGROUP-1)"],
+            ["HOP(10 s slide, 25 s size), a row at 12 s", "Windows [−5, 20) and [5, 30)",
+             "[−10, 15), [0, 25), [10, 35) — as Calcite and Flink (HOPALIGN-1)"],
+            ["HOP(1 ms, 1 day)", "Accepted; one row wedged its lane and stream",
+             "Refused at registration, PRV-3026 (FINEHOP-1)"],
+            ["MIN or MAX over a source that deletes", "Accepted; stopped on the first retraction",
+             "Refused at registration, PRV-2076 (MINRETRACT-1)"],
+        ],
+        "col_w": [1.7, 1.9, 2.6],
+        "size": 13,
+        "note": "A tumbling window, and a hop whose size is a multiple of its slide, keep exactly the "
+        "windows they had. The release notes mark every answer that changes and what it does to an "
+        "older checkpoint.",
+        "source": "Source: docs/project/RELEASE_NOTES.md 'Unreleased' (ALLNULLAGG-1, NARROWINT-1, NANGROUP-1, "
+        "HOPALIGN-1, FINEHOP-1, MINRETRACT-1; 'Answers change'); docs/project/qa/FINDINGS.md status lines; "
+        "docs/project/qa/logs/ADV-ENGINE.md (QE-001–006, 045–048, 065, 159, 163).",
+    },
+    {
+        "kind": "table",
+        "kicker": "Recovery · fixed in 2.0.1",
+        "title": "What a restart is restored from is checked, and a refusal is visible",
+        "rows": [
+            ["Was", "Now"],
+            ["A flipped bit in a checkpoint was restored and published: 8–10 of 16 flips (CKPTSUM-1)",
+             "A CRC32C ends every checkpoint; a mismatch is skipped (PRV-4094) and the one before restored"],
+            ["A checkpoint of another output schema was restored into the view (RETYPERESTORE-1)",
+             "Not restored (PRV-4095); the query rebuilds from its sources"],
+            ["One damaged length mid-journal dropped every later registration, at every start "
+             "(JOURNALMID-1)", "The start is refused, PRV-8005, naming both byte offsets"],
+            ["A shared computation's surviving name came back empty (SHAREDLOSS-1)",
+             "Its checkpoint home is journalled with the drop"],
+            ["A registration refused at recovery vanished; health UP (RECOVERYHEALTH-1)",
+             "Listed FAILED with its code; health DEGRADED"],
+            ["A dropped CDC slot or deleted topic: RUNNING, UP, changes lost (CDCSLOT-1, TOPICGONE-1)",
+             "The feed stops, PRV-5117 or PRV-5130; health DEGRADED"],
+        ],
+        "col_w": [3.2, 3.0],
+        "size": 13,
+        "note": "19 SIGKILLs at random points lost and doubled nothing: the cut held. What it was restored "
+        "from, and whether anybody was told, did not.",
+        "source": "Source: docs/project/RELEASE_NOTES.md 'Unreleased' (CKPTSUM-1, RETYPERESTORE-1, JOURNALMID-1, "
+        "SHAREDLOSS-1, RECOVERYHEALTH-1, CDCSLOT-1, TOPICGONE-1); docs/project/qa/SUMMARY.md 'What held' "
+        "(19 SIGKILLs).",
     },
 ]
 

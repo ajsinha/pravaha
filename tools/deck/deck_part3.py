@@ -590,8 +590,8 @@ PART8: list[dict[str, Any]] = [
              "default, 365 at most; 7-day rotation overlap"],
             ["Session token", "SHA-256 of 256 random bits",
              "30 minutes idle, 12 hours absolute, at most 3 per person"],
-            ["Login failures", "Recorded before the refusal is answered",
-             "5 inside 15 minutes lock the account for 30"],
+            ["Login failures", "Recorded before the refusal is answered; every refusal reads alike",
+             "5 from one address in 15 minutes bar that address for 30; 50 from any lock the account"],
         ],
         "col_w": [1.0, 2.1, 2.9],
         "size": 14.5,
@@ -599,7 +599,36 @@ PART8: list[dict[str, Any]] = [
         "each person in against the engine and acts as them. MFA and SSO were dropped by the owner.",
         "source": "Source: docs/design/adr/052-the-engine-is-the-identity-authority.md (secrets table, policy, "
         "lockout, API keys, sessions, store; status line: stages 4 and 5 dropped 2026-09-27); README.md "
-        "'Security'.",
+        "'Security'; docs/project/RELEASE_NOTES.md 'Unreleased' (LOCKENUM-1: identical 401 PRV-7010, five "
+        "per address, fifty per account).",
+    },
+    {
+        "kind": "table",
+        "kicker": "Found by the adversarial round · fixed in 2.0.1",
+        "title": "A credential ends when it is revoked; a stranger's bytes are bounded",
+        "rows": [
+            ["Was", "Now"],
+            ["A revoked key, a signed-out session or a disabled user kept reading on an open PostgreSQL "
+             "connection (PGREVOKE-1)",
+             "The credential is verified again before every statement; FATAL 28000, PRV-6218. Flight "
+             "re-checks every 2 s, and now the principal too"],
+            ["Before sign-in, the gateway allocated a declared 16 MiB message; no connection cap "
+             "(PGPREAUTH-1)",
+             "16 KiB before sign-in, refused on its declared length; one 10 s handshake deadline; "
+             "100 connections, 32 unauthenticated (53300, PRV-6216)"],
+            ["An HTTP body was read whole before authentication, up to 20 M characters (HTTPBODY-1)",
+             "Refused on its declared length: 16 KB open paths, 4 MB otherwise (413, PRV-1054); "
+             "8 sign-ins at once (429, PRV-1055)"],
+            ["The console cookie carried a usable engine token (COOKIETOKEN-1)",
+             "An opaque id; the secrets stay in the console process"],
+        ],
+        "col_w": [2.9, 3.3],
+        "size": 13.5,
+        "note": "TLS was not exercised by the round. The console now sends a CSP, X-Frame-Options and "
+        "nosniff on every response (CONSOLEHDR-1).",
+        "source": "Source: docs/project/RELEASE_NOTES.md 'Unreleased' (PGREVOKE-1, PGPREAUTH-1, HTTPBODY-1, "
+        "COOKIETOKEN-1, FLIGHTPRINCIPAL-1, CONSOLEHDR-1); docs/project/qa/FINDINGS.md 'Found by the adversarial "
+        "QA of 2.0.0, surfaces' (status lines); docs/project/qa/logs/ADV-SURFACE.md.",
     },
     {
         "kind": "split",
@@ -692,7 +721,7 @@ PART9: list[dict[str, Any]] = [
              "An engine bean from pravaha.*, PravahaTemplate, @PravahaListener delivering committed "
              "changes to a method, and a @PravahaTest slice."),
             ("AS A SERVER", "pravaha-server",
-             "The engine, Flight SQL, the PostgreSQL gateway and /status. A non-root image on a JDK 21 "
+             "The engine, Flight SQL, the PostgreSQL gateway and /status. A non-root image on a Java 25 "
              "glibc base, and a Helm chart that installs one node as a StatefulSet."),
         ],
         "note": "The engine core contains no Spring, enforced by the build (ADR-019). The console is "

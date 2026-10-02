@@ -19,13 +19,14 @@ tools/deck/.venv/bin/python -m pytest -q tests/deck               # the audit, a
 
 | Deck | Slides | Source |
 |---|---|---|
-| `docs/publications/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx` | 91 | `pravaha_deck.py`, then `deck_part1.py` to `deck_part4.py` |
+| `docs/publications/Pravaha-Continuous-SQL-Engine-Design-and-Evidence.pptx` | 99 | `pravaha_deck.py`, then `deck_part1.py` to `deck_part4.py` |
 
 **Who it is for.** The people who have to trust the engine's answers: an architect
 deciding whether it belongs in a design, an SRE who will be paged for it, a
-data-platform lead who will be asked why a number moved. It describes release 1.0.0
-(one node; cluster mode, wave 11, on hold). After the title and a slide on what 1.0.0
-is, it answers their questions in the order they ask them, in twelve parts:
+data-platform lead who will be asked why a number moved. It describes the 2.x line —
+release 2.0.0 on Java 25 and the fixes since (one node; cluster mode, wave 11, on
+hold). After the title and a slide on what 2.0 is and what it breaks, it answers their
+questions in the order they ask them, in twelve parts:
 
 1. **Why ask once, answer always** — what a batch answer costs and what polling
    re-reads and misses, in the case studies' own words; the inversion; one query end
@@ -36,7 +37,9 @@ is, it answers their questions in the order they ask them, in twelve parts:
 3. **A query's life** — `CREATE CONTINUOUS QUERY`, what registration does, what it
    refuses, reading, subscribing.
 4. **Correctness** — one checkpoint as one cut (ADR-008), output cut at the same
-   marker, recovery, weights and retractions, late data, survival, bounds.
+   marker, recovery, weights and retractions, late data, survival, bounds, the
+   semantics the 2.0.1 fixes changed (NULL aggregates, narrow-integer overflow,
+   grouping on DOUBLE, HOP alignment), and recovery that refuses aloud.
 5. **Scale on one node** — lanes, threads following cores, the auto sharing mode,
    dedicated lanes, admin rebalance, exact-seam reader sharing (ADR-054), the equality
    index (ADR-055).
@@ -47,20 +50,25 @@ is, it answers their questions in the order they ask them, in twelve parts:
 8. **Connectors** — only what is in `plugins/`: nine sources, two lookups, six sinks,
    CDC without Debezium.
 9. **Security, identity and governance** — ADR-031, the catalogue's grants, row
-   filters and masks as policies, vacuity (ADR-059), ADR-052, tenancy and ownership
-   (ADR-050, ADR-060), and what is not built.
+   filters and masks as policies, vacuity (ADR-059), ADR-052, revocation per statement
+   and the bounds on unauthenticated input, tenancy and ownership (ADR-050, ADR-060),
+   and what is not built.
 10. **Operating it** — deployment and one `/opt/pravaha` in and out of Docker, the
     console, `pravaha` and `pravaha-engine`, SDK reconnect, SDKs on their own, BI tools
     over the PostgreSQL protocol, metrics and observability, the assistant
     (experimental), the debugger.
 11. **Thirteen worked systems** — the case studies, how the build checks them, four
     in depth and two joins.
-12. **Evidence, 1.0, and where to start** — the gates, Nexmark and micro-benchmarks,
-    the test tiers, what testing found, what 1.x promises, what is not built.
+12. **Evidence, 2.x, and where to start** — the gates, Nexmark and micro-benchmarks,
+    the test tiers, what testing found, the adversarial QA round against 2.0.0 (its
+    method and numbers, what held, the ten severe defects, the denial-of-service
+    replays measured in a 1 GiB container, the three waves of fixes), what 2.x
+    promises, what is not built.
 
-**What it deliberately is not.** It carries no implementation-status register. It has
-one slide from the findings file, and that slide is about the method — what each
-defect was found by — not a list of what is open. Performance figures appear only with
+**What it deliberately is not.** It carries no implementation-status register. Its
+slides from the findings file are about method — what each defect was found by, and
+what an attack written to break the release found and how it was fixed — not a list
+of what is open (nothing is). Performance figures appear only with
 the machine they were taken on and the gate they were measured against, and a target
 that was not reached is shown as not reached.
 
@@ -78,7 +86,7 @@ where they are either the output of a real run or answers the build checks
 | `metrics.py` | The text estimator: greedy word-wrap simulation and paragraph heights. Shared by the builder and the audit, so the builder never believes a box fits that the audit then reports |
 | `theme.py` | The design system of the console (`console/web/templates/base.html`) — crimson (`#A51C30`, `#8A1626`, `#6E1120`, tint `#F6E6E9`, ink `#1A1A1A`, canvas `#F7F5F2`) and Source Sans 3 for headings and text — plus the flow mark drawn as shapes, tables, cards, stat bars, code panels, and `fitted()`, which shrinks a text block until it fits or raises `DoesNotFit` |
 | `layouts.py` | Slide kinds drawn from plain dictionaries: `title`, `divider`, `bullets`, `table`, `cards`, `stats`, `split`, `flow`, `code`, `context`. A spec's `source` becomes the slide's speaker notes |
-| `pravaha_deck.py`, `deck_part1.py` … `deck_part4.py` | The deck, as data: the title slide and the 1.0.0 slide in `pravaha_deck.py`, the twelve parts in order in the four part modules. Split only to keep each file short; they are one deck and are meant to be read in order |
+| `pravaha_deck.py`, `deck_part1.py` … `deck_part4.py` | The deck, as data: the title slide and the 2.x release slide in `pravaha_deck.py`, the twelve parts in order in the four part modules. Split only to keep each file short; they are one deck and are meant to be read in order |
 | `build.py` | Builds the deck and sets the document properties (author, title, subject) explicitly |
 | `audit.py` | The geometry audit (below) |
 | `requirements.txt` | `python-pptx` and `pytest`, pinned |
